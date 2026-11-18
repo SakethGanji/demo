@@ -113,6 +113,8 @@ export type RunCreate = {
   feature_importance?: boolean
   /** Override inferred column types; the engine passes them to AutoGluon as feature_metadata. */
   column_types?: Record<string, 'number' | 'category' | 'text'> | null
+  /** Binary: calibrate the decision threshold after the fit for this metric ('auto': f1 when the minority class < 20%). */
+  calibrate_threshold?: string | null
 }
 
 export type EvalMetric = { name: string; greater_is_better: boolean; optimum: number | null; scores_note: string }
@@ -199,6 +201,8 @@ export type Run = {
   resolved: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; notes: string[]; path: string } | null
   /** Weighted ensembles fitted later on chosen models (POST /runs/{id}/ensemble). */
   custom_ensembles?: CustomEnsemble[] | null
+  /** Binary runs: the decision threshold the predictor uses (S4). */
+  threshold?: ThresholdRecord | null
 }
 
 /** One model's scores in a custom-ensemble result. score_* higher is better; *_natural in the metric's units. */
@@ -230,7 +234,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */
@@ -264,4 +268,102 @@ export type Prediction = {
   probabilities: Record<string, number>[] | null
   classes?: (string | number)[]
   positive_class?: string | number
+}
+
+// ---------------------------------------------------------------------------
+// Understand (S4): threshold, explain, fairness, SHAP, status. Mirrors backend/app/engine/{explain,threshold}.py.
+// ---------------------------------------------------------------------------
+
+/** Confusion counts and threshold metrics at one t (predict positive when p > t). */
+export type ThresholdPoint = {
+  threshold: number; tp: number; fp: number; fn: number; tn: number; n: number
+  precision: number; recall: number; f1: number; specificity: number; fpr: number; balanced_accuracy: number
+  accuracy: number; mcc: number; predicted_positive_rate: number; cost?: number; cost_per_row?: number
+}
+
+/** The decision threshold a binary run uses, and where it came from. */
+export type ThresholdRecord = {
+  value: number; default: number
+  source: 'default' | 'calibrated' | 'manual' | 'autogluon_auto' | 'fit_kwargs' | 'none'
+  metric: string | null; seconds: number | null; positive_class: string | number; rule: string; set_at: string
+  holdout_at_default: ThresholdPoint; holdout_at_threshold: ThresholdPoint
+}
+
+export type ThresholdAnalysis = {
+  run_id: string; model: string; threshold: ThresholdRecord | null
+  positive_class: string | number; n: number; n_positive: number; prevalence: number
+  cost_fp: number; cost_fn: number; rule: string
+  current: ThresholdPoint; default: ThresholdPoint; at: ThresholdPoint | null
+  best: Record<'f1' | 'balanced_accuracy' | 'mcc' | 'cost', { threshold: number; value: number }>
+  bayes_threshold: number
+  grid: ThresholdPoint[]
+  score_histogram: { edges: number[]; positive: number[]; negative: number[] }
+}
+
+export type RocCurve = { fpr: number[]; tpr: number[]; thresholds: (number | null)[]; auc: number; n_pos: number; n_neg: number }
+export type PrCurve = { precision: number[]; recall: number[]; thresholds: number[]; average_precision: number; auc_trapezoid: number; prevalence: number }
+export type Calibration = {
+  kind: 'binary' | 'top_label'; class?: string; n_bins: number; strategy: string; edges: number[]
+  mean_predicted: number[]; fraction_positive: number[]; counts: number[]; bins: number[]; brier: number; ece: number; brier_reference?: number
+}
+export type GroupCandidate = { column: string; type: 'category' | 'number'; groups: number }
+
+type ExplainBase = {
+  run_id: string; model: string; problem_type: ProblemType; eval_metric: EvalMetric | null; label: string
+  threshold: ThresholdRecord | null; group_candidates: GroupCandidate[]; text_columns: string[]; n: number
+}
+
+export type WorstClassified = {
+  row: number; y_true: string; y_pred: string; p_true: number; p_pred: number | null
+  probabilities: Record<string, number>; features: Record<string, unknown>
+}
+
+export type ExplainClassification = ExplainBase & {
+  kind: 'classification'; classes: string[]; confusion_matrix: number[][]
+  per_class: { class: string; precision: number; recall: number; f1: number; support: number }[]
+  accuracy: number; log_loss: number; positive_class?: string
+  roc: Record<string, RocCurve>; pr: Record<string, PrCurve>; roc_macro_auc?: number | null
+  calibration: Calibration; n_wrong: number; worst: WorstClassified[]
+}
+
+export type ExplainRegression = ExplainBase & {
+  kind: 'regression'; rmse: number; mae: number; r2: number; mean_residual: number; sd_residual: number
+  quantiles: Record<'q05' | 'q25' | 'q50' | 'q75' | 'q95', number>
+  points: { row: number[]; y_pred: number[]; residual: number[]; y_true: number[]; sampled: boolean }
+  histogram: { edges: number[]; counts: number[]; normal: number[] | null }
+  worst: { row: number; y_true: number; y_pred: number; residual: number; abs_error: number; features: Record<string, unknown> }[]
+}
+
+export type Explain = ExplainClassification | ExplainRegression
+
+export type Fairness = {
+  run_id: string; model: string; group: string; binning: 'values' | 'quartiles'; n: number; problem_type: ProblemType
+  threshold?: number; positive_class?: string
+  gaps: Record<string, number>; metrics: string[]
+  overall: Record<string, number>; by_group: ({ group: string } & Record<string, number | null>)[]
+  difference: Record<string, number | null>; ratio: Record<string, number | null>
+}
+
+export type ShapResult = {
+  run_id: string; row: number; model: string; problem_type: ProblemType; target: string | null
+  output: 'probability' | 'prediction'; base_value: number; fx: number; sum_phi: number; additivity_error: number
+  contributions: { feature: string; value: unknown; phi: number }[]
+  background_size: number; nsamples: number; seconds: number; classes: string[] | null; y_true: unknown; cached: boolean; method: string
+}
+
+export type FeatureImportanceCI = FeatureImportance & { ci_low: number | null; ci_high: number | null; ci_level: number; t_crit: number | null }
+
+export type ImportanceResponse = {
+  run_id: string; features: FeatureImportanceCI[]; meta: { num_shuffle_sets: number; subsample_size: number | null }
+  method: string; eval_metric: string | null
+}
+
+export type ApiStatus = {
+  version: string; engine: EngineInfo; cpu_count: number | null; memory_gb: number | null; python: string; host: string
+  active: null | {
+    id: string; name: string; status: RunStatus; started_at: string | null; time_limit: number | null; presets: unknown
+    eval_metric: string | null; models_started: number; models_finished: number; models_failed: number
+    best_val: number | null; stage: string
+  }
+  queued: number; runs: number; max_parallel_runs: number | null
 }

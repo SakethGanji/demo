@@ -19,7 +19,7 @@ export function Sidebar({ route, collapsed, velaOpen, go, onToggle }: { route: R
           <div key={gi} className="nav-group">
             {g.map((n) => {
               const I = Icon[n.icon]
-              const active = n.id === 'vela' ? false : route === n.id
+              const active = n.id === 'vela' ? false : route === n.id || (n.id === 'experiments' && route === 'explain')
               return (
                 <button key={n.id} className={`nav-item ${active ? 'active' : ''}`} title={n.label} aria-current={active ? 'page' : undefined}
                   onClick={() => go(n.id)}>

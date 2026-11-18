@@ -135,22 +135,8 @@
 .card > .caption { padding: var(--space-8) var(--space-16) var(--space-12); font-size: 12px; color: var(--text-body); }
 .sc-pt { cursor: pointer; }
 .model-card .eq.obj { font-size: 15.5px; line-height: 24px; white-space: normal; text-align: left; }
-.cls-report { display: grid; grid-template-columns: minmax(80px, 1fr) 1.2fr 1.2fr 80px; gap: 6px var(--space-12); align-items: center; font-size: 12.5px; }
-.cls-report .r { text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.cr-name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cr-bar { display: inline-block; width: 70px; height: 4px; background: var(--border-row); border-radius: 2px; position: relative; overflow: hidden; }
-.cr-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-primary); }
 .resid-sum { display: flex; flex-wrap: wrap; gap: 6px; padding: var(--space-8) 0; }
 .resid-worst { display: flex; flex-direction: column; gap: 2px; font-size: 12px; padding-bottom: var(--space-8); color: var(--text-primary); }
-.tw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-12); }
-.tw-class { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); display: flex; flex-direction: column; gap: 3px; }
-.tw-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
-.tw-head b { color: var(--text-primary); }
-.tw-row { display: grid; grid-template-columns: minmax(0, 1fr) 54px 38px; gap: 6px; align-items: center; font-size: 12px; }
-.tw-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
-.tw-row span:last-child { text-align: right; font-size: 11px; }
-.tw-bar { display: block; height: 4px; background: var(--border-row); border-radius: 2px; position: relative; overflow: hidden; }
-.tw-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--grad-string); }
 .ce-body { display: grid; grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.5fr); gap: var(--space-24); align-items: start; }
 .ce-list { display: flex; flex-direction: column; border: 1px solid var(--border-default); border-radius: var(--radius-control); max-height: 300px; overflow: auto; }
 .ce-opt { display: grid; grid-template-columns: 18px 1fr auto; gap: var(--space-8); align-items: center; padding: 6px var(--space-12); border-bottom: 1px solid var(--border-row); cursor: pointer; }

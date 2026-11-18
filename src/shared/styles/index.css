@@ -7,6 +7,8 @@
 @import '../../features/vela/vela.css';
 @import '../../features/home/home.css';
 @import '../../features/quick-train/quick-train.css';
+@import '../../features/explain/explain.css';
+@import '../../features/experiments/experiments.css';
 @import '../../features/autopilot/autopilot.css';
 @import '../../features/training-gym/training-gym.css';
 @import '../../features/registry/registry.css';

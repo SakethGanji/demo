@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { CustomEnsemble, DatasetDetail, DatasetSummary, FeatureImportance, Health, HoldoutPredictions, ModelFamily, Prediction, Run, RunCreate, RunEvent } from './types'
+import type { ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -33,6 +33,7 @@ async function request<T>(path: string, init: RequestInit & { timeoutMs?: number
 
 export const api = {
   health: () => request<Health>('/health', { timeoutMs: 3_000 }),
+  status: () => request<ApiStatus>('/status', { timeoutMs: 5_000 }),
   datasets: {
     list: () => request<{ datasets: DatasetSummary[] }>('/datasets').then((r) => r.datasets),
     get: (id: string) => request<DatasetDetail>(`/datasets/${encodeURIComponent(id)}`),
@@ -63,6 +64,25 @@ export const api = {
     holdoutPredictions: (id: string) => request<HoldoutPredictions>(`/runs/${encodeURIComponent(id)}/holdout-predictions`, { timeoutMs: 60_000 }),
     featureImportance: (id: string) =>
       request<{ run_id: string; features: FeatureImportance[] }>(`/runs/${encodeURIComponent(id)}/feature-importance`, { timeoutMs: 180_000 }),
+    /** Permutation importance with 95% t-intervals; `shuffles` recomputes it with that many shuffle sets. */
+    importance: (id: string, shuffles?: number) =>
+      request<ImportanceResponse>(`/runs/${encodeURIComponent(id)}/feature-importance${shuffles ? `?shuffles=${shuffles}` : ''}`, { timeoutMs: 300_000 }),
+    /** Binary: every threshold metric on a 0.005 grid, at t, and the cost C(t) = c_FP·FP + c_FN·FN. */
+    threshold: (id: string, q: { costFp?: number; costFn?: number; t?: number } = {}) => {
+      const p = new URLSearchParams({ cost_fp: String(q.costFp ?? 1), cost_fn: String(q.costFn ?? 1) })
+      if (q.t != null) p.set('t', String(q.t))
+      return request<ThresholdAnalysis>(`/runs/${encodeURIComponent(id)}/threshold?${p}`, { timeoutMs: 30_000 })
+    },
+    /** Calibrate (metric) or set (value) the decision threshold; AutoGluon keeps it in the predictor. */
+    setThreshold: (id: string, body: { metric?: string; value?: number }) =>
+      request<{ run_id: string; threshold: ThresholdRecord; holdout: Holdout }>(`/runs/${encodeURIComponent(id)}/threshold`, {
+        method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000,
+      }),
+    explain: (id: string) => request<Explain>(`/runs/${encodeURIComponent(id)}/explain`, { timeoutMs: 60_000 }),
+    fairness: (id: string, group: string, t?: number) =>
+      request<Fairness>(`/runs/${encodeURIComponent(id)}/fairness?group=${encodeURIComponent(group)}${t != null ? `&t=${t}` : ''}`, { timeoutMs: 60_000 }),
+    shap: (id: string, row: number, target?: string) =>
+      request<ShapResult>(`/runs/${encodeURIComponent(id)}/shap?row=${row}${target ? `&target=${encodeURIComponent(target)}` : ''}`, { timeoutMs: 180_000 }),
   },
 }
 
@@ -78,7 +98,7 @@ export function followRun(id: string, onEvent: (e: RunEvent) => void,
   const terminal = new Set(['run_succeeded', 'run_failed', 'run_cancelled'])
   const types = ['run_queued', 'run_started', 'data_ready', 'config_resolved', 'fit_started', 'model_started', 'model_finished',
     'model_failed', 'ensemble', 'fit_finished', 'leaderboard', 'evaluation', 'text_models', 'explaining', 'feature_importance',
-    'log', 'run_succeeded', 'run_failed', 'run_cancelled']
+    'log', 'calibrating', 'threshold', 'run_succeeded', 'run_failed', 'run_cancelled']
   let next = opts.from ?? 0
   let ended = false
   let es: EventSource | null = null

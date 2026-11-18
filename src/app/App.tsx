@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AutopilotPage } from '@/features/autopilot/AutopilotPage'
 import { ExperimentsPage } from '@/features/experiments/ExperimentsPage'
+import { ExplainPage } from '@/features/explain/ExplainPage'
 import { HomePage } from '@/features/home/HomePage'
 import { QuickTrainPage } from '@/features/quick-train/QuickTrainPage'
 import { RegistryPage } from '@/features/registry/RegistryPage'
@@ -71,6 +72,7 @@ export default function App() {
           {route === 'autopilot' && <AutopilotPage go={go} />}
           {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} />}
           {route === 'experiments' && <ExperimentsPage go={go} />}
+          {route === 'explain' && <ExplainPage go={go} />}
           {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
           {route === 'settings' && <SettingsPage />}
         </main>

@@ -169,3 +169,19 @@
 .where { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space-12); border-top: 1px solid var(--border-default); padding-top: var(--space-12); font-size: 12.5px; }
 .where dt { font-family: var(--font-math); font-style: italic; font-size: 15px; color: var(--text-primary); }
 .where dd { margin: 0; color: var(--text-body); }
+
+/* ---------- per-class report and top words (New Model results, Explain) ---------- */
+.cls-report { display: grid; grid-template-columns: minmax(80px, 1fr) 1.2fr 1.2fr 80px; gap: 6px var(--space-12); align-items: center; font-size: 12.5px; }
+.cls-report .r { text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.cr-name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cr-bar { display: inline-block; width: 70px; height: 4px; background: var(--border-row); border-radius: 2px; position: relative; overflow: hidden; }
+.cr-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-primary); }
+.tw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-12); }
+.tw-class { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); display: flex; flex-direction: column; gap: 3px; }
+.tw-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 2px; }
+.tw-head b { color: var(--text-primary); }
+.tw-row { display: grid; grid-template-columns: minmax(0, 1fr) 54px 38px; gap: 6px; align-items: center; font-size: 12px; }
+.tw-row span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.tw-row span:last-child { text-align: right; font-size: 11px; }
+.tw-bar { display: block; height: 4px; background: var(--border-row); border-radius: 2px; position: relative; overflow: hidden; }
+.tw-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--grad-string); }
