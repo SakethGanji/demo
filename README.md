@@ -1,43 +1,149 @@
-# Project ENSEMBLE · UI
+# Project ENSEMBLE
 
-The Project ENSEMBLE UI and its demo API. When the API is running the UI is **live** (datasets are profiled for real and AutoGluon trains on them); when it isn't, the UI runs in **mock mode** on its in-browser simulation, so the demo always opens. A fresh React 18 + Vite build of the Project ENSEMBLE interface, built on the ENSEMBLE design system: dark shell, light canvas, 1px borders, monospace metrics, and the Harmonic Thread (strings for connection and progress, waves for live computation).
+ENSEMBLE is an internal AutoML workbench for the bank, with **AutoGluon as the engine**. Anyone brings a table (a CSV
+upload or one of the samples), says what to predict, picks a goal and a time budget, and watches AutoGluon train and
+stack its models live: one string per model family, the stacked ensemble forming as ŷ(x) = Σₘ wₘ fₘ(x) with its real
+weights. The result is a leaderboard on a fixed holdout no model ever saw, an explanation of the model (ROC/PR,
+calibration, the decision threshold and its cost, permutation importance, Kernel SHAP for any row, the worst errors,
+fairness by group), and a path to production: register a version with a generated model card, approve it under a
+four-eyes rule, try it on one row, and batch-score a file with drift checks. Forecasting (`TimeSeriesPredictor`),
+unsupervised anomaly detection (IsolationForest) and importing a predictor trained elsewhere go through the same runs,
+registry and audit trail.
+
+It gives technical users everything AutoGluon offers and never locks them in: the Training Gym exposes every
+`TabularPredictor.fit` argument, validated by the server against the installed AutoGluon; every run is saved as a plain
+AutoGluon predictor (`TabularPredictor.load(path)` works); any run exports as a standalone Python script that
+reproduces its leaderboard; and a small Python client drives the same API from a notebook. It is one process to start
+(FastAPI, SQLite, a data folder, MLflow as a library), with no Redis, Celery, Docker or sign-in. Each fit runs in its own
+process and streams its progress as events. When the API is down the UI opens in **mock mode** on a scripted
+simulation, labelled SIMULATED, so a demo always opens.
+
+## What it does, by use case
+
+| Use case | What you get |
+| --- | --- |
+| **Binary classification · fraud, default, churn** | Imbalance handled by default: ROC AUC (or average precision) as the metric for an imbalanced label and the decision threshold calibrated for F₁ with AutoGluon's `calibrate_decision_threshold`. Explain's Threshold tab moves t over the holdout with precision, recall, F₁, MCC, FPR, the 2×2 counts and the cost C(t) = c_FP·FP + c_FN·FN against the Bayes threshold. Fairness by any column (fairlearn: demographic parity, equalised odds). |
+| **Multiclass, including text · complaint and ticket routing** | Free-text columns detected and given to AutoGluon's n-gram features, plus two custom AutoGluon models (TF-IDF → one-vs-rest logistic regression and TF-IDF → linear SVM) with their top words per class. Per-class recall and precision, one-vs-rest curves. Vela Autopilot audits the labels with cleanlab and asks you only about the rows it cannot decide. |
+| **Regression · balances, loan amounts** | RMSE / MAE / R², residuals against ŷ with ±1.96 σ, the residual histogram with its normal fit, the largest errors with SHAP for each. |
+| **Time-series forecasting · transaction volumes** | `TimeSeriesPredictor` on long-format data with item id, timestamp, target, known covariates (holidays, paydays), static and past covariates; the last H steps held out; leaderboard, backtest windows, ensemble weights q̂ = Σ wₘ q̂⁽ᵐ⁾, the fan chart, per-series MASE/WQL/sMAPE/bias, and **interval calibration**: empirical against nominal coverage per quantile with Wilson intervals. |
+| **Anomaly detection · card transactions** | IsolationForest (and LOF) without labels: s(x, ψ) = 2^(−E[h(x)]/c(ψ)), the score distribution with the contamination threshold s*, TreeSHAP reasons per flagged row, and **group-relative features** when an entity column is mapped: an amount divided by the card's own mean, its z-score within the card, and the time since the card's previous transaction. |
+| **AutoGluon in full · the Training Gym** | Presets, model families, per-family hyperparameters, bag folds k, bag sets s, stack levels L, HPO, pseudo-labelling, distillation, `refit_full`, `infer_limit`, sample weights, a raw `fit_kwargs` editor; the resolved call as a diff against `fit()`'s defaults; the fit-time estimate T̂; export as Python. |
+| **Explainability** | Performance, Threshold, Features & SHAP (permutation importance with 95% t-intervals, Kernel SHAP waterfall f(x) = φ₀ + Σ φᵢ), Errors, Fairness, Text: every number from the saved predictor and the fixed holdout. |
+| **Registry, model card, approvals** | MLflow-backed registry; register with `refit_full`, `infer_limit` or a chosen faster model, over a measured latency · score frontier and the **one-row p95 latency** per model; an SR 11-7-style model card (JSON, Markdown, HTML); four-eyes review; stages None → Staging → Production → Archived; Try It with SHAP reasons; batch scoring with PSI drift for every kind of version; an append-only audit log with the model's SHA-256. |
+| **Vela, the AI companion, and Autopilot** | Findings computed from a run (overfitting gap, weak class or segment, imbalance, leakage, budget, drift), each with one patch that applies in the Gym; a question box. Autopilot chains real runs against requirements you set (F̄₁ ≥ 0.92, τ₉₅ ≤ 50 ms, a budget B): baseline → cleanlab inbox → a new dataset version → retrain → rebalance, calibrate, refit for latency, escalate → Met or Not Met. Claude (CLI, then API) chooses steps when available; a fixed strategy otherwise, and the UI says which. |
+
+## Quickstart
 
 ```
-make setup       # Python venv (backend/.venv) with the pinned deps, plus npm install
-make dev         # API on :8000 and the UI on http://localhost:5190, together; Ctrl+C stops both.
-                 # Editing backend code reloads the API without stopping running fits (see below)
-make test        # fast tier: pytest (not slow, includes tiny real fits), tsc --noEmit, vite build
-make test-full   # adds the slow pytest marks and the Playwright e2e suite (live and mock)
-make clean-data  # delete backend/data; the samples are regenerated on the next start
-make reset       # delete every run, registered model, batch, autopilot, MLflow record and upload, and regenerate the
-                 # samples: through the running API (POST /api/admin/reset; refused while a run is active), else offline
-make smoke       # scripts/smoke.py: the UI's real calls end to end against the API on :8000 (started if not running);
-                 # ✓ / ✗ per step, exit 1 on any failure. SMOKE_ONLY=core,samples,autopilot,forecast,anomaly,import,reset picks sections
+make setup       # Python venv (backend/.venv) with the pinned deps (AutoGluon tabular + timeseries, cleanlab, shap,
+                 # fairlearn, MLflow), the Python client, and npm install
+make dev         # API on :8000 and the UI on http://localhost:5190; Ctrl+C stops both
+make smoke       # scripts/smoke.py: the UI's real calls end to end against the API (started if not running);
+                 # ✓ / ✗ per step, exit 1 on any failure. SMOKE_ONLY=core,samples,autopilot,forecast,anomaly,import,fresh,reset
+make reset       # delete every run, version, batch, autopilot, MLflow record and upload; regenerate the samples
 ```
 
-`npm run dev` alone still works: the UI shows "mock mode" in the status bar until an API answers on :8000.
+Open http://localhost:5190. On a fresh workbench Home lists the six samples; pick one and the first model trains in
+about a minute. `npm run build` type-checks and builds the UI. `node scripts/walkthrough.cjs` drives three fresh bank
+CSVs (`scripts/fresh_data.py`) through the browser with a screenshot at every stop. The demo is scripted in
+[`docs/demo-script.md`](docs/demo-script.md); the final walkthrough with screenshots of every page is
+[`docs/progress/S9-walkthrough.md`](docs/progress/S9-walkthrough.md).
+
+The older test suites remain (`make test`, `make test-full`: pytest and Playwright); since S7 the gate is `make smoke`.
+
+## Architecture
+
+```
+ browser (React 18 + Vite, :5190) ──/api──▶ FastAPI (:8000) ─── SQLite (datasets, runs, events, registry, audit)
+   live mode: every page calls the API            │         └─ data folder: datasets/, runs/<id>/predictor/, registry/
+   mock mode: the scripted simulation             │
+                                                  ├─ JobRunner: one `python -m app.engine.worker` process per fit
+                                                  │    TabularPredictor / TimeSeriesPredictor / IsolationForest,
+                                                  │    progress → events in SQLite → SSE with replay
+                                                  ├─ worker pool (spawn): SHAP, importance, latency, version builds,
+                                                  │    Try It, batch scoring, drift
+                                                  ├─ MLflow (library, local SQLite store): runs tracked, versions registered
+                                                  ├─ Autopilot threads (call the API over HTTP like the UI does)
+                                                  └─ LLM layer: claude CLI → Anthropic API → computed text (always labelled)
+```
+
+- **No loss against raw AutoGluon.** `fit_kwargs` pass to `fit()` unchanged; the run's `resolved` field is the exact
+  call; parity tests prove raw AutoGluon gives the same leaderboard; `GET /api/runs/{id}/export.py` reproduces it.
+- **One fixed holdout per dataset** (20%, stratified on the target given at upload, else on the profiled label), plus
+  five folds. Every model, run, version and batch on that dataset is scored on the same rows, so comparisons are like
+  with like.
+- **Restart-safe.** Runs survive an API reload in development (`ENSEMBLE_DEV_RELOAD=1`); the UI resumes a run's stream
+  by replay from any event.
+
+## Design system and the mathematics on screen
+
+The UI follows the ENSEMBLE design system in `src/shared/styles/tokens.css`: dark shell, light canvas, 1 px borders,
+monospace metrics, the Harmonic Thread (strings for connection and progress, waves for live computation), every chart
+in a `PlotFrame` with a caption that defines its quantity, legends and hover read-outs on every plot.
+
+**Show the mathematics.** The notation is real and bound to the run's numbers:
+
+1. Every formula on screen is evaluated with the values of the run in view (ŷ(x) = 0.75·f₁(x) + 0.25·f₂(x), c(256) = 10.245, P(K ≥ 168) = 2.1×10⁻⁸), never a template.
+2. Every symbol is defined on the same screen, in a where-list beside the formula. A symbol that is not defined is a bug.
+3. Nothing is decorative: a formula appears only where it explains a number the user is looking at.
+4. Intervals, not bare points, wherever the sample size allows: bootstrap CIs on holdout metrics, t-intervals on importance, Wilson intervals on coverage.
+5. Honest limits: when a measured number is off its nominal value (interval coverage, one-row latency, a requirement Not Met), the page shows both and says why in plain words.
+
+## The Python client
+
+```python
+from ensemble_client import Ensemble
+
+ens = Ensemble("http://127.0.0.1:8000")
+ds = ens.datasets.upload("card_fraud.csv", target="is_fraud")
+run = ens.runs.start(ds, eval_metric="average_precision", time_limit=120, calibrate_threshold="f1",
+                     fit_kwargs={"num_bag_folds": 3})
+for ev in run.events():
+    if ev["type"] == "model_finished":
+        print(ev["model"], ev["val_score_natural"])
+run.wait()
+run.leaderboard()
+run.predict([{"amount_gbp": 940, "merchant_type": "gift cards", "three_ds_passed": "no"}])
+```
+
+`make setup` installs it into `backend/.venv`; [`clients/python/README.md`](clients/python/README.md) covers the
+registry, Vela and export.
+
+## Known limits
+
+- **Forecast intervals on the transaction-volume sample are too wide**: [q₀.₀₅, q₀.₉₅] covers 168/168 holdout points
+  against 90% nominal. In the backtests ETS (92%) and Chronos-Bolt (88%) are near nominal; DirectTabular (98%), which
+  carries 0.83 of the ensemble weight, is wide. The page shows the empirical coverage beside the nominal; nothing is
+  rescaled.
+- **Velocity bursts are hard for an isolation forest.** With group-relative features the card sample's amount spikes
+  go from 0/18 to 8/18 found (P@90 0.61 → 0.71, AUC 0.954 → 0.990), but velocity bursts stay at 2/18: one short gap
+  among many features rarely isolates a row. A rule on Δt is the practical complement.
+- **One-row latency of text GBM ensembles** is 50–250 ms on 4 CPUs (featurisation plus every bagged child). Register
+  shows the measured τ₉₅ and offers the fastest model within reach with its measured score cost (e.g. LightGBM at
+  23 ms vs the ensemble's 50 ms for Δaccuracy −0.003 on support tickets).
+- The holdout is fixed per dataset when it is uploaded: a CSV uploaded without naming the target is stratified on the
+  profiler's guess, so the same file uploaded twice can have a different holdout (scores differ accordingly).
+- Presets `high_quality`, `best_quality` and Chronos-2 download model weights on first use and are slow on 4 CPUs.
+- No GPU support is exercised (shown as unavailable without CUDA). No sign-in: the "acting as" name goes in the audit log.
+- Autopilots run in API threads; a development reload resumes them, but their wall time then counts from the resume.
 
 ## Screens (hash routes)
 
 | Route | What it shows |
 | --- | --- |
-| `#/quick-train` | **New Model** (the route keeps its old name): (1) a sample or a CSV upload, profiled; (2) the label column, the problem type inferred (binary, multiclass, regression) with an override, and every column's type, editable, sent to AutoGluon as `feature_metadata`; (3) the metric (each with its formula), a preset ladder from medium to best (speed ↔ accuracy), the time budget τ, and an Advanced fold-out for raw `fit_kwargs` JSON with the resolved `TabularPredictor(...).fit(...)` call; (4) the **live race**: one Harmonic Thread string per model that rings while it fits and settles at its validation score on a shared axis (fold scores as beads, μ ± σ as a band), stack levels as layers, the WeightedEnsemble forming as the strings merge (thickness ∝ wₘ) with ŷ = Σ wₘ fₘ(x) and the real weights, a clock against τ, a minimum on-screen time per model and a 3× control; the URL carries `?run=<id>` so a reload or a dropped stream resumes by replay; (5) **results**: holdout metric cards with formulas and 95% bootstrap intervals, the leaderboard (validation μ ± σ, holdout, fit time, predict time per row, stack level, weights; best highlighted), validation-vs-holdout plot, each model's objective from the catalogue, the confusion matrix with recall and precision (classification) or residuals (regression), top words per class (TF-IDF models), **Build my own ensemble** (`fit_weighted_ensemble` on chosen models, with an honest comparison against the best single model) and **Try a prediction** (a form generated from the features). Mock mode plays a simulated run through the same screens |
-| `#/autopilot` | Vela Autopilot (prototype, scripted): a brief with requirements and an autonomy level, Vela's plan, then a run drawn as one string with dropped experiments hanging off it, requirement gauges, a decision log, a ground-truth inbox that is the only place it stops for you, and a data-changes panel |
-| `#/gym` | **Training Gym** on the real engine (live; mock mode keeps the scripted prototype, labelled SIMULATED): the exact `POST /api/runs` body edited across 10 steps on a tension stepper. **Guided**: dataset and dropped columns, label and problem type, metric, preset (with what each expands to), time budget τ, threshold calibration, model families on or off (GBM, CAT, XGB, RF, XT, KNN, LR, NN_TORCH, FASTAI, TFIDF_LR, TFIDF_SVM, each with its objective). **Advanced** adds per-family hyperparameters as FretSliders generated from `GET /api/gym/schema` (log or linear intervals, integers, AutoGluon's own defaults, per-config variants of the zoo) beside the family's objective with its where-list bound to the current values; bag folds k, bag sets s, stack levels L, dynamic stacking, holdout_frac with the bagged-stacked ensemble written out; HPO (scheduler, searcher, trials); pseudo-labelling (upload unlabeled rows → `fit_pseudolabel` or `unlabeled_data`) and distillation; refit_full, infer_limit (µs/row), num_gpus (shown as unavailable without CUDA), sample weight, excluded_model_types; the raw `fit_kwargs` / `predictor_kwargs` JSON, two-way bound to the form. Every change is validated by the server against `TabularPredictor.fit`'s signature; the side panel shows the **resolved call** as a live diff against fit()'s defaults (yours / preset expansion / ENSEMBLE / Vela), AutoGluon's own k, s, L for this data, and the **fit-time estimate** T̂ = min(τ, c₀ + Σ v_f·r_f·n·d·max(1,k·s)·(L+1)) with rates measured from runs on this machine. Start Training hands off to the live race. `#/gym?from=<run>` loads a run's config |
-| `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field and the Toolkit (six tools you can pin to the sidebar toolbelt). Live mode: real runs as strings (taut when finished with the holdout score, a wave up to t / τ while fitting), best scores per dataset, registry counts and recent audit events, a **Training Monitor** following the active run (each model's validation score as it finishes and the best-so-far staircase) or replaying the last one, and its AutoGluon log. Mock mode keeps the simulation, labelled SIMULATED |
-| `#/experiments` | **Experiments** on the API's real runs: filters (dataset, problem type, status, a floor on the run's own metric, search), the runs table (holdout and validation score in natural units, decision threshold, models, presets · τ, fit time; Explain / Results per run), **parallel coordinates** of the comparable runs (same dataset, label and metric) over their real parameters and metrics (τ, presets, bag folds, models, fit time, µs per row, t, validation and holdout metrics; constant axes dropped), **Compare** (holdout metrics side by side with Δ against the first run, ROC and PR overlays or residual distributions, best validation score per model family) and **Parameter Diff** (the exact resolved `TabularPredictor(...).fit(...)` arguments, the data and the results, differences tinted). Mock mode keeps the simulated runs, labelled SIMULATED |
-| `#/explain?run=<id>` | **Explain** one run (from Experiments, from New Model's results, or the run picker). A navy strip of threshold-free and threshold scores. Tabs: **Performance** (ROC with AUC and the operating point, precision–recall with AP and the prevalence line, the reliability diagram with Brier and ECE; one-vs-rest for multiclass; confusion matrix and per-class report; regression: residuals vs ŷ with ±1.96 σᵣ and a residual histogram with its normal fit), **Threshold** (binary: a slider over t with precision, recall, F₁, balanced accuracy, MCC, FPR, flagged share, the 2×2 counts and the cost C(t) = c_FP·FP + c_FN·FN, all from the API's 0.005 grid plus the exact point; metric curves, the score histogram per class, the cost curve with the Bayes threshold; *Calibrate threshold* runs AutoGluon's `calibrate_decision_threshold(metric)` and *Use t* sets it, both saved in the predictor), **Features & SHAP** (permutation importance with 95% t-intervals and p-values, re-run with 10 shuffles; Kernel SHAP for a holdout row as a waterfall φ₀ → f(x) with f(x) = φ₀ + Σ φᵢ written out), **Errors** (the most confidently wrong rows with their features, or the largest residuals; *why? φ* opens SHAP for that row), **Fairness** (fairlearn's MetricFrame by a group column you pick: per-group selection rate, base rate, accuracy, TPR, FPR, precision; demographic parity difference and ratio, equalised odds difference), **Text** (top words per class for TF-IDF runs) |
-| `#/registry` | **Model Registry** on real data (MLflow registry mirrored on a local store). **Register a run** (from here, an Experiments row or New Model's results) with `refit_full`, `infer_limit` (a latency budget in µs per row) and `clone_for_deployment`, over a measured latency · score frontier of every model in the run; the version is built in a worker process (clone → refit → budget → deployment copy → measure → hash → MLflow) with its steps shown live. Stage KPIs, a lineage graph (dataset → run → version → registered model, catenary strings: live gradient for Production, dashed for pending), the versions table, and per version: **Overview** (stage rail None → Staging → Production → Archived, approve / reject with a comment under a four-eyes rule, the measured trade-off source vs version: size on disk, batch µs/row p50/p95 as beads per repeat, one-row ms p50/p95, throughput, holdout metric with its 95% bootstrap CI; the infer_limit candidate table; provenance: model, data and split SHA-256, predictor path, MLflow model URI), **Model Card** (an SR 11-7-style document: summary, intended use template you fill in, data with label balance and hashes, the resolved fit call, the stacked ensemble's weights, holdout metrics with CIs, importance, fairness, deployment trade-off, monitoring, approvals and sign-off; download as Markdown or HTML), **Try It** (a form generated from the schema, the prediction and probabilities, and Kernel SHAP's top reasons and waterfall for that row), **Batch & Drift** (upload a CSV, progress, preview, download the scored CSV; PSI = Σ (aᵢ − eᵢ) ln(aᵢ/eᵢ) per feature against the training rows with bands < 0.10 stable / 0.10–0.25 watch / > 0.25 shift, per-bin terms, and the output distribution's PSI and KS), **Audit** (who, what, when, the model hash). Mock mode keeps the scripted registry, labelled SIMULATED |
-| `#/forecast` | **New Forecast** (S8): AutoGluon `TimeSeriesPredictor` on long-format data. A sample (transaction-volume: 6 branches/products × 2 years, holidays and paydays as known covariates, segment as a static feature, 28 future rows of covariates) or a CSV upload with column mapping (item id, timestamp, target, known covariates, static features, past covariates; suggested from names and types) and a preview of every series; configure prediction_length H, freq (inferred), eval_metric (MASE, WQL, SQL, … with the formula and every symbol defined), presets (fast_training … best_quality, Chronos-Bolt, Chronos-2), time_limit, quantile_levels, num_val_windows, hyperparameters and `fit_kwargs` passed unchanged, with the resolved call. Live per-model rows from the run's SSE; results: holdout metric vs SeasonalNaive with skill, WQL, sMAPE, interval coverage; the fan chart per series (history, holdout actuals with the backtest forecast, the future median with nested quantile bands, legend and hover); the leaderboard (validation on the backtest windows, holdout on the last H steps); the ensemble q̂ = Σ wₘ q̂⁽ᵐ⁾ with weights; backtest windows per model; errors per series (MASE, WQL, sMAPE, bias, coverage); forecast.csv download; forecast from new history; register. `?run=<id>` |
-| `#/anomaly` | **Anomaly Detection** (S8): IsolationForest (+ LocalOutlierFactor) without labels on a table (card-transactions sample with 1.5% planted anomalies whose truth file the model never reads, or any upload). s(x, ψ) = 2^(−E[h(x)]/c(ψ)) with c(ψ) and every symbol defined; the score distribution with s* and a contamination slider; precision@k against the planted truth (marked sample only) with recall per anomaly kind; the most anomalous rows with TreeSHAP reasons (E[h(x)] = φ₀ + Σ φⱼ, one-hot summed back) and robust z; IF vs LOF scatter; score a new batch with download; register |
-| `#/import` | **Import Predictor** (S8): a zipped `TabularPredictor` folder or a server path, checked (loads, label and features in the chosen dataset, safe archive paths), then scored on the dataset's holdout by the same worker code as a trained run, so Explain, Results, the registry, the model card, Try It and batch scoring work on it |
-| `#/settings` | Customization, kept in the browser: layout (inset or flush), string tension, string motion, density, default Guided / Advanced mode, Vela sidecar, toolbelt |
+| `#/home` | The workbench: the samples on a fresh install, runs of every kind as strings, best scores per dataset, registry activity, a training monitor and log |
+| `#/quick-train` | **New Model**: dataset or upload → label, problem type and column types → metric, preset, budget, raw `fit_kwargs` → the live race → results (metrics with bootstrap CIs, leaderboard, ensemble, confusion or residuals, custom ensemble, a first prediction). `?run=` resumes; `?dataset=` starts on a dataset |
+| `#/explain?run=` | Performance, Threshold, Features & SHAP, Errors, Fairness, Text |
+| `#/experiments` | Every run of every kind (binary, multiclass, regression, forecast, anomaly, imported) with a type filter and its own metric; parallel coordinates, Compare and Parameter Diff for tabular runs |
+| `#/registry` | Register (frontier, one-row latency, faster model), lineage, versions, Overview, Model Card, Try It, Batch & Drift (all kinds), Audit |
+| `#/gym` | Training Gym, Guided and Advanced |
+| `#/autopilot` | Vela Autopilot: brief, the run as one string, Ground-Truth Inbox, decision log, requirements |
+| `#/forecast` | New Forecast and forecast runs (`?run=`) |
+| `#/anomaly` | Anomaly Detection and anomaly runs (`?run=`) |
+| `#/import` | Import a TabularPredictor (zip or server path) |
+| `#/settings` | Layout, string tension and motion, density, Guided/Advanced default, Vela, toolbelt |
 
-The shell adds a status bar and a command palette on ⌘K / Ctrl+K. In live mode the status bar, the context bar's compute chip and the sidebar's user block show real state from `GET /api/status` (API and AutoGluon versions, the active run with models finished / started, best validation score and its clock against τ, the queue, the run count, CPUs and memory, the host; no sign-in). Mock mode keeps its simulated values.
-
-Vela, the AI companion, is a collapsible sidecar. In live mode it reads a finished run (the one in the URL, the Gym's source run, or the latest) and shows **findings computed from it**, each with its number, its formula and one patch: overfitting gap (validation vs holdout against the holdout's bootstrap SE), weakest class or worst segment, class imbalance and threshold advice, leakage suspects (one column that alone predicts the label and holds most of the importance, or identifiers), time budget exhausted, constant / high-cardinality columns, drift from scored batches. **Apply Patch** puts the change into the Gym on top of that run's config; training it records the parent and the patch, and Experiments (`?compare=parent,child`) shows the change and Δ on the same holdout. The wording can be rewritten by the `claude` CLI (`claude -p --model claude-sonnet-5-5 --output-format json`), else the Anthropic API (`ANTHROPIC_API_KEY`), else the computed text stays; 30 s timeout each, and a reworded finding must keep every number. The sidecar says which one was used. Mock mode keeps the scripted PatchCards, labelled SIMULATED.
-
-## Backend
+## API reference
 
 One FastAPI process with SQLite and a data folder, as in [`docs/demo-build-plan.md`](docs/demo-build-plan.md) (the build is split into sessions in [`docs/build-sessions.md`](docs/build-sessions.md); progress notes are in `docs/progress/`). Vite proxies `/api` to it. **AutoGluon is the engine**: each fit runs in its own process and streams its progress as events.
 
@@ -90,7 +196,7 @@ e2e/                     Playwright: live mode, mock mode, every page in both, o
 
 ### Forecast, anomaly and import API (S8)
 
-Forecast and anomaly runs are rows in the same `runs` table, run by the same job runner in their own process, with the same events and SSE (`GET /api/runs/{id}`, `/api/runs/{id}/events`). `GET /api/runs` lists tabular runs (and imports) by default; `?kind=forecast|anomaly|all` lists the others. Registering works the same (`POST /api/runs/{id}/register`): the version is a copy of the model folder, measured, hashed and mirrored to MLflow, and the model card gets a forecasting or anomaly section.
+Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `holdout.calibration` holds F̂(τ) per quantile level and each central interval's empirical coverage with a Wilson CI and the binomial tail; registry batches work for these versions too: new history to forecast, or rows to score, with PSI drift), run by the same job runner in their own process, with the same events and SSE (`GET /api/runs/{id}`, `/api/runs/{id}/events`). `GET /api/runs` lists tabular runs (and imports) by default; `?kind=forecast|anomaly|all` lists the others. Registering works the same (`POST /api/runs/{id}/register`): the version is a copy of the model folder, measured, hashed and mirrored to MLflow, and the model card gets a forecasting or anomaly section.
 
 | Call | What it does |
 | --- | --- |
@@ -101,6 +207,8 @@ Forecast and anomaly runs are rows in the same `runs` table, run by the same job
 | `GET /api/anomaly/runs/{id}/top?contamination=&limit=` · `…/scores` · `…/scores.csv` · `POST …/score` (multipart CSV) · `POST …/score-one` | Top rows with reasons and flags at any contamination · histogram, quantiles, IF vs LOF · every row's score · a new batch scored and downloadable · one row |
 | `POST /api/runs/import` (multipart: `dataset_id`, `file` = zip or `path`) | Import a TabularPredictor as a run (validated in a worker; scored on the dataset's holdout; not refit) |
 | `POST /api/admin/reset` | `{"confirm": "reset"}`: `make reset` |
+| `GET /api/anomaly/mapping/{dataset}` | Suggested `entity_column`, `time_column`, `relative_columns` for group-relative features (the sample's spec, else names and types). `POST /api/anomaly/runs` takes `group_features` (default: on when an entity column is mapped; on for the card sample), `entity_column`, `time_column`, `relative_columns`. |
+| `GET /api/runs?kind=all` | Every run with its `kind` (tabular, import, forecast, anomaly): what Experiments and Home list. |
 
 ### Autopilot API (S7)
 
@@ -132,8 +240,8 @@ Forecast and anomaly runs are rows in the same `runs` table, run by the same job
 | `GET /api/runs/{id}/shap?row=&target=` | Kernel SHAP (`shap.KernelExplainer` on `predict_proba` of the target class, or `predict` for regression; 50 background training rows from `shap.sample(…, random_state=0)`, 2048 coalitions, no L1 selection) for one holdout row: φ₀, every φᵢ with the row's value, f(x); f(x) = φ₀ + Σ φᵢ exactly. Cached in the run folder. |
 | `GET /api/runs/{id}/feature-importance?shuffles=` | Permutation importance (now 5 shuffles when computed on demand, `shuffles` to recompute) with a 95% t-interval Î ± t₀.₉₇₅,ₙ₋₁·s/√n per feature. |
 | `GET /api/status` | The status bar's live state: versions, CPU count, memory, host, the active run (stage, models started / finished, best validation score, started_at, τ), queued runs, run count, registry counts, worker-pool jobs. |
-| `GET /api/runs/{id}/latency` | Every model of the run that can predict: measured batch µs per row on the holdout (p50 of 3), validation and holdout score, the models and bytes it needs. Measured in a worker; cached. |
-| `POST /api/runs/{id}/register` | `{created_by, model_name?, description?, refit_full=false, infer_limit? (s/row), infer_limit_batch_size?, clone_for_deployment=true}` → 202, a version `building`; its steps update until `ready` (or `failed`). The run is never changed. |
+| `GET /api/runs/{id}/latency` | Every model of the run that can predict: measured batch µs per row on the holdout (p50 of 3), one-row call latency `single_ms_p50` / `single_ms_p95`, validation and holdout score, the models and bytes it needs. Measured in a worker; cached. |
+| `POST /api/runs/{id}/register` | `{created_by, model_name?, description?, refit_full=false, infer_limit? (s/row), infer_limit_batch_size?, clone_for_deployment=true, serve_model?}` (`serve_model`: serve that model of the run, its `_FULL` copy after refit) → 202, a version `building`; its steps update until `ready` (or `failed`). The run is never changed. |
 | `GET /api/registry` · `/registry/summary` · `/registry/versions[?model=]` · `/registry/versions/{id}` | Registered models, versions (with build steps, measured source vs version size and latency, holdout metrics with 95% bootstrap CIs, infer_limit candidates, hashes, MLflow), stage and approval counts, recent audit. |
 | `POST /api/registry/versions/{id}/transition` | `{stage: None\|Staging\|Production\|Archived, actor, comment}`. Production needs an approved review; promoting archives the model's previous Production version; rejected versions cannot go live. Mirrored to MLflow (stage, `production` / `staging` aliases, tags). |
 | `POST /api/registry/versions/{id}/review` | `{decision: approve\|reject, reviewer, comment}`. Four eyes: the reviewer cannot be the registrant; a rejection needs a comment and archives a live version; one review per version. |
@@ -157,6 +265,7 @@ Forecast and anomaly runs are rows in the same `runs` table, run by the same job
 **`make dev` and running fits.** uvicorn reloads the API when `backend/app` or `backend/ensemble_models` change (only those folders are watched). With `ENSEMBLE_DEV_RELOAD=1`, which `make dev` and `make api` set, a reload keeps fits alive: each worker watches uvicorn's reloader process rather than the API process, the old API leaves running workers and queued runs alone when it stops, and the new one adopts them (it follows the worker's pid, can cancel it, and re-queues queued runs). Workers write their own events, so the UI's stream resumes by replay. Ctrl+C on `make dev` stops the reloader, and the workers stop within a second. Without the variable (tests, production-like starts) a stop still fails in-flight runs, as S2 specified. Code changes reach a fit only when the next one starts: each fit runs the code it was started with.
 
 Every run is a plain AutoGluon predictor: `TabularPredictor.load("backend/data/runs/<id>/predictor")`. Runs on text data also contain the custom TF-IDF models; load those with `backend/` on the Python path (`import ensemble_models`). The run's `resolved` field is the exact `TabularPredictor(**predictor_kwargs).fit(train, **fit_kwargs)` call; the parity tests prove raw AutoGluon gives the same leaderboard.
+
 
 ## Project structure
 

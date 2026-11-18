@@ -70,7 +70,7 @@ export function RaceStage({ s, runId, label, budget, speed, setSpeed, onCancel, 
           <span className="micro-label">Model · family</span>
           <div className="race-axis-track">
             {axis && ticks.map((v) => <span key={v} style={{ left: `${axis.frac(v) * 100}%` }}>{fmtScore(v, 3)}</span>)}
-            {!axis && <span className="ps-note" style={{ left: 0 }}>validation {s.metric ?? 'score'} axis forms as models finish</span>}
+            {!axis && <span className="ps-note" style={{ left: 0, transform: 'none', whiteSpace: 'nowrap' }}>validation {s.metric ?? 'score'} axis forms as models finish</span>}
           </div>
           <span className="micro-label race-r">validation {metric ? metric.name.toLowerCase() : s.metric ?? ''} {s.greater ? '↑' : '↓'}</span>
           <span className="micro-label race-r">fit</span>

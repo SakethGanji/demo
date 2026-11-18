@@ -36,7 +36,7 @@ export function Calibration({ cal, model }: { cal: FcCalibration; model: string 
       caption={<span>F̂(τ) = (1/n) Σ<sub>i,t</sub> 1[y<sub>i,t</sub> ≤ q̂<sub>τ,i,t</sub>], the share of the n holdout actuals (every series i, every step t of the last H) at or below the forecast quantile q̂<sub>τ</sub>; calibrated means F̂(τ) ≈ τ. Bars: 95% Wilson interval for a proportion of n. Flatter than the diagonal = bands too wide; steeper = too narrow.</span>}>
       <div className="fc-cal" data-testid="fc-calibration" data-verdict={cal.verdict}>
         <XYPlot height={220} testId="fc-cal-plot" ariaLabel="empirical vs nominal quantile level"
-          x={{ min: 0, max: 1, ticks: [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1], title: 'nominal τ', fmt: (v) => v.toFixed(2) }}
+          x={{ min: 0, max: 1, ticks: [0, 0.25, 0.5, 0.75, 1], title: 'nominal τ', fmt: (v) => v.toFixed(2) }}
           y={{ min: 0, max: 1, ticks: [0, 0.25, 0.5, 0.75, 1], title: 'F̂(τ)', fmt: (v) => v.toFixed(2) }}
           diagonal={{ label: 'F̂ = τ' }}
           series={[{ name: 'F̂(τ)', color: 'var(--viz-a)', points: pts, dots: true, width: 2, tip: (i) => `${cal.levels[i].tau}: ${pct(cal.levels[i].below)} below (95% CI ${pct(cal.levels[i].ci[0])}–${pct(cal.levels[i].ci[1])})` }]}>

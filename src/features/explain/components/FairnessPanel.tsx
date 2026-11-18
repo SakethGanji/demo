@@ -15,7 +15,7 @@ const LABELS: Record<string, [string, string]> = {
   tpr: ['TPR_g', 'recall: P(ŷ = 1 | y = 1, g)'],
   fpr: ['FPR_g', 'P(ŷ = 1 | y = 0, g)'],
   precision: ['PPV_g', 'P(y = 1 | ŷ = 1, g)'],
-  f1_macro: ['F1ᵐᵃᶜʳᵒ_g', 'macro F1 in group g'],
+  f1_macro: ['F̄₁,g', 'macro F1 in group g'] ,
   mae: ['MAE_g', 'mean |y − ŷ| in group g'],
   rmse: ['RMSE_g', '√mean (y − ŷ)² in group g'],
   mean_residual: ['r̄_g', 'mean y − ŷ (bias) in group g'],

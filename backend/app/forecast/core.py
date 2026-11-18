@@ -51,19 +51,19 @@ PRESET_INFO = {
 }
 
 METRICS = {
-    "MASE": "MASE = mean|e_t| / ((1/(n−m)) Σ_{t>m} |y_t − y_{t−m}|)",
-    "WQL": "WQL = 2 Σ_τ Σ_t ρ_τ(y_t − q̂_τ,t) / (|T| Σ_t |y_t|)",
-    "SQL": "SQL = (1/|T|) Σ_τ mean ρ_τ(y_t − q̂_τ,t) / ((1/(n−m)) Σ |y_t − y_{t−m}|)",
-    "MAPE": "MAPE = mean |e_t| / |y_t|",
-    "SMAPE": "sMAPE = mean 2|e_t| / (|y_t| + |ŷ_t|)",
-    "WAPE": "WAPE = Σ|e_t| / Σ|y_t|",
-    "RMSE": "RMSE = √(mean e_t²)",
-    "RMSSE": "RMSSE = √(mean e_t² / ((1/(n−m)) Σ (y_t − y_{t−m})²))",
-    "MAE": "MAE = mean |e_t|",
-    "MSE": "MSE = mean e_t²",
-    "RMSLE": "RMSLE = √(mean (ln(1+ŷ_t) − ln(1+y_t))²)",
-    "MQL": "MQL = Σ_τ mean ρ_τ(y_t − q̂_τ,t)",
-    "BIAS": "BIAS = mean (ŷ_t − y_t)",
+    "MASE": "MASE = mean |eₜ| / ((1/(n−m)) Σₜ₌ₘ₊₁ⁿ |yₜ − yₜ₋ₘ|)",
+    "WQL": "WQL = 2 Σ_τ Σₜ ρ_τ(yₜ − q̂_τ,ₜ) / (|T| Σₜ |yₜ|)",
+    "SQL": "SQL = (1/|T|) Σ_τ mean ρ_τ(yₜ − q̂_τ,ₜ) / ((1/(n−m)) Σₜ₌ₘ₊₁ⁿ |yₜ − yₜ₋ₘ|)",
+    "MAPE": "MAPE = mean |eₜ| / |yₜ|",
+    "SMAPE": "sMAPE = mean 2|eₜ| / (|yₜ| + |ŷₜ|)",
+    "WAPE": "WAPE = Σₜ |eₜ| / Σₜ |yₜ|",
+    "RMSE": "RMSE = √(mean eₜ²)",
+    "RMSSE": "RMSSE = √(mean eₜ² / ((1/(n−m)) Σₜ₌ₘ₊₁ⁿ (yₜ − yₜ₋ₘ)²))",
+    "MAE": "MAE = mean |eₜ|",
+    "MSE": "MSE = mean eₜ²",
+    "RMSLE": "RMSLE = √(mean (ln(1 + ŷₜ) − ln(1 + yₜ))²)",
+    "MQL": "MQL = Σ_τ mean ρ_τ(yₜ − q̂_τ,ₜ)",
+    "BIAS": "BIAS = mean (ŷₜ − yₜ)",
 }
 QUANTILE_METRICS = {"WQL", "SQL", "MQL"}
 

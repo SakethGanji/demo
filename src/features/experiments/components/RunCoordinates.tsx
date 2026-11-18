@@ -8,7 +8,7 @@ import { RUN_COLORS, bestRow, bestVal, mostCommon, presetsOf } from '../LiveExpe
 
 const RUNG: Record<string, number> = { medium_quality: 1, good_quality: 2, high_quality: 3, best_quality: 4, extreme_quality: 5 }
 const RUNG_NAME = ['other', 'medium', 'good', 'high', 'best', 'extreme']
-const SHORT: Record<string, string> = { roc_auc: 'AUC', accuracy: 'acc', balanced_accuracy: 'bacc', mcc: 'MCC', f1: 'F₁', f1_macro: 'F₁ᵐᵃᶜʳᵒ', log_loss: 'log loss', precision: 'prec', recall: 'rec', root_mean_squared_error: 'RMSE', mean_absolute_error: 'MAE', r2: 'R²', median_absolute_error: 'MedAE', mean_squared_error: 'MSE', pearsonr: 'r' }
+const SHORT: Record<string, string> = { roc_auc: 'AUC', accuracy: 'acc', balanced_accuracy: 'bacc', mcc: 'MCC', f1: 'F₁', f1_macro: 'F̄₁', log_loss: 'log loss', precision: 'prec', recall: 'rec', root_mean_squared_error: 'RMSE', mean_absolute_error: 'MAE', r2: 'R²', median_absolute_error: 'MedAE', mean_squared_error: 'MSE', pearsonr: 'r' }
 const short = (k: string) => SHORT[k] ?? k
 
 type AxisSpec = { key: string; label: string; get: (r: Run) => number | null; fmt: (v: number) => string; what: string }
@@ -57,6 +57,8 @@ export function RunCoordinates({ runs, selected, onToggle }: { runs: Run[]; sele
     const nonneg = vals.every((v) => v >= 0)
     if (lo === hi) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d } else { const d = (hi - lo) * 0.08; lo -= d; hi += d }
     if (nonneg) lo = Math.max(0, lo)
+    // scores bounded by 1 (accuracy, AUC, F₁…) never get an axis past 1
+    if (vals.every((v) => v >= 0 && v <= 1)) hi = Math.min(1, hi)
     if (s.key === 'k' || s.key === 'm') { lo = Math.max(0, Math.floor(lo)); hi = Math.ceil(hi) }
     if (s.key === 'rung') { lo = 1; hi = 4 }
     return { key: s.key, label: s.label, min: lo, max: hi, fmt: s.fmt }

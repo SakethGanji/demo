@@ -31,3 +31,7 @@
 .fc-cal-verdict { margin: 4px 0 0; padding: var(--space-8) var(--space-12); border-radius: var(--radius-control); font-size: 12.5px; line-height: 1.5; background: var(--status-success-bg); }
 .fc-cal-verdict.too_wide, .fc-cal-verdict.too_narrow { background: var(--status-warning-bg); }
 @media (max-width: 1100px) { .fc-cal { grid-template-columns: 1fr; } }
+
+/* the task formula needs room: its own wide cell, never under the next one */
+.fc-eq .eh-cell.lead { flex: 2 1 380px; min-width: 380px; }
+.fc-eq .eh-cell.lead .math { white-space: nowrap; font-size: 18px !important; }
