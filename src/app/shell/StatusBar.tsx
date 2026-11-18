@@ -1,4 +1,5 @@
 import type { Params } from '@/features/training-gym/params'
+import { useEffect, useState } from 'react'
 import { useApi } from '@/shared/api/mode'
 
 /** Live when the API answers, mock (the in-browser simulation) when it doesn't. Glyph plus word, never colour alone. */
@@ -10,11 +11,38 @@ function ApiMode() {
   return <button type="button" className={`api-mode ${mode}`} data-testid="api-mode" data-mode={mode} title={title} onClick={recheck}>{label}</button>
 }
 
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
+
+/** Live mode: the API's real state (GET /api/status): the active run and its progress, the queue, the machine. */
+function LiveStatus() {
+  const { status } = useApi()
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
+  const a = status?.active
+  const elapsed = a?.started_at ? Math.max(0, (now - new Date(a.started_at).getTime()) / 1000) : null
+  return <>
+    <span data-testid="sb-engine">AutoGluon {status?.engine.version ?? '…'}</span><span className="sb-sep" />
+    {a ? (
+      <a className="live sb-run" href={`#/quick-train?run=${a.id}`} data-testid="sb-active" title={a.name}>
+        <i className="live-dot" style={{ width: 6, height: 6, borderRadius: 999, background: 'currentColor' }} />
+        {a.id} {a.stage === 'model_started' || a.stage === 'model_finished' || a.stage === 'fit_started' ? 'training' : a.stage.replace(/_/g, ' ')} · {a.models_finished} / {a.models_started} models{a.best_val != null ? ` · best ${a.best_val.toFixed(4)}` : ''}{elapsed != null ? ` · ${clock(elapsed)}${a.time_limit ? ` / ${clock(a.time_limit)}` : ''}` : ''}
+      </a>
+    ) : <span className="muted-sb" data-testid="sb-active">no run training</span>}
+    <span data-testid="sb-queued">{status?.queued ?? 0} queued</span>
+    <span className="spacer" />
+    <span data-testid="sb-runs">{status?.runs ?? '…'} runs</span><span className="sb-sep" />
+    <span data-testid="sb-cpu">{status?.cpu_count ?? '…'} CPUs{status?.memory_gb ? ` · ${status.memory_gb} GB` : ''}</span><span className="sb-sep" />
+    <span>Python {status?.python ?? '…'}</span><span className="sb-sep" /><span data-testid="sb-version">ENSEMBLE {status?.version ?? ''}</span>
+  </>
+}
+
 export function StatusBar({ params }: { params: Params }) {
+  const { mode } = useApi()
+  if (mode === 'live') return <footer className="statusbar"><ApiMode /><span className="sb-sep" /><LiveStatus /></footer>
   return (
     <footer className="statusbar">
       <ApiMode /><span className="sb-sep" />
-      <span className="ok">● gym-default</span><span>6 / 6 nodes</span><span className="sb-sep" />
+      <span className="ok">● gym-default</span><span>6 / 6 nodes</span><span className="sb-sep" /><span className="muted-sb">simulated:</span>
       <span className="live"><i className="live-dot" style={{ width: 6, height: 6, borderRadius: 999, background: 'currentColor' }} />run_8a10 training · fold 3 of 5</span>
       <span>1 queued</span><span className="sb-sep" />
       <span>C=<b>{Number.isInteger(params.C) ? params.C.toFixed(1) : params.C}</b> · class_weight=<b>{params.classWeight === 'None' ? 'None' : "'balanced'"}</b></span>

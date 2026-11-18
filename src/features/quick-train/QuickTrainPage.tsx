@@ -10,14 +10,14 @@ import { mockSource, simulate } from './race/mockRun'
 import { RaceStage } from './race/RaceStage'
 import { liveSource, useRace, type EventSourceFn } from './race/useRace'
 import { ResultsStep } from './results/ResultsStep'
-import { columnTypesPayload, defaultMetric, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
+import { columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
 
 const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
 
 function initialChoices(ds: Dataset): Choices {
   const label = ds.target || labelOptions(ds)[0]?.name || ''
   const task = inferTask(ds, label) ?? 'multiclass'
-  return { label, problemType: null, types: {}, metric: defaultMetric(task, ds.profile?.imbalance_ratio), preset: 'medium_quality', budget: 120, fitKwargs: '' }
+  return { label, problemType: null, types: {}, metric: defaultMetric(task, ds.profile?.imbalance_ratio), preset: 'medium_quality', budget: 120, fitKwargs: '', threshold: defaultThreshold(ds, label, task) }
 }
 
 const runFromHash = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
@@ -59,6 +59,8 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
     if (!task) return
     if (!METRICS.some((m) => m.key === ch.metric && m.tasks.includes(task))) set({ metric: defaultMetric(task, ds.profile?.imbalance_ratio) })
   }, [task])
+  // the threshold default follows the label and problem type
+  useEffect(() => { set({ threshold: defaultThreshold(ds, ch.label, task) }) }, [ds, ch.label, task, set])
 
   // Resume a run from the URL (#/quick-train?run=…): after a reload or from a link. Its events replay from 0.
   useEffect(() => {
@@ -90,6 +92,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
         const run = await api.runs.create({
           dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: ch.metric, presets: ch.preset, time_limit: ch.budget,
           fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
+          calibrate_threshold: task === 'binary' ? ch.threshold : null,
         })
         setSource({ fn: liveSource, run: null })
         setRunId(run.id)

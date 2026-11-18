@@ -7,7 +7,7 @@ import { StackEquation } from './StackEquation'
 import { bestSoFar, isEnsemble, layers, scoreAxis, type ModelRow, type RaceState } from './useRace'
 
 const STAGE_TEXT: Record<RaceState['stage'], string> = {
-  waiting: 'Preparing the data', fitting: 'Fitting models', ranking: 'Ranking every model on the holdout',
+  waiting: 'Preparing the data', fitting: 'Fitting models', calibrating: 'Calibrating the decision threshold on validation predictions', ranking: 'Ranking every model on the holdout',
   evaluating: 'Scoring the holdout', explaining: 'Permutation importance on the holdout', done: '',
 }
 

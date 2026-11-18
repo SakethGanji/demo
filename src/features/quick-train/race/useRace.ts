@@ -24,7 +24,7 @@ export type RaceState = {
   models: Record<string, ModelRow>; order: string[]
   ensembles: Record<string, EnsembleEvent>; lastEnsemble: string | null
   bestModel: string | null; holdout: Holdout | null
-  stage: 'waiting' | 'fitting' | 'ranking' | 'evaluating' | 'explaining' | 'done'
+  stage: 'waiting' | 'fitting' | 'calibrating' | 'ranking' | 'evaluating' | 'explaining' | 'done'
   logs: { level: string; message: string }[]
   error: string | null
   lastSeq: number
@@ -73,6 +73,7 @@ export function applyEvent(s: RaceState, e: RunEvent, shownAt: number): RaceStat
       const en = e as EnsembleEvent
       return { ...s, ensembles: { ...s.ensembles, [en.model]: en }, lastEnsemble: en.model }
     }
+    case 'calibrating': return { ...s, stage: 'calibrating' }
     case 'fit_finished': return { ...s, stage: 'ranking', bestModel: e.best_model as string }
     case 'leaderboard': return { ...s, stage: 'evaluating' }
     case 'evaluation': return { ...s, holdout: e as unknown as Holdout }

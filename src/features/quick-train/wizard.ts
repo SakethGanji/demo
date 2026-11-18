@@ -18,7 +18,18 @@ export type Choices = {
   budget: number
   /** Raw JSON for TabularPredictor.fit(**fit_kwargs); validated before training. */
   fitKwargs: string
+  /** Binary: calibrate the decision threshold after the fit for this metric (null: keep AutoGluon's 0.5). */
+  threshold: string | null
 }
+
+/** Share of the rarest class of the label (1 when unknown). */
+export function minorityShare(ds: Dataset, label: string): number {
+  const cls = labelClasses(ds, label)
+  return cls.length >= 2 ? Math.min(...cls.map((c) => c.share)) : 1
+}
+
+/** Imbalanced binary labels (minority < 20%) calibrate the threshold for F1 by default: 0.5 would flag almost nothing. */
+export const defaultThreshold = (ds: Dataset, label: string, task: Task | null) => (task === 'binary' && minorityShare(ds, label) < 0.2 ? 'f1' : null)
 
 export const SUB = '₀₁₂₃₄₅₆₇₈₉'
 export const sub = (n: number | string) => String(n).split('').map((d) => (/\d/.test(d) ? SUB[Number(d)] : d)).join('')

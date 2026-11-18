@@ -1,4 +1,5 @@
 import wordmark from '@/shared/assets/ensemble-wordmark-on-shell.svg'
+import { useApi } from '@/shared/api/mode'
 import { usePrefs } from '@/shared/lib/prefs'
 import { TOOLS } from '@/shared/lib/tools'
 import { Icon } from '@/shared/primitives/Icon'
@@ -7,6 +8,7 @@ import { NAV, type Route } from '../routes'
 
 export function Sidebar({ route, collapsed, velaOpen, go, onToggle }: { route: Route; collapsed: boolean; velaOpen: boolean; go: (r: string) => void; onToggle: () => void }) {
   const { prefs } = usePrefs()
+  const { mode, status } = useApi()
   return (
     <nav className="sidebar" aria-label="Primary">
       <button className="lockup" onClick={() => go('home')} aria-label="Project ENSEMBLE home">
@@ -41,9 +43,14 @@ export function Sidebar({ route, collapsed, velaOpen, go, onToggle }: { route: R
         )}
       </div>
       <div className="sidebar-footer">
-        <div className="avatar">ML</div>
-        <div className="who"><b>Maya Lin</b><small>Lead ML Engineer</small></div>
-        <span className="role-pill">Admin</span>
+        {mode === 'live' ? <>
+          <div className="avatar" aria-hidden>◎</div>
+          <div className="who" data-testid="sidebar-who"><b>Local workspace</b><small>no sign-in · {status?.host ?? 'this machine'}</small></div>
+        </> : <>
+          <div className="avatar">ML</div>
+          <div className="who"><b>Maya Lin</b><small>Lead ML Engineer (demo)</small></div>
+          <span className="role-pill">Admin</span>
+        </>}
         <button className="icon-btn" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={onToggle}><Icon.collapse width={16} height={16} /></button>
       </div>
     </nav>

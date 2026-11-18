@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { FretSlider } from '@/shared/components/FretSlider'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import type { Dataset } from '../datasets'
-import { BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, fmtBudget, parseKwargs, type Choices, type Task } from '../wizard'
+import { BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
 
 /** Step 3: the metric to optimise, the preset ladder (speed ↔ accuracy), the time budget, and raw fit kwargs. */
 export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; task: Task }) {
@@ -12,6 +12,9 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
   const kw = parseKwargs(ch.fitKwargs)
   const preset = PRESETS.find((p) => p.key === ch.preset) ?? PRESETS[0]
   const { types, drop } = columnTypesPayload(ds, ch)
+  const userCal = kw.ok && 'calibrate_decision_threshold' in kw.value
+  const minority = minorityShare(ds, ch.label)
+  const recT = defaultThreshold(ds, ch.label, task)
   const call = [
     `predictor = TabularPredictor(label=${q(ch.label)}, problem_type=${q(task)}, eval_metric=${q(ch.metric)})`,
     `predictor.fit(train,  # ${ds.rows.toLocaleString()} rows minus the 20% holdout`,
@@ -19,6 +22,7 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
     ...(Object.keys(types).length ? [`    feature_metadata=FeatureMetadata(…${Object.keys(types).length} override${Object.keys(types).length > 1 ? 's' : ''}),`] : []),
     ...(kw.ok ? Object.entries(kw.value).map(([k, v]) => `    ${k}=${JSON.stringify(v)},`) : ['    # fit_kwargs: invalid JSON']),
     ')',
+    ...(task === 'binary' && ch.threshold && !userCal ? [`predictor.set_decision_threshold(predictor.calibrate_decision_threshold(metric=${q(ch.threshold)}))`] : []),
     ...(drop.length ? [`# dropped columns: ${drop.join(', ')}`] : []),
   ]
 
@@ -68,6 +72,23 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
                 onChange={(v) => set({ budget: Math.round(v) })} ticks={BUDGETS} tickLabel={(v) => fmtBudget(v).replace(' min', 'm').replace(' s', 's')} format={(v) => String(Math.round(v))} domain={<span className="mono">[30, 3600] s</span>} guided />
             </div>
           </div>
+
+          {task === 'binary' && (
+            <div className="card" data-testid="threshold-card">
+              <div className="card-head"><h3 className="card-title">Decision Threshold</h3><span className="micro-label">ŷ = positive when p̂ &gt; t</span></div>
+              <div className="card-body stack" style={{ gap: 'var(--space-8)' }}>
+                <div className="seg" role="radiogroup">
+                  {([[null, 't = 0.5 (AutoGluon default)'], ['f1', 'calibrate for F₁'], ['balanced_accuracy', 'for balanced accuracy'], ['mcc', 'for MCC']] as [string | null, string][]).map(([k, label]) => (
+                    <button key={String(k)} role="radio" aria-checked={ch.threshold === k} className={ch.threshold === k ? 'on' : ''} onClick={() => set({ threshold: k })} data-testid={`threshold-${k ?? 'default'}`}>{label}{k === recT && k ? ' ●' : ''}</button>
+                  ))}
+                </div>
+                <p className="helper" style={{ fontSize: 12 }}>
+                  The rarest class is {(minority * 100).toFixed(1)}% of the rows{minority < 0.2 ? <>: few rows ever reach p̂ &gt; 0.5, so recall and F₁ collapse at the default. Calibrating searches t on AutoGluon's validation predictions (never the holdout) after the fit: <span className="mono">calibrate_decision_threshold(metric)</span>, then <span className="mono">set_decision_threshold(t)</span>. Metrics are reported at that t; you can move it later in Explain.</> : <>; 0.5 is a reasonable cut. Calibration can still help F₁ or balanced accuracy.</>}
+                  {userCal && <><br /><b>fit_kwargs.calibrate_decision_threshold is set below: AutoGluon's own setting wins and this choice is ignored.</b></>}
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="card advanced" data-testid="advanced">
             <button className="card-head adv-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
