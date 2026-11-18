@@ -14,7 +14,7 @@ const psiFmt = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(
 
 /** Batch scoring of a CSV with the version (in a worker, with progress), then PSI drift of every feature and of the
  *  model's output against what the model was built on. */
-export function BatchDrift({ v, actor }: { v: ModelVersion; actor: string }) {
+export function BatchDrift({ v, actor, onScored }: { v: ModelVersion; actor: string; onScored?: () => void }) {
   const [list, setList] = useState<BatchListItem[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [job, setJob] = useState<BatchJob | null>(null)
@@ -32,7 +32,7 @@ export function BatchDrift({ v, actor }: { v: ModelVersion; actor: string }) {
       if (!alive) return
       setJob(b)
       if (b.status === 'queued' || b.status === 'running') t = setTimeout(poll, 350)
-      else refresh()
+      else { refresh(); if (b.status === 'succeeded') onScored?.() }
     }).catch(() => { if (alive) t = setTimeout(poll, 1000) })
     poll()
     return () => { alive = false; clearTimeout(t) }

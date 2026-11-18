@@ -76,7 +76,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   const okRuns = runs.filter((r) => r.status === 'succeeded')
 
   if (err && !loaded) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!loaded || !counts) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading the registry…</div></div>
+  if (!loaded || !counts) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading the registry: registered models, versions, stages, the audit log and lineage…</div></div>
   const prod = versions.filter((v) => v.stage === 'Production')
 
   return (
@@ -172,7 +172,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
             </>)}
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && tab === 'Try It' && <TryIt v={detail} run={run} ds={ds} />}
-          {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} />}
+          {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} />}
           {tab === 'Audit' && <div className="card"><AuditTable entries={audit.filter((a) => a.version_id === detail.id)} testId="version-audit" /></div>}
           {detail.status !== 'ready' && tab !== 'Overview' && tab !== 'Audit' && <div className="card card-body row"><ResonanceWave /> This version is {detail.status}; it is usable once ready.</div>}
         </div>

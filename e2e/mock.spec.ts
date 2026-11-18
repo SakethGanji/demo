@@ -53,3 +53,14 @@ test('experiments and explain in mock mode: the simulation is labelled, explain 
   await expect(page.locator('.statusbar')).toContainText('simulated')
   expect(errors).toEqual([])
 })
+
+test('registry and home in mock mode: the scripted data is labelled SIMULATED', async ({ page, errors }) => {
+  await open(page, 'registry')
+  await expect(page.getByTestId('registry-simulated')).toHaveText('SIMULATED')
+  await expect(page.getByTestId('registry')).toHaveCount(0)
+  await open(page, 'home')
+  await expect(page.getByTestId('home-simulated')).toHaveText('SIMULATED')
+  await expect(page.getByTestId('home-live')).toHaveCount(0)
+  await expect(page.getByTestId('prototype-banner')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
