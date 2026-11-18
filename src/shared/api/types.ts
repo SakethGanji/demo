@@ -182,6 +182,40 @@ export type RunCreate = {
   split_spec?: SplitSpec | null
   /** F7: a business cost as the eval_metric ('expected_cost'). */
   cost?: CostRequest | null
+  /** F8: monotone constraints on numeric features (binary and regression). */
+  monotone?: MonotoneRequest | null
+}
+
+// -- Monotone constraints (F8) -----------------------------------------------------------------------------------
+
+export type MonotoneDirection = 'increasing' | 'decreasing'
+/** What the Gym sends; the API stores {constraints: {column: ±1}, compliant_only, stack}. */
+export type MonotoneRequest = { constraints: Record<string, MonotoneDirection | 1 | -1 | 0 | 'none'>; compliant_only?: boolean; stack?: boolean }
+/** ICE / PD of one model for one constrained column, on raw holdout rows. */
+export type MonotoneColumnCheck = {
+  sign: number; grid?: number[]; pd?: number[]; n_curves: number; n_steps: number; curves_violating: number; steps_violating: number
+  max_violation: number; pd_monotone: boolean; pd_max_violation: number; pd_range: number; monotone: boolean
+  ice?: number[][]; ice_rows?: number[]; error?: string
+}
+export type MonotoneModel = {
+  model: string; class: string; family: string | null; stack_level: number; kind: 'model' | 'weighted_ensemble'
+  constrained: boolean | null; applied?: Record<string, number>; internal?: Record<string, number>; n_columns?: number | null
+  weights?: Record<string, number>; monotone_by_construction: boolean; monotone_checked?: boolean
+  check?: Record<string, MonotoneColumnCheck>; check_error?: string
+}
+/** The worker's report after the fit (Run.monotone). */
+export type MonotoneReport = {
+  constraints: Record<string, number>; compliant_only: boolean; stack: boolean
+  columns?: Record<string, { features: string[]; models: string[]; status: string }>
+  models?: MonotoneModel[]; best_model?: string; served?: Record<string, MonotoneColumnCheck>; best_monotone?: boolean
+  unconstrained_models?: string[]; grid_points?: number; eps?: number; error?: string
+}
+/** GET /runs/{id}/monotone and /registry/versions/{id}/monotone. */
+export type MonotoneCheck = {
+  run_id: string; version_id?: string; served_model?: string; constraints: Record<string, number>
+  request?: MonotoneReport | null; report?: MonotoneReport | null
+  model: string; best_model: string; problem_type: ProblemType; score: string; rows: number
+  columns: Record<string, MonotoneColumnCheck>; monotone: boolean; eps: number
 }
 
 // -- Business cost (F7) ------------------------------------------------------------------------------------------
@@ -254,6 +288,8 @@ export type GymValidation = {
   estimate?: { seconds: number; unbounded_seconds: number; budget: number | null; budget_binds: boolean; overhead: number; n: number; d: number; k: number; s: number; L: number
     families: { family: string; variants: number; rate: number; rate_source: string; seconds: number; trials: number }[]; formula: string; note: string }
   families?: Record<string, number>
+  /** F8: the normalised constraints and what they do to the zoo. */
+  monotone?: { constraints: Record<string, number>; compliant_only: boolean; stack: boolean; compliant: string[]; unconstrained: string[]; left_out: string[]; families: Record<string, string> } | null
 }
 
 // -- Vela (S6) ---------------------------------------------------------------------------------------------------
@@ -359,6 +395,8 @@ export type Run = {
   custom_ensembles?: CustomEnsemble[] | null
   /** Binary runs: the decision threshold the predictor uses (S4). */
   threshold?: ThresholdRecord | null
+  /** F8: monotone constraints, where they landed and the ICE / PD check of every model. */
+  monotone?: MonotoneReport | null
 }
 
 /** One model's scores in a custom-ensemble result. score_* higher is better; *_natural in the metric's units. */
@@ -692,6 +730,12 @@ export type ModelCard = {
   use: { fields: CardField[] }
   monitoring: { batches: { id: string; created_at: string; n_rows: number; max_psi: number | null; prediction_psi: number | null; counts: DriftReport['counts'] | null }[]; bands: string }
   approval: { stage: Stage; approval: Approval; rules: string; reviews: AuditEntry[]; audit: AuditEntry[] }
+  /** F8: the monotone constraints and the served model's ICE check. */
+  constraints?: {
+    columns: { column: string; direction: MonotoneDirection; sign: number; features: string[] | null; status: string | null; monotone: boolean | null
+      pd_monotone: boolean | null; curves_violating: number | null; n_curves: number | null; grid_points: number; max_violation: number | null; pd_range: number | null }[]
+    compliant_only: boolean; served_model: string | null; monotone: boolean | null; unconstrained_models: string[] | null; method: string
+  } | null
 }
 
 // ---------------------------------------------------------------------- Autopilot (S7)

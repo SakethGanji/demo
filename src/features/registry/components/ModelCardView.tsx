@@ -104,6 +104,14 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         <table className="table compact"><thead><tr><th>metric</th><th>definition</th><th className="r">this version</th><th className="r">source run</th></tr></thead>
           <tbody>{Object.entries(hc).map(([k, m]) => <tr key={k} data-testid={`card-metric-${k}`}><td className="mono">{k}</td><td className="math-col">{m.formula}</td><td className="r mono">{ci(m)}</td><td className="r mono">{ci(sc[k])}</td></tr>)}</tbody></table>
         {val.threshold && <p className="helper" style={{ fontSize: 12.5 }}>Decision threshold <b className="mono">t = {val.threshold.value.toFixed(3)}</b> ({val.threshold.source}{val.threshold.metric ? `, ${val.threshold.metric}` : ''}): predict positive when p̂ &gt; t. Validation score of the source model: {fmtScore(val.validation_score)}.</p>}
+        {c.constraints && <div data-testid="card-monotone" style={{ marginTop: 8 }}>
+          <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Monotone constraints</h4>
+          <table className="table compact"><thead><tr><th>feature xⱼ</th><th>direction sⱼ</th><th>AutoGluon features</th><th className="r">ICE curves violating</th><th className="r">PD range</th><th>served model monotone</th></tr></thead>
+            <tbody>{c.constraints.columns.map((r) => <tr key={r.column}><td className="mono">{r.column}</td><td>{r.direction === 'increasing' ? '↑ increasing (+1)' : '↓ decreasing (−1)'}</td><td className="mono">{(r.features ?? []).join(', ') || '—'}</td>
+              <td className="r mono">{r.curves_violating ?? '—'} / {r.n_curves ?? '—'}</td><td className="r mono">{fmtScore(r.pd_range, 4)}</td>
+              <td>{r.monotone == null ? '—' : r.monotone ? <span style={{ color: 'var(--status-success)' }}>● yes</span> : <span style={{ color: 'var(--status-danger)' }}>✕ no</span>}</td></tr>)}</tbody></table>
+          <p className="helper" style={{ fontSize: 12 }}>Checked on <span className="mono">{c.constraints.served_model ?? '—'}</span>, as this version serves it: sⱼ·(f(x with xⱼ = g₊₁) − f(x with xⱼ = g)) ≥ −ε for every holdout row x and consecutive grid points g of xⱼ's quantiles, ε = 10⁻⁹. Method: {c.constraints.method}.{c.constraints.unconstrained_models?.length ? ` Unconstrained models in the run: ${c.constraints.unconstrained_models.join(', ')}.` : ''}</p>
+        </div>}
       </section>}
 
       <section className="mc-sec"><h3><i>6</i> Feature importance <small>{c.importance.method}</small></h3>

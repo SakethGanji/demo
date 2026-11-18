@@ -60,3 +60,11 @@
 .table.per-class th { height: 44px; vertical-align: middle; }
 .th-f { font-family: var(--font-math); font-style: italic; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--text-body); }
 .table.per-class .cr-bar { width: 48px; }
+
+/* F8 · Monotonicity: ICE / PD chart beside the check's formula and numbers */
+.grid.mono-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+.mono-stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-8) var(--space-16); margin-top: var(--space-12); }
+.mono-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.mono-stats b { font-size: 16px; color: var(--text-primary); }
+[data-testid="mono-formula"] .eq { font-size: 16px; line-height: 24px; }
+@media (max-width: 1280px) { .grid.mono-grid { grid-template-columns: minmax(0, 1fr); } }

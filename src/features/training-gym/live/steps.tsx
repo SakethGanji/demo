@@ -173,7 +173,78 @@ export function GoalStep({ body, set, schema, v }: StepProps) {
 
 // -- 04 Models ----------------------------------------------------------------------------------------------------
 
-export function ModelsStep({ body, setBody, schema, v }: StepProps) {
+export function ModelsStep(props: StepProps) {
+  return <>
+    <ModelFamilies {...props} />
+    {!props.guided && <MonotoneCard {...props} />}
+  </>
+}
+
+/** F8 (Advanced): ↑ / ↓ / none per numeric feature, written to the body's `monotone`. The API swaps LightGBM, XGBoost
+ * and CatBoost for subclasses that map each sign onto the columns AutoGluon trains them on; the validation says which
+ * families honour it, which are left out or kept, and how stacking stays monotone. */
+function MonotoneCard({ body, setBody, v, ds }: StepProps) {
+  const mono = (body.monotone ?? null) as { constraints?: Record<string, unknown>; compliant_only?: boolean } | null
+  const cons = mono?.constraints ?? {}
+  const sgn = (x: unknown) => (x === 'increasing' || x === 1 ? 1 : x === 'decreasing' || x === -1 ? -1 : 0)
+  const label = body.label ?? v?.label
+  const dropped = new Set(v?.data?.dropped ?? body.drop_columns ?? [])
+  const types = (body.column_types ?? {}) as Record<string, string>
+  const numeric = (ds?.profile.columns ?? []).filter((c) => c.name !== label && !dropped.has(c.name) && (types[c.name] ?? c.type) === 'number')
+  const pt = v?.problem_type
+  const ok = pt === 'binary' || pt === 'regression'
+  const write = (next: Record<string, unknown>, co = mono?.compliant_only ?? true) => {
+    const kept = Object.fromEntries(Object.entries(next).filter(([, x]) => sgn(x) !== 0))
+    setBody({ ...body, monotone: Object.keys(kept).length ? { constraints: kept as Record<string, 'increasing' | 'decreasing'>, compliant_only: co } : null })
+  }
+  const vm = v?.monotone
+  const issues = [...(v?.errors ?? []), ...(v?.warnings ?? []), ...(v?.info ?? [])].filter((e) => e.path === 'monotone' && !e.message.startsWith('Left out'))  // left out: shown on the line above
+  const n = Object.keys(cons).length
+  const score = pt === 'regression' ? 'ŷ(x)' : 'p̂(x)'
+  return (
+    <div className="grid hp-grid" data-testid="gym-monotone">
+      <div className="card"><div className="card-head">
+        <div className="left"><h2 className="card-title">Monotone constraints</h2><span className="helper" style={{ fontSize: 12 }}><span className="mono">monotone.constraints</span> · numeric features of binary and regression labels</span></div>
+        <span className="chip" data-testid="gym-monotone-count">{n ? `${n} constrained` : 'none'}</span>
+      </div>
+        <div className="card-body">
+          {!ok && pt && <p className="helper" style={{ fontSize: 12 }}>▲ This label is {pt}: constraints apply to binary and regression only (for multiclass, the softmax couples the classes, so no class probability is monotone by construction).</p>}
+          <div className="mono-list">
+            {numeric.map((c) => (
+              <Row key={c.name} label={<span className="mono">{c.name}</span>} sub={`${c.unique.toLocaleString()} distinct values`} testid={`gym-mono-${c.name}`}>
+                <Seg value={sgn(cons[c.name])} label={`Constraint on ${c.name}`} onChange={(x) => write({ ...cons, [c.name]: x === 1 ? 'increasing' : x === -1 ? 'decreasing' : 0 })}
+                  options={[{ v: 1, label: '↑ increasing' }, { v: 0, label: 'none' }, { v: -1, label: '↓ decreasing' }]} />
+              </Row>
+            ))}
+            {!numeric.length && <p className="helper">No numeric feature to constrain.</p>}
+          </div>
+          {n > 0 && <Row label="Compliant families only" sub="leave out the families that cannot honour a constraint (RF, XT, KNN, LR, NN, TF-IDF); off keeps them and reports which models break it" testid="gym-mono-compliant">
+            <Seg value={mono?.compliant_only ?? true} onChange={(x) => write(cons, x)} options={[{ v: true, label: 'on' }, { v: false, label: 'off' }]} />
+          </Row>}
+          {vm && <p className="helper" style={{ fontSize: 12 }} data-testid="gym-mono-families">Honour it: <b>{vm.compliant.map((k) => `${vm.families[k] ?? k} (${k}_MONO)`).join(', ') || 'none'}</b>
+            {vm.left_out.length ? <> · left out: <span className="mono">{vm.left_out.join(', ')}</span></> : null}
+            {vm.unconstrained.length ? <> · <span style={{ color: 'var(--status-warning)' }}>kept unconstrained: <span className="mono">{vm.unconstrained.join(', ')}</span></span></> : null}</p>}
+          {issues.map((e) => <p key={e.message} className="helper" style={{ fontSize: 12, color: v?.errors.includes(e) ? 'var(--status-danger)' : v?.warnings.includes(e) ? 'var(--status-warning)' : undefined }}>{v?.errors.includes(e) ? '✕' : v?.warnings.includes(e) ? '▲' : '·'} {e.message}</p>)}
+        </div>
+      </div>
+      <div className="formula">
+        <div className="micro-label">Monotone in x<sub>j</sub></div>
+        <div className="eq"><i>s<sub>j</sub></i> · (<i>f</i>(<i>x</i><sub>−<i>j</i></sub>, <i>b</i>) − <i>f</i>(<i>x</i><sub>−<i>j</i></sub>, <i>a</i>)) ≥ 0  for all <i>a</i> &lt; <i>b</i> and every <i>x</i><sub>−<i>j</i></sub></div>
+        <div className="eq"><i>f</i><sup>(2)</sup>(<i>x</i>) = <i>g</i>(<i>x</i>, <i>f̂</i><sub>1</sub>(<i>x</i>), …, <i>f̂</i><sub><i>M</i></sub>(<i>x</i>)),  ∂<i>g</i>/∂<i>f̂<sub>m</sub></i> ≥ 0,  <i>ŷ</i> = Σ<sub><i>m</i></sub> <i>w<sub>m</sub></i> <i>f̂<sub>m</sub></i>, <i>w<sub>m</sub></i> ≥ 0</div>
+        <dl className="where">
+          <dt>f</dt><dd>the served score {score}{pt === 'binary' ? ' = P(positive class | x)' : ''}</dd>
+          <dt>s<sub>j</sub></dt><dd>+1 (↑ increasing) or −1 (↓ decreasing) for feature j: {n ? Object.entries(cons).map(([k, x]) => `${k} ${sgn(x) > 0 ? '+1' : '−1'}`).join(', ') : 'none set'}</dd>
+          <dt>x<sub>−j</sub></dt><dd>every other feature, held fixed</dd>
+          <dt>g</dt><dd>a stack-level model: it sees x and the base models' out-of-fold predictions f̂<sub>m</sub>; those inputs are constrained to +1, so if every f̂<sub>m</sub> is monotone with sign s<sub>j</sub>, so is g</dd>
+          <dt>w<sub>m</sub></dt><dd>the weighted ensemble's weights; non-negative, so it keeps the direction</dd>
+        </dl>
+        <p className="helper" style={{ fontSize: 12, marginTop: 8 }}>Each model maps s<sub>j</sub> onto the columns AutoGluon actually gives it (columns it drops, renames or one-hot encodes), and after the fit every model is checked with ICE curves on raw holdout rows (Explain → Monotonicity).</p>
+      </div>
+    </div>
+  )
+}
+
+function ModelFamilies({ body, setBody, schema, v }: StepProps) {
   const { hp, source, portfolio } = effectiveHp(body, schema)
   const pt = v?.problem_type
   const excluded = new Set((getPath(body, 'fit_kwargs.excluded_model_types') as string[] | undefined) ?? [])
