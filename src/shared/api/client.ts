@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -107,8 +107,15 @@ export const api = {
   vela: {
     findings: (runId: string) => request<VelaResponse>(`/runs/${encodeURIComponent(runId)}/vela`, { timeoutMs: 120_000 }),
     word: (runId: string) => request<VelaWording>(`/runs/${encodeURIComponent(runId)}/vela/wording`, { method: 'POST', timeoutMs: 90_000 }),
-    /** A free-text question about a run or an autopilot, answered from its computed facts (Claude CLI → API → none). */
-    ask: (q: { question: string; run_id?: string | null; autopilot_id?: string | null }) => json<VelaAnswer>('/vela/ask', 'POST', q, 150_000),
+    /** A free-text question about a run or an autopilot, answered from its computed facts (F5: Anthropic SDK → Claude CLI →
+     *  none), cached by (prompt hash, facts hash). The server's total budget bounds it; the browser waits a little longer. */
+    ask: (q: { question: string; run_id?: string | null; autopilot_id?: string | null; timeout?: number; cache?: boolean }) => json<VelaAnswer>('/vela/ask', 'POST', q, 660_000),
+  },
+  /** F5: the language-model router: route, availability, latency per decider, settings. */
+  llm: {
+    status: () => request<LlmStatus>('/llm', { timeoutMs: 5_000 }),
+    update: (patch: Partial<Record<keyof LlmSettings, number | boolean | string | null>>) => json<LlmStatus>('/llm/settings', 'PUT', patch),
+    clearCache: () => json<{ cleared: number }>('/llm/cache/clear', 'POST', {}),
   },
   autopilot: {
     start: (b: { dataset_id: string; label?: string; goal?: string; requirements: ApRequirement[]; budget_seconds: number; autonomy: 'ask' | 'auto'; auto_confidence?: number; decider: 'auto' | 'layer1'; allow_synthetic?: boolean }) =>

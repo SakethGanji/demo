@@ -4,9 +4,12 @@ import { TOOLS } from '@/shared/lib/tools'
 import { PluckString } from '@/shared/primitives/PluckString'
 import { ToolGlyph } from '@/shared/primitives/ToolGlyph'
 import { SettingRow } from './components/SettingRow'
+import { LlmCard } from './components/LlmCard'
+import { useApi } from '@/shared/api/mode'
 
 export function SettingsPage() {
   const { prefs, set } = usePrefs()
+  const { mode } = useApi()
   const [pluck, setPluck] = useState(0)
   const toggle = (id: string) => set({ pinned: prefs.pinned.includes(id) ? prefs.pinned.filter((p) => p !== id) : [...prefs.pinned, id] })
   return (
@@ -46,6 +49,7 @@ export function SettingsPage() {
             })}
           </div>
         </div>
+        {mode === 'live' && <LlmCard />}
       </div>
     </div>
   )

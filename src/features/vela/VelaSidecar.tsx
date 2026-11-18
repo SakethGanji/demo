@@ -8,6 +8,7 @@ import { useApi } from '@/shared/api/mode'
 import type { VelaFinding } from '@/shared/api/types'
 import { PatchCard, type Patch } from './components/PatchCard'
 import { LiveVela } from './LiveVela'
+import { DECIDER, DeciderTrail } from './components/DeciderTrail'
 
 /** Stays mounted while closed so applied patches and your questions survive reopening it. */
 export function VelaSidecar({ open, context, patches, onClose, preferredRun, appliedKey, onApplyLive }: {
@@ -22,14 +23,19 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
   const [q, setQ] = useState('')
   const [asked, setAsked] = useState<{ q: string; done: boolean }[]>([])
   const [liveRun, setLiveRun] = useState<string | null>(null)
-  const [liveQs, setLiveQs] = useState<{ q: string; ctx: string; a?: VelaAnswer; err?: string }[]>([])
+  const [liveQs, setLiveQs] = useState<{ q: string; ctx: string; a?: VelaAnswer; err?: string; t0: number }[]>([])
+  const [route, setRoute] = useState<string[] | null>(null)
+  const [, setTick] = useState(0)
+  const pending = liveQs.some((x) => !x.a && !x.err)
+  useEffect(() => { if (open && mode === 'live') api.llm.status().then((s) => setRoute(s.route)).catch(() => setRoute(null)) }, [open, mode])
+  useEffect(() => { if (!pending) return; const t = setInterval(() => setTick((n) => n + 1), 100); return () => clearInterval(t) }, [pending])
   const apCtx = () => (location.hash.startsWith('#/autopilot') ? new URLSearchParams(location.hash.split('?')[1] ?? '').get('ap') : null)
   const askLive = () => {
     const question = q.trim()
     if (!question) return
     const ap = apCtx()
     const idx = liveQs.length
-    setLiveQs((x) => [...x, { q: question, ctx: ap ? `autopilot ${ap}` : liveRun ? `run ${liveRun}` : 'no run' }])
+    setLiveQs((x) => [...x, { q: question, ctx: ap ? `autopilot ${ap}` : liveRun ? `run ${liveRun}` : 'no run', t0: performance.now() }])
     setQ('')
     api.vela.ask({ question, run_id: ap ? null : liveRun, autopilot_id: ap })
       .then((a) => setLiveQs((x) => x.map((y, i) => (i === idx ? { ...y, a } : y))))
@@ -66,9 +72,24 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
                 <div className="patch">
                   <div className="ph"><VelaCrest size={16} /><b className="card-title" style={{ fontSize: 13 }}>Answer</b><span className="spacer" /><span className="micro-label">{x.ctx}</span></div>
                   <p data-testid="vela-answer">{x.err ?? x.a!.answer ?? x.a!.message}</p>
-                  <div className="vela-source" data-testid="vela-answer-source">{x.a ? <>answered by: <b>{x.a.source === 'claude-cli' ? 'Claude CLI' : x.a.source === 'anthropic-api' ? 'Anthropic API' : 'no model available'}</b>{x.a.model ? <span className="mono"> · {x.a.model}</span> : null} · {x.a.seconds.toFixed(1)} s · facts: {x.a.facts.join(', ')}</> : 'request failed'}</div>
+                  <div className="vela-source" data-testid="vela-answer-source">{x.a ? <>
+                    decided by: <b data-testid="vela-decider">{x.a.cached ? `${DECIDER[x.a.source] ?? x.a.source} (cached)` : x.a.source === 'computed' ? 'no model (computed)' : DECIDER[x.a.source] ?? x.a.source}</b>
+                    {x.a.model ? <span className="mono"> · {x.a.model}</span> : null}
+                    <span> · latency <b className="mono" data-testid="vela-latency">{x.a.seconds < 0.01 ? `${(x.a.seconds * 1000).toFixed(2)} ms` : `${x.a.seconds.toFixed(2)} s`}</b></span>
+                    <span style={{ flexBasis: '100%' }} />
+                    <span className="muted">route:</span> <DeciderTrail attempts={x.a.attempts} source={x.a.source} seconds={x.a.seconds} cached={x.a.cached} originalSeconds={x.a.original_seconds} />
+                    <span style={{ flexBasis: '100%' }} />
+                    <span className="muted">facts: {x.a.facts.join(', ')}{x.a.facts_sha256 ? <> · key = (h(prompt) <span className="mono">{x.a.prompt_sha256?.slice(0, 8)}</span>, h(facts) <span className="mono">{x.a.facts_sha256.slice(0, 8)}</span>)</> : null}</span>
+                  </> : 'request failed'}</div>
+                  {x.a?.guard ? (
+                    <div className={`vela-guard ${x.a.guard.ok ? '' : 'warn'}`} data-testid="vela-guard">
+                      {x.a.guard.ok
+                        ? <>Number guard: all {x.a.guard.checked} number{x.a.guard.checked === 1 ? '' : 's'} in the answer appear in the computed facts.</>
+                        : <>Number guard: <b>{x.a.guard.unsupported.join(', ')}</b> {x.a.guard.unsupported.length === 1 ? 'is' : 'are'} not in the computed facts. Check before you rely on {x.a.guard.unsupported.length === 1 ? 'it' : 'them'}.</>}
+                    </div>
+                  ) : null}
                 </div>
-              ) : <div className="thinking"><ResonanceWave width={84} height={18} fast /> Asking the Claude CLI about {x.ctx}</div>}
+              ) : <div className="thinking" data-testid="vela-pending"><ResonanceWave width={84} height={18} fast /> Asking {route?.length ? DECIDER[route[0]] : 'the language model'} about {x.ctx} · <span className="mono">{((performance.now() - x.t0) / 1000).toFixed(1)} s</span></div>}
             </div>
           ))}
           </>

@@ -188,7 +188,7 @@ export type VelaFinding = {
   id: string; kind: string; severity: 'info' | 'warning' | 'critical'; title: string; text: string; computed_text: string
   numbers: Record<string, unknown>; formula?: string; patch: VelaPatch
 }
-export type VelaWording = { source: 'claude-cli' | 'anthropic-api' | 'computed'; model: string | null; texts: Record<string, string>; kept: Record<string, boolean>
+export type VelaWording = { source: 'anthropic-sdk' | 'claude-cli' | 'anthropic-api' | 'computed'; decider?: string; cached?: boolean; model: string | null; texts: Record<string, string>; kept: Record<string, boolean>
   attempts: { source: string; ok: boolean; error?: string; seconds: number }[]; seconds: number; disabled?: boolean; key: string }
 export type VelaResponse = { run_id: string; run_name: string; findings: VelaFinding[]; errors: string[]; base: RunCreate; wording: VelaWording | null; key: string }
 
@@ -667,4 +667,13 @@ export type Autopilot = {
   budget: { total: number; spent: number; remaining: number }
 }
 export type ApInbox = ApInboxSummary & { autopilot_id: string; status: Autopilot['status']; total: number; items: ApInboxItem[] }
-export type VelaAnswer = { answer: string | null; source: string; model: string | null; seconds: number; message?: string; attempts: { source: string; ok: boolean; error?: string }[]; facts: string[] }
+/** F5: one attempt of the language-model router (app/llm.py), in route order. */
+export type LlmAttempt = { source: string; ok: boolean; error?: string; seconds: number; timeout_s?: number; timed_out?: boolean; skipped?: boolean }
+export type VelaAnswer = { answer: string | null; source: string; decider: string; model: string | null; seconds: number; message?: string
+  attempts: LlmAttempt[]; facts: string[]; cached: boolean; original_seconds?: number | null; key?: string; prompt_sha256?: string; facts_sha256?: string | null
+  guard: { ok: boolean; unsupported: string[]; checked: number } | null }
+export type LlmSettings = { enabled: boolean; model: string; sdk_timeout: number; cli_timeout: number; total_timeout: number; cache_ttl: number; use_sdk: boolean; use_cli: boolean }
+export type LlmLatency = { n: number; p50_s: number | null; p95_s: number | null; last_s: number | null }
+export type LlmStatus = { settings: LlmSettings; route: string[]; labels: Record<string, string>
+  sdk: { available: boolean; why: string; base_url: string | null }; cli: { path: string | null }
+  latency: Record<string, LlmLatency>; stats: { calls: number; cache_hits: number; shared_in_flight: number; by_source: Record<string, number>; cache_size: number } }

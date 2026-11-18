@@ -6,7 +6,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { MathText } from '@/shared/components/MathText'
 
-const SOURCE: Record<string, string> = { 'claude-cli': 'Claude CLI', 'anthropic-api': 'Anthropic API', computed: 'computed text' }
+const SOURCE: Record<string, string> = { 'anthropic-sdk': 'Anthropic SDK', 'claude-cli': 'Claude CLI', 'anthropic-api': 'Anthropic API', computed: 'computed text' }
 const SEV: Record<string, 'danger' | 'warning' | 'info'> = { critical: 'danger', warning: 'warning', info: 'info' }
 
 const show = (x: unknown) => (x == null ? '—' : typeof x === 'string' ? `'${x}'` : JSON.stringify(x).length > 60 ? `${JSON.stringify(x).slice(0, 57)}…` : JSON.stringify(x))
@@ -79,8 +79,8 @@ export function LiveVela({ open, preferredRun, appliedKey, onApply, onRun }: {
         </select>
       </div>}
       <div className="vela-source" data-testid="vela-source">
-        {wordingBusy ? <><ResonanceWave width={40} height={12} fast /> wording with the Claude CLI…</>
-          : wording ? <>wording: <b>{SOURCE[wording.source]}</b>{wording.model ? <span className="mono"> · {wording.model}</span> : null}{wording.source === 'computed' && wording.attempts.length ? <span className="muted"> ({wording.attempts.map((a) => `${SOURCE[a.source]}: ${a.error ?? 'ok'}`).join('; ')})</span> : null}{wording.disabled ? <span className="muted"> (LLM off)</span> : null}</>
+        {wordingBusy ? <><ResonanceWave width={40} height={12} fast /> wording with the language model…</>
+          : wording ? <>wording: <b>{SOURCE[wording.source]}</b>{wording.model ? <span className="mono"> · {wording.model}</span> : null}{wording.source !== 'computed' ? <span className="mono"> · {wording.cached ? 'cached' : `${wording.seconds.toFixed(2)} s`}</span> : null}{wording.source === 'computed' && wording.attempts.length ? <span className="muted"> ({wording.attempts.map((a) => `${SOURCE[a.source] ?? a.source}: ${a.error ?? 'ok'}`).join('; ')})</span> : null}{wording.disabled ? <span className="muted"> (LLM off)</span> : null}</>
             : res ? <>wording: <b>computed text</b></> : null}
         {(wordingBusy || wording || res) && <span className="muted"> · </span>}<span className="muted">numbers always computed from the run</span>
       </div>
