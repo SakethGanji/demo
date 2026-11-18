@@ -168,6 +168,7 @@ export type Holdout = {
 }
 
 export type Run = {
+  mlflow?: { experiment_id: string; run_id: string; artifact_uri: string } | null
   id: string
   name: string
   dataset_id: string
@@ -234,7 +235,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */
@@ -347,9 +348,11 @@ export type Fairness = {
 export type ShapResult = {
   run_id: string; row: number; model: string; problem_type: ProblemType; target: string | null
   output: 'probability' | 'prediction'; base_value: number; fx: number; sum_phi: number; additivity_error: number
-  contributions: { feature: string; value: unknown; phi: number }[]
+  contributions: ShapContribution[]
   background_size: number; nsamples: number; seconds: number; classes: string[] | null; y_true: unknown; cached: boolean; method: string
 }
+
+export type ShapContribution = { feature: string; value: unknown; phi: number }
 
 export type FeatureImportanceCI = FeatureImportance & { ci_low: number | null; ci_high: number | null; ci_level: number; t_crit: number | null }
 
@@ -366,4 +369,134 @@ export type ApiStatus = {
     best_val: number | null; stage: string
   }
   queued: number; runs: number; max_parallel_runs: number | null
+  registry?: RegistryCounts; pool?: { workers: number; active_jobs: number; submitted: number }
+}
+
+// ---------------------------------------------------------------------------
+// Registry and use (S5). Mirrors backend/app/registry/*.
+// ---------------------------------------------------------------------------
+
+export type Stage = 'None' | 'Staging' | 'Production' | 'Archived'
+export type Approval = 'pending' | 'approved' | 'rejected'
+
+export type Latency = {
+  batch_rows: number; batch_repeats: number; us_per_row_p50: number; us_per_row_p95: number; us_per_row: number[]
+  single_calls: number; single_ms_p50: number | null; single_ms_p95: number | null; throughput_rows_per_s: number | null
+}
+
+export type MetricCI = { value: number; ci_low: number | null; ci_high: number | null; formula: string; B: number }
+export type HoldoutCI = { metrics: Record<string, MetricCI>; n: number; B: number; seed: number; method: string }
+
+export type BuildStep = { name: string; status: 'running' | 'done' | 'skipped' | 'warning' | 'failed'; ts: string; seconds?: number; [k: string]: unknown }
+
+export type InferCandidate = {
+  model: string; refit_parent: string | null; score_val: number | null; score_val_natural: number | null; us_per_row: number | null
+  ag_predict_1_time_us: number | null; n_models: number; time_used_us: number | null; within: boolean
+}
+
+export type VersionResult = {
+  source: { run_id: string; best_model: string; size_bytes: number; latency: Latency; n_models: number; holdout_ci: HoldoutCI | null; holdout: Record<string, number> | null }
+  version: {
+    best_model: string; size_bytes: number; latency: Latency; n_models: number; models: string[]; dependencies: string[]
+    holdout: Record<string, number>; confusion_matrix?: number[][]; classes?: string[]; holdout_ci: HoldoutCI; problem_type: ProblemType
+    eval_metric: string; positive_class: string | null; decision_threshold: number | null; features: string[]
+  }
+  tradeoff: { size_ratio: number | null; latency_ratio_p50: number | null; single_ratio_p50: number | null }
+  refit: { skipped?: boolean; reason?: string; model?: string; mapping?: Record<string, string>; seconds?: number; best?: string } | null
+  infer_limit: { infer_limit_s: number; infer_limit_us: number; batch_size: number; candidates: InferCandidate[]; chosen: string; met: boolean; seconds: number; rule: string } | null
+  hashes: { model_sha256: string; data_sha256: string; splits_sha256: string; data_file: string }
+  path: string
+  mlflow?: { name: string; version: number; source: string; run_id: string; stage: string; experiment_id: string }
+}
+
+export type ModelVersion = {
+  id: string; model_name: string; version: number; run_id: string; status: 'building' | 'ready' | 'failed'; stage: Stage; approval: Approval
+  created_at: string; created_by: string
+  options: { refit_full: boolean; infer_limit: number | null; infer_limit_batch_size: number | null; clone_for_deployment: boolean; description: string }
+  progress: { steps: BuildStep[] } | null; error: string | null; path: string | null; model_hash: string | null
+  summary: {
+    best_model: string | null; size_bytes: number | null; n_models: number | null; us_per_row_p50: number | null; us_per_row_p95: number | null
+    single_ms_p50: number | null; holdout: Record<string, number> | null; eval_metric: string | null; problem_type: ProblemType | null
+    source_size_bytes: number | null; source_us_per_row_p50: number | null; mlflow: VersionResult['mlflow'] | null; data_sha256: string | null
+  }
+  result: VersionResult | null
+}
+
+export type RegisteredModel = {
+  name: string; created_at: string; description: string; dataset_id: string; label: string
+  versions: number; latest: number | null; production: number | null; staging: number | null
+}
+
+export type RegistryCounts = {
+  models: number; versions: number; building: number; stages: Record<Stage, number>; approvals: Record<Approval, number>; batches: number
+}
+
+export type AuditEntry = {
+  id: number; ts: string; actor: string; action: 'registered' | 'stage_changed' | 'approved' | 'rejected' | 'card_edited' | 'batch_scored'
+  model_name: string | null; version: number | null; version_id: string | null; run_id: string | null
+  from_stage: string | null; to_stage: string | null; comment: string; model_hash: string | null; details: Record<string, unknown> | null
+}
+
+export type RegisterRequest = {
+  created_by: string; model_name?: string; description?: string; refit_full?: boolean; infer_limit?: number | null
+  infer_limit_batch_size?: number | null; clone_for_deployment?: boolean
+}
+
+export type LatencyModel = {
+  model: string; us_per_row: number; us_per_row_all: number[]; score_val_natural: number | null; score_test_natural: number | null
+  n_models: number; size_bytes: number; stack_level: number; refit_full: boolean; best: boolean; ag_predict_1_time_us: number | null
+}
+export type LatencyProfile = {
+  run_id: string; batch_rows: number; models: LatencyModel[]; eval_metric: string; greater_is_better: boolean; best_model: string
+  total_size_bytes: number; bagged: boolean; cached: boolean
+}
+
+export type TryResult = {
+  version_id: string; model_name: string; version: number; model: string; problem_type: ProblemType; missing_columns: string[]; features: string[]
+  classes?: string[]; prediction: unknown; probabilities: Record<string, number> | null; positive_class?: string; threshold?: number; predict_ms: number
+  shap?: ShapResult & { reasons: (ShapContribution & { direction: 'raises' | 'lowers' })[] }
+}
+
+export type PsiBin = { label: string; expected_count: number; actual_count: number; expected: number; actual: number; term: number }
+export type PsiFeature = {
+  feature: string; kind: string; psi: number | null; band: 'stable' | 'watch' | 'shift' | 'missing'; n_expected?: number; n_actual?: number
+  bins?: PsiBin[]; edges?: number[] | null; mean_expected?: number | null; mean_actual?: number | null; std_expected?: number | null
+  std_actual?: number | null; categories_unseen?: string[]; note?: string; output?: string; ks?: { statistic: number; p_value: number }
+}
+export type DriftReport = {
+  features: PsiFeature[]; prediction: PsiFeature; counts: { stable: number; watch: number; shift: number }; eps: number; max_psi: number | null
+  bands: { band: string; rule: string }[]; formula: string; n_expected: number; n_actual: number; reference: string; prediction_reference: string
+}
+
+export type BatchJob = {
+  id: string; version_id: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; created_at: string; finished_at: string | null
+  created_by: string; filename: string; n_rows: number | null; progress: number; stage: string; error: string | null
+  result: {
+    summary: {
+      n_rows: number; seconds: number; score_seconds: number; us_per_row: number; missing_columns: string[]; extra_columns: string[]; model: string
+      problem_type: ProblemType; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
+      mean_p_reference?: number | null; flagged_share?: number; threshold?: number; mean_prediction?: number; std_prediction?: number
+      histogram?: { edges: number[]; actual: number[]; expected: number[] }
+    }
+    drift: DriftReport; preview: Record<string, unknown>[]; columns: string[]; output_file: string
+  } | null
+}
+export type BatchListItem = Omit<BatchJob, 'result'> & { summary: NonNullable<BatchJob['result']>['summary'] | null; drift_counts: DriftReport['counts'] | null; max_psi: number | null; prediction_psi: number | null }
+
+export type CardField = { key: string; label: string; hint: string; value: string }
+export type ModelCard = {
+  title: string; model_name: string; version: number; version_id: string; generated_note: string
+  summary: Record<string, unknown> & { stage: Stage; approval: Approval; model_sha256: string; best_model: string; source_run: string; eval_metric: string; problem_type: ProblemType; label: string; positive_class: string | null; registered_by: string; registered_at: string; mlflow: VersionResult['mlflow'] | null }
+  data: Record<string, unknown> & { rows: number; columns: number; features: number; train_rows: number; holdout_rows: number; sha256: string; splits_sha256: string; name: string; source: string; filename: string; split: string; dropped_missing_label: number; dropped_columns: string[]; warnings: string[]
+    label_balance: { class: string; train: number; train_share: number; holdout: number; holdout_share: number }[] | { mean: number; std: number; min: number; median: number; max: number } | null
+    feature_table: { name: string; type: string; missing_share: number; unique: number }[] }
+  training: { call: string; notes: string[]; fit_seconds: number; n_models: number; presets: unknown; time_limit: number | null; registration: Record<string, unknown>; refit: VersionResult['refit'] }
+  validation: { holdout_ci: HoldoutCI | null; source_holdout_ci: HoldoutCI | null; threshold: ThresholdRecord | null; version_threshold: number | null; confusion_matrix: number[][] | null; classes: string[] | null; validation_score: number | null }
+  importance: { features: FeatureImportanceCI[]; method: string }
+  fairness: { reports: Record<string, { gaps: Record<string, number>; threshold: number | null; computed_at: string; binning: string; by_group: Record<string, unknown>[] }>; note: string | null }
+  ensemble: { model: string | null; weights: Record<string, number> | null; stack_level: number | null; version_best: string; dependencies: string[]; leaderboard: Record<string, unknown>[] }
+  deployment: { source: { best_model: string; size_bytes: number; n_models: number; latency: Latency }; version: { best_model: string; size_bytes: number; n_models: number; latency: Latency }; tradeoff: VersionResult['tradeoff']; infer_limit: VersionResult['infer_limit'] }
+  use: { fields: CardField[] }
+  monitoring: { batches: { id: string; created_at: string; n_rows: number; max_psi: number | null; prediction_psi: number | null; counts: DriftReport['counts'] | null }[]; bands: string }
+  approval: { stage: Stage; approval: Approval; rules: string; reviews: AuditEntry[]; audit: AuditEntry[] }
 }

@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -84,6 +84,47 @@ export const api = {
     shap: (id: string, row: number, target?: string) =>
       request<ShapResult>(`/runs/${encodeURIComponent(id)}/shap?row=${row}${target ? `&target=${encodeURIComponent(target)}` : ''}`, { timeoutMs: 180_000 }),
   },
+  registry: {
+    get: () => request<{ models: RegisteredModel[]; versions: ModelVersion[]; counts: RegistryCounts }>('/registry'),
+    summary: () => request<{ counts: RegistryCounts; audit: AuditEntry[]; production: ModelVersion[] }>('/registry/summary'),
+    /** Register a finished run as a new version; it builds in a worker (status 'building' → 'ready'). */
+    register: (runId: string, body: RegisterRequest) => json<ModelVersion>(`/runs/${encodeURIComponent(runId)}/register`, 'POST', body),
+    /** Every model of the run: score, measured µs per row, models and bytes it needs. */
+    latency: (runId: string) => request<LatencyProfile>(`/runs/${encodeURIComponent(runId)}/latency`, { timeoutMs: 180_000 }),
+    version: (id: string) => request<ModelVersion>(`/registry/versions/${encodeURIComponent(id)}`),
+    transition: (id: string, stage: Stage, actor: string, comment = '') =>
+      json<{ version: ModelVersion; audit: AuditEntry; archived: string[] }>(`/registry/versions/${encodeURIComponent(id)}/transition`, 'POST', { stage, actor, comment }),
+    review: (id: string, decision: 'approve' | 'reject', reviewer: string, comment = '') =>
+      json<{ version: ModelVersion; audit: AuditEntry }>(`/registry/versions/${encodeURIComponent(id)}/review`, 'POST', { decision, reviewer, comment }),
+    audit: (q: { model?: string; versionId?: string; limit?: number } = {}) => {
+      const p = new URLSearchParams()
+      if (q.model) p.set('model', q.model)
+      if (q.versionId) p.set('version_id', q.versionId)
+      if (q.limit) p.set('limit', String(q.limit))
+      return request<{ entries: AuditEntry[] }>(`/registry/audit?${p}`).then((r) => r.entries)
+    },
+    card: (id: string) => request<ModelCard>(`/registry/versions/${encodeURIComponent(id)}/card`, { timeoutMs: 60_000 }),
+    cardUrl: (id: string, format: 'md' | 'html') => `${BASE}/registry/versions/${encodeURIComponent(id)}/card?format=${format}&download=true`,
+    editCard: (id: string, actor: string, fields: Record<string, string>) =>
+      json<{ card: Record<string, string>; changed: string[] }>(`/registry/versions/${encodeURIComponent(id)}/card`, 'PUT', { actor, fields }),
+    mlflow: (id: string) => request<Record<string, unknown>>(`/registry/versions/${encodeURIComponent(id)}/mlflow`, { timeoutMs: 60_000 }),
+    /** Try It: the prediction, probabilities and Kernel SHAP reasons for one row (computed in a worker). */
+    tryIt: (id: string, row: Record<string, unknown>, target?: string) =>
+      json<TryResult>(`/registry/versions/${encodeURIComponent(id)}/predict`, 'POST', { row, explain: true, target }, 180_000),
+    batches: (id: string) => request<{ batches: BatchListItem[] }>(`/registry/versions/${encodeURIComponent(id)}/batches`).then((r) => r.batches),
+    batch: (bid: string) => request<BatchJob>(`/registry/batches/${encodeURIComponent(bid)}`, { timeoutMs: 30_000 }),
+    batchUrl: (bid: string) => `${BASE}/registry/batches/${encodeURIComponent(bid)}/download`,
+    scoreBatch: (id: string, file: File, createdBy: string) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('created_by', createdBy)
+      return request<BatchJob>(`/registry/versions/${encodeURIComponent(id)}/batches`, { method: 'POST', body: form, timeoutMs: 120_000 })
+    },
+  },
+}
+
+function json<T>(path: string, method: string, body: unknown, timeoutMs = 60_000) {
+  return request<T>(path, { method, body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs })
 }
 
 /**
@@ -98,7 +139,7 @@ export function followRun(id: string, onEvent: (e: RunEvent) => void,
   const terminal = new Set(['run_succeeded', 'run_failed', 'run_cancelled'])
   const types = ['run_queued', 'run_started', 'data_ready', 'config_resolved', 'fit_started', 'model_started', 'model_finished',
     'model_failed', 'ensemble', 'fit_finished', 'leaderboard', 'evaluation', 'text_models', 'explaining', 'feature_importance',
-    'log', 'calibrating', 'threshold', 'run_succeeded', 'run_failed', 'run_cancelled']
+    'log', 'calibrating', 'threshold', 'tracked', 'run_succeeded', 'run_failed', 'run_cancelled']
   let next = opts.from ?? 0
   let ended = false
   let es: EventSource | null = null

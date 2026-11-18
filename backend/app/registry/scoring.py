@@ -165,8 +165,9 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         (out_dir_p / "drift.json").write_text(json.dumps(jsonable(rep)))
         reg.update_batch(batch_id, status="succeeded", stage="done", progress=1.0, result=result, finished_at=now())
         v = reg.get_version(version["id"])
-        reg.audit(actor=reg.get_batch(batch_id)["created_by"] or "unknown", action="batch_scored", version=v,
-                  comment=f"{n:,} rows from {Path(csv_path).name}",
+        brec = reg.get_batch(batch_id)
+        reg.audit(actor=brec["created_by"] or "unknown", action="batch_scored", version=v,
+                  comment=f"{n:,} rows from {brec['filename']}",
                   details={"batch_id": batch_id, "n_rows": n, "max_psi": rep.get("max_psi"),
                            "prediction_psi": rep["prediction"]["psi"], "bands": rep["counts"]})
         return {"ok": True}

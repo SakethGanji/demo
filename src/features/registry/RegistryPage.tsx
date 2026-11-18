@@ -1,4 +1,7 @@
+import { useApi } from '@/shared/api/mode'
 import { Graph } from '@/shared/components/Graph'
+import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { LiveRegistry } from './LiveRegistry'
 import { SparkWave } from '@/shared/primitives/SparkWave'
 import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
 
@@ -11,11 +14,19 @@ const VERSIONS: [string, Status, string, string, string, string, string, string]
 ]
 
 export function RegistryPage({ go, approved, onApprove }: { go: (r: string) => void; approved: boolean; onApprove: () => void }) {
+  const { mode } = useApi()
+  if (mode === 'live') return <LiveRegistry go={go} />
+  if (mode === 'checking') return <div className="page"><div className="card card-body row"><ResonanceWave /> Connecting…</div></div>
+  return <MockRegistry go={go} approved={approved} onApprove={onApprove} />
+}
+
+/** Mock mode (API offline): the scripted registry, labelled SIMULATED. */
+function MockRegistry({ go, approved, onApprove }: { go: (r: string) => void; approved: boolean; onApprove: () => void }) {
   const versions = VERSIONS.map((v) => (!approved ? v : v[0] === 'v3.0.0-rc1' ? [v[0], 'success', 'Production', v[3], v[4], v[5], 'Maya Lin', v[7]] : v[0] === 'v2.4.1' ? [v[0], 'neutral', 'Archived', ...v.slice(3)] : v) as typeof v)
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1 className="page-title">Model Registry</h1><p className="helper sub">Enterprise Support Ticket Classifier · 5 versions · {approved ? 'v3.0.0-rc1' : 'v2.4.1'} in Production</p></div>
+        <div><h1 className="page-title">Model Registry <span className="pill warning" data-testid="registry-simulated">SIMULATED</span></h1><p className="helper sub">mock mode · the API is offline, so these versions are scripted · Enterprise Support Ticket Classifier · 5 versions · {approved ? 'v3.0.0-rc1' : 'v2.4.1'} in Production</p></div>
         <div className="row">
           <button className="btn" onClick={() => go('experiments')}>Compare Runs →</button>
           {approved ? <StatusPill status="success">v3.0.0-rc1 Approved</StatusPill> : <button className="btn primary" onClick={onApprove}>Approve v3.0.0-rc1</button>}

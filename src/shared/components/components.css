@@ -185,3 +185,41 @@
 .tw-row span:last-child { text-align: right; font-size: 11px; }
 .tw-bar { display: block; height: 4px; background: var(--border-row); border-radius: 2px; position: relative; overflow: hidden; }
 .tw-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--grad-string); }
+
+/* Navy KPI strip (Explain, Registry) and the SHAP decomposition (Explain, Try It) */
+.explain-hero { display: flex; flex-wrap: wrap; padding: 0; overflow: hidden; }
+.eh-cell { display: flex; flex-direction: column; gap: 3px; padding: var(--space-16) var(--space-20); border-right: 1px solid var(--border-shell); min-width: 128px; flex: 1 1 0; }
+.eh-cell:last-child { border-right: 0; }
+.eh-cell.lead { flex: 1.6 1 0; min-width: 220px; background: linear-gradient(90deg, rgba(45, 212, 191, 0.07), transparent); }
+.eh-cell b { font-size: 22px; line-height: 28px; font-weight: 500; color: var(--text-on-shell); white-space: nowrap; }
+.eh-cell.lead b { font-size: 34px; line-height: 40px; color: var(--accent-primary-shell); }
+.eh-cell small { font-size: 11.5px; color: var(--text-on-shell-muted); }
+.eh-cell .math-s { color: var(--accent-secondary-shell); }
+.up-e { color: var(--viz-e); } .down-b { color: var(--viz-b); }
+.fi-name { font-family: var(--font-mono); font-size: 11.5px; fill: var(--text-primary); }
+.fi-val { fill: var(--text-muted); }
+.math-t { font-family: var(--font-math); font-style: italic; font-size: 14px; }
+.shap-eq { font-size: 13px; line-height: 22px; color: var(--text-body); padding: var(--space-8) var(--space-12); background: var(--bg-subtle); border-radius: var(--radius-control); margin-bottom: var(--space-12); }
+.shap-eq .math { font-size: 15px; color: var(--text-primary); }
+.shap-eq b.mono { color: var(--accent-primary); font-size: 14px; }
+.shap-sub { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-muted); margin-left: 1px; }
+
+/* One-row prediction form and its navy result well (New Model's Try A Prediction, the Registry's Try It) */
+.tp-body { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); gap: var(--space-24); align-items: start; }
+.tp-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: var(--space-12); }
+.tp-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tp-field.wide { grid-column: 1 / -1; }
+.tp-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--text-primary); }
+.tp-label small { font-size: 10.5px; color: var(--text-muted); }
+.navy-well { background: var(--bg-shell); color: var(--text-on-shell); border-radius: var(--radius-card); padding: var(--space-16) var(--space-20); min-height: 200px; display: flex; flex-direction: column; gap: 6px; }
+.navy-well .micro-label { color: var(--text-on-shell-muted); }
+.tp-empty { margin: auto; font-family: var(--font-math); font-style: italic; font-size: 18px; color: var(--text-on-shell-muted); }
+.tp-class { font-family: var(--font-mono); font-size: 30px; line-height: 38px; color: var(--accent-primary-shell); }
+.tp-eq { font-family: var(--font-math); font-size: 14.5px; color: var(--text-on-shell); }
+.tp-probs { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.tp-prob { display: grid; grid-template-columns: minmax(70px, auto) 1fr 52px; gap: var(--space-8); align-items: center; font-size: 12px; color: var(--text-on-shell-muted); }
+.tp-prob.on { color: var(--text-on-shell); }
+.tp-prob span:last-child { text-align: right; }
+.tp-bar { display: block; height: 6px; border-radius: 3px; background: var(--border-shell); position: relative; overflow: hidden; }
+.tp-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--grad-string); }
+.tp-foot { font-size: 11.5px; color: var(--text-on-shell-muted); margin-top: 4px; }

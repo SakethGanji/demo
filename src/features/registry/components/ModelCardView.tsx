@@ -1,0 +1,142 @@
+import { useEffect, useState } from 'react'
+import { api } from '@/shared/api/client'
+import type { MetricCI, ModelCard, ModelVersion } from '@/shared/api/types'
+import { fmtScore } from '@/shared/lib/metrics'
+import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { StatusPill } from '@/shared/primitives/StatusPill'
+import { ACTION_WORD, APPROVAL_STATUS, STAGE_STATUS, bytes, ms, pct, short, us, when } from '../lib'
+
+const ci = (m?: MetricCI) => (m ? <><b>{fmtScore(m.value)}</b> <span className="muted">[{fmtScore(m.ci_low, 3)}, {fmtScore(m.ci_high, 3)}]</span></> : '—')
+
+/** The model card as a document: what a model risk reviewer reads before signing. Downloadable as Markdown or HTML. */
+export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: string; onEdited: () => void }) {
+  const [c, setC] = useState<ModelCard | null>(null)
+  const [err, setErr] = useState('')
+  const [edit, setEdit] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState('')
+  const load = () => api.registry.card(v.id).then((x) => { setC(x); setEdit(Object.fromEntries(x.use.fields.map((f) => [f.key, f.value]))) }).catch((e) => setErr((e as Error).message))
+  useEffect(() => { load() }, [v.id, v.stage, v.approval]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (err) return <div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div>
+  if (!c) return <div className="card card-body row"><ResonanceWave /> Assembling the model card from the run, the version and the audit log…</div>
+  const s = c.summary, d = c.data, t = c.training, val = c.validation
+  const save = async () => {
+    setSaving(true); setSaved('')
+    try { const r = await api.registry.editCard(v.id, actor, edit); setSaved(r.changed.length ? `saved: ${r.changed.join(', ')}` : 'no changes'); load(); onEdited() } catch (e) { setSaved(`✕ ${(e as Error).message}`) } finally { setSaving(false) }
+  }
+  const hc = val.holdout_ci?.metrics ?? {}, sc = val.source_holdout_ci?.metrics ?? {}
+  const bal = Array.isArray(d.label_balance) ? d.label_balance : null
+  const dep = c.deployment
+  return (
+    <div className="card model-card" data-testid="model-card">
+      <div className="mc-head">
+        <div>
+          <span className="micro-label">model card · SR 11-7 documentation support</span>
+          <h2 className="mc-title">{c.model_name} <span className="mono">v{c.version}</span></h2>
+          <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <StatusPill status={STAGE_STATUS[s.stage]}>{s.stage}</StatusPill><StatusPill status={APPROVAL_STATUS[s.approval]}>{s.approval}</StatusPill>
+            <span className="mono helper" style={{ fontSize: 12 }}>h = {short(s.model_sha256, 16)}…</span>
+          </div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <a className="btn" href={api.registry.cardUrl(v.id, 'md')} download data-testid="card-md">Download .md</a>
+          <a className="btn" href={api.registry.cardUrl(v.id, 'html')} download data-testid="card-html">Download .html</a>
+        </div>
+      </div>
+      <p className="mc-note" data-testid="card-disclaimer">▲ {c.generated_note}</p>
+
+      <section className="mc-sec"><h3><i>1</i> Summary</h3>
+        <dl className="mc-kv">
+          {([['problem', `${s.problem_type} · y = ${s.label}${s.positive_class != null ? ` · positive = ${s.positive_class}` : ''}`], ['selection metric', s.eval_metric], ['engine', 'AutoGluon TabularPredictor'],
+            ['served model', s.best_model], ['source run', s.source_run], ['registered', `${s.registered_by} · ${when(s.registered_at)}`],
+            ['MLflow', s.mlflow ? `models:/${s.mlflow.name}/${s.mlflow.version}` : '—'], ['model SHA-256', s.model_sha256]] as [string, string][]).map(([k, x]) => <div key={k}><dt>{k}</dt><dd className="mono">{x}</dd></div>)}
+        </dl>
+      </section>
+
+      <section className="mc-sec" data-testid="card-use"><h3><i>2</i> Intended use and limitations <small>to be completed by the model owner</small></h3>
+        <div className="mc-fields">
+          {c.use.fields.map((f) => (
+            <label key={f.key} className="mc-field"><span>{f.label}</span>
+              <textarea className="kw-input" rows={2} placeholder={f.hint} data-testid={`card-${f.key}`} value={edit[f.key] ?? ''} onChange={(e) => setEdit({ ...edit, [f.key]: e.target.value })} />
+            </label>
+          ))}
+        </div>
+        <div className="row" style={{ gap: 8, marginTop: 8 }}>
+          <button className="btn sm primary" data-testid="card-save" disabled={saving || !actor.trim()} onClick={save}>Save as {actor || '…'}</button>
+          <span className="helper" style={{ fontSize: 12 }}>{saved || 'Edits are recorded in the audit log.'}</span>
+        </div>
+      </section>
+
+      <section className="mc-sec" data-testid="card-data"><h3><i>3</i> Data</h3>
+        <div className="mc-cols">
+          <dl className="mc-kv">
+            {([['dataset', d.name?.includes(d.source) ? d.name : `${d.name} (${d.source})`], ['file', d.filename], ['n rows × columns', `${d.rows?.toLocaleString()} × ${d.columns}`], ['features d', String(d.features)],
+              ['training n_train', d.train_rows?.toLocaleString()], ['holdout n_h', d.holdout_rows?.toLocaleString()], ['dropped (no label)', String(d.dropped_missing_label ?? 0)],
+              ['file SHA-256', d.sha256], ['split SHA-256', d.splits_sha256]] as [string, string][]).map(([k, x]) => <div key={k}><dt>{k}</dt><dd className="mono">{x}</dd></div>)}
+          </dl>
+          <div>
+            {bal && <table className="table compact" data-testid="card-balance"><thead><tr><th>class</th><th className="r">train</th><th className="r">share</th><th className="r">holdout</th><th className="r">share</th></tr></thead>
+              <tbody>{bal.map((b) => <tr key={b.class}><td className="mono">{b.class}</td><td className="r mono">{b.train.toLocaleString()}</td><td className="r mono">{pct(b.train_share, 2)}</td><td className="r mono">{b.holdout.toLocaleString()}</td><td className="r mono">{pct(b.holdout_share, 2)}</td></tr>)}</tbody></table>}
+            <p className="helper" style={{ fontSize: 12 }}>Split: {d.split}.</p>
+            {d.warnings.map((w) => <p key={w} className="helper" style={{ fontSize: 12, color: 'var(--status-warning)' }}>▲ {w}</p>)}
+          </div>
+        </div>
+        <table className="table compact"><thead><tr><th>feature</th><th>type</th><th className="r">missing</th><th className="r">distinct</th></tr></thead>
+          <tbody>{d.feature_table.map((f) => <tr key={f.name}><td className="mono">{f.name}</td><td>{f.type}</td><td className="r mono">{pct(f.missing_share)}</td><td className="r mono">{f.unique.toLocaleString()}</td></tr>)}</tbody></table>
+      </section>
+
+      <section className="mc-sec"><h3><i>4</i> Development</h3>
+        <pre className="reg-call" data-testid="card-call">{t.call}</pre>
+        {t.notes.map((n) => <p key={n} className="helper" style={{ fontSize: 12 }}>· {n}</p>)}
+        <p className="helper" style={{ fontSize: 12.5 }}>Registration: refit_full = {String(t.registration.refit_full)}, infer_limit = {t.registration.infer_limit == null ? 'none' : `${t.registration.infer_limit} s/row`}, clone_for_deployment = {String(t.registration.clone_for_deployment)}. {t.n_models} models trained in {fmtScore(t.fit_seconds, 1)} s.</p>
+        {c.ensemble.weights && (
+          <div className="formula" style={{ marginTop: 8 }}>
+            <div className="eq" data-testid="card-ensemble"><i>ŷ</i>(<i>x</i>) = {Object.entries(c.ensemble.weights).map(([m, w], i) => <span key={m}>{i ? ' + ' : ''}<b className="mono">{w.toFixed(3)}</b>·<i>f</i><sub>{m}</sub>(<i>x</i>)</span>)}</div>
+            <dl className="where"><dt>wₘ</dt><dd>weights of {c.ensemble.model} (Caruana greedy selection on validation predictions), Σ wₘ = 1, wₘ ≥ 0</dd><dt>fₘ</dt><dd>base model m’s predicted probability (or value); this version serves <span className="mono">{c.ensemble.version_best}</span> with {c.ensemble.dependencies.length} model(s)</dd></dl>
+          </div>
+        )}
+      </section>
+
+      <section className="mc-sec" data-testid="card-validation"><h3><i>5</i> Validation on the holdout <small>n_h = {d.holdout_rows?.toLocaleString()} rows never used for training or model selection; 95% percentile bootstrap, B = {val.holdout_ci?.B}</small></h3>
+        <table className="table compact"><thead><tr><th>metric</th><th>definition</th><th className="r">this version</th><th className="r">source run</th></tr></thead>
+          <tbody>{Object.entries(hc).map(([k, m]) => <tr key={k} data-testid={`card-metric-${k}`}><td className="mono">{k}</td><td className="math-col">{m.formula}</td><td className="r mono">{ci(m)}</td><td className="r mono">{ci(sc[k])}</td></tr>)}</tbody></table>
+        {val.threshold && <p className="helper" style={{ fontSize: 12.5 }}>Decision threshold <b className="mono">t = {val.threshold.value.toFixed(3)}</b> ({val.threshold.source}{val.threshold.metric ? `, ${val.threshold.metric}` : ''}): predict positive when p̂ &gt; t. Validation score of the source model: {fmtScore(val.validation_score)}.</p>}
+      </section>
+
+      <section className="mc-sec"><h3><i>6</i> Feature importance <small>{c.importance.method}</small></h3>
+        <table className="table compact"><thead><tr><th className="nocase">feature j</th><th className="r nocase">Îⱼ</th><th className="r">95% CI</th><th className="r">p</th></tr></thead>
+          <tbody>{c.importance.features.slice(0, 12).map((f) => <tr key={f.feature}><td className="mono">{f.feature}</td><td className="r mono">{fmtScore(f.importance)}</td><td className="r mono">[{fmtScore(f.ci_low, 3)}, {fmtScore(f.ci_high, 3)}]</td><td className="r mono">{fmtScore((f as unknown as { p_value?: number }).p_value, 3)}</td></tr>)}</tbody></table>
+      </section>
+
+      <section className="mc-sec" data-testid="card-fairness"><h3><i>7</i> Fairness</h3>
+        {Object.keys(c.fairness.reports).length ? Object.entries(c.fairness.reports).map(([g, r]) => (
+          <p key={g} className="helper" style={{ fontSize: 12.5 }}><b className="mono">{g}</b> ({r.binning}{r.threshold != null ? `, t = ${r.threshold.toFixed(3)}` : ''}): {Object.entries(r.gaps).map(([k, x]) => `${k.replace(/_/g, ' ')} = ${fmtScore(x, 3)}`).join(' · ')}</p>
+        )) : <p className="helper" style={{ fontSize: 12.5 }}>{c.fairness.note}</p>}
+      </section>
+
+      <section className="mc-sec"><h3><i>8</i> Deployment trade-off <small>measured</small></h3>
+        <table className="table compact"><thead><tr><th /><th className="r">source run</th><th className="r">this version</th></tr></thead>
+          <tbody>
+            <tr><td>served model</td><td className="r mono">{dep.source.best_model}</td><td className="r mono">{dep.version.best_model}</td></tr>
+            <tr><td>size on disk</td><td className="r mono">{bytes(dep.source.size_bytes)}</td><td className="r mono">{bytes(dep.version.size_bytes)}</td></tr>
+            <tr><td>batch t̂ p50 / p95 (µs/row)</td><td className="r mono">{us(dep.source.latency.us_per_row_p50)} / {us(dep.source.latency.us_per_row_p95)}</td><td className="r mono">{us(dep.version.latency.us_per_row_p50)} / {us(dep.version.latency.us_per_row_p95)}</td></tr>
+            <tr><td>one row p50 / p95 (ms)</td><td className="r mono">{ms(dep.source.latency.single_ms_p50)} / {ms(dep.source.latency.single_ms_p95)}</td><td className="r mono">{ms(dep.version.latency.single_ms_p50)} / {ms(dep.version.latency.single_ms_p95)}</td></tr>
+          </tbody></table>
+      </section>
+
+      <section className="mc-sec"><h3><i>9</i> Monitoring <small>{c.monitoring.bands}</small></h3>
+        {c.monitoring.batches.length ? <table className="table compact"><thead><tr><th>batch</th><th>scored</th><th className="r">rows</th><th className="r">max PSI (features)</th><th className="r nocase">PSI(p̂)</th></tr></thead>
+          <tbody>{c.monitoring.batches.map((b) => <tr key={b.id}><td className="mono">{b.id}</td><td className="mono">{when(b.created_at)}</td><td className="r mono">{b.n_rows?.toLocaleString()}</td><td className="r mono">{fmtScore(b.max_psi, 4)}</td><td className="r mono">{fmtScore(b.prediction_psi, 4)}</td></tr>)}</tbody></table>
+          : <p className="helper" style={{ fontSize: 12.5 }}>No batches scored yet. Score one under Batch &amp; Drift to start the record.</p>}
+      </section>
+
+      <section className="mc-sec" data-testid="card-approval"><h3><i>10</i> Approval</h3>
+        <p className="helper" style={{ fontSize: 12.5 }}>{c.approval.rules}</p>
+        <table className="table compact"><thead><tr><th>when (UTC)</th><th>who</th><th>action</th><th>stage</th><th>comment</th><th className="nocase">h</th></tr></thead>
+          <tbody>{c.approval.audit.map((a) => <tr key={a.id}><td className="mono">{when(a.ts)}</td><td>{a.actor}</td><td>{ACTION_WORD[a.action]}</td><td className="mono">{a.to_stage ? `${a.from_stage ?? ''} → ${a.to_stage}` : ''}</td><td>{a.comment}</td><td className="mono">{short(a.model_hash, 8)}</td></tr>)}</tbody></table>
+        <div className="mc-sign">{['Model owner', 'Independent validator', 'Model risk management'].map((r) => <div key={r}><span className="micro-label">{r}</span><i /><small className="helper">name · date · signature</small></div>)}</div>
+      </section>
+    </div>
+  )
+}

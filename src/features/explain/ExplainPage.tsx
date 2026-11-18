@@ -97,7 +97,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
       </div>
 
       <div className="card navy explain-hero">
-        <div className="eh-cell main">
+        <div className="eh-cell lead">
           <span className="micro-label">holdout {info?.name ?? metric}</span>
           <b className="mono" data-testid="explain-primary">{fmtScore(run.holdout?.metrics[metric])}</b>
           <small>{run.problem_type}{run.classes ? ` · K = ${run.classes.length}` : ''} · {run.leaderboard?.length} models · val {fmtScore(rank?.score_val_natural)}</small>
