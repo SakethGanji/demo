@@ -41,7 +41,7 @@ export function TrainingGymPage({ params, setParams, guided, setGuided, onStart,
         {step === HYPER ? (
           <Hyperparameters params={params} set={set} guided={guided} setGuided={setGuided} />
         ) : (
-          <StepSummary index={step} />
+          <StepSummary index={step} params={params} />
         )}
       </div>
 

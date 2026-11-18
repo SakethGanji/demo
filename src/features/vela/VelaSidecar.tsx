@@ -4,7 +4,8 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { PatchCard, type Patch } from './components/PatchCard'
 
-export function VelaSidecar({ context, patches, onClose }: { context: string; patches: Patch[]; onClose: () => void }) {
+/** Stays mounted while closed so applied patches and your questions survive reopening it. */
+export function VelaSidecar({ open, context, patches, onClose }: { open: boolean; context: string; patches: Patch[]; onClose: () => void }) {
   const [thinking, setThinking] = useState(true)
   const [applied, setApplied] = useState<Set<string>>(new Set())
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
@@ -22,7 +23,7 @@ export function VelaSidecar({ context, patches, onClose }: { context: string; pa
   }
 
   return (
-    <aside className="sidecar" aria-label="Vela AI Assistant">
+    <aside className="sidecar" aria-label="Vela AI Assistant" hidden={!open}>
       <div className="sidecar-head">
         <VelaCrest size={20} />
         <b className="card-title">Vela</b>
@@ -36,7 +37,7 @@ export function VelaSidecar({ context, patches, onClose }: { context: string; pa
           <div className="thinking"><ResonanceWave width={84} height={18} fast /> Reading run_894a metrics</div>
         ) : (
           patches.filter((p) => !dismissed.has(p.id)).map((p) => (
-            <PatchCard key={p.id} p={p} applied={applied.has(p.id)}
+            <PatchCard key={p.id} p={p} applied={p.applied ?? applied.has(p.id)}
               onApply={() => { p.apply?.(); setApplied((s) => new Set(s).add(p.id)) }}
               onDismiss={() => setDismissed((s) => new Set(s).add(p.id))} />
           ))

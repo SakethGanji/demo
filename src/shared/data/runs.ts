@@ -2,7 +2,13 @@
 
 export const CLASSES = ['Billing', 'Technical', 'Account', 'Security', 'Shipping', 'Other']
 
-export const CONFUSION = [
+export const CLASS_COUNTS = [21840, 26810, 17320, 8960, 12570, 37000]
+
+/** Share of the data held out and never trained on. */
+export const HOLDOUT = 0.15
+
+// The error pattern of run_894a, per actual class. Scaled below so each row is that class's share of the holdout.
+const CONFUSION_SHAPE = [
   [3812, 61, 44, 6, 21, 28],
   [52, 4410, 37, 118, 9, 40],
   [39, 33, 2964, 41, 8, 19],
@@ -11,7 +17,22 @@ export const CONFUSION = [
   [41, 52, 23, 6, 29, 1688],
 ]
 
-export const CLASS_COUNTS = [21840, 26810, 17320, 8960, 12570, 37000]
+export const CONFUSION = (() => {
+  const want = CLASS_COUNTS.map((n) => Math.round(n * HOLDOUT))
+  const total = Math.round(CLASS_COUNTS.reduce((a, b) => a + b, 0) * HOLDOUT)
+  want[want.indexOf(Math.max(...want))] += total - want.reduce((a, b) => a + b, 0) // absorb rounding in the largest class
+  return CONFUSION_SHAPE.map((row, i) => {
+    const sum = row.reduce((a, b) => a + b, 0)
+    const out = row.map((v, j) => (j === i ? 0 : Math.round((v / sum) * want[i])))
+    out[i] = want[i] - out.reduce((a, b) => a + b, 0)
+    return out
+  })
+})()
+
+/** Recall per class and its mean, from the matrix above. */
+export const RECALL = CONFUSION.map((row, i) => row[i] / row.reduce((a, b) => a + b, 0))
+export const MEAN_RECALL = RECALL.reduce((a, b) => a + b, 0) / RECALL.length
+
 
 export type Run = {
   id: string

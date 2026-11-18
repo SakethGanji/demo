@@ -9,6 +9,8 @@ export type Patch = {
   from: string
   to: string
   apply?: () => void
+  /** True when the change is already in effect, however it got there. */
+  applied?: boolean
 }
 
 export function PatchCard({ p, applied, onApply, onDismiss }: { p: Patch; applied: boolean; onApply: () => void; onDismiss: () => void }) {

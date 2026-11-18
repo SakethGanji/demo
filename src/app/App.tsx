@@ -9,6 +9,7 @@ import { TrainingGymPage } from '@/features/training-gym/TrainingGymPage'
 import { DEFAULTS, type Params } from '@/features/training-gym/params'
 import { VelaSidecar } from '@/features/vela/VelaSidecar'
 import type { Patch } from '@/features/vela/components/PatchCard'
+import { MEAN_RECALL } from '@/shared/data/runs'
 import { PrefsContext, loadPrefs, savePrefs, type Prefs } from '@/shared/lib/prefs'
 import { FULL_HEIGHT, TITLES, readRoute, type Route } from './routes'
 import { CommandPalette } from './shell/CommandPalette'
@@ -26,6 +27,8 @@ export default function App() {
   useEffect(() => setGuided(prefs.mode === 'Guided'), [prefs.mode])
   const [params, setParams] = useState<Params>(DEFAULTS)
   const [palette, setPalette] = useState(false)
+  const [approved, setApproved] = useState(false) // kept here so the Registry remembers it while you look at other pages
+  useEffect(() => { document.title = `Project ENSEMBLE · ${TITLES[route]}` }, [route])
 
   useEffect(() => { const f = () => setRoute(readRoute()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
   useEffect(() => {
@@ -40,15 +43,15 @@ export default function App() {
   const patches: Patch[] = [
     {
       id: 'cw', title: 'Rebalance Classes',
-      finding: <>Recall on Security is <b>0.84</b> (lower than <b>0.94</b> average), often confused with Technical. Weighting classes by inverse frequency should lift it.</>,
+      finding: <>Recall on Security is <b>0.84</b> (lower than <b>{MEAN_RECALL.toFixed(2)}</b> average), often confused with Technical. Weighting classes by inverse frequency should lift it.</>,
       from: "class_weight=None", to: "class_weight='balanced'",
-      apply: () => setParams((p) => ({ ...p, classWeight: 'balanced' })),
+      apply: () => setParams((p) => ({ ...p, classWeight: 'balanced' })), applied: params.classWeight === 'balanced',
     },
     {
       id: 'c', title: 'Tune Regularization',
       finding: <>Validation F1 is still rising at <span className="math">C</span> = 1.0. At <span className="math">C</span> = 2.0 you gain <b>Δ +0.004</b> macro F1 for 1.3× fit time.</>,
       from: 'C=1.0', to: 'C=2.0',
-      apply: () => setParams((p) => ({ ...p, C: 2 })),
+      apply: () => setParams((p) => ({ ...p, C: 2 })), applied: params.C === 2,
     },
   ]
 
@@ -64,14 +67,14 @@ export default function App() {
           {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
           {route === 'quick-train' && <QuickTrainPage go={go} />}
           {route === 'autopilot' && <AutopilotPage go={go} />}
-          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train')} onAutopilot={() => go('autopilot')} />}
+          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} />}
           {route === 'experiments' && <ExperimentsPage go={go} />}
-          {route === 'registry' && <RegistryPage go={go} />}
+          {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
           {route === 'settings' && <SettingsPage />}
         </main>
       </div>
 
-      {vela && <VelaSidecar context={route === 'gym' ? 'Training Gym · Step 07' : TITLES[route]} patches={patches} onClose={() => setVela(false)} />}
+      <VelaSidecar open={vela} context={route === 'gym' ? 'Training Gym · Step 07' : TITLES[route]} patches={patches} onClose={() => setVela(false)} />
     </div>
     <StatusBar params={params} />
     {palette && <CommandPalette onClose={() => setPalette(false)} go={go} />}

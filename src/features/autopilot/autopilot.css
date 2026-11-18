@@ -1,7 +1,7 @@
 /* ---------- autopilot ---------- */
 .goal { width: 100%; resize: vertical; border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); font: inherit; color: var(--text-primary); background: var(--bg-surface); line-height: 19px; }
 .goal:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 1px var(--border-focus); }
-.ds-pick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-8); }
+.ds-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-8); }
 .filter.ds { height: auto; padding: var(--space-8) var(--space-12); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; min-width: 0; }
 .filter.ds b { font-size: 12px; font-weight: 500; color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .filter.ds span { font-weight: 400; font-size: 11.5px; }

@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { Graph } from '@/shared/components/Graph'
 import { SparkWave } from '@/shared/primitives/SparkWave'
 import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
@@ -11,8 +10,7 @@ const VERSIONS: [string, Status, string, string, string, string, string, string]
   ['v2.2.0', 'danger', 'Rejected', 'run_7e09', '0.861', '0.902', 'Arun Patel', '2026-05-30'],
 ]
 
-export function RegistryPage({ go }: { go: (r: string) => void }) {
-  const [approved, setApproved] = useState(false)
+export function RegistryPage({ go, approved, onApprove }: { go: (r: string) => void; approved: boolean; onApprove: () => void }) {
   const versions = VERSIONS.map((v) => (!approved ? v : v[0] === 'v3.0.0-rc1' ? [v[0], 'success', 'Production', v[3], v[4], v[5], 'Maya Lin', v[7]] : v[0] === 'v2.4.1' ? [v[0], 'neutral', 'Archived', ...v.slice(3)] : v) as typeof v)
   return (
     <div className="page">
@@ -20,7 +18,7 @@ export function RegistryPage({ go }: { go: (r: string) => void }) {
         <div><h1 className="page-title">Model Registry</h1><p className="helper sub">Enterprise Support Ticket Classifier · 5 versions · {approved ? 'v3.0.0-rc1' : 'v2.4.1'} in Production</p></div>
         <div className="row">
           <button className="btn" onClick={() => go('experiments')}>Compare Runs →</button>
-          {approved ? <StatusPill status="success">v3.0.0-rc1 Approved</StatusPill> : <button className="btn primary" onClick={() => setApproved(true)}>Approve v3.0.0-rc1</button>}
+          {approved ? <StatusPill status="success">v3.0.0-rc1 Approved</StatusPill> : <button className="btn primary" onClick={onApprove}>Approve v3.0.0-rc1</button>}
         </div>
       </div>
       <div className="grid kpis">

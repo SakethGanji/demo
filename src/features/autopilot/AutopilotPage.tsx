@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { SAMPLES, type Dataset } from '@/features/quick-train/datasets'
+import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { Segmented } from '@/shared/primitives/Segmented'
@@ -9,8 +10,11 @@ import { IterationString } from './components/IterationString'
 import { Gauge } from './components/RequirementGauge'
 import { buildRun, type Brief, type Diff, type Metrics } from './run'
 
+// The scripted run is written for text classification, so only the text samples are offered here.
+const TEXT_SAMPLES = SAMPLES.filter((d) => d.kind === 'text')
+
 export function AutopilotPage({ go }: { go: (r: string) => void }) {
-  const [ds, setDs] = useState<Dataset>(SAMPLES[0])
+  const [ds, setDs] = useState<Dataset>(TEXT_SAMPLES[0])
   const [goal, setGoal] = useState('Route each support ticket to the right team. Security tickets must not be missed. It has to answer fast enough to run on every incoming ticket.')
   const [brief, setBrief] = useState<Brief>({ f1: 0.9, recall: 0.9, latency: 5, budget: 8, synthetic: true, autonomy: 'Ground Truth Only' })
   const [phase, setPhase] = useState<'brief' | 'planning' | 'plan' | 'run'>('brief')
@@ -42,9 +46,34 @@ export function AutopilotPage({ go }: { go: (r: string) => void }) {
   const iterations = done.filter((s) => s.kind !== 'ask' && s.id !== 'profile' && s.id !== 'done').length
   const asked = done.filter((s) => s.kind === 'ask' && !s.auto).length
   const met = m.f1 >= brief.f1 && m.rec >= brief.recall && m.lat > 0 && m.lat <= brief.latency
+  const inboxRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (blocked) inboxRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }) }, [blocked])
   const start = () => { setAnswers({}); setShown(0); setPaused(false); setPhase('run') }
   const num = (k: 'f1' | 'recall' | 'latency' | 'budget', step: number, lo: number, hi: number) => (
-    <input className="num-input" type="number" step={step} min={lo} max={hi} value={brief[k]} onChange={(e) => setBrief({ ...brief, [k]: Math.min(hi, Math.max(lo, Number(e.target.value))) })} aria-label={k} />
+    <NumberInput label={k} value={brief[k]} min={lo} max={hi} step={step} format={(v) => (k === 'budget' ? String(v) : k === 'latency' ? v.toFixed(1) : v.toFixed(2))} onChange={(v) => setBrief({ ...brief, [k]: v })} />
+  )
+
+  const inbox = (
+    <div ref={inboxRef} className={`card inbox ${blocked ? 'open' : ''}`}>
+      <div className="card-head"><div className="left"><h3 className="card-title">Ground-Truth Inbox</h3></div>{blocked ? <StatusPill status="warning">1 Needs You</StatusPill> : <StatusPill status="neutral">Empty</StatusPill>}</div>
+      {blocked ? (
+        <div className="card-body stack" style={{ gap: 12 }}>
+          <p className="helper" style={{ color: 'var(--text-primary)' }}>{last!.finding}</p>
+          {last!.evidence && (
+            <div className="table-wrap well"><table className="table">
+              <thead><tr><th>Text</th><th>Label</th><th>Model</th><th className="r">Conf.</th></tr></thead>
+              <tbody>{last!.evidence.map((e, i) => <tr key={i}><td style={{ whiteSpace: 'normal', lineHeight: '17px', padding: '6px 12px' }}>{e.text}</td><td>{e.given}</td><td>{e.says}</td><td className="r table-cell">{e.conf.toFixed(2)}</td></tr>)}</tbody>
+            </table></div>
+          )}
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            {last!.options!.map((o, i) => <button key={o.id} className={`btn ${i === 0 ? 'primary' : ''}`} onClick={() => setAnswers({ ...answers, [last!.id]: o.id })}>{o.label}</button>)}
+          </div>
+          <span className="helper" style={{ fontSize: 12 }}>Vela's suggestion is first. Training is paused until you answer.</span>
+        </div>
+      ) : (
+        <div className="card-body"><p className="helper">{finished ? `Vela asked you ${asked} time${asked === 1 ? '' : 's'} in this run.` : 'Nothing needs you. Vela stops here only when the labels themselves are in question.'}</p></div>
+      )}
+    </div>
   )
 
   return (
@@ -71,7 +100,7 @@ export function AutopilotPage({ go }: { go: (r: string) => void }) {
                     <textarea id="goal" className="goal" rows={3} value={goal} onChange={(e) => setGoal(e.target.value)} />
                     <span className="micro-label">Dataset</span>
                     <div className="ds-pick">
-                      {SAMPLES.map((s) => (
+                      {TEXT_SAMPLES.map((s) => (
                         <button key={s.name} className={`filter ds ${ds.name === s.name ? 'on' : ''}`} onClick={() => { setDs(s); setPhase('brief') }}>
                           <b className="mono">{s.name}</b><span>{s.rows.toLocaleString()} rows · K = {s.classes.length}</span>
                         </button>
@@ -129,7 +158,7 @@ export function AutopilotPage({ go }: { go: (r: string) => void }) {
             <section className="stage">
               <div className="stage-head">
                 <div>
-                  <span className="hero-eyebrow" style={{ paddingLeft: 0, color: blocked ? '#FBBF24' : undefined }}>{finished ? (met ? 'DONE · REQUIREMENTS MET' : 'STOPPED · NEEDS A DECISION') : blocked ? 'WAITING ON YOU' : paused ? 'PAUSED' : 'VELA IS WORKING'}</span>
+                  <span className="hero-eyebrow" style={{ paddingLeft: 0, color: blocked ? '#FBBF24' : undefined }}>{finished ? (met ? 'DONE · REQUIREMENTS MET' : 'STOPPED · REQUIREMENTS NOT MET') : blocked ? 'WAITING ON YOU' : paused ? 'PAUSED' : 'VELA IS WORKING'}</span>
                   <h2 className="hero-title">{finished ? last!.title : blocked ? last!.title : next ? `${next.kind === 'ask' ? 'Checking' : 'Working on'}: ${next.short}` : ''}</h2>
                 </div>
                 <div className="stage-read">
@@ -151,6 +180,8 @@ export function AutopilotPage({ go }: { go: (r: string) => void }) {
                 <div className="seg stage-seg">{[1, 3].map((s) => <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}×</button>)}</div>
               </div>
             </section>
+
+            {blocked && inbox}
 
             <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1.35fr) minmax(0, 1fr)', alignItems: 'start' }}>
               <div className="card">
@@ -178,26 +209,7 @@ export function AutopilotPage({ go }: { go: (r: string) => void }) {
               </div>
 
               <div className="stack">
-                <div className={`card inbox ${blocked ? 'open' : ''}`}>
-                  <div className="card-head"><div className="left"><h3 className="card-title">Ground-Truth Inbox</h3></div>{blocked ? <StatusPill status="warning">1 Needs You</StatusPill> : <StatusPill status="neutral">Empty</StatusPill>}</div>
-                  {blocked ? (
-                    <div className="card-body stack" style={{ gap: 12 }}>
-                      <p className="helper" style={{ color: 'var(--text-primary)' }}>{last!.finding}</p>
-                      {last!.evidence && (
-                        <div className="table-wrap well"><table className="table">
-                          <thead><tr><th>Text</th><th>Label</th><th>Model</th><th className="r">Conf.</th></tr></thead>
-                          <tbody>{last!.evidence.map((e, i) => <tr key={i}><td style={{ whiteSpace: 'normal', lineHeight: '17px', padding: '6px 12px' }}>{e.text}</td><td>{e.given}</td><td>{e.says}</td><td className="r table-cell">{e.conf.toFixed(2)}</td></tr>)}</tbody>
-                        </table></div>
-                      )}
-                      <div className="row" style={{ flexWrap: 'wrap' }}>
-                        {last!.options!.map((o, i) => <button key={o.id} className={`btn ${i === 0 ? 'primary' : ''}`} onClick={() => setAnswers({ ...answers, [last!.id]: o.id })}>{o.label}</button>)}
-                      </div>
-                      <span className="helper" style={{ fontSize: 12 }}>Vela's suggestion is first. Training is paused until you answer.</span>
-                    </div>
-                  ) : (
-                    <div className="card-body"><p className="helper">{finished ? `Vela asked you ${asked} time${asked === 1 ? '' : 's'} in this run.` : 'Nothing needs you. Vela stops here only when the labels themselves are in question.'}</p></div>
-                  )}
-                </div>
+                {!blocked && inbox}
 
                 <div className="card">
                   <div className="card-head"><div className="left"><h3 className="card-title">Data Changes</h3></div><span className="chip">v1 → v{version}</span></div>

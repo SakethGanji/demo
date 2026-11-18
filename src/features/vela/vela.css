@@ -17,3 +17,4 @@
 .patch .diffline .old { color: var(--text-muted); text-decoration: line-through; }
 .patch.applied { border-color: var(--border-default); background: var(--bg-table-header); }
 .thinking { display: flex; align-items: center; gap: var(--space-8); color: var(--text-body); font-size: 12px; }
+.sidecar[hidden] { display: none; }

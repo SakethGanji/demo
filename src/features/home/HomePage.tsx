@@ -53,7 +53,7 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
             <img src={wordmark} alt="ENSEMBLE" height={36} />
           </div>
           <div className="hero-read">
-            <span><b>1</b> run on the strings</span><span><b>12</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
+            <span><b>1</b> run on the strings</span><span><b>v2.4.1</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
           </div>
         </div>
         <StringField height={104} />

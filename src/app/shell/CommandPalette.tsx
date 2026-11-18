@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { RUNS } from '@/shared/data/runs'
 import { TOOLS } from '@/shared/lib/tools'
 import { Icon } from '@/shared/primitives/Icon'
@@ -15,10 +15,12 @@ export function CommandPalette({ onClose, go }: { onClose: () => void; go: (r: s
     ]
     return all.filter((i) => `${i.label} ${i.hint}`.toLowerCase().includes(q.toLowerCase()))
   }, [q])
+  // hand focus back to whatever opened the palette
+  useEffect(() => { const opener = document.activeElement as HTMLElement | null; return () => opener?.focus?.() }, [])
   const pick = (i: number) => { items[i]?.run(); onClose() }
   return (
     <div className="palette-scrim" onClick={onClose}>
-      <div className="palette" role="dialog" aria-label="Command palette" onClick={(e) => e.stopPropagation()}>
+      <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onClick={(e) => e.stopPropagation()}>
         <div className="palette-input">
           <Icon.search width={16} height={16} />
           <input autoFocus placeholder="Search runs, models, datasets, or jump to a page" value={q}
@@ -27,6 +29,7 @@ export function CommandPalette({ onClose, go }: { onClose: () => void; go: (r: s
               if (e.key === 'ArrowDown') { e.preventDefault(); setIdx((i) => Math.min(items.length - 1, i + 1)) }
               if (e.key === 'ArrowUp') { e.preventDefault(); setIdx((i) => Math.max(0, i - 1)) }
               if (e.key === 'Enter') pick(idx)
+              if (e.key === 'Tab') e.preventDefault() // keep focus in the dialog; arrows move, Enter picks
             }} />
           <kbd className="mono" style={{ fontSize: 11 }}>esc</kbd>
         </div>
@@ -35,7 +38,7 @@ export function CommandPalette({ onClose, go }: { onClose: () => void; go: (r: s
           {items.map((it, i) => (
             <div key={`${it.group}-${it.label}`}>
               {(i === 0 || items[i - 1].group !== it.group) && <div className="palette-group micro-label">{it.group}</div>}
-              <button className={`palette-item ${i === idx ? 'on' : ''}`} onMouseEnter={() => setIdx(i)} onClick={() => pick(i)}>
+              <button ref={i === idx ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined} tabIndex={-1} className={`palette-item ${i === idx ? 'on' : ''}`} onMouseEnter={() => setIdx(i)} onClick={() => pick(i)}>
                 <span className={it.mono ? 'mono' : ''} style={it.mono ? { fontSize: 12.5 } : undefined}>{it.label}</span><span className="hint">{it.hint}</span>
               </button>
             </div>

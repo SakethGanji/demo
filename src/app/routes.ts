@@ -13,4 +13,4 @@ export const TITLES: Record<Route, string> = { home: 'Home', 'quick-train': 'Qui
 /** Pages that manage their own scrolling (pinned header and footer). */
 export const FULL_HEIGHT: Route[] = ['gym', 'quick-train', 'autopilot']
 
-export const readRoute = (): Route => { const h = location.hash.replace('#/', '') as Route; return h in TITLES ? h : 'home' }
+export const readRoute = (): Route => { const h = location.hash.replace('#/', '').split('?')[0] as Route; return h in TITLES ? h : 'home' }

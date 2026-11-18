@@ -29,3 +29,8 @@ button { cursor: pointer; }
 .still *, .still *::before, .still *::after { animation: none !important; }
 .collapsed .belt-item span:last-child { display: none; }
 .collapsed .belt-item .belt-g { display: grid; }
+
+/* The system setting wins: no CSS animation, and transitions become short fades. (JS-drawn strings check it too.) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: var(--duration-reduced) !important; }
+}

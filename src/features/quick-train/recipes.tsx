@@ -6,7 +6,7 @@ export type Recipe = { id: 'ovr' | 'xgb' | 'svm'; name: string; pipeline: (d: Da
 export const RECIPES: Recipe[] = [
   {
     id: 'ovr', name: 'TF-IDF → LogReg (OvR)', viz: 'strings', best: 'text', f1: 0.914, secs: 102, chips: [['C', '1.0'], ['ngram', '(1,2)']],
-    pipeline: () => 'TF-IDF → LogReg (OvR)', stages: () => ['Load', 'Split', 'TF-IDF', 'LogReg × K', 'Evaluate'],
+    pipeline: (d) => (d.kind === 'text' ? 'TF-IDF → LogReg (OvR)' : 'Encode → LogReg (OvR)'), stages: (d) => ['Load', 'Split', d.kind === 'text' ? 'TF-IDF' : 'Encode', 'LogReg × K', 'Evaluate'],
     eq: <><i>ŷ</i> = argmax<sub><i>k</i></sub> σ(<i>w</i><sub><i>k</i></sub><sup>⊤</sup><i>x</i> + <i>b</i><sub><i>k</i></sub>)</>, where: 'One linear classifier per class; each one separates its class from the rest.',
   },
   {
@@ -31,4 +31,8 @@ export const phaseOf = (t: number) => (t >= 1 ? 5 : PH.findIndex((_, i) => t < P
 
 export const fitFrac = (t: number) => Math.min(1, Math.max(0, (t - PH[3]) / (PH[4] - PH[3])))
 
-export const mmss = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}m ${String(Math.round(s % 60)).padStart(2, '0')}s`
+export const mmss = (s: number) => { const t = Math.round(s); return `${String(Math.floor(t / 60)).padStart(2, '0')}m ${String(t % 60).padStart(2, '0')}s` }
+
+/** Mock outcomes. 124,500 rows is the reference size the recipe times were measured at. */
+export const fitSeconds = (r: Recipe, d: Dataset) => r.secs * (d.rows / 124500)
+export const expectedF1 = (r: Recipe, d: Dataset) => (d.kind === 'tabular' ? (r.id === 'xgb' ? 0.887 : 0.842) : r.f1)

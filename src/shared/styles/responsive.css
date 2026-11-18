@@ -22,3 +22,13 @@
 .cmd svg, .cmd kbd { flex: none; }
 .crumbs { flex: 0 1 auto; overflow: hidden; }
 .context-bar .cluster, .context-bar .btn { flex: none; }
+
+/* context bar: the page name and search shrink with an ellipsis instead of clipping mid-word */
+.crumbs { min-width: 0; }
+.crumbs > * { flex: none; }
+.crumbs > :last-child { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cmd { text-overflow: ellipsis; }
+@media (max-width: 1400px) { .context-bar .cluster { display: none; } }
+.mini { min-width: 0; }
+.mini .micro-label, .mini .u { overflow: hidden; text-overflow: ellipsis; }
+.who small { white-space: normal; line-height: 13px; }

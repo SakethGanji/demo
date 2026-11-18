@@ -10,7 +10,7 @@ export const SAMPLES: Dataset[] = [
     cols: [
       { name: 'ticket_id', type: 'id', sample: 'ZD-481920' }, { name: 'ticket_body', type: 'text', sample: 'I was charged twice for my March invoice and…' },
       { name: 'subject', type: 'text', sample: 'Double charge on invoice' }, { name: 'priority', type: 'category', sample: 'high' },
-      { name: 'channel', type: 'category', sample: 'email' }, { name: 'created_at', type: 'number', sample: '2026-08-14T09:21' }, { name: 'category', type: 'category', sample: 'Billing' },
+      { name: 'channel', type: 'category', sample: 'email' }, { name: 'customer_tier', type: 'category', sample: 'enterprise' }, { name: 'language', type: 'category', sample: 'en' }, { name: 'created_at', type: 'number', sample: '2026-08-14T09:21' }, { name: 'category', type: 'category', sample: 'Billing' },
     ],
     classes: [['Billing', 0.175], ['Technical', 0.215], ['Account', 0.139], ['Security', 0.072], ['Shipping', 0.101], ['Other', 0.297]].map(([name, share]) => ({ name: name as string, share: share as number })),
   },

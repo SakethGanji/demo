@@ -88,7 +88,7 @@
 .layout-inset .lockup, .layout-inset .sidebar-footer { border-color: transparent; }
 .layout-inset .lockup { padding-top: var(--space-12); }
 .layout-inset .main { background: var(--bg-canvas); border-radius: 12px; overflow: hidden; }
-.layout-inset .shell:has(.sidecar) .main { border-radius: 12px 0 0 12px; }
+.layout-inset .shell:has(.sidecar:not([hidden])) .main { border-radius: 12px 0 0 12px; }
 .layout-inset .sidecar { border-radius: 0 12px 12px 0; overflow: hidden; box-shadow: none; }
 .layout-inset .statusbar { border-top: 0; }
 /* the Vela header is navy too, so lift it one step or its rounded corner disappears into the frame */

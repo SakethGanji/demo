@@ -3,7 +3,7 @@ import { ConfusionMatrix } from '@/shared/components/ConfusionMatrix'
 import { LineChart, type Series } from '@/shared/components/LineChart'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { StringPlot, type PCAxis } from '@/shared/components/StringPlot'
-import { CLASSES, CONFUSION, PC, RUNS } from '@/shared/data/runs'
+import { CLASSES, CONFUSION, MEAN_RECALL, PC, RUNS } from '@/shared/data/runs'
 import { curve } from '@/shared/lib/random'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
@@ -40,7 +40,7 @@ export function ExperimentsPage({ go }: { go: (r: string) => void }) {
       <div className="page-head">
         <div>
           <h1 className="page-title">Experiments</h1>
-          <p className="helper sub">Enterprise Support Ticket Classifier · {RUNS.length} runs · {sel.size} selected</p>
+          <p className="helper sub">Enterprise Support Ticket Classifier · {onlyGood ? `${runs.length} of ${RUNS.length} runs shown` : `${RUNS.length} runs`} · {runs.filter((r) => sel.has(r.id)).length} selected</p>
         </div>
         <div className="row">
           <button className={`btn ${onlyGood ? 'vela on' : ''}`} onClick={() => setOnlyGood(!onlyGood)}><span className="math" style={{ fontSize: 14 }}>F1</span> ≥ 0.90</button>
@@ -102,7 +102,7 @@ export function ExperimentsPage({ go }: { go: (r: string) => void }) {
           <div className="card">
             <div className="card-head">
               <div className="left"><h3 className="card-title">Confusion Matrix</h3><span className="mono" style={{ fontSize: 12.5 }}>run_894a</span></div>
-              <div className="row"><ParamChip sym="n" value="18,675" /><ParamChip sym="fold" value="holdout" /></div>
+              <div className="row"><ParamChip sym="n" value={CONFUSION.flat().reduce((a, b) => a + b, 0).toLocaleString()} /><ParamChip sym="fold" value="holdout" /></div>
             </div>
             <div className="card-body"><ConfusionMatrix labels={CLASSES} m={CONFUSION} /></div>
             <div className="caption" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px 12px', borderTop: '1px solid var(--border-row)', fontSize: 12 }}>
@@ -114,7 +114,7 @@ export function ExperimentsPage({ go }: { go: (r: string) => void }) {
             </div>
           </div>
           <div className="card">
-            <div className="card-head"><h3 className="card-title">Per-Class Recall</h3><span className="micro-label">Mean 0.94</span></div>
+            <div className="card-head"><h3 className="card-title">Per-Class Recall</h3><span className="micro-label">Mean {MEAN_RECALL.toFixed(2)}</span></div>
             <table className="table">
               <thead><tr><th>Class</th><th className="r">Recall</th><th className="r">Precision</th><th>Top Confusion</th></tr></thead>
               <tbody>

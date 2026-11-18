@@ -11,14 +11,15 @@ import { Boosting } from './components/Boosting'
 import { ClassStrings } from './components/ClassStrings'
 import { PipelineString } from './components/PipelineString'
 import { SAMPLES, profileCsv, type Dataset } from './datasets'
-import { FOLDS, PH, RECIPES, fitFrac, mmss, phaseOf, type Recipe } from './recipes'
+import { FOLDS, PH, RECIPES, expectedF1, fitFrac, fitSeconds, mmss, phaseOf, type Recipe } from './recipes'
 
 export function QuickTrainPage({ go }: { go: (r: string) => void }) {
-  const [step, setStep] = useState(0)
+  const fromGym = useRef(location.hash.includes('?start')).current
+  const [step, setStep] = useState(fromGym ? 2 : 0)
   const [ds, setDs] = useState<Dataset>(SAMPLES[0])
   const [recipeId, setRecipeId] = useState<Recipe['id']>('ovr')
   const [t, setT] = useState(0)
-  const [running, setRunning] = useState(false)
+  const [running, setRunning] = useState(fromGym)
   const [speed, setSpeed] = useState(1)
   const [err, setErr] = useState('')
   const [over, setOver] = useState(false)
@@ -47,9 +48,14 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   const inFold = ff >= 1 ? 1 : ff * FOLDS - fold
   const finals = useMemo(() => {
     const r = rng(ds.name.length * 31 + K * 7 + recipe.id.charCodeAt(0))
-    const base = ds.kind === 'tabular' ? (recipe.id === 'xgb' ? 0.887 : 0.842) : recipe.f1
-    const cls = ds.classes.map((c) => Math.min(0.985, base + (r() - 0.5) * 0.05 - (c.share < 0.1 ? 0.06 : 0)))
-    const folds = Array.from({ length: FOLDS }, () => base + (r() - 0.5) * 0.014)
+    const base = expectedF1(recipe, ds)
+    // per-class scores average exactly to the macro score, and the fold scores average to it too
+    const rawCls = ds.classes.map((c) => base + (r() - 0.5) * 0.05 - (c.share < 0.1 ? 0.06 : 0))
+    const shift = base - rawCls.reduce((a, b) => a + b, 0) / K
+    const cls = rawCls.map((v) => Math.min(0.985, v + shift))
+    const noise = Array.from({ length: FOLDS }, () => (r() - 0.5) * 0.014)
+    const noiseMean = noise.reduce((a, b) => a + b, 0) / FOLDS
+    const folds = noise.map((n) => base + n - noiseMean)
     const rates = ds.classes.map(() => 0.95 + r() * 0.5)
     return { cls, folds, rates, base }
   }, [ds, recipe.id, K])
@@ -57,8 +63,8 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   const f1k = finals.cls.map((v, k) => v * (0.55 + 0.45 * Math.pow(conv[k], 0.6)))
   const meanF1 = finals.folds.reduce((a, b) => a + b, 0) / FOLDS
   const spread = Math.sqrt(finals.folds.reduce((a, b) => a + (b - meanF1) ** 2, 0) / FOLDS)
-  const d = ds.kind === 'text' ? Math.round(ds.rows * 1.208) : ds.cols.length * 6
-  const elapsed = t * recipe.secs * (ds.rows / 124500 + 0.25)
+  const d = ds.kind === 'text' ? Math.round(ds.rows * 1.208193) : ds.cols.length * 6
+  const elapsed = t * fitSeconds(recipe, ds)
   const notes = [
     phase > 0 ? `${ds.rows.toLocaleString()} rows` : 'reading', phase > 1 ? `k = ${FOLDS} · stratified` : '',
     phase > 2 ? `d = ${recipe.id === 'xgb' && ds.kind === 'text' ? '300' : d.toLocaleString()}` : phase === 2 ? 'fitting vocabulary' : '',
@@ -152,7 +158,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
                         <td className="table-cell">{c.name}</td><td><span className="chip" style={{ fontSize: 11 }}>{c.type === 'text' ? 'str' : c.type === 'number' ? 'num' : c.type === 'id' ? 'id' : 'cat'}</span></td>
                         <td className="muted" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.sample}</td>
                         <td>{c.name === ds.target ? <StatusPill status="success">Target y</StatusPill> : c.type === 'id' ? <span className="muted">Ignored</span>
-                          : <button className="btn sm ghost" onClick={() => c.type !== 'text' && setDs({ ...ds, target: c.name })} disabled={c.type === 'text'}>{c.type === 'text' ? 'Feature' : 'Feature · Set As Target'}</button>}</td>
+                          : <span className="muted">Feature</span>}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -194,9 +200,9 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
                       </svg>
                       <div className="eqn">{r.eq}</div>
                       <p className="helper" style={{ textAlign: 'left' }}>{r.where}</p>
-                      <div className="row" style={{ flexWrap: 'wrap' }}><span className="micro-label">Defaults</span>{r.chips.map(([s, v]) => <ParamChip key={s} sym={s} value={v} />)}</div>
+                      <div className="row" style={{ flexWrap: 'wrap' }}><span className="micro-label">Defaults</span>{r.chips.filter(([s]) => ds.kind === 'text' || s !== 'ngram').map(([s, v]) => <ParamChip key={s} sym={s} value={v} />)}</div>
                     </div>
-                    <div className="bot"><span className="table-cell" style={{ color: 'var(--text-body)' }}>est. {mmss(r.secs * (ds.rows / 124500 + 0.25))}</span><span className="table-cell">expected F1: {(ds.kind === 'tabular' ? (r.id === 'xgb' ? 0.887 : 0.842) : r.f1).toFixed(3)}</span></div>
+                    <div className="bot"><span className="table-cell" style={{ color: 'var(--text-body)' }}>est. {mmss(fitSeconds(r, ds))}</span><span className="table-cell">expected F1: {expectedF1(r, ds).toFixed(3)}</span></div>
                   </button>
                 )
               })}

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { NumberInput } from '@/shared/primitives/NumberInput'
 
 export type FretProps = {
   sym: string
@@ -20,7 +21,6 @@ export type FretProps = {
 export function FretSlider(p: FretProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [drag, setDrag] = useState(false)
-  const [draft, setDraft] = useState<string | null>(null)
   const fmt = p.format ?? ((v: number) => String(v))
   const toT = (v: number) => (p.log ? (Math.log10(v) - Math.log10(p.min)) / (Math.log10(p.max) - Math.log10(p.min)) : (v - p.min) / (p.max - p.min))
   const fromT = (t: number) => {
@@ -35,8 +35,11 @@ export function FretSlider(p: FretProps) {
   }, [p])
   const t = toT(p.value)
   const onKey = (e: React.KeyboardEvent) => {
-    const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 0.02 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -0.02 : 0
-    if (d) { e.preventDefault(); p.onChange(fromT(Math.min(1, Math.max(0, t + d)))) }
+    const dir = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0
+    if (!dir) return
+    e.preventDefault()
+    // stepped sliders move one step; continuous ones move 2% of the track
+    p.onChange(p.step ? Math.min(p.max, Math.max(p.min, p.value + dir * p.step)) : fromT(Math.min(1, Math.max(0, t + dir * 0.02))))
   }
   return (
     <div className="param">
@@ -67,13 +70,7 @@ export function FretSlider(p: FretProps) {
         {Array.from({ length: 21 }, (_, i) => <div key={`f${i}`} className="tick" style={{ left: `${i * 5}%` }} />)}
         <div className="thumb" style={{ left: `${t * 100}%` }} />
       </div>
-      <input
-        className="num-input" aria-label={`${p.name} value`}
-        value={draft ?? fmt(p.value)}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => { const v = Number(draft); if (draft !== null && !Number.isNaN(v)) p.onChange(Math.min(p.max, Math.max(p.min, v))); setDraft(null) }}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-      />
+      <NumberInput label={`${p.name} value`} value={p.value} onChange={p.onChange} min={p.min} max={p.max} step={p.step} format={fmt} />
     </div>
   )
 }
