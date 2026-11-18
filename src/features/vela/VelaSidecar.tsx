@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Icon } from '@/shared/primitives/Icon'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
+import { useApi } from '@/shared/api/mode'
 import { PatchCard, type Patch } from './components/PatchCard'
 
 /** Stays mounted while closed so applied patches and your questions survive reopening it. */
 export function VelaSidecar({ open, context, patches, onClose }: { open: boolean; context: string; patches: Patch[]; onClose: () => void }) {
+  const { mode } = useApi()
   const [thinking, setThinking] = useState(true)
   const [applied, setApplied] = useState<Set<string>>(new Set())
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
@@ -32,9 +34,10 @@ export function VelaSidecar({ open, context, patches, onClose }: { open: boolean
         <button className="icon-btn" aria-label="Close Vela" onClick={onClose}><Icon.close width={16} height={16} /></button>
       </div>
       <div className="sidecar-body">
-        <div className="vela-ctx"><span className="micro-label">Context</span><span className="chip">{context}</span></div>
+        <div className="vela-ctx"><span className="micro-label">Context</span><span className="chip">{context}</span><span className="pill warning" data-testid="vela-simulated">SIMULATED</span></div>
+        {mode === 'live' && <p className="helper" style={{ fontSize: 12 }} data-testid="vela-note">Vela is a prototype: these findings are scripted, not computed from your runs, and their patches change the Training Gym prototype only.</p>}
         {thinking ? (
-          <div className="thinking"><ResonanceWave width={84} height={18} fast /> Reading run_894a metrics</div>
+          <div className="thinking"><ResonanceWave width={84} height={18} fast /> Reading this page</div>
         ) : (
           patches.filter((p) => !dismissed.has(p.id)).map((p) => (
             <PatchCard key={p.id} p={p} applied={p.applied ?? applied.has(p.id)}

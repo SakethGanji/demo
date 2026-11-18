@@ -109,7 +109,7 @@
 .psi-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 .psi-formula { margin: 0 var(--space-16) var(--space-12); padding: var(--space-8) var(--space-16) var(--space-12); }
 .psi-formula .eq { font-size: 18px; padding: 4px 0 8px; }
-.psi-bar { width: 100%; min-width: 120px; }
+.psi-bar { width: 100%; min-width: 90px; }
 
 @media (max-width: 1280px) {
   .reg-grid, .tradeoff-grid, .psi-grid, .try-why, .vd-top, .mc-cols { grid-template-columns: 1fr; }

@@ -121,8 +121,8 @@ function BatchResult({ job }: { job: BatchJob }) {
               <dt>ε</dt><dd>shares floored at ε = {d.eps} so an empty bin counts instead of dividing by zero</dd>
             </dl>
           </div>
-          <table className="table compact">
-            <thead><tr><th>feature</th><th>kind</th><th className="r">PSI</th><th style={{ width: '34%' }}>0 · 0.10 · 0.25</th><th className="r nocase">μₑ → μₐ</th><th>band</th></tr></thead>
+          <div className="table-wrap"><table className="table compact">
+            <thead><tr><th>feature</th><th>kind</th><th className="r">PSI</th><th style={{ width: '28%' }}>0 · 0.10 · 0.25</th><th className="r nocase">μₑ → μₐ</th><th>band</th></tr></thead>
             <tbody>{d.features.map((x) => (
               <tr key={x.feature} className={x.feature === feat ? 'sel' : ''} onClick={() => x.psi != null && setFeat(x.feature)} style={{ cursor: x.psi != null ? 'pointer' : undefined }} data-testid={`psi-${x.feature}`} data-band={x.band}>
                 <td className="mono">{x.feature}</td><td className="muted">{x.kind}</td><td className="r mono" data-testid={`psi-value-${x.feature}`}>{psiFmt(x.psi)}</td>
@@ -131,7 +131,7 @@ function BatchResult({ job }: { job: BatchJob }) {
                 <td><StatusPill status={BAND_STATUS[x.band]}>{x.band}</StatusPill></td>
               </tr>
             ))}</tbody>
-          </table>
+          </table></div>
           <div className="caption" style={{ padding: '8px 16px' }}><span className="helper" style={{ fontSize: 12 }}>Bands: PSI &lt; 0.10 stable · 0.10 ≤ PSI ≤ 0.25 watch · PSI &gt; 0.25 shift. Click a feature for its bins.</span></div>
       </div>
       <div className="grid psi-grid">

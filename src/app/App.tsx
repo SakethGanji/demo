@@ -11,6 +11,7 @@ import { DEFAULTS, type Params } from '@/features/training-gym/params'
 import { VelaSidecar } from '@/features/vela/VelaSidecar'
 import type { Patch } from '@/features/vela/components/PatchCard'
 import { ApiProvider } from '@/shared/api/mode'
+import { PrototypeBanner } from '@/shared/components/PrototypeBanner'
 import { MEAN_RECALL } from '@/shared/data/runs'
 import { PrefsContext, loadPrefs, savePrefs, type Prefs } from '@/shared/lib/prefs'
 import { FULL_HEIGHT, TITLES, readRoute, type Route } from './routes'
@@ -66,6 +67,7 @@ export default function App() {
 
       <div className="main">
         <ContextBar route={route} velaOpen={vela} onPalette={() => setPalette(true)} onVela={() => setVela(!vela)} />
+        <PrototypeBanner route={route} />
         <main className="workspace" style={FULL_HEIGHT.includes(route) ? { overflow: 'hidden' } : undefined}>
           {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
           {route === 'quick-train' && <QuickTrainPage go={go} />}

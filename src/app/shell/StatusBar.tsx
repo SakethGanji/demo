@@ -29,6 +29,8 @@ function LiveStatus() {
       </a>
     ) : <span className="muted-sb" data-testid="sb-active">no run training</span>}
     <span data-testid="sb-queued">{status?.queued ?? 0} queued</span>
+    {status?.registry && <><span className="sb-sep" /><a className="sb-reg" href="#/registry" data-testid="sb-registry">{status.registry.stages.Production} in production · {status.registry.approvals.pending} pending review</a></>}
+    {status?.pool && status.pool.active_jobs > 0 && <span data-testid="sb-pool">· {status.pool.active_jobs} worker job{status.pool.active_jobs > 1 ? 's' : ''}</span>}
     <span className="spacer" />
     <span data-testid="sb-runs">{status?.runs ?? '…'} runs</span><span className="sb-sep" />
     <span data-testid="sb-cpu">{status?.cpu_count ?? '…'} CPUs{status?.memory_gb ? ` · ${status.memory_gb} GB` : ''}</span><span className="sb-sep" />

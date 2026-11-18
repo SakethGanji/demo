@@ -74,7 +74,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
             {run.threshold && <span className="rh-sub" data-testid="result-threshold">decision threshold t = <b className="mono">{run.threshold.value.toFixed(3)}</b>{run.threshold.source === 'default' ? ' (AutoGluon default)' : run.threshold.metric ? ` calibrated for ${run.threshold.metric} · holdout F₁ ${run.threshold.holdout_at_default.f1.toFixed(3)} at 0.5 → ${run.threshold.holdout_at_threshold.f1.toFixed(3)}, balanced accuracy ${run.threshold.holdout_at_default.balanced_accuracy.toFixed(3)} → ${run.threshold.holdout_at_threshold.balanced_accuracy.toFixed(3)}` : ''}</span>}
             <div className="row" style={{ flexWrap: 'wrap', gap: 'var(--space-8)', marginTop: 'var(--space-12)' }}>
               <button className="btn primary" onClick={() => go(`explain?run=${run.id}`)} data-testid="results-explain">Explain this model →</button>
-              <button className="btn" onClick={() => go('registry')}>Register Model Version</button>
+              <button className="btn" onClick={() => go(live ? `registry?register=${run.id}` : 'registry')} data-testid="results-register">Register Model Version</button>
               <button className="btn" onClick={() => go('gym')}>Tune In Gym →</button>
               <button className="btn ghost" onClick={onAgain}>Train Another</button>
             </div>

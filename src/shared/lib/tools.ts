@@ -1,3 +1,4 @@
+import type { ApiStatus } from '@/shared/api/types'
 export type Tool = { id: string; name: string; verb: string; desc: string; meta: string; route: string }
 
 /** The toolkit. Every tool is a verb; the workbench, toolbelt and command palette all read this list. */
@@ -9,3 +10,16 @@ export const TOOLS: Tool[] = [
   { id: 'register', name: 'Model Registry', verb: 'Register', desc: 'Promote a run to a version and trace its lineage to production.', meta: 'v3.0.0-rc1 awaiting approval', route: 'registry' },
   { id: 'vela', name: 'Vela', verb: 'Ask', desc: 'Get a finding with a number and one patch you can apply.', meta: '2 patches ready', route: 'vela' },
 ]
+
+/** The footer line of each tool: real counts from GET /api/status in live mode, the scripted line in mock mode.
+ *  Tools that are still prototypes (Gym, Autopilot, Vela) say so instead of showing made-up numbers. */
+export function liveMeta(t: Tool, status: ApiStatus | null): string {
+  if (!status) return t.meta
+  const r = status.registry
+  switch (t.id) {
+    case 'quick': return `AutoGluon ${status.engine.version ?? ''} · ${status.runs} run${status.runs === 1 ? '' : 's'}`
+    case 'compare': return `${status.runs} run${status.runs === 1 ? '' : 's'} to compare`
+    case 'register': return r ? `${r.stages.Production} in production · ${r.approvals.pending} pending review` : 'registry'
+    default: return 'prototype · simulated'
+  }
+}

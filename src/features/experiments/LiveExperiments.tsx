@@ -129,7 +129,8 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
                     <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                       {r.status === 'succeeded' ? <>
                         <button className="chip-btn" onClick={() => go(`explain?run=${r.id}`)} data-testid={`exp-explain-${r.id}`}>Explain</button>{' '}
-                        <button className="chip-btn" onClick={() => go(`quick-train?run=${r.id}`)}>Results</button>
+                        <button className="chip-btn" onClick={() => go(`quick-train?run=${r.id}`)}>Results</button>{' '}
+                        <button className="chip-btn" onClick={() => go(`registry?register=${r.id}`)} data-testid={`exp-register-${r.id}`}>Register</button>
                       </> : r.status === 'running' || r.status === 'queued' ? <button className="chip-btn" onClick={() => go(`quick-train?run=${r.id}`)}>Watch</button> : r.error ? <span className="muted" title={r.error}>error</span> : null}
                     </td>
                   </tr>

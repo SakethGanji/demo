@@ -7,12 +7,14 @@ import { StringField } from '@/shared/components/StringField'
 import { LOG_LINES } from '@/shared/data/runs'
 import { usePrefs } from '@/shared/lib/prefs'
 import { curve } from '@/shared/lib/random'
-import { TOOLS, type Tool } from '@/shared/lib/tools'
+import { TOOLS, liveMeta, type Tool } from '@/shared/lib/tools'
 import { Icon } from '@/shared/primitives/Icon'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { useApi } from '@/shared/api/mode'
 import { ToolCard } from './components/ToolCard'
+import { LiveHeroRead, LiveHome } from './LiveHome'
 
 const TRAIN = curve(40, 1.2, 0.24, 0.12, 0.03, 7)
 
@@ -20,6 +22,8 @@ const VAL = curve(40, 1.25, 0.29, 0.1, 0.04, 11)
 
 export function HomePage({ go, openPalette }: { go: (r: string) => void; openPalette: () => void }) {
   const { prefs, set } = usePrefs()
+  const { mode, status } = useApi()
+  const live = mode === 'live'
   const [n, setN] = useState(14)
   const [logN, setLogN] = useState(5)
   useEffect(() => {
@@ -33,9 +37,9 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
     { name: 'Train loss', color: 'var(--viz-a)', data: TRAIN.slice(0, n) },
     { name: 'Validation loss', color: 'var(--viz-c)', dash: '6 4', data: VAL.slice(0, n) },
   ]
-  const live = 0.42 + ((n - 14) / 26) * 0.5
+  const sim = 0.42 + ((n - 14) / 26) * 0.5
   const strings: RunState[] = [
-    { id: 'run_8a10', label: 'TF-IDF → LogReg (OvR)', status: 'Training', progress: live, readout: `fold ${Math.min(5, Math.floor(live * 5) + 1)} of 5 · 06m 12s` },
+    { id: 'run_8a10', label: 'TF-IDF → LogReg (OvR)', status: 'Training', progress: sim, readout: `fold ${Math.min(5, Math.floor(sim * 5) + 1)} of 5 · 06m 12s` },
     { id: 'run_894a', label: 'TF-IDF → LogReg (OvR)', status: 'Completed', progress: 1, readout: 'F1: 0.914 ± 0.006' },
     { id: 'run_8931', label: 'TF-IDF → SVD → GBM', status: 'Completed', progress: 1, readout: 'F1: 0.902 ± 0.009' },
     { id: 'run_88f7', label: 'Tokenize → DistilBERT', status: 'Failed', progress: 0.47, readout: 'CUDA OOM · fold 3' },
@@ -52,9 +56,9 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
             <span className="hero-eyebrow">PROJECT</span>
             <img src={wordmark} alt="ENSEMBLE" height={36} />
           </div>
-          <div className="hero-read">
-            <span><b>1</b> run on the strings</span><span><b>v2.4.1</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
-          </div>
+          {live ? <LiveHeroRead /> : <div className="hero-read" data-testid="home-read-sim">
+            <span className="pill warning">SIMULATED</span><span><b>1</b> run on the strings</span><span><b>v2.4.1</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
+          </div>}
         </div>
         <StringField height={104} />
         <div className="hero-bottom">
@@ -78,11 +82,12 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
         <button className="btn sm" onClick={() => go('settings')}>Customize Workbench</button>
       </div>
       <div className="tool-grid">
-        {TOOLS.map((t) => <ToolCard key={t.id} tool={t} pinned={prefs.pinned.includes(t.id)} onPin={() => togglePin(t.id)} onOpen={() => open(t)} />)}
+        {TOOLS.map((t) => <ToolCard key={t.id} tool={live ? { ...t, meta: liveMeta(t, status) } : t} pinned={prefs.pinned.includes(t.id)} onPin={() => togglePin(t.id)} onOpen={() => open(t)} />)}
       </div>
 
+      {live ? <LiveHome go={go} /> : <>
       <div className="bench-head">
-        <h2 className="bench-title">On the Strings</h2>
+        <h2 className="bench-title">On the Strings</h2><span className="pill warning" data-testid="home-simulated">SIMULATED</span>
         <span className="helper">Each run is one string. Frets are folds, the node is progress, a wave means it is computing.</span>
         <span className="spacer" />
         <button className="btn sm" onClick={() => go('experiments')}>Open String Plot →</button>
@@ -118,6 +123,7 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
         </div>
       </div>
 
+      </>}
     </div>
   )
 }
