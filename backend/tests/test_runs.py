@@ -285,3 +285,16 @@ def test_delete_run(client):
     assert client.delete(f"/api/runs/{run['id']}").status_code == 204
     assert client.get(f"/api/runs/{run['id']}").status_code == 404
     assert not Path(run["predictor_path"]).parent.exists()
+
+
+def test_a_failing_model_is_reported_and_the_run_goes_on(client, tiny_dataset):
+    run = start_run(client, dataset_id=tiny_dataset["id"], time_limit=60, feature_importance=False,
+                    fit_kwargs={"hyperparameters": {"KNN": {"n_neighbors": -3}, "LR": {}}})
+    events = read_sse(client, f"/api/runs/{run['id']}/events")
+    run = wait_for_run(client, run["id"])
+    assert run["status"] == "succeeded", run["error"]
+    failed = [e["data"] for e in events if e["event"] == "model_failed"]
+    assert len(failed) == 1 and failed[0]["model"].startswith("KNeighbors") and failed[0]["family"] == "KNN"
+    assert failed[0]["skipped"] is False
+    assert "n_neighbors" in failed[0]["error"] or "ValueError" in failed[0]["error"]
+    assert "KNeighbors" not in {r["model"] for r in run["leaderboard"]}

@@ -8,6 +8,8 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { Boosting } from './components/Boosting'
 import { DatasetStep } from './components/DatasetStep'
+import { LiveRun } from './components/LiveRun'
+import { useApi } from '@/shared/api/mode'
 import { RecipeStep } from './components/RecipeStep'
 import { ClassStrings } from './components/ClassStrings'
 import { PipelineString } from './components/PipelineString'
@@ -23,6 +25,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   const [running, setRunning] = useState(fromGym)
   const [speed, setSpeed] = useState(1)
   const recipe = RECIPES.find((r) => r.id === recipeId)!
+  const { mode } = useApi()
   const K = ds.classes.length
 
   const pick = (d: Dataset) => { setDs(d); setRecipeId(d.kind === 'tabular' ? 'xgb' : 'ovr') }
@@ -122,6 +125,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
 
         {step >= 2 && (
           <div className="page">
+            {mode === 'live' && ds.id && <LiveRun ds={ds} />}
             <section className="stage">
               <div className="stage-head">
                 <div>

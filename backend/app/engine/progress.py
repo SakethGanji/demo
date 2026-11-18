@@ -6,7 +6,7 @@ Events written here (all carry `phase`: "main", or "dystack" for AutoGluon's dyn
 - model_started    model, family, model_type, stack_level, stack_name, time_limit, bagged, order
 - model_finished   model, family, stack_level, val_score, val_score_natural, fit_time, predict_time,
                    fold_scores, fold_scores_natural, val_score_std, n_children, elapsed
-- model_failed     model, family, stack_level, error
+- model_failed     model, family, stack_level, error, skipped (true when the time limit ran out)
 - ensemble         model, stack_level, weights {base model: w} (sum 1), val_score, val_score_natural
 - log              level, message (AutoGluon's own log lines, capped)
 """
@@ -85,9 +85,16 @@ class ProgressCallback(AbstractCallback):
             # The name of the model that just failed is the most recent one started.
             name = max(self._started, key=self._started.get) if self._started else None
             err = failed.get(name, {}) if name else {}
-            self.emit("model_failed", trainer, model=name, stack_level=level,
-                      family=family_for_class(self.models.get(name, {}).get("model_type")),
-                      error=f"{err.get('exc_type', '')}: {err.get('exc_str', '')}".strip(": ") or "did not train")
+            msg = f"{err.get('exc_type', '')}: {err.get('exc_str', '')}".strip(": ")
+            skipped = False
+            if not msg:
+                limit, t0 = getattr(trainer, "_time_limit", None), getattr(trainer, "_time_train_start", None)
+                if limit is not None and t0 is not None and limit - (time.time() - t0) < max(1.0, 0.02 * limit):
+                    msg, skipped = "skipped: the time limit was reached", True
+                else:
+                    msg = "did not train"
+            self.emit("model_failed", trainer, model=name, stack_level=level, skipped=skipped,
+                      family=family_for_class(self.models.get(name, {}).get("model_type")), error=msg)
             return False
         for name in model_names:
             self._finished(trainer, name, level)

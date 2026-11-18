@@ -22,3 +22,19 @@
 .lib-card .eqn { font-family: var(--font-math); font-size: 16px; line-height: 24px; color: var(--text-primary); background: var(--bg-subtle); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lib-card .eqn i { font-style: italic; }
 .lib-card .bot { border-top: 1px solid var(--border-default); padding: var(--space-8) var(--space-16); display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); }
+
+/* ---------- live AutoGluon run (S2 minimal view) ---------- */
+.live-run .lr-meta { display: flex; align-items: center; gap: var(--space-16); flex-wrap: wrap; font-size: 12px; }
+.live-run .lr-table { display: flex; flex-direction: column; border: 1px solid var(--border-default); border-radius: var(--radius-control); overflow: hidden; }
+.live-run .lr-row { display: grid; grid-template-columns: minmax(150px, 1.4fr) 48px minmax(120px, 2fr) 140px 76px 76px; align-items: center; gap: var(--space-12); padding: 6px var(--space-12); border-top: 1px solid var(--border-row); font-size: 13px; min-height: var(--size-row-compact); }
+.live-run .lr-row:first-child { border-top: none; }
+.live-run .lr-headrow { background: var(--bg-table-header); font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.live-run .lr-name { display: flex; flex-direction: column; line-height: 15px; min-width: 0; }
+.live-run .lr-name b { font-weight: 500; font-family: var(--font-mono); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-run .lr-name small { font-size: 10.5px; color: var(--text-muted); }
+.live-run .lr-string { display: flex; align-items: center; min-width: 0; height: 14px; }
+.live-run .lr-string i { display: block; height: 2px; border-radius: 1px; background: var(--grad-string); transition: width var(--duration-snap-max) var(--ease-pluck); }
+.live-run .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.live-run .mono small { color: var(--text-muted); font-size: 11px; }
+.live-run .lr-formula .eq { font-size: 18px; }
+.live-run .lr-holdout { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; }

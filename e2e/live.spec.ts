@@ -67,3 +67,39 @@ test('a rejected upload shows the API message', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('fewer than two data rows')
   await expect(page.getByTestId('profile-name')).toHaveText('support_tickets_sample.csv')
 })
+
+test('a real AutoGluon run streams models and the stacking equation', async ({ page, errors }) => {
+  test.setTimeout(240_000)
+  await open(page, 'quick-train')
+  await expect(page.getByTestId('dataset-profile')).toHaveAttribute('data-source', 'api')
+  // A small upload so the fit is quick: two numeric signals and a category.
+  const rows = ['row_id,x1,x2,grp,label']
+  for (let i = 0; i < 160; i++) {
+    const x1 = Math.sin(i * 1.7).toFixed(3), x2 = Math.cos(i * 0.9).toFixed(3), grp = ['a', 'b', 'c'][i % 3]
+    rows.push(`r${i},${x1},${x2},${grp},${Number(x1) + 0.5 * Number(x2) > 0 ? 'yes' : 'no'}`)
+  }
+  await page.getByTestId('dataset-file').setInputFiles({ name: 'e2e_live_run.csv', mimeType: 'text/csv', buffer: Buffer.from(rows.join('\n')) })
+  await expect(page.getByTestId('profile-name')).toHaveText('e2e_live_run.csv')
+  await page.getByRole('button', { name: 'Continue →' }).click()
+  await page.getByRole('button', { name: 'Start Training' }).click()
+
+  const card = page.getByTestId('live-run')
+  await expect(card).toHaveAttribute('data-status', 'idle')
+  await card.getByTestId('live-run-start').click()
+  await expect(card).toHaveAttribute('data-status', /running|succeeded/, { timeout: 30_000 })
+  await expect(card).toHaveAttribute('data-status', 'succeeded', { timeout: 200_000 })
+
+  // What the card shows is what the API recorded.
+  const runId = (await card.getByTestId('live-run-id').textContent())!.trim()
+  const run = await (await page.request.get(`/api/runs/${runId}`)).json()
+  expect(run.status).toBe('succeeded')
+  for (const r of run.leaderboard) {
+    const row = card.getByTestId(`live-run-model-${r.model}`)
+    await expect(row).toHaveAttribute('data-done', 'true')
+  }
+  const eq = card.getByTestId('live-run-equation')
+  await expect(eq).toContainText(run.ensemble.model)
+  for (const [m, w] of Object.entries(run.ensemble.weights as Record<string, number>)) await expect(eq).toContainText(`${m} · w`), await expect(eq).toContainText(w.toFixed(3))
+  await expect(card.getByTestId('live-run-holdout')).toContainText(`n = ${run.holdout.n_rows}`)
+  expect(errors).toEqual([])
+})

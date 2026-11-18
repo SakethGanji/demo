@@ -25,6 +25,9 @@ export default defineConfig({
   server: {
     port: 5190,
     strictPort: true,
+    // The backend (its venv holds AutoGluon: tens of thousands of files) and the data folders are not UI source;
+    // watching them exhausts the OS file-watcher limit and makes run artifacts trigger reloads.
+    watch: { ignored: ['**/backend/**', '**/.e2e-data/**', '**/test-results/**', '**/playwright-report/**'] },
     proxy: {
       '/api': {
         target: API,
