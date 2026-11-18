@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ApiError, api } from '@/shared/api/client'
 import type { ColumnProfile, Prediction, Run } from '@/shared/api/types'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
@@ -21,6 +21,11 @@ export function TryPrediction({ run, ds, live, residualSd, models }: { run: Run;
     })
   }, [run, ds])
   const [vals, setVals] = useState<Record<string, string>>(() => Object.fromEntries(fields.map((f) => [f.name, f.example])))
+  // The dataset profile can arrive after this card mounts (a run resumed from the URL loads it asynchronously): fill
+  // in its examples then, keeping anything the user already typed.
+  useEffect(() => {
+    setVals((v) => ({ ...Object.fromEntries(fields.map((f) => [f.name, f.example])), ...Object.fromEntries(Object.entries(v).filter(([, x]) => x !== '')) }))
+  }, [fields])
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
