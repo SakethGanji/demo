@@ -1,12 +1,25 @@
 import { useState } from 'react'
+import { useApi } from '@/shared/api/mode'
 import { Segmented } from '@/shared/primitives/Segmented'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { ConsoleDock } from './components/ConsoleDock'
 import { Hyperparameters } from './components/Hyperparameters'
 import { StepSummary } from './components/StepSummary'
 import { HYPER, STEPS, type Params } from './params'
+import type { GymState } from './live/body'
+import { LiveGym } from './live/LiveGym'
 
-export function TrainingGymPage({ params, setParams, guided, setGuided, onStart, onAutopilot }: {
+/** Live mode: the real AutoGluon configuration (LiveGym). Mock mode keeps the scripted prototype, labelled SIMULATED. */
+export function TrainingGymPage(props: {
+  params: Params; setParams: (p: Params) => void; guided: boolean; setGuided: (g: boolean) => void; onStart: () => void; onAutopilot: () => void
+  gym: GymState; setGym: (g: GymState | ((g: GymState) => GymState)) => void; go: (r: string) => void
+}) {
+  const { mode } = useApi()
+  if (mode === 'live') return <LiveGym gym={props.gym} setGym={props.setGym} guided={props.guided} setGuided={props.setGuided} go={props.go} />
+  return <MockGym {...props} />
+}
+
+function MockGym({ params, setParams, guided, setGuided, onStart, onAutopilot }: {
   params: Params; setParams: (p: Params) => void; guided: boolean; setGuided: (g: boolean) => void; onStart: () => void; onAutopilot: () => void
 }) {
   const [step, setStep] = useState(HYPER)
@@ -21,6 +34,7 @@ export function TrainingGymPage({ params, setParams, guided, setGuided, onStart,
         <div className="stepper-title">
           <h1 className="page-title">Enterprise Support Ticket Classifier</h1>
           <StatusPill status="neutral">Draft</StatusPill>
+          <span className="pill warning" data-testid="gym-simulated">SIMULATED</span>
           <span className="chip">v3.0.0-rc1</span>
           <span className="spacer" />
           <span className="helper" style={{ fontSize: 12 }}>124,500 rows × 9 cols · Text + Metadata</span>

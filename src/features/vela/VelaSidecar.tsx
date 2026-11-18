@@ -3,10 +3,16 @@ import { Icon } from '@/shared/primitives/Icon'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { useApi } from '@/shared/api/mode'
+import type { VelaFinding } from '@/shared/api/types'
 import { PatchCard, type Patch } from './components/PatchCard'
+import { LiveVela } from './LiveVela'
 
 /** Stays mounted while closed so applied patches and your questions survive reopening it. */
-export function VelaSidecar({ open, context, patches, onClose }: { open: boolean; context: string; patches: Patch[]; onClose: () => void }) {
+export function VelaSidecar({ open, context, patches, onClose, preferredRun, appliedKey, onApplyLive }: {
+  open: boolean; context: string; patches: Patch[]; onClose: () => void
+  /** Live mode: the run Vela reads (when the URL names none), the applied patch, and how to apply one. */
+  preferredRun: string | null; appliedKey: string | null; onApplyLive: (runId: string, f: VelaFinding) => void
+}) {
   const { mode } = useApi()
   const [thinking, setThinking] = useState(true)
   const [applied, setApplied] = useState<Set<string>>(new Set())
@@ -34,8 +40,10 @@ export function VelaSidecar({ open, context, patches, onClose }: { open: boolean
         <button className="icon-btn" aria-label="Close Vela" onClick={onClose}><Icon.close width={16} height={16} /></button>
       </div>
       <div className="sidecar-body">
+        {mode === 'live' ? (
+          <LiveVela open={open} preferredRun={preferredRun} appliedKey={appliedKey} onApply={onApplyLive} />
+        ) : <>
         <div className="vela-ctx"><span className="micro-label">Context</span><span className="chip">{context}</span><span className="pill warning" data-testid="vela-simulated">SIMULATED</span></div>
-        {mode === 'live' && <p className="helper" style={{ fontSize: 12 }} data-testid="vela-note">Vela is a prototype: these findings are scripted, not computed from your runs, and their patches change the Training Gym prototype only.</p>}
         {thinking ? (
           <div className="thinking"><ResonanceWave width={84} height={18} fast /> Reading this page</div>
         ) : (
@@ -58,13 +66,14 @@ export function VelaSidecar({ open, context, patches, onClose }: { open: boolean
             )}
           </div>
         ))}
+        </>}
       </div>
-      <div className="sidecar-input">
+      {mode !== 'live' && <div className="sidecar-input">
         <div className="box">
           <input placeholder="Ask Vela about this run…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ask()} />
           <button className="icon-btn" aria-label="Send" onClick={ask} style={{ color: 'var(--accent-primary)' }}><Icon.send width={16} height={16} /></button>
         </div>
-      </div>
+      </div>}
     </aside>
   )
 }

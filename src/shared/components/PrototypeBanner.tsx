@@ -1,7 +1,6 @@
 import { useApi } from '@/shared/api/mode'
 
 const TEXT: Record<string, string> = {
-  gym: 'The Training Gym is still the scripted prototype: its sliders, curves and estimates are simulated, and nothing here trains. Train for real in New Model; the Gym becomes the full AutoGluon config next.',
   autopilot: 'Vela Autopilot is still the scripted prototype: the run below plays in your browser and fits nothing. Train for real in New Model.',
 }
 

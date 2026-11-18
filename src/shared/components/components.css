@@ -92,7 +92,7 @@
 
 /* ---------- run strings ---------- */
 .run-strings { padding: var(--space-4) 0; }
-.run-string { display: grid; grid-template-columns: 82px 190px minmax(120px, 1fr) 104px 170px; align-items: center; gap: var(--space-16); width: 100%; height: 44px; padding: 0 var(--space-20); background: none; border: 0; border-bottom: 1px solid var(--border-row); text-align: left; transition: background var(--duration-snap-min) var(--ease-pluck); }
+.run-string { display: grid; grid-template-columns: max-content minmax(90px, 210px) minmax(90px, 1fr) max-content minmax(150px, 290px); align-items: center; gap: var(--space-16); width: 100%; height: 44px; padding: 0 var(--space-20); background: none; border: 0; border-bottom: 1px solid var(--border-row); text-align: left; transition: background var(--duration-snap-min) var(--ease-pluck); }
 .run-string:last-child { border-bottom: 0; }
 .run-string:hover { background: var(--bg-wave-tint); }
 .rs-id { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-primary); }
@@ -101,7 +101,7 @@
 .rs-status { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .rs-status .live-dot { width: 6px; height: 6px; border-radius: var(--radius-full); background: currentColor; }
 .s-training { color: var(--status-info); } .s-completed { color: var(--status-success); } .s-queued { color: var(--text-body); } .s-failed { color: var(--status-danger); }
-.rs-read { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rs-read { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
 /* ---------- stage: the navy panel a live run plays on (New Model, Autopilot) ---------- */
 .hero-eyebrow { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.36em; color: var(--text-on-shell-muted); padding-left: 9px; }

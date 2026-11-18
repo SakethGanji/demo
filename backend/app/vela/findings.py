@@ -208,7 +208,7 @@ def f_weak_class(rec, base, hp, out):
                     "confused_with": classes[confused], "confused_n": int(cm[i][confused])},
         "text": (f"Holdout recall on '{classes[i]}' is {recall[i]:.3f} against a macro mean of {macro:.3f} "
                  f"(n = {int(support[i])}); {int(cm[i][confused])} of them were predicted '{classes[confused]}'."),
-        "formula": "recall_c = TP_c / (TP_c + FN_c)",
+        "formula": "r_c = TP_c / (TP_c + FN_c)",
         "patch": patch,
     })
 
@@ -399,7 +399,7 @@ def f_leakage(rec, base, data, out):
                 "A column this predictive is usually recorded after the outcome.")
     out.append({"id": "leakage", "kind": "leakage", "severity": "critical", "title": f"Leakage suspect: {top['feature']}",
                 "numbers": {"suspects": suspects}, "text": text,
-                "formula": "share = I_j / Σ_{k: I_k > 0} I_k  (permutation importance)",
+                "formula": "s_j = I_j / Σ_k max(I_k, 0),  I = permutation importance",
                 "patch": make_patch(base, "leakage", f"Drop {', '.join(s['feature'] for s in suspects)}", [
                     ("drop_columns", drop, "leave the suspect column(s) out of training")])})
 

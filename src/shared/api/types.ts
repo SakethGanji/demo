@@ -115,7 +115,63 @@ export type RunCreate = {
   column_types?: Record<string, 'number' | 'category' | 'text'> | null
   /** Binary: calibrate the decision threshold after the fit for this metric ('auto': f1 when the minority class < 20%). */
   calibrate_threshold?: string | null
+  /** Pseudo-labelling with unlabeled rows (another dataset): fit_pseudolabel after the fit, or fit(unlabeled_data=…). */
+  pseudolabel?: { dataset_id: string; method?: 'fit_pseudolabel' | 'unlabeled_data'; max_iter?: number } | null
+  /** predictor.distill(**distill) after the fit. */
+  distill?: Record<string, unknown> | null
+  parent_run_id?: string | null
+  patch?: { id: string; title?: string; changes: PatchChange[] } | null
+  source?: string | null
 }
+
+// -- Training Gym (S6) -------------------------------------------------------------------------------------------
+
+export type GymParam = {
+  key: string; sym: string; name: string; help: string; default: number | string
+  min?: number; max?: number; log?: boolean; integer?: boolean; choices?: (string | number)[]
+  default_source?: 'autogluon' | 'library'; autogluon_default?: unknown
+}
+export type GymFamily = {
+  key: string; name: string; kind: string; description: string; objective: string; symbols: Record<string, string>
+  custom: boolean; problem_types: ProblemType[]; params: GymParam[]; in_default_zoo: boolean
+}
+export type GymSchema = {
+  engine: { name: string; version: string }
+  families: GymFamily[]
+  presets: { key: string; name: string; note: string }[]
+  preset_values: Record<string, Record<string, unknown>>
+  metrics: Record<string, string[]>
+  hpo: { schedulers: string[]; searchers: string[]; note: string }
+  gpu: { count: number; names: string[]; note: string | null }
+  fit: { keys: string[]; defaults: Record<string, unknown>; named: string[]; public: string[] }
+  default_zoo: Record<string, unknown>
+  calibration_metrics: string[]
+}
+export type GymIssue = { path: string; message: string }
+export type GymValidation = {
+  ok: boolean; errors: GymIssue[]; warnings: GymIssue[]; info: GymIssue[]
+  problem_type?: ProblemType | null; label?: string
+  data?: { rows: number; train_rows: number; features: string[]; d: number; dropped: string[]; text_columns: string[]; holdout_share: number }
+  resolved?: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; post_fit: { call: string; kwargs: Record<string, unknown> }[]; notes: string[]; preset_expansion: Record<string, unknown> }
+  call?: string
+  diff?: { key: string; value: unknown; default: unknown; origin: 'you' | 'preset' | 'ensemble'; changed: boolean }[]
+  effective?: { num_bag_folds: number; num_bag_sets: number; num_stack_levels: number; dynamic_stacking: boolean; use_bag_holdout?: boolean; holdout_frac: number | null; refit_full: boolean; source: string }
+  estimate?: { seconds: number; unbounded_seconds: number; budget: number | null; budget_binds: boolean; overhead: number; n: number; d: number; k: number; s: number; L: number
+    families: { family: string; variants: number; rate: number; rate_source: string; seconds: number; trials: number }[]; formula: string; note: string }
+  families?: Record<string, number>
+}
+
+// -- Vela (S6) ---------------------------------------------------------------------------------------------------
+
+export type PatchChange = { path: string; from: unknown; to: unknown; label: string }
+export type VelaPatch = { id: string; title: string; changes: PatchChange[]; body: RunCreate }
+export type VelaFinding = {
+  id: string; kind: string; severity: 'info' | 'warning' | 'critical'; title: string; text: string; computed_text: string
+  numbers: Record<string, unknown>; formula?: string; patch: VelaPatch
+}
+export type VelaWording = { source: 'claude-cli' | 'anthropic-api' | 'computed'; model: string | null; texts: Record<string, string>; kept: Record<string, boolean>
+  attempts: { source: string; ok: boolean; error?: string; seconds: number }[]; seconds: number; disabled?: boolean; key: string }
+export type VelaResponse = { run_id: string; run_name: string; findings: VelaFinding[]; errors: string[]; base: RunCreate; wording: VelaWording | null; key: string }
 
 export type EvalMetric = { name: string; greater_is_better: boolean; optimum: number | null; scores_note: string }
 
@@ -235,7 +291,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */

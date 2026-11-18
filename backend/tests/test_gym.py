@@ -191,10 +191,11 @@ def test_export_reproduces_post_fit_steps_and_text_models(client, data_dir, tmp_
     ds = client.get("/api/datasets/support-tickets").json()
     df = pd.read_csv(data_dir / "datasets" / "support-tickets" / "data.csv").sample(300, random_state=4).drop(columns=[ds["target"]])
     u = client.post("/api/datasets", files={"file": ("tickets_unlabeled.csv", df.to_csv(index=False).encode(), "text/csv")}).json()
-    run = start_run(client, dataset_id="support-tickets", time_limit=120, feature_importance=False,
+    # budgets far from binding: a step cut short by its time limit is not reproducible to the last model
+    run = start_run(client, dataset_id="support-tickets", time_limit=600, feature_importance=False,
                     fit_kwargs={"hyperparameters": {"GBM": {"num_boost_round": 40}}},
                     pseudolabel={"dataset_id": u["id"], "method": "fit_pseudolabel", "max_iter": 1},
-                    distill={"time_limit": 30, "hyperparameters": {"GBM": {"num_boost_round": 20}}})
+                    distill={"time_limit": 600, "hyperparameters": {"GBM": {"num_boost_round": 20}}})
     run = wait_for_run(client, run["id"])
     assert run["status"] == "succeeded", run["error"]
     models = {r["model"] for r in run["leaderboard"]}

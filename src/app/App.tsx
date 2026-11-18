@@ -8,6 +8,8 @@ import { RegistryPage } from '@/features/registry/RegistryPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
 import { TrainingGymPage } from '@/features/training-gym/TrainingGymPage'
 import { DEFAULTS, type Params } from '@/features/training-gym/params'
+import { EMPTY_GYM, type GymState, applyChanges } from '@/features/training-gym/live/body'
+import type { VelaFinding } from '@/shared/api/types'
 import { VelaSidecar } from '@/features/vela/VelaSidecar'
 import type { Patch } from '@/features/vela/components/PatchCard'
 import { ApiProvider } from '@/shared/api/mode'
@@ -29,6 +31,15 @@ export default function App() {
   const [guided, setGuided] = useState(prefs.mode === 'Guided')
   useEffect(() => setGuided(prefs.mode === 'Guided'), [prefs.mode])
   const [params, setParams] = useState<Params>(DEFAULTS)
+  // The live Gym's config (the exact POST /api/runs body), kept here so Vela's patches can change it from any page.
+  const [gym, setGym] = useState<GymState>(EMPTY_GYM)
+  const applyVela = (runId: string, f: VelaFinding) => {
+    setGym((g) => ({
+      body: g.body && g.fromRun === runId ? applyChanges(g.body, f.patch.changes) : (f.patch.body as GymState['body']),
+      fromRun: runId, fromName: null, patch: { id: f.patch.id, title: f.patch.title, changes: f.patch.changes },
+    }))
+    location.hash = '#/gym'
+  }
   const [palette, setPalette] = useState(false)
   const [approved, setApproved] = useState(false) // kept here so the Registry remembers it while you look at other pages
   useEffect(() => { document.title = `Project ENSEMBLE · ${TITLES[route]}` }, [route])
@@ -72,7 +83,7 @@ export default function App() {
           {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
           {route === 'quick-train' && <QuickTrainPage go={go} />}
           {route === 'autopilot' && <AutopilotPage go={go} />}
-          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} />}
+          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} gym={gym} setGym={setGym} go={go} />}
           {route === 'experiments' && <ExperimentsPage go={go} />}
           {route === 'explain' && <ExplainPage go={go} />}
           {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
@@ -80,7 +91,8 @@ export default function App() {
         </main>
       </div>
 
-      <VelaSidecar open={vela} context={route === 'gym' ? 'Training Gym · Step 07' : TITLES[route]} patches={patches} onClose={() => setVela(false)} />
+      <VelaSidecar open={vela} context={route === 'gym' ? 'Training Gym · Step 07' : TITLES[route]} patches={patches} onClose={() => setVela(false)}
+        preferredRun={route === 'gym' ? gym.fromRun : null} appliedKey={gym.patch && gym.fromRun ? `${gym.fromRun}:${gym.patch.id}` : null} onApplyLive={applyVela} />
     </div>
     <StatusBar params={params} />
     {palette && <CommandPalette onClose={() => setPalette(false)} go={go} />}

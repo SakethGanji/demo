@@ -36,7 +36,7 @@ export function RunString({ run, folds = 5, onClick }: { run: RunState; folds?: 
   return (
     <button className="run-string" onClick={onClick}>
       <span className="rs-id">{run.id}</span>
-      <span className="rs-label">{run.label}</span>
+      <span className="rs-label" title={run.label}>{run.label}</span>
       <div ref={ref} className="rs-track">
         <svg width={w} height={H} style={{ display: 'block', overflow: 'visible' }} aria-hidden>
           <line x1={run.status === 'Failed' ? x + 14 : x} x2={w} y1={mid} y2={mid} stroke="var(--border-track)" strokeWidth={1.5} strokeDasharray="4 4" />
@@ -52,7 +52,7 @@ export function RunString({ run, folds = 5, onClick }: { run: RunState; folds?: 
         </svg>
       </div>
       <span className={`rs-status s-${run.status.toLowerCase()}`}>{run.status === 'Training' ? <i className="live-dot" /> : <span aria-hidden>{glyph}</span>}{run.status}</span>
-      <span className="rs-read">{run.readout}</span>
+      <span className="rs-read" title={run.readout}>{run.readout}</span>
     </button>
   )
 }

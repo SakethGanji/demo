@@ -82,14 +82,16 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
         <div className="stack">
           <div className="card" data-testid="home-best">
             <div className="card-head"><div className="left"><h3 className="card-title">Best Scores</h3><span className="helper" style={{ fontSize: 12 }}>per dataset, label and metric · holdout</span></div></div>
-            {best.length ? <table className="table compact"><tbody>{best.slice(0, 5).map((r) => {
+            {best.length ? <table className="table compact best-table"><tbody>{best.slice(0, 5).map((r) => {
               const m = r.eval_metric!.name
-              return <tr key={r.id} onClick={() => go(`explain?run=${r.id}`)} style={{ cursor: 'pointer' }}><td>{r.name}</td><td className="mono muted">{r.best_model}</td><td className="r mono"><b>{fmtScore(r.holdout?.metrics[m], 4)}</b> <span className="muted">{metricInfo(m)?.name ?? m}</span></td></tr>
+              return <tr key={r.id} onClick={() => go(`explain?run=${r.id}`)} style={{ cursor: 'pointer' }}>
+                <td className="bt-name" title={r.name}>{r.name}</td><td className="mono muted bt-model" title={r.best_model ?? ''}>{r.best_model}</td>
+                <td className="r mono bt-score"><span className="muted">{metricInfo(m)?.name ?? m}</span> <b>{fmtScore(r.holdout?.metrics[m], 4)}</b></td></tr>
             })}</tbody></table> : <p className="helper card-body">Nothing finished yet.</p>}
           </div>
           <div className="card" data-testid="home-registry">
-            <div className="card-head"><div className="left"><h3 className="card-title">Registry</h3></div>
-              <div className="row" style={{ gap: 6 }}>
+            <div className="card-head wrap"><div className="left"><h3 className="card-title nowrap">Registry</h3></div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <StatusPill status="success">{reg?.counts.stages.Production ?? 0} production</StatusPill>
                 <StatusPill status="warning">{reg?.counts.stages.Staging ?? 0} staging</StatusPill>
                 <StatusPill status="neutral">{reg?.counts.approvals.pending ?? 0} pending</StatusPill>
@@ -98,7 +100,9 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
             </div>
             <div className="card-body home-audit">
               {reg?.audit.length ? reg.audit.slice(0, 5).map((a) => (
-                <div key={a.id} className="ha-row"><span className="mono muted">{ago(a.ts)}</span><span><b>{a.actor}</b> {ACTION[a.action]} <a href={`#/registry?version=${a.version_id}`} className="mono">{a.model_name} v{a.version}</a>{a.to_stage && a.action === 'stage_changed' ? <> → {a.to_stage}</> : ''}</span><span className="mono muted">{(a.model_hash ?? '').slice(0, 8)}</span></div>
+                <div key={a.id} className="ha-row" data-testid="home-audit-row"><span className="mono muted ha-ago">{ago(a.ts)}</span>
+                  <span className="ha-what"><b>{a.actor}</b> {ACTION[a.action]} <a href={`#/registry?version=${a.version_id}`} className="ha-ver"><span className="mono">{a.model_name}</span> <span className="ha-v mono">v{a.version}</span></a>{a.to_stage && a.action === 'stage_changed' ? <> <span className="muted">→</span> <span className="ha-stage">{a.to_stage}</span></> : null}</span>
+                  {a.model_hash ? <span className="ha-hash mono" title={`model SHA-256 ${a.model_hash}`}>#{a.model_hash.slice(0, 8)}</span> : <span />}</div>
               )) : <p className="helper">No registry activity yet. Register a finished run from the Registry or Experiments.</p>}
             </div>
           </div>
@@ -114,6 +118,7 @@ export function LiveHeroRead() {
   const [best, setBest] = useState<Run | null>(null)
   const [prod, setProd] = useState<ModelVersion | null>(null)
   useEffect(() => {
+    // The latest finished run, read with the metric it was optimised for (its own eval_metric), as everywhere else.
     api.runs.list().then((rs) => setBest(rs.find((r) => r.status === 'succeeded' && r.holdout) ?? null)).catch(() => {})
     api.registry.summary().then((x) => setProd(x.production[0] ?? null)).catch(() => {})
   }, [status?.runs, status?.registry?.stages.Production])
@@ -122,7 +127,7 @@ export function LiveHeroRead() {
     <div className="hero-read" data-testid="home-read">
       <span><b>{status?.runs ?? 0}</b> runs{status?.active ? <> · <b>1</b> on the strings</> : ''}</span>
       <span><b>{status?.registry?.stages.Production ?? 0}</b> in Production{prod ? <> · <b>{prod.model_name} v{prod.version}</b></> : ''}</span>
-      {best && <span>latest {metricInfo(m)?.name ?? m}: <b>{fmtScore(best.holdout?.metrics[m], 4)}</b></span>}
+      {best && <span title={`${best.id}: holdout ${m}, the metric the run optimised`}>latest · {best.name.split(' · ')[0]} · {metricInfo(m)?.name ?? m} <b>{fmtScore(best.holdout?.metrics[m], 4)}</b></span>}
     </div>
   )
 }
@@ -160,7 +165,7 @@ function TrainingMonitor({ run, live }: { run: Run | null; live: boolean }) {
   const tMax = Math.max(10, ...pts.map((p) => p.t)) * 1.05
   return (
     <div className="stack">
-      <PlotFrame title="Training Monitor" right={run ? <><span className="mono" style={{ fontSize: 12.5 }}>{run.id}</span>{live ? <ResonanceWave width={56} height={14} /> : <span className="helper" style={{ fontSize: 12 }}>last run · replayed</span>}</> : undefined}
+      <PlotFrame title="Training Monitor" right={run ? <><span className="mono" style={{ fontSize: 12.5 }}>{run.id}</span>{live ? <ResonanceWave width={56} height={14} /> : <span className="helper nowrap" style={{ fontSize: 12 }}>replayed</span>}</> : undefined}
         chips={run ? <><ParamChip sym="models" value={String(pts.length)} /><ParamChip sym="metric" value={metric || '…'} />{b != null && <ParamChip sym="best" value={fmtScore(b, 4)} />}</> : undefined}
         legend={[{ name: 'sᵥₐₗ(m) per model', color: 'var(--viz-a)', data: [] }, { name: 'best so far', color: 'var(--viz-c)', data: [] }]}
         caption={<span>sᵥₐₗ(m): each model’s validation {metric} as AutoGluon reports it when the model finishes, at t seconds after <span className="mono">fit()</span> started; the staircase is the best so far, {greater ? 'max' : 'min'}<sub>m′ ≤ m</sub> sᵥₐₗ(m′) ({greater ? 'higher' : 'lower'} is better).</span>}>

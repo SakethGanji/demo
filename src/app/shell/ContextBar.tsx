@@ -10,7 +10,7 @@ export function ContextBar({ route, velaOpen, onPalette, onVela }: { route: Rout
       <div className="crumbs">
         <span>ENSEMBLE</span><span className="sep">/</span>
         <span>{TITLES[route]}</span>
-        {route === 'gym' && <><span className="sep">/</span><b>Enterprise Support Ticket Classifier</b></>}
+        {route === 'gym' && mode !== 'live' && <><span className="sep">/</span><b>Enterprise Support Ticket Classifier</b></>}
       </div>
       <button className="cmd" onClick={onPalette}><Icon.search width={14} height={14} /> Search runs, models, datasets<kbd>⌘K</kbd></button>
       {mode === 'live'

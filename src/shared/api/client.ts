@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -84,6 +84,23 @@ export const api = {
     shap: (id: string, row: number, target?: string) =>
       request<ShapResult>(`/runs/${encodeURIComponent(id)}/shap?row=${row}${target ? `&target=${encodeURIComponent(target)}` : ''}`, { timeoutMs: 180_000 }),
   },
+  gym: {
+    schema: () => request<GymSchema>('/gym/schema', { timeoutMs: 60_000 }),
+    /** Validate a run body without starting it: errors, the resolved call and its diff, AutoGluon's choices, T̂. */
+    validate: (body: RunCreate) => request<GymValidation>('/gym/validate', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),
+    /** The body that starts a run again, and its lineage. */
+    fromRun: (id: string) => request<{ run_id: string; name: string; status: string; body: RunCreate; parent_run_id: string | null; patch: RunCreate['patch'] }>(`/runs/${encodeURIComponent(id)}/gym`),
+    exportUrl: (id: string, download = false) => `${BASE}/runs/${encodeURIComponent(id)}/export.py${download ? '?download=true' : ''}`,
+    exportText: async (id: string) => {
+      const r = await fetch(`${BASE}/runs/${encodeURIComponent(id)}/export.py`)
+      if (!r.ok) throw new ApiError(`Export failed (${r.status}).`, r.status)
+      return r.text()
+    },
+  },
+  vela: {
+    findings: (runId: string) => request<VelaResponse>(`/runs/${encodeURIComponent(runId)}/vela`, { timeoutMs: 120_000 }),
+    word: (runId: string) => request<VelaWording>(`/runs/${encodeURIComponent(runId)}/vela/wording`, { method: 'POST', timeoutMs: 90_000 }),
+  },
   registry: {
     get: () => request<{ models: RegisteredModel[]; versions: ModelVersion[]; counts: RegistryCounts }>('/registry'),
     summary: () => request<{ counts: RegistryCounts; audit: AuditEntry[]; production: ModelVersion[] }>('/registry/summary'),
@@ -139,7 +156,7 @@ export function followRun(id: string, onEvent: (e: RunEvent) => void,
   const terminal = new Set(['run_succeeded', 'run_failed', 'run_cancelled'])
   const types = ['run_queued', 'run_started', 'data_ready', 'config_resolved', 'fit_started', 'model_started', 'model_finished',
     'model_failed', 'ensemble', 'fit_finished', 'leaderboard', 'evaluation', 'text_models', 'explaining', 'feature_importance',
-    'log', 'calibrating', 'threshold', 'tracked', 'run_succeeded', 'run_failed', 'run_cancelled']
+    'log', 'calibrating', 'threshold', 'tracked', 'post_fit', 'run_succeeded', 'run_failed', 'run_cancelled']
   let next = opts.from ?? 0
   let ended = false
   let es: EventSource | null = null
