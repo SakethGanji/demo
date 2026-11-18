@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 from importlib import metadata
 from typing import Any, Literal
@@ -21,7 +22,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .. import config
 from ..splits import load_splits
-from . import catalogue, serving
+from . import catalogue, explain, serving, threshold
 from .runner import JobRunner
 from .store import TERMINAL_EVENTS, RunStore, now
 
@@ -50,6 +51,10 @@ class RunCreate(BaseModel):
     feature_importance: bool = Field(True, description="Compute permutation importance on the holdout after the fit.")
     column_types: dict[str, Literal["number", "category", "text"]] | None = Field(
         None, description="Override inferred column types; passed to AutoGluon as feature_metadata.")
+    calibrate_threshold: str | None = Field(
+        None, description="Binary only: after the fit, predictor.calibrate_decision_threshold(metric=...) and keep it. "
+                          "A metric name (f1, balanced_accuracy, mcc, …) or 'auto' (f1 when the minority class < 20%). "
+                          "Ignored when fit_kwargs.calibrate_decision_threshold is given.")
 
 
 class EnsembleRequest(BaseModel):
@@ -79,7 +84,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     }
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
-                "feature_importance", "leaderboard", "resolved", "custom_ensembles"):
+                "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold"):
         out[key] = res.get(key)
     if not full:
         out["leaderboard"] = [{k: r.get(k) for k in LIST_LB_COLS} for r in (out["leaderboard"] or [])] or out["leaderboard"]
@@ -148,6 +153,8 @@ def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         raise HTTPException(400, "column_types: the label's type is set by problem_type, not column_types.")
     if types and "feature_metadata" in body.fit_kwargs:
         raise HTTPException(400, "Give column_types or fit_kwargs.feature_metadata, not both.")
+    if body.calibrate_threshold not in (None, "auto", *threshold.CALIBRATION_METRICS):
+        raise HTTPException(400, f"calibrate_threshold: use 'auto' or one of {', '.join(threshold.CALIBRATION_METRICS)}.")
     text_cols = [c["name"] for c in profile["columns"] if types.get(c["name"], c["type"]) == "text"
                  and c["name"] not in drop and c["name"] != label]
     if label == profile.get("target"):
@@ -283,23 +290,32 @@ async def out_of_fold(run_id: str, request: Request, model: str | None = None) -
 
 
 @router.get("/runs/{run_id}/feature-importance")
-async def feature_importance(run_id: str, request: Request) -> dict[str, Any]:
-    """Permutation importance on the holdout: stored if the run computed it, else computed now and stored."""
+async def feature_importance(run_id: str, request: Request,
+                             shuffles: int | None = Query(None, ge=2, le=50)) -> dict[str, Any]:
+    """Permutation importance on the holdout: stored if the run computed it, else computed now and stored.
+    `shuffles` recomputes it with that many shuffle sets (tighter intervals). Each feature has a 95% t-interval
+    importance ± t₀.₉₇₅,ₙ₋₁·s/√n over the n shuffles."""
     rec = _get_run(request, run_id)
     _require_succeeded(rec)
-    fi = (rec.get("result") or {}).get("feature_importance")
-    if fi is None:
+    res = rec.get("result") or {}
+    fi = res.get("feature_importance")
+    meta = res.get("feature_importance_meta") or {"num_shuffle_sets": 3, "subsample_size": None}
+    if fi is None or (shuffles is not None and shuffles != meta.get("num_shuffle_sets")):
         cfg = rec["config"]
+        n_sets = shuffles or 3
 
         def compute():
             p = request.app.state.predictors.get(cfg["predictor_path"])
             h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])),
                                       cfg["label"], cfg["drop_columns"])
-            return serving.feature_importance(p, h)
+            return serving.feature_importance(p, h, num_shuffle_sets=n_sets, time_limit=120), min(2000, len(h))
 
-        fi = await run_in_threadpool(compute)
-        _store(request).merge_result(run_id, feature_importance=fi)
-    return {"run_id": run_id, "features": fi}
+        fi, sub = await run_in_threadpool(compute)
+        meta = {"num_shuffle_sets": n_sets, "subsample_size": sub}
+        _store(request).merge_result(run_id, feature_importance=fi, feature_importance_meta=meta)
+    return {"run_id": run_id, "features": explain.importance_with_ci(fi), "meta": meta,
+            "method": "permutation importance on the holdout: score drop when one feature's values are shuffled "
+                      "(AutoGluon's predictor.feature_importance)", "eval_metric": (res.get("eval_metric") or {}).get("name")}
 
 
 @router.get("/runs/{run_id}/holdout-predictions")
@@ -399,3 +415,212 @@ async def custom_ensemble(run_id: str, body: EnsembleRequest, request: Request) 
                                  "choose the models they were refit from.")
     res = await run_in_threadpool(_fit_custom_ensemble, request.app, rec, models)
     return {"run_id": run_id, **res}
+
+
+# --------------------------------------------------------------------------- understand (S4)
+
+
+def _holdout_df(rec: dict[str, Any]):
+    try:
+        return explain.load_holdout(Path(rec["config"]["run_dir"]))
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+def _require_binary(rec: dict[str, Any]) -> dict[str, Any]:
+    res = rec.get("result") or {}
+    if res.get("problem_type") != "binary":
+        raise HTTPException(400, f"A decision threshold applies to binary classification; this run is {res.get('problem_type')}.")
+    return res
+
+
+def _current_threshold(res: dict[str, Any]) -> float:
+    return float((res.get("threshold") or {}).get("value", 0.5))
+
+
+@router.get("/runs/{run_id}/threshold")
+async def get_threshold(run_id: str, request: Request, cost_fp: float = Query(1.0, ge=0), cost_fn: float = Query(1.0, ge=0),
+                        t: float | None = Query(None, ge=0, le=1)) -> dict[str, Any]:
+    """Binary runs: precision, recall, F1, balanced accuracy, MCC, the confusion counts and the cost
+    C(t) = c_FP·FP + c_FN·FN on the holdout at every t on a 0.005 grid (and at `t` exactly), the thresholds that
+    maximise F1 / balanced accuracy / MCC and minimise cost, and the threshold the predictor uses now."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    res = _require_binary(rec)
+    df = _holdout_df(rec)
+    out = await run_in_threadpool(explain.threshold_analysis, df, res["positive_class"], current=_current_threshold(res),
+                                  cost_fp=cost_fp, cost_fn=cost_fn, at=t)
+    return {"run_id": run_id, "model": res.get("best_model"), "threshold": res.get("threshold"), **out}
+
+
+class ThresholdRequest(BaseModel):
+    metric: str | None = Field(None, description="Calibrate: predictor.calibrate_decision_threshold(metric=metric).")
+    value: float | None = Field(None, ge=0, le=1, description="Or set this threshold directly.")
+
+
+@router.post("/runs/{run_id}/threshold")
+async def set_threshold(run_id: str, body: ThresholdRequest, request: Request) -> dict[str, Any]:
+    """Calibrate (`metric`) or set (`value`) the decision threshold and persist it in the predictor
+    (`set_decision_threshold` + `save`), so every later prediction uses it. The holdout is re-scored at it."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    _require_binary(rec)
+    if (body.metric is None) == (body.value is None):
+        raise HTTPException(400, "Give either metric (to calibrate) or value (to set the threshold).")
+    if body.metric is not None and body.metric not in threshold.CALIBRATION_METRICS:
+        raise HTTPException(400, f"Calibrate for one of {', '.join(threshold.CALIBRATION_METRICS)}.")
+    cfg = rec["config"]
+    app = request.app
+
+    def work():
+        with _run_lock(run_id):
+            p = app.state.predictors.get(cfg["predictor_path"])
+            h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+            t0 = time.time()
+            if body.metric is not None:
+                value, source = threshold.calibrate(p, body.metric), "calibrated"
+            else:
+                value, source = float(body.value), "manual"
+            out = threshold.apply(p, Path(cfg["run_dir"]), h, cfg["label"], value, source=source, metric=body.metric,
+                                  seconds=time.time() - t0)
+            _store(request).merge_result(run_id, threshold=out["threshold"], holdout=out["holdout"])
+            return out
+
+    try:
+        out = await run_in_threadpool(work)
+    except (ValueError, AssertionError) as e:
+        raise HTTPException(400, str(e)) from e
+    return {"run_id": run_id, **out}
+
+
+@router.get("/runs/{run_id}/explain")
+async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
+    """Classification: confusion matrix, per-class precision/recall/F1, ROC and PR curves (one-vs-rest for
+    multiclass) with AUC and average precision, the reliability curve with the Brier score and ECE, and the worst
+    mistakes with their features. Regression: residuals against predictions, their histogram, RMSE/MAE/R² and the
+    largest errors. Plus the columns that can define groups for fairness."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    res = rec.get("result") or {}
+    df = _holdout_df(rec)
+    cfg = rec["config"]
+    ds = request.app.state.db.get_dataset(rec["dataset_id"])
+
+    def build():
+        if res.get("problem_type") in ("binary", "multiclass"):
+            body = explain.classification_report(df, [str(c) for c in explain._classes(df)], res.get("positive_class"), cfg)
+        else:
+            body = explain.regression_report(df, cfg)
+        return body
+
+    body = await run_in_threadpool(build)
+    return {"run_id": run_id, "model": res.get("best_model"), "problem_type": res.get("problem_type"),
+            "eval_metric": res.get("eval_metric"), "label": rec["label"], "threshold": res.get("threshold"),
+            "group_candidates": explain.group_candidates(cfg, res.get("features") or [], ds["profile"] if ds else None),
+            "text_columns": cfg.get("text_columns") or [], **body}
+
+
+@router.get("/runs/{run_id}/fairness")
+async def fairness(run_id: str, request: Request, group: str = Query(..., min_length=1),
+                   t: float | None = Query(None, ge=0, le=1)) -> dict[str, Any]:
+    """fairlearn's MetricFrame on the holdout, one row per value of `group` (numbers with more than 8 values are cut
+    into quartiles). Binary: selection rate, base rate, accuracy, TPR, FPR, precision per group at the run's threshold
+    (or `t`), with the demographic parity difference and the equalised odds difference."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    res = rec.get("result") or {}
+    df = _holdout_df(rec)
+    pt = res.get("problem_type")
+    thr_value = t if t is not None else (_current_threshold(res) if pt == "binary" else None)
+    try:
+        out = await run_in_threadpool(explain.fairness, df, rec["config"], group, problem_type=pt,
+                                      positive=res.get("positive_class"), threshold=thr_value)
+    except explain.ExplainError as e:
+        raise HTTPException(400, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(400, f"No column named {group!r} in the dataset." if "not in list" in str(e) or "Usecols" in str(e) else str(e)) from e
+    return {"run_id": run_id, "model": res.get("best_model"), **out}
+
+
+@router.get("/runs/{run_id}/shap")
+async def shap_values(run_id: str, request: Request, row: int = Query(..., ge=0), target: str | None = None) -> dict[str, Any]:
+    """Kernel SHAP for one holdout row (data.csv row number) on the best model: f(x) = φ₀ + Σᵢ φᵢ, where f is
+    predict_proba of `target` (default: the positive class, or the predicted class for multiclass) or the predicted
+    value (regression), φ₀ = E[f] over a fixed sample of 50 training rows. Cached per row."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    cfg = rec["config"]
+    app = request.app
+
+    def work():
+        with _run_lock(run_id):
+            p = app.state.predictors.get(cfg["predictor_path"])
+            return explain.shap_row(p, cfg, Path(cfg["run_dir"]), row, target)
+
+    try:
+        out = await run_in_threadpool(work)
+    except explain.ExplainError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"run_id": run_id, **out}
+
+
+def _run_lock(run_id: str) -> threading.Lock:
+    with _ensemble_locks_guard:
+        return _ensemble_locks.setdefault(run_id, threading.Lock())
+
+
+@router.get("/status")
+def status(request: Request) -> dict[str, Any]:
+    """What the status bar shows in live mode: the machine (CPU count, memory), versions, the active run and its
+    progress (models started and finished, best validation score so far, elapsed against the budget) and the queue."""
+    from .. import __version__
+
+    store = _store(request)
+    active = store.list_active()
+    running = [r for r in active if r["status"] == "running"]
+    cur = None
+    if running:
+        r = running[0]
+        with request.app.state.db.connect() as con:
+            rows = con.execute("SELECT type, data FROM run_events WHERE run_id = ? AND type IN "
+                               "('fit_started', 'model_started', 'model_finished', 'model_failed', 'ensemble', "
+                               "'leaderboard', 'evaluation', 'calibrating', 'explaining') ORDER BY seq", (r["id"],)).fetchall()
+        started = finished = failed = 0
+        best = None
+        stage = "starting"
+        greater = True
+        for typ, data in rows:
+            d = json.loads(data)
+            if d.get("phase") == "dystack":
+                continue
+            stage = typ
+            if typ == "fit_started":
+                greater = bool(d.get("greater_is_better", True))
+            elif typ == "model_started":
+                started += 1
+            elif typ == "model_finished":
+                finished += 1
+                v = d.get("val_score_natural")
+                if v is not None and (best is None or (v > best if greater else v < best)):
+                    best = v
+            elif typ == "model_failed":
+                failed += 1
+        cfg = r["config"]
+        t0 = r.get("started_at")
+        cur = {"id": r["id"], "name": r["name"], "status": r["status"], "started_at": t0,
+               "time_limit": cfg.get("time_limit"), "presets": cfg.get("presets"), "eval_metric": cfg.get("eval_metric"),
+               "models_started": started, "models_finished": finished, "models_failed": failed, "best_val": best,
+               "stage": stage}
+    mem = None
+    try:
+        import psutil
+
+        mem = round(psutil.virtual_memory().total / 2**30, 1)
+    except Exception:  # noqa: BLE001
+        pass
+    import platform
+
+    return {"version": __version__, "engine": engine_info(), "cpu_count": os.cpu_count(), "memory_gb": mem,
+            "python": platform.python_version(), "host": platform.node(), "active": cur,
+            "queued": sum(1 for r in active if r["status"] == "queued"), "runs": store.count(),
+            "max_parallel_runs": getattr(request.app.state.runner, "max_parallel", None)}

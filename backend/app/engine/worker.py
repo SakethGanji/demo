@@ -265,6 +265,35 @@ def compute_feature_importance(predictor, holdout: pd.DataFrame, time_limit: flo
     return feature_importance(predictor, holdout, time_limit=time_limit)
 
 
+def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit) -> tuple[str, str | None, float | None]:
+    """Binary runs: calibrate the decision threshold after the fit when the run asks for it (`calibrate_threshold`:
+    a metric name, or "auto" = F1 when the minority class is under 20% of the training rows). A user's own
+    `fit_kwargs.calibrate_decision_threshold` always wins: then AutoGluon did (or skipped) it inside fit()."""
+    if predictor.problem_type != "binary":
+        return "none", None, None
+    from . import threshold as thr
+
+    user = "calibrate_decision_threshold" in (cfg.get("fit_kwargs") or {})
+    want = cfg.get("calibrate_threshold")
+    if want == "auto":
+        share = thr.minority_share(train[cfg["label"]])
+        want = "f1" if share < 0.2 else None
+        if want:
+            emit("log", level="info", logger="ensemble",
+                 message=f"minority class is {share:.1%} of the training rows: calibrating the decision threshold for F1")
+    if want and not user:
+        emit("calibrating", metric=want)
+        t0 = time.time()
+        t = thr.calibrate(predictor, want)
+        predictor.set_decision_threshold(t)
+        predictor.save()
+        return "calibrated", want, time.time() - t0
+    if abs(predictor.decision_threshold - 0.5) > 1e-12:
+        # AutoGluon calibrated inside fit() (its default "auto" does for metrics such as f1 and balanced_accuracy).
+        return ("fit_kwargs" if user else "autogluon_auto"), predictor.eval_metric.name, None
+    return "default", None, None
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -341,6 +370,8 @@ def run(run_dir: Path) -> int:
         predictor.fit(train, **call_kwargs)
         fit_seconds = time.time() - t0
 
+        threshold_source, threshold_metric, threshold_seconds = _decide_threshold(cfg, predictor, train, emit)
+
         weights = ensemble_weights(predictor)
         for e in weights:
             progress.models.setdefault(e["model"], {})["weights"] = e["weights"]
@@ -369,6 +400,14 @@ def run(run_dir: Path) -> int:
         save_holdout_predictions(predictor, holdout, cfg["label"], run_dir / "holdout_predictions.csv")
         store.merge_result(run_id, holdout=holdout_out)
         emit("evaluation", **holdout_out)
+        if predictor.problem_type == "binary":
+            from . import threshold as thr
+            from .explain import load_holdout
+
+            rec = thr.record(predictor, load_holdout(run_dir), source=threshold_source, metric=threshold_metric,
+                             seconds=threshold_seconds)
+            store.merge_result(run_id, threshold=rec)
+            emit("threshold", **rec)
 
         bagged = bool(predictor._trainer.bagged_mode)
         oof = {"available": bagged,

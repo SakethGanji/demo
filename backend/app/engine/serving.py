@@ -104,8 +104,8 @@ def oof(predictor, model: str | None = None) -> dict[str, Any]:
     return out
 
 
-def feature_importance(predictor, holdout: pd.DataFrame, time_limit: float = 60) -> list[dict[str, Any]]:
-    fi = predictor.feature_importance(holdout, subsample_size=min(2000, len(holdout)), num_shuffle_sets=3,
+def feature_importance(predictor, holdout: pd.DataFrame, time_limit: float = 60, num_shuffle_sets: int = 3) -> list[dict[str, Any]]:
+    fi = predictor.feature_importance(holdout, subsample_size=min(2000, len(holdout)), num_shuffle_sets=num_shuffle_sets,
                                       time_limit=time_limit, silent=True)
     return jsonable(fi.reset_index().rename(columns={"index": "feature"}))
 
