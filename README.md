@@ -24,6 +24,10 @@ The shell adds a status bar (compute, live run, current config) and a command pa
 
 Vela, the AI companion, is a collapsible sidecar that gives PatchCards; applying one changes the Training Gym config.
 
+## Backend
+
+There is no backend yet. The plan for building one is in [`docs/backend-implementation-guide.md`](docs/backend-implementation-guide.md).
+
 ## Project structure
 
 The tree mirrors the app: one folder per page under `features/`, the frame around the pages under `app/`, and anything used by more than one page under `shared/`.
