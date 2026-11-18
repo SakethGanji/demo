@@ -9,7 +9,8 @@ make dev         # API on :8000 and the UI on http://localhost:5190, together; C
 make test        # fast tier: pytest (not slow, includes tiny real fits), tsc --noEmit, vite build
 make test-full   # adds the slow pytest marks and the Playwright e2e suite (live and mock)
 make clean-data  # delete backend/data; the samples are regenerated on the next start
-backend/.venv/bin/python scripts/smoke.py   # end-to-end check against a running API (:8000), ✓ / ✗ per step
+make smoke       # scripts/smoke.py: the UI's real calls end to end against the API on :8000 (started if not running);
+                 # ✓ / ✗ per step, exit 1 on any failure. SMOKE_ONLY=core,samples,autopilot picks sections
 ```
 
 `npm run dev` alone still works: the UI shows "mock mode" in the status bar until an API answers on :8000.
@@ -81,6 +82,16 @@ clients/python/          ensemble_client: a pip-installable notebook client (dat
                          Vela, export, registry); `make setup` installs it into backend/.venv
 e2e/                     Playwright: live mode, mock mode, every page in both, one real AutoGluon run
 ```
+
+### Autopilot API (S7)
+
+| Call | What it does |
+| --- | --- |
+| `POST /api/autopilot` | Brief: `dataset_id`, `label`, `requirements` (`[{metric, op, value}]`: f1_macro, accuracy, balanced_accuracy, mcc, roc_auc, f1, r2, rmse, mae, `recall[<class>]`, `p95_latency_ms`, `p50_latency_ms`), `budget_seconds`, `autonomy` (`ask` waits for the inbox; `auto` accepts suggestions with c ≥ `auto_confidence`), `decider` (`auto`: Claude then layer 1; `layer1`: fixed strategy only). Runs in a thread of the API, calling the API over HTTP; resumes after a restart. |
+| `GET /api/autopilot[/{id}]` | State: steps (each run with its body, scores on its own and on the current labels, p95 latency, kept or dropped, which layer decided), decisions, the log in Vela's voice, dataset versions, budget, verdict (Met / Not Met with every check). |
+| `GET /api/autopilot/{id}/inbox` | The Ground-Truth Inbox: label issues (cleanlab `find_label_issues` on out-of-fold and held-out p̂, ranked by m(x) = p̂_y − max_{k≠y} p̂_k), exact duplicates, near-duplicate conflicts, outliers (`OutOfDistribution`), each with text, given / suggested label, confidence and why; recall of `label_noise.json` when the dataset has one. |
+| `POST …/inbox/answer`, `…/inbox/bulk`, `…/resume`, `…/cancel` | Answer rows (confirm, relabel, drop, skip), bulk-accept above a confidence, submit and continue (a new dataset version with lineage and the same holdout rows), stop. |
+| `POST /api/vela/ask` | Vela's question box: `{question, run_id?, autopilot_id?}` answered from the computed facts by the Claude CLI, then the API, else `answer: null` and "no model available". |
 
 ### Engine API
 
