@@ -333,7 +333,7 @@ def list_shift(run_id: str, request: Request) -> dict[str, Any]:
         for b in reg.list_batches(v["id"]):
             if b.get("status") == "succeeded":
                 batches.append({"id": b["id"], "version_id": v["id"], "filename": b.get("filename"), "created_at": b.get("created_at"),
-                                "rows": ((b.get("result") or {}).get("summary") or {}).get("rows"),
+                                "rows": ((b.get("result") or {}).get("summary") or {}).get("n_rows"),
                                 "max_psi": ((b.get("result") or {}).get("drift") or {}).get("max_psi")})
     return {"run_id": run_id, "checks": checks, "latest": (rec.get("result") or {}).get("shift"),
             "options": {"date_columns": opts.get("date_columns") or [], "time_column": tcol, "cutoff": cut, "batches": batches,

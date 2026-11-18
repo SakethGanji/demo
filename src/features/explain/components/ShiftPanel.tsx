@@ -165,9 +165,9 @@ function Hero({ c }: { c: ShiftCheck }) {
     <div className="card navy explain-hero" data-testid="shift-hero">
       <div className="eh-cell lead"><span className="micro-label">adversarial AUC</span><b className="mono" data-testid="shift-auc">{r.auc.value.toFixed(3)}</b><small>95% CI [{r.auc.ci[0].toFixed(3)}, {r.auc.ci[1].toFixed(3)}] · out of fold</small></div>
       <div className="eh-cell"><span className="micro-label">verdict</span><b data-testid="shift-verdict">{v.label}</b><small>{meta.say}</small></div>
-      <div className="eh-cell"><span className="micro-label">permutation null</span><b className="mono">p = {pfmt(r.null.permutation.p_value)}</b><small>AUC₀ 95% range [{r.null.permutation.q025.toFixed(3)}, {r.null.permutation.q975.toFixed(3)}], B = {r.null.permutation.B.toLocaleString()}</small></div>
-      {r.null.refit && <div className="eh-cell"><span className="micro-label">refit null (R = {r.null.refit.R})</span><b className="mono">{r.null.refit.aucs.map((a) => a.toFixed(3)).join(' · ')}</b><small>the same fit on shuffled origin labels</small></div>}
-      <div className="eh-cell"><span className="micro-label">shifts most</span><b className="mono">{top ? top.feature : '—'}</b><small>{top ? <>ΔAUC {f4(top.importance)}{top.psi != null ? ` · PSI ${f3(top.psi)}` : ''}</> : 'no column, without a shift'}</small></div>
+      <div className="eh-cell"><span className="micro-label">permutation null</span><b className="mono">p {r.null.permutation.p_value <= 1 / (r.null.permutation.B + 1) + 1e-12 ? '≤' : '='} {pfmt(r.null.permutation.p_value)}</b><small>AUC₀ 95% range [{r.null.permutation.q025.toFixed(3)}, {r.null.permutation.q975.toFixed(3)}], B = {r.null.permutation.B.toLocaleString()}</small></div>
+      {r.null.refit && <div className="eh-cell"><span className="micro-label">refit null (R = {r.null.refit.R})</span><b className="mono">max {r.null.refit.max.toFixed(3)}</b><small>{r.null.refit.aucs.map((a) => a.toFixed(3)).join(' · ')}: the same fit on shuffled origin labels</small></div>}
+      <div className="eh-cell"><span className="micro-label">shifts most</span><b className="mono" style={{ fontSize: top && top.feature.length > 10 ? 18 : undefined, overflowWrap: 'anywhere' }}>{top ? top.feature : '—'}</b><small>{top ? <>ΔAUC {f4(top.importance)}{top.psi != null ? ` · PSI ${f3(top.psi)}` : ''}</> : 'no column, without a shift'}</small></div>
       {c.sets.new.max_psi != null && <div className="eh-cell"><span className="micro-label">max PSI (batch)</span><b className="mono">{f3(c.sets.new.max_psi)}</b><small>the univariate view, next to the AUC</small></div>}
     </div>
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="shift-reason"><StatusPill status={meta.pill}>{v.label}</StatusPill>{' '}{v.reason} <span className="muted">Rule: {v.rule}.</span></p>
@@ -231,20 +231,23 @@ function NullPlot({ c }: { c: ShiftCheck }) {
 function Features({ c }: { c: ShiftCheck }) {
   const r = c.result!
   const max = Math.max(1e-9, ...r.features.map((f) => Math.max(f.ci?.[1] ?? f.importance, f.importance)))
+  const min = Math.min(0, ...r.features.map((f) => Math.min(f.ci?.[0] ?? f.importance, f.importance)))
+  const X = (v: number) => 2 + ((v - min) / (max - min)) * 196
   return (
     <div className="card" data-testid="shift-features">
       <div className="card-head"><div className="left"><h3 className="card-title">What Shifted</h3>
         <span className="helper" style={{ fontSize: 12 }}>ΔAUC<sub>j</sub>: the drop in out-of-fold AUC when column j is shuffled (AutoGluon's permutation importance, {r.importance_method.split(': ')[1]?.split(';')[0]}), with a 95% t-interval; PSI = Σ (aᵢ − eᵢ) ln(aᵢ ⁄ eᵢ) over bins, the one-column view</span></div></div>
       <div className="card-body" style={{ overflowX: 'auto' }}>
-        <table className="table compact"><thead><tr><th className="r">#</th><th>column</th><th>kind</th><th className="r">ΔAUC</th><th style={{ width: 200 }}>95% t-interval</th><th className="r">PSI</th><th className="r">mean R → N</th><th /></tr></thead>
+        <table className="table compact"><thead><tr><th className="r">#</th><th>column</th><th>kind</th><th className="r">ΔAUC</th><th style={{ width: 200 }}>95% t-interval (dashed: 0)</th><th className="r">PSI</th><th className="r">mean R → N</th><th /></tr></thead>
           <tbody>{r.features.map((f) => (
             <tr key={f.feature} data-testid={`shift-feature-${f.feature}`} data-rank={f.rank}>
               <td className="r mono">{f.rank}</td><td className="mono">{f.feature}</td><td className="muted">{f.kind}{f.model_features > 1 ? ` (${f.model_features} model features)` : ''}</td>
               <td className="r mono"><b>{f4(f.importance)}</b></td>
               <td><svg width={200} height={14} aria-label={`interval of ${f.feature}`}>
                 <line x1={0} x2={200} y1={7} y2={7} stroke="var(--border-subtle)" />
-                <line x1={Math.max(0, (f.ci?.[0] ?? f.importance) / max * 196)} x2={Math.max(0, (f.ci?.[1] ?? f.importance) / max * 196)} y1={7} y2={7} stroke={f.significant ? 'var(--viz-a)' : 'var(--text-muted)'} strokeWidth={3} />
-                <circle cx={Math.max(0, f.importance / max * 196)} cy={7} r={3} fill={f.significant ? 'var(--viz-a)' : 'var(--text-muted)'} />
+                <line x1={X(0)} x2={X(0)} y1={1} y2={13} stroke="var(--text-muted)" strokeDasharray="2 2" />
+                <line x1={X(f.ci?.[0] ?? f.importance)} x2={X(f.ci?.[1] ?? f.importance)} y1={7} y2={7} stroke={f.significant ? 'var(--viz-a)' : 'var(--text-muted)'} strokeWidth={3} />
+                <circle cx={X(f.importance)} cy={7} r={3} fill={f.significant ? 'var(--viz-a)' : 'var(--text-muted)'} />
               </svg><span className="mono" style={{ fontSize: 11 }}>{f.ci ? `[${f4(f.ci[0])}, ${f4(f.ci[1])}]` : ''}</span></td>
               <td className="r mono" style={{ color: f.psi_band ? PSI_COLOR[f.psi_band] : undefined }}>{f3(f.psi)}</td>
               <td className="r mono" style={{ fontSize: 12 }}>{f.mean_expected != null && f.mean_actual != null ? `${fmtScore(f.mean_expected, 3)} → ${fmtScore(f.mean_actual, 3)}` : '—'}</td>
@@ -337,8 +340,8 @@ function Sets({ c }: { c: ShiftCheck }) {
         <p className="helper" style={{ fontSize: 12.5 }}><b>R</b> = {c.sets.reference.what} ({c.sets.reference.rows.toLocaleString()} rows). <b>N</b> = {c.sets.new.what} ({c.sets.new.rows.toLocaleString()} rows).
           {c.extra.cutoff ? <> Cut-off τ = <span className="mono">{c.extra.cutoff}</span> ({c.extra.cutoff_source}) on {c.extra.time_column}, dates {c.extra.from} → {c.extra.to}{c.extra.undated_rows ? `, ${c.extra.undated_rows} undated rows left out` : ''}.</> : null}</p>
         <p className="helper" style={{ fontSize: 12.5 }}>{c.features.length} columns compared: <span className="mono">{c.features.join(', ')}</span>.</p>
-        <table className="table compact" data-testid="shift-excluded"><thead><tr><th>left out</th><th>why</th></tr></thead>
-          <tbody>{c.excluded.map((e) => <tr key={e.column}><td className="mono">{e.column}</td><td className="helper" style={{ fontSize: 12 }}>{e.reason}</td></tr>)}</tbody></table>
+        <table className="table compact" data-testid="shift-excluded" style={{ tableLayout: 'fixed', width: '100%' }}><thead><tr><th style={{ width: 150 }}>left out</th><th>why</th></tr></thead>
+          <tbody>{c.excluded.map((e) => <tr key={e.column}><td className="mono">{e.column}</td><td className="helper" style={{ fontSize: 12, whiteSpace: 'normal' }}>{e.reason}</td></tr>)}</tbody></table>
         <details className="an-adv"><summary className="micro-label">The fit call ({c.fit?.fit_seconds.toFixed(0)} s)</summary>
           <pre className="mono" style={{ fontSize: 11, whiteSpace: 'pre-wrap' }}>{c.fit?.call}</pre>
           <p className="helper" style={{ fontSize: 12 }}>Every fit (the check and each refit null) uses this call; importance: {c.result?.importance_method}.</p>
