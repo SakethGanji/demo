@@ -16,6 +16,13 @@ export const RUN_COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(
 /** The run's primary holdout metric in natural units (null until it has finished). */
 export const primary = (r: Run) => (r.eval_metric && r.holdout ? r.holdout.metrics[r.eval_metric.name] ?? null : null)
 export const bestRow = (r: Run) => r.leaderboard?.find((x) => x.model === r.best_model) ?? r.leaderboard?.[0] ?? null
+/** The best model's validation score; a refit model (…_FULL) has none of its own, so its bagged original's is used. */
+export const bestVal = (r: Run) => {
+  const b = bestRow(r)
+  if (b?.score_val_natural != null) return b.score_val_natural
+  const orig = b?.model.endsWith('_FULL') ? r.leaderboard?.find((x) => x.model === b.model.slice(0, -5)) : null
+  return orig?.score_val_natural ?? null
+}
 export const presetsOf = (r: Run) => { const p = r.config.presets; return Array.isArray(p) ? p.join('+') : (p as string | null) ?? '—' }
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso).getTime()) / 1000
@@ -103,7 +110,6 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
             </tr></thead>
             <tbody>
               {shown.map((r) => {
-                const b = bestRow(r)
                 const on = sel.includes(r.id)
                 const v = primary(r)
                 return (
@@ -114,7 +120,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
                     <td><StatusPill status={STATUS_PILL[r.status] ?? 'neutral'}>{r.status}</StatusPill></td>
                     <td><span className="muted">{r.problem_type ?? '—'}{r.classes && r.problem_type !== 'binary' ? ` K=${r.classes.length}` : ''}</span> · <span className="mono" style={{ fontSize: 11.5 }}>{r.eval_metric ? <>{r.eval_metric.name} {r.eval_metric.greater_is_better ? '↑' : '↓'}</> : (r.config.eval_metric as string) ?? 'auto'}</span></td>
                     <td className="r table-cell" data-testid={`exp-score-${r.id}`}><b>{fmtScore(v)}</b></td>
-                    <td className="r table-cell muted">{fmtScore(b?.score_val_natural)}</td>
+                    <td className="r table-cell muted">{fmtScore(bestVal(r))}</td>
                     <td className="r table-cell">{r.threshold ? <span title={`${r.threshold.source}${r.threshold.metric ? ` (${r.threshold.metric})` : ''}`}>{r.threshold.value.toFixed(3)}</span> : <span className="muted">—</span>}</td>
                     <td className="r table-cell">{r.leaderboard?.length ?? '—'}</td>
                     <td className="mono" style={{ fontSize: 11.5 }}>{presetsOf(r).replace(/_quality/g, '')} · {r.config.time_limit ? `${r.config.time_limit}s` : '∞'}</td>

@@ -45,6 +45,8 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
   const sd = reg && preds ? residuals(preds).sd : null
   const predictModels = (run.leaderboard ?? []).filter((r) => r.can_infer !== false && r.score_test != null).map((r) => (r.predict_model as string | undefined) ?? r.model)
   const weights = run.ensemble?.weights ?? null
+  // a refit model (…_FULL) has no validation score of its own: its bagged original's
+  const bestVal = best?.score_val_natural ?? run.leaderboard?.find((r) => best && r.model === best.model.replace(/_FULL$/, ''))?.score_val_natural ?? null
   const perRow = best?.pred_time_test != null && run.holdout?.n_rows ? best.pred_time_test / run.holdout.n_rows : null
 
   return (
@@ -64,7 +66,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
               <button className="btn ghost" onClick={onAgain}>Train Another</button>
             </div>
           </div>
-          {weights && Object.keys(weights).length > 0 && <div className="rh-eq"><StackEquation model={run.ensemble!.model} weights={weights} dark testId="result-equation" problemType={run.problem_type} K={run.classes?.length} scoreLabel={`validation ${metric} = ${fmtScore(best?.score_val_natural)}`} /></div>}
+          {weights && Object.keys(weights).length > 0 && <div className="rh-eq"><StackEquation model={run.ensemble!.model} weights={weights} dark testId="result-equation" problemType={run.problem_type} K={run.classes?.length} scoreLabel={`validation ${metric} = ${fmtScore(bestVal)}${best?.score_val_natural == null && bestVal != null ? ` (${best?.model.replace(/_FULL$/, '')}, before refit)` : ''}`} /></div>}
         </div>
       </div>
 

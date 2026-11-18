@@ -4,7 +4,7 @@ import { PlotFrame } from '@/shared/components/PlotFrame'
 import { StringPlot, type PCAxis } from '@/shared/components/StringPlot'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import { RUN_COLORS, bestRow, mostCommon, presetsOf } from '../LiveExperiments'
+import { RUN_COLORS, bestRow, bestVal, mostCommon, presetsOf } from '../LiveExperiments'
 
 const RUNG: Record<string, number> = { medium_quality: 1, good_quality: 2, high_quality: 3, best_quality: 4, extreme_quality: 5 }
 const RUNG_NAME = ['other', 'medium', 'good', 'high', 'best', 'extreme']
@@ -26,7 +26,7 @@ function axesFor(group: Run[]): AxisSpec[] {
     { key: 'fit', label: 'fit time', get: (r) => r.fit_seconds, fmt: (v) => `${v.toFixed(0)}s`, what: 'fit time (s)' },
     { key: 'lat', label: 'µs / row', get: (r) => { const b = bestRow(r); return b?.pred_time_test != null && r.holdout?.n_rows ? (b.pred_time_test / r.holdout.n_rows) * 1e6 : null }, fmt: (v) => v.toFixed(0), what: 'best model predict time per row (µs)' },
     { key: 't', label: 'threshold t', get: (r) => r.threshold?.value ?? null, fmt: (v) => v.toFixed(2), what: 't = decision threshold' },
-    { key: 'val', label: `val ${short(metric)}`, get: (r) => bestRow(r)?.score_val_natural ?? null, fmt: (v) => fmtScore(v, 3), what: `validation ${metric} of the best model` },
+    { key: 'val', label: `val ${short(metric)}`, get: (r) => bestVal(r), fmt: (v) => fmtScore(v, 3), what: `validation ${metric} of the best model` },
     ...ordered.map((k) => ({ key: `h_${k}`, label: `${short(k)}`, get: (r: Run) => r.holdout?.metrics[k] ?? null, fmt: (v: number) => fmtScore(v, 3), what: `holdout ${k}` })),
   ]
   // Keep axes every run has; drop constant ones (they say nothing) except the run's own metric.
@@ -54,7 +54,9 @@ export function RunCoordinates({ runs, selected, onToggle }: { runs: Run[]; sele
   const axes: PCAxis[] = specs.map((s) => {
     const vals = group.map(s.get) as number[]
     let lo = Math.min(...vals), hi = Math.max(...vals)
+    const nonneg = vals.every((v) => v >= 0)
     if (lo === hi) { const d = Math.abs(lo) * 0.1 || 1; lo -= d; hi += d } else { const d = (hi - lo) * 0.08; lo -= d; hi += d }
+    if (nonneg) lo = Math.max(0, lo)
     if (s.key === 'k' || s.key === 'm') { lo = Math.max(0, Math.floor(lo)); hi = Math.ceil(hi) }
     if (s.key === 'rung') { lo = 1; hi = 4 }
     return { key: s.key, label: s.label, min: lo, max: hi, fmt: s.fmt }

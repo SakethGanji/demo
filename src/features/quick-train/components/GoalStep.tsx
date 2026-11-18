@@ -75,7 +75,7 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
 
           {task === 'binary' && (
             <div className="card" data-testid="threshold-card">
-              <div className="card-head"><h3 className="card-title">Decision Threshold</h3><span className="micro-label">ŷ = positive when p̂ &gt; t</span></div>
+              <div className="card-head"><h3 className="card-title">Decision Threshold</h3><span className="micro-label nocase">ŷ = positive when p̂ &gt; t</span></div>
               <div className="card-body stack" style={{ gap: 'var(--space-8)' }}>
                 <div className="seg" role="radiogroup">
                   {([[null, 't = 0.5 (AutoGluon default)'], ['f1', 'calibrate for F₁'], ['balanced_accuracy', 'for balanced accuracy'], ['mcc', 'for MCC']] as [string | null, string][]).map(([k, label]) => (

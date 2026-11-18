@@ -86,7 +86,7 @@ export function ThresholdPanel({ run, onChanged }: { run: Run; onChanged: () => 
               <div className="thr-ticks mono"><span>0</span><span>0.25</span><span>0.5</span><span>0.75</span><span>1</span></div>
               <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
                 <button className="chip-btn" onClick={() => setT(0.5)}>0.5 default</button>
-                <button className="chip-btn" onClick={() => setT(a.best.f1.threshold)}>max F₁ · {a.best.f1.threshold.toFixed(3)}</button>
+                <button className="chip-btn" title="The t that maximises F₁ on this holdout (in hindsight; calibration uses validation data)" onClick={() => setT(a.best.f1.threshold)}>holdout max F₁ · {a.best.f1.threshold.toFixed(3)}</button>
                 <button className="chip-btn" onClick={() => setT(a.best.balanced_accuracy.threshold)}>max bacc · {a.best.balanced_accuracy.threshold.toFixed(3)}</button>
                 <button className="chip-btn" onClick={() => setT(a.best.cost.threshold)}>min cost · {a.best.cost.threshold.toFixed(3)}</button>
               </div>
