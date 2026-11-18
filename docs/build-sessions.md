@@ -43,6 +43,13 @@ Anyone at the bank brings a table (CSV upload or a sample), says what to predict
 | S9 | Visual + maths pass | Screenshot every page at 1366 and 1920 widths, then raise each to its best within the design system with dense, real notation. Fix layout, empty, loading and error states. | Screenshots with no console errors; the full suite green. |
 | S10 | Final end-to-end | Fresh CSVs the build never saw (generate them locally if offline). Run every flow through the browser and fix what breaks. Rewrite the README. Write the demo script. `docs/progress/S10-walkthrough.md` with screenshots. | The full suite green three times from a clean clone. |
 
+## Change from the user (10:10 UTC): speed over test suites
+
+- From S7 on, sessions **don't write or run pytest or Playwright**. The existing tests stay in the repo, untouched.
+- **Verification is `scripts/smoke.py`.** It is one httpx script against a running `make dev` API that chains the real calls the UI makes, end to end, and prints ✓ or ✗ per step, exiting non-zero on any failure. Each session extends it with its own features. Also run `npm run build`, and take quick headless screenshots of the changed pages as a visual check.
+- **S9 and S10 are merged into S9:** the visual and maths pass on every page, plus the final end-to-end walkthrough on fresh CSVs, README, demo script and `docs/progress/S9-walkthrough.md`.
+- Rules 1, 3 and 6 below now read "smoke.py" wherever they say tests or `make test-full`.
+
 ## Rules for every session
 
 1. Start with `git pull origin motion-components`, `make setup`, then `make test-full`. If it's red, fix that before new work.
