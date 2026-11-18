@@ -26,8 +26,9 @@ def _free_port() -> int:
 
 
 class ApiServer:
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, env: dict[str, str] | None = None) -> None:
         self.data_dir = data_dir
+        self.env = env or {}
         self.port = _free_port()
         self.proc: subprocess.Popen | None = None
         self.log = data_dir.parent / "server.log"
@@ -37,7 +38,7 @@ class ApiServer:
         return f"http://127.0.0.1:{self.port}"
 
     def start(self, timeout: float = 90) -> None:
-        env = {**os.environ, "ENSEMBLE_DATA_DIR": str(self.data_dir), "PYTHONDONTWRITEBYTECODE": "1"}
+        env = {**os.environ, "ENSEMBLE_DATA_DIR": str(self.data_dir), "PYTHONDONTWRITEBYTECODE": "1", **self.env}
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(self.port), "--log-level", "warning"],
             cwd=BACKEND, env=env, stdout=open(self.log, "ab"), stderr=subprocess.STDOUT,

@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import secrets
 import shutil
+import subprocess
+import sys
+import threading
 from pathlib import Path
 from importlib import metadata
 from typing import Any, Literal
@@ -15,6 +19,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from .. import config
 from ..splits import load_splits
 from . import catalogue, serving
 from .runner import JobRunner
@@ -43,6 +48,12 @@ class RunCreate(BaseModel):
     custom_text_models: bool = Field(True, description="Add TFIDF_LR and TFIDF_SVM when the data has a text column.")
     drop_columns: list[str] | None = Field(None, description="Columns left out of training; default: ID columns.")
     feature_importance: bool = Field(True, description="Compute permutation importance on the holdout after the fit.")
+    column_types: dict[str, Literal["number", "category", "text"]] | None = Field(
+        None, description="Override inferred column types; passed to AutoGluon as feature_metadata.")
+
+
+class EnsembleRequest(BaseModel):
+    models: list[str] = Field(..., min_length=1, description="Base models the weighted ensemble may use.")
 
 
 class PredictRequest(BaseModel):
@@ -68,7 +79,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     }
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
-                "feature_importance", "leaderboard", "resolved"):
+                "feature_importance", "leaderboard", "resolved", "custom_ensembles"):
         out[key] = res.get(key)
     if not full:
         out["leaderboard"] = [{k: r.get(k) for k in LIST_LB_COLS} for r in (out["leaderboard"] or [])] or out["leaderboard"]
@@ -129,7 +140,16 @@ def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         raise HTTPException(400, f"drop_columns: no column named {', '.join(map(repr, unknown))}.")
     if label in drop:
         raise HTTPException(400, "The label column can't be dropped.")
-    text_cols = [c["name"] for c in profile["columns"] if c["type"] == "text" and c["name"] not in drop and c["name"] != label]
+    types = body.column_types or {}
+    bad = [c for c in types if c not in cols]
+    if bad:
+        raise HTTPException(400, f"column_types: no column named {', '.join(map(repr, bad))}.")
+    if label in types:
+        raise HTTPException(400, "column_types: the label's type is set by problem_type, not column_types.")
+    if types and "feature_metadata" in body.fit_kwargs:
+        raise HTTPException(400, "Give column_types or fit_kwargs.feature_metadata, not both.")
+    text_cols = [c["name"] for c in profile["columns"] if types.get(c["name"], c["type"]) == "text"
+                 and c["name"] not in drop and c["name"] != label]
     if label == profile.get("target"):
         task = profile.get("task")
     else:
@@ -140,7 +160,8 @@ def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     run_dir = settings.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     cfg = {
-        **body.model_dump(exclude={"label", "name", "drop_columns"}),
+        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types"}),
+        "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
         "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
@@ -279,3 +300,97 @@ async def feature_importance(run_id: str, request: Request) -> dict[str, Any]:
         fi = await run_in_threadpool(compute)
         _store(request).merge_result(run_id, feature_importance=fi)
     return {"run_id": run_id, "features": fi}
+
+
+@router.get("/runs/{run_id}/holdout-predictions")
+async def holdout_predictions(run_id: str, request: Request) -> dict[str, Any]:
+    """The best model's predictions on the holdout rows: data.csv row, true label, prediction and (classification)
+    one probability per class. Residuals and curves are computed from these."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    path = Path(rec["config"]["run_dir"]) / "holdout_predictions.csv"
+    if not path.exists():
+        raise HTTPException(404, "This run has no saved holdout predictions.")
+
+    def read():
+        import pandas as pd
+
+        from .jsonsafe import jsonable
+
+        df = pd.read_csv(path)
+        prob_cols = [c for c in df.columns if c.startswith("p_")]
+        return {"run_id": run_id, "model": (rec.get("result") or {}).get("best_model"), "n_rows": len(df),
+                "rows": jsonable(df["row"].tolist()), "y_true": jsonable(df["y_true"].tolist()),
+                "y_pred": jsonable(df["y_pred"].tolist()),
+                "classes": [c[2:] for c in prob_cols] or None,
+                "probabilities": jsonable(df[prob_cols].round(6).to_numpy()) if prob_cols else None}
+
+    return await run_in_threadpool(read)
+
+
+_ensemble_locks: dict[str, threading.Lock] = {}
+_ensemble_locks_guard = threading.Lock()
+
+
+def _fit_custom_ensemble(app, rec: dict[str, Any], models: list[str]) -> dict[str, Any]:
+    """Run app.engine.custom_ensemble in its own process (it writes into the predictor folder), one per run at a time."""
+    run_id = rec["id"]
+    with _ensemble_locks_guard:
+        lock = _ensemble_locks.setdefault(run_id, threading.Lock())
+    with lock:
+        store: RunStore = app.state.runs
+        rec = store.get(run_id)
+        existing = (rec.get("result") or {}).get("custom_ensembles") or []
+        n = len(existing) + 1
+        run_dir = Path(rec["config"]["run_dir"])
+        req_dir = run_dir / "custom_ensembles"
+        req_dir.mkdir(exist_ok=True)
+        req_path = req_dir / f"request_{n}.json"
+        req_path.write_text(json.dumps({"models": models, "suffix": f"_Custom{n}"}))
+        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
+               "PYTHONPATH": os.pathsep.join(p for p in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if p)}
+        try:
+            p = subprocess.run([sys.executable, "-m", "app.engine.custom_ensemble", str(run_dir), str(req_path)],
+                               cwd=config.BACKEND_DIR, env=env, capture_output=True, text=True, timeout=600)
+        except subprocess.TimeoutExpired as e:
+            raise HTTPException(504, "Fitting the ensemble took longer than 10 minutes; it was stopped.") from e
+        (req_dir / f"log_{n}.txt").write_text((p.stdout or "") + "\n--- stderr ---\n" + (p.stderr or ""))
+        lines = [ln for ln in (p.stdout or "").splitlines() if ln.startswith("{")]
+        if not lines:
+            raise HTTPException(500, f"The ensemble process exited with code {p.returncode}: {(p.stderr or '')[-800:]}")
+        out = json.loads(lines[-1])
+        if not out["ok"]:
+            raise HTTPException(400, out["error"])
+        res = out["result"]
+        app.state.predictors.drop(rec["config"]["predictor_path"])
+
+        s = res["scores"]
+        lb = list((rec.get("result") or {}).get("leaderboard") or [])
+        lb.append({"model": res["model"], "family": "ENS_WEIGHTED", "score_val": s["score_val"], "score_test": s["score_test"],
+                   "score_val_natural": s["score_val_natural"], "score_test_natural": s["score_test_natural"],
+                   "fit_time": s["fit_time"], "pred_time_test": s["pred_time_test"], "pred_time_val": None,
+                   "stack_level": s["stack_level"], "can_infer": True, "fold_scores": None, "val_score_std": None,
+                   "weights": res["weights"], "custom": True, "model_type": "WeightedEnsembleModel"})
+        lb.sort(key=lambda r: -(r.get("score_val") if r.get("score_val") is not None else float("-inf")))
+        for i, r in enumerate(lb, start=1):
+            r["rank"] = i
+        store.merge_result(run_id, custom_ensembles=existing + [res], leaderboard=lb)
+        return res
+
+
+@router.post("/runs/{run_id}/ensemble", status_code=201)
+async def custom_ensemble(run_id: str, body: EnsembleRequest, request: Request) -> dict[str, Any]:
+    """Fit a weighted ensemble on the models you choose: `TabularPredictor.fit_weighted_ensemble(base_models=...)`.
+    The result has its weights, its validation and holdout scores, and whether it beats the best single model."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    models = list(dict.fromkeys(body.models))
+    names = {r["model"] for r in (rec.get("result") or {}).get("leaderboard") or []}
+    unknown = [m for m in models if m not in names]
+    if unknown:
+        raise HTTPException(400, f"No model named {', '.join(map(repr, unknown))} in this run.")
+    ens = [m for m in models if m.startswith("WeightedEnsemble")]
+    if ens:
+        raise HTTPException(400, f"Choose base models, not weighted ensembles ({', '.join(ens)}).")
+    res = await run_in_threadpool(_fit_custom_ensemble, request.app, rec, models)
+    return {"run_id": run_id, **res}

@@ -23,14 +23,17 @@ lock:
 		--emit-index-url --no-header -o backend/requirements.lock
 
 ## The API on :8000 and Vite on :5190 together. Ctrl+C stops both.
+## uvicorn reloads on edits to backend/app and backend/ensemble_models only (not the venv, data or tests), and with
+## ENSEMBLE_DEV_RELOAD=1 a reload keeps running fits: workers outlive the API process and the new one adopts them
+## (see backend/app/engine/runner.py). Ctrl+C stops the reloader, and the workers stop with it.
 dev:
 	@trap 'kill 0' INT TERM EXIT; \
-	(cd backend && .venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --port $(API_PORT)) & \
+	(cd backend && ENSEMBLE_DEV_RELOAD=1 .venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --reload-dir ensemble_models --port $(API_PORT)) & \
 	ENSEMBLE_API_URL=http://127.0.0.1:$(API_PORT) npx vite --port $(UI_PORT) & \
 	wait
 
 api:
-	cd backend && .venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --port $(API_PORT)
+	cd backend && ENSEMBLE_DEV_RELOAD=1 .venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --reload-dir ensemble_models --port $(API_PORT)
 
 ui:
 	npx vite --port $(UI_PORT)

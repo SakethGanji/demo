@@ -59,6 +59,40 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     return train, holdout, info
 
 
+def apply_column_types(cfg: dict[str, Any], train: pd.DataFrame, holdout: pd.DataFrame) -> dict[str, Any] | None:
+    """Column types chosen in the wizard (`column_types`: number | category | text) become AutoGluon's
+    `feature_metadata`: the columns are cast (number → float, category/text → str) in both frames and the
+    inferred FeatureMetadata is overridden for them (text → special type "text"). Returns the metadata as JSON
+    (type_map_raw, type_group_map_special), or None when no types were given."""
+    from autogluon.common.features.feature_metadata import FeatureMetadata
+
+    types = {c: t for c, t in (cfg.get("column_types") or {}).items() if c in train.columns and c != cfg["label"]}
+    if not types:
+        return None
+    for df in (train, holdout):
+        for col, t in types.items():
+            if t == "number":
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+            else:
+                df[col] = df[col].map(lambda v: v if pd.isna(v) else str(v)).astype(object)
+    inferred = FeatureMetadata.from_df(train.drop(columns=[cfg["label"]]))
+    special = {k: [f for f in v if f not in types] for k, v in inferred.type_group_map_special.items()}
+    special = {k: v for k, v in special.items() if v}
+    text = [c for c, t in types.items() if t == "text"]
+    if text:
+        special["text"] = special.get("text", []) + text
+    return {"type_map_raw": dict(inferred.type_map_raw), "type_group_map_special": special}
+
+
+def feature_metadata_object(fm: Any):
+    """A FeatureMetadata from its JSON form ({type_map_raw, type_group_map_special}); anything else unchanged."""
+    if isinstance(fm, dict) and "type_map_raw" in fm:
+        from autogluon.common.features.feature_metadata import FeatureMetadata
+
+        return FeatureMetadata(type_map_raw=fm["type_map_raw"], type_group_map_special=fm.get("type_group_map_special") or {})
+    return fm
+
+
 # --------------------------------------------------------------------------- kwargs
 
 
@@ -234,10 +268,23 @@ def compute_feature_importance(predictor, holdout: pd.DataFrame, time_limit: flo
 # --------------------------------------------------------------------------- main
 
 
-def _watch_parent(ppid: int) -> None:
+def _watch_parent(ppid: int, anchor: bool = False) -> None:
+    """Exit if the API dies, so a fit never runs on as an orphan. With `anchor` (dev reload), watch that pid
+    (uvicorn's reloader) instead of our parent, so a reload of the API process does not stop the fit."""
+    def gone() -> bool:
+        if not anchor:
+            return os.getppid() != ppid
+        try:
+            os.kill(ppid, 0)
+            return False
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+
     def loop():
         while True:
-            if os.getppid() != ppid:  # the API died: don't keep fitting as an orphan
+            if gone():
                 os._exit(3)
             time.sleep(1)
 
@@ -268,9 +315,15 @@ def run(run_dir: Path) -> int:
         ag_logger = logging.getLogger("autogluon")
         ag_logger.addHandler(EventLogHandler(emit))
 
+        feature_metadata = apply_column_types(cfg, train, holdout)
+
         add_text = bool(cfg.get("custom_text_models", True)) and bool(cfg.get("text_columns")) \
             and cfg.get("task") != "regression" and cfg.get("problem_type") not in ("regression", "quantile")
         fit_kwargs, notes = resolve_fit_kwargs(cfg, add_text_models=add_text)
+        if feature_metadata is not None and "feature_metadata" not in fit_kwargs:
+            fit_kwargs["feature_metadata"] = feature_metadata
+            notes.append("column types from the wizard passed as feature_metadata "
+                         f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
         predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
                             "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
         resolved = {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_kwargs, "notes": notes,
@@ -281,6 +334,8 @@ def run(run_dir: Path) -> int:
         progress = ProgressCallback(emit)
         call_kwargs = dict(fit_kwargs)
         call_kwargs["callbacks"] = list(call_kwargs.get("callbacks") or []) + [progress]
+        if "feature_metadata" in call_kwargs:
+            call_kwargs["feature_metadata"] = feature_metadata_object(call_kwargs["feature_metadata"])
         predictor = TabularPredictor(path=cfg["predictor_path"], **predictor_kwargs)
         t0 = time.time()
         predictor.fit(train, **call_kwargs)
@@ -353,7 +408,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     run_dir = Path(sys.argv[1])
     if len(sys.argv) > 2:
-        _watch_parent(int(sys.argv[2]))
+        _watch_parent(int(sys.argv[2]), anchor=len(sys.argv) > 3 and sys.argv[3] == "anchor")
     sys.exit(run(run_dir))
 
 

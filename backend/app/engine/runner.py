@@ -5,6 +5,15 @@
 - `recover()` runs on start: runs left `queued`/`running` by a previous API process are marked failed (and a
   stray worker from it is killed), with a `run_failed` event so open event streams end.
 - `shutdown()` stops running workers and marks their runs failed.
+
+Dev reload (`ENSEMBLE_DEV_RELOAD=1`, set by `make dev` / `make api`): uvicorn's `--reload` restarts the API
+process whenever backend code changes. In this mode a restart must not cost a running fit, so:
+- workers watch the reloader (the API process's parent), not the API process: they keep fitting across a
+  reload and still stop when `make dev` is stopped;
+- `shutdown()` leaves running workers alone and keeps queued runs queued;
+- `recover()` adopts a running worker that is still alive (watches its pid, can cancel it) and re-queues
+  queued runs, instead of failing them. Workers write their own events and results, so nothing is lost and the
+  UI's event stream resumes by replay (EventSource reconnects with Last-Event-ID).
 """
 
 from __future__ import annotations
@@ -16,6 +25,7 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from .. import config
@@ -41,6 +51,20 @@ def _kill_group(pid: int, sig: int = signal.SIGTERM) -> None:
         pass
 
 
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return _is_our_worker(pid)
+
+
+def dev_reload() -> bool:
+    return os.environ.get("ENSEMBLE_DEV_RELOAD", "") not in ("", "0", "false")
+
+
 class JobRunner:
     def __init__(self, settings: config.Settings, store: RunStore, max_parallel: int | None = None) -> None:
         self.settings = settings
@@ -52,6 +76,8 @@ class JobRunner:
         self._lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._stopping = False
+        self.dev_reload = dev_reload()
+        self._adopted: dict[str, int] = {}  # run id → pid of a worker started by a previous API process
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -66,6 +92,15 @@ class JobRunner:
         failed = []
         for rec in self.store.list_active():
             pid = rec.get("pid")
+            if self.dev_reload:
+                if rec["status"] == "queued":
+                    log.info("re-queueing run %s after a reload", rec["id"])
+                    self.submit(rec["id"])
+                    continue
+                if pid and _alive(pid):
+                    log.info("adopting worker %s of run %s after a reload", pid, rec["id"])
+                    self._adopt(rec["id"], pid)
+                    continue
             if pid and _is_our_worker(pid):
                 log.warning("killing worker %s left over from a previous API process (run %s)", pid, rec["id"])
                 _kill_group(pid, signal.SIGKILL)
@@ -76,8 +111,36 @@ class JobRunner:
             log.info("marked %d interrupted run(s) failed: %s", len(failed), ", ".join(failed))
         return failed
 
+    def _adopt(self, run_id: str, pid: int) -> None:
+        with self._lock:
+            self._adopted[run_id] = pid
+
+        def watch():
+            while _alive(pid):
+                time.sleep(0.5)
+            _kill_group(pid, signal.SIGKILL)
+            with self._lock:
+                self._adopted.pop(run_id, None)
+                cancelled = run_id in self._cancelled
+                self._cancelled.discard(run_id)
+            if self._stopping:
+                return
+            if cancelled:
+                if self.store.finish(run_id, "cancelled", error="Cancelled."):
+                    self.store.emit(run_id, "run_cancelled", reason="cancelled while running")
+            elif self.store.finish(run_id, "failed", error="The worker exited without finishing the run."):
+                self.store.emit(run_id, "run_failed", error="The worker exited without finishing the run.")
+
+        threading.Thread(target=watch, name=f"adopted-{run_id}", daemon=True).start()
+
     def shutdown(self) -> None:
         self._stopping = True
+        if self.dev_reload:
+            # A reload: running workers keep fitting (they watch the reloader, not us) and queued runs stay
+            # queued; the next API process adopts them in recover().
+            for _ in self._threads:
+                self._q.put(None)
+            return
         with self._lock:
             procs = dict(self._procs)
         for run_id, p in procs.items():
@@ -110,8 +173,11 @@ class JobRunner:
         with self._lock:
             self._cancelled.add(run_id)
             p = self._procs.get(run_id)
+            adopted = self._adopted.get(run_id)
         if p is not None:
             _kill_group(p.pid)
+        elif adopted is not None:
+            _kill_group(adopted)
         elif self.store.finish(run_id, "cancelled", error="Cancelled before it started."):
             self.store.emit(run_id, "run_cancelled", reason="cancelled while queued")
         return True
@@ -138,7 +204,9 @@ class JobRunner:
                # Ray workers (parallel folds, dynamic stacking) must import app.* and ensemble_models too.
                "PYTHONPATH": os.pathsep.join(p for p in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if p)}
         with open(d / "worker.log", "ab") as out:
-            p = subprocess.Popen([sys.executable, "-m", "app.engine.worker", str(d), str(os.getpid())],
+            # The worker stops if the process it watches dies: the API, or under dev reload the reloader above it.
+            anchor = [str(os.getppid()), "anchor"] if self.dev_reload else [str(os.getpid())]
+            p = subprocess.Popen([sys.executable, "-m", "app.engine.worker", str(d), *anchor],
                                  cwd=config.BACKEND_DIR, env=env, stdout=out, stderr=subprocess.STDOUT,
                                  start_new_session=True)
         with self._lock:

@@ -43,6 +43,11 @@ class PredictorCache:
                 self._cache.popitem(last=False)
         return p
 
+    def drop(self, path: str) -> None:
+        """Forget a predictor, so the next call loads it from disk again (after a model was added to it)."""
+        with self._lock:
+            self._cache.pop(path, None)
+
 
 def _frame(predictor, rows: list[dict[str, Any]]) -> pd.DataFrame:
     if not rows:
