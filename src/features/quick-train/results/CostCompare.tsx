@@ -105,19 +105,16 @@ export function CostCompare({ run, go }: { run: Run; go: (r: string) => void }) 
         {bin && rows.length > 0 && <CostCurve rows={rows} a={a} />}
         {rows.length > 0 && (
           <div className="table-wrap"><table className="table" data-testid="cost-compare-table">
-            <thead><tr><th>Trained to</th><th>Run</th><th>Best model</th>{bin && <th>t in use</th>}<th>E[C] per 1,000</th><th>95% CI</th><th>Δ vs this run</th>{bin && <th>at its cost-calibrated t</th>}{bin && <th>Δ there</th>}{bin && <th>ROC AUC</th>}</tr></thead>
+            <thead><tr><th>Trained to</th><th>Run</th>{bin && <th>t in use</th>}<th>E[C] per 1,000 · 95% CI</th><th>Δ vs this run</th>{bin && <th>at its cost t</th>}{bin && <th>Δ there</th>}</tr></thead>
             <tbody>{rows.map((r) => (
               <tr key={r.run_id} className={r.this_run ? 'sel' : ''} data-testid={`cost-row-${r.trained_on_cost ? 'cost' : r.eval_metric}`}>
                 <td><span className="chip" style={{ fontSize: 11 }}>{label(r)}</span></td>
                 <td className="mono muted" style={{ fontSize: 12 }}>{r.this_run ? <>{r.run_id} ◂</> : <a href={`#/quick-train?run=${r.run_id}`} onClick={(e) => { e.preventDefault(); go(`quick-train?run=${r.run_id}`) }}>{r.run_id}</a>}</td>
-                <td className="mono" style={{ fontSize: 12 }}>{r.best_model}</td>
                 {bin && <td className="mono" style={{ fontSize: 12 }}>{r.threshold?.value.toFixed(3)}<span className="muted"> {r.threshold?.metric ? `(${r.threshold.metric === 'expected_cost' ? 'cost' : r.threshold.metric})` : r.threshold?.source === 'default' ? '(0.5)' : ''}</span></td>}
-                <td className="mono"><b>{f1(r.deployed.per_1000)}</b></td>
-                <td className="mono muted">{ci(r.deployed.ci_per_1000)}</td>
+                <td className="mono"><b>{f1(r.deployed.per_1000)}</b> <span className="muted">{ci(r.deployed.ci_per_1000)}</span></td>
                 <td className="mono">{r.delta ? <span title={`paired bootstrap, B = ${r.delta.B}`} style={{ color: r.delta.per_1000 > 0 ? 'var(--status-success)' : 'var(--status-warning)' }}>{sgn(r.delta.per_1000)} <span className="muted">{ci(r.delta.ci_per_1000)}</span></span> : '—'}</td>
-                {bin && <td className="mono">{r.validation ? <>{f1(r.validation.per_1000)} <span className="muted">t = {r.validation_threshold?.toFixed(3)}</span></> : '—'}</td>}
+                {bin && <td className="mono">{r.validation && !r.this_run ? <>{f1(r.validation.per_1000)} <span className="muted">t = {r.validation_threshold?.toFixed(3)}</span></> : r.this_run ? <span className="muted">same</span> : '—'}</td>}
                 {bin && <td className="mono">{r.delta_validation ? <>{sgn(r.delta_validation.per_1000)} <span className="muted">{ci(r.delta_validation.ci_per_1000)}</span></> : '—'}</td>}
-                {bin && <td className="mono muted">{r.roc_auc != null ? r.roc_auc.toFixed(4) : '—'}</td>}
               </tr>
             ))}</tbody>
           </table></div>
@@ -160,7 +157,7 @@ function CostCurve({ rows, a }: { rows: CostComparisonRow[]; a: CostAnalysis | n
   const yMax = Math.min(Math.max(...ys), (none ?? Math.max(...ys)) * 1.6)
   const yMin = Math.max(0, Math.min(...ys) * 0.9)
   const xMax = 0.6
-  const H = 240, L = 52, R = 18, T = 12, B = 30
+  const H = 256, L = 52, R = 18, T = 26, B = 30
   const sx = (t: number) => L + (t / xMax) * (w - L - R)
   const sy = (v: number) => T + (1 - (Math.min(v, yMax) - yMin) / (yMax - yMin)) * (H - T - B)
   const paths = useMemo(() => series.map((s) => s.r.curve.filter((c) => c[0] <= xMax).map((c, i) => `${i ? 'L' : 'M'}${sx(c[0]).toFixed(1)},${sy(c[1]).toFixed(1)}`).join(' ')), [rows, w]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -181,7 +178,7 @@ function CostCurve({ rows, a }: { rows: CostComparisonRow[]; a: CostAnalysis | n
           <line x1={L} x2={w - R} y1={H - B} y2={H - B} stroke="var(--plot-axis)" />
           <line x1={L} x2={L} y1={T} y2={H - B} stroke="var(--plot-axis)" />
           <text className="axis-title" x={w - R} y={H - 2} textAnchor="end">threshold t</text>
-          <text className="axis-title" x={L + 6} y={T + 2}>cost per 1,000</text>
+          <text className="axis-title" x={L - 44} y={12}>cost per 1,000</text>
           {a?.bayes_threshold != null && <g><line x1={sx(a.bayes_threshold)} x2={sx(a.bayes_threshold)} y1={T} y2={H - B} stroke="var(--text-muted)" strokeDasharray="4 4" /><text className="tick-text" x={sx(a.bayes_threshold) + 4} y={T + 10}>t*</text></g>}
           {none != null && none <= yMax && <g><line x1={L} x2={w - R} y1={sy(none)} y2={sy(none)} stroke="var(--text-muted)" strokeDasharray="2 4" /><text className="tick-text" x={w - R} y={sy(none) - 4} textAnchor="end">flag nobody {f1(none)}</text></g>}
           {series.map((s, k) => <path key={s.r.run_id} d={paths[k]} stroke={s.color} strokeWidth={s.r.this_run ? 2.5 : 1.5} fill="none" />)}

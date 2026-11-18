@@ -90,6 +90,16 @@ def holdout_frame(rec: dict[str, Any]) -> pd.DataFrame | None:
 
 def bootstrap_se(rec: dict[str, Any], hp: pd.DataFrame, B: int = 200) -> float | None:
     res = rec["result"]
+    if rec["config"].get("cost"):  # F7: the cost metric is not in AutoGluon's registry; bootstrap the per-row costs
+        from ..engine import costs
+
+        try:
+            rows = costs.row_costs(hp, rec["config"]["cost"], positive=res.get("positive_class"),
+                                   t=float((res.get("threshold") or {}).get("value", 0.5)))
+        except Exception:  # noqa: BLE001
+            return None
+        idx = np.random.default_rng(0).integers(0, len(rows), size=(B, len(rows)))
+        return float(np.std(rows[idx].mean(axis=1), ddof=1))
     try:
         metric = _metric(res)
     except Exception:  # noqa: BLE001
@@ -143,8 +153,11 @@ def f_overfit(rec, base, hp, out):
     if not best or best.get("score_val") is None or best.get("score_test") is None or hp is None or len(hp) < 30:
         return
     gap = float(best["score_val"]) - float(best["score_test"])
-    se = bootstrap_se(rec, hp) or 0.0
+    se = bootstrap_se(rec, hp)
     sd = float(best.get("val_score_std") or 0.0)
+    if se is None and sd == 0.0:  # no noise estimate at all: a gap/noise ratio would be meaningless
+        return
+    se = se or 0.0
     noise = max(se, sd, 1e-9)
     z = gap / noise
     if gap <= 0 or z < 2.0:
