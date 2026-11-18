@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/shared/api/client'
 import { flows, type FcChart, type FcCreate, type FcMapping, type FcOptions, type FcPreview, type FlowRun } from '@/shared/api/flows'
 import { useApi } from '@/shared/api/mode'
@@ -261,9 +261,9 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
         <div className="eh-cell lead"><span className="micro-label">{done ? `holdout ${metric} · ${run.best_model}` : live.stage}</span>
           <b className="mono" data-testid="fc-primary">{done ? f3(best?.score_test_natural) : live.status === 'failed' ? 'failed' : <ResonanceWave />}</b>
           <small>{done ? `last H = ${H} steps of each series, never seen in fit or model selection` : elapsed != null ? `${elapsed.toFixed(0)} s of τ = ${tau} s` : 'queued'}</small></div>
-        {done && naive && <Cell k="vs SeasonalNaive" v={`${f3(naive.score_test_natural)}`} d={`skill 1 − ${metric}*/${metric}ₙₐᵢᵥₑ = ${pct(1 - (best!.score_test_natural ?? 0) / (naive.score_test_natural || 1))}`} />}
-        {h && <Cell k="WQL" v={f3(h.metrics.WQL, 4)} d="2Σ_τΣ_t ρ_τ(y − q̂_τ) / (|T|Σ|y|)" />}
-        {h && <Cell k="sMAPE" v={pct(h.metrics.SMAPE)} d="mean 2|e|/(|y|+|ŷ|)" />}
+        {done && naive && <Cell k="vs SeasonalNaive" v={`${f3(naive.score_test_natural)}`} d={<>skill 1 − {metric}<sub>best</sub> / {metric}<sub>naive</sub> = {pct(1 - (best!.score_test_natural ?? 0) / (naive.score_test_natural || 1))}</>} />}
+        {h && <Cell k="WQL" v={f3(h.metrics.WQL, 4)} d={<>2 Σ<sub>τ</sub>Σ<sub>t</sub> ρ<sub>τ</sub>(y<sub>t</sub> − q̂<sub>τ,t</sub>) / (|T| Σ<sub>t</sub>|y<sub>t</sub>|)</>} />}
+        {h && <Cell k="sMAPE" v={pct(h.metrics.SMAPE)} d={<>mean 2|e<sub>t</sub>| / (|y<sub>t</sub>| + |ŷ<sub>t</sub>|)</>} />}
         {h && <Cell k={`coverage [q${h.interval[0]}, q${h.interval[1]}]`} v={pct(h.coverage)} d={`nominal ${pct(h.interval[1] - h.interval[0])}`} />}
         <Cell k="models" v={`${live.models.filter((m) => m.status === 'done').length || lb.length}`} d={`${Object.keys(w).length} in the ensemble`} />
       </div>
@@ -279,7 +279,7 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
             return <button key={k} className={`chip-btn ${item === k ? 'on' : ''}`} onClick={() => setItem(k)} data-testid={`fc-item-${k}`}>{k}{e?.MASE != null ? <span className="muted"> · {e.MASE.toFixed(2)}</span> : null}</button>
           })}
           <span className="spacer" />
-          <label className="row helper" style={{ fontSize: 12 }}><input type="checkbox" checked={showHold} onChange={(e) => setShowHold(e.target.checked)} /> show holdout window</label>
+          <label className="fc-check helper"><input type="checkbox" checked={showHold} onChange={(e) => setShowHold(e.target.checked)} /> show holdout window</label>
         </div>
         {chart.items[item] && <FanChart item={item} {...chart.items[item]} quantiles={chart.quantiles} freq={d.freq} showHoldout={showHold} />}
       </>}
@@ -302,7 +302,7 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
   )
 }
 
-function Cell({ k, v, d }: { k: string; v: string; d: string }) {
+function Cell({ k, v, d }: { k: string; v: string; d: ReactNode }) {
   return <div className="eh-cell"><span className="micro-label">{k}</span><b className="mono">{v}</b><small className="math-s">{d}</small></div>
 }
 

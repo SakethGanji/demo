@@ -1,3 +1,4 @@
+import { MathText } from '@/shared/components/MathText'
 import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { MetricCI, ModelCard, ModelVersion } from '@/shared/api/types'
@@ -48,7 +49,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
 
       <section className="mc-sec"><h3><i>1</i> Summary</h3>
         <dl className="mc-kv">
-          {([['problem', `${s.problem_type} · y = ${s.label}${s.positive_class != null ? ` · positive = ${s.positive_class}` : ''}`], ['selection metric', s.eval_metric], ['engine', 'AutoGluon TabularPredictor'],
+          {([['problem', `${s.problem_type} · y = ${s.label}${s.positive_class != null ? ` · positive = ${s.positive_class}` : ''}`], ['selection metric', s.eval_metric], ['engine', String((s as unknown as { engine?: string }).engine ?? 'AutoGluon TabularPredictor')],
             ['served model', s.best_model], ['source run', s.source_run], ['registered', `${s.registered_by} · ${when(s.registered_at)}`],
             ['MLflow', s.mlflow ? `models:/${s.mlflow.name}/${s.mlflow.version}` : '—'], ['model SHA-256', s.model_sha256]] as [string, string][]).map(([k, x]) => <div key={k}><dt>{k}</dt><dd className="mono">{x}</dd></div>)}
         </dl>
@@ -93,7 +94,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         {c.ensemble.weights && (
           <div className="formula" style={{ marginTop: 8 }}>
             <div className="eq" data-testid="card-ensemble"><i>ŷ</i>(<i>x</i>) = {Object.entries(c.ensemble.weights).map(([m, w], i) => <span key={m}>{i ? ' + ' : ''}<b className="mono">{w.toFixed(3)}</b>·<i>f</i><sub>{m}</sub>(<i>x</i>)</span>)}</div>
-            <dl className="where"><dt>wₘ</dt><dd>weights of {c.ensemble.model} (Caruana greedy selection on validation predictions), Σ wₘ = 1, wₘ ≥ 0</dd><dt>fₘ</dt><dd>base model m’s predicted probability (or value); this version serves <span className="mono">{c.ensemble.version_best}</span> with {c.ensemble.dependencies.length} model(s)</dd></dl>
+            <dl className="where"><dt>wₘ</dt><dd>weights of {c.ensemble.model} (Caruana greedy selection on validation predictions), Σ wₘ = 1, wₘ ≥ 0</dd><dt>fₘ</dt><dd>base model m’s predicted probability (or value); this version serves <span className="mono">{c.ensemble.version_best}</span> with {(c.ensemble.dependencies ?? []).length || "its"} model(s)</dd></dl>
           </div>
         )}
       </section>
@@ -158,7 +159,7 @@ function FlowCardSection({ c }: { c: ModelCard }) {
     const f = x.forecasting, st = f.setup
     return (
       <section className="mc-sec" data-testid="card-forecasting"><h3><i>5</i> Forecasting <small>{f.validation}</small></h3>
-        <p className="helper" style={{ fontSize: 12.5 }}><span className="math">ŷ<sub>i,t+h|t</sub></span> for h = 1…H, <b className="mono">H = {st.prediction_length_H}</b>, freq <span className="mono">{st.freq}</span>, season <span className="math">m</span> = {st.seasonal_period_m}, {st.items} series from {String(st.start).slice(0, 10)} to {String(st.end).slice(0, 10)}; quantiles τ ∈ {'{'}{(st.quantile_levels ?? []).join(', ')}{'}'}. {st.eval_metric}: <span className="math-col">{st.metric_formula}</span></p>
+        <p className="helper" style={{ fontSize: 12.5 }}><span className="math">ŷ<sub>i,t+h|t</sub></span> for h = 1…H, <b className="mono">H = {st.prediction_length_H}</b>, freq <span className="mono">{st.freq}</span>, season <span className="math">m</span> = {st.seasonal_period_m}, {st.items} series from {String(st.start).slice(0, 10)} to {String(st.end).slice(0, 10)}; quantiles τ ∈ {'{'}{(st.quantile_levels ?? []).join(', ')}{'}'}. {st.eval_metric}: <MathText className="math-col" text={st.metric_formula} /></p>
         <table className="table compact"><thead><tr><th>holdout metric</th><th className="r">value</th></tr></thead>
           <tbody>{Object.entries(f.holdout_metrics ?? {}).map(([k, v]) => <tr key={k}><td className="mono">{k}</td><td className="r mono">{fmtScore(v)}</td></tr>)}
             {f.coverage != null && <tr><td className="mono">coverage [q{f.interval[0]}, q{f.interval[1]}]</td><td className="r mono">{fmtScore(f.coverage)}</td></tr>}</tbody></table>

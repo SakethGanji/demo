@@ -64,7 +64,7 @@ def _bytes(n: int | None) -> str:
     return str(n)
 
 
-def fit_call(resolved: dict[str, Any]) -> str:
+def fit_call(resolved: dict[str, Any], cls: str = "TabularPredictor") -> str:
     pk = dict(resolved.get("predictor_kwargs") or {})
     fk = {k: v for k, v in (resolved.get("fit_kwargs") or {}).items() if k != "callbacks"}
 
@@ -73,7 +73,9 @@ def fit_call(resolved: dict[str, Any]) -> str:
 
     a = ", ".join(f"{k}={r(v)}" for k, v in pk.items() if v is not None)
     b = ",\n    ".join(f"{k}={r(v)}" for k, v in fk.items())
-    return f"predictor = TabularPredictor({a}, path=...)\npredictor.fit(\n    train_data,\n    {b},\n)"
+    if cls == "IsolationForest":
+        return f"pre = ColumnTransformer(...)  # median impute + one-hot\nforest = IsolationForest({', '.join(f'{k}={r(v)}' for k, v in (resolved.get('iforest_kwargs') or {}).items())})\nforest.fit(pre.fit_transform(X))"
+    return f"predictor = {cls}({a}, path=...)\npredictor.fit(\n    train_data,\n    {b},\n)"
 
 
 def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, Any] | None,
@@ -145,13 +147,14 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
             "holdout_rows": data.get("holdout_rows"), "dropped_missing_label": data.get("dropped_missing_label"),
             "dropped_columns": data.get("dropped_columns"), "sha256": hashes.get("data_sha256"),
             "splits_sha256": hashes.get("splits_sha256"), "label_balance": balance, "feature_table": feat_rows,
-            "split": "a fixed stratified 20% holdout (seed 42) never seen in training or model selection; "
+            "split": {"forecast": "the last H steps of every series held out; backtest windows before them for model selection",
+                      "anomaly": "unsupervised: every row is scored; no labels and no holdout"}.get(cfg.get("kind")) or "a fixed stratified 20% holdout (seed 42) never seen in training or model selection; "
                      "AutoGluon validates on its own split of the remaining rows (or out-of-fold when bagging)",
             "missing_cells_share": (prof.get("missing") or {}).get("share"), "duplicates": (prof.get("duplicates") or {}).get("rows"),
             "warnings": prof.get("warnings") or [],
         },
         "training": {
-            "call": fit_call(res.get("resolved") or {}), "resolved": res.get("resolved"),
+            "call": fit_call(res.get("resolved") or {}, {"forecast": "TimeSeriesPredictor", "anomaly": "IsolationForest"}.get(cfg.get("kind"), "TabularPredictor")), "resolved": res.get("resolved"),
             "notes": (res.get("resolved") or {}).get("notes") or [], "fit_seconds": res.get("fit_seconds"),
             "n_models": len(res.get("leaderboard") or []), "presets": cfg.get("presets"), "time_limit": cfg.get("time_limit"),
             "registration": {k: version["options"].get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment")},
