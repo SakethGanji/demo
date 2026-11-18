@@ -31,7 +31,8 @@ def _coerce(frame: pd.DataFrame, train: pd.DataFrame) -> pd.DataFrame:
 
 
 def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target: str | None = None,
-           explain_row: bool = True, nsamples: int = explain.SHAP_NSAMPLES) -> dict[str, Any]:
+           explain_row: bool = True, nsamples: int = explain.SHAP_NSAMPLES, rconf: dict[str, Any] | None = None,
+           kinds: dict[str, str] | None = None) -> dict[str, Any]:
     p = load_predictor(predictor_path)
     features = list(p.original_features)
     given = {k: v for k, v in row.items() if k in features and v is not None and v != ""}
@@ -69,6 +70,13 @@ def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target
         sh = explain.shap_explain(p, train, bg, x, target_c, classes, nsamples)
         sh["reasons"] = [{**c, "direction": "raises" if c["phi"] > 0 else "lowers"} for c in sh["contributions"][:5]]
         out["shap"] = sh
+    if p.problem_type == "binary" and rconf is not None:  # F10: the decision and its reason codes, as batch / score
+        try:
+            rr = reasons_rows(predictor_path, cfg, rconf, kinds or {}, [row], only_adverse=False)
+            out["reasons"] = {**{k: v for k, v in rr.items() if k not in ("adverse", "p_positive", "codes")},
+                              "adverse": rr["adverse"][0], "p_positive": rr["p_positive"][0], "codes": rr["codes"][0]}
+        except Exception as e:  # noqa: BLE001
+            out["reasons"] = {"error": f"{type(e).__name__}: {e}"}
     return jsonable(out)
 
 
@@ -81,7 +89,7 @@ def _train_frame(cfg: dict[str, Any], features: list[str]) -> pd.DataFrame:
 
 
 def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str, Any], csv_path: str, out_dir: str,
-                kinds: dict[str, str], version: dict[str, Any]) -> dict[str, Any]:
+                kinds: dict[str, str], version: dict[str, Any], rconf: dict[str, Any] | None = None) -> dict[str, Any]:
     reg = RegistryStore(Database(Path(db_path)))
     out_dir_p = Path(out_dir)
     try:
@@ -137,6 +145,9 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
             qa = pd.concat(quants)
             for t in qa.columns:
                 out[qt.col(t)] = qa[t].to_numpy()
+        reasons_summary = None
+        if p.problem_type == "binary" and rconf is not None and rconf.get("enabled", True):
+            reasons_summary = _batch_reasons(reg, batch_id, predictor_path, cfg, rconf, kinds, X, out, pred)
         out_path = out_dir_p / "scored.csv"
         out.to_csv(out_path, index=False)
 
@@ -155,6 +166,8 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         summary: dict[str, Any] = {"n_rows": n, "seconds": time.time() - t_start, "score_seconds": score_s,
                                    "us_per_row": score_s / n * 1e6, "missing_columns": missing, "extra_columns": extra,
                                    "model": p.model_best, "problem_type": p.problem_type}
+        if reasons_summary is not None:
+            summary["reasons"] = reasons_summary
         if clf:
             vc = pred.astype(str).value_counts()
             summary["predicted"] = {str(k): int(v) for k, v in vc.items()}
@@ -206,6 +219,73 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         (out_dir_p / "error.txt").write_text(traceback.format_exc())
         reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
         return {"ok": False, "error": str(e)}
+
+
+def _batch_reasons(reg: RegistryStore, batch_id: str, predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any],
+                   kinds: dict[str, str], X: pd.DataFrame, out: pd.DataFrame, pred: pd.Series) -> dict[str, Any]:
+    """F10: reason codes for every adverse decision, as extra columns of the scored file: `adverse`, and for k = 1…K
+    `reason_k_code`, `reason_k` (the statement), `reason_k_feature`, `reason_k_phi` (φ of P(positive))."""
+    reg.update_batch(batch_id, stage="reason codes: background and attribution set-up", progress=0.8)
+    t0 = time.time()
+    rs = reasoner(predictor_path, cfg, rconf, kinds)
+    setup_s = time.time() - t0
+    Xr = X.reset_index(drop=True)
+    adverse = pred.astype(str).to_numpy() == rs.adverse  # the served decision at the version's threshold
+    idx = np.flatnonzero(adverse)
+    K = rs.top_k
+    cols: dict[str, list[Any]] = {f"reason_{k}{suf}": [None] * len(Xr) for k in range(1, K + 1)
+                                  for suf in ("_code", "", "_feature", "_phi")}
+    n_codes = np.zeros(len(Xr), dtype=int)
+    n_factors: list[int | None] = [None] * len(Xr)
+    t1 = time.time()
+    chunk = 100
+    methods, notes, add_max, mono_tot = set(), set(), 0.0, {}
+    freq: dict[str, int] = {}
+    consistent = True
+    for i in range(0, len(idx), chunk):
+        part = idx[i:i + chunk]
+        Xe = Xr.iloc[part].reset_index(drop=True)
+        ex = rs.att.explain(Xe)
+        methods.add(ex["method"])
+        if ex["note"]:
+            notes.add(ex["note"])
+        add_max = max(add_max, ex["additivity_max"])
+        codes = rs.codes_for(Xe, ex["phi"])
+        for f, m in rs.monotone_check(Xe, ex["phi"]).items():
+            agg = mono_tot.setdefault(f, {**m, "rows_above_background": 0, "rows_below_background": 0, "violations": 0})
+            for k in ("rows_above_background", "rows_below_background", "violations"):
+                agg[k] += m[k]
+        n_pos = (rs.s * ex["phi"] > 0).sum(axis=1)
+        for r_i, cs, npos in zip(part, codes, n_pos):
+            n_factors[r_i] = int(npos)
+            n_codes[r_i] = len(cs)
+            for c in cs:
+                cols[f"reason_{c['rank']}_code"][r_i] = c["code"]
+                cols[f"reason_{c['rank']}"][r_i] = c["statement"]
+                cols[f"reason_{c['rank']}_feature"][r_i] = c["feature"]
+                cols[f"reason_{c['rank']}_phi"][r_i] = round(c["phi"], 6)
+                freq[c["code"]] = freq.get(c["code"], 0) + 1
+                consistent &= rs.s * c["phi"] > 0
+        done = min(len(idx), i + chunk)
+        el = time.time() - t1
+        reg.update_batch(batch_id, progress=0.8 + 0.05 * done / max(len(idx), 1),
+                         stage=f"reason codes {done:,} / {len(idx):,} adverse rows ({done / el if el else 0:.1f} rows/s)")
+    secs = time.time() - t1
+    out["adverse"] = adverse
+    out["reason_factors"] = n_factors  # features with s·φ > 0 (codes = the top min(K, this))
+    for c, v in cols.items():
+        out[c] = v
+    by_code = {r["code"]: r for r in rs.mapping.values()}
+    top = sorted(freq.items(), key=lambda kv: -kv[1])
+    return jsonable({**{k: v for k, v in rs.info().items()}, "n_adverse": int(len(idx)), "adverse_share": float(adverse.mean()),
+                     "n_explained": int(len(idx)), "seconds": secs, "setup_seconds": setup_s,
+                     "rows_per_s": len(idx) / secs if secs > 0 else None, "methods": sorted(methods), "notes": sorted(notes),
+                     "additivity_max": add_max, "codes_per_row": {str(k): int(v) for k, v in zip(*np.unique(n_codes[idx], return_counts=True))} if len(idx) else {},
+                     "signs_consistent": bool(consistent), "monotone": mono_tot,
+                     "top_codes": [{"code": c, "feature": by_code.get(c, {}).get("feature"), "rows": k, "share": k / max(len(idx), 1)}
+                                   for c, k in top[:10]],
+                     "rows_fewer_than_k": int(sum(1 for i in idx if n_codes[i] < K)),
+                     "columns": ["adverse", "reason_factors"] + [c for c in cols]})
 
 
 def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, cfg: dict[str, Any], csv_path: str,
@@ -380,3 +460,81 @@ def benchmark_version(predictor_path: str, cfg: dict[str, Any], n: int = 300) ->
                      "cache_load_s": load_s, "features_in": list(p._learner.feature_generator.features_in),
                      "n_features": len(p._learner.feature_generator.features_out), "pid": __import__("os").getpid(),
                      "where": "a predict worker (the API's worker pool), predictor cached, persisted and warmed"})
+
+
+# --------------------------------------------------------------------------- reason codes (F10)
+
+_REASONERS: dict[tuple, Any] = {}
+
+
+def reasoner(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str]):
+    """A Reasoner for the version (cached per worker by the predictor's files and the mapping)."""
+    from ..engine import reasons as rc
+    from ..engine.pool import _signature
+
+    p = load_predictor(predictor_path)
+    key = (str(predictor_path), _signature(predictor_path), json.dumps(rconf, sort_keys=True, default=str))
+    if key in _REASONERS:
+        return _REASONERS[key]
+    features = list(p.original_features)
+    cons = ((cfg.get("monotone") or {}).get("constraints")) or {}
+    r = rc.Reasoner(p, _train_frame(cfg, features), rconf, kinds, cons)
+    for k in [k for k in _REASONERS if k[0] == str(predictor_path)]:
+        _REASONERS.pop(k, None)
+    _REASONERS[key] = r
+    return r
+
+
+def reasons_info(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str]) -> dict[str, Any]:
+    rs = reasoner(predictor_path, cfg, rconf, kinds)
+    return jsonable({**rs.info(), "mapping": list(rs.mapping.values()), "features": rs.features,
+                     "classes": [str(c) for c in rs.p.class_labels]})
+
+
+def reasons_rows(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                 rows: list[dict[str, Any]], only_adverse: bool = True, reference: bool = False) -> dict[str, Any]:
+    """Decisions and reason codes for posted rows (the online path with reasons=true, and Try It). With `reference`,
+    also the same game estimated with 4,096 coalitions (same background) for every explained row, to audit the fast
+    estimator: φ of each cited feature under the reference, and the reference's own top codes."""
+    from ..engine import reasons as rc
+
+    rs = reasoner(predictor_path, cfg, rconf, kinds)
+    X = pd.DataFrame([{c: r.get(c, np.nan) for c in rs.features} for r in rows], columns=rs.features)
+    t0 = time.perf_counter()
+    r = rs.run(X, only_adverse=only_adverse)
+    ref_out = None
+    if reference and len(r["explained_index"]):
+        t1 = time.perf_counter()
+        ref = rc.Attributor(rs.p, rs.att.bg, background=len(rs.att.bg), coalitions=4096, seed=rs.att.seed + 3, method="kernel")
+        ref.bg, ref.base_kernel = rs.att.bg, rs.att.base_kernel
+        Xr = rc._coerce(X.copy(), rs.att.numeric).iloc[r["explained_index"]].reset_index(drop=True)
+        phr = ref.explain(Xr)["phi"]
+        rcodes = rs.codes_for(Xr, phr)
+        per = [None] * len(X)
+        for k, i in enumerate(r["explained_index"]):
+            per[i] = {"phi": {f: float(phr[k, j]) for j, f in enumerate(rs.features)}, "codes": [c["code"] for c in rcodes[k]]}
+        ref_out = {"rows": per, "coalitions": int(len(ref.masks)), "exact": ref.exact_enum, "seconds": time.perf_counter() - t1}
+    return jsonable({"reference_check": ref_out, "adverse": [bool(a) for a in r["adverse"]], "p_positive": [float(v) for v in r["p_positive"]],
+                     "codes": r["codes"], "method": r["method"], "note": r["note"], "reasons_ms": (time.perf_counter() - t0) * 1e3,
+                     "additivity_max": r["additivity_max"], "base_value": float(r["base"][0]) if len(r["base"]) else None,
+                     "monotone": r["monotone"], **{k: v for k, v in rs.info().items() if k != "attribution"},
+                     "attribution": rs.info()["attribution"]})
+
+
+def reasons_stability(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                      rows: int = 300, noise: float = 0.05, repeats: int = 3, out_path: str | None = None) -> dict[str, Any]:
+    """The stability check on holdout rows (the adverse ones among the first `rows`), stored beside the version."""
+    from ..engine import reasons as rc
+    from ..engine import serving
+    from ..splits import load_splits
+
+    rs = reasoner(predictor_path, cfg, rconf, kinds)
+    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    X = h.reindex(columns=rs.features).head(rows)
+    out = rc.stability(rs, X, noise=noise, repeats=repeats)
+    out.update({"holdout_rows": int(len(X)), "method": rs.att.describe(), "threshold": rs.threshold,
+                "adverse_class": rs.adverse, "computed_at": now()})
+    out = jsonable(out)
+    if out_path:
+        Path(out_path).write_text(json.dumps(out))
+    return out

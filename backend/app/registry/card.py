@@ -79,7 +79,7 @@ def fit_call(resolved: dict[str, Any], cls: str = "TabularPredictor") -> str:
 
 
 def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, Any] | None,
-               audit: list[dict[str, Any]], batches: list[dict[str, Any]]) -> dict[str, Any]:
+               audit: list[dict[str, Any]], batches: list[dict[str, Any]], reasons: dict[str, Any] | None = None) -> dict[str, Any]:
     res = run.get("result") or {}
     cfg = run["config"]
     vres = version.get("result") or {}
@@ -194,7 +194,30 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "imported": res.get("imported"),
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
+        "reasons": _reasons_section(reasons, batches),
     }
+
+
+def _reasons_section(r: dict[str, Any] | None, batches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """F10: how adverse decisions are explained: the rule at the served threshold, the attribution method, the
+    mapping table, the stability check and the latest batch's reason-code summary."""
+    if not r:
+        return None
+    last = next((((b.get("result") or {}).get("summary") or {}).get("reasons") for b in batches
+                 if b["status"] == "succeeded" and (((b.get("result") or {}).get("summary") or {}).get("reasons"))), None)
+    st = r.get("stability")
+    return {"adverse_class": r["adverse_class"], "positive_class": r["positive_class"], "threshold": r["threshold"],
+            "top_k": r["top_k"], "mapping": r["mapping"], "constraints": r.get("constraints") or {},
+            "stability": st, "method": (st or {}).get("method") or (last or {}).get("attribution"),
+            "reference": r.get("reference", "approved"),
+            "last_batch": {k: (last or {}).get(k) for k in ("n_adverse", "rows_per_s", "methods", "additivity_max",
+                                                             "signs_consistent", "codes_per_row", "top_codes", "monotone")} if last else None,
+            "rule": f"adverse ⇔ the served prediction is {r['adverse_class']} at t = {r['threshold']:.4g}; reasons = the top "
+                    f"{r['top_k']} features with s·φⱼ > 0, ranked by s·φⱼ (φⱼ: SHAP value of P({r['positive_class']}), "
+                    f"s = {'+1' if r['adverse_class'] == r['positive_class'] else '−1'})",
+            "monotone_note": "A monotone-constrained feature (F8) pushes toward the adverse class only through background "
+                             "rows it lies beyond in its constrained direction, so its statement has a fixed direction; "
+                             "and xⱼ beyond every background value forces the sign of φⱼ (checked on every explained row)."}
 
 
 def _quantile_section(cfg: dict[str, Any], res: dict[str, Any], vres: dict[str, Any]) -> dict[str, Any] | None:
@@ -394,6 +417,36 @@ def to_markdown(c: dict[str, Any]) -> str:
         if mc.get("unconstrained_models"):
             L += ["", f"Unconstrained models in the run: {', '.join(mc['unconstrained_models'])}."]
         L.append("")
+    rc = c.get("reasons")
+    if rc:
+        L += ["**Reason codes (adverse action)**", "", f"Rule: {rc['rule']}.", "",
+              "Reference applicants (SHAP background): " + ("training rows the served model approves (φ₀ = E[f | approved])"
+                                                           if rc.get("reference") == "approved" else "all training rows") + ".", ""]
+        m = rc.get("method") or {}
+        if m:
+            L += [f"Attribution: {m.get('name')} · background B = {m.get('background')}"
+                  + (f" · {m.get('coalitions')} coalitions" if m.get("coalitions") else "") + f" · exact: {'yes' if m.get('exact') else 'no (sampled)'}.", ""]
+        L += ["| Code | Feature | Constraint | Statement (high / category) | Statement (low) | Missing |", "| --- | --- | --- | --- | --- | --- |"]
+        for r in rc["mapping"]:
+            con = {1: "↑", -1: "↓"}.get(r.get("constraint") or 0, "")
+            L.append(f"| {r['code']} | {r['feature']} | {con} | {r.get('high') or r.get('category') or ''} | {r.get('low') or ''} | {r.get('missing') or ''} |")
+        st = rc.get("stability")
+        if st and not st.get("error"):
+            L += ["", f"Stability: on {st['rows']} adverse holdout decisions × {st['repeats']} draws of noise ε = {st['noise']:g}·σ, "
+                      f"the top-{rc['top_k']} set is unchanged in {_fmt(st.get('same_set'))}, the first reason in {_fmt(st.get('same_top1'))}, "
+                      f"mean Jaccard {_fmt(st.get('mean_jaccard'))}; decisions flipped {_fmt(st.get('decision_flips'))}."]
+            vr = st.get("vs_reference")
+            if vr:
+                L += ["", f"Estimator check: against the same game with {vr['coalitions']} coalitions the fast codes cite the same set in "
+                          f"{_fmt(vr['same_set'])} of rows (mean overlap {_fmt(vr['mean_overlap'])}); {_fmt(vr['cited_positive'])} of cited "
+                          f"features have reference φ pushing toward adverse."]
+        else:
+            L += ["", "Stability: not run yet (Registry → version → Reason codes → Run the stability check)."]
+        lb = rc.get("last_batch")
+        if lb:
+            L += ["", f"Latest batch: {lb.get('n_adverse')} adverse rows explained at {_fmt(lb.get('rows_per_s'))} rows/s; "
+                      f"codes consistent with the SHAP signs: {'yes' if lb.get('signs_consistent') else 'no'}."]
+        L += ["", rc["monotone_note"], ""]
     L += ["## 6. Feature importance", "", "| Feature | Importance | 95% CI | p |", "| --- | ---: | --- | ---: |"]
     for f in c["importance"]["features"][:15]:
         L.append(f"| {f['feature']} | {_fmt(f.get('importance'))} | [{_fmt(f.get('ci_low'))}, {_fmt(f.get('ci_high'))}] | {_fmt(f.get('p_value'))} |")

@@ -2347,11 +2347,234 @@ def llm(st: dict[str, Any]) -> None:
 ONLY: set[str] = set()
 
 
+def reasons(st: dict[str, Any]) -> None:
+    """F10: reason codes for adverse decisions. credit-default trained to the F7 cost (FN = 10 × FP, threshold
+    calibrated on cost) with debt_to_income ↑ (F8), registered (served model as deployed: cloned, pipeline pruned).
+    The decision rule uses the version's own threshold. Checks: the mapping table and its edits (per model, audited,
+    refusals); Try It's codes (top 4 by s·φ > 0) against its own reference Kernel SHAP (B = 50, 2,048 coalitions);
+    /score with reasons=true gives the same codes as Try It for the same row; the batch of the 2,400 holdout rows
+    carries adverse + reason_1…4 columns, 4 codes per adverse row, every code's φ > 0 and ranked, and agrees in sign
+    with Try It's reference SHAP; the monotone feature is only ever cited as 'too high'; throughput in rows/s; the
+    stability check and the model card section. Then a LightGBM-only version on numeric columns, where the batch
+    uses exact interventional TreeSHAP (additivity to 1e-6)."""
+    ds, label, col = "credit-default", "defaulted", "debt_to_income"
+    s: dict[str, Any] = {}
+    prof = get(f"/api/datasets/{ds}")["profile"]
+    # An adverse-action reason cannot be an identifier or the application date: those are not used as features.
+    drop = [c["name"] for c in prof["columns"] if (c["type"] == "id" or c["name"] in ("customer_id", "application_date"))
+            and c["name"] != label]
+    hp = {"GBM": {"num_boost_round": 150}, "XGB": {"n_estimators": 150}, "CAT": {"iterations": 150}}
+    body = {"dataset_id": ds, "label": label, "problem_type": "binary", "presets": "medium_quality", "time_limit": 600,
+            "fit_kwargs": {"hyperparameters": hp, "num_bag_folds": 3}, "drop_columns": drop, "feature_importance": False,
+            "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto", "monotone": {"constraints": {col: "increasing"}},
+            "source": "smoke-reasons"}
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
+    from app.samples import generate_credit
+
+    df, _ = generate_credit()
+
+    def holdout(rid: str) -> pd.DataFrame:
+        hp_ = get(f"/api/runs/{rid}/holdout-predictions")
+        idx = np.asarray(hp_["rows"], dtype=int)
+        check([str(a) for a in df[label].to_numpy()[idx]] == [str(b) for b in hp_["y_true"]], "regenerated sample differs")
+        return df.iloc[idx].drop(columns=[label])
+
+    def records(X: pd.DataFrame) -> list[dict[str, Any]]:
+        return json.loads(X.to_json(orient="records"))
+
+    def train_register():
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        check(rec["threshold"]["metric"] == "expected_cost", rec["threshold"])
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit.reasons"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        s.update(run=rec, vid=v["id"], v=v, X=holdout(rec["id"]))
+        t = v["result"]["version"]["decision_threshold"]
+        return (f"{rec['id']} → {v['id']} serves {v['result']['version']['best_model']} · threshold t = {t:.4f} "
+                f"(F7 cost, run t = {rec['threshold']['value']:.4f})")
+
+    if not step("reasons: cost + monotone run, registered", train_register):
+        return
+    vid = s["vid"]
+
+    def config():
+        c = get(f"/api/registry/versions/{vid}/reasons")
+        check(c["adverse_class"] == "Yes" and c["positive_class"] == "Yes" and c["top_k"] == 4, c)
+        check(abs(c["threshold"] - s["v"]["result"]["version"]["decision_threshold"]) < 1e-12, "threshold is not the version's")
+        m = {r["feature"]: r for r in c["mapping"]}
+        check(set(m) == set(c["features"]) and m[col]["constraint"] == 1, m.get(col))
+        bad = [({"actor": "Smoke Analyst", "mapping": [{"feature": "nope", "code": "X"}]}, "No feature"),
+               ({"actor": "Smoke Analyst", "mapping": [{"feature": "age", "code": m["credit_score"]["code"]}]}, "used twice"),
+               ({"actor": "Smoke Analyst", "adverse_class": "Maybe"}, "No class")]
+        for b, words in bad:
+            r = C.put(f"/api/registry/versions/{vid}/reasons", json=b)
+            check(r.status_code == 400 and words in r.text, f"{words}: {r.status_code} {r.text[:200]}")
+        e = j(C.put(f"/api/registry/versions/{vid}/reasons", json={"actor": "Smoke Analyst", "mapping": [
+            {"feature": "credit_score", "code": "CS01", "low": "Credit score below our lending standard"},
+            {"feature": col, "high": "Debt obligations too high relative to income"}]}))
+        me = {r["feature"]: r for r in e["mapping"]}
+        check(me["credit_score"]["code"] == "CS01" and me["credit_score"]["edited"] and me[col]["high"].startswith("Debt obligations"), me["credit_score"])
+        aud = get("/api/registry/audit", version_id=vid)
+        check(any(a["action"] == "reason_codes_edited" for a in aud.get("entries", aud.get("audit", aud if isinstance(aud, list) else []))), "audit")
+        s["cfg"] = e
+        att = e["attribution"]
+        return (f"{len(e['mapping'])} features mapped · adverse ⇔ ŷ = Yes at t = {e['threshold']:.4f} · method {att['method']} "
+                f"(B = {att['background']}, {att.get('coalitions')} coalitions, {att['evals_per_row']} model calls per row) · "
+                f"{col} constraint +1 · edits saved + audited · {len(bad)} bad edits → 400")
+
+    step("reasons: mapping table (per model, editable)", config)
+
+    def tryit_score():
+        X = s["X"]
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": records(X.head(400)), "reasons": True})
+        rr = sc["reasons"]
+        t = s["cfg"]["threshold"]
+        p = np.asarray(rr["p_positive"])
+        pred = np.asarray([str(x) for x in sc["predictions"]])
+        check((np.asarray(rr["adverse"]) == (pred == "Yes")).all(), "adverse ≠ served prediction")
+        check(((p >= t) == (pred == "Yes")).mean() > 0.99, "decisions do not follow the version's threshold")
+        adv = [i for i, a in enumerate(rr["adverse"]) if a]
+        check(adv and all(rr["codes"][i] is None for i in range(len(X.head(400))) if not rr["adverse"][i]), "codes on approved rows")
+        n4 = sum(len(rr["codes"][i]) == 4 for i in adv)
+        # Try It on 8 adverse rows: its codes equal /score's, and agree in sign with its own reference Kernel SHAP
+        same, pos_ref, total, overlap = 0, 0, 0, []
+        for i in adv[:8]:
+            ti = post(f"/api/registry/versions/{vid}/predict", {"row": records(X.iloc[[i]])[0], "explain": True})
+            r = ti["reasons"]
+            check(r["adverse"] and ti["prediction"] == "Yes", r)
+            same += [c["code"] for c in r["codes"]] == [c["code"] for c in rr["codes"][i]]
+            ref = {c["feature"]: c["phi"] for c in ti["shap"]["contributions"]}
+            check(abs(ti["shap"]["additivity_error"]) < 1e-6, "reference SHAP additivity")
+            for c in r["codes"]:
+                total += 1
+                pos_ref += ref[c["feature"]] > 0
+            top_ref = [f for f, ph in sorted(ref.items(), key=lambda kv: -kv[1]) if ph > 0][:4]
+            overlap.append(len(set(top_ref) & {c["feature"] for c in r["codes"]}) / max(len(top_ref), 1))
+        check(same == min(8, len(adv)), f"Try It and /score disagree on {min(8, len(adv)) - same} rows")
+        # The codes against the same SHAP game estimated with 4,096 coalitions (the audit reference): every cited
+        # feature must have φ > 0 there too.
+        rf = post(f"/api/registry/versions/{vid}/score", {"rows": records(X.head(150)), "reasons": True, "reasons_reference": True})["reasons"]
+        cited = [(c["feature"], rf["reference_check"]["rows"][i]["phi"][c["feature"]]) for i in range(150) if rf["adverse"][i] for c in rf["codes"][i]]
+        ok = sum(ph > 0 for _, ph in cited)
+        ov = [len(set(rf["reference_check"]["rows"][i]["codes"]) & {c["code"] for c in rf["codes"][i]}) / 4 for i in range(150) if rf["adverse"][i]]
+        check(ok == len(cited), f"{len(cited) - ok}/{len(cited)} codes have φ ≤ 0 under the reference")
+        s["tryit"] = {"overlap": float(np.mean(overlap)), "sign": pos_ref / total, "ref_s": ti["shap"]["seconds"],
+                      "ref_overlap": float(np.mean(ov)), "ref_cited": len(cited)}
+        return (f"/score 400 rows: {len(adv)} adverse (p ≥ t = {t:.4f}), {n4} with 4 codes, reasons {rr['reasons_ms']:.0f} ms "
+                f"({len(adv) / rr['reasons_ms'] * 1e3:.1f} rows/s) · Try It = /score codes on {same}/{min(8, len(adv))} rows · "
+                f"same game with {rf['reference_check']['coalitions']} coalitions: {ok}/{len(cited)} cited φ > 0, top-4 overlap "
+                f"{np.mean(ov):.2f} ({rf['reference_check']['seconds'] / max(len(ov), 1):.2f} s/row) · Try It's population Kernel SHAP "
+                f"(B = 50, 2,048): {pos_ref}/{total} cited φ > 0, overlap {np.mean(overlap):.2f}, {ti['shap']['seconds']:.1f} s/row")
+
+    step("reasons: Try It and /score (same codes)", tryit_score)
+
+    def batch():
+        X = s["X"]
+        b = j(C.post(f"/api/registry/versions/{vid}/batches", files={"file": ("holdout.csv", X.to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 1200)
+        check(b["status"] == "succeeded", b.get("error"))
+        out = pd.read_csv(io.BytesIO(C.get(f"/api/registry/batches/{b['id']}/download").content))
+        sm = b["result"]["summary"]["reasons"]
+        t = sm["threshold"]
+        adv = out["adverse"].astype(bool).to_numpy()
+        check((adv == (out["prediction"].astype(str) == "Yes")).all(), "adverse column ≠ prediction")
+        check(((out["p_Yes"] >= t) == adv).mean() > 0.99, "adverse does not follow the version's threshold")
+        cols = [f"reason_{k}{x}" for k in range(1, 5) for x in ("_code", "", "_feature", "_phi")]
+        check(all(c in out.columns for c in cols), out.columns.tolist())
+        A = out[adv]
+        phis = A[[f"reason_{k}_phi" for k in range(1, 5)]].to_numpy(dtype=float)
+        n4 = int(np.isfinite(phis).all(axis=1).sum())
+        # 4 codes whenever ≥ 4 features push toward default; a row with fewer such features gets all of them (a
+        # feature with φ ≤ 0 lowers the risk and is never cited).
+        avail = A["reason_factors"].to_numpy(dtype=int)
+        ncodes = np.isfinite(phis).sum(axis=1)
+        check((ncodes == np.minimum(4, avail)).all(), "codes ≠ min(4, features pushing toward default)")
+        check((avail >= 1).all(), "an adverse row with no feature pushing toward default")
+        few = int((avail < 4).sum())
+        fin = np.isfinite(phis)
+        check((phis[fin] > 0).all() and (np.diff(np.where(fin, phis, -1.0), axis=1) <= 1e-12).all(), "codes not positive / not ranked by φ")
+        check(out.loc[~adv, "reason_1_code"].isna().all(), "codes on approved rows")
+        cited = A[[f"reason_{k}_feature" for k in range(1, 5)]].to_numpy() == col
+        texts = A[[f"reason_{k}" for k in range(1, 5)]].to_numpy()[cited]
+        check(all(x.startswith("Debt obligations too high") for x in texts), set(texts))
+        mono = sm["monotone"].get(col, {})
+        check(mono.get("violations") == 0, mono)
+        check(sm["signs_consistent"] and sm["additivity_max"] < 1e-6, sm)
+        cs = A[[f"reason_{k}" for k in range(1, 5)]].to_numpy()[A[[f"reason_{k}_feature" for k in range(1, 5)]].to_numpy() == "credit_score"]
+        check(all(x in ("Credit score below our lending standard", "Credit score too high") for x in cs), set(cs))
+        # The batch's codes are the online path's codes for the same rows.
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": records(X.head(400)), "reasons": True})["reasons"]
+        idx = [i for i in range(400) if sc["adverse"][i]][:30]
+        check(all([c["code"] for c in sc["codes"][i]] == out.loc[i, [f"reason_{k}_code" for k in range(1, 5)]].tolist() for i in idx), "batch ≠ /score")
+        s["batch"] = sm
+        top = ", ".join(f"{c['code']} {c['share']:.0%}" for c in sm["top_codes"][:4])
+        return (f"{b['id']}: {len(out):,} rows · {sm['n_adverse']:,} adverse ({sm['adverse_share']:.1%}) at t = {t:.4f} · "
+                f"{n4} with 4 codes, {few} with {sorted(set(ncodes[avail < 4].tolist()))} (only that many features push toward default), "
+                f"φ > 0 and ranked · {sm['methods']} {sm['rows_per_s']:.1f} rows/s "
+                f"({sm['seconds']:.1f} s; set-up {sm['setup_seconds']:.1f} s) · additivity max {sm['additivity_max']:.1e} · "
+                f"{col} cited {int(cited.sum())}× always 'too high', 0 monotone violations ({mono.get('rows_above_background')} rows above "
+                f"the background) · = /score codes · most cited: {top}")
+
+    step("reasons: batch scoring with reason columns", batch)
+
+    def stab():
+        r = post(f"/api/registry/versions/{vid}/reasons/stability", {"rows": 300, "noise": 0.05, "repeats": 2})
+        check(r["rows"] > 0 and r["same_set"] is not None, r)
+        c = get(f"/api/registry/versions/{vid}/card")
+        rc_ = c["reasons"]
+        check(rc_ and rc_["stability"]["same_set"] == r["same_set"] and rc_["threshold"] == s["cfg"]["threshold"], rc_)
+        check(any(m["code"] == "CS01" for m in rc_["mapping"]) and rc_["last_batch"]["signs_consistent"], "card mapping / batch")
+        md = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Reason codes (adverse action)" in md and "| CS01 | credit_score |" in md and "Stability:" in md, "card markdown")
+        fl = r.get("vs_reference") or {}
+        check(fl.get("cited_positive", 0) >= 0.95, fl)
+        return (f"{r['rows']} adverse holdout rows × {r['repeats']} draws, ε = 0.05·σ: top-4 set unchanged {r['same_set']:.2f}, "
+                f"top-1 {r['same_top1']:.2f}, order {r['same_order']:.2f}, Jaccard {r['mean_jaccard']:.2f}, decisions flipped "
+                f"{r['decision_flips']:.2f} · fast vs 4,096-coalition reference: same set {fl.get('same_set', float('nan')):.2f}, overlap "
+                f"{fl.get('mean_overlap', float('nan')):.2f}, cited φ > 0 {fl.get('cited_positive', float('nan')):.2f} · "
+                f"{r['seconds']:.0f} s · model card section + Markdown")
+
+    step("reasons: stability check + model card", stab)
+
+    def tree():
+        num = [c for c in ("age", "income_usd", "loan_amount_usd", "credit_score", "debt_to_income", "utilization",
+                           "delinquencies_2y", "months_employed")]
+        dropped = [c["name"] for c in prof["columns"] if c["name"] not in num + [label]]
+        b2 = {"dataset_id": ds, "label": label, "problem_type": "binary", "presets": "medium_quality", "time_limit": 300,
+              "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 150}}}, "drop_columns": dropped,
+              "feature_importance": False, "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto", "source": "smoke-reasons"}
+        rec = wait_run(post("/api/runs", b2)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit.reasons-gbm"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        c = get(f"/api/registry/versions/{v['id']}/reasons")
+        check(c["attribution"]["method"] == "tree", c["attribution"])
+        X = holdout(rec["id"])[num]
+        bb = j(C.post(f"/api/registry/versions/{v['id']}/batches", files={"file": ("holdout.csv", X.to_csv(index=False).encode(), "text/csv")},
+                      data={"created_by": "Smoke Analyst"}))
+        bb = poll(f"/api/registry/batches/{bb['id']}", lambda x: x["status"] in ("succeeded", "failed"), 900)
+        check(bb["status"] == "succeeded", bb.get("error"))
+        sm = bb["result"]["summary"]["reasons"]
+        check(sm["methods"] == ["tree"] and sm["additivity_max"] < 1e-6 and sm["signs_consistent"], sm)
+        out = pd.read_csv(io.BytesIO(C.get(f"/api/registry/batches/{bb['id']}/download").content))
+        A = out[out["adverse"].astype(bool)]
+        n4 = int(A["reason_4_code"].notna().sum())
+        return (f"{v['id']} serves {v['result']['version']['best_model']} on {len(num)} numeric columns · method tree "
+                f"({c['attribution']['name']}) · batch {len(out):,} rows, {sm['n_adverse']:,} adverse, {n4} with 4 codes · "
+                f"{sm['rows_per_s']:.0f} rows/s · additivity max {sm['additivity_max']:.1e} (kernel path: "
+                f"{s.get('batch', {}).get('rows_per_s', float('nan')):.1f} rows/s)")
+
+    step("reasons: exact TreeSHAP for a LightGBM version", tree)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -2388,7 +2611,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

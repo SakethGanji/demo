@@ -374,7 +374,30 @@ def _card(request: Request, vid: str) -> dict[str, Any]:
     reg = _reg(request)
     run = request.app.state.runs.get(v["run_id"])
     ds = request.app.state.db.get_dataset(run["dataset_id"])
-    return card.build_card(v, run, ds, list(reversed(reg.audit_log(version_id=vid))), reg.list_batches(vid))
+    return card.build_card(v, run, ds, list(reversed(reg.audit_log(version_id=vid))), reg.list_batches(vid),
+                           reasons=_reasons_for_card(request, v, run))
+
+
+def _reasons_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
+    """F10: the card's reason-code section from the saved mapping (defaults filled), with no worker call."""
+    import json as _json
+
+    args = _reason_args(request, v, run)
+    if args is None:
+        return None
+    from ..engine import reasons as rc
+
+    ver = (v.get("result") or {}).get("version") or {}
+    features = ver.get("features") or []
+    cons = {k: int(x) for k, x in (((run["config"].get("monotone") or {}).get("constraints")) or {}).items()}
+    conf = args[0]
+    pos = str(ver.get("positive_class"))
+    sp = _stability_path(v)
+    return {"adverse_class": str(conf.get("adverse_class") or pos), "positive_class": pos,
+            "threshold": ver.get("decision_threshold"), "top_k": int(conf.get("top_k") or rc.TOP_K),
+            "mapping": rc.merge_mapping(conf.get("mapping"), rc.default_mapping(features, args[1], cons)),
+            "constraints": cons, "stability": _json.loads(sp.read_text()) if sp.exists() else None,
+            "reference": str(conf.get("reference") or "approved")}
 
 
 @router.get("/registry/versions/{vid}/card")
@@ -463,7 +486,9 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": "anomaly", **out}
     try:
-        out = await request.app.state.heavy.run(scoring.try_it, run["config"], v["path"], body.row, body.target, body.explain)
+        rc_args = _reason_args(request, v, run)
+        out = await request.app.state.heavy.run(scoring.try_it, run["config"], v["path"], body.row, body.target, body.explain,
+                                                explain.SHAP_NSAMPLES, *(rc_args or (None, None)))
     except explain.ExplainError as e:
         raise HTTPException(400, str(e)) from e
     return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], **out}
@@ -473,6 +498,10 @@ class ScoreRequest(BaseModel):
     rows: list[dict[str, Any]] = Field(..., min_length=1, max_length=10_000)
     where: Literal["auto", "api", "worker"] = Field("auto", description="auto: in the API process for a deployed "
                                                     "version (≤ 200 MB) and ≤ 100 rows, else in a predict worker.")
+    reasons: bool = Field(False, description="F10: also return each row's decision at the version's threshold and, "
+                                             "for adverse ones, the top reason codes (computed in a predict worker).")
+    reasons_reference: bool = Field(False, description="F10 audit: also estimate the same SHAP game with 4,096 "
+                                                       "coalitions for every explained row (slow).")
 
 
 INPROC_MAX_BYTES = 200 * 1024 * 1024
@@ -578,6 +607,17 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
             out = await request.app.state.heavy.run(scoring.score_rows, v["path"], body.rows)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    if body.reasons:
+        full = _version(request, vid)
+        run = request.app.state.runs.get(full["run_id"])
+        rc_args = _reason_args(request, full, run)
+        if rc_args is None:
+            raise HTTPException(400, "Reason codes are for binary classification versions.")
+        try:
+            out["reasons"] = await request.app.state.heavy.run(scoring.reasons_rows, full["path"], run["config"], *rc_args,
+                                                               body.rows, True, body.reasons_reference)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
     return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], **out,
             "where": "api" if inproc else "worker", "warm_before_call": was_warm, "server_ms": (_t.perf_counter() - t0) * 1e3}
 
@@ -638,8 +678,10 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
                                              v["path"], run["config"], str(csv_path), str(bdir), {"id": vid})
         request.app.state.jobs[bid] = fut
         return reg.get_batch(bid)
+    rc_args = _reason_args(request, v, run)
     fut = request.app.state.heavy.submit(scoring.score_batch, str(request.app.state.settings.db_path), bid, v["path"],
-                                         run["config"], str(csv_path), str(bdir), _kinds(request, run), {"id": vid})
+                                         run["config"], str(csv_path), str(bdir), _kinds(request, run), {"id": vid},
+                                         rc_args[0] if rc_args else None)
     request.app.state.jobs[bid] = fut
     return reg.get_batch(bid)
 
@@ -674,3 +716,141 @@ def download_batch(bid: str, request: Request):
     path = _dir(request) / "batches" / bid / "scored.csv"
     stem = Path(b["filename"]).stem
     return FileResponse(path, media_type="text/csv", filename=f"{stem}_scored_{bid}.csv")
+
+
+# --------------------------------------------------------------------------- reason codes (F10)
+
+
+def _reasons_path(request: Request, model_name: str) -> Path:
+    return _dir(request) / "reasons" / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', model_name)}.json"
+
+
+def _is_binary(v: dict[str, Any], run: dict[str, Any] | None) -> bool:
+    if not run or run["config"].get("kind") in ("forecast", "anomaly"):
+        return False
+    pt = ((v.get("result") or {}).get("version") or {}).get("problem_type")
+    return pt == "binary"
+
+
+def _reason_args(request: Request, v: dict[str, Any], run: dict[str, Any] | None) -> tuple[dict[str, Any], dict[str, str]] | None:
+    """(the model's saved reason-code config, column kinds) for a binary version, else None."""
+    if not _is_binary(v, run):
+        return None
+    from ..engine import reasons as rc
+
+    return rc.load_config(_reasons_path(request, v["model_name"])), _kinds(request, run)
+
+
+def _stability_path(v: dict[str, Any]) -> Path:
+    return Path(v["path"]).parent / "reasons_stability.json"
+
+
+@router.get("/registry/versions/{vid}/reasons")
+async def reasons_config(vid: str, request: Request) -> dict[str, Any]:
+    """F10: the reason-code set-up of a binary version: the adverse class, the served threshold t, the attribution
+    method chosen for the served model, and the mapping table (feature → code and statements; edited per model)."""
+    import json as _json
+
+    v = _version(request, vid)
+    _ready(v)
+    run = request.app.state.runs.get(v["run_id"])
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    from ..engine import reasons as rc
+
+    try:
+        info = await request.app.state.heavy.run(scoring.reasons_info, v["path"], run["config"], *args)
+    except rc.ReasonError as e:
+        raise HTTPException(400, str(e)) from e
+    sp = _stability_path(v)
+    saved = args[0]
+    return {"version_id": vid, "model_name": v["model_name"], **info, "saved": bool(saved),
+            "updated_by": saved.get("updated_by"), "updated_at": saved.get("updated_at"),
+            "stability": _json.loads(sp.read_text()) if sp.exists() else None}
+
+
+class ReasonsBody(BaseModel):
+    actor: str
+    mapping: list[dict[str, Any]] | None = None
+    adverse_class: str | None = None
+    top_k: int | None = Field(None, ge=1, le=10)
+    reference: Literal["approved", "population"] | None = None
+
+
+@router.put("/registry/versions/{vid}/reasons")
+async def edit_reasons(vid: str, body: ReasonsBody, request: Request) -> dict[str, Any]:
+    """Edit the model's mapping table (codes and plain-English statements) or the adverse class. Stored per registry
+    model (every version of it uses it) and recorded in the audit log."""
+    import json as _json
+
+    from ..engine import reasons as rc
+    from ..engine.store import now
+
+    v = _version(request, vid)
+    _ready(v)
+    run = request.app.state.runs.get(v["run_id"])
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    who = _name_ok(body.actor, "actor")
+    cur = dict(args[0])
+    features = ((v.get("result") or {}).get("version") or {}).get("features") or []
+    classes = [str(c) for c in (((v.get("result") or {}).get("version") or {}).get("classes") or [])]
+    changed = []
+    if body.mapping is not None:
+        unknown = [str(r.get("feature")) for r in body.mapping if not isinstance(r, dict) or r.get("feature") not in features]
+        if unknown:
+            raise HTTPException(400, f"No feature {unknown[0]!r} in this model; its features are {', '.join(features)}.")
+        defaults = rc.default_mapping(features, args[1], ((run["config"].get("monotone") or {}).get("constraints")))
+        merged = rc.merge_mapping(body.mapping, rc.merge_mapping(cur.get("mapping"), defaults))
+        try:
+            rc.validate_mapping(merged, features)
+        except rc.ReasonError as e:
+            raise HTTPException(400, str(e)) from e
+        keep = ("feature", "code", "high", "low", "category", "missing")
+        cur["mapping"] = [{k: r[k] for k in keep if k in r} for r in merged]
+        changed.append("mapping")
+    if body.adverse_class is not None:
+        if classes and body.adverse_class not in classes:
+            raise HTTPException(400, f"No class {body.adverse_class!r}; the classes are {', '.join(classes)}.")
+        cur["adverse_class"] = body.adverse_class
+        changed.append("adverse_class")
+    if body.top_k is not None:
+        cur["top_k"] = body.top_k
+        changed.append("top_k")
+    if body.reference is not None:
+        cur["reference"] = body.reference
+        changed.append("reference")
+    cur.update({"updated_by": who, "updated_at": now()})
+    path = _reasons_path(request, v["model_name"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(cur, indent=1))
+    _reg(request).audit(actor=who, action="reason_codes_edited", version=v, comment=", ".join(changed) or "no change")
+    return await reasons_config(vid, request)
+
+
+class StabilityBody(BaseModel):
+    rows: int = Field(300, ge=20, le=5000)
+    noise: float = Field(0.05, gt=0, le=1)
+    repeats: int = Field(3, ge=1, le=20)
+
+
+@router.post("/registry/versions/{vid}/reasons/stability")
+async def reasons_stability(vid: str, body: StabilityBody, request: Request) -> dict[str, Any]:
+    """The stability check: on the adverse decisions among the first `rows` holdout rows, how often the top reasons
+    change when every numeric input moves by ε·σ·N(0, 1). Stored beside the version; the model card shows it."""
+    from ..engine import reasons as rc
+
+    v = _version(request, vid)
+    _ready(v)
+    run = request.app.state.runs.get(v["run_id"])
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    try:
+        out = await request.app.state.heavy.run(scoring.reasons_stability, v["path"], run["config"], *args, body.rows,
+                                                body.noise, body.repeats, str(_stability_path(v)))
+    except rc.ReasonError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"version_id": vid, **out}
