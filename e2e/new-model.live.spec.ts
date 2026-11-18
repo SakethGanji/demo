@@ -151,11 +151,13 @@ test('binary: upload a fresh CSV, train, race, leaderboard, custom ensemble, pre
   await customEnsemble(page, run.id, base.slice(0, 2))
 
   const tp = page.getByTestId('try-prediction')
+  const sent: string[] = []
+  page.on('request', (r) => { if (r.url().endsWith(`/api/runs/${run.id}/predict`)) sent.push(r.postData() ?? '') })
   await tp.getByTestId('tp-predict').click()
   await expect(tp.getByTestId('tp-class')).toBeVisible({ timeout: 60_000 })
   const row = await examplesRow(page, run.dataset_id, run.data.features)
   const api = await (await page.request.post(`/api/runs/${run.id}/predict`, { data: { rows: [row] } })).json()
-  await expect(tp.getByTestId('tp-class')).toHaveText(String(api.predictions[0]))
+  await expect(tp.getByTestId('tp-class'), `the UI sent ${sent.join(' | ')}; the examples row is ${JSON.stringify(row)}`).toHaveText(String(api.predictions[0]))
   for (const [c, p] of Object.entries(api.probabilities[0] as Record<string, number>)) await expect(tp.getByTestId(`tp-prob-${c}`)).toContainText(`${(p * 100).toFixed(1)}%`)
   expect(errors).toEqual([])
 })

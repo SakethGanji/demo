@@ -3,7 +3,7 @@ import { api } from '@/shared/api/client'
 import type { HoldoutPredictions, ModelFamily, Run } from '@/shared/api/types'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import type { Dataset } from '../datasets'
+import { fromServer, type Dataset } from '../datasets'
 import { StackEquation } from '../race/StackEquation'
 import { fmtScore, fmtSeconds, metricInfo, mmss } from '../wizard'
 import { CustomEnsemble } from './CustomEnsemble'
@@ -22,6 +22,19 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
   const [families, setFamilies] = useState<ModelFamily[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [err, setErr] = useState('')
+  // The run's own dataset, for the prediction form. The wizard's may be a different one (or the built-in sample when
+  // fetching it failed while resuming from the URL), so fetch it here when it does not match, with a few retries.
+  const [ownDs, setOwnDs] = useState<Dataset | null>(null)
+  const runDs = run?.dataset_id
+  useEffect(() => {
+    if (!live || !runDs || ds?.id === runDs) { setOwnDs(null); return }
+    let alive = true
+    const attempt = (n: number) => api.datasets.get(runDs).then((d) => alive && setOwnDs(fromServer(d)))
+      .catch(() => { if (alive && n < 4) setTimeout(() => attempt(n + 1), 1500 * (n + 1)) })
+    attempt(0)
+    return () => { alive = false }
+  }, [live, runDs, ds?.id])
+  const formDs = !live || ds?.id === runDs ? ds : ownDs
 
   useEffect(() => {
     if (mockRun) { setRun(mockRun); return }
@@ -86,7 +99,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
 
       <CustomEnsemble run={run} live={live} onDone={() => { api.runs.get(run.id).then(setRun).catch(() => {}) }} />
 
-      <TryPrediction run={run} ds={ds} live={live} residualSd={sd} models={predictModels} />
+      <TryPrediction key={formDs?.id ?? 'none'} run={run} ds={formDs} live={live} residualSd={sd} models={predictModels} />
     </div>
   )
 }

@@ -69,11 +69,18 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
     resumed.current = true
     api.runs.get(id).then(async (run) => {
       stepRef.current = run.status === 'succeeded' ? 4 : 3
-      try {
-        const d = fromServer(await api.datasets.get(run.dataset_id))
-        setDs(d)
-        setCh({ ...initialChoices(d), label: run.label, preset: String(run.config.presets ?? 'medium_quality'), budget: Number(run.config.time_limit ?? 120) })
-      } catch { /* the dataset was deleted; the run still shows */ }
+      // A busy API can be slow to answer: try a few times before giving up (a deleted dataset: the run still shows).
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const d = fromServer(await api.datasets.get(run.dataset_id))
+          setDs(d)
+          setCh({ ...initialChoices(d), label: run.label, preset: String(run.config.presets ?? 'medium_quality'), budget: Number(run.config.time_limit ?? 120) })
+          break
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 404) break
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
+        }
+      }
       setSource({ fn: liveSource, run: null })
       setRunId(run.id)
       setStep(run.status === 'succeeded' ? 4 : 3)
