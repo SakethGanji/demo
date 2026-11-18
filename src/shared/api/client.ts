@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -95,6 +95,14 @@ export const api = {
     simulateActiveLearning: (id: string) => request<{ answered: number }>(`/runs/${encodeURIComponent(id)}/active-learning/simulate`, { method: 'POST' }),
     submitActiveLearning: (id: string) => request<{ round: number }>(`/runs/${encodeURIComponent(id)}/active-learning/submit`, { method: 'POST' }),
     cancelActiveLearning: (id: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/active-learning/cancel`, { method: 'POST' }),
+    /** F15: the run's shift checks (adversarial validation) and what a new one can compare. */
+    shifts: (id: string) => request<ShiftList>(`/runs/${encodeURIComponent(id)}/shift`),
+    shift: (id: string, key: string) => request<ShiftCheck>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}`),
+    startShift: (id: string, body: ShiftRequest) =>
+      request<ShiftCheck>(`/runs/${encodeURIComponent(id)}/shift`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
+    cancelShift: (id: string, key: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/cancel`, { method: 'POST' }),
+    shiftWeightsVersion: (id: string, key: string) =>
+      request<{ dataset_version: NonNullable<ShiftCheck['versions']>[number]; patch: NonNullable<ShiftAction['patch']> }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/weights-version`, { method: 'POST', timeoutMs: 60_000 }),
     /** F14: annotators' agreement, quality, the CROWDLAB consensus and the disagreement queue. */
     annotations: (id: string, q: { offset?: number; limit?: number; include?: 'queue' | 'all' } = {}) => {
       const p = new URLSearchParams()
@@ -233,6 +241,9 @@ export const api = {
       json<TryResult>(`/registry/versions/${encodeURIComponent(id)}/predict`, 'POST', { row, explain: true, target }, 180_000),
     batches: (id: string) => request<{ batches: BatchListItem[] }>(`/registry/versions/${encodeURIComponent(id)}/batches`).then((r) => r.batches),
     batch: (bid: string) => request<BatchJob>(`/registry/batches/${encodeURIComponent(bid)}`, { timeoutMs: 30_000 }),
+    /** F15: the batch's shift check (adversarial AUC next to PSI); status 'none' until started. */
+    batchShift: (bid: string) => request<ShiftCheck | { batch_id: string; status: 'none'; run_id?: string; key?: string }>(`/registry/batches/${encodeURIComponent(bid)}/shift`),
+    startBatchShift: (bid: string) => request<ShiftCheck>(`/registry/batches/${encodeURIComponent(bid)}/shift`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
     batchUrl: (bid: string) => `${BASE}/registry/batches/${encodeURIComponent(bid)}/download`,
     scoreBatch: (id: string, file: File, createdBy: string) => {
       const form = new FormData()

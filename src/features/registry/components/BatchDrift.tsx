@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { BatchJob, BatchListItem, ModelVersion, PsiFeature } from '@/shared/api/types'
+import type { BatchJob, BatchListItem, ModelVersion, PsiFeature, ShiftCheck } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { XYPlot, niceTicks } from '@/shared/components/XYPlot'
 import { useWidth } from '@/shared/hooks/useWidth'
@@ -105,6 +105,7 @@ function BatchResult({ job }: { job: BatchJob }) {
         {s.mean_prediction != null && <div className="eh-cell"><span className="micro-label">mean {s.prediction_symbol ?? 'ŷ'}</span><b className="mono">{fmtScore(s.mean_prediction, 2)}</b><small className="math-s">σ = {fmtScore(s.std_prediction, 2)}</small></div>}
         <div className="eh-cell"><span className="micro-label">max PSI (features)</span><b className="mono" data-testid="batch-max-psi" style={{ color: worst ? BAND_COLOR[worst.band] : undefined }}>{psiFmt(d.max_psi)}</b><small className="math-s">{worst ? `${worst.feature} · ${worst.band}` : ''}</small></div>
         <div className="eh-cell"><span className="micro-label">PSI(output)</span><b className="mono" data-testid="batch-pred-psi" style={{ color: BAND_COLOR[p.band] }}>{psiFmt(p.psi)}</b><small className="math-s">{p.ks ? `KS D = ${p.ks.statistic.toFixed(3)}` : p.band}</small></div>
+        {s.problem_type !== 'forecast' && s.problem_type !== 'anomaly' && <AdversarialCell bid={job.id} />}
       </div>
 
       <div className="card" data-testid="psi-table">
@@ -151,6 +152,38 @@ function BatchResult({ job }: { job: BatchJob }) {
           </table>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** F15: the adversarial AUC of this batch against the training rows, next to PSI: one classifier over all the columns
+ *  together (PSI looks at one column at a time). Started here; the full check is Explain → Shift. */
+function AdversarialCell({ bid }: { bid: string }) {
+  const [c, setC] = useState<ShiftCheck | { status: 'none'; run_id?: string } | null>(null)
+  const [err, setErr] = useState('')
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let alive = true
+    api.registry.batchShift(bid).then((x) => alive && setC(x as ShiftCheck)).catch((e) => alive && setErr((e as Error).message))
+    return () => { alive = false }
+  }, [bid, tick])
+  const running = c?.status === 'queued' || c?.status === 'running'
+  useEffect(() => {
+    if (!running) return
+    const t = setTimeout(() => setTick((v) => v + 1), 2000)
+    return () => clearTimeout(t)
+  }, [running, c])
+  const start = async () => { setErr(''); try { setC(await api.registry.startBatchShift(bid)) } catch (e) { setErr((e as Error).message) } }
+  const done = c && c.status === 'succeeded' && 'result' in c && c.result
+  const top = done ? c.result!.features.find((f) => f.significant) : undefined
+  return (
+    <div className="eh-cell" data-testid="batch-adv">
+      <span className="micro-label">adversarial AUC</span>
+      {done ? <>
+        <b className="mono" data-testid="batch-adv-auc" style={{ color: c.result!.verdict.shift ? (c.result!.auc.value >= 0.7 ? BAND_COLOR.shift : BAND_COLOR.watch) : BAND_COLOR.stable }}>{c.result!.auc.value.toFixed(3)}</b>
+        <small className="math-s">[{c.result!.auc.ci[0].toFixed(3)}, {c.result!.auc.ci[1].toFixed(3)}] · {c.result!.verdict.label}{top ? ` · ${top.feature}` : ''} · <a href={`#/explain?run=${c.run_id}&tab=Shift`} data-testid="batch-adv-link">details</a></small>
+      </> : running ? <><b className="mono"><ResonanceWave /></b><small className="math-s">{(c as ShiftCheck).stage ?? 'running'}</small></>
+        : <><button className="btn sm" onClick={start} data-testid="batch-adv-run">Run shift check</button><small className="math-s">{err ? `✕ ${err}` : c?.status === 'failed' ? `✕ ${(c as ShiftCheck).error}` : 'all columns at once; ≈ 0.5 = no shift'}</small></>}
     </div>
   )
 }

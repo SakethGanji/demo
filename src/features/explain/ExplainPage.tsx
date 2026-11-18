@@ -17,17 +17,18 @@ import { ScorecardPanel } from './components/ScorecardPanel'
 import { LearningCurvePanel } from './components/LearningCurvePanel'
 import { LabellingQueuePanel } from './components/LabellingQueuePanel'
 import { AnnotatorsPanel } from './components/AnnotatorsPanel'
+import { ShiftPanel } from './components/ShiftPanel'
 import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 
-type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Labelling Queue' | 'Annotators' | 'Text'
+type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
 const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
 
 /** Explain one run: how good, where it fails, why it predicts what it does, and for whom. Every number is the API's. */
-export function ExplainPage({ go }: { go: (r: string) => void }) {
+export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onApplyPatch?: (runId: string, patch: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }) => void }) {
   const { mode } = useApi()
   const [runId, setRunId] = useState<string | null>(runParam)
   const [runs, setRuns] = useState<Run[]>([])
@@ -68,6 +69,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
     if (run.scorecard?.available) t.push('Scorecard')
     if (!run.kind || run.kind === 'tabular') t.push('Learning Curve')
     if ((!run.kind || run.kind === 'tabular') && (run.problem_type === 'binary' || run.problem_type === 'multiclass')) t.push('Labelling Queue', 'Annotators')
+    if (!run.kind || run.kind === 'tabular') t.push('Shift')
     if (run.text_models && Object.keys(run.text_models).length) t.push('Text')
     return t
   }, [run])
@@ -152,6 +154,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
       {tab === 'Learning Curve' && <LearningCurvePanel run={run} />}
       {tab === 'Labelling Queue' && <LabellingQueuePanel run={run} />}
       {tab === 'Annotators' && <AnnotatorsPanel run={run} />}
+      {tab === 'Shift' && <ShiftPanel run={run} go={go} onApplyPatch={onApplyPatch} />}
       {tab === 'Text' && <TopWords run={run} />}
 
       <div className="chips-row">

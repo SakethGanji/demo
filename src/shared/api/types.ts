@@ -456,6 +456,8 @@ export type Run = {
   learning_curve?: { status: LearningCurveStatus; fits_done?: number; fits_total?: number; error?: string | null; verdict?: LearningCurveVerdict | null } | null
   active_learning?: { status: ActiveLearningStatus; fits_done?: number; fits_total?: number; error?: string | null; summary?: ActiveLearningSummary | null } | null
   annotations?: { schema: 'annotations/1'; status: 'computing' | 'ready' | 'failed'; error?: string | null; summary?: AnnotationsSummary | null; updated_at?: string } | null
+  /** F15: the latest shift check's summary (shift/1), for the Model Doctor. */
+  shift?: ShiftSummary | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null
@@ -1059,4 +1061,80 @@ export type Annotations = {
   queue?: { items: AnnItem[]; total: number; offset: number; limit: number; include: 'queue' | 'all' }
   show_columns?: string[]; simulated?: boolean
   simulation?: { annotators: { name: string; kind: string; accuracy: number; profile: string; pair?: string[]; p_swap?: number }[]; params: { n_rows: number; per_row: number; seed: number } } | null
+}
+
+// ---------------------------------------------------------------- F15 · adversarial validation (shift check)
+
+export type ShiftSource = 'holdout' | 'time' | 'batch'
+export type ShiftVerdictLabel = 'no shift' | 'slight' | 'moderate' | 'strong'
+
+/** The small JSON (`shift/1`) on the run payload, read by F17's Model Doctor. */
+export interface ShiftSummary {
+  schema: 'shift/1'; key: string; source: ShiftSource; status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  error?: string | null; finished_at?: string | null; reference?: string; new?: string; n_reference?: number; n_new?: number
+  auc?: number | null; ci?: [number, number] | null; level?: number
+  null?: { permutation_p: number; permutation_q95: number; refit_aucs: number[] | null; refit_mean: number | null } | null
+  verdict?: ShiftVerdictLabel | null; verdict_reason?: string | null
+  top_features?: { feature: string; importance: number; ci: [number, number] | null; psi: number | null; significant: boolean }[]
+  excluded?: string[]; ess_share?: number | null
+  created_at?: string; stage?: string | null
+}
+
+export interface ShiftFeature {
+  feature: string; kind: string; importance: number; sd: number; n: number; ci: [number, number] | null
+  ci_excludes_zero: boolean; significant: boolean; model_features: number; psi: number | null; psi_band: string | null
+  mean_expected?: number; mean_actual?: number; std_expected?: number; std_actual?: number; rank: number
+}
+
+export interface ShiftAction {
+  id: string; kind: 'split-twin' | 'gym-patch' | 'weights-version'; title: string; why: string; available?: boolean
+  split_spec?: SplitSpec; group_spec?: SplitSpec | null; endpoint?: string; feature?: string
+  patch?: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }
+  column?: string; ess?: number; ess_share?: number
+}
+
+export interface ShiftCheck {
+  run_id: string; schema: 'shift/1'; key: string; source: ShiftSource; status: ShiftSummary['status']
+  error?: string | null; stage?: string | null; created_at?: string; started_at?: string; finished_at?: string | null
+  request?: Record<string, unknown>
+  sets: Record<'reference' | 'new', { name: string; rows: number; what: string; batch_id?: string; version_id?: string; max_psi?: number | null }>
+  features: string[]; kinds: Record<string, string>; excluded: { column: string; reason: string }[]
+  extra: { time_column?: string; cutoff?: string; cutoff_source?: string; from?: string; to?: string; undated_rows?: number }
+  fit?: { model: string; models: string[]; fit_seconds: number; fit_kwargs: Record<string, unknown>; call: string; num_bag_folds: number; oof: string }
+  result?: {
+    auc: { value: number; se: number; ci: [number, number]; level: number; z: number; m: number; n: number; s10: number; s01: number; method: string }
+    verdict: { label: ShiftVerdictLabel; reason: string; shift: boolean; beyond_refit_null: boolean; rule: string }
+    features: ShiftFeature[]
+    null: {
+      permutation: { B: number; p_value: number; mean: number; sd: number; q025: number; q975: number; q95: number; max: number; test: string; observed: number; hist: number[]; hist_edges: number[] }
+      refit: { R: number; aucs: number[]; mean: number; max: number; min: number; seconds: number[]; what: string } | null
+    }
+    roc: [number, number][]
+    score_hist: { reference: number[]; new: number[]; edges: number[] }
+    weights: {
+      column: string; formula: string; n_ref: number; n_new: number; prior_ratio: number; clip_quantile: number; clip_bounds_raw: [number, number]
+      clipped_rows: number; min: number; max: number; median: number; q01: number; q99: number; ess: number; ess_share: number
+      ess_unclipped: number; ess_unclipped_share: number; sum_w: number; sum_w2: number; hist_log10: { counts: number[]; edges: number[] }
+      balance: { feature: string; mean_reference: number; mean_new: number; mean_reference_weighted: number }[]
+    }
+    timing: { fit_seconds: number; importance_seconds: number; total_seconds: number }
+    importance_method: string
+  } | null
+  versions?: { id: string; name: string; rows: number; column: string; rows_weighted: number; ess: number; ess_share: number; replaces_sample_weight: unknown; created_at: string }[]
+  summary: ShiftSummary | null
+  actions: ShiftAction[]
+}
+
+export interface ShiftList {
+  run_id: string; checks: ShiftSummary[]; latest: ShiftSummary | null
+  options: {
+    date_columns: { column: string; from: string; to: string }[]; time_column: string | null; cutoff: string | null
+    batches: { id: string; version_id: string; filename: string; created_at: string; rows?: number; max_psi?: number | null }[]
+    defaults: { null_refits: number; permutations: number; shuffle_sets: number; clip: number; num_bag_folds: number; hyperparameters: Record<string, unknown> }
+  }
+}
+
+export interface ShiftRequest {
+  source: ShiftSource; batch_id?: string; time_column?: string; cutoff?: string; exclude?: string[]; include?: string[]
+  null_refits?: number; permutations?: number; shuffle_sets?: number; clip?: number; time_limit?: number; fit_kwargs?: Record<string, unknown>
 }

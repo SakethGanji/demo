@@ -88,7 +88,7 @@ export default function App() {
           {route === 'autopilot' && <AutopilotPage go={go} />}
           {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} gym={gym} setGym={setGym} go={go} />}
           {route === 'experiments' && <ExperimentsPage go={go} />}
-          {route === 'explain' && <ExplainPage go={go} />}
+          {route === 'explain' && <ExplainPage go={go} onApplyPatch={(rid, p) => applyVela(rid, { patch: p } as unknown as VelaFinding)} />}
           {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
           {route === 'settings' && <SettingsPage />}
           {route === 'forecast' && <ForecastPage go={go} />}
