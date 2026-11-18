@@ -105,6 +105,31 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         return {**_summary(rec), "profile": rec["profile"]}
 
+    @app.patch("/api/datasets/{dataset_id}", response_model=Dataset)
+    def confirm_target(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Confirm the column to predict (F4). Body {"target": column}. Re-profiles for that target and draws (or
+        reuses) its own holdout and folds, keyed by the target; the profile's `splits` describe that split."""
+        target = (body or {}).get("target")
+        if not isinstance(target, str) or not target:
+            raise HTTPException(400, 'Send {"target": "<column to predict>"}.')
+        if not request.app.state.db.get_dataset(dataset_id):
+            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        try:
+            rec = store(request).set_target(dataset_id, target)
+        except DatasetError as e:
+            raise HTTPException(400, str(e)) from e
+        return {**_summary(rec), "profile": rec["profile"]}
+
+    @app.get("/api/datasets/{dataset_id}/splits")
+    def dataset_splits(dataset_id: str, request: Request) -> dict[str, Any]:
+        """Every split stored for the dataset, one per (target, strategy) used so far, and the current target's key."""
+        rec = request.app.state.db.get_dataset(dataset_id)
+        if not rec:
+            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        cur = rec["profile"].get("splits") or {}
+        return {"dataset_id": dataset_id, "target": rec["target"], "current": cur.get("key"),
+                "splits": store(request).list_splits(dataset_id)}
+
     @app.post("/api/admin/reset")
     def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Delete every run, registry entry, batch, autopilot and upload; regenerate the samples. Body {"confirm": "reset"}.

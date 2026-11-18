@@ -56,6 +56,8 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
         "dropped_columns": drop, "features": [c for c in train.columns if c != label], "label": label,
     }
+    if cfg.get("split"):  # F4: the (label, strategy) split this run uses
+        info["split"] = {k: v for k, v in cfg["split"].items() if k != "path"}
     return train, holdout, info
 
 

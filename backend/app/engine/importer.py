@@ -125,6 +125,8 @@ async def import_run(request: Request, dataset_id: str = Form(...), file: Upload
         shutil.rmtree(run_dir, ignore_errors=True)
         raise
     label = info["label"]
+    from .api import split_record
+    split = split_record(app.state.datasets, dataset_id, label)
     drop = [c for c in cols if c not in info["features"] and c != label]
     imp = {"source_kind": source_kind, "source": source, "created_by": created_by, **{k: info[k] for k in
            ("autogluon_version", "n_models", "model_best", "problem_type", "eval_metric")}}
@@ -133,7 +135,7 @@ async def import_run(request: Request, dataset_id: str = Form(...), file: Upload
            "feature_importance": True, "column_types": {}, "calibrate_threshold": None, "drop_columns": drop,
            "text_columns": [], "task": info["problem_type"], "import": imp, "source": "import",
            "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(dataset_id)),
-           "splits_path": str(app.state.datasets.splits_path(dataset_id)), "run_dir": str(run_dir),
+           "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
            "predictor_path": str(dest)}
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
     store = app.state.runs

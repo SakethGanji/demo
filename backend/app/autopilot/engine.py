@@ -418,7 +418,7 @@ class Pilot:
         return np.arange(n)
 
     def _holdout_rows_local(self, dataset_id: str) -> list[int]:
-        sp = json.loads(self.mgr.app.state.datasets.splits_path(dataset_id).read_text())
+        sp = json.loads(self.mgr.app.state.datasets.splits_path(dataset_id, self.st["facts"]["label"]).read_text())
         return sp["holdout"]
 
     def truth(self) -> tuple[dict[int, str], set[int]]:
@@ -592,7 +592,7 @@ class Pilot:
             self.note(f"No label changed ({confirmed} confirmed, {skipped} skipped), so there is nothing to retrain on.")
             return False
         df = pd.read_csv(ds.csv_path(src))
-        sp = json.loads(ds.splits_path(src).read_text())
+        sp = json.loads(ds.splits_path(src, self.st["facts"]["label"]).read_text())
         roots = self._lineage_rows(src)
         changes = []
         for r, v in relabel.items():
@@ -840,7 +840,7 @@ class Pilot:
         ds = self.mgr.app.state.datasets
         src = self.st["truth_dataset"]
         df = pd.read_csv(ds.csv_path(src))
-        sp = json.loads(ds.splits_path(src).read_text())
+        sp = json.loads(ds.splits_path(src, self.st["facts"]["label"]).read_text())
         mine = df[df[f["label"]].astype(str) == cls]
         hold = set(sp["holdout"])
         examples = [{c: str(mine.iloc[i][c])[:300] for c in f["text_columns"]} for i in range(min(6, len(mine))) if mine.index[i] not in hold]

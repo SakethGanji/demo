@@ -1,7 +1,8 @@
 """Dataset storage: files under `data/datasets/<id>/`, records in SQLite.
 
     data/datasets/<id>/data.csv        the rows, exactly as profiled (row positions are the IDs used by splits)
-    data/datasets/<id>/splits.json     fixed holdout and folds (see splits.py)
+    data/datasets/<id>/splits/<key>.json  holdout and folds per (target, strategy), drawn on first use (see splits.py)
+    data/datasets/<id>/splits.json     legacy: the split drawn on upload for the profiler's target (pre-F4 runs use it)
     data/datasets/<id>/<sidecar>.json  samples only: ground truth (label_noise.json, signal.json)
 """
 
@@ -12,6 +13,7 @@ import json
 import logging
 import re
 import secrets
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,7 +24,7 @@ from . import config
 from .db import Database
 from .profiling import profile_frame
 from .samples import SAMPLES
-from .splits import make_splits, save_splits, summarize
+from .splits import RANDOM_STRATIFIED, load_splits, make_splits, save_splits, split_key, summarize
 
 log = logging.getLogger("ensemble.datasets")
 
@@ -50,6 +52,7 @@ class DatasetStore:
     def __init__(self, settings: config.Settings, db: Database) -> None:
         self.settings = settings
         self.db = db
+        self._split_lock = threading.Lock()
         settings.datasets_dir.mkdir(parents=True, exist_ok=True)
 
     def dir(self, dataset_id: str) -> Path:
@@ -58,8 +61,83 @@ class DatasetStore:
     def csv_path(self, dataset_id: str) -> Path:
         return self.dir(dataset_id) / "data.csv"
 
-    def splits_path(self, dataset_id: str) -> Path:
+    def legacy_splits_path(self, dataset_id: str) -> Path:
         return self.dir(dataset_id) / "splits.json"
+
+    def split_path(self, dataset_id: str, target: str | None, strategy: str = RANDOM_STRATIFIED) -> Path:
+        return self.dir(dataset_id) / "splits" / f"{split_key(target, strategy)}.json"
+
+    def splits_path(self, dataset_id: str, target: str | None = None) -> Path:
+        """The split file for `target` (default: the dataset's current target), drawn if it doesn't exist yet."""
+        if target is None:
+            rec = self.db.get_dataset(dataset_id)
+            target = rec["target"] if rec else None
+        return self.ensure_splits(dataset_id, target)[0]
+
+    def ensure_splits(self, dataset_id: str, target: str | None,
+                      strategy: str = RANDOM_STRATIFIED) -> tuple[Path, dict[str, Any], bool]:
+        """(path, splits, created) of the (target, strategy) split. An existing split is never redrawn. A new one is
+        drawn from data.csv with the fixed seed, so the same file and target always give the same holdout, whichever
+        target the profiler guessed. The legacy splits.json is adopted when it was drawn for this target (so the
+        samples, Autopilot's derived datasets and pre-F4 runs keep their exact holdout)."""
+        path = self.split_path(dataset_id, target, strategy)
+        with self._split_lock:
+            if path.exists():
+                return path, load_splits(path), False
+            legacy = self.legacy_splits_path(dataset_id)
+            sp = load_splits(legacy) if legacy.exists() else None
+            if sp is not None and sp.get("target") == target and sp.get("strategy", RANDOM_STRATIFIED) == strategy:
+                sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": "splits.json"}
+            else:
+                df = self.load_frame(dataset_id)
+                if target is not None and target not in df.columns:
+                    raise DatasetError(f"Column '{target}' is not in the dataset.")
+                y = df[target] if target is not None else None
+                sp = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy)
+            sp["created_at"] = sp.get("created_at") or now()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            save_splits(tmp, sp)
+            tmp.replace(path)
+            return path, sp, True
+
+    def list_splits(self, dataset_id: str) -> list[dict[str, Any]]:
+        """Summaries of every split stored for the dataset (one per target and strategy used so far)."""
+        d = self.dir(dataset_id) / "splits"
+        out = []
+        for p in sorted(d.glob("*.json")) if d.exists() else []:
+            sp = load_splits(p)
+            out.append({**summarize(sp, None), "created_at": sp.get("created_at"), "adopted_from": sp.get("adopted_from")})
+        return out
+
+    def set_target(self, dataset_id: str, target: str) -> dict[str, Any]:
+        """Confirm the column to predict: re-profile for it (classes, task, conflicts), draw or reuse its split, and
+        record that the user confirmed it. Other targets' splits are untouched."""
+        rec = self.db.get_dataset(dataset_id)
+        if not rec:
+            raise DatasetError(f"No dataset with id '{dataset_id}'.")
+        df = self.load_frame(dataset_id)
+        if target not in df.columns:
+            raise DatasetError(f"Column '{target}' is not in the dataset.")
+        if df[target].nunique(dropna=True) < 2:
+            raise DatasetError(f"Column '{target}' has fewer than two distinct values; there is nothing to learn.")
+        old = rec["profile"]
+        try:
+            profile = profile_frame(df, target)
+        except ValueError as e:
+            raise DatasetError(str(e)) from e
+        for k, v in old.items():  # keep what was added after profiling (lineage) and the sample's kind
+            if k not in profile:
+                profile[k] = v
+        profile["kind"] = old.get("kind", profile["kind"])
+        profile["suggested_target"] = old.get("suggested_target", profile["suggested_target"])
+        _, sp, _ = self.ensure_splits(dataset_id, target)
+        profile["splits"] = summarize(sp, df[target])
+        profile["target_source"] = "confirmed"
+        profile["target_history"] = [*old.get("target_history", []), {"target": target, "at": now()}]
+        rec = {**rec, "target": target, "profile": profile}
+        self.db.insert_dataset(rec)
+        return rec
 
     def load_frame(self, dataset_id: str) -> pd.DataFrame:
         return pd.read_csv(self.csv_path(dataset_id))
@@ -75,8 +153,13 @@ class DatasetStore:
         tgt = profile["target"]
         y = df[tgt] if tgt else None
         splits = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS)
-        save_splits(self.splits_path(dataset_id), splits)
+        save_splits(self.legacy_splits_path(dataset_id), splits)
+        for p in (self.dir(dataset_id) / "splits").glob("*.json"):  # a regenerated sample: its old splits are stale
+            p.unlink()
+        _, splits, _ = self.ensure_splits(dataset_id, tgt)
         profile["splits"] = summarize(splits, y)
+        # "given": named on upload (or a sample's label); "guessed": the profiler's suggestion, to be confirmed.
+        profile["target_source"] = "given" if target else "guessed"
         rec = {
             "id": dataset_id, "name": name, "filename": filename, "source": source, "note": note,
             "created_at": now(), "size_bytes": size_bytes, "rows": len(df), "target": tgt,
@@ -133,9 +216,13 @@ class DatasetStore:
         df.to_csv(self.csv_path(dataset_id), index=False)
         df = pd.read_csv(self.csv_path(dataset_id))
         profile = profile_frame(df, parent["target"])
-        save_splits(self.splits_path(dataset_id), splits)
+        save_splits(self.legacy_splits_path(dataset_id), splits)
         tgt = profile["target"]
-        profile["splits"] = summarize(splits, df[tgt] if tgt else None)
+        # The given split is stored under its own target (adopted from splits.json, rows unchanged).
+        st = splits.get("target") if splits.get("target") in df.columns else tgt
+        _, splits, _ = self.ensure_splits(dataset_id, st)
+        profile["target_source"] = parent["profile"].get("target_source", "given")
+        profile["splits"] = summarize(splits, df[st] if st else None)
         (d / "lineage.json").write_text(json.dumps(lineage))
         profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes")}
         rec = {

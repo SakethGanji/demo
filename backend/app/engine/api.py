@@ -83,6 +83,17 @@ def _store(request: Request) -> RunStore:
     return request.app.state.runs
 
 
+def split_record(datasets: Any, dataset_id: str, label: str) -> dict[str, Any]:
+    """The (label, random-stratified) split of the dataset, drawn on first use, as a run records it."""
+    from ..splits import split_sha256
+
+    path, sp, created = datasets.ensure_splits(dataset_id, label)
+    return {"path": str(path), "key": sp["key"], "target": sp["target"], "strategy": sp["strategy"],
+            "seed": sp["seed"], "stratified": sp["stratified"], "holdout_share": sp["holdout_share"],
+            "n_folds": sp["n_folds"], "holdout_rows": len(sp["holdout"]), "sha256": split_sha256(sp),
+            "drawn_for_this_run": created}
+
+
 def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str, Any]:
     res = rec.get("result") or {}
     out = {
@@ -92,6 +103,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
         "config": {k: v for k, v in rec["config"].items() if k not in ("truth", "profile")},
         "kind": rec["config"].get("kind") or ("import" if rec["config"].get("import") else "tabular"),
         "predictor_path": rec["config"].get("predictor_path"), "n_events": store.count_events(rec["id"]),
+        "split": rec["config"].get("split"),
     }
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
@@ -183,6 +195,9 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     else:
         task = "regression" if cols[label]["type"] == "number" and cols[label]["unique"] > 50 else None
 
+    # F4: the holdout belongs to the label, not to the dataset's (possibly guessed) target.
+    split = split_record(app.state.datasets, body.dataset_id, label)
+
     run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
     run_dir = settings.runs_dir / run_id
@@ -193,7 +208,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
         "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
-        "splits_path": str(app.state.datasets.splits_path(body.dataset_id)), "run_dir": str(run_dir),
+        "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "predictor"),
     }
     if body.pseudolabel:

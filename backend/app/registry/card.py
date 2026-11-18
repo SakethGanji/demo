@@ -149,7 +149,9 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
             "splits_sha256": hashes.get("splits_sha256"), "label_balance": balance, "feature_table": feat_rows,
             "split": {"forecast": "the last H steps of every series held out; backtest windows before them for model selection",
                       "anomaly": "unsupervised: every row is scored; no labels and no holdout"}.get(cfg.get("kind")) or "a fixed stratified 20% holdout (seed 42) never seen in training or model selection; "
-                     "AutoGluon validates on its own split of the remaining rows (or out-of-fold when bagging)",
+                     "AutoGluon validates on its own split of the remaining rows (or out-of-fold when bagging)"
+                     + (f"; drawn for y = {cfg['split']['target']} (split {cfg['split']['key']}, {cfg['split']['strategy']})"
+                        if cfg.get("kind") in (None, "tabular") and cfg.get("split") else ""),
             "missing_cells_share": (prof.get("missing") or {}).get("share"), "duplicates": (prof.get("duplicates") or {}).get("rows"),
             "warnings": prof.get("warnings") or [],
         },

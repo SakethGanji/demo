@@ -18,6 +18,9 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              batch score + download → register → Try It on a row
   import     fit a tiny TabularPredictor here, zip it, import it → leaderboard, explain, predict, register, Try It;
              also by server path
+  targets    F4: deposits CSV uploaded without a target, trained on a non-guessed target via the UI's calls (confirm the
+             target) and via the API (target named on upload): identical holdout rows, predictions and scores; a run on an
+             unconfirmed label uses that label's split; switching targets never redraws a split
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -686,6 +689,140 @@ def fresh(st: dict[str, Any]) -> None:
         step(f"fresh {tag}: register → approve → Try It → batch", register_use)
 
 
+# --------------------------------------------------------------------------- targets (F4)
+
+
+def targets(st: dict[str, Any]) -> None:
+    """F4: the holdout belongs to the target. The deposits CSV uploaded without a target (the profiler guesses another
+    column) is trained on avg_balance_next_q_gbp through the browser's calls (upload → confirm the target → run) and
+    through the API (upload naming the target → run); the holdout rows, predictions and scores must be identical.
+    Also: a run naming an unconfirmed label gets that label's split; switching the target never redraws a split."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import fresh_data
+
+    label, metric = "avg_balance_next_q_gbp", "root_mean_squared_error"
+    raw = open(fresh_data.write(tempfile.mkdtemp(prefix="smoke-targets-"))["deposit_balances.csv"], "rb").read()
+    fk = {"hyperparameters": {"GBM": {"num_boost_round": 200}, "XT": {}, "LR": {}}}
+    s: dict[str, Any] = {}
+
+    def upload(target: str | None = None) -> dict[str, Any]:
+        return j(C.post("/api/datasets", files={"file": ("deposit_balances.csv", raw, "text/csv")},
+                        data={"target": target} if target else {}))
+
+    def train(ds: dict[str, Any], src: str) -> dict[str, Any]:
+        """The body the New Model wizard sends (QuickTrainPage.start): problem type, metric, preset, budget, id columns dropped."""
+        prof = get(f"/api/datasets/{ds['id']}")["profile"]
+        drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != label]
+        r = post("/api/runs", {"dataset_id": ds["id"], "label": label, "problem_type": "regression", "eval_metric": metric,
+                               "presets": "medium_quality", "time_limit": 120, "fit_kwargs": fk, "column_types": None,
+                               "drop_columns": drop, "feature_importance": False, "calibrate_threshold": None, "source": src})
+        rec = wait_run(r["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        return {"rec": rec, "hp": get(f"/api/runs/{r['id']}/holdout-predictions")}
+
+    def guessed():
+        d = upload()
+        p = d["profile"]
+        check(p.get("target_source") == "guessed", f"target_source {p.get('target_source')}")
+        check(p["target"] != label, f"the profiler guessed {p['target']}: pick another column for this check")
+        check(p["splits"]["target"] == p["target"] and p["splits"]["strategy"] == "random-stratified", p["splits"])
+        s.update(ui=d, guess=p["target"], guess_split=p["splits"])
+        return (f"{d['id']} · profiler guessed y = {p['target']} ({p['task']}) · its split {p['splits']['key']} "
+                f"sha {p['splits']['sha256'][:10]} · stratified {p['splits']['stratified']}")
+
+    if not step("targets: upload without a target", guessed, fatal=False):
+        return
+
+    def api_path():
+        d = upload(label)
+        p = d["profile"]
+        check(p.get("target_source") == "given" and p["splits"]["target"] == label, (p.get("target_source"), p["splits"]))
+        out = train(d, "smoke-targets-api")
+        s.update(api_ds=d, api=out)
+        rec = out["rec"]
+        check(rec["split"]["target"] == label and rec["split"]["strategy"] == "random-stratified", rec["split"])
+        m, sc = primary(rec)
+        return (f"{d['id']} upload names y · {rec['id']} split {rec['split']['key']} sha {rec['split']['sha256'][:10]} · "
+                f"holdout {rec['split']['holdout_rows']} rows · {m} {sc:,.4f}")
+
+    def ui_path():
+        d = s["ui"]
+        bad = C.patch(f"/api/datasets/{d['id']}", json={"target": "no_such_column"})
+        check(bad.status_code == 400, f"unknown column → {bad.status_code}")
+        c = C.patch(f"/api/datasets/{d['id']}", json={"target": label})
+        check(c.status_code == 200, c.text)
+        p = c.json()["profile"]
+        check(c.json()["target"] == label and p["target"] == label and p["target_source"] == "confirmed", p.get("target_source"))
+        check(p["task"] == "regression", f"task after confirming {p['task']}")
+        check(p["splits"]["target"] == label, p["splits"])
+        check(p["splits"]["sha256"] == s["api_ds"]["profile"]["splits"]["sha256"],
+              f"confirmed split {p['splits']['sha256'][:10]} ≠ API upload's {s['api_ds']['profile']['splits']['sha256'][:10]}")
+        lst = get(f"/api/datasets/{d['id']}/splits")
+        keys = {x["key"]: x for x in lst["splits"]}
+        check(lst["current"] == p["splits"]["key"] and len(keys) == 2, lst)
+        check(keys[s["guess_split"]["key"]]["sha256"] == s["guess_split"]["sha256"], "the guessed target's split changed")
+        out = train(d, "smoke-targets-ui")
+        s["ui_run"] = out
+        rec = out["rec"]
+        m, sc = primary(rec)
+        return (f"{d['id']} confirm y = {label} (was {s['guess']}) · splits stored {sorted(keys)} · {rec['id']} split "
+                f"{rec['split']['key']} sha {rec['split']['sha256'][:10]} · {m} {sc:,.4f}")
+
+    if not step("targets: API path (upload names the target) → train", api_path):
+        return
+    if not step("targets: UI path (upload → confirm the target) → train", ui_path):
+        return
+
+    def identical():
+        a, b = s["api"], s["ui_run"]
+        ra, rb = a["rec"], b["rec"]
+        check(ra["split"]["sha256"] == rb["split"]["sha256"], "split sha differs")
+        check(a["hp"]["rows"] == b["hp"]["rows"], f"holdout rows differ: {len(set(a['hp']['rows']) & set(b['hp']['rows']))} shared")
+        check(a["hp"]["y_true"] == b["hp"]["y_true"], "holdout labels differ")
+        diff = float(np.max(np.abs(np.asarray(a["hp"]["y_pred"], float) - np.asarray(b["hp"]["y_pred"], float))))
+        check(diff == 0.0, f"holdout predictions differ, max |Δŷ| {diff}")
+        sa, sb = ra["holdout"]["scores"], rb["holdout"]["scores"]
+        check(sa == sb, f"holdout scores differ: {sa} vs {sb}")
+        check(ra["best_model"] == rb["best_model"], (ra["best_model"], rb["best_model"]))
+        return (f"{len(a['hp']['rows'])} holdout rows identical (sha {ra['split']['sha256'][:10]}) · max |Δŷ| {diff} · "
+                f"RMSE {-sa[metric]:,.1f} = {-sb[metric]:,.1f} · R² {sa['r2']:.4f} = {sb['r2']:.4f} · best {ra['best_model']}")
+
+    step("targets: API and UI holdouts identical", identical)
+
+    def unconfirmed():
+        d = upload()
+        check(d["profile"]["target"] == s["guess"], d["profile"]["target"])
+        r = post("/api/runs", {"dataset_id": d["id"], "label": label, "eval_metric": metric, "time_limit": 60,
+                               "fit_kwargs": {"hyperparameters": {"LR": {}}}, "source": "smoke-targets-unconfirmed"})
+        check(r["split"]["target"] == label and r["split"]["sha256"] == s["api"]["rec"]["split"]["sha256"], r["split"])
+        check(r["config"]["split"]["path"] == r["config"]["splits_path"], "the run's splits_path is not its recorded split")
+        rec = wait_run(r["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        hp = get(f"/api/runs/{r['id']}/holdout-predictions")
+        check(hp["rows"] == s["api"]["hp"]["rows"], "holdout rows differ")
+        after = get(f"/api/datasets/{d['id']}")
+        check(after["target"] == s["guess"] and after["profile"]["target_source"] == "guessed", "a run must not confirm the target")
+        return (f"{d['id']} still y = {s['guess']} (guessed) · run {r['id']} with label {label} gets that label's split "
+                f"(drawn for this run: {r['split']['drawn_for_this_run']}) · same {len(hp['rows'])} holdout rows")
+
+    step("targets: run naming an unconfirmed label uses the label's split", unconfirmed)
+
+    def switch_back():
+        d = s["ui"]
+        p = j(C.patch(f"/api/datasets/{d['id']}", json={"target": s["guess"]}))["profile"]
+        check(p["splits"]["key"] == s["guess_split"]["key"] and p["splits"]["sha256"] == s["guess_split"]["sha256"],
+              "switching back redrew the split")
+        p2 = j(C.patch(f"/api/datasets/{d['id']}", json={"target": label}))["profile"]
+        check(p2["splits"]["sha256"] == s["api"]["rec"]["split"]["sha256"], "switching again redrew the split")
+        check([h["target"] for h in p2["target_history"]] == [label, s["guess"], label], p2["target_history"])
+        old = get(f"/api/runs/{s['ui_run']['rec']['id']}")
+        check(old["split"]["sha256"] == s["api"]["rec"]["split"]["sha256"], "the run's recorded split changed")
+        return (f"{label} → {s['guess']} → {label}: both splits reused, never redrawn · "
+                f"the run still records {old['split']['key']}")
+
+    step("targets: switching the target reuses each target's split", switch_back)
+
+
 # --------------------------------------------------------------------------- autopilot
 
 
@@ -1287,7 +1424,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -1324,7 +1461,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "reset": reset}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "reset": reset}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
