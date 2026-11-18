@@ -217,8 +217,11 @@ def schema() -> dict[str, Any]:
         params = []
         for p in FAMILY_PARAMS.get(key, []):
             d = ag_defaults.get(key, {}).get(p["key"])
-            params.append({**p, "default": d if d is not None else p["default"],
-                           "default_source": "autogluon" if d is not None else "library"})
+            numeric = "choices" not in p
+            usable = d is not None and (not numeric or (isinstance(d, (int, float)) and not isinstance(d, bool)))
+            extra = {} if usable or d is None else {"autogluon_default": d}  # e.g. FASTAI epochs = 'auto'
+            params.append({**p, "default": d if usable else p["default"],
+                           "default_source": "autogluon" if usable else "library", **extra})
         families.append({"key": key, "name": fam.get("name"), "kind": fam.get("kind"), "description": fam.get("description"),
                          "objective": fam.get("objective"), "symbols": {**catalogue._COMMON, **(fam.get("symbols") or {})},
                          "custom": bool(fam.get("custom")), "problem_types": fam.get("problem_types"), "params": params,

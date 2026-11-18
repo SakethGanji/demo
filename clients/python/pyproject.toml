@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ensemble-client"
+version = "0.6.0"
+description = "A small Python client for the Project ENSEMBLE API (datasets, AutoGluon runs, leaderboards, predictions, the registry, export)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.25"]
+
+[project.optional-dependencies]
+pandas = ["pandas>=2"]
+
+[tool.setuptools]
+packages = ["ensemble_client"]

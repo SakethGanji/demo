@@ -1,0 +1,4 @@
+httpx>=0.25
+
+[pandas]
+pandas>=2

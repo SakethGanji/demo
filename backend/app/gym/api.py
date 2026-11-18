@@ -76,6 +76,16 @@ async def gym_validate(body: dict[str, Any], request: Request) -> dict[str, Any]
     return await run_validation(request, body)
 
 
+def run_body(rec: dict[str, Any]) -> dict[str, Any]:
+    """The `POST /api/runs` body that starts this run again."""
+    cfg = rec["config"]
+    body = {k: cfg.get(k) for k in BODY_FIELDS if k in cfg}
+    body["label"] = rec["label"]
+    body["problem_type"] = cfg.get("problem_type") or "auto"
+    body["drop_columns"] = cfg.get("drop_columns")
+    return body
+
+
 @router.get("/runs/{run_id}/gym")
 def run_gym_config(run_id: str, request: Request) -> dict[str, Any]:
     """The run's request as the Gym edits it (the body that would start it again), plus its lineage."""
@@ -83,10 +93,7 @@ def run_gym_config(run_id: str, request: Request) -> dict[str, Any]:
     if not rec:
         raise HTTPException(404, f"No run with id '{run_id}'.")
     cfg = rec["config"]
-    body = {k: cfg.get(k) for k in BODY_FIELDS if k in cfg}
-    body["label"] = rec["label"]
-    body["problem_type"] = cfg.get("problem_type") or "auto"
-    body["drop_columns"] = cfg.get("drop_columns")
+    body = run_body(rec)
     return {"run_id": run_id, "name": rec["name"], "status": rec["status"], "body": body,
             "parent_run_id": cfg.get("parent_run_id"), "patch": cfg.get("patch")}
 

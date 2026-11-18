@@ -15,6 +15,8 @@ setup:
 	@# pip works too but is slower.
 	if command -v uv >/dev/null; then uv pip install --python $(PY) --index-strategy unsafe-best-match -r backend/requirements.lock; \
 	else $(PY) -m pip install --upgrade pip -q && $(PY) -m pip install -r backend/requirements.lock; fi
+	@# The notebook client (clients/python), editable, so the tests use the code in the repo.
+	if command -v uv >/dev/null; then uv pip install --python $(PY) -e clients/python; else $(PY) -m pip install -e clients/python; fi
 	npm install
 
 ## Re-resolve backend/requirements.lock after editing backend/requirements.txt (needs uv).

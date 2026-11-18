@@ -38,7 +38,10 @@ class ApiServer:
         return f"http://127.0.0.1:{self.port}"
 
     def start(self, timeout: float = 90) -> None:
-        env = {**os.environ, "ENSEMBLE_DATA_DIR": str(self.data_dir), "PYTHONDONTWRITEBYTECODE": "1", **self.env}
+        # Vela's LLM wording is off in tests (tests/test_vela.py drives it with a fake `claude`); ENSEMBLE_VELA_LLM=auto
+        # in the environment turns it back on.
+        env = {"ENSEMBLE_VELA_LLM": "off", **os.environ, "ENSEMBLE_DATA_DIR": str(self.data_dir), "PYTHONDONTWRITEBYTECODE": "1",
+               **self.env}
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "uvicorn", "app.main:app", "--port", str(self.port), "--log-level", "warning"],
             cwd=BACKEND, env=env, stdout=open(self.log, "ab"), stderr=subprocess.STDOUT,
