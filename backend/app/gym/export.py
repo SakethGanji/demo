@@ -80,6 +80,7 @@ def main() -> int:
     ap.add_argument("--unlabeled", default=UNLABELED_CSV, help="unlabeled rows for pseudo-labelling, if the run used them")
     ap.add_argument("--out", default=f"reproduced_{RUN_ID}", help="folder for the predictor")
     ap.add_argument("--no-check", action="store_true", help="skip the data hash and the leaderboard comparison")
+    ap.add_argument("--tolerance", type=float, default=1e-6, help="largest |Δ score| accepted per model (default 1e-6)")
     args = ap.parse_args()
 
     if NEEDS_ENSEMBLE_MODELS:  # the run used ENSEMBLE's TF-IDF models: register them with AutoGluon
@@ -132,11 +133,14 @@ def main() -> int:
         if m not in got:
             print(f"MISMATCH: model {m} is in the run but not here")
             return 1
-        for a, b in ((val, got[m]["score_val"]), (test, got[m]["score_test"])):
+        for what, a, b in (("val", val, got[m]["score_val"]), ("holdout", test, got[m]["score_test"])):
             if a is not None and b is not None:
-                worst = max(worst, abs(float(a) - float(b)))
+                d = abs(float(a) - float(b))
+                if d > 1e-6:
+                    print(f"differs: {m} {what} run {float(a):.6f} here {float(b):.6f}")
+                worst = max(worst, d)
     print(f"leaderboard check: {len(RUN_LEADERBOARD)} models, max |Δ score| = {worst:.3g}")
-    return 0 if worst <= 1e-6 else 1
+    return 0 if worst <= args.tolerance else 1
 
 
 if __name__ == "__main__":

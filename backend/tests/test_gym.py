@@ -204,6 +204,14 @@ def test_export_reproduces_post_fit_steps_and_text_models(client, data_dir, tmp_
     assert [p["call"] for p in run["resolved"]["post_fit"]] == ["fit_pseudolabel", "distill"]
     script = tmp_path / "export.py"
     script.write_text(client.get(f"/api/runs/{run['id']}/export.py").text)
-    p = subprocess.run([sys.executable, "-I", str(script), "--out", str(tmp_path / "repro")], capture_output=True, text=True, timeout=900)
+    # Exact for every model except possibly a one-row flip of a validation score: the TF-IDF logistic regression
+    # refit on pseudo-labelled rows uses multithreaded BLAS, whose summation order can move one probability across
+    # a decision boundary. One row of the 1,600 validation rows is 0.000625, so the tolerance is 1/1,600.
+    p = subprocess.run([sys.executable, "-I", str(script), "--out", str(tmp_path / "repro"), "--tolerance", "0.000626"],
+                       capture_output=True, text=True, timeout=900)
     assert p.returncode == 0, p.stdout[-2000:] + p.stderr[-2000:]
-    assert "max |Δ score| = 0" in p.stdout
+    import pandas as pd
+
+    lb = pd.read_csv(tmp_path / "repro" / "leaderboard.csv").set_index("model")
+    for r in run["leaderboard"]:
+        assert lb.loc[r["model"], "score_test"] == pytest.approx(r["score_test"], abs=1e-9), r["model"]  # holdout: exact

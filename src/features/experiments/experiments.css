@@ -15,3 +15,6 @@
 .exp-table { font-size: 12.5px; }
 .exp-table td { padding-left: 10px; padding-right: 10px; }
 .exp-table td.exp-name { max-width: 210px; overflow: hidden; text-overflow: ellipsis; }
+.exp-lineage { display: block; font-size: 11px; color: var(--accent-primary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
+.patch-compare { border-left: 3px solid var(--accent-primary); margin-bottom: var(--space-16); }
+.patch-compare .g-ok { color: var(--status-success); } .patch-compare .g-bad { color: var(--status-danger); }

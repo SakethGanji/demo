@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { Run } from '@/shared/api/types'
 import { fmtScore, fmtSeconds, metricInfo } from '@/shared/lib/metrics'
@@ -41,6 +41,9 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
   const [f, setF] = useState<Filters>({ dataset: 'all', type: 'all', status: 'all', q: '', min: '' })
   const load = () => api.runs.list().then((rs) => { setRuns(rs); setErr('') }).catch((e) => setErr((e as Error).message))
   useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t) }, [])
+  // #/experiments?compare=a,b (from a Vela patch's retrain): select those runs and open Compare.
+  const fromUrl = useRef(new URLSearchParams(location.hash.split('?')[1] ?? '').get('compare')).current
+  useEffect(() => { if (fromUrl) { setSel(fromUrl.split(',').filter(Boolean)); setTab('Compare') } }, [fromUrl])
   // First visit: preselect the latest finished runs of the dataset with the most runs.
   useEffect(() => {
     if (!runs || sel.length) return
@@ -116,7 +119,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
                   <tr key={r.id} className={on ? 'sel' : ''} onClick={() => toggle(r.id)} style={{ cursor: 'pointer' }} data-testid={`exp-row-${r.id}`}>
                     <td><input type="checkbox" checked={on} onChange={() => toggle(r.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${r.id}`} style={{ accentColor: 'var(--accent-primary)' }} /></td>
                     <td className="table-cell">{on && <i className="run-dot" style={{ background: RUN_COLORS[sel.indexOf(r.id) % RUN_COLORS.length] }} />}{r.id}</td>
-                    <td className="exp-name" title={r.name}>{r.name}</td>
+                    <td className="exp-name" title={r.name}>{r.name}{r.config.parent_run_id ? <span className="exp-lineage" data-testid={`exp-lineage-${r.id}`}>↳ {(r.config.patch as { title?: string } | null)?.title ?? 'from'} · {String(r.config.parent_run_id)}</span> : null}</td>
                     <td><StatusPill status={STATUS_PILL[r.status] ?? 'neutral'}>{r.status}</StatusPill></td>
                     <td><span className="muted">{r.problem_type ?? '—'}{r.classes && r.problem_type !== 'binary' ? ` K=${r.classes.length}` : ''}</span> · <span className="mono" style={{ fontSize: 11.5 }}>{r.eval_metric ? <>{r.eval_metric.name} {r.eval_metric.greater_is_better ? '↑' : '↓'}</> : (r.config.eval_metric as string) ?? 'auto'}</span></td>
                     <td className="r table-cell" data-testid={`exp-score-${r.id}`}><b>{fmtScore(v)}</b></td>
@@ -145,7 +148,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
         </div>
         <RunCoordinates runs={shown} selected={sel} onToggle={toggle} />
       </>}
-      {tab === 'Compare' && <CompareRuns runs={selRuns} go={go} />}
+      {tab === 'Compare' && <><PatchLineage runs={selRuns} />{<CompareRuns runs={selRuns} go={go} />}</>}
       {tab === 'Parameter Diff' && <ParamDiff runs={selRuns} />}
 
       <div className="chips-row"><ParamChip sym="runs" value={String(runs.length)} />{metricInfo('roc_auc') && <span className="helper" style={{ fontSize: 12 }}>Every number on this page is read from <span className="mono">GET /api/runs</span>; refreshed every 5 s.</span>}</div>
@@ -156,4 +159,32 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
 export function mostCommon(a: string[]) {
   const c = a.reduce<Record<string, number>>((m, k) => { m[k] = (m[k] ?? 0) + 1; return m }, {})
   return Object.entries(c).sort((x, y) => y[1] - x[1])[0]?.[0] ?? ''
+}
+
+/** A run trained from a Vela patch next to its parent: the change and the holdout score before → after. */
+function PatchLineage({ runs }: { runs: Run[] }) {
+  const pairs = runs.flatMap((c) => {
+    const p = runs.find((r) => r.id === c.config.parent_run_id)
+    return p ? [[p, c] as const] : []
+  })
+  if (!pairs.length) return null
+  return <>{pairs.map(([p, c]) => {
+    const patch = c.config.patch as { title?: string; changes?: { path: string; from: unknown; to: unknown }[] } | null
+    const m = p.eval_metric?.name ?? ''
+    const a = p.holdout?.metrics[m], b = c.holdout?.metrics[m]
+    const d = a != null && b != null ? b - a : null
+    const better = d != null && (p.eval_metric?.greater_is_better ? d > 0 : d < 0)
+    return (
+      <div key={c.id} className="card patch-compare" data-testid="exp-patch-compare">
+        <div className="card-body">
+          <div className="row" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <b>Vela patch</b><span className="chip">{patch?.title ?? 'config change'}</span>
+            <span className="mono">{p.id}</span><span className="muted">→</span><span className="mono">{c.id}</span>
+            {(patch?.changes ?? []).map((x) => <span key={x.path} className="chip">{x.path}: {JSON.stringify(x.from)} → {JSON.stringify(x.to)}</span>)}
+          </div>
+          {d != null && <p className="math" style={{ margin: '8px 0 0' }} data-testid="exp-patch-delta">Δ{metricInfo(m)?.name ?? m}<sub>holdout</sub> = {fmtScore(b)} − {fmtScore(a)} = <b className={better ? 'g-ok' : 'g-bad'}>{d >= 0 ? '+' : ''}{fmtScore(d)}</b> <span className="helper" style={{ fontStyle: 'normal' }}>({p.eval_metric?.greater_is_better ? 'higher' : 'lower'} is better; same fixed holdout rows)</span></p>}
+        </div>
+      </div>
+    )
+  })}</>
 }

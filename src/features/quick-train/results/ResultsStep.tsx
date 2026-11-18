@@ -75,7 +75,9 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
             <div className="row" style={{ flexWrap: 'wrap', gap: 'var(--space-8)', marginTop: 'var(--space-12)' }}>
               <button className="btn primary" onClick={() => go(`explain?run=${run.id}`)} data-testid="results-explain">Explain this model →</button>
               <button className="btn" onClick={() => go(live ? `registry?register=${run.id}` : 'registry')} data-testid="results-register">Register Model Version</button>
-              <button className="btn" onClick={() => go('gym')}>Tune In Gym →</button>
+              {live && run.config.parent_run_id ? <button className="btn" onClick={() => go(`experiments?compare=${String(run.config.parent_run_id)},${run.id}`)} data-testid="results-compare-parent">Compare with {String(run.config.parent_run_id)} →</button> : null}
+              <button className="btn" onClick={() => go(live ? `gym?from=${run.id}` : 'gym')} data-testid="results-gym">Tune In Gym →</button>
+              {live && <a className="btn ghost" href={`/api/runs/${run.id}/export.py?download=true`} data-testid="results-export">Export .py</a>}
               <button className="btn ghost" onClick={onAgain}>Train Another</button>
             </div>
           </div>

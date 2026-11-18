@@ -64,3 +64,12 @@ test('registry and home in mock mode: the scripted data is labelled SIMULATED', 
   await expect(page.getByTestId('prototype-banner')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('gym and vela in mock mode: the scripted prototype, labelled SIMULATED', async ({ page, errors }) => {
+  await open(page, 'gym')
+  await expect(page.getByTestId('gym-simulated')).toHaveText('SIMULATED')
+  await expect(page.getByTestId('gym-live')).toHaveCount(0)
+  if (!(await page.getByTestId('vela-simulated').isVisible())) await page.getByRole('button', { name: 'Ask Vela' }).click()
+  await expect(page.getByTestId('vela-simulated')).toBeVisible()
+  expect(errors).toEqual([])
+})

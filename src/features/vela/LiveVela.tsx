@@ -36,7 +36,17 @@ export function LiveVela({ open, preferredRun, appliedKey, onApply }: {
   const [wordingBusy, setWordingBusy] = useState(false)
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
-  useEffect(() => { if (open) api.runs.list().then((r) => setRuns(r.filter((x) => x.status === 'succeeded'))).catch(() => {}) }, [open, ctx])
+  // The run list refreshes while open, so a run that finishes after Vela opened (the one in the URL) appears.
+  useEffect(() => {
+    if (!open) return
+    const load = () => api.runs.list().then((r) => setRuns((old) => {
+      const next = r.filter((x) => x.status === 'succeeded')
+      return next.map((x) => x.id).join() === old.map((x) => x.id).join() ? old : next
+    })).catch(() => {})
+    load()
+    const t = setInterval(load, 4000)
+    return () => clearInterval(t)
+  }, [open, ctx])
   const runId = picked ?? (ctx && runs.some((r) => r.id === ctx) ? ctx : runs[0]?.id ?? null)
 
   useEffect(() => {
