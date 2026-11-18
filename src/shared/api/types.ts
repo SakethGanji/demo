@@ -111,6 +111,8 @@ export type RunCreate = {
   custom_text_models?: boolean
   drop_columns?: string[] | null
   feature_importance?: boolean
+  /** Override inferred column types; the engine passes them to AutoGluon as feature_metadata. */
+  column_types?: Record<string, 'number' | 'category' | 'text'> | null
 }
 
 export type EvalMetric = { name: string; greater_is_better: boolean; optimum: number | null; scores_note: string }
@@ -195,7 +197,34 @@ export type Run = {
   leaderboard: LeaderboardRow[] | null
   /** The exact TabularPredictor(...) and .fit(...) arguments. Null in the list. */
   resolved: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; notes: string[]; path: string } | null
+  /** Weighted ensembles fitted later on chosen models (POST /runs/{id}/ensemble). */
+  custom_ensembles?: CustomEnsemble[] | null
 }
+
+/** One model's scores in a custom-ensemble result. score_* higher is better; *_natural in the metric's units. */
+export type EnsembleScores = {
+  /** predict_model is the copy that predicts: the model itself, or its refit twin (…_FULL) in refit presets. */
+  model: string; predict_model: string; stack_level: number
+  score_val: number | null; score_test: number | null; score_val_natural: number | null; score_test_natural: number | null
+  fit_time: number | null; pred_time_test: number | null; pred_time_test_per_row: number | null
+}
+
+export type Comparison = { beats: boolean; delta: number; delta_natural: number | null } | null
+
+export type CustomEnsemble = {
+  model: string; predict_model: string; refit: boolean; base_models: string[]; weights: Record<string, number>; n_selected: number; fit_seconds: number
+  created_at: string; eval_metric: string; greater_is_better: boolean; n_holdout: number; validation: string
+  scores: EnsembleScores
+  best_chosen_single: EnsembleScores | null; best_single: EnsembleScores | null; run_best: EnsembleScores
+  vs_best_single: { val: Comparison; holdout: Comparison }
+  vs_run_best: { val: Comparison; holdout: Comparison }
+  model_best_unchanged: string
+}
+
+export type HoldoutPredictions = {
+  run_id: string; model: string | null; n_rows: number; rows: number[]
+  y_true: (string | number)[]; y_pred: (string | number)[]
+  classes: string[] | null; probabilities: number[][] | null
 
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'

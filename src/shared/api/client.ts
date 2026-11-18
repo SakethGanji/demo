@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { DatasetDetail, DatasetSummary, FeatureImportance, Health, ModelFamily, Prediction, Run, RunCreate, RunEvent } from './types'
+import type { CustomEnsemble, DatasetDetail, DatasetSummary, FeatureImportance, Health, HoldoutPredictions, ModelFamily, Prediction, Run, RunCreate, RunEvent } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -55,6 +55,12 @@ export const api = {
       request<Prediction>(`/runs/${encodeURIComponent(id)}/predict`, {
         method: 'POST', body: JSON.stringify({ rows, model }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000,
       }),
+    /** Fit a weighted ensemble on the chosen base models (AutoGluon's fit_weighted_ensemble). */
+    ensemble: (id: string, models: string[]) =>
+      request<CustomEnsemble & { run_id: string }>(`/runs/${encodeURIComponent(id)}/ensemble`, {
+        method: 'POST', body: JSON.stringify({ models }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 600_000,
+      }),
+    holdoutPredictions: (id: string) => request<HoldoutPredictions>(`/runs/${encodeURIComponent(id)}/holdout-predictions`, { timeoutMs: 60_000 }),
     featureImportance: (id: string) =>
       request<{ run_id: string; features: FeatureImportance[] }>(`/runs/${encodeURIComponent(id)}/feature-importance`, { timeoutMs: 180_000 }),
   },
@@ -62,22 +68,40 @@ export const api = {
 
 /**
  * Follow a run's events live (SSE). Replays from `from` (default 0), so a late subscriber sees the whole run.
- * EventSource reconnects by itself with Last-Event-ID; the stream closes after run_succeeded / run_failed /
- * run_cancelled. Returns a function that stops listening.
+ * EventSource reconnects by itself with Last-Event-ID on a dropped connection; if it gives up (the API was down and
+ * the proxy answered 503), this opens a new stream from the next unseen seq after `retryMs`. Events are delivered
+ * once each, in order. The stream closes after run_succeeded / run_failed / run_cancelled. Returns a function that
+ * stops listening.
  */
-export function followRun(id: string, onEvent: (e: RunEvent) => void, opts: { from?: number; onEnd?: () => void; onError?: () => void } = {}) {
-  const es = new EventSource(`${BASE}/runs/${encodeURIComponent(id)}/events?from=${opts.from ?? 0}`)
+export function followRun(id: string, onEvent: (e: RunEvent) => void,
+  opts: { from?: number; onEnd?: () => void; onError?: () => void; onOpen?: () => void; retryMs?: number } = {}) {
   const terminal = new Set(['run_succeeded', 'run_failed', 'run_cancelled'])
-  let ended = false
-  const handle = (msg: MessageEvent) => {
-    const e = JSON.parse(msg.data) as RunEvent
-    onEvent(e)
-    if (terminal.has(e.type)) { ended = true; es.close(); opts.onEnd?.() }
-  }
   const types = ['run_queued', 'run_started', 'data_ready', 'config_resolved', 'fit_started', 'model_started', 'model_finished',
     'model_failed', 'ensemble', 'fit_finished', 'leaderboard', 'evaluation', 'text_models', 'explaining', 'feature_importance',
     'log', 'run_succeeded', 'run_failed', 'run_cancelled']
-  for (const t of types) es.addEventListener(t, handle as EventListener)
-  es.onerror = () => { if (!ended) opts.onError?.() }
-  return () => { ended = true; es.close() }
+  let next = opts.from ?? 0
+  let ended = false
+  let es: EventSource | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const open = () => {
+    if (ended) return
+    const src = new EventSource(`${BASE}/runs/${encodeURIComponent(id)}/events?from=${next}`)
+    es = src
+    const handle = (msg: MessageEvent) => {
+      const e = JSON.parse(msg.data) as RunEvent
+      if (e.seq < next) return // already delivered (a replay overlapping what we had)
+      next = e.seq + 1
+      onEvent(e)
+      if (terminal.has(e.type)) { ended = true; src.close(); opts.onEnd?.() }
+    }
+    for (const t of types) src.addEventListener(t, handle as EventListener)
+    src.onopen = () => opts.onOpen?.()
+    src.onerror = () => {
+      if (ended) return
+      opts.onError?.()
+      if (src.readyState === EventSource.CLOSED) timer = setTimeout(open, opts.retryMs ?? 2000)
+    }
+  }
+  open()
+  return () => { ended = true; es?.close(); clearTimeout(timer) }
 }

@@ -214,3 +214,31 @@ def test_column_types_become_feature_metadata(client, binary_run):
     # Prediction takes the raw values; AutoGluon casts them as it did in training.
     p = client.post(f"/api/runs/{run['id']}/predict", json={"rows": [{"x1": 0.3, "x2": 1.25, "grp": "b"}]})
     assert p.status_code == 200, p.text
+
+
+def test_custom_ensemble_rejects_refit_models(client, binary_run):
+    r = client.post(f"/api/runs/{binary_run['id']}/ensemble", json={"models": ["LightGBM_FULL"]})
+    assert r.status_code == 400  # not in this run, or a refit copy: either way refused with a reason
+
+
+@pytest.mark.slow
+def test_custom_ensemble_on_a_refit_run(client):
+    """good_quality bags and then refits: only the _FULL copies can predict. The custom ensemble is refit too, its
+    validation score comes from out-of-fold predictions and its holdout score from its refit copy."""
+    _, df = make_tabular_csv(n=400, seed=21)
+    ds = _upload(client, "ens_refit.csv", df)
+    run = start_run(client, dataset_id=ds["id"], presets="good_quality", time_limit=120, feature_importance=False,
+                    fit_kwargs={"hyperparameters": {"GBM": {"num_boost_round": 30}, "LR": {}}, "num_bag_folds": 3,
+                                "num_stack_levels": 0, "dynamic_stacking": False})
+    run = wait_for_run(client, run["id"], timeout=400)
+    assert run["status"] == "succeeded", run["error"]
+    assert run["best_model"].endswith("_FULL")
+    r = client.post(f"/api/runs/{run['id']}/ensemble", json={"models": ["LightGBM_BAG_L1", "LinearModel_BAG_L1"]})
+    assert r.status_code == 201, r.text
+    res = r.json()
+    assert res["refit"] is True and res["predict_model"] == res["model"] + "_FULL"
+    assert res["scores"]["score_val"] is not None and res["scores"]["score_test"] is not None
+    assert res["best_single"]["predict_model"].endswith("_FULL")
+    assert res["vs_best_single"]["holdout"] is not None
+    p = client.post(f"/api/runs/{run['id']}/predict", json={"rows": [{"x1": 0.1, "x2": 0.2, "grp": "a"}], "model": res["predict_model"]})
+    assert p.status_code == 200, p.text

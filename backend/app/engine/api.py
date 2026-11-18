@@ -370,7 +370,8 @@ def _fit_custom_ensemble(app, rec: dict[str, Any], models: list[str]) -> dict[st
                    "score_val_natural": s["score_val_natural"], "score_test_natural": s["score_test_natural"],
                    "fit_time": s["fit_time"], "pred_time_test": s["pred_time_test"], "pred_time_val": None,
                    "stack_level": s["stack_level"], "can_infer": True, "fold_scores": None, "val_score_std": None,
-                   "weights": res["weights"], "custom": True, "model_type": "WeightedEnsembleModel"})
+                   "weights": res["weights"], "custom": True, "model_type": "WeightedEnsembleModel",
+                   "predict_model": res.get("predict_model")})
         lb.sort(key=lambda r: -(r.get("score_val") if r.get("score_val") is not None else float("-inf")))
         for i, r in enumerate(lb, start=1):
             r["rank"] = i
@@ -392,5 +393,9 @@ async def custom_ensemble(run_id: str, body: EnsembleRequest, request: Request) 
     ens = [m for m in models if m.startswith("WeightedEnsemble")]
     if ens:
         raise HTTPException(400, f"Choose base models, not weighted ensembles ({', '.join(ens)}).")
+    full = [m for m in models if m.endswith("_FULL")]
+    if full:
+        raise HTTPException(400, f"Refit models ({', '.join(full)}) have no validation predictions to weight; "
+                                 "choose the models they were refit from.")
     res = await run_in_threadpool(_fit_custom_ensemble, request.app, rec, models)
     return {"run_id": run_id, **res}
