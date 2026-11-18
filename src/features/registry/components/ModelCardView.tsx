@@ -104,6 +104,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         <table className="table compact"><thead><tr><th>metric</th><th>definition</th><th className="r">this version</th><th className="r">source run</th></tr></thead>
           <tbody>{Object.entries(hc).map(([k, m]) => <tr key={k} data-testid={`card-metric-${k}`}><td className="mono">{k}</td><td className="math-col">{m.formula}</td><td className="r mono">{ci(m)}</td><td className="r mono">{ci(sc[k])}</td></tr>)}</tbody></table>
         {val.threshold && <p className="helper" style={{ fontSize: 12.5 }}>Decision threshold <b className="mono">t = {val.threshold.value.toFixed(3)}</b> ({val.threshold.source}{val.threshold.metric ? `, ${val.threshold.metric}` : ''}): predict positive when p̂ &gt; t. Validation score of the source model: {fmtScore(val.validation_score)}.</p>}
+        {c.quantile && <QuantileCardSection q={c.quantile} />}
         {c.constraints && <div data-testid="card-monotone" style={{ marginTop: 8 }}>
           <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Monotone constraints</h4>
           <table className="table compact"><thead><tr><th>feature xⱼ</th><th>direction sⱼ</th><th>AutoGluon features</th><th className="r">ICE curves violating</th><th className="r">PD range</th><th>served model monotone</th></tr></thead>
@@ -190,4 +191,25 @@ function FlowCardSection({ c }: { c: ModelCard }) {
     )
   }
   return null
+}
+
+
+/** F9: a quantile version's levels, calibration per level and interval coverage, raw and conformally calibrated. */
+function QuantileCardSection({ q }: { q: NonNullable<ModelCard['quantile']> }) {
+  const g = (t: number) => String(Number(t.toFixed(6)))
+  const key = (r: { lo: number; hi: number }) => `${r.lo}-${r.hi}`
+  const raw = new Map(q.raw.map((r) => [key(r), r]))
+  const cal = new Map(q.calibrated.map((r) => [key(r), r]))
+  return (
+    <div data-testid="card-quantile" style={{ marginTop: 8 }}>
+      <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Quantile regression (range)</h4>
+      <table className="table compact"><thead><tr><th className="nocase">level τ</th><th className="r nocase">pinball ρ̄τ</th><th className="r nocase">F̂(τ) = share of y ≤ q̂τ</th><th className="r">95% CI</th></tr></thead>
+        <tbody>{q.per_level.map((r) => <tr key={r.tau}><td className="mono">{g(r.tau)}{r.tau === q.centre ? ' · point ŷ' : ''}</td><td className="r mono">{fmtScore(r.pinball, 1)}</td><td className="r mono">{fmtScore(r.below, 3)}</td><td className="r mono">[{fmtScore(r.below_ci[0], 3)}, {fmtScore(r.below_ci[1], 3)}]</td></tr>)}</tbody></table>
+      <table className="table compact" style={{ marginTop: 6 }}><thead><tr><th>interval</th><th className="r">nominal</th><th className="r">coverage (served)</th><th className="r">95% CI</th><th className="r">raw</th><th className="r">calibrated</th><th className="r">mean width</th></tr></thead>
+        <tbody>{q.intervals.map((r) => <tr key={key(r)} data-testid={`card-quantile-${g(r.lo)}-${g(r.hi)}`}><td className="mono">[q̂<sub>{g(r.lo)}</sub>, q̂<sub>{g(r.hi)}</sub>]</td><td className="r mono">{g(r.nominal)}</td>
+          <td className="r mono">{fmtScore(r.coverage, 4)}</td><td className="r mono">[{fmtScore(r.coverage_ci[0], 3)}, {fmtScore(r.coverage_ci[1], 3)}]</td>
+          <td className="r mono">{fmtScore(raw.get(key(r))?.coverage, 4)}</td><td className="r mono">{fmtScore(cal.get(key(r))?.coverage, 4)}</td><td className="r mono">{fmtScore(r.mean_width, 0)}</td></tr>)}</tbody></table>
+      <p className="helper" style={{ fontSize: 12 }}>Served by <span className="mono">{q.served_model}</span> with the {q.served} quantiles (conformal offsets {q.conformal.applied ? 'applied' : 'not applied'}{q.conformal.offsets ? `: ${Object.entries(q.conformal.offsets).map(([t, c]) => `c${t} = ${fmtScore(c, 1)}`).join(', ')}` : ''}). Holdout pinball loss {fmtScore(q.pinball, 1)}; quantile crossing on {q.crossing_share == null ? '—' : `${(q.crossing_share * 100).toFixed(2)}%`} of rows. Method: {q.method}.</p>
+    </div>
+  )
 }

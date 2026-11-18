@@ -1436,7 +1436,8 @@ def quantile(st: dict[str, Any]) -> None:
         hc = res["version"]["holdout_ci"]["metrics"]
         check({"pinball_loss", "pinball_0.1", "pinball_0.5", "pinball_0.9", "coverage", "mean_width"} <= set(hc), list(hc))
         check(abs(hc["coverage"]["value"] - 0.8) <= 0.05, hc["coverage"])
-        check(res["quantile"]["levels"] == levels, "version quantile report")
+        vq = res["quantile"]
+        check(vq["levels"] == levels and vq["raw"] and vq["calibrated"], f"version quantile report: {vq.get('conformal')}")
         row = {"income_usd": 85000, "credit_score": 760, "existing_debt_usd": 4000, "term_months": 48, "purpose": "home improvement",
                "home_ownership": "own", "region": "west", "open_accounts": 3}
         t = post(f"/api/registry/versions/{vid}/predict", {"row": row, "target": "0.9"})
@@ -1465,6 +1466,7 @@ def quantile(st: dict[str, Any]) -> None:
         check("Quantile regression (range)" in md and "[q̂_0.1, q̂_0.9]" in md, "card markdown")
         s["vid"] = vid
         return (f"{vid} serves {res['version']['best_model']} · holdout coverage {hc['coverage']['value']:.4f} "
+                f"(raw {vq['raw']['intervals'][0]['coverage']:.4f}, calibrated {vq['calibrated']['intervals'][0]['coverage']:.4f}) "
                 f"[{hc['coverage']['ci_low']:.3f}, {hc['coverage']['ci_high']:.3f}] · pinball {hc['pinball_loss']['value']:.1f} "
                 f"[{hc['pinball_loss']['ci_low']:.1f}, {hc['pinball_loss']['ci_high']:.1f}] · Try It {t['quantiles']} · "
                 f"/score {sc['predict_ms']:.1f} ms · batch 500 rows with q_0.1/q_0.5/q_0.9, mean width {sm['interval']['mean_width']:,.0f} · "

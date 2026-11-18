@@ -16,7 +16,7 @@ export function StackEquation({ model, weights, scoreLabel, testId = 'stack-equa
         <i>ŷ</i>(<i>x</i>) = {w.map(([m, v], i) => <span key={m} className="term">{i > 0 && ' + '}<b>{v.toFixed(3)}</b>·<i>f</i>{sub(i + 1)}(<i>x</i>)</span>)}
       </div>
       <dl className="where">
-        <dt>ŷ(x)</dt><dd>{problemType === 'regression' ? "the ensemble's predicted value for a row x, in ℝ: the weighted mean of the models' predictions" : problemType ? `the ensemble's class probabilities for a row x, p̂ ∈ Δ${K ? sup(K - 1) : 'ᴷ⁻¹'}: the weighted mean of the models' probabilities${K ? ` over K = ${K} classes` : ''}` : "the ensemble's output for a row x: class probabilities p̂ ∈ Δᴷ⁻¹ (classification) or a value in ℝ (regression)"}</dd>
+        <dt>ŷ(x)</dt><dd>{problemType === 'quantile' ? "the ensemble's predicted quantiles for a row x, one per level τ: each q̂τ(x) is the weighted mean of the models' τ-quantiles (the same weights for every level)" : problemType === 'regression' ? "the ensemble's predicted value for a row x, in ℝ: the weighted mean of the models' predictions" : problemType ? `the ensemble's class probabilities for a row x, p̂ ∈ Δ${K ? sup(K - 1) : 'ᴷ⁻¹'}: the weighted mean of the models' probabilities${K ? ` over K = ${K} classes` : ''}` : "the ensemble's output for a row x: class probabilities p̂ ∈ Δᴷ⁻¹ (classification) or a value in ℝ (regression)"}</dd>
         {w.map(([m, v], i) => <span key={m} style={{ display: 'contents' }}><dt>f{sub(i + 1)}</dt><dd><b className="mono">{m}</b> · w{sub(i + 1)} = {v.toFixed(4)}</dd></span>)}
         <dt>wₘ</dt><dd>Caruana greedy ensemble selection on validation predictions: wₘ = cₘ / Σ c, cₘ = times model m was picked; wₘ ≥ 0, Σ wₘ = {sum.toFixed(3)}</dd>
       </dl>

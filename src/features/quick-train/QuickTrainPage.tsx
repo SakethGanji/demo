@@ -11,7 +11,7 @@ import { mockSource, simulate } from './race/mockRun'
 import { RaceStage } from './race/RaceStage'
 import { liveSource, useRace, type EventSourceFn } from './race/useRace'
 import { ResultsStep } from './results/ResultsStep'
-import { COST_METRIC, costPayload, columnTypesPayload, defaultMetric, defaultThreshold, labelImbalance, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
+import { COST_METRIC, costPayload, rangePayload, columnTypesPayload, defaultMetric, defaultThreshold, labelImbalance, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
 
 const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
 
@@ -103,12 +103,14 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
       if (!kw.ok) { setErr(kw.error); return }
       const { types, drop } = columnTypesPayload(ds, ch)
       const cost = costPayload(ds, ch, task)
+      const range = rangePayload(ch, task)
       setStarting(true)
       try {
         const run = await api.runs.create({
           dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: cost ? null : ch.metric, presets: ch.preset, time_limit: ch.budget,
           fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
           calibrate_threshold: task === 'binary' ? (cost ? COST_METRIC : ch.threshold) : null, split_spec: ch.split ?? null, cost,
+          ...(range ?? {}),
         })
         setSource({ fn: liveSource, run: null })
         setRunId(run.id)
@@ -181,9 +183,9 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
               : step === 0 ? (usable ? <><span className="dot">●</span> Schema Valid · target {ch.label} · {inferred === 'regression' ? 'regression' : `K = ${K}`}</> : <span style={{ color: 'var(--status-warning)' }}><span className="dot">▲</span> No label column with two or more values</span>)
               : step === 1 ? (!task ? <span style={{ color: 'var(--status-warning)' }}>▲ pick a label with two or more values</span>
                 : !confirmed ? <span style={{ color: 'var(--status-warning)' }} data-testid="confirm-needed">▲ confirm y = {ch.label} to draw its holdout</span>
-                : <><span className="dot">●</span> y = {ch.label} (confirmed) · {task} · d = {nFeat} features · {ch.split ? <>{STRATEGY_NAME[ch.split.strategy]} split</> : <>|H| = {ds.profile?.splits.holdout_rows.toLocaleString() ?? '—'}</>}</>)
+                : <><span className="dot">●</span> y = {ch.label} (confirmed) · {task === 'regression' && ch.range ? `quantile τ = ${ch.range.levels.join(' · ')}` : task} · d = {nFeat} features · {ch.split ? <>{STRATEGY_NAME[ch.split.strategy]} split</> : <>|H| = {ds.profile?.splits.holdout_rows.toLocaleString() ?? '—'}</>}</>)
               : step === 2 && !confirmed ? <span style={{ color: 'var(--status-warning)' }}>▲ go back and confirm y = {ch.label}</span>
-              : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {ch.metric}{live && ds.id ? '' : ' · simulated (mock mode)'}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
+              : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {task === 'regression' && ch.range ? 'pinball_loss' : ch.metric}{live && ds.id ? '' : ' · simulated (mock mode)'}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
               : done ? <><span className="dot">●</span> Run complete · {race.bestModel}</> : race.status === 'failed' ? <span style={{ color: 'var(--status-danger)' }}>✕ {race.error}</span> : race.status === 'cancelled' ? <span>Cancelled</span> : <span>Training…</span>}
           </div>
           <div className="right">

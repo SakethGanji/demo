@@ -504,7 +504,7 @@ def shap_explain(predictor, train: pd.DataFrame, bg: pd.DataFrame, x: pd.DataFra
                      key=lambda d: -abs(d["phi"]))
     return {
         "model": predictor.model_best, "problem_type": predictor.problem_type, "target": target,
-        "output": "probability" if classes is not None else (f"quantile τ = {tau:g}" if tau is not None else "prediction"),
+        "output": "probability" if classes is not None else "prediction",
         "quantile_level": tau,
         "base_value": base, "fx": fx, "sum_phi": float(phi.sum()), "additivity_error": float(fx - base - phi.sum()),
         "contributions": contrib, "background_size": int(len(bg)), "nsamples": nsamples, "seconds": elapsed,

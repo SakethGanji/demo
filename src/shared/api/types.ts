@@ -184,6 +184,28 @@ export type RunCreate = {
   cost?: CostRequest | null
   /** F8: monotone constraints on numeric features (binary and regression). */
   monotone?: MonotoneRequest | null
+  /** F9: predict a range: the quantile levels τ (problem_type 'quantile'). */
+  quantile_levels?: number[] | null
+  /** F9: conformal recalibration (AutoGluon's calibrate): true, false, or null = AutoGluon's 'auto'. */
+  conformal?: boolean | null
+}
+
+// -- Quantile regression (F9) -----------------------------------------------------------------------------------
+
+export type QuantileLevelEval = { tau: number; pinball: number; below: number; below_ci: [number | null, number | null]; gap: number }
+export type QuantileInterval = {
+  lo: number; hi: number; nominal: number; symmetric: boolean; coverage: number; coverage_ci: [number | null, number | null]
+  inside: number; n: number; below_lo: number; above_hi: number; mean_width: number; median_width: number
+}
+export type QuantileEval = { n: number; pinball: number; levels: QuantileLevelEval[]; intervals: QuantileInterval[]; crossing_share: number; crossing_rows: number }
+export type QuantileReport = {
+  levels: number[]; centre: number; main_interval: { lo: number; hi: number; nominal: number } | null; model: string
+  holdout: QuantileEval; raw: QuantileEval | null; calibrated: QuantileEval | null; served: 'raw' | 'calibrated'
+  conformal: { model: string; applied: boolean; offsets?: Record<string, number>; source?: string; n_val?: number; error?: string; method: string }
+  models: { model: string; pinball: number; levels: { tau: number; pinball: number; below: number }[]; coverage: number | null; nominal: number | null; mean_width: number | null; crossing_share: number; conformalized: boolean }[]
+  fan: { rank: number[]; row: number[]; y: number[]; q: Record<string, number[]>; n: number; sampled: boolean; sorted_by: string }
+  formulas: Record<string, string>
+  error?: string
 }
 
 // -- Monotone constraints (F8) -----------------------------------------------------------------------------------
@@ -397,6 +419,9 @@ export type Run = {
   threshold?: ThresholdRecord | null
   /** F8: monotone constraints, where they landed and the ICE / PD check of every model. */
   monotone?: MonotoneReport | null
+  /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
+  quantile_levels?: number[] | null
+  quantile?: QuantileReport | null
 }
 
 /** One model's scores in a custom-ensemble result. score_* higher is better; *_natural in the metric's units. */
@@ -462,6 +487,8 @@ export type Prediction = {
   probabilities: Record<string, number>[] | null
   classes?: (string | number)[]
   positive_class?: string | number
+  /** F9: quantile runs: every level per row; predictions are the centre level. */
+  quantile_levels?: number[]; centre?: number; quantiles?: Record<string, number>[]
 }
 
 // ---------------------------------------------------------------------------
@@ -540,7 +567,7 @@ export type Fairness = {
 
 export type ShapResult = {
   run_id: string; row: number; model: string; problem_type: ProblemType; target: string | null
-  output: 'probability' | 'prediction'; base_value: number; fx: number; sum_phi: number; additivity_error: number
+  output: 'probability' | 'prediction'; quantile_level?: number | null; base_value: number; fx: number; sum_phi: number; additivity_error: number
   contributions: ShapContribution[]
   background_size: number; nsamples: number; seconds: number; classes: string[] | null; y_true: unknown; cached: boolean; method: string
 }
@@ -607,6 +634,8 @@ export type ServingBenchmark = {
 export type ScoreResult = {
   version_id: string; model: string; problem_type: ProblemType; n_rows: number; predictions: unknown[]
   probabilities: Record<string, number>[] | null; classes?: string[]; predict_ms: number; worker_ms: number; server_ms: number; where: 'api' | 'worker'; warm_before_call: boolean | null
+  /** F9: quantile versions: every level per row (predictions are the centre level). */
+  quantile_levels?: number[]; quantiles?: Record<string, number>[]
 }
 
 export type VersionResult = {
@@ -625,6 +654,8 @@ export type VersionResult = {
   hashes: { model_sha256: string; data_sha256: string; splits_sha256: string; data_file: string }
   path: string
   mlflow?: { name: string; version: number; source: string; run_id: string; stage: string; experiment_id: string }
+  /** F9: the served model's range on the holdout. */
+  quantile?: QuantileReport | null
 }
 
 export type ModelVersion = {
@@ -683,6 +714,8 @@ export type LatencyProfile = {
 export type TryResult = {
   version_id: string; model_name: string; version: number; model: string; problem_type: ProblemType; missing_columns: string[]; features: string[]
   classes?: string[]; prediction: unknown; probabilities: Record<string, number> | null; positive_class?: string; threshold?: number; predict_ms: number
+  /** F9: quantile versions: every level, the centre level (the prediction) and the main interval. */
+  quantile_levels?: number[]; quantiles?: Record<string, number>; centre?: number; interval?: { lo: number; hi: number; nominal: number } | null
   shap?: ShapResult & { reasons: (ShapContribution & { direction: 'raises' | 'lowers' })[] }
 }
 
@@ -707,6 +740,7 @@ export type BatchJob = {
       mean_p_reference?: number | null; flagged_share?: number; threshold?: number; mean_prediction?: number; std_prediction?: number
       histogram?: { edges: number[]; actual: number[]; expected: number[] }
       /** Forecast and anomaly versions. */
+      quantile_levels?: number[]; prediction_is?: string; interval?: { lo: number; hi: number; nominal: number; mean_width: number; median_width: number; mean_width_reference?: number }
       flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; forecast_rows?: number; known_covariates_source?: string
     }
     drift: DriftReport; preview: Record<string, unknown>[]; columns: string[]; output_file: string
@@ -736,7 +770,15 @@ export type ModelCard = {
       pd_monotone: boolean | null; curves_violating: number | null; n_curves: number | null; grid_points: number; max_violation: number | null; pd_range: number | null }[]
     compliant_only: boolean; served_model: string | null; monotone: boolean | null; unconstrained_models: string[] | null; method: string
   } | null
+  /** F9: quantile regression: levels, pinball per level, coverage raw / calibrated. */
+  quantile?: {
+    levels: number[]; centre: number; served_model: string; served: 'raw' | 'calibrated'; pinball: number
+    per_level: { tau: number; pinball: number; below: number; below_ci: [number | null, number | null] }[]
+    intervals: CardInterval[]; raw: CardInterval[]; calibrated: CardInterval[]; crossing_share: number | null
+    conformal: { applied: boolean; offsets: Record<string, number> | null; source: string | null }; requested_calibrate: boolean | null; method: string
+  } | null
 }
+export type CardInterval = { lo: number; hi: number; nominal: number; coverage: number; coverage_ci: [number | null, number | null]; mean_width: number; below_lo: number; above_hi: number }
 
 // ---------------------------------------------------------------------- Autopilot (S7)
 

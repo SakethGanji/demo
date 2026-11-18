@@ -33,6 +33,7 @@ export const EXTRA_METRICS: Metric[] = [
   { key: 'precision', name: 'Precision', tasks: ['binary'], greater: true, formula: 'prec = TP / (TP + FP)', where: { 'TP, FP': 'true and false positives' }, note: 'Of the rows flagged positive, the share that are.' },
   { key: 'recall', name: 'Recall', tasks: ['binary'], greater: true, formula: 'rec = TP / (TP + FN)', where: { 'TP, FN': 'true positives and false negatives' }, note: 'Of the positive rows, the share flagged.' },
   { key: 'mean_squared_error', name: 'MSE', tasks: ['regression'], greater: false, formula: 'MSE = (1/n) Σᵢ (yᵢ − ŷᵢ)²', where: {}, note: 'Squared error, in squared units.' },
+  { key: 'pinball_loss', name: 'Pinball loss', tasks: ['regression'], greater: false, formula: 'pinball = (1/L) Στ (1/n) Σᵢ ρτ(yᵢ, q̂τ(xᵢ)),  ρτ(y, q) = max(τ(y − q), (τ − 1)(y − q))', where: { 'τ': 'a quantile level, 0 < τ < 1', L: 'number of levels', 'q̂τ(x)': 'the predicted τ-quantile of y given x' }, note: 'Quantile regression\'s loss: under-predicting the τ-quantile costs τ per unit, over-predicting costs 1 − τ, so the minimiser is the true τ-quantile.' },
   { key: 'pearsonr', name: 'Pearson r', tasks: ['regression'], greater: true, formula: 'r = cov(y, ŷ) / (σ_y σ_ŷ)', where: { 'σ': 'standard deviation' }, note: 'Linear correlation of prediction and truth.' },
 ]
 

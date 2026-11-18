@@ -493,7 +493,16 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         if final.problem_type == "quantile":  # F9: the served model's range on the holdout, raw and calibrated
             from ..engine import quantile as qt
 
-            quant_info = qt.report(final, holdout, cfg["label"], per_model=False)
+            conf = qt.conformal(final)
+            if conf.get("error") and not conf.get("applied"):
+                # A deployment clone keeps no validation rows: the offsets AutoGluon would compute come from the
+                # source run's predictor, for the same model (or the bagged parent of a refit copy).
+                m = final.model_best if final.model_best in src.model_names() else final.model_best.removesuffix("_FULL")
+                if m in src.model_names():
+                    c2 = qt.conformal(src, m)
+                    if not c2.get("error"):
+                        conf = {**c2, "model": final.model_best, "source": f"{c2['source']} (source run, model {m})"}
+            quant_info = qt.report(final, holdout, cfg["label"], per_model=False, conf=conf)
 
         deps = _deps(final, final.model_best)
         threshold = float(final.decision_threshold) if final.problem_type == "binary" else None

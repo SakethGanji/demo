@@ -25,6 +25,47 @@ export type Choices = {
   split?: SplitSpec | null
   /** F7: the business cost, used when metric = 'expected_cost'. */
   cost?: CostChoice | null
+  /** F9: regression labels: predict a range (quantile regression) instead of one value. */
+  range?: RangeChoice | null
+}
+
+/** F9: the quantile levels τ to predict, and conformal recalibration (null: AutoGluon's 'auto'). */
+export type RangeChoice = { levels: number[]; conformal: boolean | null }
+export const RANGE_PRESETS: { key: string; name: string; levels: number[] }[] = [
+  { key: '80', name: '80% range', levels: [0.1, 0.5, 0.9] },
+  { key: '90', name: '90% range', levels: [0.05, 0.5, 0.95] },
+  { key: '50', name: '50% range', levels: [0.25, 0.5, 0.75] },
+]
+export const DEFAULT_RANGE: RangeChoice = { levels: RANGE_PRESETS[0].levels, conformal: null }
+export const PINBALL = 'pinball_loss'
+
+/** Levels from text ("0.1, 0.5, 0.9"): sorted, distinct, each in (0, 1). */
+export function parseLevels(text: string): { ok: true; value: number[] } | { ok: false; error: string } {
+  const parts = text.split(/[\s,;]+/).filter(Boolean)
+  if (!parts.length) return { ok: false, error: 'give at least one level τ, e.g. 0.1, 0.5, 0.9' }
+  const v = parts.map(Number)
+  const bad = parts.find((x, i) => !Number.isFinite(v[i]) || v[i] <= 0 || v[i] >= 1)
+  if (bad !== undefined) return { ok: false, error: `${bad} is not a level: 0 < τ < 1` }
+  if (new Set(v).size !== v.length) return { ok: false, error: 'each level once' }
+  return { ok: true, value: [...v].sort((a, b) => a - b) }
+}
+
+/** The widest central interval [τ, 1 − τ] among the levels (else [min, max]), with its nominal coverage. */
+export function mainInterval(levels: number[]): { lo: number; hi: number; nominal: number } | null {
+  const lv = [...levels].sort((a, b) => a - b)
+  const pairs = lv.filter((t) => t < 0.5 && lv.some((u) => Math.abs(u - (1 - t)) < 1e-9)).map((t) => ({ lo: t, hi: 1 - t }))
+  const all = pairs.length ? pairs : lv.length >= 2 ? [{ lo: lv[0], hi: lv[lv.length - 1] }] : []
+  const best = all.sort((a, b) => (b.hi - b.lo) - (a.hi - a.lo))[0]
+  return best ? { ...best, hi: Number(best.hi.toFixed(6)), nominal: Number((best.hi - best.lo).toFixed(6)) } : null
+}
+
+/** The level closest to 0.5: the point prediction of a quantile model. */
+export const centreLevel = (levels: number[]) => [...levels].sort((a, b) => Math.abs(a - 0.5) - Math.abs(b - 0.5) || a - b)[0]
+
+/** The quantile fields of POST /runs, or null when the run predicts one value. */
+export function rangePayload(ch: Choices, task: Task | null) {
+  if (task !== 'regression' || !ch.range) return null
+  return { problem_type: 'quantile' as const, quantile_levels: ch.range.levels, conformal: ch.range.conformal, eval_metric: null }
 }
 
 /** F7: binary costs per decision (c_FP, c_FN, gain g_TP) and, for multiclass, the K × K matrix (rows: truth). */

@@ -5,6 +5,7 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fromServer, type Dataset } from '../datasets'
 import { SplitCard } from './SplitCard'
+import { RangeCard } from './RangeCard'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { effectiveType, inferTask, labelClasses, labelOptions, type Choices, type ColType, type Task } from '../wizard'
 
@@ -31,7 +32,7 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
   const pickLabel = (label: string) => {
     const types = { ...ch.types }
     delete types[label]
-    set({ label, problemType: null, types, split: null })
+    set({ label, problemType: null, types, split: null, range: null })
   }
   const setType = (name: string, t: ColType) => {
     const c = ds.cols.find((x) => x.name === name)!
@@ -63,7 +64,7 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
                   <div className="seg" role="tablist" data-testid="problem-type">
                     {(['binary', 'multiclass', 'regression'] as Task[]).map((t) => (
                       <button key={t} role="tab" aria-selected={task === t} className={task === t ? 'on' : ''} disabled={!allowed.includes(t)}
-                        onClick={() => set({ problemType: t === inferred ? null : t })}>{t}</button>
+                        onClick={() => set({ problemType: t === inferred ? null : t, ...(t !== 'regression' ? { range: null } : {}) })}>{t}</button>
                     ))}
                   </div>
                   <span className="helper" style={{ fontSize: 12 }} data-testid="problem-type-note">
@@ -77,7 +78,8 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
                   <button className="chip-btn" onClick={() => { location.hash = '#/import' }}>⤓ Import a trained predictor →</button>
                 </div>
               </div>
-              <div className="formula target-math">
+              {task === 'regression' && <RangeCard ch={ch} set={set} label={ch.label} />}
+              {!(task === 'regression' && ch.range) && <div className="formula target-math">
                 {task === 'regression'
                   ? <div className="eq"><i>y</i> ∈ ℝ, &nbsp;<i>ŷ</i> = <i>f</i>(<i>x</i>) ∈ ℝ</div>
                   : <div className="eq"><i>y</i> ∈ {'{'}<i>c</i>₁, …, <i>c</i><sub>K</sub>{'}'}, &nbsp;<i>p̂</i>(<i>x</i>) ∈ Δ<sup>K−1</sup>, &nbsp;<i>K</i> = {K || unique}</div>}
@@ -87,7 +89,7 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
                     ? <><dt>ŷ</dt><dd>the predicted value of <b className="mono">{ch.label}</b>, in its own units</dd></>
                     : <><dt>cₖ</dt><dd>the classes of <b className="mono">{ch.label}</b></dd><dt>Δᴷ⁻¹</dt><dd>the probability simplex: p̂ₖ ≥ 0, Σₖ p̂ₖ = 1</dd></>}
                 </dl>
-              </div>
+              </div>}
             </div>
             <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }} data-testid="label-distribution">
               {task === 'regression' || (!K && stats) ? (

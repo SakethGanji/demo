@@ -3,12 +3,15 @@ import { FretSlider } from '@/shared/components/FretSlider'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import type { Dataset } from '../datasets'
 import { CostCard } from './CostCard'
-import { COST_METRIC, DEFAULT_COST, BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, labelImbalance, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
+import { COST_METRIC, DEFAULT_COST, PINBALL, metricInfo, BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, labelImbalance, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
 
 /** Step 3: the metric to optimise, the preset ladder (speed ↔ accuracy), the time budget, and raw fit kwargs. */
 export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; task: Task }) {
   const [open, setOpen] = useState(ch.fitKwargs.trim() !== '')
-  const metrics = METRICS.filter((m) => m.tasks.includes(task))
+  const range = task === 'regression' ? ch.range ?? null : null
+  // F9: a range is scored by the pinball loss, AutoGluon's only quantile metric
+  const metrics = range ? [metricInfo(PINBALL)!] : METRICS.filter((m) => m.tasks.includes(task))
+  const chosen = range ? PINBALL : ch.metric
   const rec = defaultMetric(task, labelImbalance(ds, ch.label))
   const kw = parseKwargs(ch.fitKwargs)
   const preset = PRESETS.find((p) => p.key === ch.preset) ?? PRESETS[0]
@@ -18,13 +21,15 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
   const recT = defaultThreshold(ds, ch.label, task)
   const isCost = ch.metric === COST_METRIC
   const cc = ch.cost ?? DEFAULT_COST
-  const metricCode = !isCost ? q(ch.metric) : task === 'binary' ? `binary_cost_scorer(c_fp=${cc.c_fp}, c_fn=${cc.c_fn}, g_tp=${cc.g_tp})` : 'multiclass_cost_scorer(matrix=C)'
+  const metricCode = !isCost ? q(chosen) : task === 'binary' ? `binary_cost_scorer(c_fp=${cc.c_fp}, c_fn=${cc.c_fn}, g_tp=${cc.g_tp})` : 'multiclass_cost_scorer(matrix=C)'
   const call = [
     ...(isCost ? ['from ensemble_models.cost import ' + (task === 'binary' ? 'binary_cost_scorer, binary_cost_class_scorer' : 'multiclass_cost_scorer')] : []),
-    `predictor = TabularPredictor(label=${q(ch.label)}, problem_type=${q(task)}, eval_metric=${metricCode})`,
+    range ? `predictor = TabularPredictor(label=${q(ch.label)}, problem_type='quantile', quantile_levels=[${range.levels.join(', ')}], eval_metric=${metricCode})`
+      : `predictor = TabularPredictor(label=${q(ch.label)}, problem_type=${q(task)}, eval_metric=${metricCode})`,
     `predictor.fit(train,  # ${ds.rows.toLocaleString()} rows minus the 20% holdout`,
     `    presets=${q(ch.preset)}, time_limit=${ch.budget},`,
     ...(Object.keys(types).length ? [`    feature_metadata=FeatureMetadata(…${Object.keys(types).length} override${Object.keys(types).length > 1 ? 's' : ''}),`] : []),
+    ...(range && range.conformal != null && !(kw.ok && 'calibrate' in kw.value) ? [`    calibrate=${range.conformal ? 'True' : 'False'},  # conformal recalibration (CQR)`] : []),
     ...(kw.ok ? Object.entries(kw.value).map(([k, v]) => `    ${k}=${JSON.stringify(v)},`) : ['    # fit_kwargs: invalid JSON']),
     ')',
     ...(task === 'binary' && isCost && !userCal ? [`predictor.set_decision_threshold(predictor.calibrate_decision_threshold(metric=binary_cost_class_scorer(${cc.c_fp}, ${cc.c_fn}, ${cc.g_tp})))`]
@@ -39,13 +44,13 @@ export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
           <div className="card-head"><h3 className="card-title">Metric</h3><span className="micro-label">what AutoGluon optimises and ranks by</span></div>
           <div className="metric-list" role="radiogroup">
             {metrics.map((m) => (
-              <button key={m.key} role="radio" aria-checked={ch.metric === m.key} data-testid={`metric-${m.key}`} className={`metric-opt ${ch.metric === m.key ? 'on' : ''}`} onClick={() => set({ metric: m.key })}>
-                <span className="mo-head"><b>{m.name}</b><span className="mono mo-key">{m.key}</span>{m.key === rec && <span className="pill success" style={{ height: 18 }}>● recommended</span>}<span className="spacer" /><span className="mo-dir">{m.greater ? 'higher is better ↑' : 'lower is better ↓'}</span></span>
+              <button key={m.key} role="radio" aria-checked={chosen === m.key} data-testid={`metric-${m.key}`} className={`metric-opt ${chosen === m.key ? 'on' : ''}`} onClick={() => { if (!range) set({ metric: m.key }) }}>
+                <span className="mo-head"><b>{m.name}</b><span className="mono mo-key">{m.key}</span>{(range ? m.key === PINBALL : m.key === rec) && <span className="pill success" style={{ height: 18 }}>● recommended</span>}<span className="spacer" /><span className="mo-dir">{m.greater ? 'higher is better ↑' : 'lower is better ↓'}</span></span>
                 <span className="mo-formula">{m.formula}</span>
                 <span className="helper mo-note">{m.note}{Object.keys(m.where).length > 0 && <> · {Object.entries(m.where).map(([k, v]) => <span key={k}><i className="math-i">{k}</i>: {v}. </span>)}</>}</span>
               </button>
             ))}
-            <div className="metric-foot helper">n = number of rows scored, yᵢ the true label and ŷᵢ the prediction for row i.{task === 'binary' && ds.profile?.imbalance_ratio && ds.profile.imbalance_ratio >= 4 ? ` The label is imbalanced (ρ = ${ds.profile.imbalance_ratio.toFixed(1)}), so ROC AUC is recommended over accuracy.` : ''}</div>
+            <div className="metric-foot helper">n = number of rows scored, yᵢ the true label and ŷᵢ the prediction for row i.{range ? ` Predicting a range: τ ∈ {${range.levels.join(', ')}}, so L = ${range.levels.length}; the pinball loss is AutoGluon's eval_metric for problem_type 'quantile'.` : ''}{task === 'binary' && ds.profile?.imbalance_ratio && ds.profile.imbalance_ratio >= 4 ? ` The label is imbalanced (ρ = ${ds.profile.imbalance_ratio.toFixed(1)}), so ROC AUC is recommended over accuracy.` : ''}</div>
           </div>
         </div>
 

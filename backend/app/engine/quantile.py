@@ -224,12 +224,14 @@ def fan(y: np.ndarray, Q: np.ndarray, levels: list[float], rows: np.ndarray, max
             "n": int(len(y)), "sampled": bool(len(y) > max_points), "sorted_by": f"{centre(levels):g}"}
 
 
-def report(predictor, holdout: pd.DataFrame, label: str, per_model: bool = True) -> dict[str, Any]:
-    """Everything Results shows for a quantile run, on the holdout."""
+def report(predictor, holdout: pd.DataFrame, label: str, per_model: bool = True,
+           conf: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Everything Results shows for a quantile run, on the holdout. `conf` overrides the conformal offsets (the
+    registry passes the source run's when the deployed copy no longer has the validation rows)."""
     levels = levels_of(predictor)
     y = holdout[label].to_numpy(dtype=float)
     Q = qframe(predictor, holdout).to_numpy()
-    conf = conformal(predictor)
+    conf = conf or conformal(predictor)
     c = offsets_vector(conf, levels)
     served = evaluate(y, Q, levels)
     raw = cal = None

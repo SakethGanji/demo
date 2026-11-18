@@ -6,7 +6,7 @@ import { toData, withInterval } from './stats'
 function pick(run: Run): string[] {
   const m = run.holdout?.metrics ?? {}
   const primary = run.eval_metric?.name ?? Object.keys(m)[0]
-  const pref = run.problem_type === 'regression'
+  const pref = run.problem_type === 'regression' || run.problem_type === 'quantile'
     ? ['root_mean_squared_error', 'mean_absolute_error', 'r2', 'median_absolute_error']
     : run.problem_type === 'binary' ? ['accuracy', 'roc_auc', 'balanced_accuracy', 'f1', 'mcc'] : ['accuracy', 'balanced_accuracy', 'mcc', 'f1_macro']
   return [primary, ...pref.filter((k) => k !== primary && k in m)].slice(0, 4)

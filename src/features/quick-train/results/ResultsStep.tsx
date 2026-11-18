@@ -12,6 +12,7 @@ import { Leaderboard, ModelCard, ScoreScatter } from './Leaderboard'
 import { SplitCompare } from './SplitCompare'
 import { CostCompare } from './CostCompare'
 import { MetricCards } from './MetricCards'
+import { QuantileResults } from './QuantileResults'
 import { residuals } from './stats'
 import { TryPrediction } from './TryPrediction'
 
@@ -51,7 +52,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
   if (!run) return <div className="page"><div className="card card-body row"><ResonanceWave /> Loading the results…</div></div>
   if (run.status !== 'succeeded') return <div className="page"><div className="card card-body" role="alert">This run {run.status}{run.error ? `: ${run.error}` : '.'}</div></div>
 
-  const reg = run.problem_type === 'regression'
+  const reg = run.problem_type === 'regression' || run.problem_type === 'quantile'
   const metric = run.eval_metric?.name ?? ''
   const info = metricInfo(metric)
   const best = run.leaderboard?.find((r) => r.model === run.best_model) ?? run.leaderboard?.[0] ?? null
@@ -72,7 +73,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
           <div className="rh-main">
             <span className="micro-label">holdout {info?.name ?? metric} · {run.best_model}</span>
             <span className="rh-v mono" data-testid="result-primary">{fmtScore(run.holdout?.metrics[metric])}</span>
-            <span className="rh-sub">{run.problem_type} · {run.holdout?.n_rows.toLocaleString()} holdout rows · {run.leaderboard?.length} models in {mmss(run.fit_seconds ?? 0)} · {fmtSeconds(perRow)} per row to predict</span>
+            <span className="rh-sub">{run.problem_type}{run.quantile_levels ? ` τ = ${run.quantile_levels.join(' · ')}` : ''} · {run.holdout?.n_rows.toLocaleString()} holdout rows · {run.leaderboard?.length} models in {mmss(run.fit_seconds ?? 0)} · {fmtSeconds(perRow)} per row to predict</span>
             {run.threshold && <span className="rh-sub" data-testid="result-threshold">decision threshold t = <b className="mono">{run.threshold.value.toFixed(3)}</b>{run.threshold.source === 'default' ? ' (AutoGluon default)' : run.threshold.metric ? ` calibrated for ${run.threshold.metric} · holdout F₁ ${run.threshold.holdout_at_default.f1.toFixed(3)} at 0.5 → ${run.threshold.holdout_at_threshold.f1.toFixed(3)}, balanced accuracy ${run.threshold.holdout_at_default.balanced_accuracy.toFixed(3)} → ${run.threshold.holdout_at_threshold.balanced_accuracy.toFixed(3)}` : ''}</span>}
             <div className="row" style={{ flexWrap: 'wrap', gap: 'var(--space-8)', marginTop: 'var(--space-12)' }}>
               <button className="btn primary" onClick={() => go(`explain?run=${run.id}`)} data-testid="results-explain">Explain this model →</button>
@@ -88,6 +89,8 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
       </div>
 
       <MetricCards run={run} preds={preds} />
+
+      {run.problem_type === 'quantile' && <QuantileResults run={run} />}
 
       {live && run.config.cost ? <CostCompare run={run} go={go} /> : null}
 

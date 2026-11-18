@@ -17,7 +17,7 @@ export const typeOf = (r: Run): string => {
   return k === 'tabular' ? r.problem_type ?? 'pending' : k === 'import' ? 'imported' : k
 }
 
-export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'forecast', 'anomaly', 'imported'] as const
+export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quantile', 'forecast', 'anomaly', 'imported'] as const
 
 /** The page a run opens on. */
 export const runPage = (r: Run): string => {
@@ -53,6 +53,8 @@ export function problemLine(r: Run): string {
     return `forecast${h ? ` · H = ${h}` : ''}`
   }
   if (k === 'anomaly') return `anomaly · IsolationForest${r.config.lof ? ' + LOF' : ''}`
-  const base = r.problem_type ?? '—'
+  const lv = (r as Run & { quantile_levels?: number[] | null }).quantile_levels
+  const cov = (r as Run & { quantile?: { coverage?: number | null } | null }).quantile?.coverage
+  const base = r.problem_type === 'quantile' && lv ? `quantile · τ = ${lv.join(', ')}${cov != null ? ` · cov ${cov.toFixed(3)}` : ''}` : r.problem_type ?? '—'
   return k === 'import' ? `${base} · imported` : base
 }

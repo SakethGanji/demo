@@ -94,7 +94,23 @@ export function TryPrediction({ run, ds, live, residualSd, models }: { run: Run;
               <span className="tp-foot">Σₖ p̂ₖ = {probs.reduce((a, [, p]) => a + p, 0).toFixed(3)}{out.positive_class != null ? ` · positive class: ${out.positive_class}` : ''}{out.missing_columns.length ? ` · sent as missing: ${out.missing_columns.join(', ')}` : ''}</span>
             </>
           )}
-          {out && !out.probabilities && (
+          {out && !out.probabilities && out.quantiles?.[0] && (() => {
+            const qs = out.quantiles[0]
+            const lv = (out.quantile_levels ?? Object.keys(qs).map(Number)).map((t) => String(Number(t.toFixed(6))))
+            const lo = lv[0], hi = lv[lv.length - 1]
+            return (
+              <>
+                <span className="micro-label">{out.model} · predicted range of {run.label}</span>
+                <div className="tp-class" data-testid="tp-range">[{fmtScore(qs[lo], 0)}, {fmtScore(qs[hi], 0)}]</div>
+                <div className="tp-eq">[q̂<sub>{lo}</sub>(x), q̂<sub>{hi}</sub>(x)] · ŷ = q̂<sub>{String(out.centre ?? '')}</sub>(x) = {fmtScore(Number(yhat), 1)}</div>
+                <div className="tp-probs">
+                  {lv.map((t) => <div key={t} className={`tp-prob ${Number(t) === out.centre ? 'on' : ''}`} data-testid={`tp-q-${t}`}><span className="mono">q̂{t}</span><span /><span className="mono">{fmtScore(qs[t], 1)}</span></div>)}
+                </div>
+                <span className="tp-foot">q̂<sub>τ</sub>(x): the value {run.label} falls at or below with probability τ for rows like x. Unlike ŷ ± 1.96·σᵣ, the width is the model's own for this row; Results shows how often the holdout fell inside.{out.missing_columns.length ? ` Sent as missing: ${out.missing_columns.join(', ')}` : ''}</span>
+              </>
+            )
+          })()}
+          {out && !out.probabilities && !out.quantiles && (
             <>
               <span className="micro-label">{out.model} · predicted {run.label}</span>
               <div className="tp-class" data-testid="tp-value">{fmtScore(Number(yhat), 2)}</div>

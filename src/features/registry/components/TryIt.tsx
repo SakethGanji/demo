@@ -89,7 +89,24 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
                 <span className="tp-foot">Σₖ p̂ₖ = {probs.reduce((a, [, p]) => a + p, 0).toFixed(3)} · f(x) in {out.predict_ms.toFixed(1)} ms{out.missing_columns.length ? ` · sent as missing: ${out.missing_columns.join(', ')}` : ''}</span>
               </>
             )}
-            {out && !out.probabilities && (
+            {out && !out.probabilities && out.quantiles && (() => {
+              const qs = out.quantiles
+              const lv = (out.quantile_levels ?? []).map((t) => String(Number(t.toFixed(6))))
+              const iv = out.interval
+              const lo = iv ? String(iv.lo) : lv[0], hi = iv ? String(Number(iv.hi.toFixed(6))) : lv[lv.length - 1]
+              return (
+                <>
+                  <span className="micro-label">{out.model} · predicted range{iv ? ` (nominal ${Math.round(iv.nominal * 100)}%)` : ''}</span>
+                  <div className="tp-class" data-testid="try-range">[{fmtScore(qs[lo], 0)}, {fmtScore(qs[hi], 0)}]</div>
+                  <div className="tp-eq">[q̂<sub>{lo}</sub>(x), q̂<sub>{hi}</sub>(x)] · ŷ = q̂<sub>{String(out.centre)}</sub>(x) = {fmtScore(Number(out.prediction), 1)}</div>
+                  <div className="tp-probs">
+                    {lv.map((t) => <div key={t} className={`tp-prob ${Number(t) === out.centre ? 'on' : ''}`} data-testid={`try-q-${t}`}><span className="mono">q̂{t}</span><span /><span className="mono">{fmtScore(qs[t], 1)}</span></div>)}
+                  </div>
+                  <span className="tp-foot">q̂<sub>τ</sub>(x): the value falls at or below it with probability τ for rows like x · f(x) in {out.predict_ms.toFixed(1)} ms · the reasons below explain q̂<sub>{sh?.quantile_level ?? out.centre}</sub>{out.missing_columns.length ? ` · sent as missing: ${out.missing_columns.join(', ')}` : ''}</span>
+                </>
+              )
+            })()}
+            {out && !out.probabilities && !out.quantiles && (
               <>
                 <span className="micro-label">{out.model} · predicted value</span>
                 <div className="tp-class" data-testid="try-value">{fmtScore(Number(out.prediction), 2)}</div>
@@ -109,7 +126,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
                 {sh.reasons.map((r, i) => (
                   <li key={r.feature} data-testid={`reason-${i}`}>
                     <span className={`reason-dir ${r.phi >= 0 ? 'up' : 'down'}`}>{r.phi >= 0 ? '▲' : '▼'}</span>
-                    <span><b className="mono">{r.feature}</b> = <span className="mono">{r.value == null ? 'missing' : String(r.value)}</span> {r.direction} {sh.output === 'probability' ? `p̂(${sh.target})` : 'ŷ'} by <b className="mono">{Math.abs(r.phi).toFixed(sh.output === 'probability' ? 4 : 2)}</b>
+                    <span><b className="mono">{r.feature}</b> = <span className="mono">{r.value == null ? 'missing' : String(r.value)}</span> {r.direction} {sh.output === 'probability' ? `p̂(${sh.target})` : sh.quantile_level != null ? `q̂${sh.quantile_level}` : 'ŷ'} by <b className="mono">{Math.abs(r.phi).toFixed(sh.output === 'probability' ? 4 : 2)}</b>
                       {sh.output === 'probability' && <small className="helper"> ({(Math.abs(r.phi) * 100).toFixed(1)} pp)</small>}</span>
                   </li>
                 ))}
