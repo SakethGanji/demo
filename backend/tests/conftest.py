@@ -86,3 +86,59 @@ def client(api_server: ApiServer):
 @pytest.fixture(scope="session")
 def data_dir(api_server: ApiServer) -> Path:
     return api_server.data_dir
+
+
+# -- runs ---------------------------------------------------------------------
+
+TERMINAL = ("run_succeeded", "run_failed", "run_cancelled")
+
+
+def read_sse(client: httpx.Client, url: str, headers: dict | None = None, timeout: float = 600) -> list[dict]:
+    """Read an SSE stream to its end. Returns [{id, event, data}] with data parsed as JSON (pings skipped)."""
+    import json
+
+    out, cur = [], {}
+    with client.stream("GET", url, headers=headers or {}, timeout=httpx.Timeout(timeout, read=timeout)) as r:
+        assert r.status_code == 200, r.read()
+        assert r.headers["content-type"].startswith("text/event-stream")
+        for line in r.iter_lines():
+            if line == "":
+                if "data" in cur:
+                    cur["data"] = json.loads(cur["data"])
+                    out.append(cur)
+                cur = {}
+            elif line.startswith(":"):
+                continue
+            else:
+                k, _, v = line.partition(":")
+                cur[k] = v[1:] if v.startswith(" ") else v
+    return out
+
+
+def wait_for_run(client: httpx.Client, run_id: str, timeout: float = 900, statuses=("succeeded", "failed", "cancelled")) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        r = client.get(f"/api/runs/{run_id}").json()
+        if r["status"] in statuses:
+            return r
+        time.sleep(0.5)
+    raise TimeoutError(f"run {run_id} still {r['status']} after {timeout}s")
+
+
+def wait_for_event(client: httpx.Client, run_id: str, event_type: str, timeout: float = 180) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        evs = client.get(f"/api/runs/{run_id}/events", params={"format": "json"}).json()["events"]
+        hit = next((e for e in evs if e["type"] == event_type), None)
+        if hit:
+            return hit
+        if any(e["type"] in TERMINAL for e in evs):
+            raise AssertionError(f"run {run_id} ended before {event_type}: {evs[-1]}")
+        time.sleep(0.3)
+    raise TimeoutError(f"no {event_type} event for {run_id} in {timeout}s")
+
+
+def start_run(client: httpx.Client, **body) -> dict:
+    r = client.post("/api/runs", json=body)
+    assert r.status_code == 201, r.text
+    return r.json()

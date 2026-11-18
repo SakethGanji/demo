@@ -66,7 +66,8 @@ class ProgressCallback(AbstractCallback):
         self.emit("fit_started", trainer, problem_type=trainer.problem_type, eval_metric=em.name,
                   greater_is_better=int(getattr(em, "_sign", 1)) > 0,
                   num_classes=getattr(trainer, "num_classes", None), level_end=kwargs.get("level_end"),
-                  k_fold=kwargs.get("k_fold"), n_repeats=kwargs.get("n_repeats"), time_limit=kwargs.get("time_limit"))
+                  k_fold=kwargs.get("k_fold", getattr(trainer, "k_fold", None)),
+                  n_repeats=kwargs.get("n_repeats", getattr(trainer, "n_repeats", None)), time_limit=kwargs.get("time_limit"))
 
     def _before_model_fit(self, trainer, model, time_limit=None, stack_name="core", level=1):
         cls = _model_class_name(model)

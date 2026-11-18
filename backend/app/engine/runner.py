@@ -148,6 +148,10 @@ class JobRunner:
             cancelled = run_id in self._cancelled
             self._cancelled.discard(run_id)
         _kill_group(p.pid, signal.SIGKILL)  # anything the worker left behind (Ray)
+        if self._stopping:
+            if self.store.finish(run_id, "failed", error=STOPPED_MSG):
+                self.store.emit(run_id, "run_failed", error=STOPPED_MSG)
+            return
         if cancelled:
             if self.store.finish(run_id, "cancelled", error="Cancelled."):
                 self.store.emit(run_id, "run_cancelled", reason="cancelled while running")
