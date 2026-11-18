@@ -968,6 +968,171 @@ def splits(st: dict[str, Any]) -> None:
 
     step("splits: random vs out-of-time side by side", compare)
 
+def cost(st: dict[str, Any]) -> None:
+    """F7: a business cost as the eval_metric. On credit-default with FN = 10 × FP, the wizard's body with
+    cost = {c_fp: 1, c_fn: 10} trains to AutoGluon's custom scorer (ensemble_models.cost), calibrates the threshold
+    on that cost with AutoGluon, and is compared on the same holdout rows with its twins trained to ROC AUC and to
+    accuracy (identical body, only the metric differs). The smoke recomputes every cost from the holdout predictions
+    the API serves, and asserts the acceptance: the cost-optimised run has the lower holdout expected cost."""
+    ds, label = "credit-default", "defaulted"
+    c_fp, c_fn = 1.0, 10.0
+    s: dict[str, Any] = {}
+    prof = get(f"/api/datasets/{ds}")["profile"]
+    drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != label]
+    body = {"dataset_id": ds, "label": label, "problem_type": "binary", "presets": "medium_quality", "time_limit": 120,
+            "fit_kwargs": {"hyperparameters": HP}, "drop_columns": drop, "feature_importance": False, "source": "smoke-cost"}
+
+    def holdout_costs(rid: str, t: float) -> tuple[np.ndarray, np.ndarray]:
+        hp = get(f"/api/runs/{rid}/holdout-predictions")
+        k = hp["classes"].index("Yes")
+        p = np.asarray(hp["probabilities"], dtype=float)[:, k]
+        y = np.asarray([str(v) == "Yes" for v in hp["y_true"]])
+        yhat = p > t
+        return np.where(y, np.where(yhat, 0.0, c_fn), np.where(yhat, c_fp, 0.0)), np.asarray(hp["rows"])
+
+    def refuse():
+        bad = [({**body, "cost": {"c_fp": 1, "c_fn": 10}, "eval_metric": "roc_auc"}, "not both"),
+               ({**body, "cost": {"c_fp": -1, "c_fn": 10}}, "≥ 0"),
+               ({**body, "cost": {"c_fp": 0, "c_fn": 0}}, "above 0"),
+               ({**body, "eval_metric": "expected_cost"}, "needs the costs"),
+               ({**body, "label": "loan_amount_usd", "problem_type": "regression", "cost": {"c_fp": 1, "c_fn": 10}}, "binary or multiclass")]
+        for b, words in bad:
+            r = C.post("/api/runs", json=b)
+            check(r.status_code == 400 and words in r.text, f"{words}: {r.status_code} {r.text[:200]}")
+        return f"{len(bad)} bad cost requests → 400"
+
+    def cost_run():
+        r = post("/api/runs", {**body, "cost": {"c_fp": c_fp, "c_fn": c_fn}, "calibrate_threshold": "auto"})
+        rec = wait_run(r["id"])
+        cm = rec["resolved"]["cost_metric"]
+        check(rec["eval_metric"]["name"] == "expected_cost" and not rec["eval_metric"]["greater_is_better"], rec["eval_metric"])
+        check(cm["needs_proba"] and cm["c_fn"] == c_fn and abs(cm["bayes_threshold"] - c_fp / (c_fp + c_fn)) < 1e-12, cm)
+        evs = get(f"/api/runs/{rec['id']}/events", format="json")["events"]
+        fs = [e for e in evs if e.get("type") == "fit_started"]
+        check(fs and fs[0]["eval_metric"] == "expected_cost", "AutoGluon's trainer was not fitting to expected_cost")
+        thr = rec["threshold"]
+        check(thr["source"] == "calibrated" and thr["metric"] == "expected_cost" and 0 < thr["value"] < 0.5, thr)
+        lb = rec["leaderboard"]
+        check(all(x["score_val_natural"] is not None and x["score_val_natural"] >= 0 for x in lb), "validation costs")
+        check(lb[0]["score_val_natural"] <= min(x["score_val_natural"] for x in lb) + 1e-12, "best model is not the cheapest on validation")
+        rows, _ = holdout_costs(rec["id"], thr["value"])
+        h = rec["holdout"]["metrics"]
+        check(abs(h["expected_cost"] - rows.mean()) < 1e-9, f"holdout expected_cost {h['expected_cost']} vs recomputed {rows.mean()}")
+        # the API process loads the pickled scorer with the predictor
+        pr = post(f"/api/runs/{rec['id']}/predict", {"rows": [{"age": 41, "employment": "salaried", "income_usd": 52000,
+                                                               "credit_score": 610, "debt_to_income": 0.41}]})
+        check(pr["predictions"], pr)
+        s["cost"] = rec
+        ens = rec["ensemble"]["weights"] if rec.get("ensemble") else {}
+        return (f"{rec['id']} eval_metric expected_cost (needs_proba, t* = {cm['bayes_threshold']:.4f}) · best {rec['best_model']} "
+                f"val {lb[0]['score_val_natural'] * 1000:.1f} per 1,000 · ensemble {', '.join(f'{k} {v:.2f}' for k, v in ens.items())} · "
+                f"t = {thr['value']:.3f} calibrated by AutoGluon on cost · holdout {h['expected_cost'] * 1000:.1f} per 1,000 "
+                f"(Bayes rule {h['expected_cost_bayes'] * 1000:.1f}) · predictor reloads in the API")
+
+    if not step("cost: refused requests", refuse) or not step("cost: cost-optimised run (FN = 10 × FP)", cost_run):
+        return
+
+    def twin(metric: str):
+        def fn():
+            r = post(f"/api/runs/{s['cost']['id']}/metric-twin", {"eval_metric": metric})
+            rec = wait_run(r["id"])
+            check(rec["eval_metric"]["name"] == metric and not rec["config"].get("cost"), rec["eval_metric"])
+            check(rec["split"]["sha256"] == s["cost"]["split"]["sha256"], "twin used another split")
+            check(rec["config"]["drop_columns"] == s["cost"]["config"]["drop_columns"], "twin features differ")
+            s[metric] = rec
+            thr = rec["threshold"]
+            return (f"{rec['id']} {metric} {primary(rec)[1]:.4f} · best {rec['best_model']} · t = {thr['value']:.3f} "
+                    f"({thr['source']}{' for ' + thr['metric'] if thr.get('metric') else ''})")
+        return fn
+
+    for m in ("roc_auc", "accuracy"):
+        step(f"cost: {m} twin", twin(m))
+
+    def analysis():
+        rid = s["cost"]["id"]
+        a = get(f"/api/runs/{rid}/cost")
+        dep = a["deployed"]
+        rows, _ = holdout_costs(rid, dep["t"])
+        check(abs(dep["per_1000"] - 1000 * rows.mean()) < 1e-6, (dep["per_1000"], 1000 * rows.mean()))
+        lo, hi = dep["ci_per_1000"]
+        check(lo <= dep["per_1000"] <= hi and hi - lo > 0, dep["ci_per_1000"])
+        check(len(a["curve"]) == 201, len(a["curve"]))
+        for c in a["curve"][::40]:
+            rc, _ = holdout_costs(rid, c["t"])
+            check(abs(c["per_1000"] - 1000 * rc.mean()) < 1e-6, f"curve at t = {c['t']}")
+        check(abs(a["bayes_threshold"] - c_fp / (c_fp + c_fn)) < 1e-12, a["bayes_threshold"])
+        check(a["flag_none"]["per_1000"] == 1000 * c_fn * a["prevalence"], a["flag_none"])
+        check(dep["per_1000"] < a["flag_none"]["per_1000"] and dep["per_1000"] < a["flag_all"]["per_1000"], "no better than a constant decision")
+        # a run not trained on cost is costed with query parameters
+        q = get(f"/api/runs/{s['roc_auc']['id']}/cost", c_fp=c_fp, c_fn=c_fn)
+        check(q["validation"] is not None and 0 < q["validation_threshold"] < 1, q.get("validation_threshold"))
+        return (f"per 1,000 decisions: {dep['per_1000']:.1f} [{lo:.1f}, {hi:.1f}] at t = {dep['t']:.3f} · Bayes t* = {a['bayes_threshold']:.4f}: "
+                f"{a['bayes']['per_1000']:.1f} · t = 0.5: {a['default']['per_1000']:.1f} · flag nobody {a['flag_none']['per_1000']:.1f} · "
+                f"flag everybody {a['flag_all']['per_1000']:.1f} · hindsight min {a['hindsight']['per_1000']:.1f} at t = {a['hindsight']['t']:.3f} · "
+                f"201-point curve recomputed")
+
+    step("cost: expected cost per 1,000 + curve", analysis)
+
+    def compare():
+        check("roc_auc" in s, "no ROC AUC twin")
+        c = get(f"/api/runs/{s['cost']['id']}/cost-comparison")
+        by = {("cost" if x["trained_on_cost"] else x["eval_metric"]): x for x in c["runs"]}
+        check({"cost", "roc_auc"} <= set(by), list(by))
+        me, roc = by["cost"], by["roc_auc"]
+        check(me["this_run"] and me["run_id"] == s["cost"]["id"] and roc["run_id"] == s["roc_auc"]["id"], (me["run_id"], roc["run_id"]))
+        a, ra = holdout_costs(me["run_id"], me["threshold"]["value"])
+        b, rb = holdout_costs(roc["run_id"], roc["threshold"]["value"])
+        check(sorted(ra.tolist()) == sorted(rb.tolist()), "the two runs were scored on different holdout rows")
+        check(abs(roc["deployed"]["per_1000"] - 1000 * b.mean()) < 1e-6, "ROC AUC twin's cost")
+        d = roc["delta"]
+        check(abs(d["per_1000"] - 1000 * (b.mean() - a.mean())) < 1e-6 and d["ci_per_1000"][0] <= d["per_1000"] <= d["ci_per_1000"][1], d)
+        st["cost_compare"] = c
+        dv = roc["delta_validation"]
+        parts = []
+        for k, x in by.items():
+            parts.append(f"{k} {x['deployed']['per_1000']:.1f} [{x['deployed']['ci_per_1000'][0]:.1f}, {x['deployed']['ci_per_1000'][1]:.1f}]"
+                         f" at t = {x['threshold']['value']:.3f}" + (f", {x['validation']['per_1000']:.1f} at its cost-calibrated t = "
+                                                                      f"{x['validation_threshold']:.3f}" if k != "cost" else ""))
+        check(me["deployed"]["per_1000"] < roc["deployed"]["per_1000"],
+              f"cost-optimised {me['deployed']['per_1000']:.1f} is not below ROC-AUC-optimised {roc['deployed']['per_1000']:.1f} per 1,000")
+        return (" · ".join(parts) + f" · Δ(ROC AUC − cost) = {d['per_1000']:+.1f} per 1,000 [{d['ci_per_1000'][0]:+.1f}, {d['ci_per_1000'][1]:+.1f}]"
+                f" paired · with both thresholds calibrated on cost: Δ = {dv['per_1000']:+.1f} [{dv['ci_per_1000'][0]:+.1f}, {dv['ci_per_1000'][1]:+.1f}]")
+
+    step("cost: cost-optimised vs ROC-AUC-optimised", compare)
+
+    def multiclass():
+        rng = np.random.default_rng(11)
+        n = 1500
+        df = pd.DataFrame({"x1": rng.normal(size=n), "x2": rng.normal(size=n), "seg": rng.choice(["a", "b"], n)})
+        z = np.stack([df.x1, df.x2, -df.x1 - df.x2 + (df.seg == "b")], axis=1) + rng.gumbel(size=(n, 3))
+        df["grade"] = np.array(["low", "mid", "high"])[z.argmax(axis=1)]
+        d = j(C.post("/api/datasets", files={"file": ("smoke_grades.csv", df.to_csv(index=False).encode(), "text/csv")},
+                     data={"target": "grade"}))
+        # classes in a non-sorted order: the API puts the matrix in AutoGluon's order (high, low, mid)
+        classes = ["low", "mid", "high"]
+        mat = [[0, 1, 4], [2, 0, 1], [20, 5, 0]]
+        bad = C.post("/api/runs", json={"dataset_id": d["id"], "cost": {"classes": ["low", "mid"], "matrix": [[0, 1], [1, 0]]}})
+        check(bad.status_code == 400 and "missing high" in bad.text, bad.text[:200])
+        r = post("/api/runs", {"dataset_id": d["id"], "label": "grade", "time_limit": 60, "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 30}, "LR": {}}},
+                               "cost": {"classes": classes, "matrix": mat}, "feature_importance": False, "source": "smoke-cost"})
+        rec = wait_run(r["id"])
+        cm = rec["config"]["cost"]
+        check(cm["classes"] == ["high", "low", "mid"] and cm["matrix"][0] == [0, 20, 5], cm)
+        hp = get(f"/api/runs/{rec['id']}/holdout-predictions")
+        M = {(a, b): mat[classes.index(a)][classes.index(b)] for a in classes for b in classes}
+        served = np.mean([M[(str(t), str(p))] for t, p in zip(hp["y_true"], hp["y_pred"])])
+        check(abs(rec["holdout"]["metrics"]["expected_cost"] - served) < 1e-9, (rec["holdout"]["metrics"]["expected_cost"], served))
+        a = get(f"/api/runs/{rec['id']}/cost")
+        # the Bayes decision minimises the cost the model expects, not necessarily the realised holdout cost: reported only
+        check(abs(a["deployed"]["per_1000"] - 1000 * served) < 1e-6 and a["bayes"]["n"] == len(hp["rows"]), a["deployed"])
+        ex = C.get(f"/api/runs/{rec['id']}/export.py").text
+        check("COST = {" in ex and "multiclass_cost_scorer" in ex, "export lacks the cost scorer")
+        return (f"{rec['id']} 3 classes, matrix given as low/mid/high → AutoGluon order high/low/mid · served (arg-max) "
+                f"{a['deployed']['per_1000']:.0f} per 1,000 [{a['deployed']['ci_per_1000'][0]:.0f}, {a['deployed']['ci_per_1000'][1]:.0f}] · "
+                f"Bayes decisions {a['bayes']['per_1000']:.0f} · export.py rebuilds the scorer")
+
+    step("cost: multiclass cost matrix", multiclass)
+
 
 def autopilot(st: dict[str, Any]) -> None:
     def start():
@@ -1832,7 +1997,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -1869,7 +2034,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

@@ -83,9 +83,19 @@ def main() -> int:
     ap.add_argument("--tolerance", type=float, default=1e-6, help="largest |Δ score| accepted per model (default 1e-6)")
     args = ap.parse_args()
 
-    if NEEDS_ENSEMBLE_MODELS:  # the run used ENSEMBLE's TF-IDF models: register them with AutoGluon
+    if NEEDS_ENSEMBLE_MODELS:  # the run used ENSEMBLE's TF-IDF models or its cost metric: put them on the path
         sys.path.insert(0, os.environ.get("ENSEMBLE_BACKEND", ENSEMBLE_BACKEND))
         import ensemble_models  # noqa: F401
+    predictor_kwargs = dict(PREDICTOR_KWARGS)
+    cost_class_scorer = None
+    if COST is not None:  # F7: the business cost as AutoGluon scorers (ensemble_models.cost)
+        from ensemble_models import cost as cost_lib
+
+        if COST["kind"] == "binary":
+            predictor_kwargs["eval_metric"] = cost_lib.binary_cost_scorer(COST["c_fp"], COST["c_fn"], COST["g_tp"])
+            cost_class_scorer = cost_lib.binary_cost_class_scorer(COST["c_fp"], COST["c_fn"], COST["g_tp"])
+        else:
+            predictor_kwargs["eval_metric"] = cost_lib.multiclass_cost_scorer(COST["matrix"])
 
     train, holdout = load(args.data, check_hash=not args.no_check)
     print(f"train {len(train):,} rows · holdout {len(holdout):,} rows · {len(train.columns) - 1} features")
@@ -101,7 +111,7 @@ def main() -> int:
         if PSEUDOLABEL["method"] == "unlabeled_data":
             fit_kwargs["unlabeled_data"] = unlabeled
 
-    predictor = TabularPredictor(path=args.out, **PREDICTOR_KWARGS)
+    predictor = TabularPredictor(path=args.out, **predictor_kwargs)
     predictor.fit(train, **fit_kwargs)
 
     if PSEUDOLABEL and PSEUDOLABEL["method"] == "fit_pseudolabel":
@@ -112,7 +122,8 @@ def main() -> int:
 
     def set_threshold(thr):
         if thr and thr.get("source") == "calibrated":
-            t = predictor.calibrate_decision_threshold(metric=thr["metric"], verbose=False)
+            metric = cost_class_scorer if thr["metric"] == "expected_cost" else thr["metric"]
+            t = predictor.calibrate_decision_threshold(metric=metric, verbose=False)
             predictor.set_decision_threshold(float(t))
         elif thr and thr.get("source") in ("user", "manual", "set", "default"):
             predictor.set_decision_threshold(float(thr["value"]))
@@ -180,6 +191,8 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     pk = {k: v for k, v in (resolved.get("predictor_kwargs") or {}).items() if v is not None}
     hp = fk.get("hyperparameters")
     needs_text = isinstance(hp, dict) and any(k in ("TFIDF_LR", "TFIDF_SVM") for k in hp)
+    cm = resolved.get("cost_metric")
+    cost = {k: cm[k] for k in ("kind", "c_fp", "c_fn", "g_tp", "classes", "matrix") if k in cm} if cm else None
     thr = res.get("threshold") or None
     thr_out = {"source": thr.get("source"), "metric": thr.get("metric"), "value": thr.get("value")} if thr else None
     fthr = res.get("fit_threshold", thr) or None
@@ -217,7 +230,10 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         f"DISTILL = {pycode.py(distill)}",
         f"THRESHOLD = {pycode.py(thr_out)}",
         f"FIT_THRESHOLD = {pycode.py(fthr_out)}",
-        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text)}",
+        "# F7: the business cost the run optimised (None: a standard metric). Multiclass matrices are in AutoGluon's",
+        "# class order (the sorted labels): matrix[i][j] = cost of deciding class j when the truth is class i.",
+        f"COST = {pycode.py(cost)}",
+        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text or cost is not None)}",
         f"ENSEMBLE_BACKEND = {pycode.py(str(backend_dir))}",
         "",
         "# The run's leaderboard: model → (validation score, holdout score), AutoGluon's higher-is-better scale.",

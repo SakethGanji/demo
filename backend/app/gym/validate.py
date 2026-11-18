@@ -225,6 +225,15 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
     # -- metric and problem type
     metric = body.get("eval_metric") or pk.get("eval_metric")
     metrics = schema.metrics_by_problem_type()
+    if body.get("cost") is not None:  # F7: the cost becomes the metric (checked in full by POST /runs)
+        if metric not in (None, "expected_cost"):
+            _err(errors, "cost", f"Give cost or eval_metric '{metric}', not both: the cost is the metric.")
+        if problem_type not in (None, "auto", "binary", "multiclass"):
+            _err(errors, "cost", f"A cost applies to binary or multiclass labels, not {problem_type}.")
+        metric = None
+    elif metric == "expected_cost":
+        _err(errors, "eval_metric", "eval_metric 'expected_cost' needs the costs (cost = {c_fp, c_fn, g_tp} or {classes, matrix}).")
+        metric = None
     if metric and problem_type in metrics:
         from autogluon.core.metrics import METRICS
 

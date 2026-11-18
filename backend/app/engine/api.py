@@ -23,7 +23,7 @@ from sse_starlette.sse import EventSourceResponse
 from .. import config
 from ..datasets import DatasetError
 from ..splits import load_splits
-from . import catalogue, explain, heavy, serving, threshold
+from . import catalogue, costs, explain, heavy, serving, threshold
 from .runner import JobRunner
 from .store import TERMINAL_EVENTS, RunStore, now
 
@@ -70,6 +70,13 @@ class RunCreate(BaseModel):
                           "time-group, group_column, time_column, cutoff (YYYY-MM-DD; default: the latest 20 % of rows), "
                           "tuning_share (default 0.2)}. Group splits pass group-disjoint folds to AutoGluon as groups=; "
                           "time splits pass the latest slice of the training period as tuning_data.")
+    cost: dict[str, Any] | None = Field(
+        None, description="F7: a business cost to optimise instead of a standard metric. Binary: {c_fp, c_fn, g_tp=0} "
+                          "(cost of a false positive, of a false negative, gain of a true positive; per decision). "
+                          "Multiclass: {classes, matrix} with matrix[i][j] = cost of deciding class j when the truth is "
+                          "class i. It becomes the run's eval_metric 'expected_cost' (an AutoGluon make_scorer from "
+                          "ensemble_models.cost), so model selection, early stopping and ensemble weights minimise the "
+                          "expected cost; binary runs also calibrate the decision threshold on it.")
 
 
 class EnsembleRequest(BaseModel):
@@ -199,8 +206,15 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         raise HTTPException(400, "column_types: the label's type is set by problem_type, not column_types.")
     if types and "feature_metadata" in body.fit_kwargs:
         raise HTTPException(400, "Give column_types or fit_kwargs.feature_metadata, not both.")
-    if body.calibrate_threshold not in (None, "auto", *threshold.CALIBRATION_METRICS):
-        raise HTTPException(400, f"calibrate_threshold: use 'auto' or one of {', '.join(threshold.CALIBRATION_METRICS)}.")
+    cost = None
+    if body.cost is not None:
+        cost = check_cost(body, app, ds, label, cols)
+    elif body.eval_metric == costs.METRIC_NAME:
+        raise HTTPException(400, "eval_metric 'expected_cost' needs the costs: give cost = {c_fp, c_fn, g_tp} "
+                                 "(binary) or {classes, matrix} (multiclass).")
+    allowed_cal = (None, "auto", *threshold.CALIBRATION_METRICS, *((costs.METRIC_NAME,) if cost and cost["kind"] == "binary" else ()))
+    if body.calibrate_threshold not in allowed_cal:
+        raise HTTPException(400, f"calibrate_threshold: use 'auto' or one of {', '.join(a for a in allowed_cal if a and a != 'auto')}.")
     text_cols = [c["name"] for c in profile["columns"] if types.get(c["name"], c["type"]) == "text"
                  and c["name"] not in drop and c["name"] != label]
     if label == profile.get("target"):
@@ -234,7 +248,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     run_dir = settings.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     cfg = {
-        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types"}),
+        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost"}),
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
@@ -242,6 +256,12 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "predictor"),
     }
+    if cost is not None:
+        cfg["cost"] = cost
+        cfg["eval_metric"] = costs.METRIC_NAME
+        if cost["kind"] == "binary" and body.calibrate_threshold in (None, "auto") \
+                and "calibrate_decision_threshold" not in body.fit_kwargs:
+            cfg["calibrate_threshold"] = costs.METRIC_NAME
     if body.pseudolabel:
         cfg["unlabeled_csv_path"] = str(app.state.datasets.csv_path(body.pseudolabel["dataset_id"]))
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
@@ -253,6 +273,27 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
                eval_metric=body.eval_metric, presets=body.presets, time_limit=body.time_limit)
     _runner(request).submit(run_id)
     return run_out(store.get(run_id), store)
+
+
+def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: dict[str, Any]) -> dict[str, Any]:
+    """F7: the run's cost request, checked and normalised: {kind: binary, c_fp, c_fn, g_tp, positive_class} or
+    {kind: multiclass, classes, matrix} (classes in AutoGluon's order, the sorted labels)."""
+    import pandas as pd
+
+    if body.eval_metric not in (None, costs.METRIC_NAME):
+        raise HTTPException(400, f"Give cost or eval_metric '{body.eval_metric}', not both: the cost is the metric.")
+    if "eval_metric" in body.predictor_kwargs:
+        raise HTTPException(400, "predictor_kwargs.eval_metric is set by the cost.")
+    y = pd.read_csv(app.state.datasets.csv_path(body.dataset_id), usecols=[label])[label].dropna()
+    classes = list(y.astype("category").cat.categories)
+    pt = body.problem_type
+    if pt == "auto":
+        pt = "binary" if len(classes) == 2 else \
+            "regression" if cols[label]["type"] == "number" and cols[label]["unique"] > 50 else "multiclass"
+    try:
+        return costs.normalise(body.cost or {}, pt, classes)
+    except ValueError as e:
+        raise HTTPException(400, f"cost: {e}") from e
 
 
 @router.get("/runs")
@@ -277,7 +318,7 @@ class SplitTwin(BaseModel):
 
 
 FAIR_KEYS = ("presets", "time_limit", "fit_kwargs", "predictor_kwargs", "eval_metric", "problem_type", "drop_columns",
-             "column_types", "custom_text_models", "calibrate_threshold")
+             "column_types", "custom_text_models", "calibrate_threshold", "cost")
 
 
 @router.post("/runs/{run_id}/split-twin", status_code=201)
@@ -599,6 +640,189 @@ async def get_threshold(run_id: str, request: Request, cost_fp: float = Query(1.
     out = await run_in_threadpool(explain.threshold_analysis, df, res["positive_class"], current=_current_threshold(res),
                                   cost_fp=cost_fp, cost_fn=cost_fn, at=t)
     return {"run_id": run_id, "model": res.get("best_model"), "threshold": res.get("threshold"), **out}
+
+
+# --------------------------------------------------------------------------- business cost (F7)
+
+
+def _cost_for(rec: dict[str, Any], c_fp: float | None, c_fn: float | None, g_tp: float | None) -> dict[str, Any]:
+    """The cost to score a run with: the query's (binary: c_fp, c_fn[, g_tp]) or else the run's own."""
+    res = rec.get("result") or {}
+    if c_fp is not None or c_fn is not None:
+        if res.get("problem_type") != "binary":
+            raise HTTPException(400, "c_fp / c_fn apply to binary runs; a multiclass run is costed with its own matrix.")
+        if c_fp is None or c_fn is None:
+            raise HTTPException(400, "Give both c_fp and c_fn.")
+        try:
+            return costs.normalise({"c_fp": c_fp, "c_fn": c_fn, "g_tp": g_tp or 0}, "binary", res.get("classes") or [])
+        except ValueError as e:
+            raise HTTPException(400, f"cost: {e}") from e
+    cost = rec["config"].get("cost")
+    if not cost:
+        raise HTTPException(400, "This run was not trained on a cost; give c_fp and c_fn to cost its decisions.")
+    return cost
+
+
+def _validation_threshold(app: Any, rec: dict[str, Any], cost: dict[str, Any]) -> float | None:
+    """Binary: the threshold that minimises this cost on the run's own validation data (AutoGluon's
+    calibrate_decision_threshold with the label-based cost scorer; never the holdout). A cost run trained on this
+    cost already uses it; for other runs it is computed once and kept in the run's result."""
+    if cost["kind"] != "binary":
+        return None
+    res = rec.get("result") or {}
+    thr = res.get("threshold") or {}
+    if rec["config"].get("cost") and costs.key(rec["config"]["cost"]) == costs.key(cost) and thr.get("metric") == costs.METRIC_NAME:
+        return float(thr["value"])
+    k = costs.key(cost)
+    cached = (res.get("cost_thresholds") or {}).get(k)
+    if cached is not None:
+        return float(cached)
+    from ensemble_models.cost import binary_cost_class_scorer
+
+    with _run_lock(rec["id"]):
+        p = app.state.predictors.get(rec["config"]["predictor_path"])
+        t = float(p.calibrate_decision_threshold(metric=binary_cost_class_scorer(cost["c_fp"], cost["c_fn"], cost["g_tp"]),
+                                                 verbose=False))
+    store = app.state.runs
+    now_res = (store.get(rec["id"]) or {}).get("result") or {}
+    store.merge_result(rec["id"], cost_thresholds={**(now_res.get("cost_thresholds") or {}), k: t})
+    return t
+
+
+@router.get("/runs/{run_id}/cost")
+async def run_cost(run_id: str, request: Request, c_fp: float | None = Query(None, ge=0), c_fn: float | None = Query(None, ge=0),
+                   g_tp: float | None = Query(None, ge=0)) -> dict[str, Any]:
+    """F7: the expected cost of the run's holdout decisions per 1,000 with a 95% bootstrap interval. Binary: at the
+    threshold in use, at the Bayes threshold t* = c_FP/(c_FP + c_FN + g_TP), at 0.5, at the threshold calibrated for
+    this cost on the run's validation data, flagging nobody / everybody, and the cost curve over t on a 0.005 grid.
+    Multiclass: the served labels (arg-max) and the Bayes decisions, with the cost per confusion cell."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    cost = _cost_for(rec, c_fp, c_fn, g_tp)
+    res = rec.get("result") or {}
+    df = _holdout_df(rec)
+    vt = await run_in_threadpool(_validation_threshold, request.app, rec, cost)
+    out = await run_in_threadpool(costs.analysis, df, cost, positive=res.get("positive_class"),
+                                  current=_current_threshold(res), validation_threshold=vt)
+    return {"run_id": run_id, "model": res.get("best_model"), "eval_metric": (res.get("eval_metric") or {}).get("name"),
+            "trained_on_cost": bool(rec["config"].get("cost")), "threshold": res.get("threshold"),
+            "validation_threshold": vt, **out}
+
+
+class MetricTwin(BaseModel):
+    eval_metric: str | None = Field(None, description="The other metric (any AutoGluon metric name).")
+    cost: dict[str, Any] | None = Field(None, description="Or another cost (as in POST /runs).")
+    calibrate_threshold: str | None = Field("auto", description="The twin's threshold: 'auto' (F1 when the minority "
+                                            "class < 20%, as the wizard does), a metric, or null for t = 0.5.")
+    name: str | None = None
+
+
+@router.post("/runs/{run_id}/metric-twin", status_code=201)
+async def metric_twin(run_id: str, body: MetricTwin, request: Request) -> dict[str, Any]:
+    """F7: the same run (data, split, presets, budget, hyperparameters, dropped columns) trained to another metric or
+    cost, so the cost-optimised run can be compared with, say, the ROC-AUC-optimised one on the same holdout rows."""
+    from ..gym.api import check_run_body, run_body
+
+    rec = _get_run(request, run_id)
+    if rec["config"].get("kind") in ("forecast", "anomaly") or rec["config"].get("import"):
+        raise HTTPException(400, "Only trained tabular runs can be re-run to another metric.")
+    if (body.eval_metric is None) == (body.cost is None):
+        raise HTTPException(400, "Give eval_metric or cost.")
+    b = run_body(rec)
+    b.pop("cost", None)
+    b["eval_metric"] = body.eval_metric
+    if body.cost is not None:
+        b["cost"] = body.cost
+        b["eval_metric"] = None
+    b["calibrate_threshold"] = body.calibrate_threshold
+    b["parent_run_id"] = run_id
+    b["source"] = "metric-twin"
+    b["name"] = body.name or f"{rec['name']} · {'cost' if body.cost is not None else body.eval_metric}"
+    await check_run_body(request, b)
+    return await run_in_threadpool(_create_run, RunCreate(**b), request)
+
+
+COST_FAIR_KEYS = tuple(k for k in FAIR_KEYS if k not in ("eval_metric", "cost", "calibrate_threshold"))
+
+
+@router.get("/runs/{run_id}/cost-comparison")
+async def cost_comparison(run_id: str, request: Request, c_fp: float | None = Query(None, ge=0),
+                          c_fn: float | None = Query(None, ge=0), g_tp: float | None = Query(None, ge=0)) -> dict[str, Any]:
+    """F7: this run beside the same fit trained to other metrics (same data, label, split rows and fit settings;
+    the latest succeeded run per metric), all costed with this run's cost: expected cost per 1,000 at the threshold
+    each run uses, and (binary) at the threshold each run would get if calibrated for this cost on its own validation
+    data, with paired bootstrap intervals of Δ = cost(other) − cost(this) on the shared holdout rows, and each run's
+    cost curve over t."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    cost = _cost_for(rec, c_fp, c_fn, g_tp)
+    app = request.app
+
+    def build() -> dict[str, Any]:
+        store = _store(request)
+        cfg0 = rec["config"]
+        key0 = (cfg0.get("split") or {}).get("key")
+        picked: list[dict[str, Any]] = [rec]
+        seen = {_metric_slot(rec)}
+        for r in store.list():  # newest first
+            cfg = r["config"]
+            if r["id"] == run_id or r["dataset_id"] != rec["dataset_id"] or r["label"] != rec["label"] \
+                    or r["status"] != "succeeded" or cfg.get("kind") in ("forecast", "anomaly") or cfg.get("import"):
+                continue
+            if (cfg.get("split") or {}).get("key") != key0 or any(cfg.get(k) != cfg0.get(k) for k in COST_FAIR_KEYS):
+                continue
+            slot = _metric_slot(r)
+            if slot in seen or (r["config"].get("cost") and costs.key(r["config"]["cost"]) != costs.key(cost)):
+                continue
+            seen.add(slot)
+            picked.append(r)
+        rows, base_rows, base_ids, base_val = [], None, None, None
+        for r in picked:
+            res = r.get("result") or {}
+            hp = explain.load_holdout(Path(r["config"]["run_dir"]))
+            pos = res.get("positive_class")
+            t_now = _current_threshold(res) if res.get("problem_type") == "binary" else None
+            vt = _validation_threshold(app, r, cost)
+            a = costs.analysis(hp, cost, positive=pos, current=t_now, validation_threshold=vt)
+            dep = costs.row_costs(hp, cost, positive=pos, t=t_now)
+            val = costs.row_costs(hp, cost, positive=pos, t=vt) if vt is not None else None
+            ids = hp["row"].to_numpy()
+            if r["id"] == run_id:
+                base_rows, base_ids, base_val = dep, ids, val
+            thr = res.get("threshold") or {}
+            rows.append({
+                "run_id": r["id"], "name": r["name"], "this_run": r["id"] == run_id, "created_at": r["created_at"],
+                "eval_metric": (res.get("eval_metric") or {}).get("name"), "trained_on_cost": bool(r["config"].get("cost")),
+                "best_model": res.get("best_model"), "holdout_rows": len(hp),
+                "threshold": {"value": t_now, "source": thr.get("source"), "metric": thr.get("metric")} if t_now is not None else None,
+                "validation_threshold": vt, "deployed": a["deployed"], "validation": a.get("validation"),
+                "bayes": a["bayes"], "roc_auc": ((res.get("holdout") or {}).get("metrics") or {}).get("roc_auc"),
+                "accuracy": ((res.get("holdout") or {}).get("metrics") or {}).get("accuracy"),
+                "curve": [[c["t"], c["per_1000"]] for c in a.get("curve", [])], "_dep": dep, "_val": val, "_ids": ids,
+            })
+        for x in rows:
+            x["delta"] = None if x["this_run"] else costs.paired(base_rows, x.pop("_dep"), base_ids, x["_ids"])
+            v = x.pop("_val")
+            x["delta_validation"] = None if x["this_run"] or v is None or base_val is None else costs.paired(base_val, v, base_ids, x["_ids"])
+            x.pop("_ids", None)
+            x.pop("_dep", None)
+        base_res = rec.get("result") or {}
+        wanted = ["roc_auc", "accuracy"] if base_res.get("problem_type") == "binary" else ["accuracy", "log_loss"]
+        have = {x["eval_metric"] for x in rows if not x["trained_on_cost"]}
+        return {"run_id": run_id, "cost": cost, "per": costs.PER, "B": costs.B, "level": costs.LEVEL,
+                "problem_type": base_res.get("problem_type"), "runs": rows,
+                "trained_on_cost_present": any(x["trained_on_cost"] for x in rows),
+                "metrics_missing": [m for m in wanted if m not in have]}
+
+    try:
+        return await run_in_threadpool(build)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+
+def _metric_slot(r: dict[str, Any]) -> str:
+    cfg = r["config"]
+    return "cost:" + costs.key(cfg["cost"]) if cfg.get("cost") else "metric:" + str(((r.get("result") or {}).get("eval_metric") or {}).get("name"))
 
 
 class ThresholdRequest(BaseModel):

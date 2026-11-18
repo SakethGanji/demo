@@ -247,11 +247,24 @@ def holdout_metrics(predictor, holdout: pd.DataFrame, label: str) -> dict[str, A
 
     scores = predictor.evaluate(holdout, silent=True)
     natural = {}
+    em = predictor.eval_metric
     for k, v in scores.items():
         try:
-            natural[k] = float(get_metric(k, predictor.problem_type).convert_score_to_original(v))
+            m = em if k == em.name else get_metric(k, predictor.problem_type)
+            natural[k] = float(m.convert_score_to_original(v))
         except Exception:  # noqa: BLE001
             natural[k] = v
+    if em.name == "expected_cost" and predictor.problem_type == "binary":
+        # F7: AutoGluon scores the cost metric by the Bayes rule p > t*; the decisions the predictor serves use its
+        # decision threshold. Report the served decisions' cost as the metric, and keep the Bayes-rule value.
+        from ensemble_models.cost import binary_expected_cost_labels
+
+        kw = em._kwargs
+        y = (holdout[label] == predictor.positive_class).to_numpy().astype(int)
+        yhat = (predictor.predict(holdout) == predictor.positive_class).to_numpy().astype(int)
+        natural["expected_cost_bayes"] = natural.get("expected_cost")
+        natural["expected_cost"] = binary_expected_cost_labels(y, yhat, **kw)
+        scores = {**scores, "expected_cost_bayes": scores.get("expected_cost"), "expected_cost": -natural["expected_cost"]}
     out: dict[str, Any] = {"n_rows": len(holdout), "model": predictor.model_best, "scores": scores,
                            "metrics": natural, "eval_metric": predictor.eval_metric.name}
     if predictor.problem_type in ("binary", "multiclass"):
@@ -313,6 +326,32 @@ def compute_feature_importance(predictor, holdout: pd.DataFrame, time_limit: flo
     return feature_importance(predictor, holdout, time_limit=time_limit)
 
 
+def cost_scorer(cfg: dict[str, Any], train: pd.DataFrame):
+    """F7: the run's cost as an AutoGluon scorer (module-level functions in ensemble_models.cost, so it pickles into
+    bagged workers and the saved predictor). Multiclass matrices are put in AutoGluon's class order: the categories
+    of the training label, sorted, which is how its label cleaner numbers them."""
+    from ensemble_models import cost as c
+
+    cost = cfg["cost"]
+    if cost["kind"] == "binary":
+        return (c.binary_cost_scorer(cost["c_fp"], cost["c_fn"], cost["g_tp"]),
+                f"eval_metric = expected cost per decision (c_FP = {cost['c_fp']:g}, c_FN = {cost['c_fn']:g}, "
+                f"g_TP = {cost['g_tp']:g}), each model deciding by the Bayes rule p > t* = {cost['bayes_threshold']:.4f}: "
+                "models, early stopping and ensemble weights are chosen on it")
+    from .explain import _as_str
+
+    classes = [_as_str(v) for v in train[cfg["label"]].dropna().astype("category").cat.categories]
+    return (c.multiclass_cost_scorer(c.reorder_matrix(cost, classes)),
+            f"eval_metric = expected cost per decision of the predicted labels under the {len(classes)} × {len(classes)} "
+            "cost matrix: models, early stopping and ensemble weights are chosen on it")
+
+
+def costs_describe(cost: dict[str, Any]) -> str:
+    from .costs import describe
+
+    return describe(cost)
+
+
 def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit) -> tuple[str, str | None, float | None]:
     """Binary runs: calibrate the decision threshold after the fit when the run asks for it (`calibrate_threshold`:
     a metric name, or "auto" = F1 when the minority class is under 20% of the training rows). A user's own
@@ -333,7 +372,14 @@ def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit)
         emit("calibrating", metric=want)
         t0 = time.time()
         try:
-            t = thr.calibrate(predictor, want)
+            if want == "expected_cost" and cfg.get("cost", {}).get("kind") == "binary":
+                from ensemble_models.cost import binary_cost_class_scorer
+
+                cc = cfg["cost"]
+                t = float(predictor.calibrate_decision_threshold(
+                    metric=binary_cost_class_scorer(cc["c_fp"], cc["c_fn"], cc["g_tp"]), verbose=False))
+            else:
+                t = thr.calibrate(predictor, want)
             predictor.set_decision_threshold(t)
             predictor.save()
         except Exception as e:  # noqa: BLE001 — never fail a finished fit over the threshold
@@ -414,6 +460,10 @@ def run(run_dir: Path) -> int:
                              f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
             predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
                                 "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
+            scorer = None
+            if cfg.get("cost"):  # F7: the business cost is the eval_metric (an AutoGluon make_scorer)
+                scorer, cost_note = cost_scorer(cfg, train)
+                notes.append(cost_note)
             data_args: dict[str, Any] = {}
             if tuning is not None:  # F6: the split's tuning slice (group-disjoint, or the latest training period)
                 fit_kwargs["use_bag_holdout"] = True
@@ -458,7 +508,12 @@ def run(run_dir: Path) -> int:
                 store.merge_result(run_id, resolved=resolved)
             if tuning is not None:
                 call_kwargs["tuning_data"] = tuning
-            predictor = TabularPredictor(path=cfg["predictor_path"], **predictor_kwargs)
+            if scorer is not None:
+                resolved["cost_metric"] = {**cfg["cost"], "scorer": costs_describe(cfg["cost"]),
+                                           "needs_proba": bool(scorer.needs_proba), "needs_class": bool(scorer.needs_class)}
+                store.merge_result(run_id, resolved=resolved)
+            predictor = TabularPredictor(path=cfg["predictor_path"],
+                                         **({**predictor_kwargs, "eval_metric": scorer} if scorer is not None else predictor_kwargs))
             t0 = time.time()
             predictor.fit(train, **call_kwargs)
             for step in post_fit:
