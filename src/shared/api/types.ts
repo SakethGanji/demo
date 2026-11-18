@@ -452,6 +452,8 @@ export type Run = {
   monotone?: MonotoneReport | null
   /** F11: the scorecard challenger's report (read in full from GET /runs/{id}/scorecard). */
   scorecard?: { available: boolean; error?: string; reason?: string } | null
+  /** F12: the learning curve's headline (status and verdict); the full curve is GET /runs/{id}/learning-curve. */
+  learning_curve?: { status: LearningCurveStatus; fits_done?: number; fits_total?: number; error?: string | null; verdict?: LearningCurveVerdict | null } | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null
@@ -908,3 +910,52 @@ export type LlmLatency = { n: number; p50_s: number | null; p95_s: number | null
 export type LlmStatus = { settings: LlmSettings; route: string[]; labels: Record<string, string>
   sdk: { available: boolean; why: string; base_url: string | null }; cli: { path: string | null }
   latency: Record<string, LlmLatency>; stats: { calls: number; cache_hits: number; shared_in_flight: number; by_source: Record<string, number>; cache_size: number } }
+
+/** F12 · learning curves. */
+export type LearningCurveStatus = 'none' | 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+export type LearningCurveVerdict = {
+  schema: string
+  label: 'data-limited' | 'saturated' | 'noisy'
+  reason: string
+  metric: string
+  greater_is_better: boolean
+  slope_per_doubling: { value: number; ci: [number, number]; level: number; units: string }
+  extrapolation: {
+    n_full: number; score_at_n: number
+    x2: { n: number; score: number; ci: [number, number]; gain: number }
+    x4: { n: number; score: number; ci: [number, number]; gain: number }
+  }
+  evidence: {
+    min_gain: number; min_gain_rule: string; seed_sd: number | null
+    observed_last_step: { from_fraction: number; from_n: number; to_n: number; doublings: number; gain: number; gain_per_doubling: number | null; ci: [number, number] } | null
+    monotone_within_noise: boolean; n_points: number; fractions: number[]; seeds: number; fit_rmse: number
+    power_law: { A: number; b: number; c: number; asymptote: number }
+    B: number; se_means: number[]; sd_population_full: number; interval_method: string
+  }
+}
+export type LearningCurvePoint = {
+  fraction: number; seed: number | null; n: number; score: number; source: 'run' | 'subsample'
+  best_model?: string; n_models?: number; models?: string[]; fit_seconds?: number | null; seconds?: number
+  holdout_sha: string; rows_sha: string; classes?: number | null; groups?: number | null
+}
+export type LearningCurveRequest = { fractions?: number[]; seeds?: number; time_limit?: number | null; min_gain?: number | null; reuse_full?: boolean }
+export type LearningCurve = {
+  run_id: string
+  status: LearningCurveStatus
+  defaults: { fractions: number[]; seeds: number; time_limit: number | null; n_full: number | null; fits: number; run_fit_seconds: number | null; max_seconds: number | null; estimate_seconds: number | null }
+  schema?: string; error?: string | null
+  request?: Required<LearningCurveRequest>
+  fits_done?: number; fits_total?: number; current?: { fraction: number; seed: number }
+  started_at?: string; finished_at?: string
+  metric?: { name: string; greater_is_better: boolean; optimum: number | null }
+  problem_type?: string; n_full?: number; holdout_rows?: number; holdout_sha?: string; tuning_rows?: number
+  split?: { key: string; sha256: string; strategy: string; stratified: boolean; group_column: string | null; subsample: string }
+  nested?: boolean; groups_whole?: boolean | null
+  fit_call?: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; notes: string[]; time_limit: number | null }
+  points?: LearningCurvePoint[]
+  summary?: { fraction: number; n: number; k: number; mean: number; sd: number | null; ci: [number, number] | null; scores: number[] }[]
+  fit?: { form: string; A: number; b: number; c: number; sse: number; sign: number; u_optimum: number | null; x: number[] }
+  curve?: [number, number][]
+  band?: [number, number, number][]
+  verdict?: LearningCurveVerdict | null
+}

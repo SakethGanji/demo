@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -80,6 +80,12 @@ export const api = {
     },
     /** F11: the scorecard challenger: table, IV, holdout AUC vs the served model, ΔAUC with a bootstrap CI. */
     scorecard: (id: string) => request<ScorecardReport>(`/runs/${encodeURIComponent(id)}/scorecard`),
+    /** F12: the run's learning curve (status 'none' with the defaults until one is started). */
+    learningCurve: (id: string) => request<LearningCurve>(`/runs/${encodeURIComponent(id)}/learning-curve`),
+    /** F12: refit the run's exact config on nested subsamples of its training rows, in a worker process. */
+    startLearningCurve: (id: string, body: LearningCurveRequest = {}) =>
+      request<LearningCurve>(`/runs/${encodeURIComponent(id)}/learning-curve`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
+    cancelLearningCurve: (id: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/learning-curve/cancel`, { method: 'POST' }),
     /** F11: the deployable scorecard on holdout rows (by position): points per feature, score, P, reason codes. */
     scorecardScore: (id: string, holdout_index: number[], top_k = 4) =>
       request<ScorecardScore>(`/runs/${encodeURIComponent(id)}/scorecard/score`, { method: 'POST', body: JSON.stringify({ holdout_index, top_k }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),
