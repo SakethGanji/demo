@@ -47,6 +47,11 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              consensus vs majority vote (acceptance); the disagreement queue (a person's vote and adjudication, the
              SIMULATED adjudicator), a dataset version with the holdout untouched; a long-format upload by ticket_id;
              refusals; the summary for F17
+  shift      F15: adversarial validation on credit-default: an AutoGluon classifier (bagged, out-of-fold scores) tells
+             reference rows from new rows: train vs holdout, two periods on F6's date column, registry batches (unshifted,
+             and debt_to_income × 2: AUC > 0.7 with it ranked first; unshifted AUC ≈ 0.5); AUC and ESS recomputed from the
+             per-row scores; excluded columns; out-of-time twin, drop patch, importance weights trained as sample_weight;
+             refusals, 409; the summary for F17
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -3281,6 +3286,228 @@ def annotators(st: dict[str, Any]) -> None:
     step("annotators: upload + a bagged run's own OOF", upload_bagged)
 
 
+def _shift_wait(run_id: str, key: str, timeout: float = 900) -> dict[str, Any]:
+    return poll(f"/api/runs/{run_id}/shift/{key}", lambda x: x["status"] in ("succeeded", "failed", "cancelled"), timeout, 2)
+
+
+def _shift_recheck(run_id: str, g: dict[str, Any]) -> tuple[float, float]:
+    """AUC and ESS recomputed here from the per-row out-of-fold scores and weights the API returns."""
+    from sklearn.metrics import roc_auc_score
+
+    rows = get(f"/api/runs/{run_id}/shift/{g['key']}/rows")["rows"]
+    o = np.array([r["origin"] for r in rows])
+    p = np.array([r["p_new_oof"] for r in rows])
+    w = np.array([r["w"] for r in rows if r["set"] == "reference"], dtype=float)
+    check(len(rows) == g["sets"]["reference"]["rows"] + g["sets"]["new"]["rows"], "rows ≠ |R| + |N|")
+    auc = float(roc_auc_score(o, p))
+    check(abs(auc - g["result"]["auc"]["value"]) < 1e-9, f"AUC recomputed {auc} ≠ API {g['result']['auc']['value']}")
+    ess = float(w.sum() ** 2 / np.sum(w ** 2))
+    check(abs(w.mean() - 1) < 1e-9 and abs(ess - g["result"]["weights"]["ess"]) < 1e-6, (w.mean(), ess))
+    return auc, ess
+
+
+def shift(st: dict[str, Any]) -> None:
+    """F15: adversarial validation on credit-default. An AutoGluon classifier (bagged LightGBM, out-of-fold scores)
+    tells reference rows from new rows: train vs holdout of a random-split run, two periods on F6's date column, and
+    registry batches (an unshifted batch of holdout rows, and the same rows with debt_to_income × 2). Asserts the
+    acceptance (shifted AUC > 0.7 with the injected column ranked first, unshifted AUC ≈ 0.5), recomputes every AUC and
+    ESS from the per-row scores, checks the excluded columns (label, ids, the date), and runs the three actions: an
+    out-of-time twin (F6), a Gym patch dropping the column, importance weights as a dataset version trained with
+    sample_weight; and the summary for F17."""
+    ds, label = "credit-default", "defaulted"
+    s: dict[str, Any] = {}
+    data_dir = get("/api/health")["data_dir"]
+    df = pd.read_csv(os.path.join(data_dir, "datasets", ds, "data.csv"))
+
+    def run_and_refusals():
+        prof = get(f"/api/datasets/{ds}")["profile"]
+        drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != label]
+        r = post("/api/runs", {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": "roc_auc",
+                               "presets": "medium_quality", "time_limit": 120, "fit_kwargs": {"hyperparameters": HP},
+                               "drop_columns": drop, "feature_importance": False, "source": "smoke-shift"})
+        rec = wait_run(r["id"])
+        s["run"] = rec
+        rid = rec["id"]
+        empty = get(f"/api/runs/{rid}/shift")
+        check(empty["checks"] == [] and empty["options"]["time_column"] == "application_date", empty["options"])
+        bad = [({"source": "batch"}, 400), ({"source": "batch", "batch_id": "batch_nope"}, 404),
+               ({"source": "time", "time_column": "region"}, 400), ({"source": "time", "cutoff": "2031-01-01"}, 400),
+               ({"source": "holdout", "include": ["nope"]}, 400), ({"source": "holdout", "include": [label]}, 400), ({"source": "sideways"}, 422), ({"null_refits": 99}, 422)]
+        for body, code in bad:
+            x = C.post(f"/api/runs/{rid}/shift", json=body)
+            check(x.status_code == code, f"{body} → {x.status_code} (expected {code}): {x.text[:200]}")
+        check(C.get(f"/api/runs/{rid}/shift/holdout").status_code == 404, "no check yet → 404")
+        return f"{rid} random-stratified · roc_auc {primary(rec)[1]:.4f} · no checks yet · {len(bad)} bad requests refused"
+
+    if not step("shift: run + refusals", run_and_refusals):
+        return
+    rid = s["run"]["id"]
+
+    def holdout():
+        g = post(f"/api/runs/{rid}/shift", {"source": "holdout"})
+        check(g["status"] in ("queued", "running"), g["status"])
+        x = C.post(f"/api/runs/{rid}/shift", json={"source": "time"})
+        check(x.status_code == 409, f"a second check while one runs → {x.status_code}")
+        g = _shift_wait(rid, "holdout")
+        check(g["status"] == "succeeded", g.get("error"))
+        res = g["result"]
+        auc, ess = _shift_recheck(rid, g)
+        a = res["auc"]
+        check(a["ci"][0] <= auc <= a["ci"][1], a)
+        check(abs(auc - 0.5) < 0.03 and res["verdict"]["label"] == "no shift", f"train vs holdout of a random split: AUC {auc:.4f}, {res['verdict']['label']}")
+        nul = res["null"]
+        check(len(nul["refit"]["aucs"]) == 3 and nul["permutation"]["B"] == 2000, nul["refit"])
+        ex = {e["column"] for e in g["excluded"]}
+        check({label, "applicant_id", "customer_id", "application_date"} <= ex, ex)
+        check(g["fit"]["num_bag_folds"] == 5 and g["fit"]["oof"].startswith("predict_proba_oof"), g["fit"])
+        s["holdout"] = g
+        return (f"|R| {g['sets']['reference']['rows']:,} vs |N| {g['sets']['new']['rows']:,} · AUC {auc:.4f} "
+                f"[{a['ci'][0]:.4f}, {a['ci'][1]:.4f}] (recomputed from {g['sets']['reference']['rows'] + g['sets']['new']['rows']:,} OOF scores) · "
+                f"permutation p {nul['permutation']['p_value']:.3f} · refit null {', '.join(f'{v:.3f}' for v in nul['refit']['aucs'])} · "
+                f"{res['verdict']['label']} · excluded {', '.join(sorted(ex))} · {g['fit']['model']} fit {g['fit']['fit_seconds']:.0f} s")
+
+    step("shift: train vs holdout (random split)", holdout)
+
+    def periods():
+        g = post(f"/api/runs/{rid}/shift", {"source": "time"})
+        key = g["key"]
+        g = _shift_wait(rid, key)
+        check(g["status"] == "succeeded", g.get("error"))
+        ex = {e["column"]: e["reason"] for e in g["excluded"]}
+        check("application_date" in ex and "by construction" in ex["application_date"], ex.get("application_date"))
+        check({"customer_id", "applicant_id", label} <= set(ex), ex)
+        cut = pd.Timestamp(g["extra"]["cutoff"])
+        rows = get(f"/api/runs/{rid}/shift/{key}/rows")["rows"]
+        t = pd.to_datetime(df["application_date"])
+        ref = [r["row"] for r in rows if r["set"] == "reference"]
+        new = [r["row"] for r in rows if r["set"] == "new"]
+        check(t.iloc[ref].max() < cut <= t.iloc[new].min(), "periods overlap the cut-off")
+        auc, _ = _shift_recheck(rid, g)
+        res = g["result"]
+        s["time"] = g
+        # What the exclusions prevent: the date put back in separates the periods by itself.
+        g2 = post(f"/api/runs/{rid}/shift", {"source": "time", "include": ["application_date"], "null_refits": 0})
+        check(g2["key"] == key, "same source, same key")
+        g2 = _shift_wait(rid, key)
+        check(g2["status"] == "succeeded", g2.get("error"))
+        a2 = g2["result"]["auc"]["value"]
+        check(a2 > 0.95 and g2["result"]["features"][0]["feature"] == "application_date", (a2, g2["result"]["features"][0]))
+        g3 = post(f"/api/runs/{rid}/shift", {"source": "time"})  # back to the default exclusions
+        g3 = _shift_wait(rid, key)
+        check(g3["status"] == "succeeded" and abs(g3["result"]["auc"]["value"] - auc) < 1e-9, "the default check is reproducible")
+        top = [f"{f['feature']} {f['importance']:.4f}" for f in res["features"][:3]]
+        return (f"{g['sets']['reference']['name']} ({g['sets']['reference']['rows']:,}) vs {g['sets']['new']['name']} "
+                f"({g['sets']['new']['rows']:,}), cut-off from {g['extra']['cutoff_source']} · AUC {auc:.4f} "
+                f"[{res['auc']['ci'][0]:.4f}, {res['auc']['ci'][1]:.4f}] · p {res['null']['permutation']['p_value']:.4f} · "
+                f"refit null max {res['null']['refit']['max']:.3f} · {res['verdict']['label']} · top {', '.join(top)} · "
+                f"with application_date put back: AUC {a2:.4f}, ranked 1 (why the date is left out)")
+
+    step("shift: two periods (F6 date column)", periods)
+
+    def batches():
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.shift.credit"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready", v.get("error"))
+        hp = get(f"/api/runs/{rid}/holdout-predictions")
+        hold = df.iloc[np.asarray(hp["rows"], dtype=int)].drop(columns=[label]).sample(1500, random_state=15)
+        out = {}
+        for name, frame in (("unshifted", hold), ("shifted", hold.assign(debt_to_income=hold["debt_to_income"] * 2.0))):
+            b = j(C.post(f"/api/registry/versions/{v['id']}/batches", files={"file": (f"{name}.csv", frame.to_csv(index=False).encode(), "text/csv")},
+                         data={"created_by": "Smoke Analyst"}))
+            b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+            check(b["status"] == "succeeded", b.get("error"))
+            check(get(f"/api/registry/batches/{b['id']}/shift")["status"] == "none", "no check before it is started")
+            post(f"/api/registry/batches/{b['id']}/shift", {})
+            g = poll(f"/api/registry/batches/{b['id']}/shift", lambda x: x["status"] in ("succeeded", "failed"), 900, 2)
+            check(g["status"] == "succeeded", g.get("error"))
+            auc, _ = _shift_recheck(rid, g)
+            check(g["sets"]["new"]["max_psi"] == b["result"]["drift"]["max_psi"], "PSI next to the AUC is the batch's own")
+            psi = {f["feature"]: f["psi"] for f in b["result"]["drift"]["features"] if f["psi"] is not None}
+            top = g["result"]["features"][0]
+            check(abs(top["psi"] - psi[top["feature"]]) < 1e-9, f"PSI of {top['feature']}: {top['psi']} vs drift {psi[top['feature']]}")
+            out[name] = (b, g, auc)
+        b0, g0, a0 = out["unshifted"]
+        b1, g1, a1 = out["shifted"]
+        f1 = g1["result"]["features"]
+        check(a1 > 0.7, f"shifted batch AUC {a1:.4f} ≤ 0.7")
+        check(f1[0]["feature"] == "debt_to_income" and f1[0]["significant"], f"rank 1 is {f1[0]['feature']}, not debt_to_income")
+        check(abs(a0 - 0.5) < 0.03 and g0["result"]["verdict"]["label"] == "no shift", f"unshifted batch AUC {a0:.4f} {g0['result']['verdict']['label']}")
+        check(not any(f["significant"] for f in g0["result"]["features"]), "no column flagged without a shift")
+        s.update(version=v, shifted=g1, shifted_batch=b1)
+        return (f"ACCEPTANCE shifted batch (debt_to_income × 2): AUC {a1:.4f} [{g1['result']['auc']['ci'][0]:.4f}, "
+                f"{g1['result']['auc']['ci'][1]:.4f}] > 0.7, {g1['result']['verdict']['label']}, rank 1 debt_to_income "
+                f"(importance {f1[0]['importance']:.4f} [{f1[0]['ci'][0]:.4f}, {f1[0]['ci'][1]:.4f}], PSI {f1[0]['psi']:.3f}; "
+                f"rank 2 {f1[1]['feature']} {f1[1]['importance']:.4f}) · unshifted batch: AUC {a0:.4f} "
+                f"[{g0['result']['auc']['ci'][0]:.4f}, {g0['result']['auc']['ci'][1]:.4f}], p {g0['result']['null']['permutation']['p_value']:.3f}, "
+                f"refit null {', '.join(f'{x:.3f}' for x in g0['result']['null']['refit']['aucs'])}, no shift · max PSI "
+                f"{b0['result']['drift']['max_psi']:.3f} vs {b1['result']['drift']['max_psi']:.3f}")
+
+    if not step("shift: registry batches (acceptance)", batches):
+        return
+
+    def act():
+        key = s["shifted"]["key"]
+        g = get(f"/api/runs/{rid}/shift/{key}")
+        acts = {a["id"]: a for a in g["actions"]}
+        check({"out-of-time", "drop-debt_to_income", "weights"} <= set(acts), list(acts))
+        # 1. Out-of-time validation: the F6 twin with the action's split_spec.
+        oot = acts["out-of-time"]
+        check(oot["available"] and oot["split_spec"] == {"strategy": "time", "time_column": "application_date"}, oot)
+        tw = post(oot["endpoint"], {"split_spec": oot["split_spec"]})
+        tw = wait_run(tw["id"])
+        check(tw["split"]["strategy"] == "time", tw["split"])
+        cmp_ = get(f"/api/runs/{tw['id']}/split-comparison")
+        by = {x["strategy"]: x for x in cmp_["runs"] if x["same_config"] or x["this_run"]}
+        check({"random-stratified", "time"} <= set(by), list(by))
+        # 2. Drop the column: a Gym patch, valid against the installed AutoGluon.
+        p = acts["drop-debt_to_income"]["patch"]
+        check("debt_to_income" in p["body"]["drop_columns"] and p["changes"][0]["path"] == "drop_columns", p["changes"])
+        val = post("/api/gym/validate", p["body"])
+        check(not val["errors"], val["errors"])
+        # 3. Importance weighting: a dataset version with shift_weight, trained with sample_weight.
+        wv = post(f"/api/runs/{rid}/shift/{key}/weights-version")
+        ver, wp = wv["dataset_version"], wv["patch"]
+        new = pd.read_csv(os.path.join(data_dir, "datasets", ver["id"], "data.csv"))
+        check(len(new) == len(df) and "shift_weight" in new.columns, "version shape")
+        rows = get(f"/api/runs/{rid}/shift/{key}/rows")["rows"]
+        ref = {r["row"]: r["w"] for r in rows if r["set"] == "reference"}
+        wcol = new["shift_weight"].to_numpy()
+        check(np.allclose(wcol[list(ref)], list(ref.values())), "weights not written to the reference rows")
+        others = np.setdiff1d(np.arange(len(new)), list(ref))
+        check(np.all(wcol[others] == 1.0), "rows outside the reference must weigh 1")
+        check(new.drop(columns=["shift_weight"]).equals(df), "the version changed other data")
+        check(wp["body"]["dataset_id"] == ver["id"] and wp["body"]["predictor_kwargs"]["sample_weight"] == "shift_weight", wp["changes"])
+        val = post("/api/gym/validate", wp["body"])
+        check(not val["errors"], val["errors"])
+        r = post("/api/runs", {**wp["body"], "source": "smoke-shift", "parent_run_id": rid,
+                               "patch": {"id": wp["id"], "title": wp["title"], "changes": wp["changes"]}})
+        wr = wait_run(r["id"])
+        check(wr["resolved"]["predictor_kwargs"].get("sample_weight") == "shift_weight", wr["resolved"]["predictor_kwargs"])
+        check("shift_weight" not in (wr.get("features") or []), "the weight became a feature")
+        w = g["result"]["weights"]
+        bal = w["balance"][0] if w["balance"] else None
+        st["shift_weighted"] = wr
+        return (f"out-of-time twin {tw['id']} roc_auc {primary(tw)[1]:.4f} vs random {primary(s['run'])[1]:.4f} · "
+                f"drop patch valid (drop_columns + debt_to_income) · weights version {ver['id']}: {ver['rows_weighted']:,} rows "
+                f"w ∈ [{w['min']:.3f}, {w['max']:.3f}] (clipped at q {w['clip_quantile']}, {w['clipped_rows']} rows), "
+                f"ESS {w['ess']:,.0f} = {w['ess_share']:.1%} of {w['n_ref']:,}"
+                + (f", mean {bal['feature']} {bal['mean_reference']:.3f} → {bal['mean_reference_weighted']:.3f} (new {bal['mean_new']:.3f})" if bal else "")
+                + f" · weighted run {wr['id']} roc_auc {primary(wr)[1]:.4f} with sample_weight='shift_weight'")
+
+    step("shift: actions (out-of-time, drop, weights)", act)
+
+    def f17():
+        sm = get(f"/api/runs/{rid}")["shift"]
+        need = {"schema", "key", "source", "status", "auc", "ci", "null", "verdict", "top_features", "excluded", "ess_share"}
+        check(sm and need <= set(sm) and sm["schema"] == "shift/1", sm)
+        lst = get(f"/api/runs/{rid}/shift")
+        check(len(lst["checks"]) == 4 and {c["source"] for c in lst["checks"]} == {"holdout", "time", "batch"}, [c["key"] for c in lst["checks"]])
+        check(len(lst["options"]["batches"]) == 2, lst["options"]["batches"])
+        return f"run payload shift/1 = latest check ({sm['key']}: AUC {sm['auc']:.4f}, {sm['verdict']}) · {len(lst['checks'])} checks listed"
+
+    step("shift: summary for F17", f17)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -3322,7 +3549,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
