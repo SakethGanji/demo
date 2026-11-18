@@ -9,6 +9,7 @@ make dev         # API on :8000 and the UI on http://localhost:5190, together; C
 make test        # fast tier: pytest (not slow, includes tiny real fits), tsc --noEmit, vite build
 make test-full   # adds the slow pytest marks and the Playwright e2e suite (live and mock)
 make clean-data  # delete backend/data; the samples are regenerated on the next start
+backend/.venv/bin/python scripts/smoke.py   # end-to-end check against a running API (:8000), ✓ / ✗ per step
 ```
 
 `npm run dev` alone still works: the UI shows "mock mode" in the status bar until an API answers on :8000.
