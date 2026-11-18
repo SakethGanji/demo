@@ -1478,6 +1478,7 @@ def importer(st: dict[str, Any]) -> None:
         check(e.get("roc") or e.get("confusion_matrix"), e.keys())
         fi = get(f"/api/runs/{rid}/feature-importance")
         row = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "credit-default", "data.csv")).drop(columns=["defaulted"]).iloc[:3]
+        row = row.astype(object).where(row.notna(), None)  # missing values as JSON null (F6's sample has some in the first rows)
         p = post(f"/api/runs/{rid}/predict", {"rows": row.to_dict(orient="records")})
         check(len(p["predictions"]) == 3, p)
         return f"explain ✓ · importance top {fi['features'][0]['feature']} · predict 3 rows → {p['predictions']}"

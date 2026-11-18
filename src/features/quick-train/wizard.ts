@@ -5,6 +5,7 @@ import type { Col, Dataset } from './datasets'
 
 export type { Task } from '@/shared/lib/metrics'
 import type { Task } from '@/shared/lib/metrics'
+import type { SplitSpec } from '@/shared/api/types'
 export type ColType = 'number' | 'category' | 'text' | 'id'
 
 export type Choices = {
@@ -20,6 +21,8 @@ export type Choices = {
   fitKwargs: string
   /** Binary: calibrate the decision threshold after the fit for this metric (null: keep AutoGluon's 0.5). */
   threshold: string | null
+  /** F6: how the holdout is drawn (null: random, stratified on y). */
+  split?: SplitSpec | null
 }
 
 /** Share of the rarest class of the label (1 when unknown). */

@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -46,6 +46,10 @@ export const api = {
     /** F4: confirm the column to predict; the API re-profiles and draws (or reuses) that target's own holdout. */
     setTarget: (id: string, target: string) => request<DatasetDetail>(`/datasets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ target }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
     splits: (id: string) => request<DatasetSplits>(`/datasets/${encodeURIComponent(id)}/splits`),
+    /** F6: strategies, date and entity columns found, and warnings for a random split. */
+    splitOptions: (id: string, target?: string) => request<SplitOptions>(`/datasets/${encodeURIComponent(id)}/split-options${target ? `?target=${encodeURIComponent(target)}` : ''}`, { timeoutMs: 60_000 }),
+    /** F6: draw (or reuse) a split and describe it: rows, groups, dates per role; timeline for time splits. */
+    drawSplit: (id: string, target: string, spec: SplitSpec) => request<SplitDescription>(`/datasets/${encodeURIComponent(id)}/splits`, { method: 'POST', body: JSON.stringify({ target, ...spec }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
   },
   models: () => request<{ families: ModelFamily[] }>('/models').then((r) => r.families),
   runs: {
@@ -56,6 +60,10 @@ export const api = {
       return request<{ runs: Run[] }>(`/runs${q.toString() ? `?${q}` : ''}`).then((r) => r.runs)
     },
     get: (id: string) => request<Run>(`/runs/${encodeURIComponent(id)}`),
+    /** F6: the same run under another split (identical body, only split_spec differs). */
+    splitTwin: (id: string, split_spec: SplitSpec) => request<Run>(`/runs/${encodeURIComponent(id)}/split-twin`, { method: 'POST', body: JSON.stringify({ split_spec }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),
+    /** F6: this run's holdout score beside the same data and label under other splits. */
+    splitComparison: (id: string) => request<SplitComparison>(`/runs/${encodeURIComponent(id)}/split-comparison`),
     cancel: (id: string) => request<{ id: string; cancelling: boolean }>(`/runs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
     /** Events recorded so far, once (no stream). */
     events: (id: string, from = 0) => request<{ events: RunEvent[]; next: number }>(`/runs/${encodeURIComponent(id)}/events?format=json&from=${from}`),

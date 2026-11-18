@@ -5,6 +5,7 @@ import type { Run } from '@/shared/api/types'
 import { DatasetStep } from './components/DatasetStep'
 import { GoalStep } from './components/GoalStep'
 import { TargetStep, targetConfirmed } from './components/TargetStep'
+import { STRATEGY_NAME } from './components/SplitCard'
 import { SAMPLES, fromServer, type Dataset } from './datasets'
 import { mockSource, simulate } from './race/mockRun'
 import { RaceStage } from './race/RaceStage'
@@ -81,7 +82,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
         try {
           const d = fromServer(await api.datasets.get(run.dataset_id))
           setDs(d)
-          setCh({ ...initialChoices(d), label: run.label, preset: String(run.config.presets ?? 'medium_quality'), budget: Number(run.config.time_limit ?? 120) })
+          setCh({ ...initialChoices(d), label: run.label, preset: String(run.config.presets ?? 'medium_quality'), budget: Number(run.config.time_limit ?? 120), split: (run.config.split_spec as Choices['split']) ?? null })
           break
         } catch (e) {
           if (e instanceof ApiError && e.status === 404) break
@@ -106,7 +107,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
         const run = await api.runs.create({
           dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: ch.metric, presets: ch.preset, time_limit: ch.budget,
           fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
-          calibrate_threshold: task === 'binary' ? ch.threshold : null,
+          calibrate_threshold: task === 'binary' ? ch.threshold : null, split_spec: ch.split ?? null,
         })
         setSource({ fn: liveSource, run: null })
         setRunId(run.id)
@@ -179,7 +180,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
               : step === 0 ? (usable ? <><span className="dot">●</span> Schema Valid · target {ch.label} · {inferred === 'regression' ? 'regression' : `K = ${K}`}</> : <span style={{ color: 'var(--status-warning)' }}><span className="dot">▲</span> No label column with two or more values</span>)
               : step === 1 ? (!task ? <span style={{ color: 'var(--status-warning)' }}>▲ pick a label with two or more values</span>
                 : !confirmed ? <span style={{ color: 'var(--status-warning)' }} data-testid="confirm-needed">▲ confirm y = {ch.label} to draw its holdout</span>
-                : <><span className="dot">●</span> y = {ch.label} (confirmed) · {task} · d = {nFeat} features · |H| = {ds.profile?.splits.holdout_rows.toLocaleString() ?? '—'}</>)
+                : <><span className="dot">●</span> y = {ch.label} (confirmed) · {task} · d = {nFeat} features · {ch.split ? <>{STRATEGY_NAME[ch.split.strategy]} split</> : <>|H| = {ds.profile?.splits.holdout_rows.toLocaleString() ?? '—'}</>}</>)
               : step === 2 && !confirmed ? <span style={{ color: 'var(--status-warning)' }}>▲ go back and confirm y = {ch.label}</span>
               : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {ch.metric}{live && ds.id ? '' : ' · simulated (mock mode)'}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
               : done ? <><span className="dot">●</span> Run complete · {race.bestModel}</> : race.status === 'failed' ? <span style={{ color: 'var(--status-danger)' }}>✕ {race.error}</span> : race.status === 'cancelled' ? <span>Cancelled</span> : <span>Training…</span>}
@@ -205,7 +206,8 @@ function RaceSide({ race }: { race: ReturnType<typeof useRace>['state'] }) {
         <dl className="where race-facts">
           <dt>n</dt><dd>{race.trainRows != null ? `${race.trainRows.toLocaleString()} training rows` : '…'}{race.droppedMissing ? ` (${race.droppedMissing} without a label dropped)` : ''}</dd>
           <dt>n<sub>h</sub></dt><dd>{race.holdoutRows != null ? `${race.holdoutRows.toLocaleString()} holdout rows, never trained on, scored at the end` : '…'}</dd>
-          {race.split && <><dt>H</dt><dd data-testid="race-split">the holdout drawn for y = <b className="mono">{race.split.target}</b> ({race.split.strategy}, sha {race.split.sha256.slice(0, 12)})</dd></>}
+          {race.split && <><dt>H</dt><dd data-testid="race-split">the holdout drawn for y = <b className="mono">{race.split.target}</b> ({race.split.strategy}{race.split.cutoff ? `, t ≥ τ = ${race.split.cutoff}` : ''}{race.split.params?.group_column ? `, no ${race.split.params.group_column} shared with training` : ''}, sha {race.split.sha256.slice(0, 12)})</dd></>}
+          {race.split?.tuning_rows ? <><dt>T</dt><dd data-testid="race-tuning">{race.split.tuning_rows.toLocaleString()} tuning rows passed as <span className="mono">tuning_data</span>{race.split.tuning_cutoff ? ` (${race.split.tuning_cutoff} onwards)` : ' (entity-disjoint)'}{race.split.excluded_rows ? ` · ${race.split.excluded_rows.toLocaleString()} rows excluded` : ''}</dd></> : null}
           <dt>d</dt><dd>{race.features.length ? `${race.features.length} features: ${race.features.slice(0, 8).join(', ')}${race.features.length > 8 ? ', …' : ''}` : '…'}</dd>
           <dt>k</dt><dd>{race.kFold ? `${race.kFold}-fold bagging: each model is k models, scored out of fold` : race.metric ? 'no bagging: scored on a tuning split AutoGluon holds out' : '…'}</dd>
           <dt>metric</dt><dd>{race.metric ?? '…'}{race.metric ? ` (${race.greater ? 'higher' : 'lower'} is better)` : ''}</dd>

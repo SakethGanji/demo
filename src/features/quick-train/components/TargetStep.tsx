@@ -4,6 +4,7 @@ import type { DatasetSplits } from '@/shared/api/types'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fromServer, type Dataset } from '../datasets'
+import { SplitCard } from './SplitCard'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { effectiveType, inferTask, labelClasses, labelOptions, type Choices, type ColType, type Task } from '../wizard'
 
@@ -30,7 +31,7 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
   const pickLabel = (label: string) => {
     const types = { ...ch.types }
     delete types[label]
-    set({ label, problemType: null, types })
+    set({ label, problemType: null, types, split: null })
   }
   const setType = (name: string, t: ColType) => {
     const c = ds.cols.find((x) => x.name === name)!
@@ -117,6 +118,7 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
 
         <div className="stack">
         {ds.id && <ConfirmTarget ds={ds} label={ch.label} onConfirmed={onConfirmed} />}
+        {ds.id && targetConfirmed(ds, ch.label) && <SplitCard ds={ds} label={ch.label} spec={ch.split ?? null} onSpec={(sp) => set({ split: sp })} />}
         <div className="card" data-testid="column-types">
           <div className="card-head">
             <div className="left"><h3 className="card-title">Columns</h3><span className="helper" style={{ fontSize: 12 }}>how AutoGluon reads each one · edit to override</span></div>

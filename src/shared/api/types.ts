@@ -66,6 +66,43 @@ export type Profile = {
 export type RunSplit = {
   path: string; key: string; target: string; strategy: string; seed: number; stratified: boolean
   holdout_share: number; n_folds: number; holdout_rows: number; sha256: string; drawn_for_this_run: boolean
+  /** F6: group / time / time-group splits. */
+  params?: SplitParams; tuning_rows?: number; excluded_rows?: number; cutoff?: string | number | null; tuning_cutoff?: string | number | null
+}
+
+/** F6: how the holdout is drawn. */
+export type SplitStrategy = 'random-stratified' | 'group' | 'time' | 'time-group'
+export type SplitParams = { group_column?: string; time_column?: string; cutoff?: string | null; tuning_share?: number }
+export type SplitSpec = SplitParams & { strategy: SplitStrategy }
+export type SplitOptions = {
+  dataset_id: string; target: string | null; strategies: SplitStrategy[]
+  date_columns: { column: string; from: string; to: string; distinct: number; parsed_share: number }[]
+  group_columns: { column: string; groups: number; rows_per_group: number; max_rows: number; id_like_name: boolean }[]
+  warnings: string[]; suggested: SplitStrategy; holdout_share: number; tuning_share: number
+  suggested_params: SplitParams
+}
+export type SplitRole = { rows: number; groups?: number; positive_rate?: number; from?: string; to?: string }
+export type SplitDiagram = {
+  roles: { train: SplitRole; tuning: SplitRole; holdout: SplitRole; excluded: SplitRole }
+  positive_label: string | null
+  shared_groups?: { train_holdout: number; train_tuning: number; tuning_holdout: number }
+  rows_per_group?: { mean: number; max: number; hist: Record<string, number> }
+  fold_groups?: number[]
+  timeline?: ({ period: string; train: number; tuning: number; holdout: number; excluded: number; positive_rate?: number })[]
+}
+export type SplitDescription = Splits & {
+  dataset_id: string; drawn_now: boolean; params?: SplitParams; train_rows?: number; tuning_rows?: number; excluded_rows?: number
+  cutoff?: string | number | null; tuning_cutoff?: string | number | null; diagram?: SplitDiagram
+}
+export type SplitComparisonRow = {
+  run_id: string; name: string; created_at: string; key: string; strategy: SplitStrategy; params: SplitParams | null
+  cutoff: string | null; tuning_cutoff: string | null; holdout_rows: number | null; train_rows: number | null
+  tuning_rows: number; excluded_rows: number; score: number; same_config: boolean; this_run: boolean
+  best_model: string | null; optimism: number | null
+}
+export type SplitComparison = {
+  run_id: string; dataset_id: string; label: string; metric: string | null; greater_is_better: boolean
+  random_run_id: string | null; runs: SplitComparisonRow[]; strategies_missing: SplitStrategy[]
 }
 
 export type DatasetSplits = { dataset_id: string; target: string | null; current: string | null; splits: (Splits & { created_at?: string; adopted_from?: string | null })[] }
@@ -141,6 +178,8 @@ export type RunCreate = {
   parent_run_id?: string | null
   patch?: { id: string; title?: string; changes: PatchChange[] } | null
   source?: string | null
+  /** F6: the split strategy (default random-stratified) and its columns. */
+  split_spec?: SplitSpec | null
 }
 
 // -- Training Gym (S6) -------------------------------------------------------------------------------------------

@@ -20,7 +20,7 @@ export type RaceState = {
   startTs: number | null; endTs: number | null; queuedTs: number | null
   trainRows: number | null; holdoutRows: number | null; features: string[]; droppedColumns: string[]; droppedMissing: number
   /** F4: the (label, strategy) split the run trains and is scored on. */
-  split?: { key: string; target: string; strategy: string; sha256: string; holdout_rows: number } | null
+  split?: { key: string; target: string; strategy: string; sha256: string; holdout_rows: number; params?: { group_column?: string; time_column?: string } | null; tuning_rows?: number; excluded_rows?: number; cutoff?: string | number | null; tuning_cutoff?: string | number | null } | null
   problemType: string | null; metric: string | null; greater: boolean; numClasses: number | null; kFold: number | null
   timeLimit: number | null; notes: string[]
   models: Record<string, ModelRow>; order: string[]
