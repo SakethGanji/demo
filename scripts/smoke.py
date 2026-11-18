@@ -26,6 +26,9 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              timeout falls back to computed and kills the CLI → a second API whose SDK talks to scripts/fake_llm.py:
              SDK answers, SDK timeout / 500 / non-JSON → CLI, both → computed within the budget, no cached fallbacks,
              number guard, wording, /api/health during 48 asks in flight
+  monotone   F8: credit-default with debt_to_income ↑: refused requests, Gym exclude / warn, a bagged + stacked run of
+             the monotone subclasses (every model checked by ICE), the unconstrained twin (before), the registered
+             version's served model checked on a grid through its own /score, and the constraint on the model card
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -1134,6 +1137,171 @@ def cost(st: dict[str, Any]) -> None:
     step("cost: multiclass cost matrix", multiclass)
 
 
+def monotone(st: dict[str, Any]) -> None:
+    """F8: monotone constraints. On credit-default with debt_to_income ↑ (the Gym's Advanced body), LightGBM, XGBoost and
+    CatBoost are trained as their monotone subclasses, bagged and stacked (L = 1); RF and LR are left out (compliant
+    families only). The worker's report says where the constraint landed in every model (stack inputs +1) and checks
+    every model with ICE curves on raw holdout rows. The run is registered (cloned, pipeline pruned) and the served
+    model is checked twice: by GET /registry/versions/{id}/monotone, and here, from the version's own /score answers on
+    a grid of debt_to_income (200 holdout rows × the column's 25 quantiles): every ICE curve and the partial dependence
+    must be non-decreasing. The same body without constraints (RF and LR back in) is the before."""
+    ds, label, col = "credit-default", "defaulted", "debt_to_income"
+    s: dict[str, Any] = {}
+    prof = get(f"/api/datasets/{ds}")["profile"]
+    drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != label]
+    hp = {"GBM": {"num_boost_round": 150}, "XGB": {"n_estimators": 150}, "CAT": {"iterations": 150},
+          "RF": {"n_estimators": 40}, "LR": {}}
+    body = {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": "roc_auc", "presets": "medium_quality",
+            "time_limit": 600, "fit_kwargs": {"hyperparameters": hp, "num_bag_folds": 3, "num_stack_levels": 1,
+                                              "dynamic_stacking": False},
+            "drop_columns": drop, "feature_importance": False, "source": "smoke-monotone"}
+    cons = {col: "increasing"}
+
+    def refuse():
+        bad = [({**body, "monotone": {"constraints": {"employment": "increasing"}}}, "no order"),
+               ({**body, "monotone": {"constraints": {"nope": "increasing"}}}, "no such column"),
+               ({**body, "monotone": {"constraints": {col: "upward"}}}, "use 'increasing'"),
+               ({**body, "monotone": {"constraints": {"applicant_id": 1}}}, "dropped"),
+               ({**body, "label": "loan_purpose", "problem_type": "multiclass", "eval_metric": None,
+                 "monotone": {"constraints": {col: 1}}}, "binary and regression"),
+               ({**body, "monotone": {"constraints": cons}, "distill": {"time_limit": 30}}, "distill"),
+               ({**body, "fit_kwargs": {"hyperparameters": {"RF": {}, "LR": {}}}, "monotone": {"constraints": cons}},
+                "No model family that can honour")]
+        for b, words in bad:
+            r = C.post("/api/runs", json=b)
+            check(r.status_code == 400 and words in r.text, f"{words}: {r.status_code} {r.text[:300]}")
+        return f"{len(bad)} bad monotone requests → 400"
+
+    def gym():
+        v = post("/api/gym/validate", {**body, "monotone": {"constraints": cons}})
+        check(v["ok"], v["errors"])
+        m = v["monotone"]
+        check(m["constraints"] == {col: 1} and m["compliant"] == ["CAT", "GBM", "XGB"] and m["left_out"] == ["LR", "RF"], m)
+        hpr = v["resolved"]["fit_kwargs"]["hyperparameters"]
+        check(set(hpr) == {"GBM_MONO", "XGB_MONO", "CAT_MONO"}, list(hpr))
+        check(all(c["monotone"]["constraints"] == {col: 1} for c in hpr.values()), hpr)
+        check(any("Stacking" in i["message"] for i in v["info"] if i["path"] == "monotone"), v["info"])
+        w = post("/api/gym/validate", {**body, "monotone": {"constraints": cons, "compliant_only": False}})
+        check(w["ok"] and any(x["path"] == "monotone" and "RF" in x["message"] and "LR" in x["message"] for x in w["warnings"]), w["warnings"])
+        check(set(w["resolved"]["fit_kwargs"]["hyperparameters"]) == {"GBM_MONO", "XGB_MONO", "CAT_MONO", "RF", "LR"}, "kept")
+        return (f"resolved {', '.join(sorted(hpr))} (monotone {col}: +1) · RF, LR left out · compliant_only=false warns: "
+                f"{w['warnings'][0]['message'][:60]}…")
+
+    if not step("monotone: refused requests", refuse) or not step("monotone: Gym validate (exclude / warn)", gym):
+        return
+
+    def constrained():
+        r = post("/api/runs", {**body, "monotone": {"constraints": cons}})
+        rec = wait_run(r["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        mr = rec["monotone"]
+        check(mr and not mr.get("error"), mr)
+        check(mr["columns"][col]["status"] == "constrained" and mr["columns"][col]["features"] == [col], mr["columns"])
+        models = {m["model"]: m for m in mr["models"]}
+        fams = {m["family"] for m in mr["models"] if m["kind"] == "model"}
+        check(fams == {"GBM", "XGB", "CAT"}, f"families trained: {fams} (a monotone subclass failed?)")
+        check(not mr["unconstrained_models"], mr["unconstrained_models"])
+        l2 = [m for m in mr["models"] if m["kind"] == "model" and m["stack_level"] == 2]
+        check(l2, "no stack level 2 models: the stack was not exercised")
+        for m in l2:  # the stacker's stack inputs (base predictions) are constrained +1, the raw column too
+            base = [b for b in m["applied"] if b in models]
+            check(base and all(m["applied"][b] == 1 for b in base) and m["applied"].get(col) == 1, m["applied"])
+        for m in mr["models"]:
+            check(m["monotone_by_construction"], f"{m['model']} not monotone by construction")
+            check(m.get("monotone_checked"), f"{m['model']} ICE: {m.get('check')}")
+        check(mr["best_monotone"], mr["served"])
+        sv = mr["served"][col]
+        check(sv["pd_monotone"] and sv["curves_violating"] == 0 and sv["pd_range"] > 0, sv)
+        s["run"] = rec
+        lb = rec["leaderboard"]
+        return (f"{rec['id']} · {len(mr['models'])} models (L2 stackers: {', '.join(m['model'] for m in l2)}), all monotone by "
+                f"construction and by ICE · best {rec['best_model']} · PD {sv['pd'][0]:.3f} → {sv['pd'][-1]:.3f} over "
+                f"{len(sv['grid'])} points · 0/{sv['n_curves']} curves violate · holdout ROC AUC {lb[0]['score_test']:.4f}")
+
+    if not step(f"monotone: run with {col} ↑ (bagged, stacked)", constrained):
+        return
+
+    def before():
+        r = post("/api/runs", body)
+        rec = wait_run(r["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        check(rec["split"]["sha256"] == s["run"]["split"]["sha256"], "twin used another split")
+        m = get(f"/api/runs/{rec['id']}/monotone", constraints=f"{col}:increasing")
+        x = m["columns"][col]
+        s["before"] = {"rec": rec, "check": x}
+        per = []
+        for row in rec["leaderboard"]:
+            mm = get(f"/api/runs/{rec['id']}/monotone", constraints=f"{col}:increasing", model=row["model"], rows=100, curves=0)
+            per.append(f"{row['model']} {mm['columns'][col]['curves_violating']}/{mm['columns'][col]['n_curves']}")
+        s["before_models"] = per
+        return (f"{rec['id']} unconstrained · best {rec['best_model']} · {x['curves_violating']}/{x['n_curves']} ICE curves "
+                f"decrease somewhere (max drop {x['max_violation']:.4f}), PD monotone: {x['pd_monotone']} · holdout ROC AUC "
+                f"{rec['leaderboard'][0]['score_test']:.4f} · per model: {'; '.join(per)}")
+
+    step("monotone: before = same body unconstrained", before)
+
+    def price():
+        # the constraint's own price: the same three families, unconstrained (RF and LR out as in the constrained run)
+        b = {**body, "fit_kwargs": {**body["fit_kwargs"], "hyperparameters": {k: hp[k] for k in ("GBM", "XGB", "CAT")}}}
+        rec = wait_run(post("/api/runs", b)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        x = get(f"/api/runs/{rec['id']}/monotone", constraints=f"{col}:increasing")["columns"][col]
+        auc = {k: s[k]["leaderboard"][0]["score_test"] if k == "run" else s[k]["rec"]["leaderboard"][0]["score_test"]
+               for k in ("run", "before")}
+        a = rec["leaderboard"][0]["score_test"]
+        s["price"] = {"rec": rec, "check": x}
+        return (f"{rec['id']} GBM + XGB + CAT unconstrained · {x['curves_violating']}/{x['n_curves']} curves violate · "
+                f"holdout ROC AUC {a:.4f} · constrained {auc['run']:.4f} (Δ {auc['run'] - a:+.4f}) · all families "
+                f"unconstrained {auc['before']:.4f}")
+
+    step("monotone: price of the constraint (same families, unconstrained)", price)
+
+    def served():
+        rid = s["run"]["id"]
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit.monotone"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        vid = v["id"]
+        s["vid"] = vid
+        chk = get(f"/api/registry/versions/{vid}/monotone")
+        x = chk["columns"][col]
+        check(chk["monotone"] and x["curves_violating"] == 0 and x["pd_monotone"], chk["columns"])
+        # Independently of the API's check: the version's own /score answers, as a client sees them. The holdout rows
+        # come from the sample generator (the same seed as the API's sample; the labels are checked against the run's).
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
+        from app.samples import generate_credit
+
+        df, _ = generate_credit()
+        hp_ = get(f"/api/runs/{rid}/holdout-predictions")
+        idx = np.asarray(hp_["rows"], dtype=int)
+        check([str(a) for a in df[label].to_numpy()[idx]] == [str(b) for b in hp_["y_true"]], "regenerated sample differs")
+        rows = df.iloc[idx].drop(columns=[label]).sample(200, random_state=3)
+        grid = np.unique(np.quantile(df[col], np.linspace(0, 1, 25)))
+        X = rows.loc[rows.index.repeat(len(grid))].copy()
+        X[col] = np.tile(grid, len(rows))
+        recs = json.loads(X.to_json(orient="records"))
+        out = post(f"/api/registry/versions/{vid}/score", {"rows": recs, "where": "worker"})
+        pos = s["run"]["positive_class"]
+        p = np.asarray([pr[str(pos)] for pr in out["probabilities"]], dtype=float).reshape(len(rows), len(grid))
+        d = np.diff(p, axis=1)
+        pdp = p.mean(axis=0)
+        check((d >= -1e-9).all(), f"{int((d < -1e-9).any(axis=1).sum())} ICE curves decrease; max drop {-d.min():.3g}")
+        check((np.diff(pdp) >= -1e-9).all(), f"PD decreases: {pdp.round(4).tolist()}")
+        check(pdp[-1] > pdp[0], "PD flat")
+        c = get(f"/api/registry/versions/{vid}/card")
+        mc = c["constraints"]
+        check(mc and mc["columns"][0]["column"] == col and mc["columns"][0]["direction"] == "increasing"
+              and mc["columns"][0]["monotone"] is True and mc["served_model"] == chk["served_model"], mc)
+        md = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Monotone constraints" in md and f"| {col} | increasing | yes |" in md, "card markdown")
+        s["served"] = {"pd": pdp.tolist(), "grid": grid.tolist(), "model": chk["served_model"]}
+        return (f"{vid} serves {chk['served_model']} · API check 0/{x['n_curves']} curves violate · /score on "
+                f"{len(rows)} rows × {len(grid)} grid points: every ICE curve non-decreasing, PD {pdp[0]:.4f} → "
+                f"{pdp[-1]:.4f} · model card records {col} ↑ (monotone: yes)")
+
+    step("monotone: served model PD on a grid (registry /score)", served)
+
+
 def autopilot(st: dict[str, Any]) -> None:
     def start():
         a = post("/api/autopilot", {"dataset_id": "support-tickets", "label": "category",
@@ -1997,7 +2165,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -2034,7 +2202,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

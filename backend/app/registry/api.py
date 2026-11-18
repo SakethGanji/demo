@@ -97,6 +97,9 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
         raise HTTPException(404, f"No run with id '{run_id}'.")
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; only a finished run can be registered.")
+    if body.distill and rec["config"].get("monotone"):
+        raise HTTPException(400, "This run has monotone constraints; distill would serve an unconstrained student. "
+                                 "Register without distill.")
     who = _name_ok(body.created_by, "created_by")
     reg = _reg(request)
     name = (body.model_name or default_model_name(rec["dataset_id"], rec["label"])).strip()
@@ -405,6 +408,28 @@ def edit_card(vid: str, body: CardFields, request: Request) -> dict[str, Any]:
     if changed:
         reg.audit(actor=who, action="card_edited", version=v, comment=", ".join(changed))
     return {"card": cur, "changed": changed}
+
+
+@router.get("/registry/versions/{vid}/monotone")
+async def version_monotone(vid: str, request: Request, constraints: str | None = None,
+                           rows: int = Query(200, ge=10, le=2000), grid: int = Query(25, ge=3, le=101),
+                           curves: int = Query(30, ge=0, le=200)) -> dict[str, Any]:
+    """F8: ICE / partial dependence of the model this version serves (its own predictor files, as deployed: cloned,
+    pipeline pruned), on the run's raw holdout rows, for the run's monotone constraints."""
+    from ..engine import heavy, serving
+    from ..engine.api import parse_constraints
+
+    v = _version(request, vid)
+    _ready(v)
+    run = request.app.state.runs.get(v["run_id"])
+    if run["config"].get("kind") or run["config"].get("import"):
+        raise HTTPException(400, "Monotone checks apply to tabular versions trained here.")
+    cons = parse_constraints(constraints, run)
+    try:
+        out = await request.app.state.heavy.run(heavy.monotone_check, v["path"], run["config"], cons, None, rows, grid, curves)
+    except serving.ServingError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"version_id": vid, "run_id": v["run_id"], "constraints": cons, "served_model": out["model"], **out}
 
 
 # --------------------------------------------------------------------------- Try It and batches

@@ -77,6 +77,14 @@ class RunCreate(BaseModel):
                           "class i. It becomes the run's eval_metric 'expected_cost' (an AutoGluon make_scorer from "
                           "ensemble_models.cost), so model selection, early stopping and ensemble weights minimise the "
                           "expected cost; binary runs also calibrate the decision threshold on it.")
+    monotone: dict[str, Any] | None = Field(
+        None, description="F8: monotone constraints. {constraints: {column: increasing | decreasing | none (or 1, -1, "
+                          "0)}, compliant_only: true}. Numeric columns of binary and regression runs. LightGBM, XGBoost "
+                          "and CatBoost are trained as GBM_MONO / XGB_MONO / CAT_MONO (ensemble_models.monotone), which "
+                          "map each constraint onto the columns AutoGluon gives the model and constrain stack features "
+                          "to +1, so stacked and weighted ensembles stay monotone. compliant_only (default) leaves the "
+                          "other families out; false keeps them and reports which models break the constraint. After "
+                          "the fit every model is checked with ICE / partial dependence on raw holdout rows.")
 
 
 class EnsembleRequest(BaseModel):
@@ -128,7 +136,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
-                "forecast", "backtests", "anomaly", "imported"):
+                "forecast", "backtests", "anomaly", "imported", "monotone"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     if not full:
@@ -136,6 +144,8 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
         out["feature_importance"] = None
         out["resolved"] = None
         out["text_models"] = None
+        if out["monotone"]:
+            out["monotone"] = {k: out["monotone"].get(k) for k in ("constraints", "compliant_only", "best_monotone")}
     return out
 
 
@@ -212,6 +222,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     elif body.eval_metric == costs.METRIC_NAME:
         raise HTTPException(400, "eval_metric 'expected_cost' needs the costs: give cost = {c_fp, c_fn, g_tp} "
                                  "(binary) or {classes, matrix} (multiclass).")
+    mono = check_monotone(body, ds, label, cols, drop, types)
     allowed_cal = (None, "auto", *threshold.CALIBRATION_METRICS, *((costs.METRIC_NAME,) if cost and cost["kind"] == "binary" else ()))
     if body.calibrate_threshold not in allowed_cal:
         raise HTTPException(400, f"calibrate_threshold: use 'auto' or one of {', '.join(a for a in allowed_cal if a and a != 'auto')}.")
@@ -248,7 +259,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     run_dir = settings.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     cfg = {
-        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost"}),
+        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone"}),
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
@@ -262,6 +273,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         if cost["kind"] == "binary" and body.calibrate_threshold in (None, "auto") \
                 and "calibrate_decision_threshold" not in body.fit_kwargs:
             cfg["calibrate_threshold"] = costs.METRIC_NAME
+    if mono is not None:
+        cfg["monotone"] = mono
     if body.pseudolabel:
         cfg["unlabeled_csv_path"] = str(app.state.datasets.csv_path(body.pseudolabel["dataset_id"]))
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
@@ -273,6 +286,25 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
                eval_metric=body.eval_metric, presets=body.presets, time_limit=body.time_limit)
     _runner(request).submit(run_id)
     return run_out(store.get(run_id), store)
+
+
+def check_monotone(body: RunCreate, ds: dict[str, Any], label: str, cols: dict[str, Any], drop: list[str],
+                   types: dict[str, str]) -> dict[str, Any] | None:
+    """F8: the run's monotone constraints, checked and normalised ({constraints: {column: ±1}, compliant_only, stack}),
+    or None when no column is constrained."""
+    from . import monotone as mono
+    from ..gym.validate import infer_problem_type
+
+    if not body.monotone:
+        return None
+    try:
+        m = mono.normalise(body.monotone, problem_type=infer_problem_type(body.model_dump(), ds, label), columns=cols,
+                           label=label, drop=drop, column_types=types)
+    except ValueError as e:
+        raise HTTPException(400, f"monotone: {e}") from e
+    if m and body.distill:
+        raise HTTPException(400, "monotone: distill trains unconstrained student models; leave distill off.")
+    return m
 
 
 def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: dict[str, Any]) -> dict[str, Any]:
@@ -318,7 +350,7 @@ class SplitTwin(BaseModel):
 
 
 FAIR_KEYS = ("presets", "time_limit", "fit_kwargs", "predictor_kwargs", "eval_metric", "problem_type", "drop_columns",
-             "column_types", "custom_text_models", "calibrate_threshold", "cost")
+             "column_types", "custom_text_models", "calibrate_threshold", "cost", "monotone")
 
 
 @router.post("/runs/{run_id}/split-twin", status_code=201)
@@ -470,6 +502,55 @@ async def predict(run_id: str, body: PredictRequest, request: Request) -> dict[s
     except serving.ServingError as e:
         raise HTTPException(400, str(e)) from e
     return {"run_id": run_id, **out}
+
+
+def parse_constraints(text: str | None, rec: dict[str, Any]) -> dict[str, int]:
+    """`col:1,col2:-1` (or increasing / decreasing), else the run's own constraints."""
+    from . import monotone
+
+    if text:
+        out = {}
+        for part in text.split(","):
+            if not part.strip():
+                continue
+            col, _, v = part.rpartition(":")
+            if not col:
+                raise HTTPException(400, f"constraints: write column:increasing or column:decreasing (got {part!r}).")
+            try:
+                s = monotone._sign(v, col)
+            except ValueError as e:
+                raise HTTPException(400, f"constraints: {e}") from e
+            if s:
+                out[col.strip()] = s
+        if out:
+            return out
+    cons = (rec["config"].get("monotone") or {}).get("constraints")
+    if not cons:
+        raise HTTPException(400, "This run has no monotone constraints; give constraints=column:increasing to check one.")
+    return cons
+
+
+@router.get("/runs/{run_id}/monotone")
+async def monotone_check(run_id: str, request: Request, model: str | None = None, constraints: str | None = None,
+                         rows: int = Query(200, ge=10, le=2000), grid: int = Query(25, ge=3, le=101),
+                         curves: int = Query(30, ge=0, le=200)) -> dict[str, Any]:
+    """F8: individual conditional expectation and partial dependence of one model (default: the best) on raw holdout
+    rows, for the run's monotone constraints (or `constraints=col:increasing,…` for any run, e.g. an unconstrained
+    twin), plus the report the worker stored after the fit (where each constraint landed, every model's check)."""
+    rec = _get_run(request, run_id)
+    _require_succeeded(rec)
+    if rec["config"].get("kind") or rec["config"].get("import"):
+        raise HTTPException(400, "Monotone checks apply to tabular runs trained here.")
+    cons = parse_constraints(constraints, rec)
+    try:
+        out = await request.app.state.heavy.run(heavy.monotone_check, rec["config"]["predictor_path"], rec["config"],
+                                                cons, model, rows, grid, curves)
+    except serving.ServingError as e:
+        raise HTTPException(400, str(e)) from e
+    if out["problem_type"] not in ("binary", "regression"):
+        raise HTTPException(400, f"Monotone checks apply to binary and regression runs, not {out['problem_type']}.")
+    return {"run_id": run_id, "constraints": cons, "request": rec["config"].get("monotone"),
+            "report": (rec.get("result") or {}).get("monotone"), **out}
 
 
 @router.get("/runs/{run_id}/oof")

@@ -466,6 +466,15 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         splits_hash = file_hash(Path(cfg["splits_path"]))
         step("hash", "done", model_hash=model_hash[:12])
 
+        mono_info = None
+        if cfg.get("monotone"):  # F8: ICE / PD of the model this version serves, as deployed, on raw holdout rows
+            from ..engine import monotone as mono
+
+            chk = mono.ice_check(final, holdout, cfg["monotone"]["constraints"], final.model_best, curves=30)
+            mono_info = {"constraints": cfg["monotone"]["constraints"], "compliant_only": cfg["monotone"]["compliant_only"],
+                         "served_model": final.model_best, "columns": chk, "eps": mono.EPS,
+                         "monotone": all(x.get("monotone", False) for x in chk.values())}
+
         deps = _deps(final, final.model_best)
         threshold = float(final.decision_threshold) if final.problem_type == "binary" else None
         result = {
@@ -482,6 +491,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                          "latency_ratio_p50": lat_ver["us_per_row_p50"] / lat_src["us_per_row_p50"] if lat_src["us_per_row_p50"] else None,
                          "single_ratio_p50": lat_ver["single_ms_p50"] / lat_src["single_ms_p50"] if lat_src["single_ms_p50"] else None},
             "refit": refit_info, "infer_limit": limit_info, "distill": distill_info, "serving": serving_info,
+            "monotone": mono_info,
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "splits_sha256": splits_hash,
                        "data_file": Path(cfg["csv_path"]).name},
             "path": str(dest),

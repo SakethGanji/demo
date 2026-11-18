@@ -141,7 +141,10 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
     2. If the data has a text column and `custom_text_models` is on: TFIDF_LR and TFIDF_SVM are added to the
        hyperparameters the presets would have used (or to the given ones), and raw text is kept for them
        (`_feature_generator_kwargs.enable_raw_text_features`). Skipped if `feature_generator` is given.
-    3. Our progress callback is appended to the callbacks the presets would have used, so preset callbacks
+    3. F8: with `monotone` constraints, GBM / CAT / XGB in those hyperparameters become GBM_MONO / CAT_MONO /
+       XGB_MONO with the constraints as their `monotone` hyperparameter; other families are left out
+       (`compliant_only`, the default) or kept and reported.
+    4. Our progress callback is appended to the callbacks the presets would have used, so preset callbacks
        (for example early stopping) still run.
     """
     from autogluon.common.utils.decorators import _apply_presets
@@ -158,6 +161,8 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
 
     _, merged = _apply_presets(tabular_presets_dict, tabular_presets_alias, **dict(kw))
 
+    if (cfg.get("monotone") or {}).get("compliant_only"):
+        add_text_models = False  # F8: the TF-IDF models cannot honour a monotone constraint
     if add_text_models and "feature_generator" not in kw:
         hp = kw.get("hyperparameters", merged.get("hyperparameters", "default"))
         if isinstance(hp, str):
@@ -178,6 +183,26 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
                     kw["_feature_generator_kwargs"] = fg
                     if not added:
                         notes.append("kept raw text for the TF-IDF models")
+    mono = cfg.get("monotone")
+    if mono:  # F8: GBM / CAT / XGB → their monotone subclasses, carrying the constraints
+        from ensemble_models.monotone import translate_hyperparameters
+
+        hp = kw.get("hyperparameters", merged.get("hyperparameters", "default"))
+        if isinstance(hp, str):
+            hp = get_hyperparameter_config(hp)
+        hp, kept, other = translate_hyperparameters(dict(hp), mono["constraints"], compliant_only=mono["compliant_only"],
+                                                    stack=mono.get("stack", True))
+        kw["hyperparameters"] = hp
+        cons = ", ".join(f"{c} {'↑' if s > 0 else '↓'}" for c, s in mono["constraints"].items())
+        notes.append(f"monotone constraints ({cons}): {', '.join(kept) or 'no family'} trained as "
+                     f"{', '.join(k + '_MONO' for k in kept) or '—'} (ensemble_models.monotone), which map each "
+                     "constraint onto the columns AutoGluon's pipeline gives the model and constrain stack features "
+                     "(base-model predictions) to +1, so stack levels stay monotone")
+        if other:
+            notes.append((f"monotone: left out {', '.join(other)} (they cannot honour a monotone constraint)")
+                         if mono["compliant_only"] else
+                         (f"monotone: {', '.join(other)} cannot honour the constraints and are kept: the served model "
+                          "is monotone only if the ensemble does not use them (checked after the fit)"))
     if "callbacks" not in kw and merged.get("callbacks"):
         kw["callbacks"] = list(merged["callbacks"])
         notes.append("callbacks from the presets passed explicitly, so the progress callback can be added")
@@ -566,6 +591,21 @@ def run(run_dir: Path) -> int:
                              seconds=threshold_seconds)
             store.merge_result(run_id, threshold=rec)
             emit("threshold", **rec)
+
+        if cfg.get("monotone"):  # F8: where the constraints landed, and ICE / PD of every model on raw holdout rows
+            emit("explaining", what="monotone")
+            try:
+                from . import monotone as mono
+
+                mr = mono.report(predictor, holdout, cfg["monotone"])
+                store.merge_result(run_id, monotone=mr)
+                emit("monotone", best_model=mr["best_model"], best_monotone=mr["best_monotone"],
+                     columns={c: {k: v for k, v in x.items() if k not in ("grid", "pd", "ice", "ice_rows")}
+                              for c, x in mr["served"].items()},
+                     unconstrained_models=mr["unconstrained_models"])
+            except Exception as e:  # noqa: BLE001 — reported, not fatal: GET /runs/{id}/monotone recomputes it
+                emit("log", level="warning", logger="ensemble", message=f"monotone check failed: {type(e).__name__}: {e}")
+                store.merge_result(run_id, monotone={**cfg["monotone"], "error": f"{type(e).__name__}: {e}"})
 
         bagged = bool(predictor._trainer.bagged_mode)
         oof = {"available": bagged,

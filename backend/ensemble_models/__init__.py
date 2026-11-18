@@ -13,8 +13,12 @@ The models read raw text columns, so the feature generator must keep them
 them loads with `TabularPredictor.load(path)` once this package is importable (it is in `backend/`).
 """
 
+from . import monotone
+from .monotone import MonotoneCatBoostModel, MonotoneLGBModel, MonotoneXGBoostModel
 from .text import TfidfLogRegModel, TfidfSVMModel, register
 
 register()
+monotone.register()  # F8: GBM_MONO, CAT_MONO, XGB_MONO (LightGBM, CatBoost, XGBoost with mapped monotone constraints)
 
-__all__ = ["TfidfLogRegModel", "TfidfSVMModel", "register"]
+__all__ = ["TfidfLogRegModel", "TfidfSVMModel", "MonotoneLGBModel", "MonotoneXGBoostModel", "MonotoneCatBoostModel",
+           "register"]

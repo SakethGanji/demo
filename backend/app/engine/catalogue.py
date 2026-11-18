@@ -143,6 +143,8 @@ CLASS_TO_KEY = {
     "KNNModel": "KNN", "LinearModel": "LR", "TabularNeuralNetTorchModel": "NN_TORCH",
     "NNFastAiTabularModel": "FASTAI", "RealMLPModel": "REALMLP", "TabMModel": "TABM",
     "TfidfLogRegModel": "TFIDF_LR", "TfidfSVMModel": "TFIDF_SVM",
+    # F8: the monotone-constrained subclasses are the same families (their runs say they are constrained)
+    "MonotoneLGBModel": "GBM", "MonotoneCatBoostModel": "CAT", "MonotoneXGBoostModel": "XGB",
     "GreedyWeightedEnsembleModel": "ENS_WEIGHTED", "WeightedEnsembleModel": "ENS_WEIGHTED",
     "SimpleWeightedEnsembleModel": "ENS_WEIGHTED",
 }

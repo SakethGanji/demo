@@ -191,6 +191,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     pk = {k: v for k, v in (resolved.get("predictor_kwargs") or {}).items() if v is not None}
     hp = fk.get("hyperparameters")
     needs_text = isinstance(hp, dict) and any(k in ("TFIDF_LR", "TFIDF_SVM") for k in hp)
+    needs_mono = isinstance(hp, dict) and any(str(k).endswith("_MONO") for k in hp)  # F8: monotone subclasses
     cm = resolved.get("cost_metric")
     cost = {k: cm[k] for k in ("kind", "c_fp", "c_fn", "g_tp", "classes", "matrix") if k in cm} if cm else None
     thr = res.get("threshold") or None
@@ -205,7 +206,9 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     fname = f"export_{rec['id']}.py"
     head = HEADER.format(run_id=rec["id"], name=rec["name"].replace('"', "'"), ts=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
                          ag=ag_version or "?", fname=fname,
-                         text_note=" (its TF-IDF models need ENSEMBLE's `ensemble_models` package on the path)" if needs_text else "")
+                         text_note=" (its TF-IDF models need ENSEMBLE's `ensemble_models` package on the path)" if needs_text else
+                         " (its monotone-constrained GBM_MONO / CAT_MONO / XGB_MONO models need ENSEMBLE's `ensemble_models` "
+                         "package on the path)" if needs_mono else "")
     lines = [
         head,
         "from __future__ import annotations\n",
@@ -233,7 +236,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         "# F7: the business cost the run optimised (None: a standard metric). Multiclass matrices are in AutoGluon's",
         "# class order (the sorted labels): matrix[i][j] = cost of deciding class j when the truth is class i.",
         f"COST = {pycode.py(cost)}",
-        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text or cost is not None)}",
+        f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text or needs_mono or cost is not None)}",
         f"ENSEMBLE_BACKEND = {pycode.py(str(backend_dir))}",
         "",
         "# The run's leaderboard: model → (validation score, holdout score), AutoGluon's higher-is-better scale.",

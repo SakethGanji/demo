@@ -77,7 +77,8 @@ def _families_in(hp: Any, problem_type: str | None) -> dict[str, int]:
                 continue
             n += 1
         if n:
-            out[str(k)] = n
+            key = str(k).removesuffix("_MONO")  # F8: the monotone subclasses are the same families
+            out[key] = out.get(key, 0) + n
     return out
 
 
@@ -350,13 +351,27 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
             if dist.get("augment_method", "spunge") not in ("spunge", "munge", None):
                 _err(errors, "distill.augment_method", "augment_method must be 'spunge', 'munge' or null.")
 
+    # -- F8: monotone constraints (the same normalisation POST /runs applies)
+    mono = None
+    if body.get("monotone"):
+        from ..engine import monotone as mono_mod
+
+        try:
+            mono = mono_mod.normalise(body["monotone"], problem_type=problem_type, columns=cols, label=label, drop=drop,
+                                      column_types=body.get("column_types"))
+        except ValueError as e:
+            _err(errors, "monotone", str(e))
+        if mono and dist:
+            _err(errors, "distill", "distill trains unconstrained student models; leave it off with monotone constraints.")
+
     # -- resolve exactly as the worker will
     from ..engine.worker import resolve_fit_kwargs
 
     text_cols = [c["name"] for c in profile["columns"] if (body.get("column_types") or {}).get(c["name"], c["type"]) == "text"
                  and c["name"] not in drop and c["name"] != label]
     add_text = bool(body.get("custom_text_models", True)) and bool(text_cols) and problem_type not in ("regression", "quantile")
-    cfg = {"presets": body.get("presets", "medium_quality"), "time_limit": body.get("time_limit", 120), "fit_kwargs": fk}
+    cfg = {"presets": body.get("presets", "medium_quality"), "time_limit": body.get("time_limit", 120), "fit_kwargs": fk,
+           "monotone": mono}
     resolved_fk: dict[str, Any] = {}
     notes: list[str] = []
     merged: dict[str, Any] = {}
@@ -455,6 +470,46 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
     if n_train < 200 and eff["num_bag_folds"] >= 5:
         _err(info, "fit_kwargs.num_bag_folds", f"Only about {n_train} training rows: each of the k = {eff['num_bag_folds']} folds validates on ~{n_train // max(1, eff['num_bag_folds'])} rows.")
 
+    mono_out = None
+    if mono:
+        hp_r = resolved_fk.get("hyperparameters") if isinstance(resolved_fk.get("hyperparameters"), dict) else {}
+        flat = {k for sub in (hp_r.values() if hp_r and all(str(k).isdigit() for k in hp_r) else [hp_r]) for k in sub}
+        compliant = sorted({str(k).removesuffix("_MONO") for k in flat if str(k).endswith("_MONO")})
+        others = sorted(str(k) for k in flat if not str(k).endswith("_MONO"))
+        hp_before = fk.get("hyperparameters")
+        if hp_before is None:
+            try:
+                from autogluon.common.utils.decorators import _apply_presets
+                from autogluon.tabular.configs.presets_configs import tabular_presets_alias, tabular_presets_dict
+
+                pre = {"presets": cfg["presets"]} if cfg.get("presets") is not None else {}
+                _, m0 = _apply_presets(tabular_presets_dict, tabular_presets_alias, **pre)
+                hp_before = m0.get("hyperparameters", "default")
+            except Exception:  # noqa: BLE001
+                hp_before = "default"
+        if isinstance(hp_before, str):
+            fams_before = set(_families_in(hp_before, problem_type))
+        elif isinstance(hp_before, dict):
+            fams_before = {str(k) for k in hp_before}
+        else:
+            fams_before = set()
+        left_out = sorted(f for f in fams_before if f not in compliant and f not in others) if mono["compliant_only"] else []
+        if not compliant:
+            _err(errors, "monotone", "No model family that can honour a monotone constraint is switched on: switch on "
+                                     "LightGBM (GBM), CatBoost (CAT) or XGBoost (XGB).")
+        if others:
+            _err(warnings, "monotone", f"{', '.join(others)} cannot honour monotone constraints and are kept; the served "
+                                       "model is monotone only if the ensemble does not use them. Turn on "
+                                       "'compliant families only' to leave them out.")
+        if left_out:
+            _err(info, "monotone", f"Left out because they cannot honour a monotone constraint: {', '.join(left_out)}.")
+        if eff.get("num_stack_levels"):
+            _err(info, "monotone", f"Stacking (L = {eff['num_stack_levels']}): stackers see the base models' predictions "
+                                   "and the raw features; their stack inputs are constrained to +1, so the stack stays "
+                                   "monotone when every base model is." + ("" if not others else
+                                   " Unconstrained base models break that."))
+        mono_out = {**mono, "compliant": compliant, "unconstrained": others, "left_out": left_out,
+                    "families": {"GBM": "LightGBM", "CAT": "CatBoost", "XGB": "XGBoost"}}
     call = ("from autogluon.tabular import TabularPredictor\n\n"
             + "predictor = " + pycode.call("TabularPredictor", [], {k: v for k, v in predictor_kwargs.items() if v is not None} | {"path": "…"})
             + "\npredictor.fit(\n    train_data,\n"
@@ -468,7 +523,7 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
                  "text_columns": text_cols, "holdout_share": holdout_share},
         "resolved": {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_shown, "post_fit": post_fit, "notes": notes,
                      "preset_expansion": merged},
-        "call": call, "diff": diff, "effective": eff, "estimate": est, "families": fams,
+        "call": call, "diff": diff, "effective": eff, "estimate": est, "families": fams, "monotone": mono_out,
     }
 
 

@@ -192,7 +192,32 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "forecasting": _forecast_section(cfg, res) if cfg.get("kind") == "forecast" else None,
         "anomaly_detection": _anomaly_section(cfg, res) if cfg.get("kind") == "anomaly" else None,
         "imported": res.get("imported"),
+        "constraints": _monotone_section(cfg, res, vres),
     }
+
+
+def _monotone_section(cfg: dict[str, Any], res: dict[str, Any], vres: dict[str, Any]) -> dict[str, Any] | None:
+    """F8: the monotone constraints the model was trained under, and the ICE / PD check of the served model."""
+    m = cfg.get("monotone")
+    if not m:
+        return None
+    rep = res.get("monotone") or {}
+    v = vres.get("monotone") or {}
+    cols = []
+    for c, s in m["constraints"].items():
+        chk = (v.get("columns") or {}).get(c) or {}
+        cols.append({"column": c, "direction": "increasing" if s > 0 else "decreasing", "sign": s,
+                     "features": ((rep.get("columns") or {}).get(c) or {}).get("features"),
+                     "status": ((rep.get("columns") or {}).get(c) or {}).get("status"),
+                     "monotone": chk.get("monotone"), "pd_monotone": chk.get("pd_monotone"),
+                     "curves_violating": chk.get("curves_violating"), "n_curves": chk.get("n_curves"),
+                     "grid_points": len(chk.get("grid") or []), "max_violation": chk.get("max_violation"),
+                     "pd_range": chk.get("pd_range")})
+    return {"columns": cols, "compliant_only": m.get("compliant_only"), "served_model": v.get("served_model"),
+            "monotone": v.get("monotone"), "unconstrained_models": rep.get("unconstrained_models"),
+            "method": "LightGBM / XGBoost / CatBoost monotone_constraints mapped onto each model's training columns "
+                      "(ensemble_models.monotone); stack inputs constrained to +1; checked with ICE curves of the "
+                      "served model on raw holdout rows over a grid of the column's quantiles (ε = 1e-9)"}
 
 
 def _forecast_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]:
@@ -312,6 +337,16 @@ def to_markdown(c: dict[str, Any]) -> str:
         th = v["threshold"]
         L += ["", f"Decision threshold t = {_fmt(th.get('value'))} ({th.get('source')}{', ' + th['metric'] if th.get('metric') else ''}); "
                   f"predict positive when p̂ > t.", ""]
+    mc = c.get("constraints")
+    if mc:
+        L += ["**Monotone constraints**", "", f"Method: {mc['method']}.", "",
+              "| Feature | Direction | Served model monotone (ICE) | Curves violating | PD range |", "| --- | --- | --- | ---: | ---: |"]
+        for r in mc["columns"]:
+            L.append(f"| {r['column']} | {r['direction']} | {'yes' if r['monotone'] else 'no' if r['monotone'] is not None else '—'} "
+                     f"| {r['curves_violating'] if r['curves_violating'] is not None else '—'} / {r['n_curves'] or '—'} | {_fmt(r['pd_range'])} |")
+        if mc.get("unconstrained_models"):
+            L += ["", f"Unconstrained models in the run: {', '.join(mc['unconstrained_models'])}."]
+        L.append("")
     L += ["## 6. Feature importance", "", "| Feature | Importance | 95% CI | p |", "| --- | ---: | --- | ---: |"]
     for f in c["importance"]["features"][:15]:
         L.append(f"| {f['feature']} | {_fmt(f.get('importance'))} | [{_fmt(f.get('ci_low'))}, {_fmt(f.get('ci_high'))}] | {_fmt(f.get('p_value'))} |")

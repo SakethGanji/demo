@@ -28,3 +28,20 @@ def predict_rows(predictor_path: str, rows: list[dict[str, Any]], model: str | N
 
 def out_of_fold(predictor_path: str, model: str | None) -> dict[str, Any]:
     return serving.oof(load_predictor(predictor_path), model)
+
+
+def monotone_check(predictor_path: str, cfg: dict[str, Any], constraints: dict[str, int], model: str | None,
+                   rows: int, grid: int, curves: int) -> dict[str, Any]:
+    """F8: ICE / PD of one model of a predictor (a run's, or a registered version's) on the run's raw holdout rows."""
+    from . import monotone
+
+    p = load_predictor(predictor_path)
+    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    m = model or p.model_best
+    if m not in p.model_names():
+        raise serving.ServingError(f"No model '{m}' in this predictor; models: {', '.join(p.model_names())}.")
+    out = monotone.ice_check(p, h, constraints, m, rows=rows, grid=grid, curves=curves)
+    return {"model": m, "best_model": p.model_best, "problem_type": p.problem_type,
+            "score": "P(" + str(p.positive_class) + ")" if p.problem_type == "binary" else "ŷ",
+            "rows": min(rows, len(h)), "columns": out, "monotone": all(x.get("monotone", False) for x in out.values()),
+            "eps": monotone.EPS}
