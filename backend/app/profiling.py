@@ -133,7 +133,17 @@ def profile_frame(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]
             g = df.groupby(feats, dropna=False)[target].nunique()
             conflicting = int((g > 1).sum())
 
-    classes = class_balance(df[target]) if target else []
+    # A numeric label with many distinct values is a regression target: no classes, just its spread.
+    task = None
+    target_stats = None
+    if target:
+        y = df[target]
+        k = int(y.nunique(dropna=True))
+        if types[target] == "number" and k > MAX_CLASSES:
+            task, target_stats = "regression", _numeric_stats(y)
+        else:
+            task = "binary" if k == 2 else ("multiclass" if k > 2 else None)
+    classes = class_balance(df[target]) if target and task != "regression" else []
     counts = [c["count"] for c in classes]
     warnings: list[str] = []
     if target is None:
@@ -157,6 +167,8 @@ def profile_frame(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]
         "columns": columns,
         "classes": classes,
         "n_classes": len(classes),
+        "task": task,
+        "target_stats": target_stats,
         "imbalance_ratio": round(max(counts) / min(counts), 4) if counts else None,
         "missing": {
             "cells": missing_cells,

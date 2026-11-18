@@ -8,10 +8,18 @@ sse-starlette==3.7.0
 pydantic==2.14.3
 # Data and models (used from S2 on)
 numpy==2.5.5
-pandas==3.1.1
+pandas==2.3.3  # autogluon 1.6 needs pandas < 2.4
 scikit-learn==1.9.1
-xgboost==3.4.1
+# xgboost comes with autogluon.tabular as xgboost-cpu (3.3); a separate xgboost pin would clash with it.
 mlflow==3.18.0
+# AutoGluon engine (S2). CPU torch from the PyTorch index keeps the install smaller and faster;
+# drop the extra index to get the CUDA build on a GPU machine.
+--extra-index-url https://download.pytorch.org/whl/cpu
+autogluon.tabular[all]==1.6.3
+autogluon.timeseries==1.6.3
+cleanlab==2.9.0
+shap==0.54.1
+fairlearn==0.15.0
 # Tests
 httpx==0.28.1
 pytest==9.2.0

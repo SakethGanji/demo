@@ -1,4 +1,4 @@
-"""Seeded generators for the two demo datasets (plan §5).
+"""Seeded generators for the demo datasets (plan §5).
 
 Both are synthetic by design and labelled as samples in the UI. Each generator returns the frame
 plus a sidecar dict that records the ground truth a later test can measure against.
@@ -300,6 +300,153 @@ def generate_churn(n: int = 10_000, seed: int = 42) -> tuple[pd.DataFrame, dict[
     return df, sidecar
 
 
+# ---------------------------------------------------------------------------
+# Credit default (binary, imbalanced) and loan amount (regression)
+# ---------------------------------------------------------------------------
+
+CREDIT_COEFS = {
+    "intercept": -4.5,
+    "credit_score_per_100": -1.05,   # (credit_score - 680) / 100
+    "debt_to_income": 3.2,
+    "utilization": 1.6,
+    "delinquencies_2y": 0.45,
+    "months_employed_per_12": -0.12,
+    "employment=unemployed": 1.0,
+    "employment=self-employed": 0.35,
+    "home=rent": 0.3,
+    "purpose=debt consolidation": 0.25,
+    "purpose=small business": 0.6,
+}
+
+
+def generate_credit(n: int = 12_000, seed: int = 42) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Loan applicants and whether they defaulted within 12 months. ~8% default (imbalanced)."""
+    rng = np.random.default_rng(seed + 2)
+    age = np.clip(rng.normal(41, 12, size=n), 19, 80).round().astype(int)
+    employment = rng.choice(["salaried", "self-employed", "contract", "unemployed", "retired"], size=n,
+                            p=[0.58, 0.14, 0.13, 0.05, 0.10])
+    income = np.round(np.exp(rng.normal(10.9, 0.5, size=n)) * np.select(
+        [employment == "unemployed", employment == "retired"], [0.35, 0.6], 1.0), -2)
+    home = rng.choice(["rent", "mortgage", "own", "other"], size=n, p=[0.42, 0.38, 0.17, 0.03])
+    purpose = rng.choice(["debt consolidation", "home improvement", "car", "small business", "education", "medical", "other"],
+                         size=n, p=[0.36, 0.17, 0.15, 0.07, 0.08, 0.06, 0.11])
+    region = rng.choice(["north", "south", "east", "west", "central"], size=n).astype(object)
+    credit_score = np.clip(rng.normal(690, 62, size=n), 450, 850).round().astype(int)
+    dti = np.round(np.clip(rng.beta(2.2, 6.0, size=n), 0, 0.95), 3)
+    utilization = np.round(np.clip(rng.beta(2.0, 3.2, size=n) + 0.15 * (credit_score < 620), 0, 1.0), 3)
+    delinquencies = rng.poisson(np.where(credit_score < 640, 1.1, 0.25))
+    months_employed = np.where(np.isin(employment, ["unemployed", "retired"]), 0,
+                               np.clip(rng.gamma(1.8, 30, size=n), 0, 480).round()).astype(int)
+    loan_amount = np.round(np.clip(income * rng.uniform(0.05, 0.6, size=n), 1000, 250_000), -2)
+
+    logit = (
+        CREDIT_COEFS["intercept"]
+        + CREDIT_COEFS["credit_score_per_100"] * (credit_score - 680) / 100
+        + CREDIT_COEFS["debt_to_income"] * dti
+        + CREDIT_COEFS["utilization"] * utilization
+        + CREDIT_COEFS["delinquencies_2y"] * delinquencies
+        + CREDIT_COEFS["months_employed_per_12"] * np.minimum(months_employed, 120) / 12
+        + CREDIT_COEFS["employment=unemployed"] * (employment == "unemployed")
+        + CREDIT_COEFS["employment=self-employed"] * (employment == "self-employed")
+        + CREDIT_COEFS["home=rent"] * (home == "rent")
+        + CREDIT_COEFS["purpose=debt consolidation"] * (purpose == "debt consolidation")
+        + CREDIT_COEFS["purpose=small business"] * (purpose == "small business")
+    )
+    p = 1 / (1 + np.exp(-logit))
+    defaulted = np.where(rng.random(n) < p, "Yes", "No")
+
+    income_out = income.astype(float)
+    income_out[rng.random(n) < 0.04] = np.nan  # not stated
+    months_out = months_employed.astype(float)
+    months_out[rng.random(n) < 0.03] = np.nan
+    region[rng.random(n) < 0.02] = None
+
+    df = pd.DataFrame({
+        "applicant_id": [f"C-{500000 + i}" for i in range(n)],
+        "age": age, "employment": employment, "income_usd": income_out, "home_ownership": home,
+        "loan_purpose": purpose, "region": region, "loan_amount_usd": loan_amount, "credit_score": credit_score,
+        "debt_to_income": dti, "utilization": utilization, "delinquencies_2y": delinquencies,
+        "months_employed": months_out, "defaulted": defaulted,
+    })
+    sidecar = {
+        "dataset": "credit-default",
+        "seed": seed,
+        "rows": n,
+        "label_column": "defaulted",
+        "positive_class": "Yes",
+        "default_rate": float((defaulted == "Yes").mean()),
+        "signal": "logit(p) = intercept + Σ coef · feature (values before masking)",
+        "coefficients": CREDIT_COEFS,
+        "noise_features": ["age", "region", "income_usd", "loan_amount_usd"],
+    }
+    return df, sidecar
+
+
+LOAN_COEFS = {
+    "intercept": 2_000.0,
+    "income_usd": 0.22,
+    "credit_score_over_600": 95.0,
+    "existing_debt_usd": -0.18,
+    "term_months": 210.0,
+    "purpose=home improvement": 9_000.0,
+    "purpose=small business": 16_000.0,
+    "purpose=car": 4_000.0,
+    "home=own": 3_500.0,
+}
+
+
+def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int = 40) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Approved loan amount (USD) from applicant features: a regression target with a known signal.
+
+    A few rows have no recorded amount (the label is missing); the engine drops them before fitting."""
+    rng = np.random.default_rng(seed + 3)
+    income = np.round(np.exp(rng.normal(11.0, 0.45, size=n)), -2)
+    credit_score = np.clip(rng.normal(700, 55, size=n), 500, 850).round().astype(int)
+    existing_debt = np.round(np.clip(rng.gamma(1.5, 9_000, size=n), 0, 200_000), -1)
+    term = rng.choice([12, 24, 36, 48, 60, 72], size=n, p=[0.08, 0.17, 0.3, 0.18, 0.2, 0.07])
+    purpose = rng.choice(["debt consolidation", "home improvement", "car", "small business", "education", "other"],
+                         size=n, p=[0.33, 0.2, 0.2, 0.08, 0.09, 0.1])
+    home = rng.choice(["rent", "mortgage", "own"], size=n, p=[0.4, 0.42, 0.18])
+    region = rng.choice(["north", "south", "east", "west", "central"], size=n)
+    open_accounts = rng.poisson(4.5, size=n)
+
+    mean = (
+        LOAN_COEFS["intercept"]
+        + LOAN_COEFS["income_usd"] * income
+        + LOAN_COEFS["credit_score_over_600"] * np.maximum(credit_score - 600, 0)
+        + LOAN_COEFS["existing_debt_usd"] * existing_debt
+        + LOAN_COEFS["term_months"] * term
+        + LOAN_COEFS["purpose=home improvement"] * (purpose == "home improvement")
+        + LOAN_COEFS["purpose=small business"] * (purpose == "small business")
+        + LOAN_COEFS["purpose=car"] * (purpose == "car")
+        + LOAN_COEFS["home=own"] * (home == "own")
+    )
+    noise_sd = 0.12 * np.abs(mean) + 1_500
+    amount = np.round(np.clip(mean + rng.normal(0, 1, size=n) * noise_sd, 1_000, None), -2)
+    label = amount.astype(float)
+    missing_rows = np.sort(rng.choice(n, size=n_missing_labels, replace=False))
+    label[missing_rows] = np.nan
+
+    df = pd.DataFrame({
+        "application_id": [f"L-{700000 + i}" for i in range(n)],
+        "income_usd": income, "credit_score": credit_score, "existing_debt_usd": existing_debt, "term_months": term,
+        "purpose": purpose, "home_ownership": home, "region": region, "open_accounts": open_accounts,
+        "loan_amount_usd": label,
+    })
+    sidecar = {
+        "dataset": "loan-amount",
+        "seed": seed,
+        "rows": n,
+        "label_column": "loan_amount_usd",
+        "problem_type": "regression",
+        "signal": "E[amount] = intercept + Σ coef · feature; noise sd = 0.12·|mean| + 1500",
+        "coefficients": LOAN_COEFS,
+        "noise_features": ["region", "open_accounts"],
+        "missing_label_rows": [int(r) for r in missing_rows],
+    }
+    return df, sidecar
+
+
 SAMPLES = {
     "support-tickets": {
         "name": "Support tickets (sample)",
@@ -313,6 +460,20 @@ SAMPLES = {
         "filename": "account_churn_sample.csv",
         "note": "Generated sample · tabular, 2 classes, imbalanced",
         "generate": generate_churn,
+        "sidecar": "signal.json",
+    },
+    "credit-default": {
+        "name": "Credit default (sample)",
+        "filename": "credit_default_sample.csv",
+        "note": "Generated sample · tabular, 2 classes, imbalanced (~8% default)",
+        "generate": generate_credit,
+        "sidecar": "signal.json",
+    },
+    "loan-amount": {
+        "name": "Loan amount (sample)",
+        "filename": "loan_amount_sample.csv",
+        "note": "Generated sample · regression, a few rows without a label",
+        "generate": generate_loan_amount,
         "sidecar": "signal.json",
     },
 }

@@ -12,7 +12,7 @@ from .test_samples import SUMMARY_FIELDS
 
 PROFILE_FIELDS = {
     "rows", "n_cols", "kind", "target", "suggested_target", "label_candidates", "columns", "classes", "n_classes",
-    "imbalance_ratio", "missing", "duplicates", "warnings", "splits",
+    "imbalance_ratio", "missing", "duplicates", "warnings", "splits", "task", "target_stats",
 }
 COLUMN_FIELDS = {"name", "type", "dtype", "role", "missing", "missing_share", "unique", "example"}
 

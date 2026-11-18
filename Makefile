@@ -6,14 +6,21 @@ PY := $(VENV)/bin/python
 API_PORT ?= 8000
 UI_PORT ?= 5190
 
-.PHONY: setup dev api ui test test-full test-backend test-backend-full test-ui e2e clean-data
+.PHONY: setup lock dev api ui test test-full test-backend test-backend-full test-ui e2e clean-data
 
 ## Create the Python venv, install the pinned backend deps and the npm packages.
 setup:
 	test -x $(PY) || $(PYTHON) -m venv $(VENV)
-	$(PY) -m pip install --upgrade pip -q
-	$(PY) -m pip install -r backend/requirements.txt
+	@# requirements.lock is requirements.txt fully resolved (make lock). uv installs it in under a minute;
+	@# pip works too but is slower.
+	if command -v uv >/dev/null; then uv pip install --python $(PY) --index-strategy unsafe-best-match -r backend/requirements.lock; \
+	else $(PY) -m pip install --upgrade pip -q && $(PY) -m pip install -r backend/requirements.lock; fi
 	npm install
+
+## Re-resolve backend/requirements.lock after editing backend/requirements.txt (needs uv).
+lock:
+	uv pip compile backend/requirements.txt --python-version 3.13 --index-strategy unsafe-best-match \
+		--emit-index-url --no-header -o backend/requirements.lock
 
 ## The API on :8000 and Vite on :5190 together. Ctrl+C stops both.
 dev:
