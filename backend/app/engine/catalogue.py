@@ -128,9 +128,9 @@ FAMILIES: list[dict[str, Any]] = [
     {
         "key": "ENS_WEIGHTED", "name": "Weighted ensemble", "kind": "ensemble",
         "description": "Caruana greedy ensemble selection over the models' out-of-fold (or validation) predictions; the weights sum to 1.",
-        "objective": "ŷ(x) = Σₘ wₘ·fₘ(x),  w = argmin_{w ≥ 0, Σw = 1, w ∈ ℕ/K} L(y, Σₘ wₘ fₘ(X_val))",
+        "objective": "ŷ(x) = Σₘ wₘ·fₘ(x),  w = arg min L(y, Σₘ wₘ fₘ(Xᵥₐₗ)) over wₘ ∈ {0, 1/K, …, 1},  Σₘ wₘ = 1",
         "objective_tex": r"\hat y(x) = \sum_m w_m f_m(x),\quad w = \arg\min_{w\ge 0,\ \sum w = 1} L\left(y, \sum_m w_m f_m(X_{\mathrm{val}})\right)",
-        "symbols": {"fₘ": "base model m", "wₘ": "its weight (multiples of 1/K after K greedy steps)", "L": "the eval metric as a loss", "X_val": "out-of-fold or validation rows"},
+        "symbols": {"fₘ": "base model m", "wₘ": "its weight: the share of the K greedy steps that picked fₘ", "K": "greedy selection steps (AutoGluon: 25)", "L": "the eval metric as a loss", "Xᵥₐₗ": "out-of-fold or validation rows, y their labels"},
         "problem_types": ["binary", "multiclass", "regression", "quantile"],
     },
 ]

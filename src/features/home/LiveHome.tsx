@@ -216,7 +216,7 @@ function TrainingMonitor({ run, live }: { run: Run | null; live: boolean }) {
         {run && pts.length === 0 && <div className="row helper" style={{ padding: 16 }}><ResonanceWave /> waiting for the first model…</div>}
         {pts.length > 0 && (
           <XYPlot height={210} testId="home-monitor" ariaLabel="validation score over time"
-            x={{ min: 0, max: tMax, ticks: niceTicks(0, tMax, 5), title: 't (s)', fmt: (v) => v.toFixed(0) }}
+            x={{ min: 0, max: tMax, ticks: niceTicks(0, tMax, 5), title: 't (s)', fmt: (v) => (Number.isInteger(v) ? String(v) : v.toFixed(1)) }}
             y={{ min: y0, max: y1, ticks: niceTicks(y0, y1, 4), title: 'sᵥₐₗ', fmt: (v) => fmtScore(v, 3) }}
             series={[{ name: 'best so far', color: 'var(--viz-c)', points: stair, step: 'after', width: 2 },
               { name: 'sᵥₐₗ(m)', color: 'var(--viz-a)', points: pts.map((p) => [p.t, p.v]), dots: true, width: 0, tip: (i) => pts[i].m }]} />

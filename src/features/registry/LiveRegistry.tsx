@@ -100,7 +100,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
 
       <div className="card navy explain-hero" data-testid="registry-kpis">
         <div className="eh-cell lead"><span className="micro-label">in production</span><b className="mono" data-testid="kpi-production">{counts.stages.Production}</b>
-          <small>{prod.length ? prod.map((v) => `${v.model_name} v${v.version}`).join(' · ') : 'nothing live yet'}</small></div>
+          <small title={prod.map((v) => `${v.model_name} v${v.version}`).join('\n')}>{prod.length ? `${prod.slice(0, 2).map((v) => `${v.model_name} v${v.version}`).join(' · ')}${prod.length > 2 ? ` · +${prod.length - 2} more` : ''}` : 'nothing live yet'}</small></div>
         <div className="eh-cell"><span className="micro-label">staging</span><b className="mono" data-testid="kpi-staging">{counts.stages.Staging}</b><small className="math-s">awaiting promotion</small></div>
         <div className="eh-cell"><span className="micro-label">pending review</span><b className="mono" data-testid="kpi-pending" style={{ color: counts.approvals.pending ? 'var(--accent-secondary-shell)' : undefined }}>{counts.approvals.pending}</b><small className="math-s">four eyes: reviewer ≠ registrant</small></div>
         <div className="eh-cell"><span className="micro-label">approved · rejected</span><b className="mono">{counts.approvals.approved} · {counts.approvals.rejected}</b><small className="math-s">of {counts.versions} versions</small></div>

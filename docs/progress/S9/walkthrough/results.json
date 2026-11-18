@@ -1,0 +1,38 @@
+{
+ "results": [
+  {
+   "tag": "fraud",
+   "run": "run_27d3ce19",
+   "version": "mv_7b1ac0cc",
+   "metric": "accuracy",
+   "score": 0.9779166666666667,
+   "best": "WeightedEnsemble_L2",
+   "pred": "WEIGHTEDENSEMBLE_L2 · PREDICTED CLASS 0 ŷ = 1 ⟺ p̂ > t,  p̂ = 0.0797, t = 0.500",
+   "batchRows": "500",
+   "seconds": 87
+  },
+  {
+   "tag": "complaints",
+   "run": "run_b43d4f47",
+   "version": "mv_7e297780",
+   "metric": "f1_macro",
+   "score": 0.9539331763999587,
+   "best": "WeightedEnsemble_L2",
+   "pred": "WEIGHTEDENSEMBLE_L2 · PREDICTED CLASS Mortgages ŷ = argmaxₖ p̂ₖ(x)",
+   "batchRows": "500",
+   "seconds": 60
+  },
+  {
+   "tag": "deposits",
+   "run": "run_538369d9",
+   "version": "mv_332dad2f",
+   "metric": "root_mean_squared_error",
+   "score": 4769.1309321072395,
+   "best": "WeightedEnsemble_L2",
+   "pred": "WEIGHTEDENSEMBLE_L2 · PREDICTED VALUE 22,635 f(x) in 148.6 ms",
+   "batchRows": "500",
+   "seconds": 58
+  }
+ ],
+ "errors": []
+}
