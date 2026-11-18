@@ -29,7 +29,7 @@ simulation, labelled SIMULATED, so a demo always opens.
 | **Anomaly detection · card transactions** | IsolationForest (and LOF) without labels: s(x, ψ) = 2^(−E[h(x)]/c(ψ)), the score distribution with the contamination threshold s*, TreeSHAP reasons per flagged row, and **group-relative features** when an entity column is mapped: an amount divided by the card's own mean, its z-score within the card, and the time since the card's previous transaction. **Velocity features** (F2) from the card's earlier rows only: counts and sums in the last 1 h and 24 h, distinct merchant categories in 24 h, amount ÷ the running mean, the gap to the previous transaction. **Confirm / dismiss** flagged rows (labels kept with the dataset, audited), then **Train supervised**: an AutoGluon binary run on the confirmations (positive-unlabeled, anomaly score as a feature), compared with the forest out-of-fold on the rows nobody reviewed. |
 | **AutoGluon in full · the Training Gym** | Presets, model families, per-family hyperparameters, bag folds k, bag sets s, stack levels L, HPO, pseudo-labelling, distillation, `refit_full`, `infer_limit`, sample weights, a raw `fit_kwargs` editor; the resolved call as a diff against `fit()`'s defaults; the fit-time estimate T̂; export as Python. |
 | **Explainability** | Performance, Threshold, Features & SHAP (permutation importance with 95% t-intervals, Kernel SHAP waterfall f(x) = φ₀ + Σ φᵢ), Errors, Fairness, Text: every number from the saved predictor and the fixed holdout. |
-| **Registry, model card, approvals** | MLflow-backed registry; register with `refit_full`, `infer_limit` or a chosen faster model, over a measured latency · score frontier and the **one-row p95 latency** per model; an SR 11-7-style model card (JSON, Markdown, HTML); four-eyes review; stages None → Staging → Production → Archived; Try It with SHAP reasons; batch scoring with PSI drift for every kind of version; an append-only audit log with the model's SHA-256. |
+| **Registry, model card, approvals** | MLflow-backed registry; register with `refit_full`, `infer_limit` (per row in batches, or **per one-row call with `infer_limit_batch_size = 1`**), **serve the fastest model**, **distillation** into a single student, or a model picked on the **score · latency frontier** (one-row p95 τ₉₅ **as served**: AutoGluon's feature pipeline pruned to what the model reads, models persisted; F3). The deployed copy's pipeline is pruned when its holdout predictions are unchanged, versions are persisted and **warmed on load** (on build and on promotion), and `POST /registry/versions/{id}/score` is the online path (support tickets: p95 4.4 ms one row, 6.9 ms over HTTP); an SR 11-7-style model card (JSON, Markdown, HTML); four-eyes review; stages None → Staging → Production → Archived; Try It with SHAP reasons; batch scoring with PSI drift for every kind of version; an append-only audit log with the model's SHA-256. |
 | **Vela, the AI companion, and Autopilot** | Findings computed from a run (overfitting gap, weak class or segment, imbalance, leakage, budget, drift), each with one patch that applies in the Gym; a question box. Autopilot chains real runs against requirements you set (F̄₁ ≥ 0.92, τ₉₅ ≤ 50 ms, a budget B): baseline → cleanlab inbox → a new dataset version → retrain → rebalance, calibrate, refit for latency, escalate → Met or Not Met. Claude (CLI, then API) chooses steps when available; a fixed strategy otherwise, and the UI says which. |
 
 ## Quickstart
@@ -39,7 +39,7 @@ make setup       # Python venv (backend/.venv) with the pinned deps (AutoGluon t
                  # fairlearn, MLflow), the Python client, and npm install
 make dev         # API on :8000 and the UI on http://localhost:5190; Ctrl+C stops both
 make smoke       # scripts/smoke.py: the UI's real calls end to end against the API (started if not running);
-                 # ✓ / ✗ per step, exit 1 on any failure. SMOKE_ONLY=core,samples,autopilot,forecast,anomaly,import,fresh,reset
+                 # ✓ / ✗ per step, exit 1 on any failure. SMOKE_ONLY=core,samples,autopilot,forecast,anomaly,import,fresh,latency,reset
 make reset       # delete every run, version, batch, autopilot, MLflow record and upload; regenerate the samples
 ```
 
@@ -123,9 +123,14 @@ registry, Vela and export.
   the rows nobody reviewed (top-18: 12 vs 6 of 18 hidden frauds, AP 0.24 → 0.72) but learns only the kinds analysts
   confirmed, and its reviewed rows were picked by the forest's score (s alone nearly predicts ŷ; Vela flags it as a
   leakage suspect). Its model needs the derived columns, so registering it does not score raw transactions yet.
-- **One-row latency of text GBM ensembles** is 50–250 ms on 4 CPUs (featurisation plus every bagged child). Register
-  shows the measured τ₉₅ and offers the fastest model within reach with its measured score cost (e.g. LightGBM at
-  23 ms vs the ensemble's 50 ms for Δaccuracy −0.003 on support tickets).
+- **One-row latency costs accuracy on text** (F3). AutoGluon's feature pipeline alone (~1,200 n-gram and text
+  statistics columns) takes ~10–13 ms per one-row call on 4 CPUs, so no model that reads the n-grams is served under
+  10 ms (LightGBM / XGBoost ≈ 13–20 ms as served, the ensemble 18–450 ms by its members). Under 10 ms the support-ticket
+  version serves TF-IDF → logistic regression on the raw text with the pipeline pruned to that one column: τ₉₅ 4.4 ms
+  (HTTP 6.9 ms) for Δaccuracy −0.030 against the ensemble. AutoGluon's own fit-time `infer_limit` with
+  `infer_limit_batch_size = 1` subtracts the pipeline time first and refuses a 10 ms limit on this data. Distillation
+  (soft labels, augmented rows) gave a worse student here (LightGBM_DSTL 0.894–0.902 vs 0.913 for TF-IDF and 0.943
+  for the ensemble). Latency numbers are this machine's and vary ±30% run to run.
 - The holdout is fixed per dataset when it is uploaded: a CSV uploaded without naming the target is stratified on the
   profiler's guess, so the same file uploaded twice can have a different holdout (scores differ accordingly).
 - Presets `high_quality`, `best_quality` and Chronos-2 download model weights on first use and are slow on 4 CPUs.
@@ -181,9 +186,11 @@ backend/
 │   │                      diff, AutoGluon's bagging/stacking choice, T̂), export.py (a run as a standalone script), api.py
 │   ├── vela/            S6: findings.py (computed findings with patches), wording.py (claude CLI → API → computed), api.py
 │   └── registry/        S5: model registry and use
-│       ├── api.py       /api/registry/…, /api/runs/{id}/register, /api/runs/{id}/latency
+│       ├── api.py       /api/registry/…, /api/runs/{id}/register, /api/runs/{id}/latency, versions/{id}/score|benchmark
 │       ├── store.py     registered models, versions, the audit log and batch jobs in SQLite
-│       ├── build.py     build a version in a worker: clone, refit_full, infer_limit, clone_for_deployment, measure, hash
+│       ├── build.py     build a version in a worker: clone, refit_full, distill, infer_limit / serve fastest,
+│       │                  clone_for_deployment + pruned pipeline, measure (one row, batches, cold vs warm), hash
+│       ├── fastpath.py  F3: prune AutoGluon's feature pipeline to a model's inputs, warm, one-row and batch timing, frontier
 │       ├── tracking.py  MLflow as a library on a local SQLite store: runs tracked, versions registered, stages mirrored
 │       ├── card.py      the model card: JSON, Markdown and HTML
 │       ├── scoring.py   Try It (prediction + SHAP reasons) and batch scoring, in workers
@@ -247,8 +254,10 @@ Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `hol
 | `GET /api/runs/{id}/shap?row=&target=` | Kernel SHAP (`shap.KernelExplainer` on `predict_proba` of the target class, or `predict` for regression; 50 background training rows from `shap.sample(…, random_state=0)`, 2048 coalitions, no L1 selection) for one holdout row: φ₀, every φᵢ with the row's value, f(x); f(x) = φ₀ + Σ φᵢ exactly. Cached in the run folder. |
 | `GET /api/runs/{id}/feature-importance?shuffles=` | Permutation importance (now 5 shuffles when computed on demand, `shuffles` to recompute) with a 95% t-interval Î ± t₀.₉₇₅,ₙ₋₁·s/√n per feature. |
 | `GET /api/status` | The status bar's live state: versions, CPU count, memory, host, the active run (stage, models started / finished, best validation score, started_at, τ), queued runs, run count, registry counts, worker-pool jobs. |
-| `GET /api/runs/{id}/latency` | Every model of the run that can predict: measured batch µs per row on the holdout (p50 of 3), one-row call latency `single_ms_p50` / `single_ms_p95`, validation and holdout score, the models and bytes it needs. Measured in a worker; cached. |
-| `POST /api/runs/{id}/register` | `{created_by, model_name?, description?, refit_full=false, infer_limit? (s/row), infer_limit_batch_size?, clone_for_deployment=true, serve_model?}` (`serve_model`: serve that model of the run, its `_FULL` copy after refit) → 202, a version `building`; its steps update until `ready` (or `failed`). The run is never changed. |
+| `GET /api/runs/{id}/latency` | Every model of the run that can predict: measured batch µs per row on the holdout (p50 of 3), one-row call latency with the whole pipeline (`single_ms_p50` / `single_ms_p95`) and **as served** (`served_ms_p50` / `served_ms_p95`: pipeline pruned to what the model reads, persisted; `pipeline` says what was pruned), validation and holdout score, the models and bytes it needs, and `frontier` (models no other beats on both τ₉₅ and validation score). Measured in a worker; cached. |
+| `POST /api/runs/{id}/register` | `{created_by, model_name?, description?, refit_full=false, infer_limit? (s/row), infer_limit_batch_size? (1 = per one-row call, measured as served), clone_for_deployment=true, prune_pipeline=true, serve_model?, serve_fastest=false, distill=false, distill_time_limit=120, distill_hyperparameters?}` (`serve_model`: serve that model of the run, its `_FULL` copy after refit; `serve_fastest`: the lowest one-row p95; `distill`: `predictor.distill()` students, the best one served unless another rule picks) → 202, a version `building`; its steps update until `ready` (or `failed`). The run is never changed. The version's `result.serving` holds the cold first call, the warm-up, one-row p50 / p95 over 200 calls, batches of 1 → 1,000 and the pipeline pruning (checked: max \|Δp\| on the holdout). A ready version is warmed in every predict worker (and in the API process if ≤ 200 MB). |
+| `POST /api/registry/versions/{id}/score` | F3, the online path: `{rows, where=auto\|api\|worker}` → predictions and probabilities, no SHAP; `predict_ms`, `worker_ms`, `server_ms`, `where`, `warm_before_call`. `auto` serves a deployed version (≤ 200 MB, ≤ 100 rows) in the API process, else in a predict worker. Anomaly versions score each row as Try It does. |
+| `POST /api/registry/versions/{id}/benchmark` · `GET /api/registry/serving` | One-row p50 / p95 and batches of 1 → 1,000 measured in a predict worker (stored as `result.serving_benchmark`); the versions loaded and warmed in the API process. |
 | `GET /api/registry` · `/registry/summary` · `/registry/versions[?model=]` · `/registry/versions/{id}` | Registered models, versions (with build steps, measured source vs version size and latency, holdout metrics with 95% bootstrap CIs, infer_limit candidates, hashes, MLflow), stage and approval counts, recent audit. |
 | `POST /api/registry/versions/{id}/transition` | `{stage: None\|Staging\|Production\|Archived, actor, comment}`. Production needs an approved review; promoting archives the model's previous Production version; rejected versions cannot go live. Mirrored to MLflow (stage, `production` / `staging` aliases, tags). |
 | `POST /api/registry/versions/{id}/review` | `{decision: approve\|reject, reviewer, comment}`. Four eyes: the reviewer cannot be the registrant; a rejection needs a comment and archives a live version; one review per version. |
