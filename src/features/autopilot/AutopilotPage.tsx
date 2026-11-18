@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useApi } from '@/shared/api/mode'
+import { LiveAutopilot } from './live/LiveAutopilot'
 import type { Dataset } from '@/features/quick-train/datasets'
 import { Segmented } from '@/shared/primitives/Segmented'
 import { StatusPill } from '@/shared/primitives/StatusPill'
@@ -12,6 +14,13 @@ import { Gauge } from './components/RequirementGauge'
 import { TEXT_SAMPLES, buildRun, type Brief, type Diff, type Metrics } from './run'
 
 export function AutopilotPage({ go }: { go: (r: string) => void }) {
+  const { mode } = useApi()
+  if (mode === 'live') return <LiveAutopilot go={go} />
+  return <ScriptedAutopilot go={go} />
+}
+
+/** Mock mode: the scripted prototype, labelled SIMULATED. */
+function ScriptedAutopilot({ go }: { go: (r: string) => void }) {
   const [ds, setDs] = useState<Dataset>(TEXT_SAMPLES[0])
   const [goal, setGoal] = useState('Route each support ticket to the right team. Security tickets must not be missed. It has to answer fast enough to run on every incoming ticket.')
   const [brief, setBrief] = useState<Brief>({ f1: 0.9, recall: 0.9, latency: 5, budget: 8, synthetic: true, autonomy: 'Ground Truth Only' })
@@ -55,6 +64,7 @@ export function AutopilotPage({ go }: { go: (r: string) => void }) {
           <VelaCrest size={26} />
           <h1 className="page-title">Vela Autopilot</h1>
           <span className="helper">It trains, tunes and fixes the data, and only stops to ask you what is true.</span>
+          <span className="pill warning" data-testid="autopilot-simulated">SIMULATED</span>
           <span className="spacer" />
           <Segmented options={['Manual', 'Autopilot']} value="Autopilot" onChange={(v) => v === 'Manual' && go('gym')} />
         </div>

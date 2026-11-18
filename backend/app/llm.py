@@ -31,7 +31,11 @@ def ask_json(prompt: str, timeout: float | None = None) -> tuple[dict[str, Any] 
     attempts: list[dict[str, Any]] = []
     t0 = time.time()
     if enabled():
-        for source, fn in (("claude-cli", _via_cli), ("anthropic-api", _via_api)):
+        # the CLI twice (a transient failure, e.g. a reply that is not JSON), then the API once
+        for source, fn in (("claude-cli", _via_cli), ("claude-cli", _via_cli), ("anthropic-api", _via_api)):
+            if source == "claude-cli" and attempts and (attempts[-1].get("error", "").startswith("timed out")
+                                                       or "not on PATH" in attempts[-1].get("error", "")):
+                continue
             s0 = time.time()
             try:
                 obj, meta = fn(prompt, model, timeout)

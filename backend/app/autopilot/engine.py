@@ -40,7 +40,7 @@ from . import metrics as M
 log = logging.getLogger("ensemble.autopilot")
 
 ACTIONS = {
-    "rebalance": "Retrain with balanced class weights (sample_weight='balance_weight'); helps a starved class's recall.",
+    "rebalance": "Retrain with balanced class weights (TabularPredictor(sample_weight='balance_weight')); helps a starved class's recall.",
     "calibrate_threshold": "Binary only: retrain and calibrate the decision threshold for the requirement's metric.",
     "escalate_preset": "Retrain with the next stronger preset (medium → good → high quality) and a larger time limit.",
     "add_families": "Retrain with more model families (gradient boosting on n-grams / CatBoost / extra trees) at the same preset.",
@@ -200,6 +200,7 @@ class Pilot:
         self.save()
         try:
             self._wait_api()
+            self._recover()
             if not any(s["kind"] == "profile" and s["status"] == "done" for s in st["steps"]):
                 self.do_profile()
             base = next((s for s in st["steps"] if s["kind"] == "baseline" and s["status"] == "done"), None)
@@ -226,6 +227,21 @@ class Pilot:
                 if s["status"] == "running":
                     s["status"] = "failed"
             self.save()
+
+    def _recover(self) -> None:
+        """After a restart: a run step still in flight is followed to its end; any other unfinished step is marked
+        interrupted and redone by the main loop."""
+        for s in self.st["steps"]:
+            if s["status"] != "running":
+                continue
+            if s.get("run_id"):
+                self.note(f"Resumed after a restart: following {s['run_id']} ({s['title'].lower()}).")
+                self._complete_train(s)
+            else:
+                s["status"] = "interrupted"
+                s["finished_at"] = now()
+        self.st["current"] = None
+        self.save()
 
     def _wait_api(self) -> None:
         for _ in range(120):
@@ -322,13 +338,17 @@ class Pilot:
         if parent and change:
             body["patch"] = {"finding": f"autopilot:{kind}", "title": title, "changes": [{"path": change}]}
         s = self.step(kind, title, body=body, change=change, decision=decision)
-        t0 = time.time()
+        s["t0"] = time.time()
         r = self.http("POST", "/api/runs", json=body)
         s["run_id"] = r["id"]
         s["dataset_id"] = body["dataset_id"]
         self.save()
-        rec = self.wait_run(r["id"])
-        s["seconds"] = round(time.time() - t0, 1)
+        return self._complete_train(s)
+
+    def _complete_train(self, s: dict[str, Any]) -> dict[str, Any]:
+        kind, body, decision = s["kind"], s["body"], s.get("decision")
+        rec = self.wait_run(s["run_id"])
+        s["seconds"] = round(time.time() - s.get("t0", time.time()), 1)
         s["fit_seconds"] = rec.get("fit_seconds")
         s["best_model"] = rec.get("best_model")
         s["positive_class"] = rec.get("positive_class")
@@ -735,9 +755,9 @@ class Pilot:
         body = self.base_body()
         base_t = float(body.get("time_limit") or 60)
         if a == "rebalance":
-            body["fit_kwargs"]["sample_weight"] = "balance_weight"
+            body.setdefault("predictor_kwargs", {})["sample_weight"] = "balance_weight"
             body["time_limit"] = self._limit(d, base_t)
-            self.do_train("rebalance", "Balance class weights", best, body, change="fit_kwargs.sample_weight = 'balance_weight'", decision=d)
+            self.do_train("rebalance", "Balance class weights", best, body, change="predictor_kwargs.sample_weight = 'balance_weight'", decision=d)
         elif a == "calibrate_threshold":
             m = {"f1": "f1", "balanced_accuracy": "balanced_accuracy", "mcc": "mcc"}.get(self.st["primary"], "f1")
             body["calibrate_threshold"] = m

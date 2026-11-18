@@ -568,7 +568,7 @@ export type ApDecision = {
   layer1_would?: string; layer2_error?: string; time_limit?: number; cost_usd?: number
 }
 export type ApStep = {
-  id: string; n: number; kind: string; title: string; status: 'running' | 'done' | 'dropped' | 'skipped' | 'failed'
+  id: string; n: number; kind: string; title: string; status: 'running' | 'done' | 'dropped' | 'skipped' | 'failed' | 'interrupted'
   started_at: string; finished_at?: string; run_id?: string; dataset_id?: string; score?: number | null; score_own?: number | null
   dataset_version?: number; metrics?: Record<string, number>; checks?: ApCheck[]; met?: boolean; latency?: ApLatency
   seconds?: number; best_model?: string; n_models?: number; kept?: boolean; change?: string | null; decision?: ApDecision | null

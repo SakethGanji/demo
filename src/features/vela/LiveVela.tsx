@@ -24,8 +24,10 @@ function useContextRun(preferred: string | null) {
   return hashRun ?? preferred
 }
 
-export function LiveVela({ open, preferredRun, appliedKey, onApply }: {
+export function LiveVela({ open, preferredRun, appliedKey, onApply, onRun }: {
   open: boolean; preferredRun: string | null; appliedKey: string | null; onApply: (runId: string, f: VelaFinding) => void
+  /** Tells the sidecar which run is in view, for the question box. */
+  onRun?: (runId: string | null) => void
 }) {
   const ctx = useContextRun(preferredRun)
   const [runs, setRuns] = useState<Run[]>([])
@@ -48,6 +50,7 @@ export function LiveVela({ open, preferredRun, appliedKey, onApply }: {
     return () => clearInterval(t)
   }, [open, ctx])
   const runId = picked ?? (ctx && runs.some((r) => r.id === ctx) ? ctx : runs[0]?.id ?? null)
+  useEffect(() => { onRun?.(runId) }, [runId])
 
   useEffect(() => {
     if (!open || !runId) return

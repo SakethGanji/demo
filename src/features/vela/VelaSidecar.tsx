@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { api } from '@/shared/api/client'
+import type { VelaAnswer } from '@/shared/api/types'
 import { Icon } from '@/shared/primitives/Icon'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
@@ -19,6 +21,20 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
   const [dismissed, setDismissed] = useState<Set<string>>(new Set())
   const [q, setQ] = useState('')
   const [asked, setAsked] = useState<{ q: string; done: boolean }[]>([])
+  const [liveRun, setLiveRun] = useState<string | null>(null)
+  const [liveQs, setLiveQs] = useState<{ q: string; ctx: string; a?: VelaAnswer; err?: string }[]>([])
+  const apCtx = () => (location.hash.startsWith('#/autopilot') ? new URLSearchParams(location.hash.split('?')[1] ?? '').get('ap') : null)
+  const askLive = () => {
+    const question = q.trim()
+    if (!question) return
+    const ap = apCtx()
+    const idx = liveQs.length
+    setLiveQs((x) => [...x, { q: question, ctx: ap ? `autopilot ${ap}` : liveRun ? `run ${liveRun}` : 'no run' }])
+    setQ('')
+    api.vela.ask({ question, run_id: ap ? null : liveRun, autopilot_id: ap })
+      .then((a) => setLiveQs((x) => x.map((y, i) => (i === idx ? { ...y, a } : y))))
+      .catch((e) => setLiveQs((x) => x.map((y, i) => (i === idx ? { ...y, err: (e as Error).message } : y))))
+  }
 
   useEffect(() => { setThinking(true); const t = setTimeout(() => setThinking(false), 1100); return () => clearTimeout(t) }, [context])
 
@@ -41,7 +57,21 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
       </div>
       <div className="sidecar-body">
         {mode === 'live' ? (
-          <LiveVela open={open} preferredRun={preferredRun} appliedKey={appliedKey} onApply={onApplyLive} />
+          <>
+          <LiveVela open={open} preferredRun={preferredRun} appliedKey={appliedKey} onApply={onApplyLive} onRun={setLiveRun} />
+          {liveQs.map((x, i) => (
+            <div key={i} className="stack" style={{ gap: 8 }} data-testid="vela-qa">
+              <div className="chip" style={{ alignSelf: 'flex-end', fontFamily: 'var(--font-sans)', height: 'auto', padding: '4px 8px', whiteSpace: 'normal' }}>{x.q}</div>
+              {x.a || x.err ? (
+                <div className="patch">
+                  <div className="ph"><VelaCrest size={16} /><b className="card-title" style={{ fontSize: 13 }}>Answer</b><span className="spacer" /><span className="micro-label">{x.ctx}</span></div>
+                  <p data-testid="vela-answer">{x.err ?? x.a!.answer ?? x.a!.message}</p>
+                  <div className="vela-source" data-testid="vela-answer-source">{x.a ? <>answered by: <b>{x.a.source === 'claude-cli' ? 'Claude CLI' : x.a.source === 'anthropic-api' ? 'Anthropic API' : 'no model available'}</b>{x.a.model ? <span className="mono"> · {x.a.model}</span> : null} · {x.a.seconds.toFixed(1)} s · facts: {x.a.facts.join(', ')}</> : 'request failed'}</div>
+                </div>
+              ) : <div className="thinking"><ResonanceWave width={84} height={18} fast /> Asking the Claude CLI about {x.ctx}</div>}
+            </div>
+          ))}
+          </>
         ) : <>
         <div className="vela-ctx"><span className="micro-label">Context</span><span className="chip">{context}</span><span className="pill warning" data-testid="vela-simulated">SIMULATED</span></div>
         {thinking ? (
@@ -68,12 +98,13 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
         ))}
         </>}
       </div>
-      {mode !== 'live' && <div className="sidecar-input">
+      <div className="sidecar-input">
         <div className="box">
-          <input placeholder="Ask Vela about this run…" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ask()} />
-          <button className="icon-btn" aria-label="Send" onClick={ask} style={{ color: 'var(--accent-primary)' }}><Icon.send width={16} height={16} /></button>
+          <input placeholder={mode === 'live' ? (apCtx() ? 'Ask Vela about this autopilot…' : 'Ask Vela about this run…') : 'Ask Vela about this run…'} value={q} data-testid="vela-ask"
+            onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (mode === 'live' ? askLive() : ask())} />
+          <button className="icon-btn" aria-label="Send" onClick={mode === 'live' ? askLive : ask} style={{ color: 'var(--accent-primary)' }}><Icon.send width={16} height={16} /></button>
         </div>
-      </div>}
+      </div>
     </aside>
   )
 }

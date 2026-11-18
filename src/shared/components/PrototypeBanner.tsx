@@ -1,8 +1,7 @@
 import { useApi } from '@/shared/api/mode'
 
-const TEXT: Record<string, string> = {
-  autopilot: 'Vela Autopilot is still the scripted prototype: the run below plays in your browser and fits nothing. Train for real in New Model.',
-}
+/** Pages that are still prototypes in live mode. None since S7 (Autopilot is real); kept for the next prototype. */
+const TEXT: Record<string, string> = {}
 
 /** Live mode on a page that is still a prototype: say plainly that what it shows is simulated. */
 export function PrototypeBanner({ route }: { route: string }) {

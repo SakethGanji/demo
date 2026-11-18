@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 QUALITY = {
-    "f1_macro": ("Macro F₁", "F₁ᵐᵃᶜʳᵒ", ">="),
+    "f1_macro": ("Macro F₁", "F̄₁", ">="),
     "accuracy": ("Accuracy", "acc", ">="),
     "balanced_accuracy": ("Balanced accuracy", "BA", ">="),
     "mcc": ("MCC", "MCC", ">="),
