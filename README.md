@@ -31,7 +31,7 @@ simulation, labelled SIMULATED, so a demo always opens.
 | **Target confirmation and splits** | Confirming the column to predict is an explicit step (New Model → Target, `PATCH /api/datasets/{id}`). The holdout and folds belong to the target: one split per (target, strategy), drawn the first time it is used and never redrawn; every run records the key and SHA-256 of its split, so the browser and the API give identical holdouts for the same file and target, whatever the profiler guessed (F4). |
 | **Explainability** | Performance, Threshold, Features & SHAP (permutation importance with 95% t-intervals, Kernel SHAP waterfall f(x) = φ₀ + Σ φᵢ), Errors, Fairness, Text: every number from the saved predictor and the fixed holdout. |
 | **Registry, model card, approvals** | MLflow-backed registry; register with `refit_full`, `infer_limit` (per row in batches, or **per one-row call with `infer_limit_batch_size = 1`**), **serve the fastest model**, **distillation** into a single student, or a model picked on the **score · latency frontier** (one-row p95 τ₉₅ **as served**: AutoGluon's feature pipeline pruned to what the model reads, models persisted; F3). The deployed copy's pipeline is pruned when its holdout predictions are unchanged, versions are persisted and **warmed on load** (on build and on promotion), and `POST /registry/versions/{id}/score` is the online path (support tickets: p95 4.4 ms one row, 6.9 ms over HTTP); an SR 11-7-style model card (JSON, Markdown, HTML); four-eyes review; stages None → Staging → Production → Archived; Try It with SHAP reasons; batch scoring with PSI drift for every kind of version; an append-only audit log with the model's SHA-256. |
-| **Vela, the AI companion, and Autopilot** | Findings computed from a run (overfitting gap, weak class or segment, imbalance, leakage, budget, drift), each with one patch that applies in the Gym; a question box. Autopilot chains real runs against requirements you set (F̄₁ ≥ 0.92, τ₉₅ ≤ 50 ms, a budget B): baseline → cleanlab inbox → a new dataset version → retrain → rebalance, calibrate, refit for latency, escalate → Met or Not Met. Claude (CLI, then API) chooses steps when available; a fixed strategy otherwise, and the UI says which. |
+| **Vela, the AI companion, and Autopilot** | Findings computed from a run (overfitting gap, weak class or segment, imbalance, leakage, budget, drift), each with one patch that applies in the Gym; a question box. Autopilot chains real runs against requirements you set (F̄₁ ≥ 0.92, τ₉₅ ≤ 50 ms, a budget B): baseline → cleanlab inbox → a new dataset version → retrain → rebalance, calibrate, refit for latency, escalate → Met or Not Met. Claude (Anthropic SDK when `ANTHROPIC_API_KEY` is set, else the CLI) chooses steps when available; a fixed strategy otherwise, and the UI says which. Every answer shows its decider, latency, route and number guard; Settings → Language Model shows τ₉₅ per decider, the cache and the timeouts (F5). |
 
 ## Quickstart
 
@@ -65,7 +65,8 @@ The older test suites remain (`make test`, `make test-full`: pytest and Playwrig
                                                   │    Try It, batch scoring, drift
                                                   ├─ MLflow (library, local SQLite store): runs tracked, versions registered
                                                   ├─ Autopilot threads (call the API over HTTP like the UI does)
-                                                  └─ LLM layer: claude CLI → Anthropic API → computed text (always labelled)
+                                                  └─ LLM router (app/llm.py, F5): Anthropic SDK → claude CLI → computed text, async,
+                                                       cached by (prompt hash, facts hash), timeouts in Settings
 ```
 
 - **No loss against raw AutoGluon.** `fit_kwargs` pass to `fit()` unchanged; the run's `resolved` field is the exact
@@ -134,6 +135,13 @@ registry, Vela and export.
   for the ensemble). Latency numbers are this machine's and vary ±30% run to run.
 - Splits are random (stratified on the target when every class has ≥ 6 rows). A numeric target gets a plain random
   holdout; group and out-of-time splits come with F6, as new strategies beside `random-stratified`.
+- **The Claude CLI path still costs seconds per answer** (F5). Each ask starts a `claude` process: on this machine a
+  Vela ask takes p50 ≈ 7 s, p95 13–20 s (4 at a time; the API time inside is 1.3–2.5 s). Asks no longer hold a request
+  thread (`/api/health` max under 48 asks in flight: 5,088 ms before, < 80 ms after), a repeated question about the
+  same facts is answered from the cache in < 0.1 ms server-side, and a timeout falls back to the computed text within
+  its budget. The fast path is the Anthropic SDK, used when `ANTHROPIC_API_KEY` is set; it was verified here only
+  against a stand-in Messages API (scripts/fake_llm.py), not the real one, so its real latency is not measured yet.
+  The cache lives in the API process (lost on restart; at most 512 answers).
 - Presets `high_quality`, `best_quality` and Chronos-2 download model weights on first use and are slow on 4 CPUs.
 - No GPU support is exercised (shown as unavailable without CUDA). No sign-in: the "acting as" name goes in the audit log.
 - Autopilots run in API threads; a development reload resumes them, but their wall time then counts from the resume.
@@ -185,7 +193,7 @@ backend/
 │       └── heavy.py     jobs that run in it: SHAP, permutation importance, predict, out-of-fold
 │   ├── gym/             S6: schema.py (fit() keywords and per-family hyperparameters), validate.py (checks, resolved call,
 │   │                      diff, AutoGluon's bagging/stacking choice, T̂), export.py (a run as a standalone script), api.py
-│   ├── vela/            S6: findings.py (computed findings with patches), wording.py (claude CLI → API → computed), api.py
+│   ├── vela/            S6: findings.py (computed findings with patches), wording.py (via app/llm.py: SDK → CLI → computed, number guard), api.py
 │   └── registry/        S5: model registry and use
 │       ├── api.py       /api/registry/…, /api/runs/{id}/register, /api/runs/{id}/latency, versions/{id}/score|benchmark
 │       ├── store.py     registered models, versions, the audit log and batch jobs in SQLite
@@ -233,7 +241,8 @@ Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `hol
 | `GET /api/autopilot[/{id}]` | State: steps (each run with its body, scores on its own and on the current labels, p95 latency, kept or dropped, which layer decided), decisions, the log in Vela's voice, dataset versions, budget, verdict (Met / Not Met with every check). |
 | `GET /api/autopilot/{id}/inbox` | The Ground-Truth Inbox: label issues (cleanlab `find_label_issues` on out-of-fold and held-out p̂, ranked by m(x) = p̂_y − max_{k≠y} p̂_k), exact duplicates, near-duplicate conflicts, outliers (`OutOfDistribution`), each with text, given / suggested label, confidence and why; recall of `label_noise.json` when the dataset has one. |
 | `POST …/inbox/answer`, `…/inbox/bulk`, `…/resume`, `…/cancel` | Answer rows (confirm, relabel, drop, skip), bulk-accept above a confidence, submit and continue (a new dataset version with lineage and the same holdout rows), stop. |
-| `POST /api/vela/ask` | Vela's question box: `{question, run_id?, autopilot_id?}` answered from the computed facts by the Claude CLI, then the API, else `answer: null` and "no model available". |
+| `POST /api/vela/ask` | Vela's question box: `{question, run_id?, autopilot_id?, timeout?, cache?}` answered from the computed facts by the Anthropic SDK (with `ANTHROPIC_API_KEY`), then the claude CLI, else `answer: null` with a message. Returns `decider`, `seconds`, `attempts` (the route), `cached`, the prompt and facts hashes and `guard` (numbers in the answer that the facts do not contain). |
+| `GET /api/llm` · `PUT /api/llm/settings` · `POST /api/llm/cache/clear` | F5: the router's route, SDK / CLI availability, p50 / p95 per decider, cache counts; timeouts (`sdk_timeout`, `cli_timeout`, `total_timeout`), `cache_ttl`, `model`, `enabled`, `use_sdk`, `use_cli` (null restores the default; stored in `data/llm_settings.json`). |
 
 ### Engine API
 
@@ -272,7 +281,7 @@ Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `hol
 | `POST /api/gym/validate` | A run body (as for `POST /api/runs`) → `errors` / `warnings` (unknown fit arguments with a suggestion, invalid values, stacking without bagging, GPUs that are not there, metric vs problem type, columns), `resolved` (the exact predictor and fit kwargs, post-fit steps), `call` (Python), `diff` against fit()'s defaults with origin, `effective` (AutoGluon's `get_validation_and_stacking_method` for this data: k, s, L, dynamic stacking, holdout_frac, refit), `estimate` (T̂ with per-family rates and their source). `POST /api/runs` refuses a body with errors (400). |
 | `GET /api/runs/{id}/gym` | The body that starts the run again, its parent run and patch. |
 | `GET /api/runs/{id}/export.py` | A standalone script that reproduces the run with plain AutoGluon: data file with its SHA-256, the exact holdout rows (packed bitmask), dropped columns and column types, the resolved `TabularPredictor(...).fit(...)`, post-fit steps, the threshold step; it ends by comparing its leaderboard with the run's, model by model (`--tolerance`, `--no-check`). |
-| `GET /api/runs/{id}/vela` · `POST …/vela/wording` | Findings computed from the run (numbers, formula, one patch each with `changes` and the patched `body`) · their wording by the claude CLI, else the Anthropic API, else the computed text (`source`, `model`, attempts), cached per findings. |
+| `GET /api/runs/{id}/vela` · `POST …/vela/wording` | Findings computed from the run (numbers, formula, one patch each with `changes` and the patched `body`) · their wording through the LLM router (Anthropic SDK, else the claude CLI, else the computed text; `source`, `decider`, `model`, attempts), cached per findings. |
 | `GET /api/registry/versions/{id}/mlflow` | MLflow's own record of the version and its source run (params, metrics, tags). |
 
 `POST /api/runs` also takes `pseudolabel` (`{dataset_id, method: fit_pseudolabel | unlabeled_data, max_iter}`: unlabeled rows from another dataset, label column dropped), `distill` (kwargs of `predictor.distill`, run after the fit with a seeded generator so it reproduces), and `parent_run_id` / `patch` / `source` (lineage for Vela patches, the Gym and the client). `POST /api/runs` also takes `calibrate_threshold` (binary): a metric (`f1`, `balanced_accuracy`, `mcc`, …) to calibrate the decision threshold for after the fit, or `auto` (F₁ when the minority class is under 20% of the training rows). `fit_kwargs.calibrate_decision_threshold`, if given, always wins (AutoGluon does it, or not, inside `fit`). The New Model wizard sends `f1` by default when the label's minority class is under 20%; the Goal step shows the choice. Every binary run records `threshold` = `{value, source, metric, holdout_at_default, holdout_at_threshold}`.
