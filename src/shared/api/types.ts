@@ -451,7 +451,29 @@ export type BuildStep = { name: string; status: 'running' | 'done' | 'skipped' |
 
 export type InferCandidate = {
   model: string; refit_parent: string | null; score_val: number | null; score_val_natural: number | null; us_per_row: number | null
-  ag_predict_1_time_us: number | null; n_models: number; time_used_us: number | null; within: boolean
+  ag_predict_1_time_us?: number | null; n_models: number; time_used_us: number | null; within: boolean
+  /** batch size 1: one-row p50 / p95 as served (pipeline pruned, persisted). */
+  single_ms_p50?: number | null; single_ms_p95?: number | null; pipeline_pruned?: boolean
+}
+
+/** One-row and batch latency of a version as served (F3). */
+export type BatchLatency = { batch: number; calls: number; ms_p50: number | null; ms_p95: number | null; us_per_row_p50: number | null; rows_per_s: number | null }
+export type OneRow = { calls: number; ms_p50: number | null; ms_p95: number | null; ms_max: number | null }
+export type PipelinePrune = {
+  model?: string; pruned: boolean; kept?: boolean; reason?: string; features_in: string[]; dropped_in?: string[]
+  n_features_out: number; n_features_out_before?: number | null; generators?: number | null; generators_before?: number | null; max_abs_diff?: number
+}
+export type Serving = {
+  cold_first_call_ms: number; warm: { persisted: string[]; warm_calls_ms: number[]; seconds: number } | null
+  one_row: OneRow; batches: BatchLatency[]; pipeline: PipelinePrune | null; cpus: number; where: string
+}
+export type ServingBenchmark = {
+  model: string; one_row: OneRow; batches: BatchLatency[]; warm_on_load: Serving['warm']; cache_load_s: number
+  features_in: string[]; n_features: number; where: string
+}
+export type ScoreResult = {
+  version_id: string; model: string; problem_type: ProblemType; n_rows: number; predictions: unknown[]
+  probabilities: Record<string, number>[] | null; classes?: string[]; predict_ms: number; worker_ms: number; server_ms: number; where: 'api' | 'worker'; warm_before_call: boolean | null
 }
 
 export type VersionResult = {
@@ -463,7 +485,10 @@ export type VersionResult = {
   }
   tradeoff: { size_ratio: number | null; latency_ratio_p50: number | null; single_ratio_p50: number | null }
   refit: { skipped?: boolean; reason?: string; model?: string; mapping?: Record<string, string>; seconds?: number; best?: string } | null
-  infer_limit: { infer_limit_s: number; infer_limit_us: number; batch_size: number; candidates: InferCandidate[]; chosen: string; met: boolean; seconds: number; rule: string } | null
+  infer_limit: { infer_limit_s?: number; infer_limit_us?: number; batch_size?: number; candidates?: InferCandidate[]; chosen: string; met: boolean; seconds: number; rule: string; serve_model?: string; serve_fastest?: boolean } | null
+  distill?: { teacher: string; students: string[]; served?: string; seconds: number; method: string; teacher_score_test: number | null; scores: Record<string, { score_val: number | null; score_test: number | null }> } | null
+  serving?: Serving
+  serving_benchmark?: ServingBenchmark
   hashes: { model_sha256: string; data_sha256: string; splits_sha256: string; data_file: string }
   path: string
   mlflow?: { name: string; version: number; source: string; run_id: string; stage: string; experiment_id: string }
@@ -502,6 +527,8 @@ export type RegisterRequest = {
   infer_limit_batch_size?: number | null; clone_for_deployment?: boolean
   /** Serve this model of the run (set_model_best) instead of AutoGluon's best. */
   serve_model?: string | null
+  /** F3: serve the model with the lowest measured one-row p95; distil into single students; prune the pipeline. */
+  serve_fastest?: boolean; distill?: boolean; distill_time_limit?: number; prune_pipeline?: boolean
 }
 
 export type LatencyModel = {
@@ -509,10 +536,15 @@ export type LatencyModel = {
   n_models: number; size_bytes: number; stack_level: number; refit_full: boolean; best: boolean; ag_predict_1_time_us: number | null
   /** One-row calls (what Try It or an online API sees): ms per call, p50 / p95, and how many calls were timed. */
   single_ms_p50?: number | null; single_ms_p95?: number | null; single_calls?: number
+  /** As served (F3): feature pipeline pruned to what the model reads, models persisted. */
+  served_ms_p50?: number | null; served_ms_p95?: number | null; served_calls?: number; on_frontier?: boolean; score_rank?: number | null
+  pipeline?: { pruned: boolean; features_in: string[]; n_features_out: number; n_features_out_before?: number | null; generators?: number | null; generators_before?: number | null }
 }
 export type LatencyProfile = {
   run_id: string; batch_rows: number; models: LatencyModel[]; eval_metric: string; greater_is_better: boolean; best_model: string
   total_size_bytes: number; bagged: boolean; cached: boolean
+  /** F3: models no other model beats on both served one-row p95 and validation score. */
+  frontier?: string[]; natural_greater_is_better?: boolean; cpus?: number
 }
 
 export type TryResult = {

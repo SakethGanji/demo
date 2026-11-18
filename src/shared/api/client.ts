@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -128,6 +128,10 @@ export const api = {
     /** Every model of the run: score, measured µs per row, models and bytes it needs. */
     latency: (runId: string) => request<LatencyProfile>(`/runs/${encodeURIComponent(runId)}/latency`, { timeoutMs: 180_000 }),
     version: (id: string) => request<ModelVersion>(`/registry/versions/${encodeURIComponent(id)}`),
+    /** F3: the online path (no SHAP), timed by the predictor, the worker and the server. */
+    score: (id: string, rows: Record<string, unknown>[]) => json<ScoreResult>(`/registry/versions/${encodeURIComponent(id)}/score`, 'POST', { rows }),
+    /** F3: one-row p50 / p95 and batches of 1 → 1,000 as served, in a predict worker. */
+    benchmark: (id: string) => json<ServingBenchmark & { version_id: string }>(`/registry/versions/${encodeURIComponent(id)}/benchmark`, 'POST', {}),
     transition: (id: string, stage: Stage, actor: string, comment = '') =>
       json<{ version: ModelVersion; audit: AuditEntry; archived: string[] }>(`/registry/versions/${encodeURIComponent(id)}/transition`, 'POST', { stage, actor, comment }),
     review: (id: string, decision: 'approve' | 'reject', reviewer: string, comment = '') =>

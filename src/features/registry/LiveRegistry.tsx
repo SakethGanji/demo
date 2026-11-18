@@ -12,6 +12,7 @@ import { ModelCardView } from './components/ModelCardView'
 import { RegisterPanel } from './components/RegisterPanel'
 import { TryIt } from './components/TryIt'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
+import { ServingCard } from './components/ServingCard'
 import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
 
 type Tab = 'Overview' | 'Model Card' | 'Try It' | 'Batch & Drift' | 'Audit'
@@ -170,6 +171,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
             : <>
               <div className="grid vd-top"><ReviewCard v={detail} actor={actor} onChanged={() => bump()} /><Provenance v={detail} /></div>
               {flowOf(detail) === 'tabular' ? <Tradeoff v={detail} /> : <FlowMeasured v={detail} />}
+              {flowOf(detail) === 'tabular' && detail.result?.serving && <ServingCard key={detail.id} v={detail} sampleRow={
+                ds && detail.result.version.features.length ? Object.fromEntries(detail.result.version.features.map((f) => [f, ds.profile.columns.find((c) => c.name === f)?.example ?? null])) : null} />}
               <BuildSteps v={detail} />
             </>)}
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}

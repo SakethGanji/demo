@@ -125,3 +125,9 @@
 .reg-onerow .ro-eq { font-size: 14px; } .reg-onerow .ro-eq .mono { font-style: normal; font-size: 12px; }
 .reg-onerow .helper { margin: 0; font-size: 12px; }
 .reg-onerow .ro-alt { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--border-track); font-size: 12.5px; }
+.reg-adv summary { cursor: pointer; padding: var(--space-4) 0; }
+.reg-adv[open] summary { margin-bottom: var(--space-4); }
+.serving-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-16); }
+.serving-grid .table { width: 100%; table-layout: auto; }
+@media (max-width: 1400px) { .serving-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1750px) { .tradeoff-grid { grid-template-columns: minmax(0, 1fr); } }

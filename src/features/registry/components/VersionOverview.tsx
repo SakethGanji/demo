@@ -8,13 +8,13 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { APPROVAL_STATUS, STAGES, STAGE_STATUS, bytes, ms, short, us } from '../lib'
 
 const STEP_TEXT: Record<string, string> = {
-  clone: 'predictor.clone(work)', refit_full: 'refit_full(model=…)', infer_limit: 'set_model_best under τ', deploy_copy: 'clone_for_deployment / clone',
+  clone: 'predictor.clone(work)', refit_full: 'refit_full(model=…)', distill: 'distill(): single student models', infer_limit: 'set_model_best under τ', deploy_copy: 'clone_for_deployment + pruned pipeline',
   measure: 'size · latency · holdout CIs', hash: 'SHA-256 of model and data', mlflow: 'MLflow model version',
 }
 
 export function BuildSteps({ v }: { v: ModelVersion }) {
   const steps = v.progress?.steps ?? []
-  const names = ['clone', 'refit_full', 'infer_limit', 'deploy_copy', 'measure', 'hash', 'mlflow']
+  const names = ['clone', 'refit_full', ...(steps.some((x) => x.name === 'distill') ? ['distill'] : []), 'infer_limit', 'deploy_copy', 'measure', 'hash', 'mlflow']
   return (
     <div className="card" data-testid="build-steps">
       <div className="card-head"><div className="left"><h3 className="card-title">Build</h3><span className="helper" style={{ fontSize: 12 }}>in a worker process · the API stays responsive</span></div>
@@ -120,18 +120,33 @@ export function Tradeoff({ v }: { v: ModelVersion }) {
           </p>
         </div>
       </div>
-      {r.infer_limit && (
-        <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }} data-testid="infer-limit">
-          <p className="helper" style={{ fontSize: 12.5, marginBottom: 8 }}>
-            <b className="mono">infer_limit</b> τ = {us(r.infer_limit.infer_limit_us)} µs/row ({r.infer_limit.infer_limit_s} s): m* = argmax<sub>m : t̂(m) ≤ τ</sub> s_val(m) = <b className="mono">{r.infer_limit.chosen}</b>{r.infer_limit.met ? '' : ' — no model met τ, so the fastest was kept'}.
+      {r.infer_limit && r.infer_limit.candidates && (() => {
+        const il = r.infer_limit!
+        const one = il.batch_size === 1
+        return (
+          <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }} data-testid="infer-limit">
+            <p className="helper" style={{ fontSize: 12.5, marginBottom: 8 }}>
+              {il.serve_fastest
+                ? <><b className="mono">serve fastest</b>: m* = argmin<sub>m</sub> τ₉₅(m) = <b className="mono">{il.chosen}</b>, where τ₉₅(m) is m’s measured one-row p95 as served (pipeline pruned to what m reads, m persisted).</>
+                : <><b className="mono">infer_limit</b> λ = {one ? `${ms((il.infer_limit_us ?? 0) / 1e3)} ms per one-row call` : `${us(il.infer_limit_us)} µs/row`} ({il.infer_limit_s} s, <span className="mono">infer_limit_batch_size = {il.batch_size}</span>): m* = argmax<sub>m : t(m) ≤ λ</sub> s_val(m) = <b className="mono">{il.chosen}</b>{il.met ? '' : ' — no model met λ, so the fastest was kept'}. t(m) = {one ? 'τ₉₅(m), the one-row p95 as served' : 'measured batch time per row'}.</>}
+            </p>
+            <table className="table compact">
+              <thead><tr><th className="nocase">model m</th><th className="r nocase">s_val(m)</th><th className="r nocase">{one ? 'τ₉₅(m) ms' : 't̂(m) µs/row'}</th><th className="r">models needed</th><th className="nocase">{il.serve_fastest ? 'pipeline pruned' : 'within λ'}</th></tr></thead>
+              <tbody>{il.candidates!.map((c) => (
+                <tr key={c.model} className={c.model === il.chosen ? 'sel' : ''}><td className="mono">{c.model}</td><td className="r mono">{fmtScore(c.score_val_natural)}</td>
+                  <td className="r mono">{one ? ms(c.single_ms_p95) : us(c.time_used_us)}</td><td className="r mono">{c.n_models}</td>
+                  <td>{il.serve_fastest ? (c.pipeline_pruned ? 'yes' : 'no') : c.within ? <StatusPill status="success">yes</StatusPill> : <StatusPill status="neutral">no</StatusPill>}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )
+      })()}
+      {r.distill && (
+        <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }} data-testid="distill">
+          <p className="helper" style={{ fontSize: 12.5 }}>
+            <b className="mono">distill</b>: students fit to the teacher <span className="mono">{r.distill.teacher}</span>’s predicted probabilities p̂<sub>T</sub>(y | x) on the training rows plus augmented rows ({r.distill.method}); {r.distill.seconds.toFixed(0)} s. Holdout {metric}: teacher {fmtScore(r.distill.teacher_score_test)}{Object.entries(r.distill.scores).map(([m, sc]) => <span key={m}> · <span className="mono">{m}</span> {fmtScore(sc.score_test)}</span>)}.
+            {r.distill.served ? <> Served: <b className="mono">{r.distill.served}</b>.</> : null}
           </p>
-          <table className="table compact">
-            <thead><tr><th className="nocase">model m</th><th className="r nocase">s_val(m)</th><th className="r nocase">t̂(m) µs/row</th><th className="r">models needed</th><th className="nocase">within τ</th></tr></thead>
-            <tbody>{r.infer_limit.candidates.map((c) => (
-              <tr key={c.model} className={c.model === r.infer_limit!.chosen ? 'sel' : ''}><td className="mono">{c.model}</td><td className="r mono">{fmtScore(c.score_val_natural)}</td>
-                <td className="r mono">{us(c.time_used_us)}</td><td className="r mono">{c.n_models}</td><td>{c.within ? <StatusPill status="success">yes</StatusPill> : <StatusPill status="neutral">no</StatusPill>}</td></tr>
-            ))}</tbody>
-          </table>
         </div>
       )}
     </div>

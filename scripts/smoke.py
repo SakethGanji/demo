@@ -434,6 +434,166 @@ def samples(st: dict[str, Any]) -> None:
     step("text: one-row latency + serve a faster model", onerow)
 
 
+# --------------------------------------------------------------------------- F3: one-row latency
+
+
+TICKET = {"subject": "Card charged twice", "body": "I was billed twice for my invoice this month, please refund the duplicate charge.",
+          "channel": "email", "priority": "normal", "customer_tier": "pro"}
+
+
+def _pq(xs: list[float], q: float) -> float:
+    return float(np.percentile(np.asarray(xs, dtype=float), q))
+
+
+def latency(st: dict[str, Any]) -> None:
+    """F3: support tickets served one row at a time. The run is a text ensemble (GBM, XGBoost, two TF-IDF models);
+    Register measures every model as it would be served (pipeline pruned, persisted), picks under a one-row budget
+    with infer_limit_batch_size = 1, deploys a pruned copy, warms it, and the online /score path is timed."""
+    lam_ms = 10.0
+
+    def train():
+        r = post("/api/runs", {"dataset_id": "support-tickets", "time_limit": 150, "source": "smoke", "feature_importance": False,
+                               "fit_kwargs": {"hyperparameters": {"GBM": {}, "XGB": {}, "TFIDF_LR": {}, "TFIDF_SVM": {}}}})
+        rec = wait_run(r["id"])
+        st["lat_run"] = rec
+        m, s = primary(rec)
+        return f"{r['id']} · {rec['best_model']} · holdout {m} {s:.4f}"
+
+    if not step("latency: train the support-tickets ensemble", train):
+        return
+    rid = st["lat_run"]["id"]
+
+    def frontier():
+        lp = get(f"/api/runs/{rid}/latency")
+        ms = {m["model"]: m for m in lp["models"]}
+        check(all(m.get("served_ms_p95") is not None for m in lp["models"]), "served one-row p95 per model")
+        check(lp.get("frontier"), "a frontier")
+        best = ms[lp["best_model"]]
+        check(lp["best_model"] in lp["frontier"] or best["score_rank"] is None or any(
+            ms[f]["score_rank"] is not None and ms[f]["score_rank"] >= best["score_rank"] for f in lp["frontier"]), "best score on the frontier")
+        fastest = min(lp["models"], key=lambda m: m["served_ms_p95"])
+        check(fastest["model"] in lp["frontier"], "fastest model on the frontier")
+        pruned = [m for m in lp["models"] if m["pipeline"]["pruned"] and m["pipeline"]["n_features_out"] < 0.1 * (m["pipeline"]["n_features_out_before"] or 1)]
+        check(pruned, "a model that reads a small part of the pipeline (TF-IDF on raw text)")
+        st["lat_lp"] = lp
+        tf = min(pruned, key=lambda m: m["served_ms_p95"])
+        return (f"{len(lp['models'])} models · frontier {' → '.join(lp['frontier'])} · {best['model']} τ95 {best['served_ms_p95']:.1f} ms "
+                f"· {tf['model']} τ95 {tf['single_ms_p95']:.1f} ms whole pipeline → {tf['served_ms_p95']:.1f} ms pruned "
+                f"({tf['pipeline']['n_features_out_before']} → {tf['pipeline']['n_features_out']} features)")
+
+    if not step("latency: score–latency frontier (as served)", frontier):
+        return
+
+    def register_budget():
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.tickets.online",
+                                                "infer_limit": lam_ms / 1e3, "infer_limit_batch_size": 1})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        r = v["result"]
+        il = r["infer_limit"]
+        check(il["batch_size"] == 1 and il["candidates"], il)
+        within = [c for c in il["candidates"] if c["within"]]
+        check(il["met"] == bool(within), "met ⇔ some candidate within λ")
+        if within:  # the rule: best validation score among the candidates within λ
+            check(il["chosen"] == max(within, key=lambda c: c["score_val"])["model"], "chosen = argmax s_val within λ")
+        pipe = r["serving"]["pipeline"]
+        check(pipe and pipe["max_abs_diff"] == 0.0, f"pruned predictions unchanged: {pipe}")
+        check(r["version"]["best_model"] == il["chosen"], "served = chosen")
+        lp = st["lat_lp"]
+        ms = {m["model"]: m for m in lp["models"]}
+        best = ms[lp["best_model"]]
+        one = r["serving"]["one_row"]
+        check(one["ms_p95"] < best["served_ms_p95"], f"version τ95 {one['ms_p95']:.1f} ms vs ensemble {best['served_ms_p95']:.1f} ms")
+        st["lat_v"] = v
+        d = r["version"]["holdout"].get("accuracy", 0) - (r["source"]["holdout"] or {}).get("accuracy", 0)
+        return (f"{v['id']} serves {il['chosen']} (met={il['met']}) · τ95 one row {one['ms_p50']:.2f}/{one['ms_p95']:.2f} ms p50/p95 "
+                f"over {one['calls']} calls (ensemble {best['served_ms_p95']:.1f} ms) · pipeline {pipe['n_features_out_before']} → "
+                f"{pipe['n_features_out']} features, max |Δp| {pipe['max_abs_diff']} · Δaccuracy {d:+.4f} · cold first call "
+                f"{r['serving']['cold_first_call_ms']:.1f} ms")
+
+    if not step(f"latency: register infer_limit {lam_ms:g} ms, batch size 1", register_budget):
+        return
+    vid = st["lat_v"]["id"]
+
+    def warm_and_online():
+        post(f"/api/registry/versions/{vid}/review", {"decision": "approve", "reviewer": "Smoke Validator"})
+        post(f"/api/registry/versions/{vid}/transition", {"stage": "Production", "actor": "Smoke Validator"})
+        path = get(f"/api/registry/versions/{vid}")["path"]
+        t_end = time.time() + 60
+        while time.time() < t_end and not any(x["path"] == path for x in get("/api/registry/serving")["api_process"]):
+            time.sleep(0.5)
+        sv = get("/api/registry/serving")
+        entry = next((x for x in sv["api_process"] if x["path"] == path), None)
+        check(entry is not None, "promoted version loaded and warmed in the API process")
+        first = post(f"/api/registry/versions/{vid}/score", {"rows": [TICKET]})
+        check(first["warm_before_call"] is True and first["where"] == "api", first)
+        tri = post(f"/api/registry/versions/{vid}/predict", {"row": TICKET, "explain": False})
+        check(first["predictions"][0] == tri["prediction"], "online score = Try It")
+        http, server, pred = [], [], []
+        for _ in range(200):
+            t0 = time.perf_counter()
+            o = post(f"/api/registry/versions/{vid}/score", {"rows": [TICKET]})
+            http.append((time.perf_counter() - t0) * 1e3)
+            server.append(o["server_ms"])
+            pred.append(o["predict_ms"])
+        st["lat_online"] = {"http": http, "server": server, "predict": pred}
+        wk = [post(f"/api/registry/versions/{vid}/score", {"rows": [TICKET], "where": "worker"})["server_ms"] for _ in range(60)]
+        return (f"first call warm ({first['predict_ms']:.1f} ms, warm-up {[round(x, 1) for x in entry['warm']['warm_calls_ms']]} ms) · "
+                f"200 calls p50/p95: predictor {_pq(pred, 50):.2f}/{_pq(pred, 95):.2f} ms · server {_pq(server, 50):.2f}/{_pq(server, 95):.2f} ms · "
+                f"HTTP {_pq(http, 50):.2f}/{_pq(http, 95):.2f} ms · via a predict worker: server {_pq(wk, 50):.2f}/{_pq(wk, 95):.2f} ms")
+
+    step("latency: warm on promotion + online /score", warm_and_online)
+
+    def benchmark():
+        b = post(f"/api/registry/versions/{vid}/benchmark")
+        bs = {x["batch"]: x for x in b["batches"]}
+        check(set(bs) == {1, 10, 100, 1000}, bs.keys())
+        check(bs[1000]["us_per_row_p50"] < bs[1]["us_per_row_p50"], "per-row cost falls with batch size")
+        check(b["one_row"]["calls"] >= 50, b["one_row"])
+        return (f"predict worker: one row {b['one_row']['ms_p50']:.2f}/{b['one_row']['ms_p95']:.2f} ms p50/p95 · µs/row by batch "
+                + " · ".join(f"{k}: {bs[k]['us_per_row_p50']:,.0f}" for k in sorted(bs)))
+
+    step("latency: one row and batches in a predict worker", benchmark)
+
+    def fastest():
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.tickets.online", "serve_fastest": True})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        il = v["result"]["infer_limit"]
+        check(il["chosen"] == min(il["candidates"], key=lambda c: c["single_ms_p95"])["model"], "argmin τ95")
+        return f"{v['id']} serves {il['chosen']} · τ95 {v['result']['serving']['one_row']['ms_p95']:.2f} ms"
+
+    step("latency: serve the fastest model", fastest)
+
+    def distill():
+        v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.tickets.distilled",
+                                                "distill": True, "distill_time_limit": 60})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        d = v["result"]["distill"]
+        check(d and d.get("served") and d["served"].endswith("_DSTL"), d)
+        check(v["result"]["version"]["best_model"] == d["served"], "student served")
+        sc = d["scores"][d["served"]]
+        return (f"{v['id']} · student {d['served']} holdout {sc['score_test']:.4f} vs teacher {d['teacher']} {d['teacher_score_test']:.4f} "
+                f"· τ95 {v['result']['serving']['one_row']['ms_p95']:.1f} ms · {d['seconds']:.0f} s")
+
+    step("latency: distill into a single model", distill)
+
+    def gym():
+        body = {"dataset_id": "support-tickets", "time_limit": 90, "feature_importance": False,
+                "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 100}, "TFIDF_LR": {}}, "infer_limit": 0.05, "infer_limit_batch_size": 1}}
+        v = post("/api/gym/validate", body)
+        check(v["ok"], v.get("errors"))
+        bad = post("/api/gym/validate", {**body, "fit_kwargs": {**body["fit_kwargs"], "infer_limit_batch_size": 0}})
+        check(not bad["ok"], "batch size 0 accepted")
+        r = post("/api/runs", {**body, "source": "gym"})
+        rec = wait_run(r["id"])
+        check(rec["config"]["fit_kwargs"].get("infer_limit_batch_size") == 1, rec["config"]["fit_kwargs"])
+        return f"{r['id']} · fit(infer_limit=0.05, infer_limit_batch_size=1) → {rec['best_model']}"
+
+    step("latency: Gym infer_limit with batch size 1", gym)
+
+
 # --------------------------------------------------------------------------- fresh CSVs (scripts/fresh_data.py)
 
 FRESH = [
@@ -1127,7 +1287,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -1164,7 +1324,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "reset": reset}
+                "import": importer, "fresh": fresh, "latency": latency, "reset": reset}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

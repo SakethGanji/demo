@@ -404,6 +404,7 @@ export function ExtraDataStep({ body, set }: StepProps) {
 export function DeployStep({ body, set, schema }: StepProps) {
   const refit = getPath(body, 'fit_kwargs.refit_full') as boolean | undefined
   const il = getPath(body, 'fit_kwargs.infer_limit') as number | undefined
+  const ilb = getPath(body, 'fit_kwargs.infer_limit_batch_size') as number | undefined
   const ex = new Set((getPath(body, 'fit_kwargs.excluded_model_types') as string[] | undefined) ?? [])
   const gpus = schema.gpu.count
   return (
@@ -417,6 +418,10 @@ export function DeployStep({ body, set, schema }: StepProps) {
             <input className="num-input" style={{ width: 110 }} placeholder="none" value={il != null ? String(il * 1e6) : ''} aria-label="infer_limit in microseconds per row"
               onChange={(e) => { const x = Number(e.target.value); set('fit_kwargs.infer_limit', e.target.value.trim() && x > 0 ? x / 1e6 : undefined) }} />
             <span className="mono muted">µs / row{il != null ? ` = ${fmtNum(il)} s` : ''}</span>
+          </Row>
+          <Row label={<>infer_limit_batch_size <span className="math">b</span></>} sub="rows per predict call the limit is measured at; 1 = online scoring, one row per call (the per-call overhead counts in full)" testid="gym-infer-batch">
+            <Seg value={(ilb ?? null) as number | null} onChange={(x) => set('fit_kwargs.infer_limit_batch_size', x ?? undefined)}
+              options={[{ v: null, label: 'default (10,000)' }, { v: 1, label: '1 · online' }, { v: 100, label: '100' }, { v: 1000, label: '1,000' }]} />
           </Row>
           <Row label={<>num_gpus</>} sub={schema.gpu.note ?? `${gpus} CUDA device(s): ${schema.gpu.names.join(', ')}`} testid="gym-gpu">
             <Seg value={(getPath(body, 'fit_kwargs.num_gpus') ?? 'auto') as string | number} onChange={(x) => set('fit_kwargs.num_gpus', x === 'auto' ? undefined : x)}
@@ -435,7 +440,7 @@ export function DeployStep({ body, set, schema }: StepProps) {
         <div className="eq"><i>m</i>* = arg max<sub><i>m</i> : <i>t</i><sub>pred</sub>(<i>m</i>) ≤ <i>λ</i></sub> <i>s</i><sub>val</sub>(<i>m</i>)</div>
         <dl className="where">
           <dt>λ</dt><dd>infer_limit: {il != null ? <b className="mono">{fmtNum(il * 1e6)} µs per row</b> : 'none'}</dd>
-          <dt>t<sub>pred</sub>(m)</dt><dd>model m's measured predict time per row (batch of infer_limit_batch_size)</dd>
+          <dt>t<sub>pred</sub>(m)</dt><dd>model m's measured predict time per row, in calls of b = infer_limit_batch_size rows ({ilb != null ? <b className="mono">b = {ilb.toLocaleString()}</b> : 'AutoGluon’s default b = 10,000'}{ilb === 1 ? ': one row per call, so the fixed cost of a call counts in full' : ''}). AutoGluon first measures the feature pipeline’s time per row p and fits under λ − p; if p ≥ λ it stops. On text data p alone is ~10 ms at b = 1: registering with a pruned pipeline is the way below it</dd>
           <dt>_FULL</dt><dd>with refit_full, each model m gets a copy m_FULL fit on every training row; it has no validation score of its own</dd>
         </dl>
       </div>
