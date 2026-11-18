@@ -1,7 +1,8 @@
 import { Calibration, type FcCalibration } from './components/Calibration'
+import type { FcBand } from '@/shared/api/flows'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/shared/api/client'
-import { flows, type FcChart, type FcCreate, type FcMapping, type FcOptions, type FcPreview, type FlowRun } from '@/shared/api/flows'
+import { flows, type FcChart, type FcCreate, type FcEnsembleKind, type FcMapping, type FcOptions, type FcPreview, type FlowRun } from '@/shared/api/flows'
 import { useApi } from '@/shared/api/mode'
 import type { DatasetDetail, DatasetSummary } from '@/shared/api/types'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
@@ -42,7 +43,7 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [past, setPast] = useState<FlowRun[]>([])
-  const [cfg, setCfg] = useState({ H: 28, metric: 'MASE', presets: 'medium_quality', tau: 300, quantiles: '0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9', windows: 2, freq: '', fitKwargs: '{}', hp: '' })
+  const [cfg, setCfg] = useState({ H: 28, metric: 'MASE', presets: 'medium_quality', tau: 300, quantiles: '0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9', windows: null as number | null, freq: '', fitKwargs: '{}', hp: '', ensemble: 'both' as FcEnsembleKind, conformal: true, scope: 'pooled' as 'pooled' | 'item' })
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -79,8 +80,9 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
   try { hp = cfg.hp.trim() ? (cfg.hp.trim().startsWith('{') ? JSON.parse(cfg.hp) : cfg.hp.trim()) : null } catch { jsonErr = 'hyperparameters is not valid JSON' }
   const m = prev?.seasonal_period ?? 1
   const body: FcCreate | null = map && fitKw ? { dataset_id: dsId, mapping: map, prediction_length: cfg.H, freq: cfg.freq || null, eval_metric: cfg.metric, presets: cfg.presets || null,
-    time_limit: cfg.tau, quantile_levels: qs, num_val_windows: cfg.windows, hyperparameters: hp, fit_kwargs: fitKw, source: 'forecast-page' } : null
-  const need = prev ? cfg.H * (cfg.windows + 2) + 1 : 0
+    time_limit: cfg.tau, quantile_levels: qs, num_val_windows: cfg.windows, ensemble: cfg.ensemble, conformal: cfg.conformal, conformal_scope: cfg.scope, hyperparameters: hp, fit_kwargs: fitKw, source: 'forecast-page' } : null
+  const ens = opts?.ensembles.find((e) => e.key === cfg.ensemble)
+  const need = prev ? cfg.H * ((cfg.windows ?? 1) + 2) + 1 : 0
   const tooShort = prev ? prev.length_min < need : false
 
   const start = async () => {
@@ -156,7 +158,7 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
               <label><span className="micro-label">prediction_length H</span><input className="num-input" type="number" min={1} value={cfg.H} onChange={(e) => setCfg({ ...cfg, H: Math.max(1, Number(e.target.value)) })} data-testid="fc-H" /></label>
               <label><span className="micro-label">freq</span><input className="input" placeholder={prev?.freq ? `${prev.freq} (inferred)` : 'inferred'} value={cfg.freq} onChange={(e) => setCfg({ ...cfg, freq: e.target.value })} style={{ width: 110 }} /></label>
               <label><span className="micro-label">time_limit τ (s)</span><input className="num-input" type="number" min={10} value={cfg.tau} onChange={(e) => setCfg({ ...cfg, tau: Math.max(10, Number(e.target.value)) })} data-testid="fc-tau" /></label>
-              <label><span className="micro-label">num_val_windows W</span><input className="num-input" type="number" min={1} max={10} value={cfg.windows} onChange={(e) => setCfg({ ...cfg, windows: Math.max(1, Number(e.target.value)) })} /></label>
+              <label title={opts?.num_val_windows_auto}><span className="micro-label">num_val_windows W</span><input className="num-input" type="number" min={1} max={20} placeholder="auto" value={cfg.windows ?? ''} onChange={(e) => setCfg({ ...cfg, windows: e.target.value === '' ? null : Math.max(1, Number(e.target.value)) })} data-testid="fc-windows" /></label>
             </div>
             <label><span className="micro-label">eval_metric</span>
               <div className="seg" style={{ flexWrap: 'wrap' }}>{(opts?.metrics ?? []).filter((x) => ['MASE', 'WQL', 'SQL', 'RMSSE', 'WAPE', 'SMAPE', 'MAPE', 'RMSE', 'MAE'].includes(x.key)).map((x) => (
@@ -175,7 +177,19 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
                 {(opts?.presets ?? []).map((p) => <option key={p.key} value={p.key}>{p.key}</option>)}
               </select><small className="helper">{preset?.info}</small></label>
             <label><span className="micro-label">quantile_levels τ</span><input className="input" value={cfg.quantiles} onChange={(e) => setCfg({ ...cfg, quantiles: e.target.value })} data-testid="fc-quantiles" /></label>
-            <details className="fc-adv"><summary className="micro-label">Advanced: hyperparameters and fit_kwargs (passed unchanged)</summary>
+            <div className="fc-intervals" data-testid="fc-intervals">
+              <label><span className="micro-label">ensemble</span>
+                <select className="select" value={cfg.ensemble} onChange={(e) => setCfg({ ...cfg, ensemble: e.target.value as FcEnsembleKind })} data-testid="fc-ensemble">
+                  {(opts?.ensembles ?? []).map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
+                </select><small className="helper">{ens?.info}</small></label>
+              <label className="fc-check"><input type="checkbox" checked={cfg.conformal} onChange={(e) => setCfg({ ...cfg, conformal: e.target.checked })} data-testid="fc-conformal" />
+                <span><span className="micro-label">conformal recalibration</span><small className="helper" style={{ display: 'block' }}>q̃<sub>τ</sub> = m + c<sub>τ</sub>(q̂<sub>τ</sub> − m), c<sub>τ</sub> from the best model’s backtest forecasts so that a share τ of actuals falls below q̃<sub>τ</sub>; the median is not moved. Raw and recalibrated forecasts are both kept.</small></span></label>
+              {cfg.windows == null && <small className="helper">W auto: {opts?.num_val_windows_auto}</small>}
+            </div>
+            <details className="fc-adv"><summary className="micro-label">Advanced: conformal scope, hyperparameters and fit_kwargs (passed unchanged)</summary>
+              <label><span className="micro-label">conformal scope</span>
+                <div className="seg">{(['pooled', 'item'] as const).map((k) => <button key={k} className={cfg.scope === k ? 'on' : ''} disabled={!cfg.conformal} onClick={() => setCfg({ ...cfg, scope: k })} data-testid={`fc-scope-${k}`}>{k === 'pooled' ? 'pooled: one c_τ' : 'per series c_τ,i'}</button>)}</div>
+                <small className="helper">per series needs ≥ 60 backtest points for a series (W × H); others use the pooled c<sub>τ</sub></small></label>
               <label><span className="micro-label">hyperparameters (JSON or a preset name; empty = from presets)</span>
                 <textarea className="input mono" rows={3} placeholder='{"SeasonalNaive": {}, "ETS": {}, "DirectTabular": {}, "Chronos": {"model_path": "bolt_small"}}' value={cfg.hp} onChange={(e) => setCfg({ ...cfg, hp: e.target.value })} data-testid="fc-hp" /></label>
               <label><span className="micro-label">fit_kwargs</span>
@@ -183,8 +197,8 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
             </details>
             {body && <pre className="fc-call mono">{`TimeSeriesPredictor(prediction_length=${cfg.H}, freq=${JSON.stringify(cfg.freq || prev?.freq || null)}, eval_metric="${cfg.metric}",
     quantile_levels=${JSON.stringify(qs)}, known_covariates_names=${JSON.stringify(map?.known_covariates ?? [])}
-).fit(train_data, presets="${cfg.presets}", time_limit=${cfg.tau}, num_val_windows=${cfg.windows}${hp ? `, hyperparameters=${JSON.stringify(hp)}` : ''}${fitKw && Object.keys(fitKw).length ? `, **${JSON.stringify(fitKw)}` : ''})`}</pre>}
-            {tooShort && <p className="helper" style={{ color: 'var(--status-danger)' }}>✕ The shortest series has {prev!.length_min} steps; H = {cfg.H} with W = {cfg.windows} needs ≥ H(W + 2) + 1 = {need}.</p>}
+).fit(train_data, presets="${cfg.presets}", time_limit=${cfg.tau}, num_val_windows=${cfg.windows ?? '<auto>'}${ens?.ensemble_hyperparameters ? `, ensemble_hyperparameters=${JSON.stringify(ens.ensemble_hyperparameters)}` : ''}${hp ? `, hyperparameters=${JSON.stringify(hp)}` : ''}${fitKw && Object.keys(fitKw).length ? `, **${JSON.stringify(fitKw)}` : ''})`}</pre>}
+            {tooShort && <p className="helper" style={{ color: 'var(--status-danger)' }}>✕ The shortest series has {prev!.length_min} steps; H = {cfg.H} with W = {cfg.windows ?? 1} needs ≥ H(W + 2) + 1 = {need}.</p>}
             {(err || jsonErr) && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {jsonErr || err}</p>}
             <div className="row"><span className="helper" style={{ fontSize: 12 }}>The last H steps of every series are held out and scored after the fit; W backtest windows before them pick and weight the models.</span><span className="spacer" />
               <button className="btn primary" disabled={!body || !prev || busy || tooShort || !!jsonErr} onClick={start} data-testid="fc-start">{busy ? 'Starting…' : 'Start Forecast'}</button></div>
@@ -227,6 +241,7 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
   const [item, setItem] = useState<string>('')
   const [err, setErr] = useState('')
   const [showHold, setShowHold] = useState(true)
+  const [rawBands, setRawBands] = useState(false)
   useEffect(() => { flows.run(runId).then(setRun).catch((e) => setErr(e.message)) }, [runId, live.done])
   useEffect(() => {
     if (run?.status !== 'succeeded') return
@@ -240,11 +255,16 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
   const metric = run.eval_metric?.name ?? String(run.config.eval_metric)
   const H = Number(run.config.prediction_length)
   const naive = lb.find((r) => r.model === 'SeasonalNaive')
-  const best = lb[0]
+  const best = lb.find((r) => r.model === run.best_model) ?? lb[0]
   const w = run.ensemble?.weights ?? {}
   const d = run.data ?? {}
   const h = run.holdout
-  const cal = (h as unknown as { calibration?: FcCalibration } | null)?.calibration ?? null
+  const hc = h as unknown as { calibration?: FcCalibration; calibration_raw?: FcCalibration } | null
+  const cal = hc?.calibration ?? null
+  const calRaw = hc?.calibration_raw ?? null
+  const recal = !!h?.recalibrated
+  const rawMain = calRaw?.intervals[0]
+  const bandOf = (b?: FcBand) => (b && rawBands && b.q_raw ? { ...b, q: b.q_raw } : b)
   const elapsed = live.t0 && live.last ? live.last - live.t0 : null
   const tau = Number(run.config.time_limit ?? 0)
   return (
@@ -264,9 +284,9 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
           <b className="mono" data-testid="fc-primary">{done ? f3(best?.score_test_natural) : live.status === 'failed' ? 'failed' : <ResonanceWave />}</b>
           <small>{done ? `last H = ${H} steps of each series, never seen in fit or model selection` : elapsed != null ? `${elapsed.toFixed(0)} s of τ = ${tau} s` : 'queued'}</small></div>
         {done && naive && <Cell k="vs SeasonalNaive" v={`${f3(naive.score_test_natural)}`} d={<>skill 1 − {metric}<sub>best</sub> / {metric}<sub>naive</sub> = {pct(1 - (best!.score_test_natural ?? 0) / (naive.score_test_natural || 1))}</>} />}
-        {h && <Cell k="WQL" v={f3(h.metrics.WQL, 4)} d={<>2 Σ<sub>τ</sub>Σ<sub>t</sub> ρ<sub>τ</sub>(y<sub>t</sub> − q̂<sub>τ,t</sub>) / (|T| Σ<sub>t</sub>|y<sub>t</sub>|)</>} />}
+        {h && <Cell k={recal ? 'WQL · recalibrated' : 'WQL'} v={f3(h.metrics.WQL, 4)} d={<>{recal && h.metrics_raw ? <>AutoGluon {f3(h.metrics_raw.WQL, 4)} · </> : null}2 Σ<sub>τ</sub>Σ<sub>t</sub> ρ<sub>τ</sub>(y<sub>t</sub> − q̂<sub>τ,t</sub>) / (|T| Σ<sub>t</sub>|y<sub>t</sub>|)</>} />}
         {h && <Cell k="sMAPE" v={pct(h.metrics.SMAPE)} d={<>mean 2|e<sub>t</sub>| / (|y<sub>t</sub>| + |ŷ<sub>t</sub>|)</>} />}
-        {h && <Cell k={`coverage [q${h.interval[0]}, q${h.interval[1]}]`} v={pct(h.coverage)} d={<>nominal {pct(h.interval[1] - h.interval[0])}{cal ? <> · <span className="g-warn" style={{ fontWeight: 600 }}>{cal.verdict === 'calibrated' ? 'within error' : cal.verdict === 'too_wide' ? 'bands too wide' : 'bands too narrow'}</span></> : null}</>} />}
+        {h && <Cell k={`coverage [q${h.interval[0]}, q${h.interval[1]}]`} v={pct(h.coverage)} d={<>nominal {pct(h.interval[1] - h.interval[0])}{recal && rawMain ? <> · AutoGluon {pct(rawMain.empirical)}</> : null}{cal ? <> · <span className={cal.verdict === 'calibrated' ? '' : 'g-warn'} style={{ fontWeight: 600 }}>{cal.verdict === 'calibrated' ? (recal ? 'recalibrated: within error' : 'within error') : cal.verdict === 'too_wide' ? 'bands too wide' : 'bands too narrow'}</span></> : null}</>} />}
         <Cell k="models" v={`${live.models.filter((m) => m.status === 'done').length || lb.length}`} d={`${Object.keys(w).length} in the ensemble`} />
       </div>
 
@@ -281,16 +301,19 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
             return <button key={k} className={`chip-btn ${item === k ? 'on' : ''}`} onClick={() => setItem(k)} data-testid={`fc-item-${k}`}>{k}{e?.MASE != null ? <span className="muted"> · {e.MASE.toFixed(2)}</span> : null}</button>
           })}
           <span className="spacer" />
+          {recal && <div className="seg" data-testid="fc-bands">{([false, true] as const).map((r) => <button key={String(r)} className={rawBands === r ? 'on' : ''} onClick={() => setRawBands(r)}>{r ? 'AutoGluon bands' : 'recalibrated bands'}</button>)}</div>}
           <label className="fc-check helper"><input type="checkbox" checked={showHold} onChange={(e) => setShowHold(e.target.checked)} /> show holdout window</label>
         </div>
-        {chart.items[item] && <FanChart item={item} {...chart.items[item]} quantiles={chart.quantiles} freq={d.freq} showHoldout={showHold} />}
+        {chart.items[item] && <FanChart item={item} {...chart.items[item]} holdout={bandOf(chart.items[item].holdout)} future={bandOf(chart.items[item].future)} quantiles={chart.quantiles} freq={d.freq} showHoldout={showHold}
+          title={`Forecast · ${item}${recal ? (rawBands ? ' · AutoGluon quantiles' : ' · recalibrated quantiles q̃') : ''}`} />}
       </>}
 
       {done && <div className="grid fc-two">
         <Leaderboard run={run} metric={metric} />
         <EnsembleCard weights={w} lb={lb} metric={metric} />
       </div>}
-      {done && cal && <Calibration cal={cal} model={run.best_model ?? ''} />}
+      {done && cal && <Calibration cal={cal} raw={recal ? calRaw : null} conformal={h?.conformal} model={run.best_model ?? ''}
+        rawCsv={recal ? flows.forecast.csvUrl(run.id, 'future_raw') : undefined} />}
       {done && <div className="grid fc-two">
         <Backtests run={run} metric={metric} />
         <ItemErrors run={run} onItem={setItem} />
@@ -314,12 +337,13 @@ function Leaderboard({ run, metric }: { run: FlowRun; metric: string }) {
   return (
     <div className="card" data-testid="fc-leaderboard">
       <div className="card-head"><div className="left"><h3 className="card-title">Leaderboard</h3><span className="helper" style={{ fontSize: 12 }}>{metric}: validation on W backtest windows · holdout on the last H steps</span></div></div>
-      <div className="table-wrap"><table className="table"><thead><tr><th>#</th><th>model</th><th>family</th><th className="r">val {metric}</th><th className="r">holdout {metric}</th><th className="r">fit</th><th className="r">predict</th><th className="r">w</th></tr></thead>
+      <div className="table-wrap"><table className="table"><thead><tr><th>#</th><th>model</th><th>family</th><th className="r">val {metric}</th><th className="r">holdout {metric}</th><th className="r" title="AutoGluon's quantiles, holdout">cov [q{run.holdout?.interval[0]}, q{run.holdout?.interval[1]}]</th><th className="r">fit</th><th className="r">predict</th><th className="r">w</th></tr></thead>
         <tbody>{lb.map((r) => (
           <tr key={r.model} className={r.model === run.best_model ? 'sel' : ''}>
             <td className="table-cell">{r.rank}</td><td className="table-cell">{r.model}</td>
             <td><span className="dot-inline" style={{ background: FAMILY_COLOR[(r.family as string) ?? 'other'] }} />{r.family}</td>
             <td className="r table-cell">{f3(r.score_val_natural)}</td><td className="r table-cell"><b>{f3(r.score_test_natural)}</b></td>
+            <td className="r table-cell">{pct((r as unknown as { coverage_test?: number | null }).coverage_test)}</td>
             <td className="r table-cell">{r.fit_time != null ? `${Number(r.fit_time).toFixed(2)} s` : '—'}</td><td className="r table-cell">{r.pred_time_test != null ? `${Number(r.pred_time_test).toFixed(2)} s` : '—'}</td>
             <td className="r table-cell">{run.ensemble?.weights?.[r.model] != null ? run.ensemble.weights[r.model].toFixed(3) : ''}</td>
           </tr>))}</tbody></table></div>

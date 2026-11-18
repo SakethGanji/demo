@@ -26,7 +26,7 @@
 .forecast label.fc-check { flex-direction: row; align-items: center; gap: 6px; font-size: 12px; }
 
 /* interval calibration: F̂(τ) vs τ, and the central intervals nominal vs empirical */
-.fc-cal { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1.1fr); gap: var(--space-16); align-items: start; }
+.fc-cal { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(360px, 1.2fr); gap: var(--space-16); align-items: start; }
 .fc-cal-side { display: flex; flex-direction: column; gap: 8px; }
 .fc-cal-verdict { margin: 4px 0 0; padding: var(--space-8) var(--space-12); border-radius: var(--radius-control); font-size: 12.5px; line-height: 1.5; background: var(--status-success-bg); }
 .fc-cal-verdict.too_wide, .fc-cal-verdict.too_narrow { background: var(--status-warning-bg); }
@@ -35,3 +35,6 @@
 /* the task formula needs room: its own wide cell, never under the next one */
 .fc-eq .eh-cell.lead { flex: 2 1 380px; min-width: 380px; }
 .fc-eq .eh-cell.lead .math { white-space: nowrap; font-size: 18px !important; }
+.fc-intervals { display: flex; flex-direction: column; gap: 8px; padding: var(--space-8) var(--space-12); border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.forecast .fc-intervals label.fc-check { align-items: flex-start; }
+.forecast .fc-intervals label.fc-check input { margin-top: 3px; }

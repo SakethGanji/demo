@@ -12,8 +12,11 @@ export type FcMapping = {
 export type FcOptions = {
   presets: { key: string; info: string }[]
   metrics: { key: string; formula: string; quantile: boolean }[]
-  defaults: { prediction_length: number; eval_metric: string; presets: string; time_limit: number; quantile_levels: number[]; num_val_windows: number }
+  defaults: { prediction_length: number; eval_metric: string; presets: string; time_limit: number; quantile_levels: number[]; num_val_windows: number | null; ensemble: FcEnsembleKind; conformal: boolean; conformal_scope: 'pooled' | 'item' }
+  ensembles: { key: FcEnsembleKind; label: string; info: string; ensemble_hyperparameters: Record<string, unknown> | null }[]
+  num_val_windows_auto: string
 }
+export type FcEnsembleKind = 'greedy' | 'quantile' | 'both'
 
 export type FcPreview = {
   rows: number; items: number; observed_rows: number; future_rows: number; start: string; end: string
@@ -25,10 +28,11 @@ export type FcPreview = {
 export type FcCreate = {
   dataset_id: string; mapping: FcMapping; name?: string; prediction_length: number; freq?: string | null; eval_metric: string
   presets: string | null; time_limit: number | null; quantile_levels: number[]; num_val_windows: number | null
+  ensemble?: FcEnsembleKind; conformal?: boolean; conformal_scope?: 'pooled' | 'item'
   hyperparameters?: Record<string, unknown> | string | null; fit_kwargs: Record<string, unknown>; predictor_kwargs?: Record<string, unknown>; source?: string
 }
 
-export type FcBand = { t: string[]; mean: number[]; q: Record<string, number[]>; actual?: (number | null)[] }
+export type FcBand = { t: string[]; mean: number[]; q: Record<string, number[]>; q_raw?: Record<string, number[]>; actual?: (number | null)[] }
 export type FcChart = { run_id: string; quantiles: number[]; items: Record<string, { history: { t: string[]; y: (number | null)[] }; holdout?: FcBand; future?: FcBand }> }
 
 export type FcItemError = { item_id: string; n: number; MASE: number | null; WQL: number | null; sMAPE: number; MAPE: number; RMSE: number; bias: number; coverage: number; interval: [number, number]; scale: number; mean_actual: number }
@@ -36,8 +40,16 @@ export type FcItemError = { item_id: string; n: number; MASE: number | null; WQL
 export type FcRunExtra = {
   forecast?: { model: string; horizon: number; start: string; end: string; rows: number; known_covariates_source: string; quantiles: number[] } | null
   backtests?: { windows: { window: number; start: string; end: string }[]; models: Record<string, { window: number; MASE: number | null; WQL: number | null; coverage: number | null }[]>; error?: string } | null
-  holdout?: { model: string; metrics: Record<string, number>; coverage: number | null; interval: [number, number]; items: FcItemError[]; horizon: number; eval_metric?: string } | null
+  holdout?: { model: string; metrics: Record<string, number>; metrics_raw?: Record<string, number>; coverage: number | null; interval: [number, number]; items: FcItemError[]; horizon: number; eval_metric?: string
+    recalibrated?: boolean; conformal?: FcConformal | null } | null
+  ensembles?: { model: string; kind: string; weights: Record<string, number>; weights_per_quantile: Record<string, Record<string, number>> | null; best: boolean }[]
   data?: Record<string, unknown> & { items?: number; freq?: string; seasonal_period?: number; prediction_length?: number; start?: string; end?: string; train_end?: string; holdout_start?: string; known_covariates?: string[]; static_features?: string[] }
+}
+
+export type FcConformal = {
+  method?: string; scope?: 'pooled' | 'item'; centre?: string; quantiles?: number[]; n_scores?: number; windows?: number; items?: number; model?: string
+  factors?: Record<string, number | null>; levels?: Record<string, { c: number | null; n: number; k: number; raw_below: number | null }>
+  per_item?: Record<string, Record<string, number | null>>; error?: string
 }
 
 export type AnTruth = {
@@ -58,7 +70,7 @@ export type AnBatch = { id: string; filename: string; summary: { rows: number; n
 export type AnGroup = { entity_column: string | null; time_column: string | null; relative_columns: string[]; source: string }
 export type AnCreate = { group_features?: boolean; entity_column?: string | null; time_column?: string | null; relative_columns?: string[]; dataset_id: string; features?: string[] | null; contamination: number; n_estimators: number; max_samples?: number | string; max_features?: number; lof: boolean; lof_neighbors?: number; iforest_kwargs?: Record<string, unknown>; random_state?: number; source?: string }
 
-export type FlowRun = Omit<Run, 'holdout' | 'data'> & FcRunExtra & { kind?: string; anomaly?: AnSummary | null; imported?: Record<string, unknown> | null }
+export type FlowRun = Omit<Run, 'holdout' | 'data' | 'ensembles'> & FcRunExtra & { kind?: string; anomaly?: AnSummary | null; imported?: Record<string, unknown> | null }
 
 const J = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } })
 
@@ -71,10 +83,10 @@ export const flows = {
     preview: (dataset_id: string, mapping: FcMapping) => request<FcPreview>('/forecast/preview', { ...J({ dataset_id, mapping }), timeoutMs: 60_000 }),
     create: (body: FcCreate) => request<FlowRun>('/forecast/runs', { ...J(body), timeoutMs: 30_000 }),
     chart: (id: string) => request<FcChart>(`/forecast/runs/${encodeURIComponent(id)}/chart`, { timeoutMs: 30_000 }),
-    csvUrl: (id: string, which: 'future' | 'holdout' = 'future') => `/api/forecast/runs/${encodeURIComponent(id)}/forecast.csv?which=${which}`,
+    csvUrl: (id: string, which: 'future' | 'holdout' | 'future_raw' | 'holdout_raw' = 'future') => `/api/forecast/runs/${encodeURIComponent(id)}/forecast.csv?which=${which}`,
     predict: (id: string, file: File) => {
       const f = new FormData(); f.append('file', file)
-      return request<{ id: string; items: number; rows: number; seconds: number; known_covariates_source: string; chart: Omit<FcChart, 'run_id'>; model: string; download: string }>(
+      return request<{ id: string; items: number; rows: number; seconds: number; known_covariates_source: string; chart: Omit<FcChart, 'run_id'>; model: string; download: string; recalibrated?: boolean }>(
         `/forecast/runs/${encodeURIComponent(id)}/predict`, { method: 'POST', body: f, timeoutMs: 300_000 })
     },
   },
