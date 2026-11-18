@@ -1,52 +1,395 @@
-"""One caller for every optional language-model call (Autopilot decisions, the decision log's wording, Vela's answers).
+"""One router for every optional language-model call: Vela's question box, the wording of Vela's findings, Autopilot's
+decisions and its synthetic rows. The numbers always come from the workbench; a model only words or chooses.
 
-Order: the `claude` CLI (`claude -p --model claude-sonnet-5-5 --output-format json`), then the Anthropic API when
-ANTHROPIC_API_KEY is set, then nothing: the caller gets `None` and uses its computed fallback. Reuses Vela's tested
-`_via_cli` / `_via_api` (app/vela/wording.py). Default timeout 60 s per attempt.
+Order (F5): the Anthropic Python SDK when ANTHROPIC_API_KEY is set (model `claude-sonnet-5-5`, one pooled async client,
+no hidden retries), then the `claude` CLI (`claude -p … --output-format json`, an asyncio subprocess that is killed on
+its timeout), then nothing: the caller gets `None` and shows its computed text. Every reply carries its *decider*
+(`anthropic-sdk` | `claude-cli` | `computed`), the latency and each attempt.
 
-Environment: ENSEMBLE_VELA_LLM = auto (default) | off · ENSEMBLE_CLAUDE_BIN · ENSEMBLE_VELA_MODEL ·
-ENSEMBLE_LLM_TIMEOUT (seconds, default 60).
+- Asynchronous: `ask_json_async` awaits network or subprocess I/O on the event loop; no request thread is held, so
+  `/api/health` and every other route keep answering while asks are in flight. `ask_json` is the blocking wrapper for
+  code that runs in its own thread (Autopilot).
+- Cached by (prompt hash, facts hash, model): a repeated question about the same facts is answered from memory in
+  microseconds; the same question about changed facts is asked again. Identical asks in flight share one call
+  (single-flight). Only model answers are cached, never a fallback.
+- Timeouts per path and in total, configurable: environment defaults, overridden at runtime by `PUT /api/llm/settings`
+  (stored in `data/llm_settings.json`) and per call.
+- Number guard: `unsupported_numbers(answer, facts)` lists numbers in a reply that the facts do not contain (Vela's
+  wording keeps a reworded text only if every computed number survives; see app/vela/wording.py).
+
+Environment: ENSEMBLE_VELA_LLM = auto (default) | off · ENSEMBLE_VELA_MODEL (claude-sonnet-5-5) · ANTHROPIC_API_KEY ·
+ENSEMBLE_ANTHROPIC_BASE_URL (optional gateway for the SDK) · ENSEMBLE_CLAUDE_BIN (claude) · ENSEMBLE_LLM_SDK_TIMEOUT (20 s)
+· ENSEMBLE_LLM_CLI_TIMEOUT (45 s) · ENSEMBLE_LLM_TIMEOUT (total budget, 60 s) · ENSEMBLE_LLM_CACHE_TTL (3600 s).
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import os
-import subprocess
+import re
+import shutil
+import signal
+import threading
 import time
+from collections import OrderedDict, deque
+from pathlib import Path
 from typing import Any
 
-from .vela.wording import _via_api, _via_cli
+SDK, CLI, COMPUTED = "anthropic-sdk", "claude-cli", "computed"
+SOURCES = {SDK: "Anthropic SDK", CLI: "Claude CLI", COMPUTED: "computed (no model)",
+           "anthropic-api": "Anthropic API"}  # the last: records written before F5
+DEFAULT_MODEL = "claude-sonnet-5-5"
+SYSTEM = ("You are Vela, the analyst assistant inside a bank's AutoML workbench. Answer from the facts given, keep every "
+          "number exactly as written, and reply with the JSON the user message asks for, nothing else.")
+CLI_FLAGS = ["--output-format", "json", "--tools", "", "--strict-mcp-config", "--no-session-persistence",
+             "--disable-slash-commands", "--system-prompt", SYSTEM]
+NUM = re.compile(r"(?<![\w.])[-−]?\d+(?:[.,]\d+)*%?")
 
-SOURCES = {"claude-cli": "Claude CLI", "anthropic-api": "Anthropic API", "computed": "computed (no model)"}
+_lock = threading.Lock()
+_settings_path: Path | None = None
+_overrides: dict[str, Any] = {}
+_cache: OrderedDict[str, tuple[float, dict[str, Any], dict[str, Any]]] = OrderedDict()
+_stats = {"calls": 0, "cache_hits": 0, "shared_in_flight": 0, "by_source": {SDK: 0, CLI: 0, COMPUTED: 0}}
+_latency: dict[str, deque] = {SDK: deque(maxlen=200), CLI: deque(maxlen=200), COMPUTED: deque(maxlen=200)}
+_inflight: dict[tuple[int, str], asyncio.Future] = {}
+_clients: dict[int, Any] = {}
+
+# ----------------------------------------------------------------------------------------------------------- settings
+
+EDITABLE = {"enabled": bool, "sdk_timeout": float, "cli_timeout": float, "total_timeout": float, "cache_ttl": float,
+            "model": str, "use_sdk": bool, "use_cli": bool}
+
+
+def configure(data_dir: Path) -> None:
+    """Load runtime overrides from data/llm_settings.json (called once at app start)."""
+    global _settings_path
+    _settings_path = Path(data_dir) / "llm_settings.json"
+    try:
+        _overrides.clear()
+        _overrides.update(json.loads(_settings_path.read_text()))
+    except (FileNotFoundError, ValueError):
+        pass
+
+
+def settings() -> dict[str, Any]:
+    env = os.environ
+    s = {"enabled": env.get("ENSEMBLE_VELA_LLM", "auto").lower() != "off",
+         "model": env.get("ENSEMBLE_VELA_MODEL", DEFAULT_MODEL),
+         "sdk_timeout": float(env.get("ENSEMBLE_LLM_SDK_TIMEOUT", "20")),
+         "cli_timeout": float(env.get("ENSEMBLE_LLM_CLI_TIMEOUT", env.get("ENSEMBLE_VELA_TIMEOUT", "45"))),
+         "total_timeout": float(env.get("ENSEMBLE_LLM_TIMEOUT", "60")),
+         "cache_ttl": float(env.get("ENSEMBLE_LLM_CACHE_TTL", "3600")),
+         "use_sdk": True, "use_cli": True}
+    s.update({k: v for k, v in _overrides.items() if k in EDITABLE})
+    return s
+
+
+def update_settings(patch: dict[str, Any]) -> dict[str, Any]:
+    clean: dict[str, Any] = {}
+    for k, v in patch.items():
+        if k not in EDITABLE:
+            raise ValueError(f"unknown setting '{k}' (editable: {', '.join(EDITABLE)})")
+        if v is None:
+            _overrides.pop(k, None)
+            continue
+        v = EDITABLE[k](v)
+        if k.endswith("timeout") and not (0.1 <= v <= 600):
+            raise ValueError(f"{k} must be between 0.1 and 600 seconds")
+        if k == "cache_ttl" and v < 0:
+            raise ValueError("cache_ttl must be ≥ 0")
+        clean[k] = v
+    _overrides.update(clean)
+    if _settings_path:
+        _settings_path.parent.mkdir(parents=True, exist_ok=True)
+        _settings_path.write_text(json.dumps(_overrides, indent=1))
+    return settings()
 
 
 def enabled() -> bool:
-    return os.environ.get("ENSEMBLE_VELA_LLM", "auto").lower() != "off"
+    return bool(settings()["enabled"])
 
 
-def ask_json(prompt: str, timeout: float | None = None) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    """(the reply as a JSON object or None, meta: {source, model, attempts, seconds, cost_usd})."""
-    model = os.environ.get("ENSEMBLE_VELA_MODEL", "claude-sonnet-5-5")
-    timeout = float(timeout or os.environ.get("ENSEMBLE_LLM_TIMEOUT", "60"))
+def sdk_available() -> tuple[bool, str]:
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return False, "ANTHROPIC_API_KEY is not set"
+    try:
+        import anthropic  # noqa: F401
+    except ImportError:
+        return False, "the anthropic package is not installed"
+    return True, "ANTHROPIC_API_KEY is set"
+
+
+def cli_path() -> str | None:
+    exe = os.environ.get("ENSEMBLE_CLAUDE_BIN", "claude")
+    return exe if os.path.sep in exe and os.path.exists(exe) else shutil.which(exe)
+
+
+def route() -> list[str]:
+    """The paths a call would try, in order."""
+    s = settings()
+    if not s["enabled"]:
+        return []
+    out = []
+    if s["use_sdk"] and sdk_available()[0]:
+        out.append(SDK)
+    if s["use_cli"] and cli_path():
+        out.append(CLI)
+    return out
+
+
+def _pq(xs: list[float], q: float) -> float | None:
+    if not xs:
+        return None
+    xs = sorted(xs)
+    k = (len(xs) - 1) * q
+    lo = int(k)
+    hi = min(lo + 1, len(xs) - 1)
+    return round(xs[lo] + (xs[hi] - xs[lo]) * (k - lo), 3)
+
+
+def status() -> dict[str, Any]:
+    ok, why = sdk_available()
+    with _lock:
+        lat = {src: {"n": len(d), "p50_s": _pq(list(d), 0.5), "p95_s": _pq(list(d), 0.95), "last_s": d[-1] if d else None}
+               for src, d in _latency.items()}
+        stats = json.loads(json.dumps(_stats))
+        size = len(_cache)
+    return {"settings": settings(), "route": route(), "labels": SOURCES,
+            "sdk": {"available": ok, "why": why, "base_url": os.environ.get("ENSEMBLE_ANTHROPIC_BASE_URL") or None},
+            "cli": {"path": cli_path()}, "latency": lat, "stats": stats | {"cache_size": size}}
+
+
+def clear_cache() -> int:
+    with _lock:
+        n = len(_cache)
+        _cache.clear()
+    return n
+
+
+# ---------------------------------------------------------------------------------------------------------- helpers
+
+def _canon(x: Any) -> str:
+    return x if isinstance(x, str) else json.dumps(x, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def cache_key(prompt: str, facts: Any = None, model: str = DEFAULT_MODEL) -> tuple[str, str, str]:
+    """(key, prompt hash, facts hash): sha256 of the prompt and of the canonical facts, with the model."""
+    ph = hashlib.sha256(prompt.encode()).hexdigest()
+    fh = hashlib.sha256(_canon(facts).encode()).hexdigest() if facts is not None else "-"
+    return f"{model}:{ph[:20]}:{fh[:20]}", ph, fh
+
+
+def parse_json_object(text: str) -> dict[str, Any]:
+    m = re.search(r"\{.*\}", (text or "").strip(), re.S)
+    if not m:
+        raise ValueError("no JSON object in the reply")
+    obj = json.loads(m.group(0))
+    if not isinstance(obj, dict):
+        raise ValueError("the reply is not a JSON object")
+    return obj
+
+
+def numbers(text: str) -> list[str]:
+    return [n.replace("−", "-").replace(",", "").rstrip("%") for n in NUM.findall(text or "")]
+
+
+def unsupported_numbers(answer: str, facts: Any) -> list[str]:
+    """Numbers in the answer that appear nowhere in the facts, after rounding either side to the answer's precision.
+    Small counting words (0–10) are allowed."""
+    have = set()
+    for n in numbers(_canon(facts)):
+        have.add(n)
+        try:
+            v = float(n)
+            have.update({f"{v:.0f}", f"{v:.1f}", f"{v:.2f}", f"{v:.3f}", f"{v:.4f}", f"{100 * v:.0f}", f"{100 * v:.1f}",
+                         f"{100 * v:.2f}"})
+        except ValueError:
+            pass
+    out = []
+    for n in numbers(answer):
+        try:
+            if float(n).is_integer() and 0 <= float(n) <= 10:
+                continue
+        except ValueError:
+            continue
+        if n not in have and n.lstrip("-") not in have:
+            out.append(n)
+    return sorted(set(out))
+
+
+def _record(source: str, seconds: float) -> None:
+    with _lock:
+        _stats["by_source"][source] = _stats["by_source"].get(source, 0) + 1
+        _latency[source].append(round(seconds, 3))
+
+
+# ------------------------------------------------------------------------------------------------------------ paths
+
+def _sdk_client():
+    """One AsyncAnthropic per event loop (its connection pool belongs to that loop), no SDK retries: the router decides."""
+    import anthropic
+
+    loop = asyncio.get_running_loop()
+    for k in [k for k, v in _clients.items() if v._ensemble_loop.is_closed()]:  # loops of finished asyncio.run calls
+        _clients.pop(k, None)
+    c = _clients.get(id(loop))
+    if c is None or getattr(c, "_ensemble_loop", None) is not loop:
+        c = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                                     base_url=os.environ.get("ENSEMBLE_ANTHROPIC_BASE_URL") or None, max_retries=0)
+        c._ensemble_loop = loop
+        _clients[id(loop)] = c
+    return c
+
+
+async def _via_sdk(prompt: str, model: str, timeout: float, max_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    import anthropic
+
+    client = _sdk_client()
+    try:
+        msg = await asyncio.wait_for(client.beta.messages.create(
+            model=model, max_tokens=max_tokens, system=SYSTEM, messages=[{"role": "user", "content": prompt}],
+            output_config={"effort": "low"}, betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+            timeout=timeout), timeout)
+    except anthropic.APITimeoutError as e:
+        raise TimeoutError(f"timed out after {timeout:g} s") from e
+    if msg.stop_reason == "refusal":
+        raise RuntimeError("the model declined (stop_reason refusal)")
+    text = "".join(getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text")
+    usage = getattr(msg, "usage", None)
+    return parse_json_object(text), {"model": msg.model, "stop_reason": msg.stop_reason,
+                                     "input_tokens": getattr(usage, "input_tokens", None),
+                                     "output_tokens": getattr(usage, "output_tokens", None)}
+
+
+async def _via_cli(prompt: str, model: str, timeout: float, max_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    path = cli_path()
+    if not path:
+        raise FileNotFoundError(f"`{os.environ.get('ENSEMBLE_CLAUDE_BIN', 'claude')}` is not on PATH")
+    proc = await asyncio.create_subprocess_exec(path, "-p", "--model", model, *CLI_FLAGS, stdin=asyncio.subprocess.PIPE,
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                                                start_new_session=True)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)  # the CLI and anything it started
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
+        await proc.wait()
+        raise TimeoutError(f"timed out after {timeout:g} s")
+    if proc.returncode != 0:
+        raise RuntimeError(f"claude exited {proc.returncode}: {(err or out).decode(errors='replace')[-300:]}")
+    outer = json.loads(out)
+    if outer.get("is_error"):
+        raise RuntimeError(str(outer.get("result"))[:300])
+    meta = {"model": next(iter(outer.get("modelUsage") or {}), model), "cost_usd": outer.get("total_cost_usd"),
+            "api_ms": outer.get("duration_api_ms")}
+    return parse_json_object(outer.get("result") or ""), meta
+
+
+PATHS = {SDK: _via_sdk, CLI: _via_cli}
+
+
+# ------------------------------------------------------------------------------------------------------------ router
+
+async def _route(prompt: str, s: dict[str, Any], timeout: float | None, max_tokens: int) -> tuple[dict | None, dict]:
     attempts: list[dict[str, Any]] = []
-    t0 = time.time()
-    if enabled():
-        # the CLI twice (a transient failure, e.g. a reply that is not JSON), then the API once
-        for source, fn in (("claude-cli", _via_cli), ("claude-cli", _via_cli), ("anthropic-api", _via_api)):
-            if source == "claude-cli" and attempts and (attempts[-1].get("error", "").startswith("timed out")
-                                                       or "not on PATH" in attempts[-1].get("error", "")):
-                continue
-            s0 = time.time()
-            try:
-                obj, meta = fn(prompt, model, timeout)
-            except subprocess.TimeoutExpired:
-                attempts.append({"source": source, "ok": False, "error": f"timed out after {timeout:.0f} s", "seconds": round(time.time() - s0, 2)})
-                continue
-            except Exception as e:  # noqa: BLE001
-                attempts.append({"source": source, "ok": False, "error": f"{type(e).__name__}: {e}"[:300], "seconds": round(time.time() - s0, 2)})
-                continue
-            attempts.append({"source": source, "ok": True, "seconds": round(time.time() - s0, 2)})
-            return obj, {"source": source, "model": meta.get("model"), "attempts": attempts,
-                         "seconds": round(time.time() - t0, 2), "cost_usd": meta.get("cost_usd")}
-    return None, {"source": "computed", "model": None, "attempts": attempts, "seconds": round(time.time() - t0, 2),
-                  "disabled": not enabled()}
+    t0 = time.perf_counter()
+    budget = float(timeout or s["total_timeout"])
+    paths = route()
+    for source in (SDK, CLI) if s["enabled"] else ():
+        if source not in paths:  # say why a path is not tried, so the UI can show the whole route
+            why = "off in Settings" if not s["use_sdk" if source == SDK else "use_cli"] else \
+                sdk_available()[1] if source == SDK else "the claude CLI is not on PATH"
+            attempts.append({"source": source, "ok": False, "skipped": True, "seconds": 0.0, "error": why})
+            continue
+        left = budget - (time.perf_counter() - t0)
+        per = min(s["sdk_timeout"] if source == SDK else s["cli_timeout"], left)
+        if per < 0.1:
+            attempts.append({"source": source, "ok": False, "error": "skipped: the total time budget is spent", "seconds": 0.0})
+            continue
+        a0 = time.perf_counter()
+        try:
+            obj, meta = await PATHS[source](prompt, s["model"], per, max_tokens)
+        except Exception as e:  # noqa: BLE001
+            if isinstance(e, (TimeoutError, asyncio.TimeoutError)):
+                e = TimeoutError(str(e) or f"timed out after {per:g} s")
+            msg = str(e) if isinstance(e, TimeoutError) else f"{type(e).__name__}: {e}"
+            attempts.append({"source": source, "ok": False, "error": msg[:300], "timeout_s": round(per, 2),
+                             "timed_out": isinstance(e, TimeoutError), "seconds": round(time.perf_counter() - a0, 3)})
+            continue
+        sec = time.perf_counter() - a0
+        attempts.append({"source": source, "ok": True, "seconds": round(sec, 3), "timeout_s": round(per, 2)})
+        _record(source, sec)
+        return obj, {"source": source, "decider": SOURCES[source], "model": meta.get("model"), "attempts": attempts,
+                     "seconds": round(time.perf_counter() - t0, 3), "model_seconds": round(sec, 3),
+                     "cost_usd": meta.get("cost_usd"), "usage": {k: meta.get(k) for k in ("input_tokens", "output_tokens") if meta.get(k) is not None}}
+    sec = time.perf_counter() - t0
+    _record(COMPUTED, sec)
+    return None, {"source": COMPUTED, "decider": SOURCES[COMPUTED], "model": None, "attempts": attempts,
+                  "seconds": round(sec, 3), "disabled": not s["enabled"],
+                  "reason": ("the language model is off (ENSEMBLE_VELA_LLM=off or Settings)" if not s["enabled"] else
+                             "no path available (no ANTHROPIC_API_KEY and no claude CLI)" if not paths else
+                             "every path failed or timed out")}
+
+
+async def ask_json_async(prompt: str, *, facts: Any = None, timeout: float | None = None, max_tokens: int = 1500,
+                         use_cache: bool = True) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """(the reply as a JSON object or None, meta: source, decider, model, seconds, attempts, cached, key, …)."""
+    s = settings()
+    key, ph, fh = cache_key(prompt, facts, s["model"])
+    keys = {"key": key, "prompt_sha256": ph[:16], "facts_sha256": fh[:16] if fh != "-" else None}
+    t0 = time.perf_counter()
+    with _lock:
+        _stats["calls"] += 1
+        hit = _cache.get(key) if use_cache and s["cache_ttl"] > 0 else None
+        if hit and time.time() - hit[0] <= s["cache_ttl"]:
+            _cache.move_to_end(key)
+            _stats["cache_hits"] += 1
+            obj, meta = hit[1], dict(hit[2])
+            return json.loads(json.dumps(obj)), meta | keys | {"cached": True, "cached_at": hit[0],
+                                                               "original_seconds": meta.get("seconds"),
+                                                               "seconds": round(time.perf_counter() - t0, 6)}
+    loop = asyncio.get_running_loop()
+    fk = (id(loop), key)
+    fut = _inflight.get(fk) if use_cache else None
+    if fut is not None:  # an identical ask is already running: wait for it
+        with _lock:
+            _stats["shared_in_flight"] += 1
+        obj, meta = await asyncio.shield(fut)
+        return (json.loads(json.dumps(obj)) if obj else None), dict(meta) | keys | {"cached": False, "shared": True,
+                                                                                    "seconds": round(time.perf_counter() - t0, 3)}
+    fut = loop.create_future()
+    if use_cache:
+        _inflight[fk] = fut
+    try:
+        obj, meta = await _route(prompt, s, timeout, max_tokens)
+        if obj is not None and use_cache and s["cache_ttl"] > 0:
+            with _lock:
+                _cache[key] = (time.time(), obj, meta)
+                while len(_cache) > 512:
+                    _cache.popitem(last=False)
+        if not fut.done():
+            fut.set_result((obj, meta))
+        return obj, dict(meta) | keys | {"cached": False}
+    except BaseException as e:
+        if not fut.done():
+            fut.set_exception(e)
+            fut.exception()  # mark retrieved
+        raise
+    finally:
+        _inflight.pop(fk, None)
+
+
+def warm() -> None:
+    """Import the SDK ahead of the first ask (≈ 1 s on a cold start), in a daemon thread; nothing else is sent."""
+    if sdk_available()[0]:
+        threading.Thread(target=lambda: __import__("anthropic"), daemon=True).start()
+
+
+def ask_json(prompt: str, timeout: float | None = None, *, facts: Any = None, max_tokens: int = 1500
+             ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """Blocking wrapper for code running in its own thread (Autopilot). Never call it on the event loop."""
+    return asyncio.run(ask_json_async(prompt, facts=facts, timeout=timeout, max_tokens=max_tokens))

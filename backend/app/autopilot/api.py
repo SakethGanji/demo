@@ -223,6 +223,8 @@ class Ask(BaseModel):
     question: str = Field(..., min_length=2, max_length=2000)
     run_id: str | None = None
     autopilot_id: str | None = None
+    timeout: float | None = Field(None, ge=0.1, le=600)  # F5: total seconds for this ask (default: the router's settings)
+    cache: bool = True  # F5: answer a repeated question about the same facts from the cache
 
 
 ASK_PROMPT = """You are Vela, the analyst assistant in a bank's AutoML workbench (AutoGluon). Answer the user's question
@@ -281,10 +283,17 @@ async def ask(body: Ask, request: Request) -> dict[str, Any]:
     if not facts:
         raise HTTPException(400, "Ask about a run (run_id) or an autopilot (autopilot_id).")
     prompt = ASK_PROMPT.format(facts=json.dumps(facts, ensure_ascii=False, default=str)[:24_000], question=body.question)
-    obj, meta = await run_in_threadpool(llm.ask_json, prompt)
+    # F5: awaited on the event loop (SDK → CLI → computed), cached by (prompt hash, facts hash); never holds a thread
+    obj, meta = await llm.ask_json_async(prompt, facts=facts, timeout=body.timeout, use_cache=body.cache)
+    common = {"source": meta["source"], "decider": meta["decider"], "model": meta.get("model"), "seconds": meta["seconds"],
+              "attempts": meta["attempts"], "cached": meta.get("cached", False), "key": meta.get("key"),
+              "prompt_sha256": meta.get("prompt_sha256"), "facts_sha256": meta.get("facts_sha256"),
+              "original_seconds": meta.get("original_seconds"), "facts": sorted(facts)}
     if obj and isinstance(obj.get("answer"), str):
-        return {"answer": obj["answer"].strip(), "source": meta["source"], "model": meta.get("model"), "seconds": meta["seconds"],
-                "attempts": meta["attempts"], "facts": sorted(facts)}
-    return {"answer": None, "source": "computed", "model": None, "seconds": meta["seconds"], "attempts": meta["attempts"],
-            "message": "No model available: the claude CLI and the Anthropic API both failed or are off "
-                       "(ENSEMBLE_VELA_LLM=off). Vela's computed findings above still hold.", "facts": sorted(facts)}
+        answer = obj["answer"].strip()
+        bad = llm.unsupported_numbers(answer, facts)  # the number guard: numbers the facts do not contain
+        return {"answer": answer, **common,
+                "guard": {"ok": not bad, "unsupported": bad, "checked": len(llm.numbers(answer))}}
+    why = meta.get("reason") or "every path failed"
+    return {"answer": None, **common, "guard": None,
+            "message": f"No model answer ({why}). Vela's computed findings still hold; the attempts say what was tried."}

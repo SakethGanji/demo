@@ -70,14 +70,15 @@ async def vela_findings(run_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/runs/{run_id}/vela/wording")
 async def vela_wording(run_id: str, request: Request) -> dict[str, Any]:
-    """Word the findings with the claude CLI, else the Anthropic API, else keep the computed text (30 s each)."""
-    from .wording import word
+    """Word the findings through the F5 router (Anthropic SDK, else the claude CLI, else the computed text); awaited on
+    the event loop, cached by (prompt hash, facts hash)."""
+    from .wording import word_async
 
     rec, out = await compute_findings(request, run_id)
     res = rec.get("result") or {}
     summary = {"name": rec["name"], "problem_type": res.get("problem_type"), "metric": (res.get("eval_metric") or {}).get("name"),
                "best_model": res.get("best_model")}
-    w = await run_in_threadpool(word, out["findings"], summary)
+    w = await word_async(out["findings"], summary)
     w["key"] = _key(out["findings"])
     request.app.state.runs.merge_result(run_id, vela_wording=w)
     return w

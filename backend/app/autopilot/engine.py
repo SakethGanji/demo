@@ -7,7 +7,7 @@ Layer 1 is a fixed strategy; every training step is a real `POST /api/runs` chai
     → [your answers] → apply (a new dataset version with lineage) → retrain → rebalance / calibrate if imbalanced
     → escalate preset and budget → stop when the requirements are met or the budget is spent.
 
-Layer 2 (after the audit): Claude, through app/llm.py (the claude CLI, then the Anthropic API), picks the next action
+Layer 2 (after the audit): Claude, through app/llm.py (the Anthropic SDK when ANTHROPIC_API_KEY is set, then the claude CLI), picks the next action
 from the same fixed menu given the state (scores, gaps, inbox stats, budget left) and writes the rationale in Vela's
 voice. If no model answers within 60 s, or it picks something not on the menu, layer 1 decides that step. Every
 decision records which layer made it.
@@ -706,7 +706,7 @@ class Pilot:
             d["seconds"] = meta["seconds"]
             if obj and obj.get("action") in menu:
                 d.update(action=obj["action"], rationale=str(obj.get("rationale") or "")[:600],
-                         layer="layer-2", source=meta["source"], model=meta.get("model"),
+                         layer="layer-2", source=meta["source"], decider=meta.get("decider"), model=meta.get("model"),
                          time_limit=obj.get("time_limit"), layer1_would=l1_action, cost_usd=meta.get("cost_usd"))
                 if d["action"] == "stop" and l1_action != "stop" and self.remaining() > 2 * MIN_STEP_SECONDS and not (self.best_step() or {}).get("met"):
                     pass  # Claude may stop early; that is its call and it is logged with layer 1's alternative.
@@ -847,7 +847,7 @@ class Pilot:
         prompt = (f"Write {n} new, varied, realistic examples of the class '{cls}' for a text classifier, in the same style "
                   f"as these real examples (do not copy them):\n{json.dumps(examples, ensure_ascii=False, indent=1)}\n\n"
                   f"Return only JSON: {{\"rows\": [{{{', '.join(repr(c) + ': ...' for c in f['text_columns'])}}}, ...]}}")
-        obj, meta = llm.ask_json(prompt, timeout=float(self.st["brief"].get("llm_timeout", 60)) * 1.5)
+        obj, meta = llm.ask_json(prompt, timeout=float(self.st["brief"].get("llm_timeout", 60)) * 1.5, max_tokens=8000)
         rows = [r for r in (obj or {}).get("rows", []) if isinstance(r, dict) and all(isinstance(r.get(c), str) and r[c].strip() for c in f["text_columns"])]
         if not rows:
             self.finish(s, status="failed", error="no model wrote usable rows", attempts=meta["attempts"])

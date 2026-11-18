@@ -20,6 +20,7 @@ from .forecast import api as forecast_api
 from .anomaly import api as anomaly_api
 from .gym import api as gym_api
 from .vela import api as vela_api
+from . import llm, llm_api
 from .engine.runner import JobRunner
 from .engine.pool import HeavyPool
 from .registry import api as registry_api
@@ -52,6 +53,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         store = DatasetStore(settings, db)
         await run_in_threadpool(store.ensure_samples)  # first start: generate the samples
         app.state.settings, app.state.db, app.state.datasets = settings, db, store
+        llm.configure(settings.data_dir)  # F5: runtime timeouts / model / switches from data/llm_settings.json
+        llm.warm()
         settings.runs_dir.mkdir(parents=True, exist_ok=True)
         app.state.runs = RunStore(db)
         app.state.runner = JobRunner(settings, app.state.runs)
@@ -160,6 +163,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)
     app.include_router(autopilot_api.router)
+    app.include_router(llm_api.router)
     return app
 
 

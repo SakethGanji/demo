@@ -21,6 +21,11 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
   targets    F4: deposits CSV uploaded without a target, trained on a non-guessed target via the UI's calls (confirm the
              target) and via the API (target named on upload): identical holdout rows, predictions and scores; a run on an
              unconfirmed label uses that label's split; switching targets never redraws a split
+  llm        F5: the language-model router: route and settings → Vela ask p50/p95 on this API's real path (the claude
+             CLI when no ANTHROPIC_API_KEY) while /api/health is probed → cache by (prompt hash, facts hash) → a 1 s
+             timeout falls back to computed and kills the CLI → a second API whose SDK talks to scripts/fake_llm.py:
+             SDK answers, SDK timeout / 500 / non-JSON → CLI, both → computed within the budget, no cached fallbacks,
+             number guard, wording, /api/health during 48 asks in flight
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -356,7 +361,7 @@ def core(st: dict[str, Any]) -> None:
 
     def ask():
         a = post("/api/vela/ask", {"question": "What is the holdout score of the best model, and which model is it?", "run_id": rid})
-        check(a["source"] in ("claude-cli", "anthropic-api", "computed"), a)
+        check(a["source"] in ("anthropic-sdk", "claude-cli", "computed"), a)
         check(a["answer"] or a["source"] == "computed", a)
         return f"answered by {a['source']} in {a['seconds']:.1f} s · {len(a['answer'] or a.get('message') or '')} chars"
 
@@ -1417,6 +1422,270 @@ def reset(st: dict[str, Any]) -> None:
     step("reset: POST /api/admin/reset", run)
 
 
+# --------------------------------------------------------------------------- llm (F5)
+
+def _tiny_run(c: httpx.Client) -> str:
+    """A small binary run to ask about (GBM only, ≈ 10 s)."""
+    d = j(c.post("/api/datasets", files={"file": ("smoke_llm.csv", make_binary_csv(400).to_csv(index=False).encode(), "text/csv")},
+                 data={"target": "defaulted"}))
+    r = j(c.post("/api/runs", json={"dataset_id": d["id"], "time_limit": 30, "source": "smoke", "calibrate_threshold": None,
+                                    "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 20}}}}))
+    for _ in range(300):
+        rec = j(c.get(f"/api/runs/{r['id']}"))
+        if rec["status"] in ("succeeded", "failed"):
+            check(rec["status"] == "succeeded", rec.get("error"))
+            return r["id"]
+        time.sleep(1)
+    raise SmokeError("tiny run did not finish")
+
+
+def _burst(base: str, bodies: list[dict[str, Any]], conc: int) -> tuple[list[tuple[float, dict]], list[float], int]:
+    """Send the asks `conc` at a time while probing /api/health every 0.2 s. → ([(seconds, answer)], health seconds,
+    health probes answered while asks were still in flight)."""
+    import concurrent.futures as cf
+    import threading
+
+    stop, hl, during = threading.Event(), [], [0]
+    inflight = [0]
+    lock = threading.Lock()
+
+    def probe():
+        with httpx.Client(base_url=base, timeout=60) as hc:
+            while not stop.is_set():
+                t = time.perf_counter()
+                hc.get("/api/health").raise_for_status()
+                hl.append(time.perf_counter() - t)
+                with lock:
+                    if inflight[0] > 0:
+                        during[0] += 1
+                time.sleep(0.2)
+
+    def one(b):
+        with lock:
+            inflight[0] += 1
+        try:
+            t = time.perf_counter()
+            r = httpx.post(f"{base}/api/vela/ask", json=b, timeout=900)
+            return time.perf_counter() - t, j(r)
+        finally:
+            with lock:
+                inflight[0] -= 1
+
+    th = threading.Thread(target=probe, daemon=True)
+    th.start()
+    try:
+        with cf.ThreadPoolExecutor(conc) as ex:
+            out = list(ex.map(one, bodies))
+    finally:
+        stop.set()
+        th.join(10)
+    return out, hl, during[0]
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as sk:
+        sk.bind(("127.0.0.1", 0))
+        return sk.getsockname()[1]
+
+
+def _cli_procs() -> int:
+    """claude processes started by the router (its flag set is distinctive)."""
+    out = subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True).stdout
+    return sum(1 for l in out.splitlines() if "--strict-mcp-config --no-session-persistence --disable-slash-commands" in l)
+
+
+def llm(st: dict[str, Any]) -> None:
+    """F5: the language-model router. Real path here: whatever this API has (the claude CLI when no ANTHROPIC_API_KEY).
+    SDK path: a second API whose Anthropic SDK points at scripts/fake_llm.py's Messages API (no key, no network)."""
+    def status():
+        s = get("/api/llm")
+        st["llm_route"] = s["route"]
+        check(set(s["latency"]) == {"anthropic-sdk", "claude-cli", "computed"} and "sdk_timeout" in s["settings"], s)
+        check(s["route"][:1] == (["anthropic-sdk"] if s["sdk"]["available"] else s["route"][:1]), s)
+        return (f"route {' → '.join(s['route'] + ['computed'])} · SDK: {s['sdk']['why']} · CLI: {s['cli']['path']} · "
+                f"T_sdk {s['settings']['sdk_timeout']} s, T_cli {s['settings']['cli_timeout']} s, T {s['settings']['total_timeout']} s")
+
+    step("llm: router status", status, fatal=True)
+
+    def real_path():
+        st["llm_run"] = _tiny_run(C)
+        qs = ["Which model is best, and what is its holdout score?", "Which feature matters most?",
+              "Is the model overfitting? Answer from the gap between validation and holdout.",
+              "How long did the fit take?", "How many holdout rows were scored?", "What metric was optimised?",
+              "Name the two weakest models on the leaderboard.", "Is the label imbalanced?"]
+        bodies = [{"question": f"{q} (smoke {time.time():.0f}-{i})", "run_id": st["llm_run"], "cache": False} for i, q in enumerate(qs)]
+        out, hl, during = _burst(API, bodies, 4)
+        srcs = [a["source"] for _, a in out]
+        model_t = [t for t, a in out if a["source"] != "computed"]
+        for _, a in out:
+            check(a["answer"] or (a["source"] == "computed" and a["message"]), a)
+            check(a["decider"] and isinstance(a["attempts"], list), a)
+        if st["llm_route"]:
+            check(len(model_t) >= len(out) // 2, f"only {len(model_t)}/{len(out)} answered by a model: {[a['attempts'] for _, a in out]}")
+        check(during >= 3 and max(hl) < 1.0, f"/api/health: {during} probes during the asks, max {max(hl) * 1000:.0f} ms")
+        st["llm_real"] = {"n": len(model_t), "p50": _pq(model_t, 50) if model_t else None, "p95": _pq(model_t, 95) if model_t else None}
+        guards = [a["guard"]["ok"] for _, a in out if a.get("guard")]
+        return (f"{len(out)} asks, 4 at a time · deciders {dict((s, srcs.count(s)) for s in set(srcs))} · Vela ask "
+                + (f"p50 {st['llm_real']['p50']:.2f} s, p95 {st['llm_real']['p95']:.2f} s ({st['llm_route'][0]}, real)" if model_t else "no model path here")
+                + f" · /api/health {during} probes during the asks, p95 {_pq(hl, 95) * 1000:.0f} ms, max {max(hl) * 1000:.0f} ms"
+                + f" · number guard clean on {sum(guards)}/{len(guards)}")
+
+    step("llm: real path, Vela ask p95 while /api/health answers", real_path)
+
+    def cache():
+        q = {"question": "In one sentence, what is the best model and its holdout score?", "run_id": st["llm_run"]}
+        a1 = post("/api/vela/ask", q)
+        t = time.perf_counter()
+        a2 = post("/api/vela/ask", q)
+        rt = time.perf_counter() - t
+        if a1["source"] == "computed":
+            check(not a2["cached"], "a fallback must not be cached")
+            return "no model here: fallbacks are not cached (checked)"
+        check(a2["cached"] and a2["answer"] == a1["answer"] and a2["seconds"] < 0.05, a2)
+        check(a2["key"] == a1["key"] and a2["facts_sha256"] == a1["facts_sha256"], (a1["key"], a2["key"]))
+        other = _tiny_run(C)  # same question, other facts → asked again
+        a3 = post("/api/vela/ask", q | {"run_id": other})
+        check(not a3["cached"] and a3["facts_sha256"] != a1["facts_sha256"] and a3["prompt_sha256"] != a1["prompt_sha256"], a3)
+        return (f"first {a1['seconds']:.2f} s ({a1['source']}) → repeat cached in {a2['seconds'] * 1e3:.3f} ms server-side "
+                f"({rt * 1e3:.0f} ms round trip), same key {a1['key']} · other run's facts → h(facts) {a3['facts_sha256'][:8]} ≠ "
+                f"{a1['facts_sha256'][:8]}, asked again ({a3['seconds']:.2f} s)")
+
+    step("llm: cache by (prompt hash, facts hash)", cache)
+
+    def timeout_real():
+        if not st["llm_route"]:
+            return "no model path here: nothing to time out"
+        n0 = _cli_procs()
+        a = post("/api/vela/ask", {"question": f"Summarise the run in detail ({time.time()})", "run_id": st["llm_run"],
+                                   "timeout": 1.0, "cache": False})
+        tried = [x for x in a["attempts"] if not x.get("skipped")]
+        check(a["source"] == "computed" and a["answer"] is None and a["message"], a)
+        check(tried and tried[0]["timed_out"] and a["seconds"] < 2.5, a)
+        time.sleep(0.5)
+        left = _cli_procs()
+        check(left <= n0, f"{left} CLI processes left after the timeout (had {n0})")
+        return (f"T = 1 s → {tried[0]['source']} timed out at {tried[0]['timeout_s']} s → computed in {a['seconds']:.2f} s · "
+                f"answer null with message · CLI processes left: {left}")
+
+    step("llm: a timeout falls back cleanly (real path)", timeout_real)
+
+    def sdk_path():
+        here = os.path.dirname(os.path.abspath(__file__))
+        backend = os.path.join(here, "..", "backend")
+        tmp = tempfile.mkdtemp(prefix="smoke-llm-")
+        fport, port = _free_port(), _free_port()
+        wrapper = os.path.join(tmp, "claude")
+        open(wrapper, "w").write(f"#!/bin/sh\nexec {sys.executable} {os.path.join(here, 'fake_llm.py')} cli \"$@\"\n")
+        os.chmod(wrapper, 0o755)
+        env = {**os.environ, "ENSEMBLE_DATA_DIR": tmp, "ANTHROPIC_API_KEY": "sk-fake-smoke-not-a-key",
+               "ENSEMBLE_ANTHROPIC_BASE_URL": f"http://127.0.0.1:{fport}", "ENSEMBLE_CLAUDE_BIN": wrapper,
+               "ENSEMBLE_VELA_LLM": "auto", "FAKE_LLM_LATENCY": "0.25", "FAKE_CLI_LATENCY": "0.1"}
+        procs = [subprocess.Popen([sys.executable, os.path.join(here, "fake_llm.py"), "server", "--port", str(fport)], env=env,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
+                 subprocess.Popen([os.path.join(backend, ".venv", "bin", "python"), "-m", "uvicorn", "app.main:app", "--port", str(port)],
+                                  cwd=backend, env=env, stdout=open(os.path.join(tmp, "api.log"), "w"), stderr=subprocess.STDOUT)]
+        base = f"http://127.0.0.1:{port}"
+        out = []
+        try:
+            for _ in range(240):
+                try:
+                    httpx.get(f"{base}/api/health", timeout=2).raise_for_status()
+                    break
+                except Exception:  # noqa: BLE001
+                    time.sleep(1)
+            c = httpx.Client(base_url=base, timeout=600)
+            s = j(c.get("/api/llm"))
+            check(s["route"] == ["anthropic-sdk", "claude-cli"] and s["sdk"]["available"], s)
+            rid = _tiny_run(c)
+            ask = lambda q, **kw: j(c.post("/api/vela/ask", json={"question": q, "run_id": rid, **kw}))  # noqa: E731
+
+            # 1 · SDK answers; p95 over 20 asks, 4 at a time (fake Messages API: 0.25 s per call)
+            res, hl, during = _burst(base, [{"question": f"what is the best model, take {chr(97 + i)}", "run_id": rid, "cache": False}
+                                            for i in range(20)], 4)
+            check(all(a["source"] == "anthropic-sdk" and a["answer"].startswith("(fake sdk)") for _, a in res), [a["attempts"] for _, a in res])
+            ts = [t for t, _ in res]
+            st["llm_sdk"] = {"p50": _pq(ts, 50), "p95": _pq(ts, 95)}
+            out.append(f"SDK ask p50 {st['llm_sdk']['p50']:.2f} s, p95 {st['llm_sdk']['p95']:.2f} s (fake API, 0.25 s/call)")
+
+            # 2 · cache
+            a1, a2 = ask("which feature matters most"), ask("which feature matters most")
+            check(not a1["cached"] and a2["cached"] and a2["answer"] == a1["answer"] and a2["source"] == "anthropic-sdk", a2)
+            out.append(f"cache hit {a2['seconds'] * 1e3:.3f} ms")
+
+            # 3 · settings: validation, persistence
+            bad = c.put("/api/llm/settings", json={"sdk_timeout": -1})
+            check(bad.status_code == 400, bad.text)
+            check(c.put("/api/llm/settings", json={"bogus": 1}).status_code == 400, "unknown setting accepted")
+            s = j(c.put("/api/llm/settings", json={"sdk_timeout": 1, "cli_timeout": 2}))
+            check(s["settings"]["sdk_timeout"] == 1 and json.load(open(os.path.join(tmp, "llm_settings.json")))["cli_timeout"] == 2, s)
+
+            # 4 · SDK times out → CLI answers
+            a = ask("explain the score [sdk_slow:5]", cache=False)
+            check(a["source"] == "claude-cli" and a["attempts"][0]["source"] == "anthropic-sdk" and a["attempts"][0]["timed_out"]
+                  and a["answer"].startswith("(fake cli)") and a["seconds"] < 2.5, a)
+            out.append(f"SDK timeout 1 s → CLI in {a['seconds']:.2f} s")
+
+            # 5 · SDK 500 → CLI;  SDK prose (no JSON) → CLI
+            a = ask("explain the score [sdk_fail]", cache=False)
+            check(a["source"] == "claude-cli" and "500" in a["attempts"][0]["error"], a)
+            a = ask("explain the score [sdk_nonjson]", cache=False)
+            check(a["source"] == "claude-cli" and "JSON" in a["attempts"][0]["error"], a)
+            out.append("SDK 500 / non-JSON → CLI")
+
+            # 6 · both fail or time out → computed, cleanly, within T_sdk + T_cli
+            a = ask("explain the score [sdk_slow:9][cli_slow:9]", cache=False)
+            check(a["source"] == "computed" and a["answer"] is None and a["message"] and a["guard"] is None
+                  and [x["timed_out"] for x in a["attempts"]] == [True, True] and a["seconds"] < 4.5, a)
+            out.append(f"both time out → computed in {a['seconds']:.2f} s")
+            # the total budget: T = 1.5 s spent on the SDK leaves the CLI 0.5 s
+            a = ask("explain the score [sdk_slow:9][cli_slow:9]", cache=False, timeout=1.5)
+            check(a["source"] == "computed" and a["seconds"] < 2.2 and a["attempts"][1]["timeout_s"] <= 0.6, a)
+            out.append(f"T = 1.5 s → computed in {a['seconds']:.2f} s")
+            # a fallback is never cached
+            a = ask("explain the score [sdk_fail][cli_fail]")
+            b = ask("explain the score [sdk_fail][cli_fail]")
+            check(a["source"] == b["source"] == "computed" and not b["cached"], b)
+
+            # 7 · number guard
+            a = ask("is the score 987654.5")
+            check(a["guard"] and not a["guard"]["ok"] and "987654.5" in a["guard"]["unsupported"], a)
+            a = ask("what is the best model")
+            check(a["guard"]["ok"], a)
+            out.append("guard flags 987654.5")
+
+            # 8 · wording through the router
+            w = j(c.post(f"/api/runs/{rid}/vela/wording"))
+            check(w["source"] in ("anthropic-sdk", "computed") and set(w["texts"]) == set(w["kept"]), w)
+
+            # 9 · /api/health during 48 asks in flight, half on a slow SDK, half falling to a slow CLI
+            j(c.put("/api/llm/settings", json={"sdk_timeout": 10, "cli_timeout": 10}))
+            bodies = [{"question": f"burst {chr(97 + i % 26)}{i // 26} [sdk_slow:3]" if i % 2 else f"burst {chr(97 + i % 26)}{i // 26} [sdk_fail][cli_slow:3]",
+                       "run_id": rid, "cache": False} for i in range(48)]
+            t0 = time.perf_counter()
+            res, hl, during = _burst(base, bodies, 48)
+            wall = time.perf_counter() - t0
+            srcs = [a["source"] for _, a in res]
+            check(srcs.count("anthropic-sdk") == 24 and srcs.count("claude-cli") == 24, srcs)
+            check(during >= 5 and max(hl) < 1.0, f"/api/health {during} probes, max {max(hl) * 1000:.0f} ms")
+            st["llm_health"] = {"max_ms": max(hl) * 1000, "p95_ms": _pq(hl, 95) * 1000, "during": during, "wall": wall}
+            out.append(f"48 asks in flight ({wall:.1f} s wall): /api/health {during} probes, p95 {_pq(hl, 95) * 1000:.0f} ms, max {max(hl) * 1000:.0f} ms")
+            stat = j(c.get("/api/llm"))
+            out.append(f"status: SDK τ₉₅ {stat['latency']['anthropic-sdk']['p95_s']} s over {stat['latency']['anthropic-sdk']['n']}, "
+                       f"{stat['stats']['cache_hits']} cache hits")
+            return " · ".join(out)
+        finally:
+            for p in procs:
+                p.terminate()
+                try:
+                    p.wait(30)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+
+    step("llm: SDK path (fake Messages API) · routing, timeouts, fallback, cache, guard, health", sdk_path)
+
+
 ONLY: set[str] = set()
 
 
@@ -1424,7 +1693,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -1461,7 +1730,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "reset": reset}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

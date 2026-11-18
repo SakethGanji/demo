@@ -16,6 +16,7 @@ import pytest
 
 from app.vela import findings as F
 from app.vela import wording as W
+from app import llm
 
 from .conftest import start_run, wait_for_run
 
@@ -194,16 +195,17 @@ def test_wording_order_and_guard(tmp_path, monkeypatch):
     assert w["source"] == "claude-cli" and w["model"] == "claude-sonnet-5-5"
     assert w["texts"]["imbalance"].startswith("Only 8.2%") and w["kept"]["imbalance"] is True
     assert w["texts"]["budget"] == FINDINGS[1]["computed_text"] and w["kept"]["budget"] is False
-    # the CLI fails and there is no API key: the computed text, with both attempts recorded
+    # the CLI fails and there is no API key (so no SDK attempt, F5): the computed text, with the attempt recorded
+    llm.clear_cache()
     monkeypatch.setenv("ENSEMBLE_CLAUDE_BIN", _fake_claude(tmp_path, "boom", exit_code=1))
     w = W.word(FINDINGS, {"name": "r"})
-    assert w["source"] == "computed" and [a["source"] for a in w["attempts"]] == ["claude-cli", "anthropic-api"]
+    assert w["source"] == "computed" and [(a["source"], bool(a.get("skipped"))) for a in w["attempts"]] == [("anthropic-sdk", True), ("claude-cli", False)]
     assert w["texts"] == {f["id"]: f["computed_text"] for f in FINDINGS}
     # a CLI that hangs is cut off at the timeout
     monkeypatch.setenv("ENSEMBLE_CLAUDE_BIN", _fake_claude(tmp_path, {}, sleep=5))
     monkeypatch.setenv("ENSEMBLE_VELA_TIMEOUT", "1")
     w = W.word(FINDINGS, {"name": "r"})
-    assert w["source"] == "computed" and "timed out" in w["attempts"][0]["error"] and w["seconds"] < 4
+    assert w["source"] == "computed" and "timed out" in w["attempts"][-1]["error"] and w["seconds"] < 4
     monkeypatch.setenv("ENSEMBLE_VELA_LLM", "off")
     assert W.word(FINDINGS, {})["disabled"] is True
 

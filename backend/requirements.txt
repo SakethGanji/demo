@@ -20,6 +20,8 @@ autogluon.timeseries==1.6.3
 cleanlab==2.9.0
 shap==0.54.1
 fairlearn==0.15.0
+# F5: the language-model layer (app/llm.py) calls the Messages API through the SDK when ANTHROPIC_API_KEY is set
+anthropic==2.10.0
 # Tests
 httpx==0.28.1
 pytest==9.2.0
