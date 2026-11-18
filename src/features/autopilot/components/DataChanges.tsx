@@ -13,7 +13,7 @@ export function DataChanges({ diff, version, rows }: { diff: Diff; version: numb
             <span className="table-cell">{v.toLocaleString()}</span>
           </div>
         ))}
-        <p className="helper" style={{ marginTop: 8, fontSize: 12 }}>Synthetic rows are tagged <span className="mono">source=vela</span> and never enter validation or holdout.</p>
+        <p className="helper" style={{ marginTop: 8, fontSize: 12 }}>Synthetic rows are marked in the dataset version's lineage (<span className="mono">lineage.json</span>), sit in training folds only and never enter the holdout.</p>
       </div>
     </div>
   )

@@ -265,12 +265,17 @@ def text_top_words(predictor, k: int = 15) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             continue
         children = [m.load_child(c) for c in m.models] if hasattr(m, "load_child") else [m]
-        children = [c for c in children if hasattr(c, "top_words")]
+        # A child whose estimator is not in memory (refit_full under some presets keeps it None) is skipped.
+        children = [c for c in children if hasattr(c, "top_words") and getattr(c, "model", None) is not None]
         if not children:
             continue
         agg: dict[str, dict[str, float]] = {}
         for c in children:
-            for cls, words in c.top_words(k * 4, classes).items():
+            try:
+                tw = c.top_words(k * 4, classes)
+            except Exception:  # noqa: BLE001 — top words are an explanation, never a reason to fail the run
+                continue
+            for cls, words in tw.items():
                 d = agg.setdefault(cls, {})
                 for w, v in words:
                     d[w] = d.get(w, 0.0) + v / len(children)

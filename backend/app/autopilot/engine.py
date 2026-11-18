@@ -42,14 +42,15 @@ log = logging.getLogger("ensemble.autopilot")
 ACTIONS = {
     "rebalance": "Retrain with balanced class weights (TabularPredictor(sample_weight='balance_weight')); helps a starved class's recall.",
     "calibrate_threshold": "Binary only: retrain and calibrate the decision threshold for the requirement's metric.",
-    "escalate_preset": "Retrain with the next stronger preset (medium → good → high quality) and a larger time limit.",
+    "escalate_preset": "Retrain with the next stronger preset (medium → good → high quality) and a larger time limit; with a latency requirement also one stack layer, refit_full and infer_limit.",
     "add_families": "Retrain with more model families (gradient boosting on n-grams / CatBoost / extra trees) at the same preset.",
     "synthesize_minority": "Text only: write synthetic examples for the starved class (marked synthetic, training folds only, never the holdout), then retrain.",
-    "reduce_latency": "Retrain with refit_full + set_best_to_refit_full: the bagged fold models are refit as one model per family on all training rows and that is what serves; cuts per-row latency by about the number of folds.",
+    "reduce_latency": "Retrain with refit_full + set_best_to_refit_full (one model per family serves instead of the bag of fold models) and AutoGluon's infer_limit at 60 % of the latency requirement.",
     "stop": "Stop: the requirements are met, or nothing on the menu can meet them within the budget left.",
 }
 PRESETS = ["medium_quality", "good_quality", "high_quality"]
 MIN_STEP_SECONDS = 45
+OVERRUN = 1.4  # a step's wall time / its time_limit, measured: refit_full, holdout scoring and latency come on top
 
 
 def now() -> str:
@@ -365,7 +366,7 @@ class Pilot:
         prev = self.best_step(exclude=s["id"])
         s["kept"] = True
         if prev is not None and kind not in ("baseline", "retrain"):
-            s["kept"] = (s["score"] or -1e9) > (prev["score"] or -1e9) or self._closes_more(s, prev)
+            s["kept"] = self._rank(s) > self._rank(prev)
         self.finish(s, status="done" if s["kept"] else "dropped")
         self.note(self.step_text(s, prev), layer=(decision or {}).get("layer", "layer-1"), step=s["id"])
         return s
@@ -385,7 +386,10 @@ class Pilot:
         if lat is not None:
             t += f"; p95 latency {lat:.1f} ms per row"
         if s["kind"] not in ("baseline", "retrain") and not s.get("kept"):
-            t += f". It did not beat {prev['title'].lower()} ({prev['score']:.4f}), so I dropped it and kept the earlier model"
+            held = [c["metric"] for c in prev.get("checks") or [] if c["ok"]]
+            broke = [c["metric"] for c in s.get("checks") or [] if not c["ok"] and c["metric"] in held]
+            t += (f". It broke {', '.join(broke)}, which held on {prev['title'].lower()}, so I dropped it and kept the earlier model"
+                  if broke else f". It did not beat {prev['title'].lower()} ({prev['score']:.4f}), so I dropped it and kept the earlier model")
         return t + "."
 
     def wait_run(self, run_id: str) -> dict[str, Any]:
@@ -471,8 +475,15 @@ class Pilot:
         cands = newest or cands
         if not cands:
             return None
+        return max(cands, key=self._rank)
+
+    def _rank(self, s: dict[str, Any]) -> tuple:
+        """Met all; then most requirements holding; then the smallest relative shortfall Σ gap/|target| over the
+        open ones (so 0.0003 short on F̄₁ beats 2× over on latency); then the primary score."""
         sign = -1 if self.st["primary"] in ("rmse", "mae") else 1
-        return max(cands, key=lambda s: (s.get("met", False), sum(c["ok"] for c in s.get("checks") or []), sign * (s["score"] or 0)))
+        checks = s.get("checks") or []
+        short = sum(abs(c["gap"]) / max(abs(c["value"]), 1e-9) for c in checks if not c["ok"] and c.get("gap") is not None)
+        return (s.get("met", False), sum(c["ok"] for c in checks), -round(short, 6), sign * (s["score"] or 0))
 
     # ------------------------------------------------------------------ audit and inbox
 
@@ -634,7 +645,8 @@ class Pilot:
             out["rebalance"] = ACTIONS["rebalance"]
         if f["problem_type"] == "binary" and "calibrate_threshold" not in tried:
             out["calibrate_threshold"] = ACTIONS["calibrate_threshold"]
-        if body.get("presets") in PRESETS[:-1]:
+        tried_presets = {(x.get("body") or {}).get("presets") for x in self.st["steps"] if x.get("run_id")}
+        if self._next_preset(body) not in tried_presets and body.get("presets") != PRESETS[-1]:
             out["escalate_preset"] = ACTIONS["escalate_preset"]
         if "add_families" not in tried:
             out["add_families"] = ACTIONS["add_families"]
@@ -647,14 +659,29 @@ class Pilot:
         out["stop"] = ACTIONS["stop"]
         return out
 
+    @staticmethod
+    def _next_preset(body: dict[str, Any]) -> str:
+        cur = body.get("presets") or "medium_quality"
+        return PRESETS[min(len(PRESETS) - 1, PRESETS.index(cur) + 1 if cur in PRESETS else 1)]
+
+    def _latency_required(self) -> bool:
+        return any(M.is_latency(r["metric"]) for r in self.st["brief"]["requirements"])
+
+    def _latency_kwargs(self) -> dict[str, Any]:
+        """AutoGluon's own latency control: fit(infer_limit=seconds per row, infer_limit_batch_size=1) drops models
+        until the served ensemble predicts one row within the limit. Set to 60 % of the requirement (our p95 is
+        measured end to end and noisier than AutoGluon's estimate)."""
+        lim = min(float(r["value"]) for r in self.st["brief"]["requirements"] if M.is_latency(r["metric"]))
+        return {"infer_limit": round(lim / 1000 * 0.6, 5), "infer_limit_batch_size": 1}
+
     def layer1(self, menu: dict[str, str]) -> tuple[str, str]:
         best = self.best_step()
         prim = self.st["primary"]
         rem = self.remaining()
         if best and best.get("met"):
             return "stop", f"Every requirement holds on {best['run_id']} ({prim} {best['score']:.4f}); stopping."
-        if rem < MIN_STEP_SECONDS:
-            return "stop", f"{rem:.0f} s of budget left, under the {MIN_STEP_SECONDS} s a step needs; stopping."
+        if rem < MIN_STEP_SECONDS * OVERRUN:
+            return "stop", f"{rem:.0f} s of budget left, under the {MIN_STEP_SECONDS * OVERRUN:.0f} s a step needs; stopping."
         gaps = [c for c in (best or {}).get("checks", []) if not c["ok"]]
         g = "; ".join(f"{c['metric']} {c['observed']:.4g} vs {c['op']} {c['value']}" for c in gaps if c["observed"] is not None)
         for a in ("reduce_latency", "rebalance", "calibrate_threshold", "escalate_preset", "add_families"):
@@ -735,7 +762,7 @@ class Pilot:
             self.note(d["rationale"], layer=d["layer"], source=d.get("source"), model=d.get("model"), action=d["action"])
             if d["action"] == "stop":
                 return
-            if self.remaining() < MIN_STEP_SECONDS:
+            if self.remaining() < MIN_STEP_SECONDS * OVERRUN:
                 self.note(f"Only {self.remaining():.0f} s left, below the {MIN_STEP_SECONDS} s a step needs; stopping.")
                 return
             self.act(d)
@@ -747,7 +774,7 @@ class Pilot:
             t = float(want) if want else default
         except (TypeError, ValueError):
             t = default
-        return float(max(30.0, min(t, rem - 10, 900)))
+        return float(max(30.0, min(t, (rem - 10) / OVERRUN, 900)))
 
     def act(self, d: dict[str, Any]) -> None:
         a = d["action"]
@@ -764,18 +791,23 @@ class Pilot:
             body["time_limit"] = self._limit(d, base_t)
             self.do_train("calibrate_threshold", f"Calibrate the threshold for {m}", best, body, change=f"calibrate_threshold = '{m}'", decision=d)
         elif a == "escalate_preset":
-            cur = body.get("presets") or "medium_quality"
-            nxt = PRESETS[min(len(PRESETS) - 1, PRESETS.index(cur) + 1 if cur in PRESETS else 1)]
+            nxt = self._next_preset(body)
             body["presets"] = nxt
             body["fit_kwargs"].pop("num_stack_levels", None)
             body["fit_kwargs"].pop("num_bag_folds", None)
+            if self._latency_required():
+                # a latency requirement: one stack layer and one model per family served, so the gain is not paid in latency
+                body["fit_kwargs"]["num_stack_levels"] = 0
+                body["fit_kwargs"]["refit_full"] = True
+                body["fit_kwargs"]["set_best_to_refit_full"] = True
+                body["fit_kwargs"].update(self._latency_kwargs())
             hp = self._hp(True)
             if hp:
                 body["fit_kwargs"]["hyperparameters"] = hp
             else:
                 body["fit_kwargs"].pop("hyperparameters", None)
             body["time_limit"] = self._limit(d, max(base_t * 2, 0.35 * self.st["brief"]["budget_seconds"]))
-            self.do_train("escalate_preset", f"Escalate to {nxt}", best, body, change=f"presets = '{nxt}', time_limit = {body['time_limit']:.0f}", decision=d)
+            self.do_train("escalate_preset", f"Escalate to {nxt}", best, body, change=f"presets = '{nxt}', time_limit = {body['time_limit']:.0f}" + (f", num_stack_levels = 0, refit_full, infer_limit = {body['fit_kwargs']['infer_limit']} s/row" if self._latency_required() else ""), decision=d)
         elif a == "add_families":
             hp = dict(body["fit_kwargs"].get("hyperparameters") or {})
             if self.st["facts"]["text_columns"]:
@@ -784,14 +816,17 @@ class Pilot:
                 for k in ("GBM", "CAT", "XT", "RF", "LR"):
                     hp.setdefault(k, {})
             body["fit_kwargs"]["hyperparameters"] = hp
+            if self._latency_required():
+                body["fit_kwargs"].update(self._latency_kwargs())
             body["time_limit"] = self._limit(d, base_t * 1.5)
             self.do_train("add_families", "Add model families", best, body, change=f"hyperparameters ⊇ {{{', '.join(hp)}}}", decision=d)
         elif a == "reduce_latency":
             body["fit_kwargs"]["refit_full"] = True
             body["fit_kwargs"]["set_best_to_refit_full"] = True
+            body["fit_kwargs"].update(self._latency_kwargs())
             body["time_limit"] = self._limit(d, base_t)
             self.do_train("reduce_latency", "Refit one model per family (latency)", best, body,
-                          change="fit_kwargs.refit_full = True, set_best_to_refit_full = True", decision=d)
+                          change=f"fit_kwargs.refit_full = True, set_best_to_refit_full = True, infer_limit = {body['fit_kwargs']['infer_limit']} s/row", decision=d)
         elif a == "synthesize_minority":
             if self.do_synthesize(d):
                 body = self.base_body()

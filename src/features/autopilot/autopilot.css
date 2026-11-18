@@ -62,3 +62,4 @@ tr.muted td { opacity: 0.6; }
 .inbox-table td.txt { min-width: 300px; max-width: 420px; }
 .inbox-table td.why { min-width: 300px; max-width: 360px; }
 .inbox-table td:last-child { min-width: 150px; }
+[data-testid=ap-run] .hero-title { font-size: 22px; line-height: 28px; }
