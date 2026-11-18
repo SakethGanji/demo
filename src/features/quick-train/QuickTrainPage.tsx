@@ -10,14 +10,14 @@ import { mockSource, simulate } from './race/mockRun'
 import { RaceStage } from './race/RaceStage'
 import { liveSource, useRace, type EventSourceFn } from './race/useRace'
 import { ResultsStep } from './results/ResultsStep'
-import { columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
+import { columnTypesPayload, defaultMetric, defaultThreshold, labelImbalance, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
 
 const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
 
 function initialChoices(ds: Dataset): Choices {
   const label = ds.target || labelOptions(ds)[0]?.name || ''
   const task = inferTask(ds, label) ?? 'multiclass'
-  return { label, problemType: null, types: {}, metric: defaultMetric(task, ds.profile?.imbalance_ratio), preset: 'medium_quality', budget: 120, fitKwargs: '', threshold: defaultThreshold(ds, label, task) }
+  return { label, problemType: null, types: {}, metric: defaultMetric(task, labelImbalance(ds, label)), preset: 'medium_quality', budget: 120, fitKwargs: '', threshold: defaultThreshold(ds, label, task) }
 }
 
 const runFromHash = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
@@ -57,8 +57,15 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   // keep the metric valid for the problem type
   useEffect(() => {
     if (!task) return
-    if (!METRICS.some((m) => m.key === ch.metric && m.tasks.includes(task))) set({ metric: defaultMetric(task, ds.profile?.imbalance_ratio) })
+    if (!METRICS.some((m) => m.key === ch.metric && m.tasks.includes(task))) set({ metric: defaultMetric(task, labelImbalance(ds, ch.label)) })
   }, [task])
+  // a new label gets the metric that suits its own balance (ROC AUC for an imbalanced binary label)
+  const lastLabel = useRef(ch.label)
+  useEffect(() => {
+    if (lastLabel.current === ch.label) return
+    lastLabel.current = ch.label
+    if (task) set({ metric: defaultMetric(task, labelImbalance(ds, ch.label)) })
+  }, [ch.label]) // eslint-disable-line react-hooks/exhaustive-deps
   // the threshold default follows the label and problem type
   useEffect(() => { set({ threshold: defaultThreshold(ds, ch.label, task) }) }, [ds, ch.label, task, set])
 

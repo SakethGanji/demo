@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { FretSlider } from '@/shared/components/FretSlider'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import type { Dataset } from '../datasets'
-import { BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
+import { BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, labelImbalance, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
 
 /** Step 3: the metric to optimise, the preset ladder (speed ↔ accuracy), the time budget, and raw fit kwargs. */
 export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; task: Task }) {
   const [open, setOpen] = useState(ch.fitKwargs.trim() !== '')
   const metrics = METRICS.filter((m) => m.tasks.includes(task))
-  const rec = defaultMetric(task, ds.profile?.imbalance_ratio)
+  const rec = defaultMetric(task, labelImbalance(ds, ch.label))
   const kw = parseKwargs(ch.fitKwargs)
   const preset = PRESETS.find((p) => p.key === ch.preset) ?? PRESETS[0]
   const { types, drop } = columnTypesPayload(ds, ch)

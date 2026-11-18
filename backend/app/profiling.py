@@ -11,7 +11,7 @@ import pandas as pd
 
 ColumnType = str  # 'text' | 'category' | 'number' | 'id'
 
-LABEL_NAME = re.compile(r"(^|_)(label|target|class|category|categor\w*|sentiment|churn\w*|outcome|y)$", re.I)
+LABEL_NAME = re.compile(r"(^|_)(label|target|class|category|categor\w*|sentiment|churn\w*|outcome|y|fraud|default\w*)$|^is_\w+|^has_\w+", re.I)
 ID_NAME = re.compile(r"(^id$|_id$|^id_|uuid|^key$)", re.I)
 MAX_CLASSES = 50  # a label column has at most this many distinct values
 

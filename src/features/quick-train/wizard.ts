@@ -54,6 +54,11 @@ export function inferTask(ds: Dataset, label: string): Task | null {
 export function labelClasses(ds: Dataset, label: string): { name: string; share: number; count?: number }[] {
   if (label === ds.target) return ds.classes
   const c = ds.profile?.columns.find((x) => x.name === label)
+  // a 0/1 number column (is_fraud): its mean is the share of 1s
+  const st = c?.stats as { min?: number; max?: number; mean?: number } | null | undefined
+  if (c && !c.top?.length && c.unique === 2 && st && st.min === 0 && st.max === 1 && st.mean != null) {
+    return [{ name: '0', share: 1 - st.mean }, { name: '1', share: st.mean }]
+  }
   if (!c?.top?.length) return []
   const tot = c.top.reduce((a, t) => a + t.count, 0) || 1
   return c.top.map((t) => ({ name: t.value, share: t.count / tot, count: t.count }))
@@ -65,6 +70,15 @@ export function effectiveType(c: Col, ch: Choices): ColType { return ch.types[c.
 
 export { METRICS, EXTRA_METRICS, metricInfo, type Metric } from '@/shared/lib/metrics'
 
+
+/** max share / min share of the label's classes (the chosen label, not only the profile's target). */
+export function labelImbalance(ds: Dataset, label: string): number | null {
+  if (label === ds.profile?.target && ds.profile?.imbalance_ratio != null) return ds.profile.imbalance_ratio
+  const cls = labelClasses(ds, label)
+  if (cls.length < 2) return null
+  const sh = cls.map((c) => c.share)
+  return Math.max(...sh) / Math.max(Math.min(...sh), 1e-9)
+}
 
 /** The metric to start with: AutoGluon's default, except ROC AUC for an imbalanced binary label. */
 export function defaultMetric(task: Task, imbalance: number | null | undefined): string {
