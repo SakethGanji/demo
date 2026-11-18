@@ -3170,11 +3170,15 @@ def annotators(st: dict[str, Any]) -> None:
         q = get(f"/api/runs/{rid}/annotations", limit=50)["queue"]
         cqs = [i["consensus_quality"] for i in q["items"]]
         check(q["total"] == sm["consensus"]["queue"] and cqs == sorted(cqs) and all(len(i["votes"]) == 3 for i in q["items"]), "queue order")
+        cl = sm["crowdlab"]
+        check(cl["consensus_is_argmax"] and all(i["posterior"][0]["label"] == i["consensus"] for i in items)
+              and 0 < cl["pi"] < 1 and cl["model_weight"] > 0, f"consensus is not arg max of the CROWDLAB posterior: {cl}")
         check(get(f"/api/runs/{rid}")["annotations"]["summary"]["schema"] == "annotations/1", "run payload has no summary")
         s["items"] = items
         return (f"p̂ {pr['source']} ({pr['model']}, {pr['n_oof']} OOF rows, fit {pr['fit_seconds']} s) · Fleiss κ = {fk['value']:.4f} "
                 f"[{fk['ci'][0]:.4f}, {fk['ci'][1]:.4f}] ({sm['agreement']['interpretation']}; recomputed here {mine:.4f}) · "
                 f"Cohen κ {a}/{b} = {ck:.4f} (n = {n}) · mean pairwise κ {sm['agreement']['cohen_kappa_mean']:.4f} · "
+                f"CROWDLAB w_model {cl['model_weight']:.3f}, π {cl['pi']:.3f}, consensus = arg max p̃ on every row · "
                 f"queue {q['total']} rows (lowest consensus quality first) · ready in {time.time() - t0:.0f} s")
 
     if not step("annotators: sample → p̂ → κ + consensus", sample):

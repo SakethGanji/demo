@@ -396,15 +396,23 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
         cq = lab_q["consensus_quality_score"].to_numpy()
         agree = lab_q["annotator_agreement"].to_numpy()
         mv_cl = lab_q["consensus_label_majority_vote"].to_numpy().astype(int)
+        agree_mv = lab_q["annotator_agreement_majority_vote"].to_numpy()
         stats = lq["annotator_stats"]
-        aw = np.asarray(lq.get("annotator_weight"), dtype=float) if lq.get("annotator_weight") is not None else None
-        model_weight = float(lq["model_weight"]) if lq.get("model_weight") is not None else None
+        # The posterior that chose the consensus: cleanlab's best_quality takes arg max of CROWDLAB's posterior built
+        # around the majority vote. Recomputed with cleanlab's own function so the page can show p̃ and its weights.
+        from cleanlab.multiannotator import _get_post_pred_probs_and_weights
+
+        post, model_weight, aw = _get_post_pred_probs_and_weights(L, mv_cl, P, n_ann, agree_mv, "crowdlab", verbose=False)
+        model_weight = float(model_weight)
+        aw = np.asarray(aw, dtype=float)
+        pi = float(np.mean(agree_mv[n_ann != 1]))
     else:
         consensus = np.nanargmax(np.where(np.isnan(L), -1, L), axis=1).astype(int)
         cq = P[np.arange(len(rows)), consensus]
         agree = np.ones(len(rows))
         mv_cl = consensus
-        stats, aw, model_weight = None, None, None
+        stats, aw, model_weight, pi = None, None, None, None
+        post = P
 
     # plain majority vote, ties broken at random (seeded): the baseline a team would use without a model
     rng = np.random.default_rng(0)
@@ -532,6 +540,10 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
                             "min_labels": MIN_RATED}
         if worst else None,
         "model_weight": model_weight,
+        "crowdlab": {"pi": pi, "model_weight": model_weight,
+                     "annotator_weights": {a: float(aw[j]) for j, a in enumerate(names)} if aw is not None else None,
+                     "consensus_is_argmax": bool((post.argmax(1) == consensus).mean() == 1.0),
+                     "weights_from": "the majority-vote pass that cleanlab's best_quality consensus is the arg max of"},
         "consensus": {"method": "crowdlab (cleanlab.multiannotator, consensus_method='best_quality')",
                       "disagreements": int(disagree.sum()), "low_quality": int((cq < QUEUE_THRESHOLD).sum()),
                       "queue": int(in_queue.sum()), "queue_threshold": QUEUE_THRESHOLD,
@@ -563,7 +575,7 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
         }
     detail = {
         "rows": rows, "L": Li, "names": names, "P": P, "consensus": consensus, "cq": cq, "agree": agree, "mv": mv,
-        "mv_cl": mv_cl, "final": final, "adjudicated": adjudicated, "in_queue": in_queue, "n_ann": n_ann, "G": G,
+        "mv_cl": mv_cl, "post": post, "final": final, "adjudicated": adjudicated, "in_queue": in_queue, "n_ann": n_ann, "G": G,
     }
     return {"summary": summary, "annotators": ann, "pairwise": pairwise, "fleiss": fleiss, "classes": classes,
             "detail": detail, "probs_meta": meta}
@@ -597,6 +609,7 @@ def queue_items(an: dict[str, Any], data: pd.DataFrame, label: str, show_cols: l
             "given": None if pd.isna(rec[label]) else str(rec[label]),
             "votes": [{"annotator": d["names"][j], "label": classes[d["L"][i, j]]} for j in range(len(d["names"])) if d["L"][i, j] >= 0],
             "p_model": [{"label": classes[k], "p": float(p[k])} for k in top],
+            "posterior": [{"label": classes[k], "p": float(d["post"][i][k])} for k in np.argsort(-d["post"][i])[:3]],
             "consensus": classes[d["consensus"][i]], "consensus_quality": float(d["cq"][i]),
             "agreement": float(d["agree"][i]), "majority_vote": classes[d["mv"][i]],
             "final": classes[d["final"][i]], "adjudicated": bool(d["adjudicated"][i]),

@@ -16,11 +16,12 @@ import { MonotonePanel } from './components/MonotonePanel'
 import { ScorecardPanel } from './components/ScorecardPanel'
 import { LearningCurvePanel } from './components/LearningCurvePanel'
 import { LabellingQueuePanel } from './components/LabellingQueuePanel'
+import { AnnotatorsPanel } from './components/AnnotatorsPanel'
 import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 
-type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Labelling Queue' | 'Text'
+type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Labelling Queue' | 'Annotators' | 'Text'
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
 const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
@@ -66,7 +67,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
     if (run.problem_type === 'binary' || run.problem_type === 'regression') t.push('Monotonicity')
     if (run.scorecard?.available) t.push('Scorecard')
     if (!run.kind || run.kind === 'tabular') t.push('Learning Curve')
-    if ((!run.kind || run.kind === 'tabular') && (run.problem_type === 'binary' || run.problem_type === 'multiclass')) t.push('Labelling Queue')
+    if ((!run.kind || run.kind === 'tabular') && (run.problem_type === 'binary' || run.problem_type === 'multiclass')) t.push('Labelling Queue', 'Annotators')
     if (run.text_models && Object.keys(run.text_models).length) t.push('Text')
     return t
   }, [run])
@@ -150,6 +151,7 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
       {tab === 'Scorecard' && <ScorecardPanel run={run} />}
       {tab === 'Learning Curve' && <LearningCurvePanel run={run} />}
       {tab === 'Labelling Queue' && <LabellingQueuePanel run={run} />}
+      {tab === 'Annotators' && <AnnotatorsPanel run={run} />}
       {tab === 'Text' && <TopWords run={run} />}
 
       <div className="chips-row">

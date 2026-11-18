@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -95,6 +95,26 @@ export const api = {
     simulateActiveLearning: (id: string) => request<{ answered: number }>(`/runs/${encodeURIComponent(id)}/active-learning/simulate`, { method: 'POST' }),
     submitActiveLearning: (id: string) => request<{ round: number }>(`/runs/${encodeURIComponent(id)}/active-learning/submit`, { method: 'POST' }),
     cancelActiveLearning: (id: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/active-learning/cancel`, { method: 'POST' }),
+    /** F14: annotators' agreement, quality, the CROWDLAB consensus and the disagreement queue. */
+    annotations: (id: string, q: { offset?: number; limit?: number; include?: 'queue' | 'all' } = {}) => {
+      const p = new URLSearchParams()
+      Object.entries(q).forEach(([k, v]) => { if (v != null) p.set(k, String(v)) })
+      return request<Annotations>(`/runs/${encodeURIComponent(id)}/annotations${p.toString() ? `?${p}` : ''}`)
+    },
+    loadSampleAnnotations: (id: string, body: { n_rows?: number; per_row?: number; seed?: number } = {}) =>
+      request<Annotations>(`/runs/${encodeURIComponent(id)}/annotations/sample`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
+    uploadAnnotations: (id: string, file: File, mode: 'replace' | 'append' = 'replace') => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('mode', mode)
+      return request<Annotations>(`/runs/${encodeURIComponent(id)}/annotations/upload`, { method: 'POST', body: form })
+    },
+    answerAnnotations: (id: string, answers: { row: number; action: 'vote' | 'adjudicate' | 'clear'; label?: string }[], reviewer: string) =>
+      request<{ answered: number }>(`/runs/${encodeURIComponent(id)}/annotations/answer`, { method: 'POST', body: JSON.stringify({ answers, reviewer }), headers: { 'Content-Type': 'application/json' } }),
+    simulateAdjudication: (id: string, n = 50) =>
+      request<{ adjudicated: number }>(`/runs/${encodeURIComponent(id)}/annotations/simulate-adjudication`, { method: 'POST', body: JSON.stringify({ n }), headers: { 'Content-Type': 'application/json' } }),
+    annotationsVersion: (id: string) =>
+      request<{ dataset_version: Annotations['versions'][number] }>(`/runs/${encodeURIComponent(id)}/annotations/version`, { method: 'POST' }),
     /** F11: the deployable scorecard on holdout rows (by position): points per feature, score, P, reason codes. */
     scorecardScore: (id: string, holdout_index: number[], top_k = 4) =>
       request<ScorecardScore>(`/runs/${encodeURIComponent(id)}/scorecard/score`, { method: 'POST', body: JSON.stringify({ holdout_index, top_k }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 }),

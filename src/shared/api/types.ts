@@ -455,6 +455,7 @@ export type Run = {
   /** F12: the learning curve's headline (status and verdict); the full curve is GET /runs/{id}/learning-curve. */
   learning_curve?: { status: LearningCurveStatus; fits_done?: number; fits_total?: number; error?: string | null; verdict?: LearningCurveVerdict | null } | null
   active_learning?: { status: ActiveLearningStatus; fits_done?: number; fits_total?: number; error?: string | null; summary?: ActiveLearningSummary | null } | null
+  annotations?: { schema: 'annotations/1'; status: 'computing' | 'ready' | 'failed'; error?: string | null; summary?: AnnotationsSummary | null; updated_at?: string } | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null
@@ -1011,4 +1012,51 @@ export type ActiveLearning = {
     history?: { round: number; items: number; labelled: number; skipped: number; answered_by: Record<string, number>; dataset_id: string; submitted_at: string }[] }
   versions?: { id: string; name: string; round: number; labelled_this_round: number; labelled_total: number; rows: number; created_at: string }[]
   summary?: ActiveLearningSummary
+}
+
+// F14: several annotators per row (GET /api/runs/{id}/annotations)
+export type AnnAcc = { accuracy: number; ci: [number, number] | null; correct: number }
+export type AnnotatorStat = {
+  name: string; n: number; quality: number | null; agreement_with_consensus: number; weight: number | null; kappa_mean: number | null
+  worst_class: string | null
+  top_confusion: { consensus: string; given: string; n: number; share_of_class: number; of_class_rows: number } | null
+  confusion_vs_consensus: number[][]
+  truth?: { accuracy: number; ci: [number, number] | null; n: number; top_error?: { true: string; given: string; n: number }; profile?: { name: string; kind: string; accuracy: number; profile: string; pair?: string[]; p_swap?: number } }
+}
+export type AnnotationsSummary = {
+  schema: 'annotations/1'; n_rows: number; n_annotations: number; n_annotators: number
+  annotations_per_row: { mean: number; min: number; max: number }; classes: string[]
+  probs: { source: 'run-oof' | 'quick-bagged'; model: string; note: string; n_oof: number; n_predicted: number; fit_seconds?: number | null }
+  agreement: { fleiss_kappa: { value: number; ci: [number, number]; n_rows: number } | null; cohen_kappa_mean: number | null; raw_agreement: number | null; interpretation: string | null }
+  annotators: { name: string; n: number; quality: number | null; agreement_with_consensus: number; weight: number | null; kappa_mean: number | null; worst_class: string | null; truth_accuracy?: number }[]
+  worst_annotator: { name: string; quality: number; by: string; min_labels: number } | null
+  model_weight: number | null
+  crowdlab: { pi: number | null; model_weight: number | null; annotator_weights: Record<string, number> | null; consensus_is_argmax: boolean; weights_from: string }
+  consensus: { method: string; disagreements: number; low_quality: number; queue: number; queue_threshold: number; consensus_vs_majority_vote_differ: number; majority_vote_ties: number; adjudicated: number; changed_vs_given: number | null; mean_quality: number }
+  truth: null | {
+    simulated: true; source: string; n: number
+    accuracy: { given: AnnAcc | null; majority_vote: AnnAcc; majority_vote_cleanlab: AnnAcc; consensus: AnnAcc; final: AnnAcc; model: AnnAcc }
+    paired: { consensus_right_mv_wrong: number; mv_right_consensus_wrong: number; gain: number; mcnemar_p: number }
+    worst_by_truth: { name: string; accuracy: number } | null; worst_identified: boolean
+  }
+}
+export type AnnItem = {
+  row: number; fields: Record<string, string | null>; given: string | null
+  votes: { annotator: string; label: string }[]
+  p_model: { label: string; p: number }[]; posterior: { label: string; p: number }[]
+  consensus: string; consensus_quality: number; agreement: number; majority_vote: string; final: string; adjudicated: boolean
+}
+export type Annotations = {
+  run_id: string; status: 'none' | 'computing' | 'ready' | 'failed'; error?: string | null; classes: string[]
+  sample_available: boolean; sample_defaults: { n_rows: number; per_row: number; seed: number }
+  sample_annotators: { name: string; profile: string }[]
+  versions: { id: string; name: string; rows: number; relabelled: number; annotated_rows: number; adjudicated: number; holdout_unchanged: boolean; created_at: string }[]
+  source?: 'sample' | 'upload'; n_raw?: number; load?: Record<string, unknown>
+  summary?: AnnotationsSummary; annotators?: AnnotatorStat[]
+  pairwise?: { a: string; b: string; n: number; kappa: number | null; ci: [number, number] | null; agreement: number | null }[]
+  fleiss?: { value: number; ci: [number, number]; n_rows: number; P_bar: number; P_e: number; p: Record<string, number>; raters_per_row: { min: number; max: number; mean: number } } | null
+  probs?: AnnotationsSummary['probs'] & { classes: string[]; seconds: number }
+  queue?: { items: AnnItem[]; total: number; offset: number; limit: number; include: 'queue' | 'all' }
+  show_columns?: string[]; simulated?: boolean
+  simulation?: { annotators: { name: string; kind: string; accuracy: number; profile: string; pair?: string[]; p_swap?: number }[]; params: { n_rows: number; per_row: number; seed: number } } | null
 }
