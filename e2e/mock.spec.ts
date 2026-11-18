@@ -25,9 +25,21 @@ test('dataset step uses the built-in samples and the browser profiler', async ({
   await expect(page.getByTestId('profile-name')).toHaveText('offline.csv')
   await expect(page.getByTestId('profile-source')).toContainText('profiled from the first rows')
 
-  // The simulated run still works end to end from here.
+  // The simulated run still works end to end from here: target, goal, the race, the results.
+  await page.getByRole('button', { name: 'Continue →' }).click()
+  await expect(page.getByTestId('problem-type').locator('button.on')).toHaveText('binary')
   await page.getByRole('button', { name: 'Continue →' }).click()
   await page.getByRole('button', { name: 'Start Training' }).click()
-  await expect(page.locator('.workspace')).toContainText('fold_1')
+  const race = page.getByTestId('race')
+  await expect(race).toContainText('SIMULATED')
+  await expect(race.getByTestId('race-model-LightGBMXT')).toBeVisible()
+  await race.getByRole('button', { name: '3×' }).click()
+  await expect(race).toHaveAttribute('data-status', 'succeeded', { timeout: 45_000 })
+  await expect(page.getByTestId('race-equation')).toContainText('WeightedEnsemble_L2')
+  await page.getByTestId('see-results').click()
+  await expect(page.getByTestId('leaderboard')).toContainText('WeightedEnsemble_L2')
+  await expect(page.getByTestId('confusion')).toContainText('bad')
+  await expect(page.getByTestId('ce-fit')).toBeDisabled()
+  await expect(page.getByTestId('custom-ensemble')).toContainText('Needs the live API')
   expect(errors).toEqual([])
 })

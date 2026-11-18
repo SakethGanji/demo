@@ -4,7 +4,8 @@ The Project ENSEMBLE UI and its demo API. When the API is running the UI is **li
 
 ```
 make setup       # Python venv (backend/.venv) with the pinned deps, plus npm install
-make dev         # API on :8000 and the UI on http://localhost:5190, together; Ctrl+C stops both
+make dev         # API on :8000 and the UI on http://localhost:5190, together; Ctrl+C stops both.
+                 # Editing backend code reloads the API without stopping running fits (see below)
 make test        # fast tier: pytest (not slow, includes tiny real fits), tsc --noEmit, vite build
 make test-full   # adds the slow pytest marks and the Playwright e2e suite (live and mock)
 make clean-data  # delete backend/data; the samples are regenerated on the next start
@@ -16,7 +17,7 @@ make clean-data  # delete backend/data; the samples are regenerated on the next 
 
 | Route | What it shows |
 | --- | --- |
-| `#/quick-train` | Quick Train: drop a CSV (profiled in the browser) or pick a sample, choose a recipe (TF-IDF → LogReg (OvR), XGBoost, LinearSVC), and watch a simulated run: the pipeline as one string, one ringing string per one-vs-rest classifier or a damped residual wave per boosting round, fold strings, loss, log, then results. In live mode the Train step also has **AutoGluon · Real Run**: a real fit of the chosen dataset, its models as they train and the stack with its weights |
+| `#/quick-train` | **New Model** (the route keeps its old name): (1) a sample or a CSV upload, profiled; (2) the label column, the problem type inferred (binary, multiclass, regression) with an override, and every column's type, editable, sent to AutoGluon as `feature_metadata`; (3) the metric (each with its formula), a preset ladder from medium to best (speed ↔ accuracy), the time budget τ, and an Advanced fold-out for raw `fit_kwargs` JSON with the resolved `TabularPredictor(...).fit(...)` call; (4) the **live race**: one Harmonic Thread string per model that rings while it fits and settles at its validation score on a shared axis (fold scores as beads, μ ± σ as a band), stack levels as layers, the WeightedEnsemble forming as the strings merge (thickness ∝ wₘ) with ŷ = Σ wₘ fₘ(x) and the real weights, a clock against τ, a minimum on-screen time per model and a 3× control; the URL carries `?run=<id>` so a reload or a dropped stream resumes by replay; (5) **results**: holdout metric cards with formulas and 95% bootstrap intervals, the leaderboard (validation μ ± σ, holdout, fit time, predict time per row, stack level, weights; best highlighted), validation-vs-holdout plot, each model's objective from the catalogue, the confusion matrix with recall and precision (classification) or residuals (regression), top words per class (TF-IDF models), **Build my own ensemble** (`fit_weighted_ensemble` on chosen models, with an honest comparison against the best single model) and **Try a prediction** (a form generated from the features). Mock mode plays a simulated run through the same screens |
 | `#/autopilot` | Vela Autopilot (prototype, scripted): a brief with requirements and an autonomy level, Vela's plan, then a run drawn as one string with dropped experiments hanging off it, requirement gauges, a decision log, a ground-truth inbox that is the only place it stops for you, and a data-changes panel |
 | `#/gym` | Training Gym: live Fit Estimate and Validation Curve that follow the sliders, a console dock (Validation checks, Dry Run), 10-step tension stepper, Guided / Advanced hyperparameters with fret-track sliders and exact numeric inputs, the objective as a Formula with its where-list, a catenary pipeline on graph paper, a live-diffed run config, label distribution, sticky footer |
 | `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field, the Toolkit (six tools you can pin to the sidebar toolbelt), runs drawn as strings, a live Training Monitor plot and a streaming log |
@@ -51,6 +52,7 @@ backend/
 │       ├── progress.py  AutoGluon callback + log handler → events (model started/finished, scores, weights)
 │       ├── store.py     runs and their append-only events in SQLite (SSE replays from any seq)
 │       ├── serving.py   loads saved predictors to predict, read out-of-fold predictions, compute importance
+│       ├── custom_ensemble.py  fit_weighted_ensemble on chosen models, in its own process; honest comparison
 │       └── catalogue.py model families: name, kind, description, objective in maths notation
 ├── ensemble_models/     custom AutoGluon models (TFIDF_LR, TFIDF_SVM); importing registers them with AutoGluon
 ├── tests/               pytest + httpx against a real uvicorn process (`-m slow` for real fits)
@@ -64,12 +66,16 @@ e2e/                     Playwright: live mode, mock mode, every page in both, o
 | Call | What it does |
 | --- | --- |
 | `GET /api/models` | The catalogue: `key` (AutoGluon hyperparameters key), `name`, `kind`, `description`, `objective` (Unicode maths), `objective_tex`, `symbols` (every symbol defined), `problem_types`, `custom`. |
-| `POST /api/runs` | `{dataset_id, label?, problem_type: auto\|binary\|multiclass\|regression\|quantile, eval_metric?, presets='medium_quality', time_limit=120, fit_kwargs={}, predictor_kwargs={}, custom_text_models=true, drop_columns?, feature_importance=true}` → 201, the run (queued). `fit_kwargs` go to `TabularPredictor.fit` unchanged. |
+| `POST /api/runs` | `{dataset_id, label?, problem_type: auto\|binary\|multiclass\|regression\|quantile, eval_metric?, presets='medium_quality', time_limit=120, fit_kwargs={}, predictor_kwargs={}, custom_text_models=true, drop_columns?, feature_importance=true, column_types?}` → 201, the run (queued). `fit_kwargs` go to `TabularPredictor.fit` unchanged. `column_types` (`{column: number\|category\|text}`) overrides inferred types: the columns are cast and AutoGluon gets the matching `feature_metadata` (shown in `resolved`). `fit_kwargs.feature_metadata` may also be given as JSON (`{type_map_raw, type_group_map_special}`). |
 | `GET /api/runs[?dataset_id=]` · `GET /api/runs/{id}` | Status, data counts, leaderboard (AutoGluon's extra info, holdout scores, fold scores and spread), ensemble weights, holdout metrics and confusion matrix, OOF availability, feature importance, TF-IDF top words, the exact `resolved` call, the predictor path. The list trims the heavy fields. |
 | `GET /api/runs/{id}/events` | SSE: every event from `?from=N` (or after `Last-Event-ID`); ends after `run_succeeded`/`run_failed`/`run_cancelled`. `?format=json` returns them once. |
 | `POST /api/runs/{id}/predict` | `{rows: [{col: value}], model?}` → predictions, per-class probabilities. |
 | `GET /api/runs/{id}/oof[?model=]` · `GET /api/runs/{id}/feature-importance` | Out-of-fold predictions (bagged runs) · permutation importance on the holdout (computed on demand if the run skipped it). |
+| `POST /api/runs/{id}/ensemble` | `{models: [base model, …]}` → 201: `predictor.fit_weighted_ensemble(base_models=models)` in its own process. Returns the new model's weights, validation and holdout scores, the best single model's, and `vs_best_single` / `vs_run_best` (`beats`, `delta`, `delta_natural`) on validation and holdout. The run's default model is not changed. On refit presets (good/high quality) the new ensemble is refit too and `predict_model` names its `_FULL` copy. The ensemble is added to the run's leaderboard (`custom: true`) and to `custom_ensembles`. |
+| `GET /api/runs/{id}/holdout-predictions` | The best model's holdout predictions: `rows` (data.csv positions), `y_true`, `y_pred`, and per-class `probabilities` (classification). |
 | `POST /api/runs/{id}/cancel` · `DELETE /api/runs/{id}` | Stop a run (its whole process group) · delete a finished run and its folder. |
+
+**`make dev` and running fits.** uvicorn reloads the API when `backend/app` or `backend/ensemble_models` change (only those folders are watched). With `ENSEMBLE_DEV_RELOAD=1`, which `make dev` and `make api` set, a reload keeps fits alive: each worker watches uvicorn's reloader process rather than the API process, the old API leaves running workers and queued runs alone when it stops, and the new one adopts them (it follows the worker's pid, can cancel it, and re-queues queued runs). Workers write their own events, so the UI's stream resumes by replay. Ctrl+C on `make dev` stops the reloader, and the workers stop within a second. Without the variable (tests, production-like starts) a stop still fails in-flight runs, as S2 specified. Code changes reach a fit only when the next one starts: each fit runs the code it was started with.
 
 Every run is a plain AutoGluon predictor: `TabularPredictor.load("backend/data/runs/<id>/predictor")`. Runs on text data also contain the custom TF-IDF models; load those with `backend/` on the Python path (`import ensemble_models`). The run's `resolved` field is the exact `TabularPredictor(**predictor_kwargs).fit(train, **fit_kwargs)` call; the parity tests prove raw AutoGluon gives the same leaderboard.
 
@@ -86,7 +92,12 @@ src/
 │   └── shell/                   Sidebar, ContextBar, StatusBar, CommandPalette (+ shell.css)
 ├── features/                    one folder per page
 │   ├── home/                    HomePage · components/ToolCard
-│   ├── quick-train/             QuickTrainPage · components/{DatasetStep, RecipeStep, PipelineString, ClassStrings, Boosting} · datasets.ts · recipes.tsx
+│   ├── quick-train/             New Model wizard: QuickTrainPage · wizard.ts (choices, metrics with formulas, presets)
+│   │                              components/{DatasetStep, TargetStep, GoalStep} · datasets.ts
+│   │                              race/{useRace (events → state, readable playback), RaceStage, ModelString, EnsembleMerge,
+│   │                                StackEquation, mockRun (mock mode's simulated run)}
+│   │                              results/{ResultsStep, MetricCards, Leaderboard (+ ScoreScatter, ModelCard), Diagnostics
+│   │                                (ClassReport, Residuals, TopWords), CustomEnsemble, TryPrediction, stats (metrics, bootstrap)}
 │   ├── autopilot/               AutopilotPage · components/{BriefStep, IterationString, RequirementGauge, DecisionLog,
 │   │                              GroundTruthInbox, DataChanges} · run.tsx (the scripted run)
 │   ├── training-gym/            TrainingGymPage · components/{Hyperparameters, ConfigBlock, ClassBalance, PipelineCard,

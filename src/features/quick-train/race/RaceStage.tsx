@@ -54,7 +54,7 @@ export function RaceStage({ s, runId, label, budget, speed, setSpeed, onCancel, 
         <div className="stage-read">
           <span><small>best so far · {s.metric ?? 'metric'}</small><b data-testid="race-best">{best ? fmtScore(best.done!.val_score_natural) : '—'}</b></span>
           <span><small>models</small><b data-testid="race-count">{nDone}<i className="race-of"> / {all.length - nSkipped}</i></b></span>
-          <span><small>clock · <span className="nocase">t / τ</span></small><b data-testid="race-clock" className={over ? 'race-over' : ''}>{mmss(elapsed)}<i className="race-of"> / {mmss(tau)}</i></b></span>
+          <span><small>clock · <i className="nocase">t / τ</i></small><b data-testid="race-clock" className={over ? 'race-over' : ''}>{mmss(elapsed)}<i className="race-of"> / {mmss(tau)}</i></b></span>
         </div>
       </div>
 
@@ -101,7 +101,7 @@ export function RaceStage({ s, runId, label, budget, speed, setSpeed, onCancel, 
           <div className="race-ens" data-testid="race-ensemble">
             <div className="race-layer-head"><span className="race-L">Σ</span><span className="ps-note">{ens.model} forms: the strings merge into one, each thick in proportion to its weight wₘ</span></div>
             <EnsembleMerge weights={ensWeights} others={ensZero.slice(0, 6)} name={ens.model} />
-            <StackEquation model={ens.model} weights={ens.weights} dark testId="race-equation"
+            <StackEquation model={ens.model} weights={ens.weights} dark testId="race-equation" problemType={s.problemType} K={s.numClasses}
               scoreLabel={ens.val_score_natural != null ? `validation ${s.metric} = ${fmtScore(ens.val_score_natural)}` : undefined} />
           </div>
         )}

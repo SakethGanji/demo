@@ -45,11 +45,12 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   useEffect(() => { scroller.current?.scrollTo(0, 0) }, [step])
 
   const set = useCallback((p: Partial<Choices>) => setCh((c) => ({ ...c, ...p })), [])
+  const resumed = useRef(false)
   const stepRef = useRef(step)
   stepRef.current = step
   // Only the dataset step picks datasets: a late answer from it (e.g. its first-load default) must not replace the
   // dataset of a run resumed from the URL.
-  const pick = (d: Dataset) => { if (stepRef.current !== 0) return; setDs(d); setCh(initialChoices(d)) }
+  const pick = (d: Dataset) => { if (resumed.current && stepRef.current !== 0) return; setDs(d); setCh(initialChoices(d)) }
 
   const inferred = inferTask(ds, ch.label)
   const task: Task | null = ch.problemType ?? inferred
@@ -60,7 +61,6 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   }, [task])
 
   // Resume a run from the URL (#/quick-train?run=…): after a reload or from a link. Its events replay from 0.
-  const resumed = useRef(false)
   useEffect(() => {
     const id = runFromHash()
     if (!id || !live || resumed.current) return

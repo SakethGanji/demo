@@ -88,7 +88,7 @@ export function TargetStep({ ds, ch, set }: { ds: Dataset; ch: Choices; set: (p:
                 </div> : <span className="helper">A numeric label: AutoGluon fits regression.</span>
               ) : (
                 <>
-                  <div className="micro-label" style={{ marginBottom: 8 }}>Classes of <span className="mono" style={{ textTransform: 'none' }}>{ch.label}</span>{K > 1 && <> · imbalance ρ = n<sub>max</sub>/n<sub>min</sub> = {(maxShare / minShare).toFixed(1)}</>}</div>
+                  <div className="micro-label" style={{ marginBottom: 8 }}>Classes of <span className="mono" style={{ textTransform: 'none' }}>{ch.label}</span>{K > 1 && <> · imbalance <i className="nocase">ρ = n<sub>max</sub>/n<sub>min</sub> = {(maxShare / minShare).toFixed(1)}</i></>}</div>
                   {classes.slice(0, 10).map((c) => (
                     <div key={c.name} className="dist-row">
                       <span title={c.name}>{c.name}</span>

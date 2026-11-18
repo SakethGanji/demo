@@ -62,7 +62,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
               <button className="btn ghost" onClick={onAgain}>Train Another</button>
             </div>
           </div>
-          {weights && Object.keys(weights).length > 0 && <div className="rh-eq"><StackEquation model={run.ensemble!.model} weights={weights} dark testId="result-equation" scoreLabel={`validation ${metric} = ${fmtScore(best?.score_val_natural)}`} /></div>}
+          {weights && Object.keys(weights).length > 0 && <div className="rh-eq"><StackEquation model={run.ensemble!.model} weights={weights} dark testId="result-equation" problemType={run.problem_type} K={run.classes?.length} scoreLabel={`validation ${metric} = ${fmtScore(best?.score_val_natural)}`} /></div>}
         </div>
       </div>
 

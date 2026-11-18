@@ -10,6 +10,8 @@ const DEAD_API_PORT = 8299
 export default defineConfig({
   testDir: 'e2e',
   timeout: 60_000,
+  // Real AutoGluon fits share one API that fits one run at a time; two workers keep the queue short.
+  workers: 2,
   expect: { timeout: 15_000 },
   fullyParallel: true,
   retries: 0,

@@ -58,7 +58,7 @@ export function CustomEnsemble({ run, live, onDone }: { run: Run; live: boolean;
         <div className="ce-result" data-testid="ce-result">
           {!res && <div className="ce-empty helper">The weights, the equation and an honest comparison with the best single model appear here.</div>}
           {res && <>
-            <StackEquation model={res.model} weights={res.weights} testId="ce-equation"
+            <StackEquation model={res.model} weights={res.weights} testId="ce-equation" problemType={run.problem_type} K={run.classes?.length}
               scoreLabel={`${res.n_selected} of ${res.base_models.length} chosen models kept a weight > 0`} />
             <table className="table ce-table" data-testid="ce-compare">
               <thead><tr><th /><th className="r">Validation {metric}</th><th className="r">Holdout {metric}</th></tr></thead>

@@ -115,7 +115,7 @@ export function TopWords({ run }: { run: Run }) {
             const max = Math.max(...words.map(([, v]) => Math.abs(v)), 1e-9)
             return (
               <div key={c} className="tw-class" data-testid={`top-words-${c}`}>
-                <div className="tw-head"><b>{c}</b><span className="micro-label">top βₖⱼ</span></div>
+                <div className="tw-head"><b>{c}</b><span className="micro-label">top <i className="nocase">βₖⱼ</i></span></div>
                 {words.map(([wd, v]) => <div key={wd} className="tw-row"><span className="mono">{wd}</span><i className="tw-bar"><i style={{ width: `${(Math.abs(v) / max) * 100}%` }} /></i><span className="mono muted">{v.toFixed(2)}</span></div>)}
               </div>
             )

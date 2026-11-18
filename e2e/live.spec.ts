@@ -1,4 +1,4 @@
-// Live mode: the API is up, the status bar says so, and Quick Train's dataset step profiles server data.
+// Live mode: the API is up, the status bar says so, and the New Model dataset step profiles server data.
 import { apiMode, expect, open, test } from './fixtures'
 
 test('status bar reports live mode with the API version', async ({ page, errors }) => {
@@ -81,25 +81,27 @@ test('a real AutoGluon run streams models and the stacking equation', async ({ p
   await page.getByTestId('dataset-file').setInputFiles({ name: 'e2e_live_run.csv', mimeType: 'text/csv', buffer: Buffer.from(rows.join('\n')) })
   await expect(page.getByTestId('profile-name')).toHaveText('e2e_live_run.csv')
   await page.getByRole('button', { name: 'Continue →' }).click()
-  await page.getByRole('button', { name: 'Start Training' }).click()
+  await page.getByRole('button', { name: 'Continue →' }).click()
+  // The run's budget, as the old minimal card used: a 60 s medium_quality fit.
+  await page.getByRole('slider', { name: 'time_limit' }).focus()
+  await page.getByLabel('time_limit value').fill('60')
+  await page.getByLabel('time_limit value').press('Enter')
+  await page.getByTestId('start-training').click()
 
-  const card = page.getByTestId('live-run')
-  await expect(card).toHaveAttribute('data-status', 'idle')
-  await card.getByTestId('live-run-start').click()
-  await expect(card).toHaveAttribute('data-status', /running|succeeded/, { timeout: 30_000 })
-  await expect(card).toHaveAttribute('data-status', 'succeeded', { timeout: 200_000 })
+  const race = page.getByTestId('race')
+  await expect(race).toHaveAttribute('data-status', /queued|running|succeeded/, { timeout: 30_000 })
+  await expect(race).toHaveAttribute('data-status', 'succeeded', { timeout: 200_000 })
 
-  // What the card shows is what the API recorded.
-  const runId = (await card.getByTestId('live-run-id').textContent())!.trim()
+  // What the stage shows is what the API recorded.
+  const runId = (await page.getByTestId('race-run-id').textContent())!.trim()
   const run = await (await page.request.get(`/api/runs/${runId}`)).json()
   expect(run.status).toBe('succeeded')
-  for (const r of run.leaderboard) {
-    const row = card.getByTestId(`live-run-model-${r.model}`)
-    await expect(row).toHaveAttribute('data-done', 'true')
-  }
-  const eq = card.getByTestId('live-run-equation')
+  expect(run.config.time_limit).toBe(60)
+  for (const r of run.leaderboard) await expect(race.getByTestId(`race-model-${r.model}`)).toHaveAttribute('data-status', 'done')
+  const eq = page.getByTestId('race-equation')
   await expect(eq).toContainText(run.ensemble.model)
-  for (const [m, w] of Object.entries(run.ensemble.weights as Record<string, number>)) await expect(eq).toContainText(`${m} · w`), await expect(eq).toContainText(w.toFixed(3))
-  await expect(card.getByTestId('live-run-holdout')).toContainText(`n = ${run.holdout.n_rows}`)
+  for (const [m, w] of Object.entries(run.ensemble.weights as Record<string, number>)) if (w > 0) await expect(eq).toContainText(`${m} · w`), await expect(eq).toContainText(w.toFixed(4))
+  await page.getByTestId('see-results').click()
+  await expect(page.getByTestId('confusion')).toContainText(`n=${run.holdout.n_rows.toLocaleString()}`)
   expect(errors).toEqual([])
 })
