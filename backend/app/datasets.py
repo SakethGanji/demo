@@ -27,6 +27,17 @@ from .splits import make_splits, save_splits, summarize
 log = logging.getLogger("ensemble.datasets")
 
 
+def _generator_fingerprint(fn) -> str:
+    """sha256 of the source file that defines a sample generator; changes when the generator code changes."""
+    import hashlib
+    import inspect
+    try:
+        src = inspect.getsource(inspect.getmodule(fn))
+    except (OSError, TypeError):
+        src = getattr(fn, "__qualname__", repr(fn))
+    return hashlib.sha256(src.encode()).hexdigest()[:16]
+
+
 class DatasetError(ValueError):
     """The file can't be used as a dataset; the message is shown to the user."""
 
@@ -83,8 +94,16 @@ class DatasetStore:
         """Generate the sample datasets if they are missing. Returns the IDs generated."""
         made = []
         for dataset_id, spec in SAMPLES.items():
+            # A sample made by an older generator is stale (new columns, new planted truth): regenerate it.
+            # The fingerprint is the source of the module that defines the generator.
+            fp = _generator_fingerprint(spec["generate"])
+            stamp = self.dir(dataset_id) / ".generator"
+            current = stamp.exists() and stamp.read_text().strip() == fp
             if self.db.get_dataset(dataset_id) and self.csv_path(dataset_id).exists():
-                continue
+                if current:
+                    continue
+                # Stale, or made before stamps existed: regenerate (seeded, so an unchanged generator gives the same rows).
+                log.info("sample %s was made by an older generator: regenerating", dataset_id)
             log.info("generating sample dataset %s", dataset_id)
             df, sidecar = spec["generate"](seed=config.SEED)
             d = self.dir(dataset_id)
@@ -96,6 +115,7 @@ class DatasetStore:
             self._register(dataset_id, written, name=spec["name"], filename=spec["filename"], source="sample",
                            note=spec["note"], size_bytes=self.csv_path(dataset_id).stat().st_size,
                            target=sidecar["label_column"], kind=spec.get("kind"))
+            stamp.write_text(fp)
             made.append(dataset_id)
         return made
 
