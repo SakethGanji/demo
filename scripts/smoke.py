@@ -341,6 +341,14 @@ def core(st: dict[str, Any]) -> None:
 
     step("compare (lineage)", compare)
 
+    def ask():
+        a = post("/api/vela/ask", {"question": "What is the holdout score of the best model, and which model is it?", "run_id": rid})
+        check(a["source"] in ("claude-cli", "anthropic-api", "computed"), a)
+        check(a["answer"] or a["source"] == "computed", a)
+        return f"answered by {a['source']} in {a['seconds']:.1f} s · {len(a['answer'] or a.get('message') or '')} chars"
+
+    step("Vela question box", ask)
+
     def export():
         text = C.get(f"/api/runs/{rid}/export.py").text
         check(text.startswith("#!/usr/bin/env python"), text[:80])
@@ -456,6 +464,27 @@ def autopilot(st: dict[str, Any]) -> None:
         return f"{'MET' if v['met'] else 'NOT MET'} · {s} · decided by {deciders}"
 
     step("autopilot: requirements check", requirements)
+
+    def ask():
+        a = post("/api/vela/ask", {"question": "Did the inbox raise the score, and by how much?", "autopilot_id": aid})
+        check(a["answer"] or a["source"] == "computed", a)
+        return f"answered by {a['source']} · {(a['answer'] or a.get('message') or '')[:90]}…"
+
+    step("autopilot: Vela question box", ask)
+
+    def layer1():
+        a = post("/api/autopilot", {"dataset_id": "support-tickets", "requirements": [{"metric": "f1_macro", "value": 0.92},
+                                    {"metric": "p95_latency_ms", "value": 50}], "budget_seconds": 600,
+                                    "autonomy": "auto", "auto_confidence": 0.9, "decider": "layer1"})
+        a = poll(f"/api/autopilot/{a['id']}", lambda x: x["status"] in ("finished", "failed"), 1800, 3)
+        check(a["status"] == "finished", f"{a['status']}: {a.get('error')}")
+        layers = {d["layer"] for d in a["decisions"]}
+        check(layers <= {"layer-1"}, layers)
+        v = a["verdict"]
+        return (f"{a['id']} · no LLM · auto-accepted c ≥ 0.9 · {len([s for s in a['steps'] if s.get('run_id')])} runs · "
+                f"{'MET' if v['met'] else 'NOT MET'} · Δ{a['primary']} {v['delta']:+.4f}")
+
+    step("autopilot: layer 1 only (no LLM), auto", layer1)
 
 
 def main() -> int:
