@@ -94,6 +94,37 @@ class DatasetStore:
             made.append(dataset_id)
         return made
 
+    def create_version(self, parent_id: str, df: pd.DataFrame, splits: dict[str, Any], *, name: str, note: str,
+                       lineage: dict[str, Any]) -> dict[str, Any]:
+        """A new dataset derived from `parent_id` (Autopilot: relabelled / dropped / synthetic rows). The splits are
+        given, not drawn: the holdout is the parent's holdout rows that were kept, so scores stay comparable.
+        `lineage` (parent, root, root row of every row, the changes) goes to lineage.json and a summary to the profile."""
+        parent = self.db.get_dataset(parent_id)
+        if not parent:
+            raise DatasetError(f"No dataset with id '{parent_id}'.")
+        dataset_id = "ds_" + secrets.token_hex(4)
+        d = self.dir(dataset_id)
+        d.mkdir(parents=True, exist_ok=True)
+        df.to_csv(self.csv_path(dataset_id), index=False)
+        df = pd.read_csv(self.csv_path(dataset_id))
+        profile = profile_frame(df, parent["target"])
+        save_splits(self.splits_path(dataset_id), splits)
+        tgt = profile["target"]
+        profile["splits"] = summarize(splits, df[tgt] if tgt else None)
+        (d / "lineage.json").write_text(json.dumps(lineage))
+        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes")}
+        rec = {
+            "id": dataset_id, "name": name, "filename": f"{dataset_id}.csv", "source": "upload", "note": note,
+            "created_at": now(), "size_bytes": self.csv_path(dataset_id).stat().st_size, "rows": len(df), "target": tgt,
+            "kind": profile["kind"], "profile": profile,
+        }
+        self.db.insert_dataset(rec)
+        return rec
+
+    def lineage(self, dataset_id: str) -> dict[str, Any] | None:
+        p = self.dir(dataset_id) / "lineage.json"
+        return json.loads(p.read_text()) if p.exists() else None
+
     def create_from_upload(self, filename: str, content: bytes, target: str | None = None) -> dict[str, Any]:
         if not content.strip():
             raise DatasetError("The file is empty.")

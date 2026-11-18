@@ -12,6 +12,8 @@ from fastapi.concurrency import run_in_threadpool
 from . import __version__, config
 from .datasets import DatasetError, DatasetStore
 from .db import Database
+from .autopilot import api as autopilot_api
+from .autopilot.engine import Manager as AutopilotManager
 from .engine import api as engine_api
 from .gym import api as gym_api
 from .vela import api as vela_api
@@ -56,6 +58,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.jobs = {}
         app.state.heavy = HeavyPool()
         app.state.heavy.start()  # SHAP, importance, predictions, version builds and batch scoring run here
+        app.state.autopilot = AutopilotManager(app, settings.data_dir / "autopilot")
+        app.state.autopilot.resume_all()  # autopilots cut off by a restart continue from their saved state
         yield
         app.state.runner.shutdown()
         app.state.heavy.shutdown()
@@ -101,6 +105,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(registry_api.router)
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)
+    app.include_router(autopilot_api.router)
     return app
 
 

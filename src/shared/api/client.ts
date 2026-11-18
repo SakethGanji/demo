@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -100,6 +100,21 @@ export const api = {
   vela: {
     findings: (runId: string) => request<VelaResponse>(`/runs/${encodeURIComponent(runId)}/vela`, { timeoutMs: 120_000 }),
     word: (runId: string) => request<VelaWording>(`/runs/${encodeURIComponent(runId)}/vela/wording`, { method: 'POST', timeoutMs: 90_000 }),
+    /** A free-text question about a run or an autopilot, answered from its computed facts (Claude CLI → API → none). */
+    ask: (q: { question: string; run_id?: string | null; autopilot_id?: string | null }) => json<VelaAnswer>('/vela/ask', 'POST', q, 150_000),
+  },
+  autopilot: {
+    start: (b: { dataset_id: string; label?: string; goal?: string; requirements: ApRequirement[]; budget_seconds: number; autonomy: 'ask' | 'auto'; auto_confidence?: number; decider: 'auto' | 'layer1'; allow_synthetic?: boolean }) =>
+      json<Autopilot>('/autopilot', 'POST', b),
+    list: () => request<{ autopilots: Autopilot[] }>('/autopilot').then((r) => r.autopilots),
+    get: (id: string) => request<Autopilot>(`/autopilot/${encodeURIComponent(id)}`),
+    inbox: (id: string) => request<ApInbox>(`/autopilot/${encodeURIComponent(id)}/inbox`, { timeoutMs: 30_000 }),
+    answer: (id: string, answers: { id: string; answer: string | null; label?: string }[]) =>
+      json<{ answered: number }>(`/autopilot/${encodeURIComponent(id)}/inbox/answer`, 'POST', { answers }),
+    bulk: (id: string, min_confidence: number, action: 'accept' | 'skip' | 'clear' = 'accept', kinds?: string[]) =>
+      json<{ answered: number }>(`/autopilot/${encodeURIComponent(id)}/inbox/bulk`, 'POST', { min_confidence, action, kinds }),
+    resume: (id: string) => json<Autopilot>(`/autopilot/${encodeURIComponent(id)}/resume`, 'POST', {}),
+    cancel: (id: string) => json<Autopilot>(`/autopilot/${encodeURIComponent(id)}/cancel`, 'POST', {}),
   },
   registry: {
     get: () => request<{ models: RegisteredModel[]; versions: ModelVersion[]; counts: RegistryCounts }>('/registry'),

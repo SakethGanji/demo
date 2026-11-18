@@ -146,10 +146,15 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
                 hp[k] = {}
             if added:
                 kw["hyperparameters"] = hp
-                fg = dict(kw.get("_feature_generator_kwargs") or merged.get("_feature_generator_kwargs") or {})
-                fg.setdefault("enable_raw_text_features", True)
-                kw["_feature_generator_kwargs"] = fg
                 notes.append(f"added {', '.join(added)} for the text column(s) and kept raw text for them")
+            if any(k in hp for k in CUSTOM_TEXT_KEYS):
+                # The TF-IDF models read the raw text, also when the request names them itself.
+                fg = dict(kw.get("_feature_generator_kwargs") or merged.get("_feature_generator_kwargs") or {})
+                if "enable_raw_text_features" not in fg:
+                    fg["enable_raw_text_features"] = True
+                    kw["_feature_generator_kwargs"] = fg
+                    if not added:
+                        notes.append("kept raw text for the TF-IDF models")
     if "callbacks" not in kw and merged.get("callbacks"):
         kw["callbacks"] = list(merged["callbacks"])
         notes.append("callbacks from the presets passed explicitly, so the progress callback can be added")

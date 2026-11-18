@@ -395,8 +395,8 @@ def samples(st: dict[str, Any]) -> None:
 def autopilot(st: dict[str, Any]) -> None:
     def start():
         a = post("/api/autopilot", {"dataset_id": "support-tickets", "label": "category",
-                                    "requirements": [{"metric": "f1_macro", "op": ">=", "value": 0.85},
-                                                     {"metric": "p95_latency_ms_per_row", "op": "<=", "value": 50}],
+                                    "requirements": [{"metric": "f1_macro", "op": ">=", "value": float(os.environ.get("SMOKE_F1", 0.92))},
+                                                     {"metric": "p95_latency_ms", "op": "<=", "value": 50}],
                                     "budget_seconds": 900, "autonomy": "ask", "decider": os.environ.get("SMOKE_DECIDER", "auto")})
         st["ap"] = a["id"]
         a = poll(f"/api/autopilot/{a['id']}", lambda x: x["status"] in ("awaiting_inbox", "finished", "failed"), 1200, 2)

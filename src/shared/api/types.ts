@@ -556,3 +556,54 @@ export type ModelCard = {
   monitoring: { batches: { id: string; created_at: string; n_rows: number; max_psi: number | null; prediction_psi: number | null; counts: DriftReport['counts'] | null }[]; bands: string }
   approval: { stage: Stage; approval: Approval; rules: string; reviews: AuditEntry[]; audit: AuditEntry[] }
 }
+
+// ---------------------------------------------------------------------- Autopilot (S7)
+
+export type ApRequirement = { metric: string; op: '>=' | '<='; value: number }
+export type ApCheck = ApRequirement & { observed: number | null; ok: boolean; gap: number | null; name: string; sym: string }
+export type ApLatency = { n?: number; p50_ms?: number; p95_ms?: number; mean_ms?: number; model?: string; method?: string; error?: string }
+export type ApDecision = {
+  at: string; after_step: string; menu: string[]; action: string; rationale: string; layer: 'layer-1' | 'layer-2'
+  source: string; model: string | null; seconds?: number; attempts?: { source: string; ok: boolean; error?: string; seconds: number }[]
+  layer1_would?: string; layer2_error?: string; time_limit?: number; cost_usd?: number
+}
+export type ApStep = {
+  id: string; n: number; kind: string; title: string; status: 'running' | 'done' | 'dropped' | 'skipped' | 'failed'
+  started_at: string; finished_at?: string; run_id?: string; dataset_id?: string; score?: number | null; score_own?: number | null
+  dataset_version?: number; metrics?: Record<string, number>; checks?: ApCheck[]; met?: boolean; latency?: ApLatency
+  seconds?: number; best_model?: string; n_models?: number; kept?: boolean; change?: string | null; decision?: ApDecision | null
+  body?: Record<string, unknown>; relabelled?: number; dropped?: number; confirmed?: number; skipped?: number; synthetic?: number
+  stats?: Record<string, unknown>; kinds?: Record<string, number>; text?: string; facts_text?: string
+}
+export type ApRecall = {
+  planted: number; found: number; recall: number; top_k: number; precision: number; suggestion_correct: number
+  suggestion_accuracy: number; recall_at_planted: number; fixed: number; source: string
+}
+export type ApInboxSummary = {
+  n_items: number; answers: Record<string, number>; stats: Record<string, number | string>; kinds?: Record<string, number>
+  recall: ApRecall | null; run_id?: string; model?: string; applied?: boolean; submitted?: boolean; seconds?: number
+}
+export type ApInboxItem = {
+  id: string; row: number; kind: 'label' | 'conflict' | 'duplicate' | 'outlier'; split: 'train' | 'holdout'
+  given: string; suggested: string | null; suggestion: 'relabel' | 'drop' | 'skip'; confidence: number
+  p_given?: number; margin?: number; quality?: number; of_row?: number; similarity?: number; ood_score?: number
+  why: string; text: string | null; features: Record<string, unknown>
+  answer: 'confirm' | 'relabel' | 'drop' | 'skip' | null; answer_label?: string; answered_by?: string
+}
+export type ApDatasetVersion = { id: string; name: string; parent: string; version: number; rows: number; relabelled: number; dropped: number; synthetic: number; relabelled_holdout: number; synthetic_class?: string; synthetic_source?: string; created_at: string; synthetic_examples?: Record<string, string>[] }
+export type ApFacts = {
+  dataset_id: string; dataset_name: string; rows: number; label: string; problem_type: string; features: string[]
+  text_columns: string[]; class_shares: Record<string, number> | null; minority_class: string | null; minority_share: number | null; holdout_rows: number
+}
+export type Autopilot = {
+  id: string; created_at: string; updated_at?: string; finished_at?: string
+  status: 'queued' | 'running' | 'awaiting_inbox' | 'finished' | 'failed' | 'cancelled'; error: string | null
+  brief: { dataset_id: string; label: string; goal: string; requirements: ApRequirement[]; budget_seconds: number; autonomy: 'ask' | 'auto'; auto_confidence: number; decider: 'auto' | 'layer1'; allow_synthetic: boolean }
+  facts: ApFacts | null; primary?: string; truth_dataset?: string; steps: ApStep[]; decisions: ApDecision[]
+  log: { t: string; text: string; layer: string; source?: string | null; model?: string | null; action?: string; step?: string }[]
+  inbox: ApInboxSummary | null; dataset_versions: ApDatasetVersion[]; current: string | null
+  verdict: { met: boolean; checks: ApCheck[]; best_step: string | null; best_run_id: string | null; score: number | null; baseline_score: number | null; delta: number | null; spent_seconds: number; budget_seconds: number; dataset_id: string } | null
+  budget: { total: number; spent: number; remaining: number }
+}
+export type ApInbox = ApInboxSummary & { autopilot_id: string; status: Autopilot['status']; total: number; items: ApInboxItem[] }
+export type VelaAnswer = { answer: string | null; source: string; model: string | null; seconds: number; message?: string; attempts: { source: string; ok: boolean; error?: string }[]; facts: string[] }
