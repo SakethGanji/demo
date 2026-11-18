@@ -12,6 +12,8 @@ class Health(BaseModel):
     version: str
     datasets: int
     data_dir: str
+    runs: int
+    engine: dict[str, Any]
 
 
 class DatasetSummary(BaseModel):

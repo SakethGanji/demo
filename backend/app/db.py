@@ -22,6 +22,31 @@ CREATE TABLE IF NOT EXISTS datasets (
     kind        TEXT NOT NULL,
     profile     TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS runs (
+    id           TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    dataset_id   TEXT NOT NULL,
+    label        TEXT NOT NULL,
+    status       TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+    created_at   TEXT NOT NULL,
+    started_at   TEXT,
+    finished_at  TEXT,
+    pid          INTEGER,
+    error        TEXT,
+    config       TEXT NOT NULL,
+    result       TEXT
+);
+
+-- Every run's progress as an append-only list; seq starts at 0 per run. SSE replays from any seq.
+CREATE TABLE IF NOT EXISTS run_events (
+    run_id  TEXT NOT NULL,
+    seq     INTEGER NOT NULL,
+    ts      REAL NOT NULL,
+    type    TEXT NOT NULL,
+    data    TEXT NOT NULL,
+    PRIMARY KEY (run_id, seq)
+);
 """
 
 

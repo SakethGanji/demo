@@ -12,6 +12,10 @@ from fastapi.concurrency import run_in_threadpool
 from . import __version__, config
 from .datasets import DatasetError, DatasetStore
 from .db import Database
+from .engine import api as engine_api
+from .engine.runner import JobRunner
+from .engine.serving import PredictorCache
+from .engine.store import RunStore
 from .samples import SAMPLES
 from .schemas import Dataset, DatasetList, DatasetSummary, Health
 
@@ -37,7 +41,13 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         store = DatasetStore(settings, db)
         await run_in_threadpool(store.ensure_samples)  # first start: generate the samples
         app.state.settings, app.state.db, app.state.datasets = settings, db, store
+        settings.runs_dir.mkdir(parents=True, exist_ok=True)
+        app.state.runs = RunStore(db)
+        app.state.runner = JobRunner(settings, app.state.runs)
+        app.state.runner.start()  # marks runs interrupted by a previous stop as failed
+        app.state.predictors = PredictorCache()
         yield
+        app.state.runner.shutdown()
 
     app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan)
 
@@ -47,7 +57,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.get("/api/health", response_model=Health)
     def health(request: Request) -> dict[str, Any]:
         return {"status": "ok", "version": __version__, "datasets": len(request.app.state.db.list_datasets()),
-                "data_dir": str(settings.data_dir)}
+                "data_dir": str(settings.data_dir), "runs": request.app.state.runs.count(),
+                "engine": engine_api.engine_info()}
 
     @app.get("/api/datasets", response_model=DatasetList)
     def list_datasets(request: Request) -> dict[str, Any]:
@@ -75,6 +86,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         return {**_summary(rec), "profile": rec["profile"]}
 
+    app.include_router(engine_api.router)
     return app
 
 

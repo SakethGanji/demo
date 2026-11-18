@@ -27,6 +27,10 @@ class Settings:
     def datasets_dir(self) -> Path:
         return self.data_dir / "datasets"
 
+    @property
+    def runs_dir(self) -> Path:
+        return self.data_dir / "runs"
+
 
 def load_settings() -> Settings:
     data_dir = Path(os.environ.get("ENSEMBLE_DATA_DIR", BACKEND_DIR / "data")).resolve()
