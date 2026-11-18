@@ -284,9 +284,14 @@ def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit)
     if want and not user:
         emit("calibrating", metric=want)
         t0 = time.time()
-        t = thr.calibrate(predictor, want)
-        predictor.set_decision_threshold(t)
-        predictor.save()
+        try:
+            t = thr.calibrate(predictor, want)
+            predictor.set_decision_threshold(t)
+            predictor.save()
+        except Exception as e:  # noqa: BLE001 — never fail a finished fit over the threshold
+            emit("log", level="warning", logger="ensemble",
+                 message=f"threshold calibration for {want} failed ({type(e).__name__}: {e}); keeping t = 0.5")
+            return "default", None, None
         return "calibrated", want, time.time() - t0
     if abs(predictor.decision_threshold - 0.5) > 1e-12:
         # AutoGluon calibrated inside fit() (its default "auto" does for metrics such as f1 and balanced_accuracy).

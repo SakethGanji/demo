@@ -21,11 +21,12 @@ make clean-data  # delete backend/data; the samples are regenerated on the next 
 | `#/autopilot` | Vela Autopilot (prototype, scripted): a brief with requirements and an autonomy level, Vela's plan, then a run drawn as one string with dropped experiments hanging off it, requirement gauges, a decision log, a ground-truth inbox that is the only place it stops for you, and a data-changes panel |
 | `#/gym` | Training Gym: live Fit Estimate and Validation Curve that follow the sliders, a console dock (Validation checks, Dry Run), 10-step tension stepper, Guided / Advanced hyperparameters with fret-track sliders and exact numeric inputs, the objective as a Formula with its where-list, a catenary pipeline on graph paper, a live-diffed run config, label distribution, sticky footer |
 | `#/home` | The Workbench: the Project ENSEMBLE lockup over an interactive string field, the Toolkit (six tools you can pin to the sidebar toolbelt), runs drawn as strings, a live Training Monitor plot and a streaming log |
-| `#/experiments` | Parallel coordinates of runs, runs table with selection and an `F1 ≥ 0.90` filter, multi-run comparison plot with crosshair hover, parameter diff, confusion matrix on the heat ramp and per-class recall |
+| `#/experiments` | **Experiments** on the API's real runs: filters (dataset, problem type, status, a floor on the run's own metric, search), the runs table (holdout and validation score in natural units, decision threshold, models, presets · τ, fit time; Explain / Results per run), **parallel coordinates** of the comparable runs (same dataset, label and metric) over their real parameters and metrics (τ, presets, bag folds, models, fit time, µs per row, t, validation and holdout metrics; constant axes dropped), **Compare** (holdout metrics side by side with Δ against the first run, ROC and PR overlays or residual distributions, best validation score per model family) and **Parameter Diff** (the exact resolved `TabularPredictor(...).fit(...)` arguments, the data and the results, differences tinted). Mock mode keeps the simulated runs, labelled SIMULATED |
+| `#/explain?run=<id>` | **Explain** one run (from Experiments, from New Model's results, or the run picker). A navy strip of threshold-free and threshold scores. Tabs: **Performance** (ROC with AUC and the operating point, precision–recall with AP and the prevalence line, the reliability diagram with Brier and ECE; one-vs-rest for multiclass; confusion matrix and per-class report; regression: residuals vs ŷ with ±1.96 σᵣ and a residual histogram with its normal fit), **Threshold** (binary: a slider over t with precision, recall, F₁, balanced accuracy, MCC, FPR, flagged share, the 2×2 counts and the cost C(t) = c_FP·FP + c_FN·FN, all from the API's 0.005 grid plus the exact point; metric curves, the score histogram per class, the cost curve with the Bayes threshold; *Calibrate threshold* runs AutoGluon's `calibrate_decision_threshold(metric)` and *Use t* sets it, both saved in the predictor), **Features & SHAP** (permutation importance with 95% t-intervals and p-values, re-run with 10 shuffles; Kernel SHAP for a holdout row as a waterfall φ₀ → f(x) with f(x) = φ₀ + Σ φᵢ written out), **Errors** (the most confidently wrong rows with their features, or the largest residuals; *why? φ* opens SHAP for that row), **Fairness** (fairlearn's MetricFrame by a group column you pick: per-group selection rate, base rate, accuracy, TPR, FPR, precision; demographic parity difference and ratio, equalised odds difference), **Text** (top words per class for TF-IDF runs) |
 | `#/registry` | Model Registry: stage KPIs, version lineage graph, versions table |
 | `#/settings` | Customization, kept in the browser: layout (inset or flush), string tension, string motion, density, default Guided / Advanced mode, Vela sidecar, toolbelt |
 
-The shell adds a status bar (API mode — `● live` or `▲ mock mode` — compute, live run, current config) and a command palette on ⌘K / Ctrl+K.
+The shell adds a status bar and a command palette on ⌘K / Ctrl+K. In live mode the status bar, the context bar's compute chip and the sidebar's user block show real state from `GET /api/status` (API and AutoGluon versions, the active run with models finished / started, best validation score and its clock against τ, the queue, the run count, CPUs and memory, the host; no sign-in). Mock mode keeps its simulated values.
 
 Vela, the AI companion, is a collapsible sidecar that gives PatchCards; applying one changes the Training Gym config.
 
@@ -53,6 +54,8 @@ backend/
 │       ├── store.py     runs and their append-only events in SQLite (SSE replays from any seq)
 │       ├── serving.py   loads saved predictors to predict, read out-of-fold predictions, compute importance
 │       ├── custom_ensemble.py  fit_weighted_ensemble on chosen models, in its own process; honest comparison
+│       ├── explain.py   threshold analysis, ROC/PR/calibration, errors, residuals, fairness (fairlearn), SHAP (Kernel)
+│       ├── threshold.py calibrate / set the decision threshold, persist it in the predictor, re-score the holdout
 │       └── catalogue.py model families: name, kind, description, objective in maths notation
 ├── ensemble_models/     custom AutoGluon models (TFIDF_LR, TFIDF_SVM); importing registers them with AutoGluon
 ├── tests/               pytest + httpx against a real uvicorn process (`-m slow` for real fits)
@@ -74,6 +77,15 @@ e2e/                     Playwright: live mode, mock mode, every page in both, o
 | `POST /api/runs/{id}/ensemble` | `{models: [base model, …]}` → 201: `predictor.fit_weighted_ensemble(base_models=models)` in its own process. Returns the new model's weights, validation and holdout scores, the best single model's, and `vs_best_single` / `vs_run_best` (`beats`, `delta`, `delta_natural`) on validation and holdout. The run's default model is not changed. On refit presets (good/high quality) the new ensemble is refit too and `predict_model` names its `_FULL` copy. The ensemble is added to the run's leaderboard (`custom: true`) and to `custom_ensembles`. |
 | `GET /api/runs/{id}/holdout-predictions` | The best model's holdout predictions: `rows` (data.csv positions), `y_true`, `y_pred`, and per-class `probabilities` (classification). |
 | `POST /api/runs/{id}/cancel` · `DELETE /api/runs/{id}` | Stop a run (its whole process group) · delete a finished run and its folder. |
+| `GET /api/runs/{id}/threshold?cost_fp&cost_fn&t` | Binary: on the holdout, at every t on a 0.005 grid (and at `t`): TP, FP, FN, TN, precision, recall, F₁, specificity, FPR, balanced accuracy, accuracy, MCC, flagged share, cost C(t) = c_FP·FP + c_FN·FN; the t that maximises F₁ / bacc / MCC and minimises cost; the Bayes threshold c_FP/(c_FP + c_FN); the score histogram per class; the threshold in use. Positive = p > t, as AutoGluon predicts. |
+| `POST /api/runs/{id}/threshold` | `{metric}` → `predictor.calibrate_decision_threshold(metric=…)`, or `{value}`; then `set_decision_threshold` and `save()`, so every later prediction (and `TabularPredictor.load`) uses it. The holdout is re-scored at t (`holdout`, confusion matrix, saved predictions). |
+| `GET /api/runs/{id}/explain` | Classification: confusion matrix, per-class precision / recall / F₁ / support, ROC (fpr, tpr, thresholds, AUC) and PR (precision, recall, AP) per positive class or one-vs-rest, the reliability curve (10 uniform bins, counts, Brier, ECE; top-label for multiclass), log loss, the worst mistakes with their features. Regression: RMSE, MAE, R², residual mean and σ, quantiles, residuals vs ŷ, a 30-bin histogram with its normal fit, the largest errors. Plus the columns usable as groups. |
+| `GET /api/runs/{id}/fairness?group=&t=` | fairlearn `MetricFrame` per group (numbers > 8 values cut into quartiles; missing is a group): binary count, selection rate, base rate, accuracy, TPR, FPR, precision at the run's t, with demographic parity difference / ratio and equalised odds difference; multiclass accuracy and macro F₁; regression MAE, RMSE, bias. |
+| `GET /api/runs/{id}/shap?row=&target=` | Kernel SHAP (`shap.KernelExplainer` on `predict_proba` of the target class, or `predict` for regression; 50 background training rows from `shap.sample(…, random_state=0)`, 2048 coalitions, no L1 selection) for one holdout row: φ₀, every φᵢ with the row's value, f(x); f(x) = φ₀ + Σ φᵢ exactly. Cached in the run folder. |
+| `GET /api/runs/{id}/feature-importance?shuffles=` | Permutation importance (now 5 shuffles when computed on demand, `shuffles` to recompute) with a 95% t-interval Î ± t₀.₉₇₅,ₙ₋₁·s/√n per feature. |
+| `GET /api/status` | The status bar's live state: versions, CPU count, memory, host, the active run (stage, models started / finished, best validation score, started_at, τ), queued runs, run count. |
+
+`POST /api/runs` also takes `calibrate_threshold` (binary): a metric (`f1`, `balanced_accuracy`, `mcc`, …) to calibrate the decision threshold for after the fit, or `auto` (F₁ when the minority class is under 20% of the training rows). `fit_kwargs.calibrate_decision_threshold`, if given, always wins (AutoGluon does it, or not, inside `fit`). The New Model wizard sends `f1` by default when the label's minority class is under 20%; the Goal step shows the choice. Every binary run records `threshold` = `{value, source, metric, holdout_at_default, holdout_at_threshold}`.
 
 **`make dev` and running fits.** uvicorn reloads the API when `backend/app` or `backend/ensemble_models` change (only those folders are watched). With `ENSEMBLE_DEV_RELOAD=1`, which `make dev` and `make api` set, a reload keeps fits alive: each worker watches uvicorn's reloader process rather than the API process, the old API leaves running workers and queued runs alone when it stops, and the new one adopts them (it follows the worker's pid, can cancel it, and re-queues queued runs). Workers write their own events, so the UI's stream resumes by replay. Ctrl+C on `make dev` stops the reloader, and the workers stop within a second. Without the variable (tests, production-like starts) a stop still fails in-flight runs, as S2 specified. Code changes reach a fit only when the next one starts: each fit runs the code it was started with.
 
@@ -102,7 +114,10 @@ src/
 │   │                              GroundTruthInbox, DataChanges} · run.tsx (the scripted run)
 │   ├── training-gym/            TrainingGymPage · components/{Hyperparameters, ConfigBlock, ClassBalance, PipelineCard,
 │   │                              ValidationCurve, FitEstimate, ConsoleDock, StepSummary} · params.ts
-│   ├── experiments/             ExperimentsPage · components/RunTable
+│   ├── experiments/             ExperimentsPage (live → LiveExperiments; mock → the simulated runs) · components/{RunTable (mock),
+│   │                              RunCoordinates, CompareRuns, ParamDiff}
+│   ├── explain/                 ExplainPage · components/{Curves (ROC, PR, calibration, per-class), ThresholdPanel, Importance,
+│   │                              ShapPanel, Errors (worst rows, residuals), FairnessPanel}
 │   ├── registry/                RegistryPage
 │   ├── settings/                SettingsPage · components/SettingRow
 │   └── vela/                    VelaSidecar · components/PatchCard (the assistant panel, shown on every page)
@@ -111,11 +126,12 @@ src/
     │                              StatusPill, ParamChip, Segmented, Tabs, NumberInput, Icon, VelaCrest,
     │                              ResonanceWave, SparkWave, PluckString, ToolGlyph
     ├── components/              larger pieces composed from primitives
-    │                              FretSlider, PlotFrame, LineChart, ConfusionMatrix, StringPlot,
-    │                              Graph, RunString, StringField
+    │                              FretSlider, PlotFrame, LineChart, XYPlot (real-valued axes, hover, marks),
+    │                              ConfusionMatrix, StringPlot, TopWords, Graph, RunString, StringField
     ├── api/                     the typed API client, its types, and the live/mock mode provider (useApi)
     ├── hooks/                   useWidth
-    ├── lib/                     prefs (saved settings), tools (the toolkit list), random, format
+    ├── lib/                     prefs (saved settings), tools (the toolkit list), random, format, metrics (metrics with
+    │                              their formulas, number formatting)
     ├── data/                    mock runs and metrics used by more than one page
     ├── assets/                  the ENSEMBLE wordmarks and Vela crest, unchanged from the design system
     └── styles/                  tokens.css, base.css, surfaces.css, responsive.css, index.css
