@@ -32,6 +32,9 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
   scorecard  F11: the SCORECARD challenger on credit-default (bagged, stacked): refusals, Gym, table / IV / ΔAUC with a
              bootstrap CI, CSV export re-scores the holdout, points → score → P, reason codes; with F7 cost + F8 monotone;
              registry card; switched off
+  learning   F12: learning curves on credit-default (group split, F7 cost, F8 monotone, F11 scorecard) and support-tickets:
+             nested subsamples of the run's training rows (10/25/50 %, 3 seeds; whole customers), the run's own fit call,
+             one holdout, power law, 2N / 4N extrapolation with intervals and the verdict; refusals, 409, cancel
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -2734,11 +2737,150 @@ def scorecard(st: dict[str, Any]) -> None:
     step("scorecard: switched off", off)
 
 
+def _lc_wait(run_id: str, timeout: float = 1800) -> dict[str, Any]:
+    return poll(f"/api/runs/{run_id}/learning-curve", lambda x: x["status"] not in ("queued", "running"), timeout, every=2)
+
+
+def _lc_check(rec: dict[str, Any], lc: dict[str, Any], fractions: list[float], seeds: int) -> str:
+    """The acceptance checks shared by both datasets: the four points, one holdout, nested subsamples drawn inside the
+    run's split, the run's own fit call, the power law and the verdict in its stable shape."""
+    check(lc["status"] == "succeeded", f"learning curve {lc['status']}: {lc.get('error')}")
+    pts, summ = lc["points"], lc["summary"]
+    N = rec["data"]["train_rows"]
+    check([x["fraction"] for x in summ] == fractions, f"fractions {[x['fraction'] for x in summ]}")
+    check(len(pts) == (len(fractions) - 1) * seeds + 1, f"{len(pts)} fits")
+    for x in summ:
+        check(x["k"] == (1 if x["fraction"] == 1 else seeds) and np.isfinite(x["mean"]), x)
+        if x["fraction"] < 1:
+            check(x["ci"] and x["ci"][0] <= x["mean"] <= x["ci"][1], f"t-interval {x}")
+            check(abs(x["n"] - x["fraction"] * N) <= max(0.02 * N, 25), f"{x['fraction']}: n = {x['n']} of N = {N}")
+    check([x["n"] for x in summ] == sorted(x["n"] for x in summ) and summ[-1]["n"] == N, "n not increasing to N")
+    check(len({p["holdout_sha"] for p in pts}) == 1 and lc["holdout_rows"] == rec["data"]["holdout_rows"], "points scored on different holdouts")
+    check(lc["split"]["key"] == rec["split"]["key"] and lc["split"]["sha256"] == rec["split"]["sha256"], "not the run's split")
+    check(lc["nested"] is True, "subsamples are not nested")
+    run_pt = next(p for p in pts if p["source"] == "run")
+    m = rec["eval_metric"]["name"]
+    check(run_pt["score"] == rec["holdout"]["metrics"][m], "100 % point ≠ the run's holdout score")
+    run_models = {r["model"] for r in rec["leaderboard"]}
+    for p in pts:  # every subsample trained what the run trained
+        check(set(p["models"]) == run_models, f"{p['fraction']}/{p['seed']}: {sorted(p['models'])} vs the run's {sorted(run_models)}")
+    fk, rk = lc["fit_call"]["fit_kwargs"], rec["resolved"]["fit_kwargs"]
+    check(json.dumps(fk.get("hyperparameters"), sort_keys=True, default=str) == json.dumps(rk.get("hyperparameters"), sort_keys=True, default=str),
+          "hyperparameters differ from the run's resolved call")
+    check(lc["fit_call"]["predictor_kwargs"].get("eval_metric") == rec["resolved"]["predictor_kwargs"].get("eval_metric"), "eval_metric differs")
+    v = lc["verdict"]
+    s_, x2, x4 = v["slope_per_doubling"], v["extrapolation"]["x2"], v["extrapolation"]["x4"]
+    check(v["schema"] == "learning_curve/1" and v["label"] in ("data-limited", "saturated", "noisy"), v.get("label"))
+    check(s_["ci"][0] <= s_["ci"][1] and s_["level"] == 0.95 and s_["value"] >= 0, s_)
+    check(x2["n"] == 2 * N and x4["n"] == 4 * N, "extrapolation not at 2N / 4N")
+    for x in (x2, x4):
+        check(np.isfinite(x["score"]) and x["ci"][0] <= x["ci"][1], x)
+    eps = v["evidence"]["min_gain"]
+    want = "data-limited" if s_["ci"][0] > eps else "saturated" if s_["ci"][1] < eps else "noisy"
+    check(v["label"] == want, f"verdict {v['label']} but the rule gives {want}")
+    check(len(lc["curve"]) > 10 and len(lc["band"]) == len(lc["curve"]), "no fitted curve / band")
+    head = get(f"/api/runs/{rec['id']}")["learning_curve"]
+    check(head and head["status"] == "succeeded" and head["verdict"]["label"] == v["label"], f"run payload: {head}")
+    means = " → ".join(f"{x['mean']:.4f}" + (f"±{x['sd']:.4f}" if x["sd"] else "") for x in summ)
+    gib = v["greater_is_better"]
+    return (f"{m} at n = {', '.join(str(x['n']) for x in summ)}: {means} · Δ₂ = {s_['value']:+.4f} per doubling "
+            f"[{s_['ci'][0]:+.4f}, {s_['ci'][1]:+.4f}] vs ε = {eps:.4f} · 2N {x2['score']:.4f} [{x2['ci'][0]:.4f}, {x2['ci'][1]:.4f}] · "
+            f"4N {x4['score']:.4f} [{x4['ci'][0]:.4f}, {x4['ci'][1]:.4f}]{'' if gib else ' (lower is better)'} · verdict {v['label']}")
+
+
+def learning(st: dict[str, Any]) -> None:
+    """F12: learning curves. The run's exact fit call on nested subsamples of its training rows (10 / 25 / 50 %, 3 seeds;
+    100 % is the run), all scored on the run's holdout; a power law with bootstrap intervals, extrapolation to 2N and
+    4N, the verdict. credit-default under a group split with the F7 cost, F8 debt_to_income ↑ and the F11 scorecard
+    (whole customers drawn inside each bagging fold), and support-tickets (multiclass, text, stratified). Refusals, one
+    curve at a time (409), cancel."""
+    fractions, seeds = [0.1, 0.25, 0.5, 1.0], 3
+    credit = {"dataset_id": "credit-default", "label": "defaulted", "problem_type": "binary", "presets": "medium_quality",
+              "time_limit": 300, "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 150}}},
+              "drop_columns": ["applicant_id", "customer_id"], "feature_importance": False, "source": "smoke-learning",
+              "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto",
+              "monotone": {"constraints": {"debt_to_income": "increasing"}},
+              "split_spec": {"strategy": "group", "group_column": "customer_id"}}
+    s: dict[str, Any] = {}
+
+    def refusals():
+        tiny = wait_run(post("/api/runs", {"dataset_id": "credit-default", "label": "defaulted", "problem_type": "binary",
+                                           "presets": "medium_quality", "time_limit": 60, "drop_columns": ["applicant_id", "customer_id"],
+                                           "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 30}}},
+                                           "scorecard": False, "feature_importance": False, "source": "smoke-learning"})["id"])
+        s["tiny"] = tiny
+        g = get(f"/api/runs/{tiny['id']}/learning-curve")
+        check(g["status"] == "none" and g["defaults"]["fractions"] == fractions and g["defaults"]["fits"] == 9, g)
+        bad = [({"fractions": [0.1, 0.5]}, "at least 3"), ({"fractions": [0.1, 0.25, 0.5]}, "including 1.0"),
+               ({"fractions": [0.001, 0.5, 1]}, "at least 30"), ({"fractions": [0.5, 1, 1.5]}, "(0, 1]"), ({"seeds": 0}, "seeds")]
+        for b, words in bad:
+            r = C.post(f"/api/runs/{tiny['id']}/learning-curve", json=b)
+            check(r.status_code in (400, 422) and words in r.text, f"{b}: {r.status_code} {r.text[:200]}")
+        r = C.post(f"/api/runs/{tiny['id']}/learning-curve/cancel")
+        check(r.status_code == 400, f"cancel with nothing running → {r.status_code}")
+        return f"{tiny['id']}: status none with defaults (10/25/50/100 %, 3 seeds, 9 fits) · {len(bad)} bad requests refused · cancel with nothing running → 400"
+
+    if not step("learning: refusals + defaults", refusals):
+        return
+
+    def credit_curve():
+        rec = wait_run(post("/api/runs", credit)["id"])
+        check(rec["split"]["strategy"] == "group" and "customer_id" in rec["config"]["drop_columns"], rec["split"])
+        t0 = time.time()
+        post(f"/api/runs/{rec['id']}/learning-curve", {})
+        lc = _lc_wait(rec["id"])
+        info = _lc_check(rec, lc, fractions, seeds)
+        check(lc["groups_whole"] is True and lc["split"]["group_column"] == "customer_id", "a customer was cut in half")
+        check(all(p["groups"] for p in lc["points"] if p["source"] == "subsample"), "no group counts")
+        hp = lc["fit_call"]["fit_kwargs"]["hyperparameters"]
+        check("GBM_MONO" in hp and "SCORECARD" in hp and lc["metric"]["name"] == "expected_cost", f"{list(hp)} · {lc['metric']}")
+        check(lc["tuning_rows"] == rec["data"]["tuning_rows"] > 0, "the tuning slice is not the run's")
+        s["credit"] = (rec, lc)
+        return f"{rec['id']} (group split, cost FN = 10 × FP, debt_to_income ↑, scorecard) in {time.time() - t0:.0f} s · whole customers ✓ · {info}"
+
+    step("learning: credit-default curve", credit_curve)
+
+    def tickets_curve():
+        rec = wait_run(post("/api/runs", {"dataset_id": "support-tickets", "presets": "medium_quality", "time_limit": 300,
+                                          "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 100}}},
+                                          "feature_importance": False, "source": "smoke-learning"})["id"])
+        t0 = time.time()
+        post(f"/api/runs/{rec['id']}/learning-curve", {})
+        lc = _lc_wait(rec["id"])
+        info = _lc_check(rec, lc, fractions, seeds)
+        k = len(rec["classes"])
+        check(all(p["classes"] == k for p in lc["points"] if p["source"] == "subsample"), "a subsample lost a class")
+        check(lc["split"]["stratified"] and "stratified" in lc["split"]["subsample"], lc["split"])
+        check(any(m.startswith("Tfidf") for m in lc["points"][1]["models"]), "the TF-IDF models were not refitted")
+        s["tickets"] = (rec, lc)
+        return f"{rec['id']} (K = {k}, text + TF-IDF models, stratified) in {time.time() - t0:.0f} s · {info}"
+
+    step("learning: support-tickets curve", tickets_curve)
+
+    def one_at_a_time():
+        tiny = s["tiny"]
+        post(f"/api/runs/{tiny['id']}/learning-curve", {"seeds": 2})
+        other = (s.get("tickets") or s.get("credit") or (None,))[0]
+        if other:
+            r = C.post(f"/api/runs/{other['id']}/learning-curve", json={})
+            check(r.status_code == 409 and "already running" in r.text, f"second curve → {r.status_code} {r.text[:200]}")
+        post(f"/api/runs/{tiny['id']}/learning-curve/cancel")
+        lc = _lc_wait(tiny["id"], 120)
+        check(lc["status"] == "cancelled", lc["status"])
+        check(get(f"/api/runs/{tiny['id']}")["learning_curve"]["status"] == "cancelled", "run payload not cancelled")
+        if other:
+            again = get(f"/api/runs/{other['id']}/learning-curve")
+            check(again["status"] == "succeeded", "the other run's curve was touched")
+        return f"a second curve while one runs → 409 · cancel → cancelled after {lc.get('fits_done', 0)} of {lc.get('fits_total')} fits"
+
+    step("learning: one at a time + cancel", one_at_a_time)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,llm,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -2775,7 +2917,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

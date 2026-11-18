@@ -230,6 +230,112 @@ def resolve_fit_kwargs(cfg: dict[str, Any], *, add_text_models: bool) -> tuple[d
     return kw, notes
 
 
+def prepare_fit(cfg: dict[str, Any], train: pd.DataFrame, holdout: pd.DataFrame, tuning: pd.DataFrame | None,
+                info: dict[str, Any]) -> dict[str, Any]:
+    """Everything `TabularPredictor(...).fit(train, ...)` gets for this run, worked out once: the run's worker uses it,
+    and so does every refit of the same config on other rows (F12's learning curve), so both make the same call.
+
+    Applies the wizard's column types to the frames (in place). Returns {predictor_kwargs, call_kwargs (without the
+    progress callback; tuning_data / unlabeled_data included), scorer (F7, or None), post_fit, unlabeled, resolved}."""
+    feature_metadata = apply_column_types(cfg, train, holdout, tuning)
+
+    add_text = bool(cfg.get("custom_text_models", True)) and bool(cfg.get("text_columns")) \
+        and cfg.get("task") != "regression" and cfg.get("problem_type") not in ("regression", "quantile")
+    fit_kwargs, notes = resolve_fit_kwargs(cfg, add_text_models=add_text)
+    if feature_metadata is not None and "feature_metadata" not in fit_kwargs:
+        fit_kwargs["feature_metadata"] = feature_metadata
+        notes.append("column types from the wizard passed as feature_metadata "
+                     f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
+    predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
+                        "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
+    qcfg = cfg.get("quantile")
+    if qcfg:  # F9: quantile regression with the run's levels; conformal recalibration is AutoGluon's calibrate
+        predictor_kwargs["quantile_levels"] = qcfg["levels"]
+        if qcfg.get("calibrate") is not None and "calibrate" not in fit_kwargs:
+            fit_kwargs["calibrate"] = qcfg["calibrate"]
+        notes.append(f"quantile regression at τ = {', '.join(f'{t:g}' for t in qcfg['levels'])} (pinball loss); "
+                     + ("conformal recalibration (CQR): AutoGluon's fit(calibrate=True)" if fit_kwargs.get("calibrate") is True
+                        else "no conformal recalibration (calibrate=False)" if fit_kwargs.get("calibrate") is False
+                        else "conformal recalibration left to AutoGluon (calibrate='auto': on with ≥ 1,000 validation rows)"))
+    scorer = None
+    if cfg.get("cost"):  # F7: the business cost is the eval_metric (an AutoGluon make_scorer)
+        scorer, cost_note = cost_scorer(cfg, train)
+        notes.append(cost_note)
+    data_args: dict[str, Any] = {}
+    if tuning is not None:  # F6: the split's tuning slice (group-disjoint, or the latest training period)
+        fit_kwargs["use_bag_holdout"] = True
+        data_args["tuning_data"] = {"rows": len(tuning), "split": cfg["split"]["key"]}
+        notes.append(f"tuning_data = the split's tuning slice ({len(tuning)} rows"
+                     + (f", {cfg['split'].get('tuning_cutoff')} onwards" if cfg["split"].get("tuning_cutoff") else "")
+                     + "); use_bag_holdout=True so bagged fits use it for the ensemble too")
+    if GROUP_FOLD_COLUMN in train.columns:
+        predictor_kwargs["groups"] = GROUP_FOLD_COLUMN
+        notes.append(f"groups='{GROUP_FOLD_COLUMN}': the split's {cfg['split']['n_folds']} folds, disjoint in "
+                     f"'{info['group_folds']['group_column']}', are AutoGluon's bagging folds (LeaveOneGroupOut)")
+    resolved: dict[str, Any] = {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_kwargs, "notes": notes,
+                                "path": cfg["predictor_path"]}
+    if data_args:
+        resolved["data_args"] = data_args
+
+    call_kwargs = dict(fit_kwargs)
+    if "feature_metadata" in call_kwargs:
+        call_kwargs["feature_metadata"] = feature_metadata_object(call_kwargs["feature_metadata"])
+    unlabeled = load_unlabeled(cfg, train) if cfg.get("pseudolabel") else None
+    pl_method = (cfg.get("pseudolabel") or {}).get("method", "fit_pseudolabel")
+    post_fit = []
+    if unlabeled is not None:
+        if pl_method == "unlabeled_data":
+            call_kwargs["unlabeled_data"] = unlabeled
+            resolved["data_args"] = {**resolved.get("data_args", {}),
+                                     "unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
+        else:
+            post_fit.append({"call": "fit_pseudolabel",
+                             "kwargs": {"pseudo_data": f"<{len(unlabeled)} unlabeled rows>",
+                                        "max_iter": int(cfg["pseudolabel"].get("max_iter", 3))}})
+    if cfg.get("distill"):
+        dk = dict(cfg["distill"])
+        dk.setdefault("time_limit", max(30.0, 0.5 * float(cfg.get("time_limit") or 120)))
+        post_fit.append({"call": "distill", "kwargs": dk})
+    if post_fit or "data_args" in resolved:
+        resolved["post_fit"] = post_fit
+    if tuning is not None:
+        call_kwargs["tuning_data"] = tuning
+    if scorer is not None:
+        resolved["cost_metric"] = {**cfg["cost"], "scorer": costs_describe(cfg["cost"]),
+                                   "needs_proba": bool(scorer.needs_proba), "needs_class": bool(scorer.needs_class)}
+    return {"predictor_kwargs": predictor_kwargs, "call_kwargs": call_kwargs, "scorer": scorer, "post_fit": post_fit,
+            "unlabeled": unlabeled, "resolved": resolved}
+
+
+def fit_predictor(cfg: dict[str, Any], prep: dict[str, Any], train: pd.DataFrame, path: str, *,
+                  callbacks: list[Any] | None = None, emit=None):
+    """TabularPredictor(path, **predictor_kwargs).fit(train, **call_kwargs), then the run's post-fit steps
+    (fit_pseudolabel, distill). Returns (predictor, fit seconds)."""
+    from autogluon.tabular import TabularPredictor
+
+    emit = emit or (lambda *a, **k: None)
+    call_kwargs = dict(prep["call_kwargs"])
+    call_kwargs["callbacks"] = list(call_kwargs.get("callbacks") or []) + list(callbacks or [])
+    if not call_kwargs["callbacks"]:
+        call_kwargs.pop("callbacks")
+    scorer = prep["scorer"]
+    pk = prep["predictor_kwargs"]
+    predictor = TabularPredictor(path=path, **({**pk, "eval_metric": scorer} if scorer is not None else pk))
+    t0 = time.time()
+    predictor.fit(train, **call_kwargs)
+    for step in prep["post_fit"]:
+        emit("post_fit", step=step["call"], status="started")
+        s0 = time.time()
+        if step["call"] == "fit_pseudolabel":
+            predictor.fit_pseudolabel(pseudo_data=prep["unlabeled"], max_iter=step["kwargs"]["max_iter"])
+        elif step["call"] == "distill":
+            np.random.seed(0)  # distill's data augmentation draws from the global generator; seeded so it reproduces
+            predictor.distill(**step["kwargs"])
+        emit("post_fit", step=step["call"], status="finished", seconds=time.time() - s0,
+             models=list(predictor.model_names()), best_model=predictor.model_best)
+    return predictor, time.time() - t0
+
+
 # --------------------------------------------------------------------------- results
 
 
@@ -509,93 +615,13 @@ def run(run_dir: Path) -> int:
             predictor, fit_seconds = import_predictor(cfg, emit, store, run_id)
             progress = ProgressCallback(emit)
         else:
-            feature_metadata = apply_column_types(cfg, train, holdout, tuning)
-
-            add_text = bool(cfg.get("custom_text_models", True)) and bool(cfg.get("text_columns")) \
-                and cfg.get("task") != "regression" and cfg.get("problem_type") not in ("regression", "quantile")
-            fit_kwargs, notes = resolve_fit_kwargs(cfg, add_text_models=add_text)
-            if feature_metadata is not None and "feature_metadata" not in fit_kwargs:
-                fit_kwargs["feature_metadata"] = feature_metadata
-                notes.append("column types from the wizard passed as feature_metadata "
-                             f"({', '.join(f'{c}: {t}' for c, t in cfg['column_types'].items())})")
-            predictor_kwargs = {"label": cfg["label"], "problem_type": cfg.get("problem_type"),
-                                "eval_metric": cfg.get("eval_metric"), **(cfg.get("predictor_kwargs") or {})}
-            qcfg = cfg.get("quantile")
-            if qcfg:  # F9: quantile regression with the run's levels; conformal recalibration is AutoGluon's calibrate
-                predictor_kwargs["quantile_levels"] = qcfg["levels"]
-                if qcfg.get("calibrate") is not None and "calibrate" not in fit_kwargs:
-                    fit_kwargs["calibrate"] = qcfg["calibrate"]
-                notes.append(f"quantile regression at τ = {', '.join(f'{t:g}' for t in qcfg['levels'])} (pinball loss); "
-                             + ("conformal recalibration (CQR): AutoGluon's fit(calibrate=True)" if fit_kwargs.get("calibrate") is True
-                                else "no conformal recalibration (calibrate=False)" if fit_kwargs.get("calibrate") is False
-                                else "conformal recalibration left to AutoGluon (calibrate='auto': on with ≥ 1,000 validation rows)"))
-            scorer = None
-            if cfg.get("cost"):  # F7: the business cost is the eval_metric (an AutoGluon make_scorer)
-                scorer, cost_note = cost_scorer(cfg, train)
-                notes.append(cost_note)
-            data_args: dict[str, Any] = {}
-            if tuning is not None:  # F6: the split's tuning slice (group-disjoint, or the latest training period)
-                fit_kwargs["use_bag_holdout"] = True
-                data_args["tuning_data"] = {"rows": len(tuning), "split": cfg["split"]["key"]}
-                notes.append(f"tuning_data = the split's tuning slice ({len(tuning)} rows"
-                             + (f", {cfg['split'].get('tuning_cutoff')} onwards" if cfg["split"].get("tuning_cutoff") else "")
-                             + "); use_bag_holdout=True so bagged fits use it for the ensemble too")
-            if GROUP_FOLD_COLUMN in train.columns:
-                predictor_kwargs["groups"] = GROUP_FOLD_COLUMN
-                notes.append(f"groups='{GROUP_FOLD_COLUMN}': the split's {cfg['split']['n_folds']} folds, disjoint in "
-                             f"'{info['group_folds']['group_column']}', are AutoGluon's bagging folds (LeaveOneGroupOut)")
-            resolved = {"predictor_kwargs": predictor_kwargs, "fit_kwargs": fit_kwargs, "notes": notes,
-                        "path": cfg["predictor_path"]}
-            if data_args:
-                resolved["data_args"] = data_args
+            prep = prepare_fit(cfg, train, holdout, tuning, info)
+            resolved = prep["resolved"]
             store.merge_result(run_id, resolved=resolved)
             emit("config_resolved", **resolved)
 
             progress = ProgressCallback(emit)
-            call_kwargs = dict(fit_kwargs)
-            call_kwargs["callbacks"] = list(call_kwargs.get("callbacks") or []) + [progress]
-            if "feature_metadata" in call_kwargs:
-                call_kwargs["feature_metadata"] = feature_metadata_object(call_kwargs["feature_metadata"])
-            unlabeled = load_unlabeled(cfg, train) if cfg.get("pseudolabel") else None
-            pl_method = (cfg.get("pseudolabel") or {}).get("method", "fit_pseudolabel")
-            post_fit = []
-            if unlabeled is not None:
-                if pl_method == "unlabeled_data":
-                    call_kwargs["unlabeled_data"] = unlabeled
-                    resolved["data_args"] = {**resolved.get("data_args", {}),
-                                             "unlabeled_data": {"dataset_id": cfg["pseudolabel"].get("dataset_id"), "rows": len(unlabeled)}}
-                else:
-                    post_fit.append({"call": "fit_pseudolabel",
-                                     "kwargs": {"pseudo_data": f"<{len(unlabeled)} unlabeled rows>",
-                                                "max_iter": int(cfg["pseudolabel"].get("max_iter", 3))}})
-            if cfg.get("distill"):
-                dk = dict(cfg["distill"])
-                dk.setdefault("time_limit", max(30.0, 0.5 * float(cfg.get("time_limit") or 120)))
-                post_fit.append({"call": "distill", "kwargs": dk})
-            if post_fit or "data_args" in resolved:
-                resolved["post_fit"] = post_fit
-                store.merge_result(run_id, resolved=resolved)
-            if tuning is not None:
-                call_kwargs["tuning_data"] = tuning
-            if scorer is not None:
-                resolved["cost_metric"] = {**cfg["cost"], "scorer": costs_describe(cfg["cost"]),
-                                           "needs_proba": bool(scorer.needs_proba), "needs_class": bool(scorer.needs_class)}
-                store.merge_result(run_id, resolved=resolved)
-            predictor = TabularPredictor(path=cfg["predictor_path"],
-                                         **({**predictor_kwargs, "eval_metric": scorer} if scorer is not None else predictor_kwargs))
-            t0 = time.time()
-            predictor.fit(train, **call_kwargs)
-            for step in post_fit:
-                emit("post_fit", step=step["call"], status="started")
-                s0 = time.time()
-                if step["call"] == "fit_pseudolabel":
-                    predictor.fit_pseudolabel(pseudo_data=unlabeled, max_iter=step["kwargs"]["max_iter"])
-                elif step["call"] == "distill":
-                    np.random.seed(0)  # distill's data augmentation draws from the global generator; seeded so it reproduces
-                    predictor.distill(**step["kwargs"])
-                emit("post_fit", step=step["call"], status="finished", seconds=time.time() - s0,
-                     models=list(predictor.model_names()), best_model=predictor.model_best)
-            fit_seconds = time.time() - t0
+            predictor, fit_seconds = fit_predictor(cfg, prep, train, cfg["predictor_path"], callbacks=[progress], emit=emit)
 
         threshold_source, threshold_metric, threshold_seconds = _decide_threshold(cfg, predictor, train, emit)
 
