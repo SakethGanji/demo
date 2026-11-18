@@ -128,7 +128,7 @@
 .lb-tag { height: 18px; margin-left: 6px; font-family: var(--font-sans); }
 .lb-n { font-size: 11px; }
 .lb-top, .lb-top-key { font-weight: 700; color: var(--text-primary); }
-.lb-w { display: flex; gap: 4px; align-items: center; height: var(--size-row-compact); }
+.lb-w { display: flex; gap: 4px; align-items: center; height: var(--size-row-compact); max-width: 300px; overflow: hidden; }
 .lb-wchip { position: relative; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: var(--radius-badge); background: var(--bg-subtle); font-family: var(--font-mono); font-size: 10.5px; color: var(--text-primary); overflow: hidden; white-space: nowrap; }
 .lb-wchip i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--grad-string); }
 .lb-caption { border-top: 1px solid var(--border-default); }

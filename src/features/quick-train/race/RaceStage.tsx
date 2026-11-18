@@ -126,14 +126,13 @@ function Row({ r, axis, best, kFold }: { r: ModelRow; axis: ReturnType<typeof sc
   const mu = v
   const sd = d?.val_score_std ?? null
   const band: [number, number] | null = mu != null && sd != null && axis ? [Math.min(axis.frac(mu - sd), axis.frac(mu + sd)), Math.max(axis.frac(mu - sd), axis.frac(mu + sd))] : null
-  const k = folds.length || (r.bagged ? kFold : null)
   return (
     <div className={`race-row ${best ? 'best' : ''}`} data-testid={`race-model-${r.model}`} data-status={r.status}>
       <span className="race-name"><b title={r.model}>{r.model}</b><small>{(r.family && FAMILY_SHORT[r.family]) ?? r.family ?? ''}</small></span>
       <ModelString status={r.status} x={x} folds={axis ? folds.map((f) => axis.frac(f)) : []} band={band} seed={r.order * 7 + r.model.length} best={best} />
       <span className="race-read">
         {r.status === 'fitting' && <span className="race-fitting">fitting…</span>}
-        {r.status === 'done' && <>{best && <span className="race-star" title="best validation score so far">★ </span>}<b>{fmtScore(v)}</b>{sd != null && <small> ± {fmtScore(sd)}</small>}<small className="race-n">{folds.length ? ` n = ${folds.length}` : k ? ` n = ${k}` : ' val split'}</small></>}
+        {r.status === 'done' && <>{best && <span className="race-star" title="best validation score so far">★ </span>}<b>{fmtScore(v)}</b>{sd != null && <small> ± {fmtScore(sd)}</small>}<small className="race-n" title={folds.length ? `${folds.length} fold models, each scored on its held-out fold` : r.bagged && kFold ? 'scored on out-of-fold predictions (one score, no per-fold spread)' : 'scored on the tuning split'}>{folds.length ? ` n = ${folds.length}` : r.bagged && kFold ? ' out-of-fold' : ' val split'}</small></>}
         {(r.status === 'failed' || r.status === 'skipped') && <small title={r.error}>{r.status === 'skipped' ? 'skipped · out of time' : `✕ ${r.error?.slice(0, 40)}`}</small>}
       </span>
       <span className="race-fit">{d?.fit_time != null ? fmtSeconds(d.fit_time) : ''}</span>

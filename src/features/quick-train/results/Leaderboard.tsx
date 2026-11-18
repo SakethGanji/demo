@@ -35,7 +35,7 @@ export function Leaderboard({ run, selected, onSelect }: { run: Run; selected: s
                 <td className={`table-cell r ${bestTest?.model === r.model ? 'lb-top' : ''}`}>{fmtScore(r.score_test_natural)}</td>
                 <td className="table-cell r">{fmtSeconds(r.fit_time)}</td>
                 <td className="table-cell r">{fmtSeconds(perRow)}</td>
-                <td className="lb-w">{r.weights ? Object.entries(r.weights).filter(([, w]) => w > 0).slice(0, 4).map(([m, w]) => <span key={m} className="lb-wchip" title={m}><i style={{ width: `${w * 100}%` }} />{w.toFixed(2)} {short(m)}</span>) : null}</td>
+                <td className="lb-w">{r.weights ? Object.entries(r.weights).filter(([, w]) => w > 0).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([m, w]) => <span key={m} className="lb-wchip" title={m}><i style={{ width: `${w * 100}%` }} />{w.toFixed(2)} {short(m)}</span>) : null}</td>
               </tr>
             )
           })}
