@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import time
 import traceback
@@ -37,6 +38,7 @@ import pandas as pd
 from ..db import Database
 from ..engine.jsonsafe import jsonable
 from ..engine.store import RunStore
+from . import fastpath
 from .store import RegistryStore
 
 
@@ -257,30 +259,100 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                 refit_info = {"skipped": True, "reason": f"the run's best model {src.model_best} is already a refit copy"}
                 step("refit_full", "skipped", reason=refit_info["reason"])
             else:
-                which = "all" if opts.get("infer_limit") else (opts.get("serve_model") or "best")
+                many = opts.get("infer_limit") or opts.get("serve_fastest")
+                which = "all" if many else (opts.get("serve_model") or "best")
                 mapping = p.refit_full(model=which)
                 refit_info = {"model": which, "mapping": mapping, "seconds": time.time() - t0, "best": p.model_best}
                 step("refit_full", "done", seconds=refit_info["seconds"], best=p.model_best, refit=len(mapping))
         else:
             step("refit_full", "skipped", reason="not requested")
 
-        # 3. infer_limit
+        # 2b. distillation: single student models fit on the ensemble's predictions
+        distill_info = None
+        if opts.get("distill"):
+            step("distill", "running")
+            t0 = time.time()
+            hp = opts.get("distill_hyperparameters") or {"GBM": {}}
+            teacher = p.model_best
+            students = p.distill(time_limit=float(opts.get("distill_time_limit") or 120), hyperparameters=hp,
+                                 teacher_preds="soft", augment_method="spunge", verbosity=0) or []
+            singles = [m for m in students if "WeightedEnsemble" not in m]
+            lbd = p.leaderboard(holdout, silent=True).set_index("model")
+            from ..engine.worker import _natural
+
+            nat = lambda v: None if v is None or pd.isna(v) else _natural(p.eval_metric, float(v))  # noqa: E731
+            distill_info = {"teacher": teacher, "hyperparameters": hp, "students": students, "seconds": time.time() - t0,
+                            "teacher_score_test": nat(lbd.loc[teacher, "score_test"]) if teacher in lbd.index else None,
+                            "scores": {m: {"score_val": nat(lbd.loc[m, "score_val"]), "score_test": nat(lbd.loc[m, "score_test"])}
+                                       for m in students if m in lbd.index},
+                            "method": "predictor.distill(teacher_preds='soft', augment_method='spunge'): students fit on "
+                                      "the teacher's predicted probabilities over training rows plus augmented rows"}
+            if singles and not (opts.get("infer_limit") or opts.get("serve_model") or opts.get("serve_fastest")):
+                pick = max(singles, key=lambda m: lbd.loc[m, "score_val"] if m in lbd.index else -np.inf)
+                p.set_model_best(pick, save_trainer=True)
+                distill_info["served"] = pick
+            step("distill", "done" if singles else "warning", seconds=distill_info["seconds"], students=len(singles),
+                 served=distill_info.get("served"))
+        else:
+            step("distill", "skipped", reason="not requested")
+
+        def candidates() -> list[str]:
+            cands = p.model_names(can_infer=True)
+            if refit_info and not refit_info.get("skipped"):
+                fulls = [m for m in cands if m.endswith("_FULL") or m.endswith("_DSTL")]
+                cands = fulls or cands
+            return cands
+
+        def one_row_table(cands: list[str]) -> list[dict[str, Any]]:
+            """Each candidate as it would be served: pipeline pruned to what it reads, persisted, one-row p95."""
+            from ..engine.worker import _natural
+
+            lb = p.leaderboard(silent=True).set_index("model")
+            out = []
+            for m in cands:
+                try:
+                    p.persist(models=[m], with_ancestors=True)
+                except Exception:  # noqa: BLE001
+                    pass
+                with fastpath.pruned(p, m) as info:
+                    t = fastpath.one_row(fastpath.predict_fn(p, m), X, n=40, budget_s=2.5)
+                parent = p._trainer.get_model_attribute(m, "refit_full_parent", default=None)
+                sv = lb.loc[m, "score_val"] if m in lb.index else None
+                if (sv is None or pd.isna(sv)) and parent and parent in lb.index:
+                    sv = lb.loc[parent, "score_val"]
+                out.append({"model": m, "refit_parent": parent, "score_val": None if sv is None or pd.isna(sv) else float(sv),
+                            "score_val_natural": None if sv is None or pd.isna(sv) else _natural(p.eval_metric, float(sv)),
+                            "single_ms_p50": t["ms_p50"], "single_ms_p95": t["ms_p95"], "pipeline_pruned": info["pruned"],
+                            "n_models": len(_deps(p, m))})
+                try:
+                    p.unpersist(models=[m])
+                except Exception:  # noqa: BLE001
+                    pass
+            return out
+
+        # 3. infer_limit (or the served model chosen by the registrant)
         limit_info = None
         if opts.get("infer_limit"):
             step("infer_limit", "running")
             t0 = time.time()
             limit = float(opts["infer_limit"])
             batch = int(opts.get("infer_limit_batch_size") or 1000)
-            cands = p.model_names(can_infer=True)
-            if refit_info and not refit_info.get("skipped"):
-                fulls = [m for m in cands if m.endswith("_FULL")]
-                cands = fulls or cands
-            ag_times = {m: p._trainer.get_model_attribute(m, "predict_1_time", default=None) for m in cands}
-            table = measure_candidates(p, X, cands, min(batch, len(X)) or 1, ag_times)
-            for r in table:
-                t = r["ag_predict_1_time_us"] if r["ag_predict_1_time_us"] is not None else r["us_per_row"]
-                r["time_used_us"] = t
-                r["within"] = t is not None and t <= limit * 1e6
+            cands = candidates()
+            if batch == 1:
+                # One row per call: the time that matters is one call's wall time as served, at its 95th percentile.
+                table = one_row_table(cands)
+                for r in table:
+                    r["time_used_us"] = r["single_ms_p95"] * 1e3 if r["single_ms_p95"] is not None else None
+                    r["within"] = r["time_used_us"] is not None and r["time_used_us"] <= limit * 1e6
+                rule_t = "measured one-row p95 as served (pipeline pruned, persisted)"
+            else:
+                ag_times = {m: p._trainer.get_model_attribute(m, "predict_1_time", default=None) for m in cands}
+                table = measure_candidates(p, X, cands, min(batch, len(X)) or 1, ag_times)
+                for r in table:
+                    t = r["ag_predict_1_time_us"] if r["ag_predict_1_time_us"] is not None else r["us_per_row"]
+                    r["time_used_us"] = t
+                    r["within"] = t is not None and t <= limit * 1e6
+                rule_t = f"measured time per row in batches of {batch}"
             ok = [r for r in table if r["within"] and r["score_val"] is not None]
             if ok:
                 chosen = max(ok, key=lambda r: r["score_val"])
@@ -291,9 +363,18 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             p.set_model_best(chosen["model"], save_trainer=True)
             limit_info = {"infer_limit_s": limit, "infer_limit_us": limit * 1e6, "batch_size": batch,
                           "candidates": table, "chosen": chosen["model"], "met": met, "seconds": time.time() - t0,
-                          "rule": "best validation score among models with measured time per row ≤ budget"
+                          "rule": f"best validation score among models with {rule_t} ≤ budget"
                                   + ("" if met else "; none met it, so the fastest model was kept")}
             step("infer_limit", "done" if met else "warning", chosen=chosen["model"], met=met, seconds=limit_info["seconds"])
+        elif opts.get("serve_fastest"):
+            step("infer_limit", "running")
+            t0 = time.time()
+            table = one_row_table(candidates())
+            chosen = min(table, key=lambda r: r["single_ms_p95"] if r["single_ms_p95"] is not None else float("inf"))
+            p.set_model_best(chosen["model"], save_trainer=True)
+            limit_info = {"serve_fastest": True, "candidates": table, "chosen": chosen["model"], "met": True, "batch_size": 1,
+                          "seconds": time.time() - t0, "rule": "the single model with the lowest measured one-row p95 as served"}
+            step("infer_limit", "done", chosen=chosen["model"], reason="serve_fastest", seconds=limit_info["seconds"])
         elif opts.get("serve_model"):
             step("infer_limit", "running")
             want = opts["serve_model"]
@@ -314,9 +395,29 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         t0 = time.time()
         if dest.exists():
             shutil.rmtree(dest)
+        prune_info = None
         if opts.get("clone_for_deployment"):
             p.clone_for_deployment(str(dest), model="best", dirs_exist_ok=True)
             how = "clone_for_deployment(model='best'): only the best model and its dependencies, save_space()"
+            if opts.get("prune_pipeline", True):
+                # Prune the deployed copy's feature pipeline to what its models read; keep it only if the holdout
+                # predictions are unchanged.
+                d = TabularPredictor.load(str(dest), verbosity=0, require_py_version_match=False)
+                fn = fastpath.predict_fn(d)
+                before = fn(X)
+                prune_info = fastpath.prune_pipeline(d)
+                after = fn(X)
+                a = np.asarray(before, dtype=float) if d.problem_type != "multiclass" and d.problem_type != "binary" else before.to_numpy(dtype=float)
+                b = np.asarray(after, dtype=float) if d.problem_type != "multiclass" and d.problem_type != "binary" else after.to_numpy(dtype=float)
+                diff = float(np.nanmax(np.abs(a - b))) if len(a) else 0.0
+                prune_info["max_abs_diff"] = diff
+                prune_info["kept"] = bool(prune_info["pruned"] and diff <= 1e-9)
+                if prune_info["kept"]:
+                    d.save()
+                    how += f"; feature pipeline pruned to {len(prune_info['features_in'])} input column(s) and {prune_info['n_features_out']} of {prune_info['n_features_out_before']} features"
+                elif prune_info["pruned"]:
+                    prune_info["reason"] = f"predictions changed (max |Δ| = {diff:.2e}); pipeline left whole"
+                del d
         else:
             p.clone(str(dest), dirs_exist_ok=True)
             how = "clone(): every model kept"
@@ -330,7 +431,20 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         src_size = dir_size(Path(cfg["predictor_path"]))
         ver_size = dir_size(dest)
         lat_src = measure_latency(src, X)
+        # The version as a predict worker serves it: loaded, then the first call cold (models read from disk), then
+        # warmed (persisted, one call) and measured: one row (p50 / p95) and batches of 1 → 1,000.
+        cold = TabularPredictor.load(str(dest), verbosity=0, require_py_version_match=False)
+        tc = time.perf_counter()
+        fastpath.predict_fn(cold)(X.iloc[[0]])
+        cold_ms = (time.perf_counter() - tc) * 1e3
+        del cold
+        warm_info = fastpath.warm(final, X)
         lat_ver = measure_latency(final, X)
+        served = fastpath.one_row(fastpath.predict_fn(final), X, n=200, budget_s=6.0)
+        serving_info = {"cold_first_call_ms": cold_ms, "warm": warm_info, "one_row": served,
+                   "batches": fastpath.batches(fastpath.predict_fn(final), X), "pipeline": prune_info,
+                   "cpus": os.cpu_count(), "where": "the build's worker process, after load + persist + one warm-up call"}
+        lat_ver["single_ms_p50"], lat_ver["single_ms_p95"], lat_ver["single_calls"] = served["ms_p50"], served["ms_p95"], served["calls"]
         hp = holdout_predictions(final, holdout, cfg["label"])
         hp.to_csv(vdir / "holdout_predictions.csv", index=False)
         res_run = run.get("result") or {}
@@ -367,7 +481,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             "tradeoff": {"size_ratio": ver_size / src_size if src_size else None,
                          "latency_ratio_p50": lat_ver["us_per_row_p50"] / lat_src["us_per_row_p50"] if lat_src["us_per_row_p50"] else None,
                          "single_ratio_p50": lat_ver["single_ms_p50"] / lat_src["single_ms_p50"] if lat_src["single_ms_p50"] else None},
-            "refit": refit_info, "infer_limit": limit_info,
+            "refit": refit_info, "infer_limit": limit_info, "distill": distill_info, "serving": serving_info,
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "splits_sha256": splits_hash,
                        "data_file": Path(cfg["csv_path"]).name},
             "path": str(dest),
@@ -396,7 +510,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         v = reg.get_version(version_id)
         reg.audit(actor=v["created_by"], action="registered", version=v, to_stage="None",
                   comment=opts.get("description") or "",
-                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model")},
+                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline")},
                            "best_model": final.model_best, "size_bytes": ver_size,
                            "us_per_row_p50": lat_ver["us_per_row_p50"], "data_sha256": data_hash})
         return {"ok": True, "version_id": version_id}

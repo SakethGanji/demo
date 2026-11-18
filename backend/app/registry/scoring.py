@@ -272,3 +272,71 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
         (out_dir_p / "error.txt").write_text(traceback.format_exc())
         reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
         return {"ok": False, "error": str(e)}
+
+
+# --------------------------------------------------------------------------- online scoring (F3)
+
+
+def _raw_numeric(p) -> set[str]:
+    try:
+        tm = p._learner.feature_generator.feature_metadata_in.type_map_raw
+    except Exception:  # noqa: BLE001
+        return set()
+    return {c for c, t in tm.items() if t in ("int", "float")}
+
+
+def score_rows(predictor_path: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The online path: rows → predictions (and probabilities), no SHAP and no data files read. The predictor comes
+    from the worker's cache, persisted and warmed when it was loaded. `predict_ms` is the predictor call alone;
+    `worker_ms` adds building the frame and the response."""
+    t_all = time.perf_counter()
+    return score_with(load_predictor(predictor_path), rows, t_all)
+
+
+def score_with(p, rows: list[dict[str, Any]], t_all: float | None = None) -> dict[str, Any]:
+    t_all = t_all or time.perf_counter()
+    if not rows:
+        raise ValueError("Give at least one row.")
+    features = list(p.original_features)
+    X = pd.DataFrame([{c: r.get(c, np.nan) for c in features} for r in rows], columns=features)
+    for c in _raw_numeric(p) & set(features):
+        if X[c].dtype == object:
+            X[c] = pd.to_numeric(X[c], errors="coerce")
+    t0 = time.perf_counter()
+    out: dict[str, Any] = {"model": p.model_best, "problem_type": p.problem_type, "n_rows": len(X)}
+    if p.problem_type in ("binary", "multiclass"):
+        proba = p.predict_proba(X)
+        pred = p.predict_from_proba(proba)
+        out["predict_ms"] = (time.perf_counter() - t0) * 1e3
+        out["classes"] = jsonable(list(proba.columns))
+        out["predictions"] = jsonable(pred.tolist())
+        out["probabilities"] = [{str(c): float(v) for c, v in r.items()} for r in proba.to_dict(orient="records")]
+    else:
+        pred = p.predict(X)
+        out["predict_ms"] = (time.perf_counter() - t0) * 1e3
+        out["predictions"] = jsonable(pred.tolist())
+        out["probabilities"] = None
+    out["worker_ms"] = (time.perf_counter() - t_all) * 1e3
+    return out
+
+
+def benchmark_version(predictor_path: str, cfg: dict[str, Any], n: int = 300) -> dict[str, Any]:
+    """Served latency of a version, in a predict worker: the warm-up the worker did on load, then one-row calls on
+    holdout rows (p50 / p95) and batches of 1 → 1,000 (ms per call, µs per row)."""
+    from ..engine import serving
+    from ..splits import load_splits
+    from . import fastpath
+
+    t0 = time.perf_counter()
+    p = load_predictor(predictor_path)
+    load_s = time.perf_counter() - t0
+    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    X = h.drop(columns=[cfg["label"]])
+    fn = fastpath.predict_fn(p)
+    from ..engine.pool import _WARM
+
+    return jsonable({"model": p.model_best, "one_row": fastpath.one_row(fn, X, n=n, budget_s=8.0),
+                     "batches": fastpath.batches(fn, X), "warm_on_load": _WARM.get(str(predictor_path)),
+                     "cache_load_s": load_s, "features_in": list(p._learner.feature_generator.features_in),
+                     "n_features": len(p._learner.feature_generator.features_out), "pid": __import__("os").getpid(),
+                     "where": "a predict worker (the API's worker pool), predictor cached, persisted and warmed"})

@@ -3,6 +3,7 @@ model card, Try It, batch scoring with drift, and MLflow's view of a version."""
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
 from pathlib import Path
@@ -54,6 +55,7 @@ def version_out(v: dict[str, Any], full: bool = True) -> dict[str, Any]:
         "us_per_row_p50": (ver.get("latency") or {}).get("us_per_row_p50"),
         "us_per_row_p95": (ver.get("latency") or {}).get("us_per_row_p95"),
         "single_ms_p50": (ver.get("latency") or {}).get("single_ms_p50"),
+        "single_ms_p95": (ver.get("latency") or {}).get("single_ms_p95"),
         "holdout": ver.get("holdout"), "eval_metric": ver.get("eval_metric"), "problem_type": ver.get("problem_type"),
         "source_size_bytes": src.get("size_bytes"), "source_us_per_row_p50": (src.get("latency") or {}).get("us_per_row_p50"),
         "mlflow": res.get("mlflow"), "data_sha256": (res.get("hashes") or {}).get("data_sha256"),
@@ -75,6 +77,15 @@ class RegisterRequest(BaseModel):
     clone_for_deployment: bool = Field(True, description="Keep only the served model and what it needs.")
     serve_model: str | None = Field(None, description="Serve this model of the run (set_model_best), e.g. a faster one "
                                     "with a measured one-row latency; after refit_full its _FULL copy is served.")
+    serve_fastest: bool = Field(False, description="Serve the single model with the lowest measured one-row p95 "
+                                "(as served: pipeline pruned, persisted), whatever its score.")
+    distill: bool = Field(False, description="predictor.distill(): train single student models on the ensemble's "
+                          "soft labels (augmented data); the best student is served unless another rule picks.")
+    distill_time_limit: float = Field(120, gt=0, le=3600)
+    distill_hyperparameters: dict[str, Any] | None = Field(None, description="Student families, as fit()'s "
+                                                           "hyperparameters; default {'GBM': {}}.")
+    prune_pipeline: bool = Field(True, description="With clone_for_deployment: prune AutoGluon's feature pipeline "
+                                 "to the features the served model reads (predictions checked unchanged).")
 
 
 @router.post("/runs/{run_id}/register", status_code=202)
@@ -99,23 +110,42 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
     vid = "mv_" + secrets.token_hex(4)
     opts = body.model_dump(exclude={"created_by", "model_name"})
     v = reg.create_version({"id": vid, "model_name": name, "run_id": run_id, "created_by": who, "options": opts})
-    fut = request.app.state.heavy.submit(build.build_version, str(request.app.state.settings.db_path), vid, str(_dir(request)))
+    heavy = request.app.state.heavy
+    fut = heavy.submit(build.build_version, str(request.app.state.settings.db_path), vid, str(_dir(request)))
     request.app.state.jobs[vid] = fut
+
+    def _warm_after(f, reg=reg, vid=vid, heavy=heavy) -> None:
+        # Warm the new version in every predict worker, so its first Try It or /score call is not a cold one.
+        try:
+            got = reg.get_version(vid)
+            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly")):
+                heavy.warm_path(got["path"])
+                if _inproc_ok(got, 1):  # its own thread: this callback runs in the pool's management thread
+                    import threading
+
+                    threading.Thread(target=lambda: _SERVE.get(got["path"]), daemon=True).start()
+        except Exception:  # noqa: BLE001
+            pass
+
+    fut.add_done_callback(_warm_after)
     return version_out(v)
 
 
 @router.get("/runs/{run_id}/latency")
 async def latency_profile(run_id: str, request: Request, batch: int = Query(1000, ge=1, le=10_000)) -> dict[str, Any]:
     """Every model of the run that can predict: validation and holdout score, measured batch time per row on the
-    holdout (µs, p50 of 3), and the models and disk space it needs. What refit_full / infer_limit /
-    clone_for_deployment trade against. Measured in a worker process; cached per batch size."""
+    holdout (µs, p50 of 3), one-row latency as the run holds it and **as it would be served** (feature pipeline
+    pruned to what the model reads, models persisted: `served_ms_p50/p95`), and the models and disk space it needs.
+    `frontier` lists the models no other model beats on both served one-row p95 and validation score. What
+    refit_full / infer_limit / distillation / clone_for_deployment trade against. Measured in a worker process;
+    cached per batch size."""
     rec = request.app.state.runs.get(run_id)
     if not rec:
         raise HTTPException(404, f"No run with id '{run_id}'.")
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}.")
     cached = ((rec.get("result") or {}).get("latency_profile") or {}).get(str(batch))
-    if cached and all("single_ms_p95" in m for m in cached.get("models", [])):
+    if cached and all("served_ms_p95" in m for m in cached.get("models", [])):
         return {"run_id": run_id, **cached, "cached": True}
     out = await request.app.state.heavy.run(scoring_profile, rec["config"], batch)
     prof = dict((rec.get("result") or {}).get("latency_profile") or {})
@@ -136,11 +166,16 @@ def scoring_profile(cfg: dict[str, Any], batch: int) -> dict[str, Any]:
     X = h.drop(columns=[cfg["label"]])
     lb = p.leaderboard(h, silent=True).set_index("model")
     root = Path(cfg["predictor_path"]) / "models"
+    from . import fastpath
+
     rows = []
     for m in p.model_names(can_infer=True):
         deps = build._deps(p, m)
         size = sum(build.dir_size(root / d) for d in deps if (root / d).exists())
-        t = build.measure_latency(p, X, model=m, batch_rows=min(batch, len(X)), repeats=3, singles=15, budget_s=2.5)
+        t = build.measure_latency(p, X, model=m, batch_rows=min(batch, len(X)), repeats=3, singles=25, budget_s=2.5)
+        with fastpath.pruned(p, m) as pinfo:
+            served = fastpath.one_row(fastpath.predict_fn(p, m), X, n=40, budget_s=2.5) if pinfo["pruned"] else None
+        served = served or {"ms_p50": t["single_ms_p50"], "ms_p95": t["single_ms_p95"], "calls": t["single_calls"]}
         sv, st = lb.loc[m, "score_val"], lb.loc[m, "score_test"]
         parent = p._trainer.get_model_attribute(m, "refit_full_parent", default=None)
         if (sv != sv) and parent in lb.index:
@@ -149,11 +184,22 @@ def scoring_profile(cfg: dict[str, Any], batch: int) -> dict[str, Any]:
                      "single_ms_p50": t["single_ms_p50"], "single_ms_p95": t["single_ms_p95"], "single_calls": t["single_calls"],
                      "score_val_natural": None if sv != sv else _natural(p.eval_metric, float(sv)),
                      "score_test_natural": None if st != st else _natural(p.eval_metric, float(st)),
+                     "served_ms_p50": served["ms_p50"], "served_ms_p95": served["ms_p95"], "served_calls": served["calls"],
+                     "pipeline": {"pruned": pinfo["pruned"], "features_in": pinfo["features_in"],
+                                  "n_features_out": pinfo["n_features_out"], "n_features_out_before": pinfo.get("n_features_out_before"),
+                                  "generators": pinfo.get("generators"), "generators_before": pinfo.get("generators_before")},
                      "n_models": len(deps), "size_bytes": size, "stack_level": int(lb.loc[m, "stack_level"]),
                      "refit_full": m.endswith("_FULL"), "best": m == p.model_best,
                      "ag_predict_1_time_us": (lambda v: None if v is None else v * 1e6)(p._trainer.get_model_attribute(m, "predict_1_time", default=None))})
     rows.sort(key=lambda r: r["us_per_row"])
+    nat_greater = bool(p.eval_metric.greater_is_better)
+    for r in rows:
+        r["score_rank"] = r["score_val_natural"] if r["score_val_natural"] is not None else r["score_test_natural"]
+    frontier = fastpath.pareto(rows, "served_ms_p95", "score_rank", nat_greater)
+    for r in rows:
+        r["on_frontier"] = r["model"] in frontier
     return {"batch_rows": min(batch, len(X)), "models": rows, "eval_metric": p.eval_metric.name,
+            "frontier": frontier, "natural_greater_is_better": nat_greater, "cpus": os.cpu_count(),
             "greater_is_better": bool(p.eval_metric.greater_is_better_internal), "best_model": p.model_best,
             "total_size_bytes": build.dir_size(Path(cfg["predictor_path"])), "bagged": bool(p._trainer.bagged_mode)}
 
@@ -280,6 +326,10 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
     for o in changed:
         await _sync(request, o)
     ml = await _sync(request, v2, {"stage_changed_by": actor})
+    if body.stage == "Production" and v2.get("path"):
+        kind = ((request.app.state.runs.get(v2["run_id"]) or {}).get("config") or {}).get("kind")
+        if kind not in ("forecast", "anomaly"):
+            warm_version(request, v2)  # F3: Production is served warm
     return {"version": version_out(v2), "audit": entry, "archived": [o["id"] for o in changed], "mlflow": ml}
 
 
@@ -389,6 +439,140 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
     except explain.ExplainError as e:
         raise HTTPException(400, str(e)) from e
     return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], **out}
+
+
+class ScoreRequest(BaseModel):
+    rows: list[dict[str, Any]] = Field(..., min_length=1, max_length=10_000)
+    where: Literal["auto", "api", "worker"] = Field("auto", description="auto: in the API process for a deployed "
+                                                    "version (≤ 200 MB) and ≤ 100 rows, else in a predict worker.")
+
+
+INPROC_MAX_BYTES = 200 * 1024 * 1024
+INPROC_MAX_ROWS = 100
+
+
+class _ServeCache:
+    """Deployed versions loaded in the API process for the online path: persisted and warmed on load, a few kept.
+    One-row scoring of a pruned single model is a few ms of CPU, cheaper than the hop to a worker process."""
+
+    def __init__(self, size: int = 4) -> None:
+        import threading
+        from collections import OrderedDict
+
+        self.size, self._d, self._lock, self.warm = size, OrderedDict(), threading.Lock(), {}
+        self._loading: dict[str, Any] = {}
+
+    def get(self, path: str):
+        with self._lock:
+            if path in self._d:
+                self._d.move_to_end(path)
+                return self._d[path]
+        from autogluon.tabular import TabularPredictor
+
+        import ensemble_models  # noqa: F401
+
+        from .fastpath import warm
+
+        p = TabularPredictor.load(path, verbosity=0, require_py_version_match=False)
+        self.warm[path] = warm(p)
+        with self._lock:
+            self._d[path] = p
+            while len(self._d) > self.size:
+                self._d.popitem(last=False)
+        return p
+
+    def has(self, path: str) -> bool:
+        return path in self._d
+
+
+_SERVE = _ServeCache()
+_SCORE_META: dict[str, dict[str, Any]] = {}
+
+
+def clear_serving_caches() -> None:
+    global _SERVE
+    _SCORE_META.clear()
+    _SERVE = _ServeCache()
+
+
+def _inproc_ok(v: dict[str, Any], n_rows: int) -> bool:
+    size = ((v.get("result") or {}).get("version") or {}).get("size_bytes") or 0
+    return bool((v.get("options") or {}).get("clone_for_deployment")) and 0 < size <= INPROC_MAX_BYTES and n_rows <= INPROC_MAX_ROWS
+
+
+def warm_version(request: Request, v: dict[str, Any]) -> None:
+    """Warm a tabular version in every predict worker and, when it qualifies, in the API process (in a thread)."""
+    request.app.state.heavy.warm_path(v["path"])
+    if _inproc_ok(v, 1):
+        import threading
+
+        threading.Thread(target=lambda: _SERVE.get(v["path"]), daemon=True).start()
+
+
+@router.post("/registry/versions/{vid}/score")
+async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any]:
+    """The online path (F3): rows → predictions with no SHAP, in a predict worker whose copy of the version is
+    persisted and warmed. Returns the predictor's own time (`predict_ms`), the worker's (`worker_ms`) and the API's
+    (`server_ms`, including the hop to the worker)."""
+    import time as _t
+
+    t0 = _t.perf_counter()
+    meta = _SCORE_META.get(vid)
+    if meta is None:
+        # A ready version's path, kind and size never change: read them once, not on every online call.
+        v = _version(request, vid)
+        _ready(v)
+        run = request.app.state.runs.get(v["run_id"])
+        meta = {"path": v["path"], "kind": run["config"].get("kind"), "model_name": v["model_name"],
+                "version": v["version"], "inproc": _inproc_ok(v, 1)}
+        _SCORE_META[vid] = meta
+    v = meta
+    kind = meta["kind"]
+    if kind == "forecast":
+        raise HTTPException(400, "A forecasting version forecasts series, not rows: use POST /api/forecast/runs/{run}/predict.")
+    if kind == "anomaly":
+        from ..anomaly import core as an
+
+        try:
+            outs = [await request.app.state.heavy.run(an.score_one, v["path"], r) for r in body.rows]
+        except an.AnomalyError as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "kind": "anomaly", "results": outs, "server_ms": (_t.perf_counter() - t0) * 1e3}
+    inproc = body.where == "api" or (body.where == "auto" and meta["inproc"] and len(body.rows) <= INPROC_MAX_ROWS)
+    was_warm = _SERVE.has(v["path"]) if inproc else None
+    try:
+        if inproc:
+            if _SERVE.has(v["path"]):
+                out = scoring.score_with(_SERVE.get(v["path"]), body.rows)  # a few ms of CPU: no thread hop
+            else:
+                out = await run_in_threadpool(lambda: scoring.score_with(_SERVE.get(v["path"]), body.rows))
+        else:
+            out = await request.app.state.heavy.run(scoring.score_rows, v["path"], body.rows)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], **out,
+            "where": "api" if inproc else "worker", "warm_before_call": was_warm, "server_ms": (_t.perf_counter() - t0) * 1e3}
+
+
+@router.get("/registry/serving")
+def serving_state() -> dict[str, Any]:
+    """Deployed versions loaded (persisted, warmed) in the API process for the online path, with their warm-up."""
+    return {"api_process": [{"path": p, "warm": _SERVE.warm.get(p)} for p in list(_SERVE._d)],
+            "inproc_max_bytes": INPROC_MAX_BYTES, "inproc_max_rows": INPROC_MAX_ROWS}
+
+
+@router.post("/registry/versions/{vid}/benchmark")
+async def benchmark(vid: str, request: Request) -> dict[str, Any]:
+    """Measure the version as served, in a predict worker: one-row p50 / p95 on holdout rows and batches of
+    1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
+    v = _version(request, vid)
+    _ready(v)
+    run = request.app.state.runs.get(v["run_id"])
+    if run["config"].get("kind") in ("forecast", "anomaly"):
+        raise HTTPException(400, "The serving benchmark measures tabular versions (one row per call).")
+    out = await request.app.state.heavy.run(scoring.benchmark_version, v["path"], run["config"])
+    _reg(request).merge_version_result(vid, serving_benchmark=out)
+    return {"version_id": vid, **out}
 
 
 def _kinds(request: Request, run: dict[str, Any]) -> dict[str, str]:

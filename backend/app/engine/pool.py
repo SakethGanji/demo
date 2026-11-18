@@ -80,6 +80,15 @@ def sleep_job(seconds: float) -> int:  # used by tests
 
 _CACHE: OrderedDict[tuple[str, float], Any] = OrderedDict()
 _CACHE_SIZE = 3
+_WARM: dict[str, Any] = {}
+
+
+def warm_predictor(path: str, hold_s: float = 0.3) -> dict[str, Any]:
+    """Load (and so warm) a predictor in this worker. Held briefly so that N submissions land on N workers."""
+    t0 = time.perf_counter()
+    load_predictor(path)
+    time.sleep(hold_s)
+    return {"pid": os.getpid(), "seconds": time.perf_counter() - t0 - hold_s, "warm": _WARM.get(str(path))}
 
 
 def _signature(path: str) -> float:
@@ -105,6 +114,14 @@ def load_predictor(path: str):
     import ensemble_models  # noqa: F401 — the custom models must be importable to unpickle them
 
     p = TabularPredictor.load(str(path), verbosity=0, require_py_version_match=False)
+    # Warm on load (F3): persist the served model(s) in memory and make a call, so the first real call is not the
+    # one that reads models from disk and builds the pipeline's caches.
+    try:
+        from ..registry.fastpath import warm as _warm
+
+        _WARM[str(path)] = _warm(p)
+    except Exception:  # noqa: BLE001 — warming is an optimisation
+        pass
     for k in [k for k in _CACHE if k[0] == str(path)]:
         _CACHE.pop(k, None)
     _CACHE[key] = p
@@ -174,6 +191,10 @@ class HeavyPool:
             if self._ex is broken:
                 self._ex = None
         broken.shutdown(wait=False, cancel_futures=True)
+
+    def warm_path(self, path: str) -> list[Future]:
+        """Warm a predictor in every worker (one submission per worker, each held briefly)."""
+        return [self.submit(warm_predictor, str(path)) for _ in range(self.workers)]
 
     def info(self) -> dict[str, Any]:
         return {"workers": self.workers, "active_jobs": self.active, "submitted": self.submitted}
