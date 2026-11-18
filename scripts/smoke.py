@@ -483,10 +483,12 @@ def fresh(st: dict[str, Any]) -> None:
             fi = get(f"/api/runs/{rid}/feature-importance")
             top = (fi.get("importance") or fi.get("features") or [{}])[0] if isinstance(fi, dict) else {}
             if ptype == "binary":
-                pos = rec_st["rec"]["positive_class"]
-                roc = e["roc"][str(pos)]
-                ap = e["pr"][str(pos)]["ap"] if "pr" in e else float("nan")
-                return f"ROC AUC {roc['auc']:.4f} · AP {ap:.4f} (prevalence {e.get('prevalence', float('nan')) if isinstance(e.get('prevalence'), float) else '—'}) · top feature {top.get('feature', '—')}"
+                pos = str(rec_st["rec"]["positive_class"])
+                check(pos == "1", f"positive class {pos}: fraud must be the positive class")
+                roc, pr = e["roc"][pos], e["pr"][pos]
+                prev = pr.get("prevalence", float("nan"))
+                return (f"positive class 1 (fraud) · ROC AUC {roc['auc']:.4f} · AP {pr.get('ap', pr.get('average_precision', float('nan'))):.4f} "
+                        f"vs prevalence {prev:.4f} · top feature {top.get('feature', '—')}")
             if ptype == "multiclass":
                 rep = e.get("per_class") or e.get("report") or []
                 return f"{len(rec_st['rec']['classes'])} classes · confusion Σ = {int(np.asarray(e['confusion_matrix']).sum())} · top feature {top.get('feature', '—')}"
@@ -495,7 +497,7 @@ def fresh(st: dict[str, Any]) -> None:
         step(f"fresh {tag}: explain", explain_)
 
         def register_use():
-            v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": f"fresh.{tag}"})
+            v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": f"fresh.{tag}.{rec_st['ds']['id']}"})
             v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
             check(v["status"] == "ready", v.get("error"))
             post(f"/api/registry/versions/{v['id']}/review", {"decision": "approve", "reviewer": "Smoke Validator", "comment": "fresh data check"})

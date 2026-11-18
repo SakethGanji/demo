@@ -71,7 +71,7 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
   const lx = pts.map((m) => Math.log10(Math.max(0.01, m.us_per_row)))
   const [x0, x1] = padDomain([...lx, ...(useLimit ? [Math.log10(limitUs)] : [])], 0.12)
   const scores = pts.map((m) => m.score_val_natural ?? m.score_test_natural ?? 0)
-  const [y0, y1] = padDomain(scores, 0.15)
+  const [y0, y1] = padDomain(scores, 0.3)
   const xt = niceTicks(x0, x1, 5)
   const maxB = Math.max(1, ...pts.map((m) => m.size_bytes))
   const info = metricInfo(metric)
@@ -133,7 +133,7 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
 
         <PlotFrame title="Latency · Score Frontier" right={<span className="helper" style={{ fontSize: 12 }}>every model of {runId} that can predict</span>}
           chips={lp ? <><ParamChip sym="n" value={`${lp.batch_rows} rows`} /><ParamChip sym="metric" value={metric} /></> : undefined}
-          caption={<span>Each dot is a model m: x = t̂(m), measured batch prediction time per row on n holdout rows (median of 3 runs, log scale, including every model m needs); y = s_val(m), its validation {info?.name ?? metric} (what the selection ranks by); area ∝ bytes on disk. {useLimit ? `The dashed line is the budget τ = ${us(limitUs)} µs/row; ` : ''}the ringed model is what this version would serve{refit ? ' (re-measured on its _FULL copy after refit)' : ''}.</span>}>
+          caption={<span>Each dot is a model m: x = t̂(m), measured batch prediction time per row on n holdout rows (median of 3 runs, log scale, including every model m needs); y = s_val(m), its validation {info?.name ?? metric} (what the selection ranks by); area ∝ bytes on disk. {useLimit ? `The dashed line is the budget τ = ${us(limitUs)} µs/row. ` : ''}The ringed model is what this version would serve{refit ? ' (re-measured on its _FULL copy after refit)' : ''}.</span>}>
           {!lp && !lpErr && <div className="row helper"><ResonanceWave /> measuring every model’s prediction time on the holdout, in a worker process…</div>}
           {lpErr && <p className="helper" style={{ color: 'var(--status-danger)' }}>✕ {lpErr}</p>}
           {lp && (

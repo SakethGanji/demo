@@ -33,8 +33,8 @@ function LiveStatus() {
     {status?.pool && status.pool.active_jobs > 0 && <span data-testid="sb-pool">· {status.pool.active_jobs} worker job{status.pool.active_jobs > 1 ? 's' : ''}</span>}
     <span className="spacer" />
     <span data-testid="sb-runs">{status?.runs ?? '…'} runs</span><span className="sb-sep" />
-    <span data-testid="sb-cpu">{status?.cpu_count ?? '…'} CPUs{status?.memory_gb ? ` · ${status.memory_gb} GB` : ''}</span><span className="sb-sep" />
-    <span>Python {status?.python ?? '…'}</span><span className="sb-sep" /><span data-testid="sb-version">ENSEMBLE {status?.version ?? ''}</span>
+    <span data-testid="sb-cpu" className="sb-wide">{status?.cpu_count ?? '…'} CPUs{status?.memory_gb ? ` · ${status.memory_gb} GB` : ''}</span><span className="sb-sep sb-wide" />
+    <span className="sb-wide">Python {status?.python ?? '…'}</span><span className="sb-sep sb-wide" /><span data-testid="sb-version">ENSEMBLE {status?.version ?? ''}</span>
   </>
 }
 

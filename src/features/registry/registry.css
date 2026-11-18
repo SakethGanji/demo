@@ -122,6 +122,6 @@
 /* One-row latency in Register: τ₉₅ measured, and a faster model to serve with its score cost */
 .reg-onerow { display: flex; flex-direction: column; gap: 6px; padding: var(--space-12); border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-subtle); }
 .reg-onerow.warn { border-color: var(--status-warning); background: var(--status-warning-bg); }
-.reg-onerow .ro-eq { font-size: 15px; }
+.reg-onerow .ro-eq { font-size: 14px; } .reg-onerow .ro-eq .mono { font-style: normal; font-size: 12px; }
 .reg-onerow .helper { margin: 0; font-size: 12px; }
 .reg-onerow .ro-alt { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--border-track); font-size: 12.5px; }

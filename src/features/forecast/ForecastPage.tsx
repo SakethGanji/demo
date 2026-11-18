@@ -266,7 +266,7 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
         {done && naive && <Cell k="vs SeasonalNaive" v={`${f3(naive.score_test_natural)}`} d={<>skill 1 − {metric}<sub>best</sub> / {metric}<sub>naive</sub> = {pct(1 - (best!.score_test_natural ?? 0) / (naive.score_test_natural || 1))}</>} />}
         {h && <Cell k="WQL" v={f3(h.metrics.WQL, 4)} d={<>2 Σ<sub>τ</sub>Σ<sub>t</sub> ρ<sub>τ</sub>(y<sub>t</sub> − q̂<sub>τ,t</sub>) / (|T| Σ<sub>t</sub>|y<sub>t</sub>|)</>} />}
         {h && <Cell k="sMAPE" v={pct(h.metrics.SMAPE)} d={<>mean 2|e<sub>t</sub>| / (|y<sub>t</sub>| + |ŷ<sub>t</sub>|)</>} />}
-        {h && <Cell k={`coverage [q${h.interval[0]}, q${h.interval[1]}]`} v={pct(h.coverage)} d={<>nominal {pct(h.interval[1] - h.interval[0])}{cal ? <> · {cal.verdict === 'calibrated' ? 'within error' : cal.verdict === 'too_wide' ? <b className="g-warn">bands too wide</b> : <b className="g-warn">bands too narrow</b>}</> : null}</>} />}
+        {h && <Cell k={`coverage [q${h.interval[0]}, q${h.interval[1]}]`} v={pct(h.coverage)} d={<>nominal {pct(h.interval[1] - h.interval[0])}{cal ? <> · <span className="g-warn" style={{ fontWeight: 600 }}>{cal.verdict === 'calibrated' ? 'within error' : cal.verdict === 'too_wide' ? 'bands too wide' : 'bands too narrow'}</span></> : null}</>} />}
         <Cell k="models" v={`${live.models.filter((m) => m.status === 'done').length || lb.length}`} d={`${Object.keys(w).length} in the ensemble`} />
       </div>
 

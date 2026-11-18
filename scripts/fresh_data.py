@@ -1,7 +1,7 @@
 """Three fresh, bank-flavoured CSVs that no earlier session or sample used, for the final end-to-end walkthrough and
 the smoke's `fresh` section. Seeded, so the files (and the numbers in docs/demo-script.md) reproduce.
 
-- card_fraud.csv           binary, rare positives (~1.4% fraud): card-not-present e-commerce authorisations
+- card_fraud.csv           binary, rare positives (~1.7% fraud, labelled 1): card-not-present e-commerce authorisations
 - complaints.csv           multiclass text: customer complaint narratives routed to one of 7 product teams
 - deposit_balances.csv     regression: next-quarter average balance of a deposit account
 
@@ -17,7 +17,10 @@ import numpy as np
 import pandas as pd
 
 
-def card_fraud(n: int = 9000, seed: int = 2026) -> pd.DataFrame:
+B0 = -1.0  # intercept: ~1.7% fraud
+
+
+def card_fraud(n: int = 12000, seed: int = 2026) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     merchant = rng.choice(["marketplace", "airline", "gaming", "subscription", "electronics", "fashion", "food delivery", "gift cards"],
                           size=n, p=[0.22, 0.06, 0.07, 0.18, 0.09, 0.16, 0.18, 0.04])
@@ -33,10 +36,10 @@ def card_fraud(n: int = 9000, seed: int = 2026) -> pd.DataFrame:
     billing_shipping_km = np.round(np.abs(rng.gamma(0.8, 25, n)), 1)
     segment = rng.choice(["mass", "affluent", "student", "business"], size=n, p=[0.6, 0.15, 0.12, 0.13])
     # a logistic risk with interactions, then a rare positive class
-    z = (-2.2 + 1.3 * (merchant == "gift cards") + 0.9 * (merchant == "electronics") + 0.6 * (merchant == "gaming")
-         + 0.55 * np.log1p(amount / 100) - 1.1 * three_ds + 1.4 * (~ip_country_match) - 0.45 * np.log1p(device_age_days)
-         + 0.55 * (attempts_1h - 1) + 0.6 * ((hour <= 4) | (hour >= 23)) + 0.012 * np.minimum(billing_shipping_km, 300)
-         - 0.25 * np.log1p(tenure / 100) + 0.4 * (segment == "student"))
+    z = (B0 + 2.6 * (merchant == "gift cards") + 1.6 * (merchant == "electronics") + 1.2 * (merchant == "gaming")
+         + 0.9 * np.log1p(amount / 100) - 2.2 * three_ds + 2.6 * (~ip_country_match) - 0.9 * np.log1p(device_age_days)
+         + 1.1 * (attempts_1h - 1) + 1.4 * ((hour <= 4) | (hour >= 23)) + 0.02 * np.minimum(billing_shipping_km, 300)
+         - 0.4 * np.log1p(tenure / 100) + 0.7 * (segment == "student"))
     p = 1 / (1 + np.exp(-z))
     fraud = rng.random(n) < p
     df = pd.DataFrame({
@@ -44,7 +47,7 @@ def card_fraud(n: int = 9000, seed: int = 2026) -> pd.DataFrame:
         "three_ds_passed": np.where(three_ds, "yes", "no"), "ip_country_matches_card": np.where(ip_country_match, "yes", "no"),
         "device_age_days": device_age_days, "attempts_last_hour": attempts_1h, "local_hour": hour,
         "billing_shipping_distance_km": billing_shipping_km, "customer_tenure_days": tenure, "customer_segment": segment,
-        "is_fraud": np.where(fraud, "fraud", "genuine"),
+        "is_fraud": fraud.astype(int),
     })
     miss = rng.random(n) < 0.03
     df.loc[miss, "device_age_days"] = np.nan
