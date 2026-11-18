@@ -496,7 +496,11 @@ async def set_threshold(run_id: str, body: ThresholdRequest, request: Request) -
                 value, source = float(body.value), "manual"
             out = threshold.apply(p, Path(cfg["run_dir"]), h, cfg["label"], value, source=source, metric=body.metric,
                                   seconds=time.time() - t0)
-            _store(request).merge_result(run_id, threshold=out["threshold"], holdout=out["holdout"])
+            res_now = (_store(request).get(run_id) or {}).get("result") or {}
+            extra = {}
+            if "fit_threshold" not in res_now:  # the threshold the run's leaderboard was scored at (export compares it)
+                extra["fit_threshold"] = res_now.get("threshold") or {"source": "default", "value": 0.5, "metric": None}
+            _store(request).merge_result(run_id, threshold=out["threshold"], holdout=out["holdout"], **extra)
             return out
 
     try:

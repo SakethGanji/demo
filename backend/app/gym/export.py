@@ -110,20 +110,25 @@ def main() -> int:
         np.random.seed(0)  # as the run did: distill's augmentation draws from the global generator
         predictor.distill(**DISTILL)
 
-    if THRESHOLD and THRESHOLD.get("source") == "calibrated":
-        t = predictor.calibrate_decision_threshold(metric=THRESHOLD["metric"], verbose=False)
-        predictor.set_decision_threshold(float(t))
-        predictor.save()
-    elif THRESHOLD and THRESHOLD.get("source") in ("user", "manual", "set"):
-        predictor.set_decision_threshold(float(THRESHOLD["value"]))
-        predictor.save()
-    if THRESHOLD:
-        print(f"decision threshold t = {predictor.decision_threshold:.6f} (run: {THRESHOLD['value']:.6f})")
+    def set_threshold(thr):
+        if thr and thr.get("source") == "calibrated":
+            t = predictor.calibrate_decision_threshold(metric=thr["metric"], verbose=False)
+            predictor.set_decision_threshold(float(t))
+        elif thr and thr.get("source") in ("user", "manual", "set", "default"):
+            predictor.set_decision_threshold(float(thr["value"]))
+        if thr:
+            predictor.save()
+            print(f"decision threshold t = {predictor.decision_threshold:.6f} (run: {thr['value']:.6f})")
 
+    # The run's leaderboard was scored at the threshold it had after the fit; a threshold changed later (Explain)
+    # is applied after the comparison.
+    set_threshold(FIT_THRESHOLD)
     lb = predictor.leaderboard(holdout, silent=True)
     lb.to_csv(Path(args.out) / "leaderboard.csv", index=False)
     with pd.option_context("display.width", 160, "display.max_columns", 8):
         print(lb[["model", "score_test", "score_val", "fit_time", "stack_level"]].to_string(index=False))
+    if THRESHOLD != FIT_THRESHOLD:
+        set_threshold(THRESHOLD)
     print(json.dumps(predictor.evaluate(holdout, silent=True), default=float))
     if args.no_check:
         return 0
@@ -177,6 +182,8 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     needs_text = isinstance(hp, dict) and any(k in ("TFIDF_LR", "TFIDF_SVM") for k in hp)
     thr = res.get("threshold") or None
     thr_out = {"source": thr.get("source"), "metric": thr.get("metric"), "value": thr.get("value")} if thr else None
+    fthr = res.get("fit_threshold", thr) or None
+    fthr_out = {"source": fthr.get("source"), "metric": fthr.get("metric"), "value": fthr.get("value")} if fthr else None
     post = {p["call"]: p["kwargs"] for p in resolved.get("post_fit") or []}
     pl = cfg.get("pseudolabel")
     pseudo = {"method": pl.get("method", "fit_pseudolabel"), "max_iter": int(pl.get("max_iter", 3))} if pl else None
@@ -209,6 +216,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         f"UNLABELED_CSV = {pycode.py(unlabeled_csv)}",
         f"DISTILL = {pycode.py(distill)}",
         f"THRESHOLD = {pycode.py(thr_out)}",
+        f"FIT_THRESHOLD = {pycode.py(fthr_out)}",
         f"NEEDS_ENSEMBLE_MODELS = {pycode.py(needs_text)}",
         f"ENSEMBLE_BACKEND = {pycode.py(str(backend_dir))}",
         "",

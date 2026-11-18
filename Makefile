@@ -6,7 +6,7 @@ PY := $(VENV)/bin/python
 API_PORT ?= 8000
 UI_PORT ?= 5190
 
-.PHONY: setup lock dev api ui test test-full test-backend test-backend-full test-ui e2e clean-data
+.PHONY: setup lock dev api ui smoke test test-full test-backend test-backend-full test-ui e2e clean-data
 
 ## Create the Python venv, install the pinned backend deps and the npm packages.
 setup:
@@ -39,6 +39,16 @@ api:
 
 ui:
 	npx vite --port $(UI_PORT)
+
+## The smoke chain (scripts/smoke.py) against the API on :$(API_PORT); starts the API itself if nothing answers there
+## (and stops it afterwards). SMOKE_ONLY=core,samples,autopilot picks sections.
+SMOKE_ONLY ?= core,samples,autopilot
+smoke:
+	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
+		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY); \
+	else \
+		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY) --start-api; \
+	fi
 
 ## Fast tier: pytest without the slow marks, type check, production build.
 test: test-backend test-ui
