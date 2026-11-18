@@ -13,7 +13,9 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              leaderboard, weights, backtests (W auto) → per-item errors → interval calibration → conformal recalibration
              (F1: raw → calibrated coverage, MASE, per-model coverage) → fan chart → CSV download → new-history forecast → register
   anomaly    card-transactions: IsolationForest + LOF run + SSE → top anomalies with reasons → precision@k against the
-             hidden truth → batch score + download → register → Try It on a row
+             hidden truth → velocity features (F2: bursts found, P@90 vs the round-1 config, causality) → confirm /
+             dismiss the flagged rows → supervised AutoGluon run on the confirmations (PU) compared on the hidden truth →
+             batch score + download → register → Try It on a row
   import     fit a tiny TabularPredictor here, zip it, import it → leaderboard, explain, predict, register, Try It;
              also by server path
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
@@ -861,6 +863,90 @@ def anomaly(st: dict[str, Any]) -> None:
                 f"AUC {tp['roc_auc']:.3f} → {tg['roc_auc']:.3f} (plain run {r['id']})")
 
     step("anomaly: group-relative features vs plain", group_vs_plain)
+
+    def velocity():
+        rec = st["an_rec"]
+        v = rec["data"].get("velocity")
+        check(v and v["entity_column"] == "card_id" and v["time_column"] == "timestamp", "velocity features on by default for the sample")
+        want = {"txns_prev_1h", "txns_prev_24h", "amount_usd_sum_prev_1h", "amount_usd_sum_prev_24h",
+                "distinct_merchant_category_prev_24h", "amount_usd_over_running_mean", "log_hours_since_prev"}
+        check(want <= set(v["added"]), v["added"])
+        check(rec["resolved"]["iforest_kwargs"]["max_samples"] == 1024, rec["resolved"]["iforest_kwargs"])
+        # before: the round-1 configuration (group-relative features with Δt, ψ = sklearn's 'auto' = 256, no velocity)
+        r = post("/api/anomaly/runs", {"dataset_id": "card-transactions", "contamination": 0.015, "lof": False,
+                                      "velocity_features": False, "max_samples": "auto", "source": "smoke"})
+        old = wait_run(r["id"], 300)
+        check(not old["data"].get("velocity") and old["resolved"]["iforest_kwargs"]["max_samples"] == "auto", old["data"].keys())
+        tn, to = rec["anomaly"]["truth"], old["anomaly"]["truth"]
+        p90 = lambda t: next(x["precision"] for x in t["precision_at_k"] if x["k"] == 90)
+        vn, vo = tn["by_kind"]["velocity"]["found"], to["by_kind"]["velocity"]["found"]
+        check(vn >= 10, f"velocity bursts found {vn}/18 (need ≥ 10)")
+        check(p90(tn) >= 0.71, f"P@90 {p90(tn):.2f} (need ≥ 0.71)")
+        # causal: recompute the 24 h count and the gap for the top rows from data.csv (earlier rows of the card only)
+        data = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "card-transactions", "data.csv"))
+        data["t"] = pd.to_datetime(data["timestamp"])
+        top = get(f"/api/anomaly/runs/{st['an']}/top", limit=40)["rows"]
+        for row in top:
+            x = data.iloc[row["row"]]
+            prev = data[(data["card_id"] == x["card_id"]) & (data["t"] < x["t"])]
+            n24 = int((prev["t"] >= x["t"] - pd.Timedelta(hours=24)).sum())
+            check(row["values"]["txns_prev_24h"] == n24, f"row {row['row']}: txns_prev_24h {row['values']['txns_prev_24h']} vs {n24}")
+            s24 = float(prev.loc[prev["t"] >= x["t"] - pd.Timedelta(hours=24), "amount_usd"].sum())
+            check(abs(row["values"]["amount_usd_sum_prev_24h"] - s24) < 0.01, f"row {row['row']}: Σ24h")
+            gap = np.log1p((x["t"] - prev["t"].max()).total_seconds() / 3600) if len(prev) else None
+            got = row["values"].get("log_hours_since_prev")
+            check((gap is None and got is None) or (gap is not None and got is not None and abs(got - gap) < 1e-6), f"row {row['row']}: Δ {got} vs {gap}")
+        st["an_p90"] = p90(tn)
+        return (f"bursts found {vo}/18 → {vn}/18 · P@90 {p90(to):.2f} → {p90(tn):.2f} · AUC {to['roc_auc']:.3f} → {tn['roc_auc']:.3f} · "
+                f"spikes {to['by_kind']['amount_spike']['found']} → {tn['by_kind']['amount_spike']['found']} · "
+                f"night/foreign {to['by_kind']['night_foreign']['found']} → {tn['by_kind']['night_foreign']['found']} · "
+                f"forest sees {', '.join(v['in_forest'])} · 40 top rows recomputed from earlier rows only (round-1 config {r['id']})")
+
+    step("anomaly: velocity features (F2)", velocity)
+
+    def review():
+        t = get(f"/api/anomaly/runs/{aid}/top", limit=200)
+        flagged = [r for r in t["rows"] if r["flagged"]]
+        check(len(flagged) == 90, len(flagged))
+        old = get(f"/api/anomaly/runs/{aid}/labels")["labels"]  # labels belong to the dataset: clear an earlier smoke's
+        if old:
+            post(f"/api/anomaly/runs/{aid}/labels", {"items": [{"row": x["row"], "label": None} for x in old], "by": "Smoke Analyst"})
+        # the analyst (here: the sample's hidden truth) confirms planted rows and dismisses the rest
+        items = [{"row": r["row"], "label": "fraud" if r["planted"] else "not_fraud"} for r in flagged]
+        lab = post(f"/api/anomaly/runs/{aid}/labels", {"items": items, "by": "Smoke Analyst"})
+        n_pos = sum(1 for i in items if i["label"] == "fraud")
+        check(lab["confirmed"] == n_pos and lab["dismissed"] == 90 - n_pos and lab["can_train"], lab)
+        # clear one and set it again: null removes a label
+        lab = post(f"/api/anomaly/runs/{aid}/labels", {"items": [{"row": items[0]["row"], "label": None}], "by": "Smoke Analyst"})
+        check(lab["reviewed"] == 89, lab["reviewed"])
+        lab = post(f"/api/anomaly/runs/{aid}/labels", {"items": [items[0]], "by": "Smoke Analyst"})
+        t2 = get(f"/api/anomaly/runs/{aid}/top", limit=5)
+        check(all(r["review"] is not None for r in t2["rows"]) and t2["review"]["reviewed"] == 90, t2["rows"][0].get("review"))
+        aud = get("/api/registry/audit", limit=20)["entries"]
+        check(any(e["action"] == "anomaly_review" and e["actor"] == "Smoke Analyst" for e in aud), "audit")
+        st["an_pos"] = n_pos
+        return f"90 flagged rows reviewed: {n_pos} confirmed fraud, {90 - n_pos} dismissed · stored with the dataset · audited · Train supervised open (≥ {lab['min_positives']})"
+
+    if step("anomaly: confirm / dismiss", review):
+        def supervised():
+            s = post(f"/api/anomaly/runs/{aid}/supervised", {"time_limit": 60, "by": "Smoke Analyst"})
+            check(s["confirmed"] == st["an_pos"] and "anomaly_score" in s["features_added"] and "txns_prev_1h" in s["features_added"], s)
+            r = wait_run(s["run_id"], 600)
+            check(r["status"] == "succeeded" and r["problem_type"] == "binary" and r["label"] == "confirmed_fraud", r.get("error"))
+            g = get(f"/api/anomaly/runs/{aid}/supervised")
+            e = next(x for x in g["runs"] if x["run_id"] == s["run_id"])
+            c = e.get("comparison")
+            check(c and c["n_oof"] > 4000 and c["unreviewed"] == 6000 - 90, e.get("comparison_error") or c)
+            fi, su = c["iforest"], c["supervised"]
+            k = c["hidden_in_unreviewed"]
+            hit = lambda t: next(x["hits"] for x in t["precision_at_k"] if x["k"] == k)
+            hk = lambda t: next(x["hits"] for x in t["precision_at_k"] if x["k"] == 90)
+            return (f"{s['run_id']} ({r['best_model']}, {r['fit_seconds']:.0f} s, bagged ×5) on {s['confirmed']} confirmed / "
+                    f"{s['dismissed']} dismissed / {s['unreviewed']} unlabeled · on the {c['unreviewed']} unreviewed rows "
+                    f"({k} hidden frauds): top-{k} IF {hit(fi)} vs supervised {hit(su)} · top-90 {hk(c['iforest_at_k'])} vs {hk(c['supervised_at_k'])} · "
+                    f"AP {fi['average_precision']:.3f} → {su['average_precision']:.3f} · AUC {fi['roc_auc']:.3f} → {su['roc_auc']:.3f} (out-of-fold)")
+
+        step("anomaly: train supervised (PU, F2)", supervised)
 
     def batch():
         src = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "card-transactions", "data.csv")).sample(500, random_state=3)

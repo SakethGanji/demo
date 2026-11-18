@@ -28,6 +28,8 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
+from . import group, velocity
+
 Emit = Callable[..., int]
 EULER = 0.5772156649
 
@@ -140,11 +142,13 @@ class Model:
         spec = getattr(self, "group", None)
         if not spec or not spec.get("entity_column") or spec["entity_column"] not in df.columns:
             return df
-        from . import group
-
-        if all(c in df.columns for c in group.names(spec)):
-            return df  # the training frame, already augmented (leave-one-out)
-        return group.add(df, spec, self.group_stats)
+        if not all(c in df.columns for c in group.names(spec)):  # else: the training frame, already augmented
+            df = group.add(df, spec, self.group_stats)
+        vspec = getattr(self, "velocity", None)
+        if vspec and vspec.get("time_column") in df.columns:
+            if not all(c in df.columns for c in velocity.names(vspec)):
+                df = velocity.add(df, vspec, self.velocity_history)
+        return df
 
     def transform(self, df: pd.DataFrame) -> np.ndarray:
         return self.pre.transform(_prep_frame(self.augment(df), self.num, self.cat))
@@ -246,21 +250,41 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     profile = cfg.get("profile")
     p = cfg["params"]
     # Group-relative features (amount ÷ the entity's own mean, z within the entity, time since its previous row)
-    gspec = None
+    gspec = vspec = None
+    aux: list[str] = []
     if p.get("group_features") and p.get("entity_column") in df.columns:
-        from . import group
-
         gspec = {"entity_column": p["entity_column"],
                  "time_column": p.get("time_column") if p.get("time_column") in df.columns else None,
                  "relative_columns": [c for c in (p.get("relative_columns") or []) if c in df.columns]}
+        vspec = None
+        if p.get("velocity_features") and gspec["time_column"] and p.get("amount_column") in df.columns:
+            vspec = {"entity_column": gspec["entity_column"], "time_column": gspec["time_column"],
+                     "amount_column": p["amount_column"],
+                     "category_column": p.get("category_column") if p.get("category_column") in df.columns else None}
+            # velocity's log_hours_since_prev is the same Δt: one column per signal (see velocity.py)
+            gspec["time_column"] = None
         df = group.add(df, gspec)
         added = group.names(gspec)
+        aux: list[str] = []
+        if vspec:
+            df = velocity.add(df, vspec)
+            vnames = velocity.names(vspec)
+            in_forest = [c for c in (p.get("velocity_in_forest") or velocity.default_in_forest(vspec)) if c in vnames]
+            aux = [c for c in vnames if c not in in_forest]
+            added = added + in_forest
         feats = cfg.get("features")
         feats = [c for c in (feats or []) if c not in (gspec["entity_column"], gspec["time_column"])] + added if feats else None
-        drop = list(cfg.get("drop_columns") or []) + [gspec["entity_column"]] + ([gspec["time_column"]] if gspec["time_column"] else [])
+        tcol = vspec["time_column"] if vspec else gspec["time_column"]
+        feats = [c for c in feats if c != tcol] if feats else None
+        drop = list(cfg.get("drop_columns") or []) + [gspec["entity_column"]] + ([tcol] if tcol else []) + aux
         num, cat = feature_columns(df, (profile or {}) and {"columns": (profile or {}).get("columns", []) + [{"name": c, "type": "number"} for c in added]}, feats, drop)
         emit("log", message=f"group-relative features on {gspec['entity_column']}: {', '.join(added)}")
+        if vspec:
+            emit("log", message=f"velocity features (past only) on {vspec['entity_column']} by {vspec['time_column']}: "
+                                f"{', '.join(velocity.names(vspec))}; in the forest: {', '.join(in_forest)}")
     else:
+        gspec = vspec = None
+        aux = []
         num, cat = feature_columns(df, profile, cfg.get("features"), cfg.get("drop_columns"))
     X = _prep_frame(df, num, cat)
     info = {"rows": int(len(df)), "features": num + cat, "numeric": num, "categorical": cat,
@@ -270,12 +294,20 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
         info["group"] = {**gspec, "added": group.names(gspec),
                          "entities": int(df[gspec["entity_column"]].nunique()),
                          "rows_without_baseline": int(df[group.names(gspec)[0]].isna().sum()) if gspec["relative_columns"] else 0}
+    if vspec:
+        vn = velocity.names(vspec)
+        info["velocity"] = {**vspec, "added": vn, "in_forest": [c for c in vn if c not in aux], "not_in_forest": aux,
+                            "windows_hours": {w: h for w, h in velocity.WINDOWS},
+                            "rows_without_history": int(df["log_hours_since_prev"].isna().sum()),
+                            "summary": {c: {"mean": float(np.nanmean(df[c])), "p99": float(np.nanpercentile(df[c], 99)),
+                                            "max": float(np.nanmax(df[c]))} for c in vn}}
     merge(data=info, features=num + cat)
     contamination = float(p.get("contamination", 0.015))
     pre = build_pipeline(num, cat, scale=False)
     Z = pre.fit_transform(X)
     names = list(pre.get_feature_names_out())
-    ifk = {"n_estimators": int(p.get("n_estimators", 300)), "max_samples": p.get("max_samples", "auto"),
+    ms = p.get("max_samples")
+    ifk = {"n_estimators": int(p.get("n_estimators", 300)), "max_samples": min(1024, len(df)) if ms is None else ms,
            "max_features": float(p.get("max_features", 1.0)), "bootstrap": bool(p.get("bootstrap", False)),
            "contamination": "auto", "random_state": int(p.get("random_state", 0)), "n_jobs": -1,
            **(p.get("iforest_kwargs") or {})}
@@ -315,13 +347,19 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     model = Model(pre=pre, pre_lof=pre_lof, iforest=forest, lof=lof, num=num, cat=cat, names=names,
                   origin=origin_map(names, num, cat), psi=psi, threshold=thr, contamination=contamination,
                   stats=stats, train_scores=np.sort(s), group=gspec,
-                  group_stats=group.fit_stats(df, gspec) if gspec else None)
+                  group_stats=group.fit_stats(df, gspec) if gspec else None, velocity=vspec,
+                  velocity_history=velocity.history(df, vspec) if vspec else None)
     mdir = Path(cfg["predictor_path"])
     mdir.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, mdir / "model.joblib")
     (mdir / "model.json").write_text(json.dumps({"kind": "anomaly", "numeric": num, "categorical": cat,
                                                  "threshold": thr, "contamination": contamination, "psi": psi,
-                                                 "iforest_kwargs": ifk, "group": gspec}, indent=1, default=str))
+                                                 "iforest_kwargs": ifk, "group": gspec, "velocity": vspec},
+                                                indent=1, default=str))
+    # every derived column, for the review table and the supervised (AutoGluon) data
+    derived = [c for c in df.columns if c in set((group.names(gspec) if gspec else []) + (velocity.names(vspec) if vspec else []))]
+    if derived:
+        df[derived].assign(row=np.arange(len(df)))[["row", *derived]].to_csv(run_dir / "derived.csv", index=False)
 
     Eh = -c_n(psi) * np.log2(np.maximum(s, 1e-12))
     scores = pd.DataFrame({"row": np.arange(len(df)), "s": s, "Eh": Eh})
@@ -336,7 +374,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     top_n = int(min(len(df), max(200, n_flag * 2)))
     top_rows = np.argsort(-s, kind="stable")[:top_n]
     expl = explain_rows(model, df.iloc[top_rows])
-    show_cols = list(dict.fromkeys([*(cfg.get("id_columns") or []), *num, *cat]))
+    show_cols = list(dict.fromkeys([*(cfg.get("id_columns") or []), *([vspec["time_column"]] if vspec else []), *num, *cat, *aux]))
     top = []
     for rank, (r, e) in enumerate(zip(top_rows, expl), start=1):
         top.append({"rank": rank, "row": int(r), "s": float(s[r]), "Eh": float(Eh[r]),

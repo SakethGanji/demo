@@ -57,18 +57,36 @@ export type AnTruth = {
   average_precision: number | null; by_kind: Record<string, { planted: number; found: number }>; flagged: number; base_rate: number; note: string
 }
 export type AnReason = { feature: string; phi: number; push: number; value: unknown; z: number | null; median?: number | null; share: number | null }
-export type AnRow = { rank: number; row: number; s: number; Eh: number; lof: number | null; flagged: boolean; planted?: boolean; values: Record<string, unknown>; phi0: number | null; phi_sum: number; reasons: AnReason[]; why: string }
+export type AnReview = { label: 0 | 1; by: string; at: string }
+export type AnRow = { rank: number; row: number; s: number; Eh: number; lof: number | null; flagged: boolean; planted?: boolean; review?: AnReview | null; values: Record<string, unknown>; phi0: number | null; phi_sum: number; reasons: AnReason[]; why: string }
 export type AnSummary = {
   threshold: number; contamination: number; n_flagged: number; psi: number; c_n: number; n_trees: number; fit_seconds: number; columns_out: number; mean_depth: number
   distribution: { edges: number[]; counts: number[]; quantiles: Record<string, number>; min: number; max: number; mean: number }
   lof: { n_neighbors: number; spearman_vs_iforest: number; overlap_top: number } | null
   truth?: AnTruth; truth_lof?: AnTruth
 }
-export type AnTop = { run_id: string; contamination: number; threshold: number; n_flagged: number; rows: AnRow[]; truth: AnTruth | null; n_rows: number }
+export type AnTop = { run_id: string; contamination: number; threshold: number; n_flagged: number; rows: AnRow[]; truth: AnTruth | null; n_rows: number; review?: AnReviewSummary }
+export type AnReviewSummary = { confirmed: number; dismissed: number; reviewed: number; min_positives: number; can_train: boolean; needed: number }
+export type AnLabels = AnReviewSummary & { dataset_id: string; labels: { row: number; label: 0 | 1; by: string; at: string; run_id: string; s: number | null; note: string }[]; truth_agreement?: { confirmed_planted: number; dismissed_planted: number } }
+export type AnCompare = {
+  model: string; rows_scored: number; unreviewed: number; n_oof: number; source: string; k: number; overlap_top_k: number
+  hidden_in_unreviewed?: number; iforest?: AnTruth; supervised?: AnTruth; iforest_at_k?: AnTruth; supervised_at_k?: AnTruth; note?: string
+}
+export type AnSupervised = {
+  run_id: string; dataset_id: string; created_at: string; by: string; negatives: 'unlabeled' | 'dismissed_only'; include_score: boolean
+  confirmed: number; dismissed: number; reviewed: number; unreviewed: number; features_added: string[]; drop_columns: string[]
+  fit_kwargs: Record<string, unknown>; eval_metric: string | null; status: string; error?: string | null
+  comparison?: AnCompare; comparison_error?: string; best_model?: string | null; holdout?: Record<string, number> | null
+}
+export type AnSupervisedCreate = { presets?: string; time_limit?: number | null; eval_metric?: string; num_bag_folds?: number; include_score?: boolean; negatives?: 'unlabeled' | 'dismissed_only'; by?: string }
+export type AnVelocity = {
+  entity_column: string; time_column: string; amount_column: string; category_column: string | null; added: string[]; in_forest: string[]; not_in_forest: string[]
+  windows_hours: Record<string, number>; rows_without_history: number; summary: Record<string, { mean: number; p99: number; max: number }>
+}
 export type AnScores = { edges: number[]; counts: number[]; n: number; sorted_sample: number[]; scatter?: { row: number; s: number; lof: number }[] }
 export type AnBatch = { id: string; filename: string; summary: { rows: number; n_flagged: number; threshold: number; flagged_share: number; expected_share: number; mean_score: number }; top: { row: number; s: number; percentile: number; flagged: boolean; reasons: AnReason[]; why: string }[]; histogram: { edges: number[]; counts: number[] }; download: string }
-export type AnGroup = { entity_column: string | null; time_column: string | null; relative_columns: string[]; source: string }
-export type AnCreate = { group_features?: boolean; entity_column?: string | null; time_column?: string | null; relative_columns?: string[]; dataset_id: string; features?: string[] | null; contamination: number; n_estimators: number; max_samples?: number | string; max_features?: number; lof: boolean; lof_neighbors?: number; iforest_kwargs?: Record<string, unknown>; random_state?: number; source?: string }
+export type AnGroup = { entity_column: string | null; time_column: string | null; relative_columns: string[]; source: string; amount_column?: string | null; category_column?: string | null; velocity_columns?: string[]; velocity_in_forest?: string[] }
+export type AnCreate = { velocity_features?: boolean; amount_column?: string | null; category_column?: string | null; velocity_in_forest?: string[] | null; group_features?: boolean; entity_column?: string | null; time_column?: string | null; relative_columns?: string[]; dataset_id: string; features?: string[] | null; contamination: number; n_estimators: number; max_samples?: number | string | null; max_features?: number; lof: boolean; lof_neighbors?: number; iforest_kwargs?: Record<string, unknown>; random_state?: number; source?: string }
 
 export type FlowRun = Omit<Run, 'holdout' | 'data' | 'ensembles'> & FcRunExtra & { kind?: string; anomaly?: AnSummary | null; imported?: Record<string, unknown> | null }
 
@@ -95,6 +113,11 @@ export const flows = {
     create: (body: AnCreate) => request<FlowRun>('/anomaly/runs', { ...J(body), timeoutMs: 30_000 }),
     top: (id: string, contamination?: number, limit = 100) => request<AnTop>(`/anomaly/runs/${encodeURIComponent(id)}/top?limit=${limit}${contamination ? `&contamination=${contamination}` : ''}`),
     scores: (id: string) => request<AnScores>(`/anomaly/runs/${encodeURIComponent(id)}/scores`),
+    labels: (id: string) => request<AnLabels>(`/anomaly/runs/${encodeURIComponent(id)}/labels`),
+    review: (id: string, items: { row: number; label: 'fraud' | 'not_fraud' | null }[], by: string) =>
+      request<AnLabels>(`/anomaly/runs/${encodeURIComponent(id)}/labels`, J({ items, by })),
+    supervised: (id: string) => request<{ run_id: string; review: AnReviewSummary; runs: AnSupervised[] }>(`/anomaly/runs/${encodeURIComponent(id)}/supervised`, { timeoutMs: 120_000 }),
+    trainSupervised: (id: string, body: AnSupervisedCreate) => request<AnSupervised & { run: FlowRun }>(`/anomaly/runs/${encodeURIComponent(id)}/supervised`, { ...J(body), timeoutMs: 60_000 }),
     score: (id: string, file: File) => {
       const f = new FormData(); f.append('file', file)
       return request<AnBatch>(`/anomaly/runs/${encodeURIComponent(id)}/score`, { method: 'POST', body: f, timeoutMs: 300_000 })
