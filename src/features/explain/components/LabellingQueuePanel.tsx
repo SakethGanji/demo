@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { ActiveLearning, ALItem, ALRequest, Run } from '@/shared/api/types'
+import type { ActiveLearning, ALItem, ALRequest, Run, SlicePool } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { niceTicks, padDomain, XYPlot } from '@/shared/components/XYPlot'
 import { fmtScore } from '@/shared/lib/metrics'
@@ -30,12 +30,19 @@ const U_FORMULA = {
  *  picks b rows by uncertainty + diversity for you to label in the Ground-Truth Inbox's style; a simulated
  *  active-vs-random comparison (the hidden labels as the oracle) says whether picking beats chance at the same budget.
  *  Every number is GET /api/runs/{id}/active-learning. */
-export function LabellingQueuePanel({ run }: { run: Run }) {
+export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: string }) {
   const [al, setAl] = useState<ActiveLearning | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [tick, setTick] = useState(0)
-  const [body, setBody] = useState<ALRequest>({})
+  const [body, setBody] = useState<ALRequest>(sliceId ? { slice_id: sliceId } : {})
+  const [pool, setPool] = useState<SlicePool | null>(null)
+  useEffect(() => {
+    if (!sliceId) return
+    let alive = true
+    api.runs.slicePool(run.id, sliceId).then((p) => alive && setPool(p)).catch((e) => alive && setErr((e as Error).message))
+    return () => { alive = false }
+  }, [run.id, sliceId])
 
   useEffect(() => {
     let alive = true
@@ -51,10 +58,13 @@ export function LabellingQueuePanel({ run }: { run: Run }) {
   const reload = () => setTick((v) => v + 1)
 
   const d = al?.defaults
-  const req = { ...d, ...body }
+  // F16: pre-filtered to a weak slice, the pool is the slice's hidden training rows: default b to fit the rounds.
+  const sliceAvail = pool ? Math.floor(pool.labelled_in_slice * (body.hide_share ?? d?.hide_share ?? 0.9)) : null
+  const sliceBudget = sliceAvail != null && d ? Math.max(1, Math.min(d.budget, Math.floor(sliceAvail / (body.rounds ?? d.rounds)))) : undefined
+  const req = { ...d, ...(sliceBudget != null && body.budget == null ? { budget: sliceBudget } : {}), ...body }
   const start = async () => {
     setBusy(true); setErr('')
-    try { setAl(await api.runs.startActiveLearning(run.id, body)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    try { setAl(await api.runs.startActiveLearning(run.id, sliceId ? { ...body, slice_id: sliceId, budget: req.budget } : body)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const cancel = async () => { try { await api.runs.cancelActiveLearning(run.id); reload() } catch (e) { setErr((e as Error).message) } }
 
@@ -80,11 +90,18 @@ export function LabellingQueuePanel({ run }: { run: Run }) {
       {al && started && al.queue && <Queue al={al} onChange={reload} />}
       {al && started && s && <Formula al={al} metric={metric} />}
       {al && started && <Rounds al={al} metric={metric} />}
-      {al && !working && al.status !== 'awaiting_labels' && (
+      {al && started && al.slice && (
+        <p className="helper" style={{ fontSize: 12.5 }} data-testid="al-slice-on">Pool pre-filtered to the weak slice <span className="mono">{al.slice.label}</span> (F16): {nfmt(al.slice.n_pool)} unlabelled training rows inside it of {nfmt(al.slice.n_train_in_slice)}; active and random pick from the same restricted pool.</p>
+      )}
+      {al && !working && (al.status !== 'awaiting_labels' || (sliceId && al.slice?.id !== sliceId)) && (
         <div className="card" data-testid="al-start">
           <div className="card-head"><div className="left"><h3 className="card-title">{started ? 'Start a New Queue' : 'Which Rows Should a Person Label?'}</h3>
             <span className="helper" style={{ fontSize: 12 }}>the run's exact fit call on a growing labelled set; every fit scored on the run's fixed holdout, which is never labelled</span></div></div>
           <div className="card-body stack" style={{ gap: 'var(--space-8)' }}>
+            {sliceId && <p className="helper" style={{ fontSize: 12.5 }} data-testid="al-slice">
+              <StatusPill status="info">weak slice</StatusPill>{' '}Pre-filtered to <span className="mono">{pool?.label ?? sliceId}</span> (Explain → Weak Slices):{' '}
+              {pool ? <>{nfmt(pool.in_slice)} of the {nfmt(pool.train_rows)} training rows fall inside it, so about {nfmt(sliceAvail ?? 0)} hidden rows can be picked; b defaults to {sliceBudget} per round.</> : 'counting its training rows…'}
+              {' '}<a href={`#/explain?run=${run.id}&tab=Labelling%20Queue`}>Use the whole pool instead</a></p>}
             {(al.status === 'failed' || al.status === 'cancelled') && <p className="helper" role="alert">✕ The last queue {al.status === 'failed' ? `failed: ${al.error}` : 'was cancelled'}.</p>}
             <p className="helper" style={{ fontSize: 12.5 }}>
               {req.pool === 'missing'

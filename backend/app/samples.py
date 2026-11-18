@@ -502,6 +502,7 @@ def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int =
 
 
 from .samples_s8 import generate_card_transactions, generate_transaction_volume  # noqa: E402
+from .samples_f16 import generate_personal_loans  # noqa: E402
 
 SAMPLES = {
     "support-tickets": {
@@ -547,5 +548,12 @@ SAMPLES = {
         "generate": generate_card_transactions,
         "sidecar": "anomaly_truth.json",
         "kind": "transactions",
+    },
+    "personal-loans": {
+        "name": "Personal loans (sample)",
+        "filename": "personal_loans_sample.csv",
+        "note": "Generated sample · tabular, 2 classes, a planted weak slice (F16)",
+        "generate": generate_personal_loans,
+        "sidecar": "slice_truth.json",
     },
 }

@@ -458,6 +458,8 @@ export type Run = {
   annotations?: { schema: 'annotations/1'; status: 'computing' | 'ready' | 'failed'; error?: string | null; summary?: AnnotationsSummary | null; updated_at?: string } | null
   /** F15: the latest shift check's summary (shift/1), for the Model Doctor. */
   shift?: ShiftSummary | null
+  /** F16: the latest weak-slice search's summary (slices/1), for the Model Doctor. */
+  slices?: SliceSummary | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null
@@ -970,6 +972,8 @@ export type ALRequest = {
   pool?: 'hide' | 'missing'; hide_share?: number; budget?: number; rounds?: number
   strategy?: 'margin' | 'entropy' | 'least_confident'; diversity?: 'cluster' | 'kcenter' | 'none'
   candidates_factor?: number; compare_random?: boolean; seeds?: number; time_limit?: number | null
+  /** F16: pre-filter the pool to a weak slice of the run's latest slice search. */
+  slice_id?: string | null
 }
 export type ALPoint = {
   round: number; n: number; score: number; metrics: Record<string, number>; best_model: string; models: string[]
@@ -1006,6 +1010,8 @@ export type ActiveLearning = {
   metric?: { name: string; greater_is_better: boolean; optimum: number | null }
   classes?: string[]; compare?: boolean; holdout_rows?: number; holdout_sha?: string; holdout_in_pool?: number; tuning_rows?: number
   pool?: { source: 'hide' | 'missing'; hide_share: number | null; n_train: number; n_pool: number; n_initial: number; initial_classes: Record<string, number>; rule: string }
+  /** F16: the weak slice the pool is pre-filtered to. */
+  slice?: { id: string; label: string; conditions: SliceCondition[]; n_train_in_slice: number; n_pool: number } | null
   embedding?: { text: string[]; numeric: string[]; categorical: string[]; dims: number; seconds: number; method: string }
   split?: { key: string; sha256: string; strategy: string }
   fit_call?: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; notes: string[]; time_limit: number | null }
@@ -1138,3 +1144,43 @@ export interface ShiftRequest {
   source: ShiftSource; batch_id?: string; time_column?: string; cutoff?: string; exclude?: string[]; include?: string[]
   null_refits?: number; permutations?: number; shuffle_sets?: number; clip?: number; time_limit?: number; fit_kwargs?: Record<string, unknown>
 }
+
+// F16: weak-slice discovery (GET/POST /api/runs/{id}/slices)
+export type SliceCondition = { column: string; op: 'in' | 'not_in' | 'range' | 'missing'; values?: string[]; lo?: number | null; hi?: number | null; missing?: boolean; date?: boolean }
+export type SliceLoss = { name: 'cost' | 'pinball' | 'absolute_error' | 'squared_error' | 'error' | 'log_loss'; formula: string; unit: string; symbol: string }
+export type WeakSlice = {
+  id: string; rank: number; label: string; conditions: SliceCondition[]; columns: string[]; order: 1 | 2
+  n: number; share: number; mean: number; mean_lo: number; mean_rest: number; sd: number; delta: number; ci: [number, number]; se: number
+  t: number | null; df: number; p: number; q: number; ratio: number | null
+  parents: { label: string; mean: number | null; n: number | null; q: number | null }[]
+  fairness_columns: string[]
+}
+export type SliceSummary = {
+  schema: 'slices/1'; computed_at: string; loss: string; overall: number; n: number; n_tested: number; n_significant: number; n_weak: number
+  alpha: number; min_support: number; null_mean: number | null
+  top: { id: string; label: string; columns: string[]; n: number; mean: number; delta: number; ci: [number, number]; ratio: number | null; q: number }[]
+}
+export type SliceRequest = { min_support?: number | null; bins?: number; max_levels?: number; alpha?: number; pairs?: boolean; null_permutations?: number; loss?: SliceLoss['name'] | 'auto'; columns?: string[] | null }
+export type SliceSearch = {
+  schema: 'slices/1'; run_id: string; model: string; problem_type: string; eval_metric: string; label: string; threshold: number | null
+  n: number; loss: SliceLoss; overall: number; overall_sd: number
+  params: { min_support: number; min_support_share: number; min_support_floor: number; bins: number; max_levels: number; alpha: number; pairs: boolean; null_permutations: number }
+  columns: { column: string; how: string; type: string; counts: number[]; levels: string[]; conditions: SliceCondition[] }[]
+  skipped: { column: string; reason: string }[]
+  tested: { total: number; single: number; pairs: number; features: number; feature_pairs: number }
+  slices: WeakSlice[]; n_significant: number; n_weak?: number; n_explained_by_parent: number
+  null: { permutations: number; weak_found: number[]; mean: number | null; max: number | null } | null
+  holdout_sha: string; computed_at: string; seconds: number; request: SliceRequest; summary: SliceSummary
+}
+export type SliceRows = {
+  run_id: string; slice: WeakSlice; loss: SliceLoss; total: number; offset: number
+  rows: { row: number; y_true: unknown; y_pred: unknown; loss: number; p: Record<string, number> | null; features: Record<string, unknown> }[]
+}
+export type SliceShap = {
+  run_id: string; slice: WeakSlice; model: string; target: string | null; output: 'probability' | 'prediction'
+  rows_slice: number[]; rows_rest: number[]; base_value: number; fx_slice: number | null; fx_rest: number | null
+  features: { feature: string; phi_slice: number; phi_rest: number; abs_slice: number; abs_rest: number; diff: number; in_slice_definition: boolean }[]
+  per_row: { row: number; in_slice: boolean; fx: number; y_true: unknown; cached: boolean }[]
+  background_size: number; nsamples: number; seconds: number; method: string
+}
+export type SlicePool = { run_id: string; slice_id: string; label: string; conditions: SliceCondition[]; train_rows: number; in_slice: number; labelled_in_slice: number }

@@ -28,9 +28,9 @@ const DOT_METRICS: Record<string, { key: string; color: string }[]> = {
 }
 
 /** fairlearn's MetricFrame by a group column the user picks, with the gaps between groups. */
-export function FairnessPanel({ run, ex }: { run: Run; ex: Explain }) {
+export function FairnessPanel({ run, ex, initialGroup }: { run: Run; ex: Explain; initialGroup?: string }) {
   const cands = ex.group_candidates
-  const pref = cands.find((c) => c.type === 'category' && /region|segment|gender|sex|age|group|employment|home/i.test(c.column)) ?? cands[0]
+  const pref = cands.find((c) => c.column === initialGroup) ?? cands.find((c) => c.type === 'category' && /region|segment|gender|sex|age|group|employment|home/i.test(c.column)) ?? cands[0]
   const [group, setGroup] = useState(pref?.column ?? '')
   const [f, setF] = useState<Fairness | null>(null)
   const [err, setErr] = useState('')

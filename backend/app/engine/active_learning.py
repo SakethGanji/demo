@@ -241,6 +241,7 @@ def summarise(state: dict[str, Any]) -> dict[str, Any]:
         "schema": SCHEMA, "metric": mi.get("name"), "greater_is_better": gib,
         "budget": req.get("budget"), "rounds": req.get("rounds"), "strategy": req.get("strategy"), "diversity": req.get("diversity"),
         "pool": {k: (state.get("pool") or {}).get(k) for k in ("source", "hide_share", "n_pool", "n_initial")},
+        "slice": ({k: (state.get("slice") or {}).get(k) for k in ("id", "label", "n_pool")} if state.get("slice") else None),
         "labels_used": [p["n"] for p in qp],
         "queue": [{"round": p["round"], "n_labels": p["n"], "score": p["score"]} for p in qp],
         "comparison": {"simulated": True, "labeller": "oracle: the sample's own hidden labels (simulated, not a person)",
@@ -326,6 +327,16 @@ class Job:
             self.pool_rows = None
         w.apply_column_types(cfg, U, holdout.copy(), None)  # the same casts prepare_fit applies to every fit
         self.U = U
+        # F16: a queue pre-filtered to a weak slice picks only pool rows inside the slice's conditions (every arm, so
+        # active and random are compared on the same restricted pool).
+        sli = req.get("slice")
+        if sli:
+            from . import slices as sl
+
+            raw = U.drop(columns=[c for c in (label, w.GROUP_FOLD_COLUMN) if c in U.columns])
+            self.slice_rows = set(int(r) for r in U.index[sl.slice_mask(raw, sli["conditions"])])
+        else:
+            self.slice_rows = None
         self.class_map = {str(c): c for c in pd.unique(pd.concat([U[label], holdout[label]]).dropna())}
         self.oracle = U[label].copy() if req["pool"] == "hide" else None
         feats = [c for c in U.columns if c not in (label, w.GROUP_FOLD_COLUMN)]
@@ -387,7 +398,8 @@ class Job:
     def pool_of(self, arm: dict[str, Any]) -> np.ndarray:
         taken = set(arm["labelled"]) | set(arm.get("skipped") or [])
         cand = self.pool_rows if self.pool_rows is not None else self.U.index.to_numpy()
-        return np.array([r for r in cand if r not in taken], dtype=int)
+        keep = self.slice_rows
+        return np.array([r for r in cand if r not in taken and (keep is None or r in keep)], dtype=int)
 
     def pick(self, predictor, arm: dict[str, Any], seed: int, r: int, kind: str) -> tuple[list[int], dict[str, Any]]:
         """The next batch for an arm: (rows, details per row for the queue)."""
@@ -579,6 +591,8 @@ class Job:
                 compare = bool(req["compare_random"]) and req["pool"] == "hide" and int(req["seeds"]) > 0
                 S, R = int(req["seeds"]), int(req["rounds"])
                 n_pool = len(self.pool_rows) if self.pool_rows is not None else len(self.U) - len(self.l0(0))
+                if self.slice_rows is not None:
+                    n_pool = len(self.pool_of(self.new_arm("queue", 0, self.l0(0))))
                 st.update({
                     "metric": {"name": em.get("name") or self.cfg.get("eval_metric"), "greater_is_better": em.get("greater_is_better", True),
                                "optimum": em.get("optimum")},
@@ -592,6 +606,8 @@ class Job:
                                       f"(stratified, ≥ {MIN_PER_CLASS} per class kept, seeded per comparison seed); the holdout and "
                                       "the tuning slice keep theirs") if req["pool"] == "hide"
                              else f"the {n_pool} training rows of the dataset whose label is empty"},
+                    "slice": ({**req["slice"], "n_train_in_slice": len(self.slice_rows), "n_pool": n_pool}
+                              if req.get("slice") else None),
                     "embedding": self.embed_info,
                     "split": {"key": (self.cfg.get("split") or {}).get("key"), "sha256": (self.cfg.get("split") or {}).get("sha256"),
                               "strategy": (self.cfg.get("split") or {}).get("strategy")},

@@ -22,7 +22,7 @@ from .gym import api as gym_api
 from .vela import api as vela_api
 from . import llm, llm_api
 from .engine.runner import JobRunner
-from .engine import active_learning_api, annotations_api, learning_curve_api, shift_api
+from .engine import active_learning_api, annotations_api, learning_curve_api, shift_api, slices_api
 from .engine.pool import HeavyPool
 from .registry import api as registry_api
 from .registry.store import RegistryStore
@@ -205,6 +205,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(active_learning_api.router)
     app.include_router(annotations_api.router)
     app.include_router(shift_api.router)
+    app.include_router(slices_api.router)
     app.include_router(forecast_api.router)
     app.include_router(anomaly_api.router)
     app.include_router(registry_api.router)

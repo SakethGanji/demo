@@ -45,6 +45,8 @@ class ALRequest(BaseModel):
     compare_random: bool = Field(True, description="Simulate active vs random at equal budgets with the oracle (pool = hide).")
     seeds: int = Field(al.DEFAULTS["seeds"], ge=1, le=10, description="Seeds of the simulated comparison.")
     time_limit: float | None = Field(None, gt=0, description="Seconds per fit; default: the run's own time_limit.")
+    slice_id: str | None = Field(None, description="F16: pre-filter the pool to a weak slice of the run's latest slice "
+                                                   "search (its feature conditions applied to the training rows).")
 
 
 class Answer(BaseModel):
@@ -231,6 +233,15 @@ def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dic
         if not miss:
             raise HTTPException(400, "pool = missing: the run's dataset has no training rows with an empty label. Upload "
                                      "the unlabelled rows with a blank label cell, or use pool = hide.")
+    sli = None
+    if body.slice_id:
+        sli = _slice_filter(request, rec, body.slice_id)
+        n_in = sli["train_in_slice"]
+        avail = int(n_in * body.hide_share) if body.pool == "hide" else sli["missing_in_slice"]
+        if body.budget * body.rounds > avail:
+            raise HTTPException(400, f"budget × rounds = {body.budget * body.rounds} is more than the about {avail} unlabelled "
+                                     f"training rows inside the slice '{sli['label']}' ({n_in} training rows in it); "
+                                     f"lower the budget to {max(1, avail // body.rounds)} or less.")
     store = request.app.state.runs
     with _LOCK:
         for other, p in _PROCS.items():
@@ -251,6 +262,7 @@ def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dic
         shutil.rmtree(d, ignore_errors=True)  # a new start replaces an open queue (the UI asks first)
         d.mkdir(parents=True, exist_ok=True)
         req = body.model_dump()
+        req["slice"] = ({"id": sli["id"], "label": sli["label"], "conditions": sli["conditions"]} if sli else None)
         (d / "request.json").write_text(json.dumps(req, indent=1))
         al.write_answers(run_dir, {"answers": {}, "submitted": {}, "versions": []})
         al.write_state(run_dir, {"schema": al.SCHEMA, "status": "queued", "request": req, "created_at": now(),
@@ -258,6 +270,27 @@ def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dic
         _spawn(request, rec)
     store.merge_result(run_id, active_learning=al.headline(al.read_state(run_dir)))
     return get_active_learning(run_id, request)
+
+
+def _slice_filter(request: Request, rec: dict[str, Any], sid: str) -> dict[str, Any]:
+    """F16: a weak slice of the run's latest search, and how many training rows fall inside it."""
+    from . import slices as sl
+
+    p = Path(rec["config"]["run_dir"]) / "slices.json"
+    out = json.loads(p.read_text()) if p.exists() else None
+    s = next((s for s in (out or {}).get("slices", []) if s["id"] == sid), None)
+    if s is None:
+        raise HTTPException(400, f"slice_id: no weak slice {sid!r} in this run's latest slice search (Explain → Weak Slices).")
+    cfg = rec["config"]
+    cols = {c["column"] for c in s["conditions"]} | {rec["label"]}
+    data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
+    splits = json.loads(Path(cfg["splits_path"]).read_text())
+    is_h = np.zeros(len(data), dtype=bool)
+    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    m = sl.slice_mask(data, s["conditions"]) & ~is_h
+    lab = data[rec["label"]].notna().to_numpy()
+    return {"id": sid, "label": s["label"], "conditions": s["conditions"], "train_in_slice": int((m & lab).sum()),
+            "missing_in_slice": int((m & ~lab).sum())}
 
 
 def _open_queue(rec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], int]:

@@ -18,14 +18,16 @@ import { LearningCurvePanel } from './components/LearningCurvePanel'
 import { LabellingQueuePanel } from './components/LabellingQueuePanel'
 import { AnnotatorsPanel } from './components/AnnotatorsPanel'
 import { ShiftPanel } from './components/ShiftPanel'
+import { SlicesPanel } from './components/SlicesPanel'
 import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 
-type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
+type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Weak Slices' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
 const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
+const hashParam = (k: string) => new URLSearchParams(location.hash.split('?')[1] ?? '').get(k)
 
 /** Explain one run: how good, where it fails, why it predicts what it does, and for whom. Every number is the API's. */
 export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onApplyPatch?: (runId: string, patch: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }) => void }) {
@@ -67,13 +69,18 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
     t.push('Features & SHAP', 'Errors', 'Fairness')
     if (run.problem_type === 'binary' || run.problem_type === 'regression') t.push('Monotonicity')
     if (run.scorecard?.available) t.push('Scorecard')
-    if (!run.kind || run.kind === 'tabular') t.push('Learning Curve')
+    if (!run.kind || run.kind === 'tabular') t.push('Learning Curve', 'Weak Slices')
     if ((!run.kind || run.kind === 'tabular') && (run.problem_type === 'binary' || run.problem_type === 'multiclass')) t.push('Labelling Queue', 'Annotators')
     if (!run.kind || run.kind === 'tabular') t.push('Shift')
     if (run.text_models && Object.keys(run.text_models).length) t.push('Text')
     return t
   }, [run])
-  const pickTab = (t: Tab) => { setTab(t); history.replaceState(null, '', `#/explain?run=${runId}&tab=${encodeURIComponent(t)}`) }
+  const [extra, setExtra] = useState<Record<string, string>>(() => Object.fromEntries(['slice', 'group'].map((k) => [k, hashParam(k)]).filter(([, v]) => v)) as Record<string, string>)
+  const pickTab = (t: Tab, more: Record<string, string> = {}) => {
+    setTab(t); setExtra(more)
+    const q = Object.entries(more).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join('')
+    history.replaceState(null, '', `#/explain?run=${runId}&tab=${encodeURIComponent(t)}${q}`)
+  }
 
   if (mode === 'mock') return (
     <div className="page explain"><div className="page-head"><div><h1 className="page-title">Explain</h1><p className="helper sub">Explanations are computed by the API from a trained AutoGluon predictor.</p></div></div>
@@ -148,11 +155,16 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
         <ShapPanel key={shapRow ?? 'auto'} run={run} ex={ex} preds={preds} initialRow={shapRow} />
       </div>}
       {tab === 'Errors' && <Errors ex={ex} run={run} part="worst" onRow={(r) => { setShapRow(r); pickTab('Features & SHAP') }} />}
-      {tab === 'Fairness' && <FairnessPanel run={run} ex={ex} />}
+      {tab === 'Fairness' && <FairnessPanel key={extra.group ?? 'auto'} run={run} ex={ex} initialGroup={extra.group} />}
       {tab === 'Monotonicity' && <MonotonePanel run={run} ex={ex} />}
       {tab === 'Scorecard' && <ScorecardPanel run={run} />}
       {tab === 'Learning Curve' && <LearningCurvePanel run={run} />}
-      {tab === 'Labelling Queue' && <LabellingQueuePanel run={run} />}
+      {tab === 'Weak Slices' && <SlicesPanel run={run} links={{
+        onRow: (r) => { setShapRow(r); pickTab('Features & SHAP') },
+        onLabel: (s) => pickTab('Labelling Queue', { slice: s.id }),
+        onFairness: (c) => pickTab('Fairness', { group: c }),
+      }} />}
+      {tab === 'Labelling Queue' && <LabellingQueuePanel key={extra.slice ?? 'all'} run={run} sliceId={extra.slice} />}
       {tab === 'Annotators' && <AnnotatorsPanel run={run} />}
       {tab === 'Shift' && <ShiftPanel run={run} go={go} onApplyPatch={onApplyPatch} />}
       {tab === 'Text' && <TopWords run={run} />}

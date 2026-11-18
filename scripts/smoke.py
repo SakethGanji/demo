@@ -52,6 +52,10 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              and debt_to_income × 2: AUC > 0.7 with it ranked first; unshifted AUC ≈ 0.5); AUC and ESS recomputed from the
              per-row scores; excluded columns; out-of-time twin, drop patch, importance weights trained as sample_weight;
              refusals, 409; the summary for F17
+  slices     F16: weak-slice discovery on personal-loans (planted slice channel = broker ∧ age < 30): every feature value and
+             pair, Welch t vs the rest, Benjamini–Hochberg, Δ with a 95% CI, all recomputed with scipy + statsmodels; the
+             planted slice at rank 1–3 (acceptance); its rows, SHAP inside vs outside, fairness, the F13 queue pre-filtered
+             to it; the per-row loss of threshold, cost (F7), regression and quantile (F9) runs; the summary for F17
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -3508,6 +3512,261 @@ def shift(st: dict[str, Any]) -> None:
     step("shift: summary for F17", f17)
 
 
+# --------------------------------------------------------------------------- F16: weak slices
+
+
+def _sl_mask(df: pd.DataFrame, cond: dict[str, Any]) -> np.ndarray:
+    """One slice condition on raw rows, written here from the condition's definition (not the engine's code)."""
+    s = df[cond["column"]]
+    if cond.get("missing"):
+        return s.isna().to_numpy()
+    if cond["op"] == "range":
+        x = pd.to_numeric(s, errors="coerce").to_numpy(dtype=float)
+        m = ~np.isnan(x)
+        if cond.get("lo") is not None:
+            m &= x >= cond["lo"]
+        if cond.get("hi") is not None:
+            m &= x < cond["hi"]
+        return m
+    sv = s.map(lambda v: None if pd.isna(v) else (str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)))
+    inside = sv.isin(set(map(str, cond["values"]))).to_numpy()
+    return (s.notna().to_numpy() & ~inside) if cond["op"] == "not_in" else inside
+
+
+def _sl_loss(hp: pd.DataFrame, name: str, cost: dict[str, Any] | None = None, t: float | None = None) -> np.ndarray:
+    """ℓᵢ recomputed from holdout_predictions.csv."""
+    y = hp["y_true"]
+    if name == "log_loss":
+        p = np.array([hp.loc[i, f"p_{str(int(v)) if isinstance(v, (float, np.floating)) and float(v).is_integer() else v}"] for i, v in y.items()], dtype=float)
+        return -np.log(np.clip(p, 1e-15, 1))
+    if name == "error":
+        return (y.astype(str).to_numpy() != hp["y_pred"].astype(str).to_numpy()).astype(float)
+    if name == "absolute_error":
+        return np.abs(y.to_numpy(dtype=float) - hp["y_pred"].to_numpy(dtype=float))
+    if name == "pinball":
+        cols = [c for c in hp.columns if c.startswith("q_")]
+        yy = y.to_numpy(dtype=float)
+        L = [np.maximum(float(c[2:]) * (yy - hp[c].to_numpy(dtype=float)), (float(c[2:]) - 1) * (yy - hp[c].to_numpy(dtype=float))) for c in cols]
+        return np.mean(L, axis=0)
+    if name == "cost":
+        pos = [c for c in hp.columns if c.startswith("p_")][-1]
+        yb = y.astype(str).to_numpy() == pos[2:]
+        pred = hp[pos].to_numpy(dtype=float) > t
+        return cost["c_fp"] * (pred & ~yb) + cost["c_fn"] * (~pred & yb) - cost.get("g_tp", 0) * (pred & yb)
+    raise SmokeError(f"no recompute for loss {name}")
+
+
+def _sl_hp(rec: dict[str, Any]) -> pd.DataFrame:
+    return pd.read_csv(os.path.join(rec["config"]["run_dir"], "holdout_predictions.csv"))
+
+
+def _sl_recompute(res: dict[str, Any], data: pd.DataFrame, hp: pd.DataFrame, loss: np.ndarray) -> dict[str, Any]:
+    """The whole search again from the binning the API reports: every single value and pair with the support, Welch's
+    t (scipy), Benjamini–Hochberg (statsmodels)."""
+    from scipy import stats
+    from statsmodels.stats.multitest import multipletests
+
+    X = data.iloc[hp["row"].to_numpy(dtype=int)].reset_index(drop=True)
+    n, ms = len(loss), res["params"]["min_support"]
+    masks = {c["column"]: [_sl_mask(X, cond) for cond in c["conditions"]] for c in res["columns"]}
+    for c in res["columns"]:
+        check([int(m.sum()) for m in masks[c["column"]]] == c["counts"], f"bin counts of {c['column']} differ")
+    tests = []
+    cols = list(masks)
+    for c in cols:
+        for i, m in enumerate(masks[c]):
+            tests.append(((c, i), m))
+    if res["params"]["pairs"]:
+        for a in range(len(cols)):
+            for b in range(a + 1, len(cols)):
+                for i, ma in enumerate(masks[cols[a]]):
+                    for k, mb in enumerate(masks[cols[b]]):
+                        tests.append(((cols[a], i, cols[b], k), ma & mb))
+    tests = [(key, m) for key, m in tests if ms <= m.sum() <= n - ms]
+    p = np.array([stats.ttest_ind(loss[m], loss[~m], equal_var=False, alternative="greater").pvalue for _, m in tests])
+    p = np.nan_to_num(p, nan=1.0)
+    q = multipletests(p, method="fdr_bh")[1]
+    delta = np.array([loss[m].mean() - loss[~m].mean() for _, m in tests])
+    return {"m": len(tests), "q": q, "p": p, "delta": delta, "sig": int(((q <= res["params"]["alpha"]) & (delta > 0)).sum()), "X": X}
+
+
+def slices(st: dict[str, Any]) -> None:
+    """F16: weak-slice discovery on personal-loans (a sample with a planted weak slice: channel = broker ∧ age < 30 has
+    P(default) = 0.5 whatever the features say). The search (every feature value and pair, numbers in quantile bins,
+    Welch t against the rest, Benjamini–Hochberg, Δ with a 95% CI) is recomputed here with scipy and statsmodels from
+    the holdout predictions; the acceptance: the planted slice at rank 1–3. Then the links: its rows, SHAP inside vs
+    outside, fairness by its column, the F13 labelling queue pre-filtered to it; the per-row loss of cost (F7),
+    regression and quantile (F9) runs; recompute after a threshold change; the summary for F17."""
+    ds, label = "personal-loans", "defaulted"
+    s: dict[str, Any] = {}
+    data_dir = get("/api/health")["data_dir"]
+    data = pd.read_csv(os.path.join(data_dir, "datasets", ds, "data.csv"))
+    truth = json.load(open(os.path.join(data_dir, "datasets", ds, "slice_truth.json")))["planted_slice"]
+    body = {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": "roc_auc", "presets": "medium_quality",
+            "time_limit": 120, "drop_columns": ["application_id"], "feature_importance": False, "source": "smoke-slices"}
+
+    def run_and_refusals():
+        rec = wait_run(post("/api/runs", body)["id"])
+        s["run"] = rec
+        rid = rec["id"]
+        bad = [({"loss": "cost"}, "business cost"), ({"loss": "absolute_error"}, "regression"), ({"columns": ["nope"]}, "Not a feature"),
+               ({"min_support": 5000}, "slices of at least")]
+        for b, needle in bad:
+            r = C.post(f"/api/runs/{rid}/slices", json=b)
+            check(r.status_code == 400 and needle in r.text, f"{b} → {r.status_code} {r.text[:200]}")
+        r = C.post(f"/api/runs/{rid}/slices", json={"alpha": 2})
+        check(r.status_code == 422, r.text[:200])
+        r = C.get(f"/api/runs/{rid}/slices/sl_nothing/rows")
+        check(r.status_code == 404, r.text[:200])
+        m, v = primary(rec)
+        return f"{rid} · holdout {m} {v:.4f} · {len(bad) + 2} bad requests refused"
+
+    def acceptance():
+        rid = s["run"]["id"]
+        res = get(f"/api/runs/{rid}/slices")
+        s["res"] = res
+        hp = _sl_hp(s["run"])
+        check(res["loss"]["name"] == "log_loss", res["loss"])  # roc_auc is a probability metric → ℓ = −log p̂(y)
+        loss = _sl_loss(hp, "log_loss")
+        check(abs(loss.mean() - res["overall"]) < 1e-9, (loss.mean(), res["overall"]))
+        rc = _sl_recompute(res, data, hp, loss)
+        check(rc["m"] == res["tested"]["total"], f"tested {res['tested']['total']} vs recomputed {rc['m']}")
+        check(rc["sig"] == res["n_significant"], f"significant {res['n_significant']} vs recomputed {rc['sig']}")
+        X = rc["X"]
+        for sl in res["slices"]:
+            m = np.ones(len(X), dtype=bool)
+            for cond in sl["conditions"]:
+                m &= _sl_mask(X, cond)
+            from scipy import stats
+            tt = stats.ttest_ind(loss[m], loss[~m], equal_var=False, alternative="greater")
+            check(int(m.sum()) == sl["n"] and abs(loss[m].mean() - sl["mean"]) < 1e-9 and abs(tt.pvalue - sl["p"]) <= 1e-6 * sl["p"] + 1e-15,
+                  f"{sl['label']}: n {m.sum()} vs {sl['n']}, p {tt.pvalue} vs {sl['p']}")
+            check(sl["q"] <= res["params"]["alpha"] and sl["ci"][0] <= sl["delta"] <= sl["ci"][1] and sl["delta"] > 0, sl)
+            check(sl["q"] >= sl["p"] - 1e-15 and sl["q"] <= sl["p"] * rc["m"] + 1e-12, (sl["p"], sl["q"]))
+        ranks = [sl["ci"][0] for sl in res["slices"]]
+        check(ranks == sorted(ranks, reverse=True), "not ranked by the lower bound of Δ")
+        # the BH q of each listed slice equals statsmodels' for the same test
+        qs = sorted(rc["q"][(rc["q"] <= res["params"]["alpha"]) & (rc["delta"] > 0)])
+        check(all(any(abs(sl["q"] - q) < 1e-9 for q in qs) for sl in res["slices"]), "q-values differ from statsmodels")
+        # acceptance: the planted slice (its holdout rows) at rank 1–3, matched by row overlap (Jaccard)
+        hold = set(hp["row"].astype(int))
+        planted = set(truth["rows"]) & hold
+        best = None
+        for sl in res["slices"][:3]:
+            got = set(r["row"] for r in get(f"/api/runs/{rid}/slices/{sl['id']}/rows")["rows"])
+            jac = len(got & planted) / len(got | planted)
+            if jac >= 0.5 and best is None:
+                best = (sl, jac, len(got & planted) / len(got), len(got & planted) / len(planted))
+        check(best is not None, f"planted slice ({truth['label']}, {len(planted)} holdout rows) not in the top 3: {[x['label'] for x in res['slices'][:5]]}")
+        sl, jac, prec, rec_ = best
+        s["slice"] = sl
+        nl = res["null"]
+        check(nl and nl["permutations"] == 5 and nl["mean"] <= 1.0, nl)
+        top3 = " · ".join(f"{x['rank']}. {x['label']} (n {x['n']}, Δ +{x['delta']:.3f} [{x['ci'][0]:.3f}, {x['ci'][1]:.3f}], q {x['q']:.1e})" for x in res["slices"][:3])
+        return (f"ACCEPTANCE planted '{truth['label']}' ({len(planted)} holdout rows) found at rank {sl['rank']} as '{sl['label']}' "
+                f"(Jaccard {jac:.2f}, precision {prec:.2f}, recall {rec_:.2f}) · m = {res['tested']['total']} tested "
+                f"({res['tested']['single']} single + {res['tested']['pairs']} pairs, n ≥ {res['params']['min_support']}), "
+                f"{res['n_significant']} significant at q ≤ {res['params']['alpha']}, {res['n_weak']} listed, "
+                f"{res['n_explained_by_parent']} pairs folded into a parent · recomputed with scipy + statsmodels ✓ · "
+                f"permutation null {nl['weak_found']} · top 3: {top3}")
+
+    def links():
+        rid, sl = s["run"]["id"], s["slice"]
+        rows = get(f"/api/runs/{rid}/slices/{sl['id']}/rows")
+        check(rows["total"] == sl["n"] and len(rows["rows"]) == sl["n"], rows["total"])
+        ls = [r["loss"] for r in rows["rows"]]
+        check(ls == sorted(ls, reverse=True), "rows not worst first")
+        Xr = pd.DataFrame([r["features"] for r in rows["rows"]])
+        ok = np.ones(len(Xr), dtype=bool)
+        for cond in sl["conditions"]:
+            ok &= _sl_mask(Xr, cond)
+        check(ok.all(), "a row outside the slice's conditions")
+        sh = post(f"/api/runs/{rid}/slices/{sl['id']}/shap", {"rows": 3})
+        check(set(sh["rows_slice"]) <= set(r["row"] for r in rows["rows"]) and not set(sh["rows_rest"]) & set(r["row"] for r in rows["rows"]), sh["rows_slice"])
+        check(len(sh["per_row"]) == 6 and {f["feature"] for f in sh["features"]} >= set(sl["columns"]), sh["features"][:2])
+        one = get(f"/api/runs/{rid}/shap", row=sh["rows_slice"][0])  # the cached single-row SHAP the row link opens
+        check(abs(one["fx"] - next(p["fx"] for p in sh["per_row"] if p["row"] == sh["rows_slice"][0])) < 1e-9, one["fx"])
+        fair_col = sl["fairness_columns"][0] if sl["fairness_columns"] else None
+        check(fair_col is not None, sl)
+        fair = get(f"/api/runs/{rid}/fairness", group=fair_col)
+        pool = get(f"/api/runs/{rid}/slices/{sl['id']}/pool")
+        m = np.ones(len(data), dtype=bool)
+        for cond in sl["conditions"]:
+            m &= _sl_mask(data, cond)
+        hold = set(_sl_hp(s["run"])["row"].astype(int))
+        n_train_in = int(sum(1 for i in np.flatnonzero(m) if i not in hold))
+        check(pool["in_slice"] == n_train_in, (pool, n_train_in))
+        # F13: the labelling queue pre-filtered to the slice
+        r = C.post(f"/api/runs/{rid}/active-learning", json={"slice_id": sl["id"], "budget": 5000, "rounds": 1})
+        check(r.status_code == 400 and "inside the slice" in r.text, r.text[:200])
+        r = C.post(f"/api/runs/{rid}/active-learning", json={"slice_id": "sl_nothing", "budget": 10, "rounds": 1})
+        check(r.status_code == 400, r.text[:200])
+        b = 40
+        post(f"/api/runs/{rid}/active-learning", {"slice_id": sl["id"], "budget": b, "rounds": 1, "compare_random": False})
+        g = poll(f"/api/runs/{rid}/active-learning", lambda x: x["status"] not in ("queued", "running") or bool((x.get("queue") or {}).get("open")), timeout=900)
+        check(g["status"] == "awaiting_labels", g.get("error") or g["status"])
+        items = g["queue"]["queue"]
+        qrows = [it["row"] for it in items]
+        check(len(qrows) == b and all(m[r] for r in qrows) and not set(qrows) & hold, f"{len(qrows)} items, {sum(not m[r] for r in qrows)} outside the slice")
+        check(g["slice"]["id"] == sl["id"] and g["summary"]["slice"]["id"] == sl["id"] and g["slice"]["n_pool"] == g["pool"]["n_pool"], g["slice"])
+        post(f"/api/runs/{rid}/active-learning/cancel")
+        return (f"rows: {rows['total']} worst first, all inside the conditions · SHAP on {len(sh['rows_slice'])}+{len(sh['rows_rest'])} rows "
+                f"(top Δφ {sh['features'][0]['feature']} {sh['features'][0]['diff']:+.4f}; {sh['seconds']:.0f} s) = the single-row SHAP · "
+                f"fairness by {fair_col}: {len(fair.get('by_group') or [])} groups · pool {pool['in_slice']} training rows in the slice · "
+                f"labelling queue pre-filtered: {len(qrows)}/{b} picks inside the slice (pool {g['pool']['n_pool']} of {g['pool']['n_train']}), "
+                f"0 holdout rows; b = 5000 refused")
+
+    def losses():
+        out = []
+        rid = s["run"]["id"]
+        # a binary threshold change rewrites the holdout predictions: the search runs again with ℓ = 0/1 error at t
+        r0 = s["res"]
+        post(f"/api/runs/{rid}/threshold", {"value": 0.35})
+        e = post(f"/api/runs/{rid}/slices", {"loss": "error"})
+        hp = _sl_hp(s["run"])
+        check(e["holdout_sha"] != r0["holdout_sha"] and e["threshold"] == 0.35 and "t = 0.350" in e["loss"]["formula"], e["loss"])
+        check(abs(_sl_loss(hp, "error").mean() - e["overall"]) < 1e-12, e["overall"])
+        out.append(f"error at t 0.35: ℓ̄ {e['overall']:.4f}, {e['n_weak']} weak, top {e['slices'][0]['label'] if e['slices'] else '—'}")
+        # F7 cost run: ℓ = the row's cost at the run's threshold
+        c = wait_run(post("/api/runs", {**body, "eval_metric": None, "cost": {"c_fp": 1, "c_fn": 5}, "fit_kwargs": {"hyperparameters": HP}, "source": "smoke-slices-cost"})["id"])
+        cr = get(f"/api/runs/{c['id']}/slices")
+        hp = _sl_hp(c)
+        check(cr["loss"]["name"] == "cost", cr["loss"])
+        lc = _sl_loss(hp, "cost", {"c_fp": 1, "c_fn": 5}, cr["threshold"])
+        check(abs(lc.mean() - cr["overall"]) < 1e-12, (lc.mean(), cr["overall"]))
+        out.append(f"cost run {c['id']}: ℓ̄ = {cr['overall']:.4f} per decision at t {cr['threshold']:.3f}, {cr['n_weak']} weak, top {cr['slices'][0]['label'] if cr['slices'] else '—'}")
+        # regression and quantile (F9) on loan-amount
+        rb = {"dataset_id": "loan-amount", "label": "loan_amount_usd", "presets": "medium_quality", "time_limit": 60,
+              "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 60}}}, "feature_importance": False, "source": "smoke-slices"}
+        rr = wait_run(post("/api/runs", {**rb, "problem_type": "regression"})["id"])
+        q = wait_run(post("/api/runs", {**rb, "problem_type": "quantile", "quantile_levels": [0.1, 0.5, 0.9], "eval_metric": None})["id"])
+        for run, name in ((rr, "absolute_error"), (q, "pinball")):
+            x = get(f"/api/runs/{run['id']}/slices")
+            hp = _sl_hp(run)
+            check(x["loss"]["name"] == name and abs(_sl_loss(hp, name).mean() - x["overall"]) < 1e-6 * max(1, x["overall"]), (x["loss"], x["overall"]))
+            r = C.post(f"/api/runs/{run['id']}/slices", json={"loss": "log_loss"})
+            check(r.status_code == 400, r.text[:200])
+            out.append(f"{run['problem_type']} {run['id']}: {name} ℓ̄ {x['overall']:,.1f}, {x['n_weak']} weak of {x['tested']['total']}, top {x['slices'][0]['label'] if x['slices'] else '—'}")
+        s["extra"] = [c, rr, q]
+        return " · ".join(out)
+
+    def summary_f17():
+        rid = s["run"]["id"]
+        sm = get(f"/api/runs/{rid}")["slices"]
+        cur = get(f"/api/runs/{rid}/slices")
+        check(sm["schema"] == "slices/1" and sm["n_tested"] == cur["tested"]["total"] and sm["n_weak"] == cur["n_weak"], sm)
+        check([t["id"] for t in sm["top"]] == [x["id"] for x in cur["slices"][:5]] and all(set(t) >= {"label", "delta", "ci", "q", "n"} for t in sm["top"]), sm["top"][:1])
+        return f"run payload slices/1: {sm['n_weak']} weak of {sm['n_tested']} tested (loss {sm['loss']}), top {sm['top'][0]['label'] if sm['top'] else '—'} q {sm['top'][0]['q']:.1e}" if sm["top"] else "no weak slices"
+
+    if not step("slices: run + refusals", run_and_refusals):
+        return
+    if not step("slices: planted slice (acceptance)", acceptance):
+        return
+    step("slices: rows, SHAP, fairness, labelling queue", links)
+    step("slices: loss per run type (F7, F9)", losses)
+    step("slices: summary for F17", summary_f17)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -3549,7 +3808,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

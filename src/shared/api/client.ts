@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -95,6 +95,15 @@ export const api = {
     simulateActiveLearning: (id: string) => request<{ answered: number }>(`/runs/${encodeURIComponent(id)}/active-learning/simulate`, { method: 'POST' }),
     submitActiveLearning: (id: string) => request<{ round: number }>(`/runs/${encodeURIComponent(id)}/active-learning/submit`, { method: 'POST' }),
     cancelActiveLearning: (id: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/active-learning/cancel`, { method: 'POST' }),
+    /** F16: weak slices of the holdout (the latest search; searched with the defaults if there is none). */
+    slices: (id: string) => request<SliceSearch>(`/runs/${encodeURIComponent(id)}/slices`, { timeoutMs: 60_000 }),
+    searchSlices: (id: string, body: SliceRequest = {}) =>
+      request<SliceSearch>(`/runs/${encodeURIComponent(id)}/slices`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
+    sliceRows: (id: string, sid: string, limit?: number) =>
+      request<SliceRows>(`/runs/${encodeURIComponent(id)}/slices/${encodeURIComponent(sid)}/rows${limit ? `?limit=${limit}` : ''}`, { timeoutMs: 60_000 }),
+    sliceShap: (id: string, sid: string, rows = 6) =>
+      request<SliceShap>(`/runs/${encodeURIComponent(id)}/slices/${encodeURIComponent(sid)}/shap`, { method: 'POST', body: JSON.stringify({ rows }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 600_000 }),
+    slicePool: (id: string, sid: string) => request<SlicePool>(`/runs/${encodeURIComponent(id)}/slices/${encodeURIComponent(sid)}/pool`),
     /** F15: the run's shift checks (adversarial validation) and what a new one can compare. */
     shifts: (id: string) => request<ShiftList>(`/runs/${encodeURIComponent(id)}/shift`),
     shift: (id: string, key: string) => request<ShiftCheck>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}`),
