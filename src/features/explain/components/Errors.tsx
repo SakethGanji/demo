@@ -45,7 +45,7 @@ function ResidualPlots({ ex, run }: { ex: ExplainRegression; run: Run }) {
   const lim = Math.max(...P.residual.map(Math.abs)) * 1.05
   const h = ex.histogram
   const cmax = Math.max(...h.counts, ...(h.normal ?? [0]))
-  const fmtU = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(Math.abs(v) >= 10_000 ? 0 : 1)}k` : fmtScore(v, 2))
+  const fmtU = (v: number) => (v === 0 ? '0' : Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(Math.abs(v) >= 10_000 ? 0 : 1)}k` : fmtScore(v, 2))
   const q = ex.quantiles
   return (
     <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', alignItems: 'start' }}>

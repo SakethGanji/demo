@@ -73,3 +73,6 @@
   .grid.three-up, .threshold-card .card-body.thr-body, .fair-gaps { grid-template-columns: minmax(0, 1fr); }
 }
 .table th.math-th { text-transform: none; font-family: var(--font-math); font-style: italic; font-size: 13px; letter-spacing: 0; font-weight: 500; }
+.table.per-class th { height: 44px; vertical-align: middle; }
+.th-f { font-family: var(--font-math); font-style: italic; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--text-body); }
+.table.per-class .cr-bar { width: 48px; }

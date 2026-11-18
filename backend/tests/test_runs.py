@@ -106,7 +106,7 @@ RUN_FIELDS = {
     "id", "name", "dataset_id", "label", "status", "created_at", "started_at", "finished_at", "error", "config",
     "predictor_path", "n_events", "problem_type", "eval_metric", "classes", "positive_class", "best_model",
     "fit_seconds", "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
-    "feature_importance", "leaderboard", "resolved", "custom_ensembles",
+    "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold",
 }
 
 
@@ -115,6 +115,8 @@ def test_tiny_fit_result(client, tiny_dataset, tiny_run, data_dir):
     assert run["status"] == "succeeded", run["error"]
     assert set(run) == RUN_FIELDS
     assert run["custom_ensembles"] is None  # none until POST /runs/{id}/ensemble (S3)
+    # S4: binary runs record their decision threshold (AutoGluon's 0.5 unless calibration was asked for)
+    assert run["threshold"]["value"] == 0.5 and run["threshold"]["source"] == "default"
     assert run["label"] == "outcome" and run["problem_type"] == "binary"
     assert run["eval_metric"]["name"] == "accuracy" and run["eval_metric"]["greater_is_better"] is True
     assert sorted(run["classes"]) == ["no", "yes"] and run["positive_class"] in ("no", "yes")

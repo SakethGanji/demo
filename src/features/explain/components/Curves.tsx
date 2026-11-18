@@ -6,7 +6,7 @@ import { XYPlot, type XYSeries } from '@/shared/components/XYPlot'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 
-export const CLASS_COLORS = ['var(--viz-a)', 'var(--viz-b)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-e)', '#0F766E', '#7C3AED', '#B45309']
+export const CLASS_COLORS = ['var(--viz-a)', 'var(--viz-b)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-e)', '#475569', '#7C3AED', '#B45309']
 const T01 = [0, 0.2, 0.4, 0.6, 0.8, 1]
 const f2 = (v: number) => v.toFixed(1)
 
@@ -98,8 +98,8 @@ export function PerClass({ ex }: { ex: ExplainClassification }) {
       </div>
       <div className="card" data-testid="per-class">
         <div className="card-head"><div className="left"><h3 className="card-title">Per-Class Report</h3><span className="helper" style={{ fontSize: 12 }}>sklearn precision_recall_fscore_support</span></div></div>
-        <table className="table">
-          <thead><tr><th>class k</th><th className="r">precision Mₖₖ/Σᵢ Mᵢₖ</th><th className="r">recall Mₖₖ/Σⱼ Mₖⱼ</th><th className="r">F₁ = 2PR/(P + R)</th><th className="r">support nₖ</th></tr></thead>
+        <div className="table-wrap"><table className="table per-class">
+          <thead><tr><th>class k</th><th className="r">precision<div className="th-f">Mₖₖ / Σᵢ Mᵢₖ</div></th><th className="r">recall<div className="th-f">Mₖₖ / Σⱼ Mₖⱼ</div></th><th className="r">F₁<div className="th-f">2PR / (P + R)</div></th><th className="r">support<div className="th-f">nₖ</div></th></tr></thead>
           <tbody>
             {ex.per_class.map((c, i) => (
               <tr key={c.class}>
@@ -111,7 +111,7 @@ export function PerClass({ ex }: { ex: ExplainClassification }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
         <p className="helper" style={{ fontSize: 12, padding: 'var(--space-8) var(--space-16) var(--space-12)' }}>M is the confusion matrix on the left; P and R are the precision and recall of class k treated as the positive class; log loss −(1/n) Σ log p̂ᵢ,yᵢ = {fmtScore(ex.log_loss)}.</p>
       </div>
     </div>

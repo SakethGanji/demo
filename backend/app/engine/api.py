@@ -86,6 +86,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold"):
         out[key] = res.get(key)
+    out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     if not full:
         out["leaderboard"] = [{k: r.get(k) for k in LIST_LB_COLS} for r in (out["leaderboard"] or [])] or out["leaderboard"]
         out["feature_importance"] = None

@@ -112,9 +112,10 @@ export function ExplainPage({ go }: { go: (r: string) => void }) {
           {thr && <Cell k="threshold t" v={thr.value.toFixed(3)} d={thr.source === 'default' ? 'AutoGluon default' : thr.source === 'manual' ? 'set by hand' : `calibrated for ${thr.metric}`} testId="explain-threshold" />}
           <Cell k="mistakes" v={`${ex.n_wrong.toLocaleString()}`} d={`of n = ${ex.n.toLocaleString()} (${((ex.n_wrong / ex.n) * 100).toFixed(1)}%)`} />
         </> : <>
-          <Cell k="RMSE" v={fmtScore(ex.rmse)} d="√((1/n) Σ rᵢ²)" />
-          <Cell k="MAE" v={fmtScore(ex.mae)} d="(1/n) Σ |rᵢ|" />
-          <Cell k="R²" v={fmtScore(ex.r2)} d="1 − Σ rᵢ² / Σ (yᵢ − ȳ)²" />
+          {metric === 'root_mean_squared_error' ? <Cell k="σᵣ" v={fmtScore(ex.sd_residual)} d="sd of rᵢ = yᵢ − ŷᵢ" /> : <Cell k="RMSE" v={fmtScore(ex.rmse)} d="√((1/n) Σ rᵢ²)" />}
+          {metric !== 'mean_absolute_error' && <Cell k="MAE" v={fmtScore(ex.mae)} d="(1/n) Σ |rᵢ|" />}
+          {metric !== 'r2' && <Cell k="R²" v={fmtScore(ex.r2)} d="1 − Σ rᵢ² / Σ (yᵢ − ȳ)²" />}
+          <Cell k="90% of misses" v={`±${fmtScore((ex.quantiles.q95 - ex.quantiles.q05) / 2, 0)}`} d={`[q₀.₀₅, q₀.₉₅] = [${fmtScore(ex.quantiles.q05, 0)}, ${fmtScore(ex.quantiles.q95, 0)}]`} />
           <Cell k="bias r̄" v={fmtScore(ex.mean_residual, 2)} d="(1/n) Σ rᵢ, rᵢ = yᵢ − ŷᵢ" />
         </>}
       </div>
