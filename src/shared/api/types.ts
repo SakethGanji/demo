@@ -454,6 +454,7 @@ export type Run = {
   scorecard?: { available: boolean; error?: string; reason?: string } | null
   /** F12: the learning curve's headline (status and verdict); the full curve is GET /runs/{id}/learning-curve. */
   learning_curve?: { status: LearningCurveStatus; fits_done?: number; fits_total?: number; error?: string | null; verdict?: LearningCurveVerdict | null } | null
+  active_learning?: { status: ActiveLearningStatus; fits_done?: number; fits_total?: number; error?: string | null; summary?: ActiveLearningSummary | null } | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null
@@ -958,4 +959,56 @@ export type LearningCurve = {
   curve?: [number, number][]
   band?: [number, number, number][]
   verdict?: LearningCurveVerdict | null
+}
+
+/** F13 · active-learning labelling queue. */
+export type ActiveLearningStatus = 'none' | 'queued' | 'running' | 'awaiting_labels' | 'succeeded' | 'failed' | 'cancelled'
+export type ALRequest = {
+  pool?: 'hide' | 'missing'; hide_share?: number; budget?: number; rounds?: number
+  strategy?: 'margin' | 'entropy' | 'least_confident'; diversity?: 'cluster' | 'kcenter' | 'none'
+  candidates_factor?: number; compare_random?: boolean; seeds?: number; time_limit?: number | null
+}
+export type ALPoint = {
+  round: number; n: number; score: number; metrics: Record<string, number>; best_model: string; models: string[]
+  fit_seconds: number; seconds: number; holdout_sha: string; rows_sha: string; classes: number; added: number
+  answered_by?: Record<string, number>; dataset_id?: string | null; agreement_with_hidden?: number | null
+}
+export type ALItem = {
+  id: string; round: number; row: number; split: string; text: string | null; features: Record<string, unknown>
+  suggested: string; p_top: [string, number][]; margin: number; entropy: number; uncertainty: number; rank: number
+  cluster: number | null; confidence: number; why: string
+  answer?: 'confirm' | 'relabel' | 'skip'; answer_label?: string; answered_by?: string
+}
+export type ALSelection = { round: number; candidates: number; u_mean_picked?: number; u_mean_pool?: number; n_pool?: number; classes?: string[] }
+export type ALArm = { kind: 'active' | 'random' | 'queue'; seed: number; points: ALPoint[]; done: boolean; n_labelled: number; selection?: ALSelection[] }
+export type ALGap = { mean: number; sd: number | null; ci: [number, number] | null; level: number; wins: number; ties: number; n_seeds: number; per_seed: number[]; units: string }
+export type ALCompareRound = {
+  round: number; n: number[]; n_random: number[]
+  active: { mean: number; sd: number | null; scores: number[] }; random: { mean: number; sd: number | null; scores: number[] }; gap: ALGap
+}
+export type ActiveLearningSummary = {
+  schema: string; metric: string; greater_is_better: boolean; budget: number; rounds: number; strategy: string; diversity: string
+  pool: { source: 'hide' | 'missing'; hide_share: number | null; n_pool: number; n_initial: number }
+  labels_used: number[]; queue: { round: number; n_labels: number; score: number }[]
+  comparison: { simulated: true; labeller: string; seeds: number; rounds: ALCompareRound[] } | null
+  verdict: { label: 'active-better' | 'no-clear-difference' | 'random-better' | 'pending' | 'not-compared'; reason: string
+    round?: number; n?: number; gap?: number; ci?: [number, number] | null; wins?: number; n_seeds?: number }
+}
+export type ActiveLearning = {
+  run_id: string
+  status: ActiveLearningStatus
+  defaults: Required<Omit<ALRequest, 'time_limit'>> & { n_train: number; n_initial: number; fits: number; estimate_seconds: number | null; missing_labels: number }
+  schema?: string; error?: string | null; request?: Required<ALRequest>
+  fits_done?: number; fits_total?: number | null; current?: { task: string; seed?: number; round?: number }
+  metric?: { name: string; greater_is_better: boolean; optimum: number | null }
+  classes?: string[]; compare?: boolean; holdout_rows?: number; holdout_sha?: string; holdout_in_pool?: number; tuning_rows?: number
+  pool?: { source: 'hide' | 'missing'; hide_share: number | null; n_train: number; n_pool: number; n_initial: number; initial_classes: Record<string, number>; rule: string }
+  embedding?: { text: string[]; numeric: string[]; categorical: string[]; dims: number; seconds: number; method: string }
+  split?: { key: string; sha256: string; strategy: string }
+  fit_call?: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; notes: string[]; time_limit: number | null }
+  arms?: Record<string, ALArm>
+  queue?: ALArm & { queue: ALItem[]; queue_round: number | null; open: boolean; submitted_pending: boolean; answered: number
+    history?: { round: number; items: number; labelled: number; skipped: number; answered_by: Record<string, number>; dataset_id: string; submitted_at: string }[] }
+  versions?: { id: string; name: string; round: number; labelled_this_round: number; labelled_total: number; rows: number; created_at: string }[]
+  summary?: ActiveLearningSummary
 }

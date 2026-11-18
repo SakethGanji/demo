@@ -22,7 +22,7 @@ from .gym import api as gym_api
 from .vela import api as vela_api
 from . import llm, llm_api
 from .engine.runner import JobRunner
-from .engine import learning_curve_api
+from .engine import active_learning_api, learning_curve_api
 from .engine.pool import HeavyPool
 from .registry import api as registry_api
 from .registry.store import RegistryStore
@@ -72,6 +72,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         yield
         app.state.runner.shutdown()
         learning_curve_api.shutdown()
+        active_learning_api.shutdown()
         app.state.heavy.shutdown()
 
     app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan)
@@ -179,6 +180,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(409, "A run is queued or running; cancel it first.")
         if learning_curve_api.active():
             raise HTTPException(409, "A learning curve is running; cancel it first.")
+        if active_learning_api.active():
+            raise HTTPException(409, "A labelling queue is working; cancel it first.")
         if any(getattr(a, "is_alive", lambda: False)() for a in getattr(st.autopilot, "threads", {}).values()):
             raise HTTPException(409, "An autopilot is running; cancel it first.")
         st.predictors = PredictorCache()
@@ -193,6 +196,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(import_api.router)
     app.include_router(engine_api.router)
     app.include_router(learning_curve_api.router)
+    app.include_router(active_learning_api.router)
     app.include_router(forecast_api.router)
     app.include_router(anomaly_api.router)
     app.include_router(registry_api.router)

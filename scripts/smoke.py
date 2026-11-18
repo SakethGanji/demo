@@ -35,6 +35,11 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
   learning   F12: learning curves on credit-default (group split, F7 cost, F8 monotone, F11 scorecard) and support-tickets:
              nested subsamples of the run's training rows (10/25/50 %, 3 seeds; whole customers), the run's own fit call,
              one holdout, power law, 2N / 4N extrapolation with intervals and the verdict; refusals, 409, cancel
+  active     F13: active-learning labelling queue on support-tickets with 90 % of the training labels hidden: the run's own
+             fit call, uncertainty + diversity picks (b = 200, 2 rounds), the queue answered (a person's skip and relabel,
+             the rest by the SIMULATED oracle = the sample's hidden labels), each round a dataset version with lineage that
+             trains, the holdout fixed and never queued; active vs random at equal budgets over 3 seeds (simulated
+             oracle), reported with spread and a 95 % CI; the summary for F17; refusals, 409, cancel
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -2876,6 +2881,174 @@ def learning(st: dict[str, Any]) -> None:
     step("learning: one at a time + cancel", one_at_a_time)
 
 
+def _al_wait(run_id: str, timeout: float = 1800) -> dict[str, Any]:
+    return poll(f"/api/runs/{run_id}/active-learning",
+                lambda x: x["status"] not in ("queued", "running") and not (x.get("queue") or {}).get("submitted_pending"), timeout, every=2)
+
+
+def active(st: dict[str, Any]) -> None:
+    """F13: active-learning labelling queue. support-tickets with 90 % of the training labels hidden (stratified): the
+    run's exact fit call on the 10 % seed labels, then 2 rounds of b = 200 rows picked by margin uncertainty + diversity,
+    labelled in the queue (one skip and one relabel by a named person, the rest by the SIMULATED oracle: the sample's own
+    hidden labels), each round a dataset version with lineage and a refit on the same holdout. Active vs random at equal
+    budgets over 3 seeds, labelled by the simulated oracle; the acceptance is active > random after 2 rounds, reported
+    with the per-seed numbers, sd and the 95 % t-interval of the paired gap. Refusals, one queue at a time, cancel."""
+    s: dict[str, Any] = {}
+
+    def refusals():
+        rec = wait_run(post("/api/runs", {"dataset_id": "support-tickets", "presets": "medium_quality", "time_limit": 300,
+                                          "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 100}}},
+                                          "feature_importance": False, "source": "smoke-active"})["id"])
+        s["rec"] = rec
+        g = get(f"/api/runs/{rec['id']}/active-learning")
+        dft = g["defaults"]
+        check(g["status"] == "none" and dft["hide_share"] == 0.9 and dft["budget"] == 200 and dft["rounds"] == 2 and dft["seeds"] == 3, dft)
+        reg = wait_run(post("/api/runs", {"dataset_id": "loan-amount", "time_limit": 30, "source": "smoke-active",
+                                          "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 20}}}, "feature_importance": False})["id"])
+        r = C.post(f"/api/runs/{reg['id']}/active-learning", json={})
+        check(r.status_code == 400 and "classification" in r.text, f"regression → {r.status_code} {r.text[:200]}")
+        bad = [({"hide_share": 0.999}, "at least 30"), ({"budget": 5000, "rounds": 5}, "hidden rows"), ({"pool": "missing"}, "empty label"),
+               ({"seeds": 0}, "seeds"), ({"strategy": "random"}, "strategy")]
+        for b, words in bad:
+            r = C.post(f"/api/runs/{rec['id']}/active-learning", json=b)
+            check(r.status_code in (400, 422) and words in r.text, f"{b}: {r.status_code} {r.text[:200]}")
+        r = C.post(f"/api/runs/{rec['id']}/active-learning/answer", json={"answers": [{"id": "r1-0", "answer": "skip"}]})
+        check(r.status_code == 409, f"answer with no queue → {r.status_code}")
+        r = C.post(f"/api/runs/{rec['id']}/active-learning/cancel")
+        check(r.status_code == 400, f"cancel with nothing open → {r.status_code}")
+        return (f"{rec['id']} (support-tickets, K = {len(rec['classes'])}, holdout accuracy {rec['holdout']['metrics']['accuracy']:.4f} on all "
+                f"{rec['data']['train_rows']} labels): status none, defaults h = 90 %, b = 200, 2 rounds, 3 seeds · regression refused · "
+                f"{len(bad)} bad requests refused · answer/cancel with nothing open → 409/400")
+
+    if not step("active: refusals + defaults", refusals):
+        return
+
+    def queue_round0():
+        rec = s["rec"]
+        t0 = time.time()
+        post(f"/api/runs/{rec['id']}/active-learning", {})
+        r = C.post(f"/api/runs/{rec['id']}/active-learning", json={})
+        check(r.status_code == 409, f"a second start while working → {r.status_code}")
+        al = _al_wait(rec["id"])
+        s["t_sim"] = time.time() - t0
+        check(al["status"] == "awaiting_labels", f"{al['status']}: {al.get('error')}")
+        n_train = rec["data"]["train_rows"]
+        pool = al["pool"]
+        check(pool["source"] == "hide" and pool["n_train"] == n_train and abs(pool["n_initial"] - 0.1 * n_train) < 0.01 * n_train + 6
+              and pool["n_initial"] + pool["n_pool"] == n_train, pool)
+        check(len(pool["initial_classes"]) == len(rec["classes"]) and min(pool["initial_classes"].values()) >= 5, pool["initial_classes"])
+        q = al["queue"]
+        items = q["queue"]
+        check(q["open"] and q["queue_round"] == 1 and len(items) == 200 and len({i["row"] for i in items}) == 200, f"{len(items)} items")
+        hold = {int(x) for x in get(f"/api/runs/{rec['id']}/holdout-predictions")["rows"]}
+        check(len(hold) == rec["data"]["holdout_rows"] and not hold & {i["row"] for i in items} and al["holdout_in_pool"] == 0,
+              "a holdout row is in the queue")
+        s["hold"] = hold
+        check(all(0 <= i["margin"] <= 1 and abs(i["uncertainty"] - (1 - i["margin"])) < 1e-6 for i in items), "u ≠ 1 − margin")
+        sel = q["selection"][0]
+        check(sel["candidates"] == 2000 and sel["u_mean_picked"] > sel["u_mean_pool"], sel)
+        check(len({i["cluster"] for i in items}) == 200, "the picks are not one per cluster")
+        check(all(i["suggested"] == i["p_top"][0][0] and i["p_top"][0][1] >= i["p_top"][1][1] for i in items), "suggested ≠ top class")
+        p0 = q["points"][0]
+        check(p0["round"] == 0 and p0["n"] == pool["n_initial"] and p0["holdout_sha"] == al["holdout_sha"], p0)
+        hp = al["fit_call"]["fit_kwargs"]["hyperparameters"]
+        check(hp == rec["resolved"]["fit_kwargs"]["hyperparameters"], "not the run's fit call")
+        check(any(m.startswith("Tfidf") for m in p0["models"]), p0["models"])
+        s["al0"] = al
+        return (f"{rec['id']}: {pool['n_initial']} seed labels ({pool['n_pool']} hidden) → round-0 accuracy {p0['score']:.4f} · queue of 200 "
+                f"from 2,000 candidates (ū picked {sel['u_mean_picked']:.3f} vs pool {sel['u_mean_pool']:.3f}, one per k-means cluster) · "
+                f"0 holdout rows in the queue · comparison fits done in {s['t_sim']:.0f} s")
+
+    if not step("active: start → round 0 + queue", queue_round0):
+        return
+
+    def answer_rounds():
+        rec = s["rec"]
+        rid = rec["id"]
+        ds_csv = None
+        lines = []
+        for rnd in (1, 2):
+            al = get(f"/api/runs/{rid}/active-learning")
+            items = al["queue"]["queue"]
+            check(al["queue"]["queue_round"] == rnd and len(items) == 200, al["queue"].get("queue_round"))
+            check(not s["hold"] & {i["row"] for i in items}, "a holdout row is in the queue")
+            r = C.post(f"/api/runs/{rid}/active-learning/answer", json={"answers": [{"id": items[0]["id"], "answer": "relabel", "label": "Nope"}]})
+            check(r.status_code == 400 and "not a class" in r.text, f"bad label → {r.status_code}")
+            other = next(c for c in rec["classes"] if c != items[1]["suggested"])
+            post(f"/api/runs/{rid}/active-learning/answer", {"answers": [{"id": items[0]["id"], "answer": "skip"},
+                                                                        {"id": items[1]["id"], "answer": "relabel", "label": other}], "reviewer": "ana"})
+            sim = post(f"/api/runs/{rid}/active-learning/simulate")
+            check(sim["answered"] == 198 and sim["reviewer"] == "simulated-oracle", sim)
+            n_before = al["queue"]["n_labelled"]
+            sub = post(f"/api/runs/{rid}/active-learning/submit")
+            r = C.post(f"/api/runs/{rid}/active-learning/submit")
+            check(r.status_code == 409, f"second submit → {r.status_code}")
+            ver = sub["dataset_version"]
+            check(ver["labelled_this_round"] == 199 and ver["labelled_total"] == n_before + 199, ver)
+            al = _al_wait(rid, 600)
+            pt = al["queue"]["points"][rnd]
+            check(pt["round"] == rnd and pt["n"] == n_before + 199 and pt["added"] == 199 and pt["answered_by"] == {"ana": 1, "simulated-oracle": 198}, pt)
+            check(pt["holdout_sha"] == s["al0"]["holdout_sha"] and pt["dataset_id"] == ver["id"], "holdout or version differ")
+            ds = get(f"/api/datasets/{ver['id']}")
+            lin = ds["profile"]["lineage"]
+            check(lin["parent"] == "support-tickets" and lin["active_learning"] == {"run_id": rid, "round": rnd} and lin["labelled"] == 199, lin)
+            lines.append(f"r{rnd}: +199 (ana 1 relabel + 1 skip, oracle 198) → n = {pt['n']}, accuracy {pt['score']:.4f}, {ver['id']}")
+            ds_csv = ver
+        check(al["status"] == "succeeded" and al["queue"]["done"] and al["summary"]["labels_used"] == [p["n"] for p in al["queue"]["points"]], al["status"])
+        # the last version trains: exactly the labelled rows, the same holdout
+        v = wait_run(post("/api/runs", {"dataset_id": ds_csv["id"], "label": rec["label"], "presets": "medium_quality", "time_limit": 300,
+                                        "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 100}}},
+                                        "feature_importance": False, "source": "smoke-active"})["id"])
+        check(v["data"]["train_rows"] == ds_csv["labelled_total"] and v["data"]["holdout_rows"] == rec["data"]["holdout_rows"], v["data"])
+        hold_v = {int(x) for x in get(f"/api/runs/{v['id']}/holdout-predictions")["rows"]}
+        check(hold_v == s["hold"], "the version's holdout is not the run's")
+        s["al"] = al
+        return " · ".join(lines) + (f" · {v['id']} on {ds_csv['id']}: {v['data']['train_rows']} training rows, the same {len(hold_v)} holdout rows, "
+                                    f"accuracy {v['holdout']['metrics']['accuracy']:.4f}")
+
+    if not step("active: queue → answers → versions → refits", answer_rounds):
+        return
+
+    def acceptance():
+        al = s["al"]
+        sm = al["summary"]
+        check(sm["schema"] == "active_learning/1" and sm["comparison"]["simulated"] and "oracle" in sm["comparison"]["labeller"], sm["schema"])
+        rounds = {r["round"]: r for r in sm["comparison"]["rounds"]}
+        check(set(rounds) == {0, 1, 2} and all(r["gap"]["n_seeds"] == 3 for r in rounds.values()), list(rounds))
+        check(rounds[0]["gap"]["mean"] == 0 and rounds[0]["active"]["scores"] == rounds[0]["random"]["scores"], "round 0 is not shared")
+        for k in (1, 2):
+            check(rounds[k]["n"] == rounds[k]["n_random"] == [rounds[0]["n"][i] + 200 * k for i in range(3)], f"unequal budgets {rounds[k]['n']} {rounds[k]['n_random']}")
+        f = rounds[2]
+        g = f["gap"]
+        lo, hi = g["ci"]
+        check(lo <= g["mean"] <= hi, g)
+        v = sm["verdict"]
+        want = "active-better" if lo > 0 else "random-better" if hi < 0 else "no-clear-difference"
+        check(v["label"] == want and v["round"] == 2, v)
+        head = get(f"/api/runs/{al['run_id']}")["active_learning"]
+        check(head["summary"]["verdict"] == v and head["summary"]["labels_used"] == sm["labels_used"], "the run payload's summary differs")
+        a, r = f["active"], f["random"]
+        msg = (f"after 2 rounds (n = {f['n'][0]}): active {a['mean']:.4f} ± {a['sd']:.4f} {a['scores']} vs random {r['mean']:.4f} ± {r['sd']:.4f} "
+               f"{r['scores']} · d̄ = {g['mean']:+.4f}, 95% CI [{lo:+.4f}, {hi:+.4f}], active wins {g['wins']}/3 · round 1: d̄ = "
+               f"{rounds[1]['gap']['mean']:+.4f} · verdict {v['label']} (labels: simulated oracle)")
+        check(a["mean"] > r["mean"], "ACCEPTANCE: active is not above random after 2 rounds: " + msg)
+        return msg
+
+    step("active: active vs random (acceptance)", acceptance)
+
+    def cancel():
+        rec = s["rec"]
+        post(f"/api/runs/{rec['id']}/active-learning", {"seeds": 1, "rounds": 1})
+        time.sleep(1)
+        post(f"/api/runs/{rec['id']}/active-learning/cancel")
+        al = _al_wait(rec["id"], 120)
+        check(al["status"] == "cancelled", al["status"])
+        check(get(f"/api/runs/{rec['id']}")["active_learning"]["status"] == "cancelled", "run payload not cancelled")
+        return f"start → cancel → cancelled after {al.get('fits_done') or 0} fits"
+
+    step("active: cancel", cancel)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -2917,7 +3090,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
