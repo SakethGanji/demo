@@ -1020,7 +1020,9 @@ def cost(st: dict[str, Any]) -> None:
         check(thr["source"] == "calibrated" and thr["metric"] == "expected_cost" and 0 < thr["value"] < 0.5, thr)
         lb = rec["leaderboard"]
         check(all(x["score_val_natural"] is not None and x["score_val_natural"] >= 0 for x in lb), "validation costs")
-        check(lb[0]["score_val_natural"] <= min(x["score_val_natural"] for x in lb) + 1e-12, "best model is not the cheapest on validation")
+        # the leaderboard is sorted by holdout score, so check the run's best model (chosen on validation) itself
+        best = next(x for x in lb if x["model"] == rec["best_model"])
+        check(best["score_val_natural"] <= min(x["score_val_natural"] for x in lb) + 1e-12, "best model is not the cheapest on validation")
         rows, _ = holdout_costs(rec["id"], thr["value"])
         h = rec["holdout"]["metrics"]
         check(abs(h["expected_cost"] - rows.mean()) < 1e-9, f"holdout expected_cost {h['expected_cost']} vs recomputed {rows.mean()}")
