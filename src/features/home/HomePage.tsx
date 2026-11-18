@@ -63,7 +63,7 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
             <p className="hero-sub">A toolkit for training, comparing and shipping models. Pick up a tool, or tell the bench what you want to build.</p>
           </div>
           <div className="row" style={{ gap: 12 }}>
-          <button className="btn primary" style={{ height: 40, padding: '0 16px' }} onClick={() => go('quick-train')}>Quick Train →</button>
+          <button className="btn primary" style={{ height: 40, padding: '0 16px' }} onClick={() => go('quick-train')}>New Model →</button>
           <button className="hero-cmd" onClick={openPalette}>
             <Icon.search width={16} height={16} /><span>Find a tool, run or model</span><kbd>⌘K</kbd>
           </button>

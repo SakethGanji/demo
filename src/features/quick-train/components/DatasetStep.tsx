@@ -132,7 +132,14 @@ export function DatasetStep({ ds, onPick }: { ds: Dataset; onPick: (d: Dataset) 
             </div>
           )}
           <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }}>
-            <div className="micro-label" style={{ marginBottom: 8 }}>Classes of <span className="mono" style={{ textTransform: 'none' }}>{ds.target || '—'}</span></div>
+            <div className="micro-label" style={{ marginBottom: 8 }}>{p?.task === 'regression' ? 'Numeric label' : 'Classes of'} <span className="mono" style={{ textTransform: 'none' }}>{ds.target || '—'}</span></div>
+            {p?.task === 'regression' && p.target_stats && (
+              <div className="row" data-testid="profile-target-stats" style={{ flexWrap: 'wrap', gap: 6 }}>
+                <ParamChip sym="ȳ" value={p.target_stats.mean.toLocaleString(undefined, { maximumFractionDigits: 1 })} />
+                <ParamChip sym="σ_y" value={p.target_stats.std.toLocaleString(undefined, { maximumFractionDigits: 1 })} />
+                <ParamChip sym="y ∈" value={`[${p.target_stats.min.toLocaleString(undefined, { maximumFractionDigits: 1 })}, ${p.target_stats.max.toLocaleString(undefined, { maximumFractionDigits: 1 })}]`} />
+              </div>
+            )}
             {ds.classes.map((c) => (
               <div key={c.name} className="dist-row">
                 <span>{c.name}</span>

@@ -225,6 +225,7 @@ export type HoldoutPredictions = {
   run_id: string; model: string | null; n_rows: number; rows: number[]
   y_true: (string | number)[]; y_pred: (string | number)[]
   classes: string[] | null; probabilities: number[][] | null
+}
 
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'

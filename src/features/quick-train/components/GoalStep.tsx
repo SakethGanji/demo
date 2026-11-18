@@ -1,0 +1,107 @@
+import { useState } from 'react'
+import { FretSlider } from '@/shared/components/FretSlider'
+import { ParamChip } from '@/shared/primitives/ParamChip'
+import type { Dataset } from '../datasets'
+import { BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, fmtBudget, parseKwargs, type Choices, type Task } from '../wizard'
+
+/** Step 3: the metric to optimise, the preset ladder (speed ↔ accuracy), the time budget, and raw fit kwargs. */
+export function GoalStep({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; task: Task }) {
+  const [open, setOpen] = useState(ch.fitKwargs.trim() !== '')
+  const metrics = METRICS.filter((m) => m.tasks.includes(task))
+  const rec = defaultMetric(task, ds.profile?.imbalance_ratio)
+  const kw = parseKwargs(ch.fitKwargs)
+  const preset = PRESETS.find((p) => p.key === ch.preset) ?? PRESETS[0]
+  const { types, drop } = columnTypesPayload(ds, ch)
+  const call = [
+    `predictor = TabularPredictor(label=${q(ch.label)}, problem_type=${q(task)}, eval_metric=${q(ch.metric)})`,
+    `predictor.fit(train,  # ${ds.rows.toLocaleString()} rows minus the 20% holdout`,
+    `    presets=${q(ch.preset)}, time_limit=${ch.budget},`,
+    ...(Object.keys(types).length ? [`    feature_metadata=FeatureMetadata(…${Object.keys(types).length} override${Object.keys(types).length > 1 ? 's' : ''}),`] : []),
+    ...(kw.ok ? Object.entries(kw.value).map(([k, v]) => `    ${k}=${JSON.stringify(v)},`) : ['    # fit_kwargs: invalid JSON']),
+    ')',
+    ...(drop.length ? [`# dropped columns: ${drop.join(', ')}`] : []),
+  ]
+
+  return (
+    <div className="page">
+      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.25fr)', alignItems: 'start' }}>
+        <div className="card" data-testid="metric-card">
+          <div className="card-head"><h3 className="card-title">Metric</h3><span className="micro-label">what AutoGluon optimises and ranks by</span></div>
+          <div className="metric-list" role="radiogroup">
+            {metrics.map((m) => (
+              <button key={m.key} role="radio" aria-checked={ch.metric === m.key} data-testid={`metric-${m.key}`} className={`metric-opt ${ch.metric === m.key ? 'on' : ''}`} onClick={() => set({ metric: m.key })}>
+                <span className="mo-head"><b>{m.name}</b><span className="mono mo-key">{m.key}</span>{m.key === rec && <span className="pill success" style={{ height: 18 }}>● recommended</span>}<span className="spacer" /><span className="mo-dir">{m.greater ? 'higher is better ↑' : 'lower is better ↓'}</span></span>
+                <span className="mo-formula">{m.formula}</span>
+                <span className="helper mo-note">{m.note}{Object.keys(m.where).length > 0 && <> · {Object.entries(m.where).map(([k, v]) => <span key={k}><i className="math-i">{k}</i>: {v}. </span>)}</>}</span>
+              </button>
+            ))}
+            <div className="metric-foot helper">n = number of rows scored, yᵢ the true label and ŷᵢ the prediction for row i.{task === 'binary' && ds.profile?.imbalance_ratio && ds.profile.imbalance_ratio >= 4 ? ` The label is imbalanced (ρ = ${ds.profile.imbalance_ratio.toFixed(1)}), so ROC AUC is recommended over accuracy.` : ''}</div>
+          </div>
+        </div>
+
+        <div className="stack">
+          <div className="card" data-testid="preset-ladder">
+            <div className="card-head"><h3 className="card-title">Goal · Preset</h3><span className="micro-label">faster ← → more accurate</span></div>
+            <div className="ladder">
+              <svg className="ladder-string" width="100%" height="8" aria-hidden preserveAspectRatio="none" viewBox="0 0 100 8"><line x1="0" x2="100" y1="4" y2="4" stroke="var(--border-track)" strokeWidth="1" vectorEffect="non-scaling-stroke" /><line x1="0" x2={((preset.rung - 0.5) / PRESETS.length) * 100} y1="4" y2="4" stroke="var(--accent-primary)" strokeWidth="2" vectorEffect="non-scaling-stroke" /></svg>
+              {PRESETS.map((p) => (
+                <button key={p.key} className={`rung ${ch.preset === p.key ? 'on' : ''}`} data-testid={`preset-${p.key}`} aria-pressed={ch.preset === p.key} onClick={() => set({ preset: p.key })}>
+                  <span className="rung-node" />
+                  <b>{p.name}</b><span className="mono rung-key">{p.key}</span>
+                  <span className="rung-meter"><small>speed</small><Dots n={p.speed} /></span>
+                  <span className="rung-meter"><small>accuracy</small><Dots n={p.accuracy} /></span>
+                  <span className="mono rung-fact">{p.bag}</span>
+                  <span className="mono rung-fact">{p.stack}{p.refit ? ' · refit' : ''}</span>
+                </button>
+              ))}
+            </div>
+            <div className="card-body" style={{ borderTop: '1px solid var(--border-default)' }}>
+              <ul className="rung-does">{preset.does.map((d) => <li key={d}>{d}</li>)}</ul>
+              <p className="helper" style={{ fontSize: 12 }}>k = bagging folds (each model is fit k times, every row is scored out of fold, so scores come as μ ± σ over k folds) · L = stack layers · refit = final models refit on all rows. AutoGluon sets k and L from the data size.</p>
+            </div>
+          </div>
+
+          <div className="card" data-testid="budget-card">
+            <div className="card-head"><h3 className="card-title">Time Budget</h3><ParamChip sym="τ" value={fmtBudget(ch.budget)} /></div>
+            <div className="card-body">
+              <FretSlider sym="τ" name="time_limit" help="Wall-clock seconds AutoGluon may spend fitting. Models that don't fit in time are skipped." min={30} max={3600} log value={ch.budget}
+                onChange={(v) => set({ budget: Math.round(v) })} ticks={BUDGETS} tickLabel={(v) => fmtBudget(v).replace(' min', 'm').replace(' s', 's')} format={(v) => String(Math.round(v))} domain={<span className="mono">[30, 3600] s</span>} guided />
+            </div>
+          </div>
+
+          <div className="card advanced" data-testid="advanced">
+            <button className="card-head adv-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+              <div className="left"><h3 className="card-title">{open ? '▾' : '▸'} Advanced · fit_kwargs</h3><span className="helper" style={{ fontSize: 12 }}>raw JSON, passed to TabularPredictor.fit unchanged</span></div>
+              {ch.fitKwargs.trim() && <span className={`pill ${kw.ok ? 'success' : 'danger'}`}>{kw.ok ? `● ${Object.keys(kw.value).length} key${Object.keys(kw.value).length === 1 ? '' : 's'}` : '✕ invalid'}</span>}
+            </button>
+            {open && (
+              <div className="card-body stack" style={{ gap: 'var(--space-8)' }}>
+                <textarea className="kw-input mono" data-testid="fit-kwargs" spellCheck={false} rows={6} value={ch.fitKwargs} placeholder={'{\n  "num_bag_folds": 5,\n  "hyperparameters": {"GBM": {}, "CAT": {}}\n}'}
+                  onChange={(e) => set({ fitKwargs: e.target.value })} />
+                {!kw.ok && <span className="helper" role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>✕ {kw.error}</span>}
+                <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                  {SNIPPETS.map(([name, v]) => <button key={name} className="btn sm" onClick={() => set({ fitKwargs: JSON.stringify({ ...(kw.ok ? kw.value : {}), ...v }, null, 2) })}>+ {name}</button>)}
+                </div>
+                <pre className="call mono" data-testid="resolved-call">{call.join('\n')}</pre>
+                <p className="helper" style={{ fontSize: 12 }}>Keys here win over the preset and the budget above. The full AutoGluon config (model families, per-family hyperparameters, HPO, distillation) is the Training Gym's job.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const q = (s: string) => `'${s}'`
+
+const SNIPPETS: [string, Record<string, unknown>][] = [
+  ['bagging k = 5', { num_bag_folds: 5 }],
+  ['stack L = 2', { num_stack_levels: 1 }],
+  ['trees only', { hyperparameters: { GBM: {}, CAT: {}, XGB: {}, RF: {}, XT: {} } }],
+  ['exclude NN', { excluded_model_types: ['NN_TORCH', 'FASTAI'] }],
+]
+
+function Dots({ n }: { n: number }) {
+  return <span className="dots" aria-label={`${n} of 4`}>{[1, 2, 3, 4].map((i) => <i key={i} className={i <= n ? 'on' : ''} />)}</span>
+}

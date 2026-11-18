@@ -2,7 +2,7 @@ export type Tool = { id: string; name: string; verb: string; desc: string; meta:
 
 /** The toolkit. Every tool is a verb; the workbench, toolbelt and command palette all read this list. */
 export const TOOLS: Tool[] = [
-  { id: 'quick', name: 'Quick Train', verb: 'Run', desc: 'Give it a dataset, pick a recipe, and watch every classifier settle.', meta: 'TF-IDF → LogReg (OvR) · XGBoost', route: 'quick-train' },
+  { id: 'quick', name: 'New Model', verb: 'Train', desc: 'Upload a table, say what to predict, and watch AutoGluon race and stack its models.', meta: 'AutoGluon · leaderboard · ensemble', route: 'quick-train' },
   { id: 'autopilot', name: 'Vela Autopilot', verb: 'Delegate', desc: 'Give Vela a dataset and a goal. It trains and fixes the data, and only asks you what is true.', meta: 'asks on ground truth only', route: 'autopilot' },
   { id: 'train', name: 'Training Gym', verb: 'Train', desc: 'String a pipeline end to end and fit it, step by step.', meta: 'step 07 of 10 · Draft', route: 'gym' },
   { id: 'compare', name: 'String Plot', verb: 'Compare', desc: 'Thread every run across its parameters and metrics; click a string to select it.', meta: '9 runs · 3 selected', route: 'experiments' },

@@ -8,7 +8,7 @@ export const NAV: { id: Route | 'vela'; label: string; icon: keyof typeof Icon }
   [{ id: 'vela', label: 'Vela AI Assistant', icon: 'vela' }, { id: 'settings', label: 'Settings', icon: 'settings' }],
 ]
 
-export const TITLES: Record<Route, string> = { home: 'Home', 'quick-train': 'Quick Train', autopilot: 'Vela Autopilot', gym: 'Training Gym', experiments: 'Experiments', registry: 'Model Registry', settings: 'Settings' }
+export const TITLES: Record<Route, string> = { home: 'Home', 'quick-train': 'New Model', autopilot: 'Vela Autopilot', gym: 'Training Gym', experiments: 'Experiments', registry: 'Model Registry', settings: 'Settings' }
 
 /** Pages that manage their own scrolling (pinned header and footer). */
 export const FULL_HEIGHT: Route[] = ['gym', 'quick-train', 'autopilot']

@@ -1,215 +1,201 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ConfusionMatrix } from '@/shared/components/ConfusionMatrix'
-import { LineChart, type Series } from '@/shared/components/LineChart'
-import { PlotFrame } from '@/shared/components/PlotFrame'
-import { RunString, type RunState } from '@/shared/components/RunString'
-import { rng } from '@/shared/lib/random'
-import { ParamChip } from '@/shared/primitives/ParamChip'
-import { StatusPill } from '@/shared/primitives/StatusPill'
-import { Boosting } from './components/Boosting'
-import { DatasetStep } from './components/DatasetStep'
-import { LiveRun } from './components/LiveRun'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ApiError, api } from '@/shared/api/client'
 import { useApi } from '@/shared/api/mode'
-import { RecipeStep } from './components/RecipeStep'
-import { ClassStrings } from './components/ClassStrings'
-import { PipelineString } from './components/PipelineString'
-import { SAMPLES, type Dataset } from './datasets'
-import { FOLDS, PH, RECIPES, expectedF1, fitFrac, fitSeconds, mmss, phaseOf, type Recipe } from './recipes'
+import type { Run } from '@/shared/api/types'
+import { DatasetStep } from './components/DatasetStep'
+import { GoalStep } from './components/GoalStep'
+import { TargetStep } from './components/TargetStep'
+import { SAMPLES, fromServer, type Dataset } from './datasets'
+import { mockSource, simulate } from './race/mockRun'
+import { RaceStage } from './race/RaceStage'
+import { liveSource, useRace, type EventSourceFn } from './race/useRace'
+import { ResultsStep } from './results/ResultsStep'
+import { columnTypesPayload, defaultMetric, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
 
+const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
+
+function initialChoices(ds: Dataset): Choices {
+  const label = ds.target || labelOptions(ds)[0]?.name || ''
+  const task = inferTask(ds, label) ?? 'multiclass'
+  return { label, problemType: null, types: {}, metric: defaultMetric(task, ds.profile?.imbalance_ratio), preset: 'medium_quality', budget: 120, fitKwargs: '' }
+}
+
+const runFromHash = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
+const setHashRun = (id: string | null) => history.replaceState(null, '', `#/quick-train${id ? `?run=${id}` : ''}`)
+
+/**
+ * New Model: dataset or upload → label, problem type and column types → metric, preset and budget → the live race →
+ * results (leaderboard, metrics, diagnostics, a custom ensemble, a first prediction). Live mode trains with AutoGluon
+ * through the API; mock mode plays a simulated run through the same screens. (Route: #/quick-train.)
+ */
 export function QuickTrainPage({ go }: { go: (r: string) => void }) {
+  const { mode } = useApi()
+  const live = mode === 'live'
   const fromGym = useRef(location.hash.includes('?start')).current
   const [step, setStep] = useState(fromGym ? 2 : 0)
   const [ds, setDs] = useState<Dataset>(SAMPLES[0])
-  const [recipeId, setRecipeId] = useState<Recipe['id']>('ovr')
-  const [t, setT] = useState(0)
-  const [running, setRunning] = useState(fromGym)
+  const [ch, setCh] = useState<Choices>(() => initialChoices(SAMPLES[0]))
+  const [runId, setRunId] = useState<string | null>(null)
+  const [source, setSource] = useState<{ fn: EventSourceFn; run: Run | null }>({ fn: liveSource, run: null })
   const [speed, setSpeed] = useState(1)
-  const recipe = RECIPES.find((r) => r.id === recipeId)!
-  const { mode } = useApi()
-  const K = ds.classes.length
+  const [err, setErr] = useState('')
+  const [starting, setStarting] = useState(false)
+  const { state: race, reconnecting } = useRace(runId, speed, source.fn)
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => { scroller.current?.scrollTo(0, 0) }, [step])
 
-  const pick = (d: Dataset) => { setDs(d); setRecipeId(d.kind === 'tabular' ? 'xgb' : 'ovr') }
+  const set = useCallback((p: Partial<Choices>) => setCh((c) => ({ ...c, ...p })), [])
+  const stepRef = useRef(step)
+  stepRef.current = step
+  // Only the dataset step picks datasets: a late answer from it (e.g. its first-load default) must not replace the
+  // dataset of a run resumed from the URL.
+  const pick = (d: Dataset) => { if (stepRef.current !== 0) return; setDs(d); setCh(initialChoices(d)) }
 
+  const inferred = inferTask(ds, ch.label)
+  const task: Task | null = ch.problemType ?? inferred
+  // keep the metric valid for the problem type
   useEffect(() => {
-    if (!running) return
-    const iv = setInterval(() => setT((v) => { const n = Math.min(1, v + 0.0045 * speed); if (n >= 1) setRunning(false); return n }), 70)
-    return () => clearInterval(iv)
-  }, [running, speed])
-  const start = () => { setT(0); setRunning(true); setStep(2) }
+    if (!task) return
+    if (!METRICS.some((m) => m.key === ch.metric && m.tasks.includes(task))) set({ metric: defaultMetric(task, ds.profile?.imbalance_ratio) })
+  }, [task])
 
-  // everything below is derived from t
-  const phase = phaseOf(t)
-  const ff = fitFrac(t)
-  const fold = Math.min(FOLDS - 1, Math.floor(ff * FOLDS))
-  const inFold = ff >= 1 ? 1 : ff * FOLDS - fold
-  const finals = useMemo(() => {
-    const r = rng(ds.name.length * 31 + K * 7 + recipe.id.charCodeAt(0))
-    const base = expectedF1(recipe, ds)
-    // per-class scores average exactly to the macro score, and the fold scores average to it too
-    const rawCls = ds.classes.map((c) => base + (r() - 0.5) * 0.05 - (c.share < 0.1 ? 0.06 : 0))
-    const shift = base - rawCls.reduce((a, b) => a + b, 0) / K
-    const cls = rawCls.map((v) => Math.min(0.985, v + shift))
-    const noise = Array.from({ length: FOLDS }, () => (r() - 0.5) * 0.014)
-    const noiseMean = noise.reduce((a, b) => a + b, 0) / FOLDS
-    const folds = noise.map((n) => base + n - noiseMean)
-    const rates = ds.classes.map(() => 0.95 + r() * 0.5)
-    return { cls, folds, rates, base }
-  }, [ds, recipe.id, K])
-  const conv = finals.rates.map((rt) => (phase < 3 ? 0 : phase > 3 ? 1 : Math.min(1, inFold * 1.08 * rt)))
-  const f1k = finals.cls.map((v, k) => v * (0.55 + 0.45 * Math.pow(conv[k], 0.6)))
-  const meanF1 = finals.folds.reduce((a, b) => a + b, 0) / FOLDS
-  const spread = Math.sqrt(finals.folds.reduce((a, b) => a + (b - meanF1) ** 2, 0) / FOLDS)
-  const d = ds.kind === 'text' ? Math.round(ds.rows * 1.208193) : ds.cols.length * 6
-  const elapsed = t * fitSeconds(recipe, ds)
-  const notes = [
-    phase > 0 ? `${ds.rows.toLocaleString()} rows` : 'reading', phase > 1 ? `k = ${FOLDS} · stratified` : '',
-    phase > 2 ? `d = ${recipe.id === 'xgb' && ds.kind === 'text' ? '300' : d.toLocaleString()}` : phase === 2 ? 'fitting vocabulary' : '',
-    phase === 3 ? `fold ${fold + 1} of ${FOLDS}` : phase > 3 ? `${FOLDS} folds fit` : '', phase > 4 ? `F1: ${meanF1.toFixed(3)}` : phase === 4 ? 'scoring holdout' : '',
-  ]
-  const foldRuns: RunState[] = Array.from({ length: FOLDS }, (_, i) => {
-    const st = phase < 3 || i > fold ? 'Queued' : i < fold || ff >= 1 ? 'Completed' : 'Training'
-    return { id: `fold_${i + 1}`, label: `${Math.round(ds.rows / FOLDS).toLocaleString()} validation rows`, status: st, progress: st === 'Completed' ? 1 : st === 'Training' ? Math.max(0.04, inFold) : 0, readout: st === 'Completed' ? `F1: ${finals.folds[i].toFixed(3)}` : st === 'Training' ? `fitting · ${(inFold * 100).toFixed(0)}%` : 'waiting' }
-  })
-  const pts = Math.round(ff * 60)
-  const loss: Series[] = useMemo(() => {
-    const r = rng(11)
-    const full = Array.from({ length: 61 }, (_, i) => [0.2 + 0.95 * Math.exp(-i / 11) + (r() - 0.5) * 0.02, 0.27 + 0.95 * Math.exp(-i / 13) + (r() - 0.5) * 0.03])
-    return [
-      { name: 'Train loss', color: 'var(--viz-a)', data: full.map((p) => p[0]) },
-      { name: 'Validation loss', color: 'var(--viz-c)', dash: '6 4', data: full.map((p) => p[1]) },
-    ]
-  }, [])
-  const logs = [
-    [0, 'lt', `$ ensemble train --data ${ds.name} --target ${ds.target} --recipe ${recipe.id}`],
-    [0.01, 'lt', `[INFO] loading ${ds.name}`], [PH[1], 'lm', `[OK  ] ${ds.rows.toLocaleString()} rows × ${ds.cols.length} cols · target=${ds.target} · K=${K}`],
-    [PH[2], 'lt', `[INFO] split StratifiedKFold(k=${FOLDS}, seed=42)`], [PH[2] + 0.02, 'li', `[FIT ] ${recipe.stages(ds)[2]} on ${Math.round(ds.rows * 0.8).toLocaleString()} rows`],
-    [PH[3], 'lm', `[OK  ] features ready · X ∈ ${ds.kind === 'text' ? 'sparse ' : ''}ℝⁿˣᵈ`],
-    ...Array.from({ length: FOLDS }, (_, i) => [[PH[3] + (i / FOLDS) * (PH[4] - PH[3]) + 0.01, 'li', `[FIT ] fold=${i + 1} ${recipe.viz === 'boost' ? 'boosting 600 rounds η=0.05' : `fitting ${K} one-vs-rest classifiers`}`], [PH[3] + ((i + 1) / FOLDS) * (PH[4] - PH[3]), 'lm', `[METRIC] fold=${i + 1} macro_f1=${finals.folds[i].toFixed(3)}`]]).flat(),
-    [PH[4] + 0.03, 'li', '[EVAL] scoring holdout · confusion matrix'], [1, 'lm', `[DONE] macro_f1=${meanF1.toFixed(3)} ± ${spread.toFixed(3)} · artifacts written`],
-  ].filter((l) => t >= (l[0] as number) && (t > 0 || running)) as [number, string, string][]
-  const confusion = useMemo(() => {
-    const r = rng(K * 97 + ds.rows)
-    return ds.classes.map((c, i) => {
-      const tot = Math.round(ds.rows * 0.15 * c.share)
-      const hit = Math.round(tot * finals.cls[i])
-      const rest = ds.classes.map((_, j) => (j === i ? 0 : r() + 0.1)); const rs = rest.reduce((a, b) => a + b, 0)
-      return ds.classes.map((_, j) => (j === i ? hit : Math.round(((tot - hit) * rest[j]) / rs)))
-    })
-  }, [ds, finals, K])
-  const done = t >= 1
-  const stepNow = step < 2 ? step : done ? 3 : 2
-  const STEPS = ['Dataset', 'Recipe', 'Train', 'Results']
+  // Resume a run from the URL (#/quick-train?run=…): after a reload or from a link. Its events replay from 0.
+  const resumed = useRef(false)
+  useEffect(() => {
+    const id = runFromHash()
+    if (!id || !live || resumed.current) return
+    resumed.current = true
+    api.runs.get(id).then(async (run) => {
+      stepRef.current = run.status === 'succeeded' ? 4 : 3
+      try {
+        const d = fromServer(await api.datasets.get(run.dataset_id))
+        setDs(d)
+        setCh({ ...initialChoices(d), label: run.label, preset: String(run.config.presets ?? 'medium_quality'), budget: Number(run.config.time_limit ?? 120) })
+      } catch { /* the dataset was deleted; the run still shows */ }
+      setSource({ fn: liveSource, run: null })
+      setRunId(run.id)
+      setStep(run.status === 'succeeded' ? 4 : 3)
+    }).catch(() => setHashRun(null))
+  }, [live])
+
+  const kw = parseKwargs(ch.fitKwargs)
+  const start = async () => {
+    if (!task) return
+    setErr('')
+    if (live && ds.id) {
+      if (!kw.ok) { setErr(kw.error); return }
+      const { types, drop } = columnTypesPayload(ds, ch)
+      setStarting(true)
+      try {
+        const run = await api.runs.create({
+          dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: ch.metric, presets: ch.preset, time_limit: ch.budget,
+          fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
+        })
+        setSource({ fn: liveSource, run: null })
+        setRunId(run.id)
+        setHashRun(run.id)
+        setStep(3)
+      } catch (e) {
+        setErr(e instanceof ApiError && e.unreachable ? 'The API is not reachable; check that it is running.' : (e as Error).message)
+      } finally { setStarting(false) }
+      return
+    }
+    const id = `sim_${Math.random().toString(16).slice(2, 10)}`
+    const sim = simulate(ds, ch, task, id)
+    setSource({ fn: mockSource(sim), run: sim.run })
+    setRunId(id)
+    setStep(3)
+  }
+
+  const again = () => { setRunId(null); setHashRun(null); setStep(0) }
+  const running = runId != null && (race.status === 'running' || race.status === 'queued' || race.status === 'connecting')
+  const done = race.status === 'succeeded'
+  const maxStep = runId ? (done ? 4 : 3) : 2
+  const K = ds.classes.length
+  const usable = !!inferred
+  const preset = PRESETS.find((p) => p.key === ch.preset)
+  const nFeat = useMemo(() => ds.cols.filter((c) => c.name !== ch.label && (ch.types[c.name] ?? c.type) !== 'id').length, [ds, ch])
 
   return (
-    <div className="wizard">
+    <div className="wizard new-model">
       <div className="stepper-bar">
         <div className="stepper-title">
-          <h1 className="page-title">Quick Train</h1>
-          <span className="helper">Give it a dataset, pick a recipe, watch it fit.</span>
+          <h1 className="page-title">New Model</h1>
+          <span className="helper">Bring a table, say what to predict, watch AutoGluon train and stack its models.</span>
           <span className="spacer" />
-          <span className="chip">{ds.name}</span>{step > 0 && <span className="chip">{recipe.pipeline(ds)}</span>}
+          <span className="chip" data-testid="chip-dataset">{ds.name}</span>
+          {step > 0 && ch.label && <span className="chip"><span className="sym">y</span>= {ch.label}</span>}
+          {step > 1 && <span className="chip">{ch.preset} · τ = {fmtBudget(ch.budget)}</span>}
         </div>
-        <div className="stepper" role="list" style={{ gridTemplateColumns: 'repeat(4, 1fr)', maxWidth: 720 }}>
+        <div className="stepper" role="list" style={{ gridTemplateColumns: `repeat(${STEPS.length}, 1fr)`, maxWidth: 820 }}>
           {STEPS.map((s, i) => (
-            <button key={s} role="listitem" disabled={i > stepNow || running} className={`step ${i < stepNow || (done && i === 3) ? 'done' : i === stepNow ? 'current' : ''}`} onClick={() => i < 2 && setStep(i)}>
+            <button key={s} role="listitem" data-testid={`step-${s.toLowerCase()}`} disabled={i > maxStep || (running && i < 3)}
+              className={`step ${i < step || (i === 4 && done && step === 4) ? 'done' : i === step ? 'current' : ''}`} onClick={() => setStep(i)}>
               <span className="node" /><span className="idx">{String(i + 1).padStart(2, '0')}</span><span>{s}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <div className="wizard-scroll">
+      <div className="wizard-scroll" ref={scroller}>
         {step === 0 && <DatasetStep ds={ds} onPick={pick} />}
-
-        {step === 1 && <RecipeStep ds={ds} recipeId={recipeId} onPick={setRecipeId} />}
-
-        {step >= 2 && (
+        {step === 1 && <TargetStep ds={ds} ch={ch} set={set} />}
+        {step === 2 && task && <GoalStep ds={ds} ch={ch} set={set} task={task} />}
+        {step === 3 && runId && (
           <div className="page">
-            {mode === 'live' && ds.id && <LiveRun ds={ds} />}
-            <section className="stage">
-              <div className="stage-head">
-                <div>
-                  <span className="hero-eyebrow" style={{ paddingLeft: 0 }}>{done ? 'RUN COMPLETE' : running ? 'TRAINING' : 'PAUSED'}</span>
-                  <h2 className="hero-title">{recipe.pipeline(ds)}</h2>
-                </div>
-                <div className="stage-read">
-                  <span><small>macro F1</small><b>{phase >= 3 ? (phase > 3 ? meanF1 : f1k.reduce((a, b) => a + b, 0) / K).toFixed(3) : '—'}</b></span>
-                  <span><small>fold</small><b>{phase < 3 ? '—' : `${Math.min(FOLDS, fold + 1)} / ${FOLDS}`}</b></span>
-                  <span><small>elapsed</small><b>{mmss(elapsed)}</b></span>
-                  <span className="stage-sim" title="This run is simulated in your browser. No model is fitted.">simulated run</span>
-                </div>
-              </div>
-              <PipelineString stages={recipe.stages(ds)} phase={phase} notes={notes} />
-              <div className="stage-body">
-                <div className="stage-cap">
-                  <span className="micro-label" style={{ color: 'var(--text-on-shell-muted)' }}>{recipe.viz === 'strings' ? `${K} classifiers, one string each` : 'Boosting rounds'}</span>
-                  <span className="ps-note">{recipe.viz === 'strings' ? 'A string rings while its loss is high and settles taut when it converges. Each fold plucks them again.' : 'Each tree fits the residual the trees before it left. The wave is what remains.'}</span>
-                </div>
-                {recipe.viz === 'strings'
-                  ? <ClassStrings classes={ds.classes.map((c) => c.name)} conv={conv} f1={f1k} active={phase === 3} />
-                  : <Boosting frac={phase < 3 ? 0 : phase > 3 ? 1 : inFold} M={600} active={phase === 3} done={phase > 3} />}
-              </div>
-              <div className="stage-foot">
-                <div className="stage-prog"><i style={{ width: `${t * 100}%` }} /></div>
-                {done ? <button className="btn sm" onClick={start}>Run Again</button>
-                  : <button className="btn sm" onClick={() => setRunning(!running)}>{running ? 'Pause' : 'Resume'}</button>}
-                <div className="seg stage-seg">{[1, 3].map((s) => <button key={s} className={speed === s ? 'on' : ''} onClick={() => setSpeed(s)}>{s}×</button>)}</div>
-              </div>
-            </section>
-
-            <div className="grid two">
-              <div className="stack">
-                <div className="card run-strings">
-                  <div className="card-head" style={{ marginTop: -4 }}><div className="left"><h3 className="card-title">Cross-Validation</h3><span className="helper" style={{ fontSize: 12 }}>one string per fold</span></div><ParamChip sym="k" value={String(FOLDS)} /></div>
-                  {foldRuns.map((r) => <RunString key={r.id} run={r} folds={4} />)}
-                </div>
-                <PlotFrame title="Loss" legend={loss.map((s) => ({ ...s, data: [] }))} chips={<ParamChip sym="seed" value="42" />}
-                  caption={<span>Cross-entropy <span className="math" style={{ fontSize: 14 }}>ℒ</span> per step <span className="math" style={{ fontSize: 14 }}>t</span>, mean of folds so far</span>}>
-                  <LineChart series={loss.map((s) => ({ ...s, data: s.data.slice(0, Math.max(2, pts + 1)) }))} xMax={60} yMin={0} yMax={1.4} yTicks={[0, 0.35, 0.7, 1.05, 1.4]} xTicks={[0, 15, 30, 45, 60]} xTitle="t" yTitle="ℒ" fmtY={(v) => v.toFixed(2)} live={!done && phase === 3} height={200} />
-                </PlotFrame>
-              </div>
-              <div className="stack">
-                <div className="card">
-                  <div className="card-head"><h3 className="card-title">Run Log</h3>{done ? <StatusPill status="success">Completed</StatusPill> : <StatusPill status="info">{running ? 'Streaming' : 'Paused'}</StatusPill>}</div>
-                  <div className="card-body"><div className="log-panel" style={{ height: 250 }} aria-live="polite">{logs.slice(-12).map((l, i) => <div key={i} className={l[1]}>{l[2]}</div>)}</div></div>
-                </div>
-                {done && (
-                  <div className="card navy">
-                    <div className="card-head"><h3 className="card-title">Result</h3><StatusPill status="success">Ready To Register</StatusPill></div>
-                    <div className="minis">
-                      <div className="mini"><span className="micro-label">Macro F1</span><span className="v">{meanF1.toFixed(3)}</span><span className="u">± {spread.toFixed(3)} · n = {FOLDS}</span></div>
-                      <div className="mini"><span className="micro-label">Weakest Class</span><span className="v">{Math.min(...finals.cls).toFixed(3)}</span><span className="u">{ds.classes[finals.cls.indexOf(Math.min(...finals.cls))].name}</span></div>
-                      <div className="mini"><span className="micro-label">Fit Time</span><span className="v">{mmss(elapsed)}</span><span className="u">cpu-8x</span></div>
-                    </div>
-                    <div className="card-body row" style={{ borderTop: '1px solid var(--border-default)', flexWrap: 'wrap' }}>
-                      <button className="btn primary" onClick={() => go('registry')}>Register Model Version</button>
-                      <button className="btn" onClick={() => go('gym')}>Tune In Gym →</button>
-                      <button className="btn ghost" onClick={() => { setStep(0); setT(0) }}>Train Another</button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {done && (
-              <div className="card">
-                <div className="card-head"><div className="left"><h3 className="card-title">Confusion Matrix</h3><span className="helper" style={{ fontSize: 12 }}>holdout, 15% of rows</span></div><ParamChip sym="n" value={Math.round(ds.rows * 0.15).toLocaleString()} /></div>
-                <div className="card-body" style={{ maxWidth: 760 }}><ConfusionMatrix labels={ds.classes.map((c) => c.name)} m={confusion} /></div>
-              </div>
-            )}
+            <RaceStage s={race} runId={runId} label={ch.label} budget={ch.budget} speed={speed} setSpeed={setSpeed} reconnecting={reconnecting}
+              simulated={source.run != null} onCancel={() => { if (source.run == null) api.runs.cancel(runId).catch(() => {}) }} />
+            <RaceSide race={race} />
           </div>
         )}
+        {step === 4 && runId && <ResultsStep runId={runId} mockRun={source.run} ds={ds} live={live && source.run == null} go={go} onAgain={again} />}
       </div>
 
-      {step < 2 && (
+      {step < 4 && (
         <div className="wizard-footer">
-          <div>{step === 1 && <button className="btn ghost" onClick={() => setStep(0)}>← Back</button>}</div>
-          {step === 0 && K < 2
-            ? <div className="valid" style={{ color: 'var(--status-warning)' }}><span className="dot">▲</span> No label column with two or more classes</div>
-            : <div className="valid"><span className="dot">●</span> {step === 0 ? `Schema Valid · target ${ds.target} · K = ${K}` : `${recipe.pipeline(ds)} · Ready`}</div>}
-          <div className="right">{step === 0 ? <button className="btn primary" disabled={K < 2} onClick={() => setStep(1)}>Continue →</button> : <button className="btn primary" onClick={start}>Start Training</button>}</div>
+          <div>{step > 0 && step < 3 && <button className="btn ghost" onClick={() => setStep(step - 1)}>← Back</button>}
+            {step === 3 && !running && <button className="btn ghost" onClick={again}>← New Model</button>}</div>
+          <div className="valid" data-testid="wizard-status">
+            {err ? <span style={{ color: 'var(--status-danger)' }} role="alert">✕ {err}</span>
+              : step === 0 ? (usable ? <><span className="dot">●</span> Schema Valid · target {ch.label} · {inferred === 'regression' ? 'regression' : `K = ${K}`}</> : <span style={{ color: 'var(--status-warning)' }}><span className="dot">▲</span> No label column with two or more values</span>)
+              : step === 1 ? (task ? <><span className="dot">●</span> y = {ch.label} · {task} · d = {nFeat} features</> : <span style={{ color: 'var(--status-warning)' }}>▲ pick a label with two or more values</span>)
+              : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {ch.metric}{live && ds.id ? '' : ' · simulated (mock mode)'}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
+              : done ? <><span className="dot">●</span> Run complete · {race.bestModel}</> : race.status === 'failed' ? <span style={{ color: 'var(--status-danger)' }}>✕ {race.error}</span> : race.status === 'cancelled' ? <span>Cancelled</span> : <span>Training…</span>}
+          </div>
+          <div className="right">
+            {step === 0 && <button className="btn primary" disabled={!usable} onClick={() => setStep(1)}>Continue →</button>}
+            {step === 1 && <button className="btn primary" disabled={!task} onClick={() => setStep(2)}>Continue →</button>}
+            {step === 2 && <button className="btn primary" data-testid="start-training" disabled={!kw.ok || starting || !task} onClick={start}>{starting ? 'Starting…' : 'Start Training'}</button>}
+            {step === 3 && <button className={`btn primary ${done ? 'pulse' : ''}`} data-testid="see-results" disabled={!done} onClick={() => setStep(4)}>Results →</button>}
+          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** Beside the stage: the data as AutoGluon saw it, and its log. */
+function RaceSide({ race }: { race: ReturnType<typeof useRace>['state'] }) {
+  return (
+    <div className="grid race-side" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr)', alignItems: 'start' }}>
+      <div className="card" data-testid="race-data">
+        <div className="card-head"><h3 className="card-title">The Fit</h3><span className="micro-label">as AutoGluon sees it</span></div>
+        <dl className="where race-facts">
+          <dt>n</dt><dd>{race.trainRows != null ? `${race.trainRows.toLocaleString()} training rows` : '…'}{race.droppedMissing ? ` (${race.droppedMissing} without a label dropped)` : ''}</dd>
+          <dt>n<sub>h</sub></dt><dd>{race.holdoutRows != null ? `${race.holdoutRows.toLocaleString()} holdout rows, never trained on, scored at the end` : '…'}</dd>
+          <dt>d</dt><dd>{race.features.length ? `${race.features.length} features: ${race.features.slice(0, 8).join(', ')}${race.features.length > 8 ? ', …' : ''}` : '…'}</dd>
+          <dt>k</dt><dd>{race.kFold ? `${race.kFold}-fold bagging: each model is k models, scored out of fold` : race.metric ? 'no bagging: scored on a tuning split AutoGluon holds out' : '…'}</dd>
+          <dt>metric</dt><dd>{race.metric ?? '…'}{race.metric ? ` (${race.greater ? 'higher' : 'lower'} is better)` : ''}</dd>
+          {race.droppedColumns.length > 0 && <><dt>dropped</dt><dd>{race.droppedColumns.join(', ')}</dd></>}
+          {race.notes.map((n) => <span key={n} style={{ display: 'contents' }}><dt>note</dt><dd>{n}</dd></span>)}
+        </dl>
+      </div>
+      <div className="card">
+        <div className="card-head"><h3 className="card-title">AutoGluon Log</h3><span className="micro-label">{race.logs.length} lines</span></div>
+        <div className="card-body"><div className="log-panel" style={{ height: 220 }} aria-live="polite" data-testid="race-log">
+          {race.logs.slice(-11).map((l, i) => <div key={i} className={l.level === 'warning' ? 'lw' : /Validation score|score_val/.test(l.message) ? 'lm' : /Fitting model/.test(l.message) ? 'li' : 'lt'}>{l.message}</div>)}
+        </div></div>
+      </div>
     </div>
   )
 }
