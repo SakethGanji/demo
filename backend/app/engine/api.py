@@ -157,6 +157,15 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
                 "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
+    sc = res.get("scorecard")  # F11: the headline only; the table is GET /runs/{id}/scorecard
+    if sc:
+        h = sc.get("holdout") or {}
+        out["scorecard"] = {"available": bool(sc.get("available")), "error": sc.get("error"), "reason": sc.get("reason"),
+                            "model": sc.get("model"), "auc": (h.get("scorecard") or {}).get("auc"),
+                            "served_auc": (h.get("served") or {}).get("auc"), "delta_auc": h.get("delta_auc"),
+                            "n_features": (sc.get("table") or {}).get("n_features")}
+    else:
+        out["scorecard"] = None
     if not full:
         out["leaderboard"] = [{k: r.get(k) for k in LIST_LB_COLS} for r in (out["leaderboard"] or [])] or out["leaderboard"]
         out["feature_importance"] = None

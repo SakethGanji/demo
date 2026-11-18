@@ -2628,6 +2628,7 @@ def scorecard(st: dict[str, Any]) -> None:
         check("Scorecard_BAG_L1" in lb, list(lb))
         check(not any(m.startswith("Scorecard") and m.endswith("_L2") for m in lb), "scorecard trained as a stacker")
         check(lb["Scorecard_BAG_L1"]["family"] == "SCORECARD", lb["Scorecard_BAG_L1"].get("family"))
+        check(rec["scorecard"] and rec["scorecard"]["available"], f"run payload: {rec.get('scorecard')}")  # Explain's tab reads it
         sc = get(f"/api/runs/{rec['id']}/scorecard")
         t = sc["table"]
         n_train = rec["data"]["train_rows"]
