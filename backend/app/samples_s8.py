@@ -113,40 +113,73 @@ CHANNELS = ["chip", "contactless", "online", "atm"]
 
 
 def generate_card_transactions(n: int = 6_000, seed: int = 42, share: float = 0.015) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """6,000 card transactions from 420 cards over 90 days. Each card has its own spending level (a log-normal
+    multiplier), so an amount is unusual only relative to that card's history. Columns: txn_id, card_id, timestamp,
+    amount_usd, avg_amount_90d (the card's mean amount, as a bank's feature store would supply it),
+    merchant_category, channel, card_present, foreign, hour, distance_from_home_km, txns_last_24h (from the card's
+    own timestamps), account_age_days (per card).
+
+    Planted anomalies (1.5%, five kinds, 18 each): amount_spike (15–40× the card's own level: in the global range of
+    ordinary travel or electronics purchases, so only a group-relative feature sees it), night_foreign, velocity (a
+    burst minutes after the card's previous transaction), new_account_large (a new card's first purchase), far_atm.
+    """
     rng = np.random.default_rng(seed + 9)
+    n_cards = 420
+    level = np.exp(rng.normal(0, 0.75, size=n_cards))  # the card's spending multiplier
+    rate = rng.gamma(2.0, 1.0, size=n_cards)
+    card = rng.choice(n_cards, size=n, p=rate / rate.sum())
+    age_card = np.round(rng.gamma(3.0, 500, size=n_cards)).astype(int) + 30
+    home_dist = rng.gamma(1.4, 6, size=n_cards)
     mcc = rng.choice(MCC, size=n, p=MCC_P)
     channel = np.where(mcc == "cash", "atm", np.where(np.isin(mcc, ["online retail", "utilities"]), "online",
                        rng.choice(["chip", "contactless"], size=n, p=[0.4, 0.6])))
     base = {"grocery": 55, "fuel": 48, "restaurants": 38, "travel": 420, "electronics": 260, "online retail": 70,
             "utilities": 110, "pharmacy": 25, "cash": 120}
-    amount = np.round(np.array([base[m] for m in mcc]) * np.exp(rng.normal(0, 0.55, size=n)), 2)
+    amount = np.round(np.array([base[m] for m in mcc]) * level[card] * np.exp(rng.normal(0, 0.45, size=n)), 2)
     hour = np.clip(np.round(rng.normal(14, 4, size=n)), 6, 23).astype(int)
-    distance_km = np.round(np.abs(rng.gamma(1.4, 6, size=n)), 1)
-    txn_24h = rng.poisson(2.2, size=n) + 1
-    account_age_days = np.round(rng.gamma(3.0, 500, size=n)).astype(int) + 30
-    avg_amount_90d = np.round(amount * np.exp(rng.normal(0, 0.3, size=n)), 2)
+    day = rng.integers(0, 90, size=n)
+    minute = rng.integers(0, 60, size=n)
+    start = pd.Timestamp("2026-08-17")
+    ts = start + pd.to_timedelta(day, unit="D") + pd.to_timedelta(hour, unit="h") + pd.to_timedelta(minute, unit="m")
+    ts = pd.Series(ts)
+    distance_km = np.round(np.abs(home_dist[card] * np.exp(rng.normal(0, 0.6, size=n))), 1)
     foreign = (rng.random(n) < 0.04).astype(int)
     card_present = np.isin(channel, ["chip", "contactless", "atm"]).astype(int)
+    account_age_days = age_card[card].copy()
+    card_id = np.array([f"C-{1000 + c}" for c in card], dtype=object)
 
     k = int(round(share * n))
     idx = rng.choice(n, size=k, replace=False)
     kinds = np.array(["amount_spike", "night_foreign", "velocity", "new_account_large", "far_atm"])[np.arange(k) % 5]
+    # the card's typical amount, before any anomaly is planted
+    typical = pd.Series(amount).groupby(card).median()
+    new_card = 0
     for i, kind in zip(idx, kinds):
+        c = card[i]
         if kind == "amount_spike":
-            amount[i] = round(avg_amount_90d[i] * rng.uniform(15, 40), 2)
+            amount[i] = round(float(typical[c]) * rng.uniform(15, 40), 2)
         elif kind == "night_foreign":
             hour[i] = int(rng.integers(1, 5))
+            ts.iloc[i] = ts.iloc[i].normalize() + pd.Timedelta(hours=int(hour[i]), minutes=int(minute[i]))
             foreign[i] = 1
             distance_km[i] = round(rng.uniform(800, 6000), 1)
             channel[i] = "online"
             card_present[i] = 0
         elif kind == "velocity":
-            txn_24h[i] = int(rng.integers(25, 60))
+            same = np.where((card == c) & (np.arange(n) != i))[0]
+            if len(same):
+                prev = ts.iloc[same].min()
+                ts.iloc[i] = prev + pd.Timedelta(minutes=int(rng.integers(1, 6)))
+                hour[i] = ts.iloc[i].hour
             amount[i] = round(amount[i] * rng.uniform(1.5, 3), 2)
         elif kind == "new_account_large":
+            card_id[i] = f"C-N{new_card:03d}"
+            new_card += 1
             account_age_days[i] = int(rng.integers(1, 10))
             amount[i] = round(rng.uniform(2500, 9000), 2)
             mcc[i] = "electronics"
+            channel[i] = "online"
+            card_present[i] = 0
         elif kind == "far_atm":
             mcc[i] = "cash"
             channel[i] = "atm"
@@ -154,16 +187,45 @@ def generate_card_transactions(n: int = 6_000, seed: int = 42, share: float = 0.
             distance_km[i] = round(rng.uniform(300, 1500), 1)
             amount[i] = round(rng.uniform(800, 2000), 2)
             hour[i] = int(rng.integers(0, 5))
+            ts.iloc[i] = ts.iloc[i].normalize() + pd.Timedelta(hours=int(hour[i]), minutes=int(minute[i]))
     df = pd.DataFrame({
-        "txn_id": [f"T-{900000 + i}" for i in range(n)], "amount_usd": amount, "avg_amount_90d": avg_amount_90d,
+        "txn_id": [f"T-{900000 + i}" for i in range(n)], "card_id": card_id,
+        "timestamp": ts.dt.strftime("%Y-%m-%dT%H:%M:%S").to_numpy(), "amount_usd": amount,
         "merchant_category": mcc, "channel": channel, "card_present": card_present, "foreign": foreign,
-        "hour": hour, "distance_from_home_km": distance_km, "txns_last_24h": txn_24h,
-        "account_age_days": account_age_days,
+        "hour": hour, "distance_from_home_km": distance_km, "account_age_days": account_age_days,
     })
-    order = np.argsort(idx)
+    # features a card system computes from the card's own history (normal behaviour; anomalies are not averaged in)
+    planted = np.zeros(n, dtype=bool)
+    planted[idx] = True
+    normal_mean = df.loc[~planted].groupby("card_id")["amount_usd"].mean()
+    df["avg_amount_90d"] = df["card_id"].map(normal_mean).fillna(0.0).round(2)
+    t = pd.to_datetime(df["timestamp"])
+    order = np.lexsort((t.to_numpy(), df["card_id"].to_numpy()))
+    cnt = np.zeros(n, dtype=int)
+    for cid, rows in pd.Series(order).groupby(df["card_id"].to_numpy()[order]):
+        rr = rows.to_numpy()
+        tt = t.to_numpy()[rr]
+        lo = np.searchsorted(tt, tt - np.timedelta64(24, "h"), side="left")
+        cnt[rr] = np.arange(len(rr)) - lo + 1
+    df["txns_last_24h"] = cnt
+    for i, kind in zip(idx, kinds):
+        if kind == "velocity":
+            df.loc[i, "txns_last_24h"] = int(rng.integers(25, 60))
+    # a bank export: sorted by time; keep track of where the planted rows went
+    perm = np.argsort(t.to_numpy(), kind="stable")
+    df = df.iloc[perm].reset_index(drop=True)
+    df["txn_id"] = [f"T-{900000 + i}" for i in range(n)]
+    new_pos = np.empty(n, dtype=int)
+    new_pos[perm] = np.arange(n)
+    cols = ["txn_id", "card_id", "timestamp", "amount_usd", "avg_amount_90d", "merchant_category", "channel",
+            "card_present", "foreign", "hour", "distance_from_home_km", "txns_last_24h", "account_age_days"]
+    df = df[cols]
+    rows = new_pos[idx]
+    o = np.argsort(rows)
     sidecar = {
         "dataset": "card-transactions", "seed": seed, "rows": n, "label_column": None,
-        "anomalies": {"rows": [int(r) for r in idx[order]], "kinds": [str(x) for x in kinds[order]], "share": k / n,
+        "entity_column": "card_id", "time_column": "timestamp", "relative_columns": ["amount_usd"],
+        "anomalies": {"rows": [int(r) for r in rows[o]], "kinds": [str(x) for x in kinds[o]], "share": k / n,
                       "note": "ground truth for the sample only; never given to a model"},
     }
     return df, sidecar

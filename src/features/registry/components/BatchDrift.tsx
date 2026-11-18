@@ -10,11 +10,12 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { BAND_COLOR, BAND_STATUS, pct, us, when } from '../lib'
 
+const HL = (c: string) => c === 'prediction' || c.startsWith('p_') || c === 'anomaly_score' || c === 'flagged' || c === 'mean' || c === 'percentile'
 const psiFmt = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(4))
 
 /** Batch scoring of a CSV with the version (in a worker, with progress), then PSI drift of every feature and of the
  *  model's output against what the model was built on. */
-export function BatchDrift({ v, actor, onScored }: { v: ModelVersion; actor: string; onScored?: () => void }) {
+export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelVersion; actor: string; onScored?: () => void; kind?: string }) {
   const [list, setList] = useState<BatchListItem[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [job, setJob] = useState<BatchJob | null>(null)
@@ -47,7 +48,7 @@ export function BatchDrift({ v, actor, onScored }: { v: ModelVersion; actor: str
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="batch">
       <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">Batch Scoring</h3><span className="helper" style={{ fontSize: 12 }}>a CSV with the model’s feature columns; extra columns are kept and passed through</span></div></div>
+        <div className="card-head"><div className="left"><h3 className="card-title">{kind === 'forecast' ? 'Batch Forecast' : 'Batch Scoring'}</h3><span className="helper" style={{ fontSize: 12 }}>{kind === 'forecast' ? 'a CSV of new history in the run’s long format (same item id, timestamp, target and covariate columns): every series is forecast H steps past its end, no refit' : kind === 'anomaly' ? 'a CSV with the forest’s feature columns: every row gets s, its percentile among the fitted rows and a flag at s*' : 'a CSV with the model’s feature columns; extra columns are kept and passed through'}</span></div></div>
         <div className="card-body batch-up">
           <label className={`batch-drop ${file ? 'has' : ''}`} data-testid="batch-drop">
             <input ref={input} type="file" accept=".csv,text/csv" data-testid="batch-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
@@ -67,7 +68,7 @@ export function BatchDrift({ v, actor, onScored }: { v: ModelVersion; actor: str
         {list.length > 0 && (
           <div className="table-wrap" style={{ borderTop: '1px solid var(--border-default)' }}>
             <table className="table compact" data-testid="batch-list">
-              <thead><tr><th>batch</th><th>file</th><th>by</th><th>when</th><th className="r">rows</th><th className="r">max PSI</th><th className="r nocase">PSI(p̂)</th><th>status</th></tr></thead>
+              <thead><tr><th>batch</th><th>file</th><th>by</th><th>when</th><th className="r">rows</th><th className="r">max PSI</th><th className="r nocase">PSI({kind === 'anomaly' ? 's' : kind === 'forecast' ? 'ŷ' : 'p̂'})</th><th>status</th></tr></thead>
               <tbody>{list.map((b) => (
                 <tr key={b.id} className={b.id === sel ? 'sel' : ''} onClick={() => setSel(b.id)} style={{ cursor: 'pointer' }}>
                   <td className="mono">{b.id}</td><td className="mono">{b.filename}</td><td>{b.created_by}</td><td className="mono">{when(b.created_at)}</td>
@@ -98,15 +99,16 @@ function BatchResult({ job }: { job: BatchJob }) {
         <div className="eh-cell lead"><span className="micro-label">scored</span><b className="mono" data-testid="batch-rows">{s.n_rows.toLocaleString()}</b><small>rows of {job.filename} · {s.model}</small></div>
         <div className="eh-cell"><span className="micro-label">time per row</span><b className="mono">{us(s.us_per_row)} µs</b><small className="math-s">T / n, T = {s.score_seconds.toFixed(2)} s</small></div>
         {s.mean_p != null && <div className="eh-cell"><span className="micro-label">mean p̂({s.positive_class})</span><b className="mono">{s.mean_p.toFixed(4)}</b><small className="math-s">reference {s.mean_p_reference?.toFixed(4)}</small></div>}
-        {s.flagged_share != null && <div className="eh-cell"><span className="micro-label">flagged</span><b className="mono">{pct(s.flagged_share)}</b><small className="math-s">share with p̂ &gt; t = {s.threshold?.toFixed(3)}</small></div>}
-        {s.mean_prediction != null && <div className="eh-cell"><span className="micro-label">mean ŷ</span><b className="mono">{fmtScore(s.mean_prediction, 2)}</b><small className="math-s">σ = {fmtScore(s.std_prediction, 2)}</small></div>}
+        {s.flagged_share != null && <div className="eh-cell"><span className="micro-label">flagged</span><b className="mono">{pct(s.flagged_share)}</b><small className="math-s">{s.flag_rule ?? <>share with p̂ &gt; t = {s.threshold?.toFixed(3)}</>}{s.expected_share != null ? ` · c = ${pct(s.expected_share)}` : ''}</small></div>}
+        {s.items != null && <div className="eh-cell"><span className="micro-label">series forecast</span><b className="mono">{s.items}</b><small className="math-s">{s.forecast_rows?.toLocaleString()} rows · covariates: {s.known_covariates_source}</small></div>}
+        {s.mean_prediction != null && <div className="eh-cell"><span className="micro-label">mean {s.prediction_symbol ?? 'ŷ'}</span><b className="mono">{fmtScore(s.mean_prediction, 2)}</b><small className="math-s">σ = {fmtScore(s.std_prediction, 2)}</small></div>}
         <div className="eh-cell"><span className="micro-label">max PSI (features)</span><b className="mono" data-testid="batch-max-psi" style={{ color: worst ? BAND_COLOR[worst.band] : undefined }}>{psiFmt(d.max_psi)}</b><small className="math-s">{worst ? `${worst.feature} · ${worst.band}` : ''}</small></div>
         <div className="eh-cell"><span className="micro-label">PSI(output)</span><b className="mono" data-testid="batch-pred-psi" style={{ color: BAND_COLOR[p.band] }}>{psiFmt(p.psi)}</b><small className="math-s">{p.ks ? `KS D = ${p.ks.statistic.toFixed(3)}` : p.band}</small></div>
       </div>
 
       <div className="card" data-testid="psi-table">
           <div className="card-head">
-            <div className="left"><h3 className="card-title">Population Stability Index</h3><span className="helper" style={{ fontSize: 12 }}>each feature of the batch against the training rows</span></div>
+            <div className="left"><h3 className="card-title">Population Stability Index</h3><span className="helper" style={{ fontSize: 12 }}>each {s.problem_type === 'forecast' ? 'column of the new history' : 'feature of the batch'} against {d.reference ?? 'the training rows'}</span></div>
             <div className="row" style={{ gap: 6 }}>
               <StatusPill status="success">{d.counts.stable} stable</StatusPill><StatusPill status="warning">{d.counts.watch} watch</StatusPill><StatusPill status="danger">{d.counts.shift} shift</StatusPill>
               <a className="btn sm primary" href={api.registry.batchUrl(job.id)} download data-testid="batch-download">Download scored CSV</a>
@@ -115,7 +117,7 @@ function BatchResult({ job }: { job: BatchJob }) {
           <div className="formula psi-formula">
             <div className="eq"><i>PSI</i> = Σ<sub><i>i</i></sub> (<i>a</i><sub><i>i</i></sub> − <i>e</i><sub><i>i</i></sub>) · ln(<i>a</i><sub><i>i</i></sub> / <i>e</i><sub><i>i</i></sub>)</div>
             <dl className="where">
-              <dt>eᵢ</dt><dd>share of the n_e = {d.n_expected.toLocaleString()} training rows in bin i (expected)</dd>
+              <dt>eᵢ</dt><dd>share of the n_e = {d.n_expected.toLocaleString()} reference rows in bin i (expected): {d.reference ?? 'the training rows'}</dd>
               <dt>aᵢ</dt><dd>share of the n_a = {d.n_actual.toLocaleString()} batch rows in bin i (actual)</dd>
               <dt>i</dt><dd>numbers: training deciles (−∞, q₀.₁], …, (q₀.₉, ∞); categories: the 19 most frequent + other; text: length in characters; missing is its own bin</dd>
               <dt>ε</dt><dd>shares floored at ε = {d.eps} so an empty bin counts instead of dividing by zero</dd>
@@ -136,15 +138,15 @@ function BatchResult({ job }: { job: BatchJob }) {
       </div>
       <div className="grid psi-grid">
         {f && <BinChart f={f} title={`Bins · ${f.feature}`} />}
-        <BinChart f={p} title="Output distribution" output />
+        <BinChart f={p} title="Output distribution" output reference={d.prediction_reference} />
       </div>
 
       <div className="card" data-testid="batch-preview">
-        <div className="card-head"><div className="left"><h3 className="card-title">Preview</h3><span className="helper" style={{ fontSize: 12 }}>first {r.preview.length} of {s.n_rows.toLocaleString()} scored rows · prediction and per-class probabilities appended</span></div></div>
+        <div className="card-head"><div className="left"><h3 className="card-title">Preview</h3><span className="helper" style={{ fontSize: 12 }}>first {r.preview.length} {s.problem_type === 'forecast' ? 'forecast rows · mean and every quantile per series and step' : s.problem_type === 'anomaly' ? `of ${s.n_rows.toLocaleString()} scored rows · anomaly_score s, expected_path_length E[h], percentile and flagged appended` : `of ${s.n_rows.toLocaleString()} scored rows · prediction and per-class probabilities appended`}</span></div></div>
         <div className="table-wrap" style={{ maxHeight: 340, overflow: 'auto' }}>
           <table className="table compact">
-            <thead><tr>{r.columns.map((c) => <th key={c} className={c === 'prediction' || c.startsWith('p_') ? 'hl' : ''}>{c}</th>)}</tr></thead>
-            <tbody>{r.preview.slice(0, 25).map((row, i) => <tr key={i}>{r.columns.map((c) => { const x = row[c]; return <td key={c} className={`mono ${c === 'prediction' || c.startsWith('p_') ? 'hl' : ''}`}>{x == null ? '' : typeof x === 'number' ? (Number.isInteger(x) ? x : x.toFixed(4)) : String(x).slice(0, 40)}</td> })}</tr>)}</tbody>
+            <thead><tr>{r.columns.map((c) => <th key={c} className={HL(c) ? 'hl' : ''}>{c}</th>)}</tr></thead>
+            <tbody>{r.preview.slice(0, 25).map((row, i) => <tr key={i}>{r.columns.map((c) => { const x = row[c]; return <td key={c} className={`mono ${HL(c) ? 'hl' : ''}`}>{x == null ? '' : typeof x === 'number' ? (Number.isInteger(x) ? x : x.toFixed(4)) : String(x).slice(0, 40)}</td> })}</tr>)}</tbody>
           </table>
         </div>
       </div>
@@ -179,7 +181,7 @@ function binLabel(l: string) {
 }
 
 /** Expected vs actual share per bin, with each bin's PSI term (aᵢ − eᵢ)·ln(aᵢ/eᵢ). */
-function BinChart({ f, title, output }: { f: PsiFeature; title: string; output?: boolean }) {
+function BinChart({ f, title, output, reference }: { f: PsiFeature; title: string; output?: boolean; reference?: string }) {
   const bins = f.bins ?? []
   const n = bins.length
   const maxS = Math.max(0.01, ...bins.flatMap((b) => [b.expected, b.actual]))
@@ -187,7 +189,7 @@ function BinChart({ f, title, output }: { f: PsiFeature; title: string; output?:
     <PlotFrame title={title} right={<span className="mono helper" style={{ fontSize: 12 }}>PSI = {psiFmt(f.psi)}</span>}
       legend={[{ name: 'eᵢ training', color: 'var(--viz-c)', data: [] }, { name: 'aᵢ batch', color: 'var(--viz-d)', data: [] }]}
       chips={<><ParamChip sym="bins" value={String(n)} />{f.ks && <ParamChip sym="KS D" value={f.ks.statistic.toFixed(3)} />}</>}
-      caption={<span>{output ? `${f.output}; reference: the version’s own predictions on the holdout. ` : ''}Bar pairs are eᵢ and aᵢ; the number under each bin is its term (aᵢ − eᵢ)·ln(aᵢ/eᵢ), and the terms add up to PSI.</span>}>
+      caption={<span>{output ? `${f.output}; reference: ${reference ?? 'the version’s own predictions on the holdout'}. ` : ''}Bar pairs are eᵢ and aᵢ; the number under each bin is its term (aᵢ − eᵢ)·ln(aᵢ/eᵢ), and the terms add up to PSI.</span>}>
       <XYPlot height={200} testId={output ? 'bins-output' : 'bins-feature'} ariaLabel={title}
         x={{ min: 0, max: n, ticks: [], title: '' }} y={{ min: 0, max: maxS * 1.15, ticks: niceTicks(0, maxS * 1.15, 4), title: 'share', fmt: (v) => `${(v * 100).toFixed(0)}%` }}
         series={[]}

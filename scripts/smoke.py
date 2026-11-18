@@ -403,6 +403,122 @@ def samples(st: dict[str, Any]) -> None:
 
     step("text sample: train + predict", text)
 
+    def onerow():
+        r = post("/api/runs", {"dataset_id": "support-tickets", "time_limit": 150, "source": "smoke",
+                               "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 80}, "TFIDF_LR": {}}},
+                               "feature_importance": False})
+        rec = wait_run(r["id"])
+        lp = get(f"/api/runs/{r['id']}/latency")
+        ms = {m["model"]: m for m in lp["models"]}
+        check(all(m.get("single_ms_p95") is not None for m in lp["models"]), "one-row latency per model")
+        best = ms[lp["best_model"]]
+        fast = [m for m in lp["models"] if not m["best"] and m["score_test_natural"] is not None
+                and m["single_ms_p95"] <= 0.5 * best["single_ms_p95"]]
+        check(fast, f"no model at ≤ half of {best['model']}'s one-row p95 {best['single_ms_p95']:.1f} ms")
+        alt = max(fast, key=lambda m: m["score_test_natural"])
+        v = post(f"/api/runs/{r['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.support-tickets.fast",
+                                                    "serve_model": alt["model"]})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready", v.get("error"))
+        served = v["result"]["version"]["best_model"]
+        check(served == alt["model"], f"served {served}, asked {alt['model']}")
+        lat = v["result"]["version"]["latency"]
+        d = alt["score_test_natural"] - best["score_test_natural"]
+        return (f"{r['id']} · τ95 one row: {best['model']} {best['single_ms_p95']:.1f} ms vs {alt['model']} {alt['single_ms_p95']:.1f} ms "
+                f"· Δ{lp['eval_metric']} {d:+.4f} · {v['id']} serves {served} (version τ95 {lat['single_ms_p95']:.1f} ms)")
+
+    step("text: one-row latency + serve a faster model", onerow)
+
+
+# --------------------------------------------------------------------------- fresh CSVs (scripts/fresh_data.py)
+
+FRESH = [
+    # file, label, metric, problem type, fit_kwargs, a test row's expected kind of answer
+    ("card_fraud.csv", "is_fraud", "average_precision", "binary",
+     {"hyperparameters": {"GBM": {"num_boost_round": 150}, "CAT": {"iterations": 150}, "LR": {}}, "num_bag_folds": 3}),
+    ("complaints.csv", "product_team", "f1_macro", "multiclass", {"hyperparameters": {"TFIDF_LR": {}, "TFIDF_SVM": {}}}),
+    ("deposit_balances.csv", "avg_balance_next_q_gbp", "root_mean_squared_error", "regression",
+     {"hyperparameters": {"GBM": {"num_boost_round": 200}, "XT": {}, "LR": {}}}),
+]
+
+
+def fresh(st: dict[str, Any]) -> None:
+    """Three CSVs no earlier session saw, through the same calls the browser walkthrough makes:
+    upload → profile → train (SSE) → results → explain → register → approve → Production → Try It → batch score."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import fresh_data
+
+    tmp = tempfile.mkdtemp(prefix="smoke-fresh-")
+    paths = fresh_data.write(tmp)
+    for fname, label, metric, ptype, fk in FRESH:
+        tag = fname.split(".")[0]
+        df = pd.read_csv(paths[fname])
+        rec_st: dict[str, Any] = {}
+
+        def upload_train():
+            d = j(C.post("/api/datasets", files={"file": (fname, df.to_csv(index=False).encode(), "text/csv")}, data={"target": label}))
+            prof = get(f"/api/datasets/{d['id']}")["profile"]
+            check(prof["task"] == ptype, f"profile task {prof['task']} ≠ {ptype}")
+            body = {"dataset_id": d["id"], "label": label, "eval_metric": metric, "time_limit": 120, "presets": "medium_quality",
+                    "fit_kwargs": fk, "source": "smoke-fresh"}
+            if ptype == "binary":
+                body["calibrate_threshold"] = "f1"
+            r = post("/api/runs", body)
+            sse = follow_sse(r["id"], 900)
+            rec = wait_run(r["id"])
+            rec_st.update(ds=d, rec=rec)
+            m, sc = primary(rec)
+            extra = f" · t = {rec['threshold']['value']:.3f} (F1-calibrated)" if rec.get("threshold") else ""
+            types = {c["name"]: c["type"] for c in prof["columns"]}
+            text = [c for c, t in types.items() if t == "text"]
+            return (f"{d['id']} {d['rows']:,} × {d['n_cols']} · task {prof['task']}{f' · text {text}' if text else ''} · {r['id']} "
+                    f"{sse['counts'].get('model_finished', 0)} models · best {rec['best_model']} · holdout {m} {sc:.4f}{extra}")
+
+        if not step(f"fresh {tag}: upload → train", upload_train):
+            continue
+        rid = rec_st["rec"]["id"]
+
+        def explain_():
+            e = get(f"/api/runs/{rid}/explain")
+            fi = get(f"/api/runs/{rid}/feature-importance")
+            top = (fi.get("importance") or fi.get("features") or [{}])[0] if isinstance(fi, dict) else {}
+            if ptype == "binary":
+                pos = rec_st["rec"]["positive_class"]
+                roc = e["roc"][str(pos)]
+                ap = e["pr"][str(pos)]["ap"] if "pr" in e else float("nan")
+                return f"ROC AUC {roc['auc']:.4f} · AP {ap:.4f} (prevalence {e.get('prevalence', float('nan')) if isinstance(e.get('prevalence'), float) else '—'}) · top feature {top.get('feature', '—')}"
+            if ptype == "multiclass":
+                rep = e.get("per_class") or e.get("report") or []
+                return f"{len(rec_st['rec']['classes'])} classes · confusion Σ = {int(np.asarray(e['confusion_matrix']).sum())} · top feature {top.get('feature', '—')}"
+            return f"R² {e['r2']:.4f} · RMSE {e['rmse']:,.0f} · MAE {e['mae']:,.0f} · top feature {top.get('feature', '—')}"
+
+        step(f"fresh {tag}: explain", explain_)
+
+        def register_use():
+            v = post(f"/api/runs/{rid}/register", {"created_by": "Smoke Analyst", "model_name": f"fresh.{tag}"})
+            v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+            check(v["status"] == "ready", v.get("error"))
+            post(f"/api/registry/versions/{v['id']}/review", {"decision": "approve", "reviewer": "Smoke Validator", "comment": "fresh data check"})
+            post(f"/api/registry/versions/{v['id']}/transition", {"stage": "Production", "actor": "Smoke Validator"})
+            check(get(f"/api/registry/versions/{v['id']}")["stage"] == "Production", "stage")
+            row = df.drop(columns=[label]).iloc[3].to_dict()
+            row = {k: (None if isinstance(x, float) and np.isnan(x) else x) for k, x in row.items()}
+            out = post(f"/api/registry/versions/{v['id']}/predict", {"row": row, "explain": True})
+            batch = df.drop(columns=[label]).sample(400, random_state=1)
+            b = j(C.post(f"/api/registry/versions/{v['id']}/batches", files={"file": (f"{tag}_new.csv", batch.to_csv(index=False).encode(), "text/csv")},
+                         data={"created_by": "Smoke Analyst"}))
+            b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+            check(b["status"] == "succeeded", b.get("error"))
+            dl = pd.read_csv(io.BytesIO(C.get(f"/api/registry/batches/{b['id']}/download").content))
+            check(len(dl) == 400 and "prediction" in dl.columns, dl.shape)
+            pred = out["prediction"]
+            pred = f"{pred:,.0f}" if isinstance(pred, (int, float)) else pred
+            reasons = ", ".join(r["feature"] for r in (out.get("shap") or {}).get("reasons", [])[:2])
+            return (f"{v['id']} approved → Production · Try It → {pred} ({out['predict_ms']:.0f} ms; why: {reasons}) · "
+                    f"{b['id']} 400 rows scored · max PSI {b['result']['drift']['max_psi']:.3f}")
+
+        step(f"fresh {tag}: register → approve → Try It → batch", register_use)
+
 
 # --------------------------------------------------------------------------- autopilot
 
@@ -552,6 +668,19 @@ def forecast(st: dict[str, Any]) -> None:
 
     step("forecast: per-item errors", errors)
 
+    def calibration():
+        cal = st["fc_rec"]["holdout"]["calibration"]
+        lv = cal["levels"]
+        check(all(lv[i]["below"] <= lv[i + 1]["below"] for i in range(len(lv) - 1)), "F̂(τ) not monotone")
+        main = cal["intervals"][0]
+        ok = main["ci"][0] <= main["nominal"] <= main["ci"][1]
+        check((cal["verdict"] == "calibrated") == ok, cal["verdict"])
+        bt = ", ".join(f"{b['model']} {b['empirical']:.0%}" for b in cal["backtest"] if b["empirical"] is not None)
+        return (f"n = {cal['n']} · [q{main['lo']}, q{main['hi']}] covers {main['inside']}/{main['n']} = {main['empirical']:.1%} vs nominal "
+                f"{main['nominal']:.0%} (95% CI {main['ci'][0]:.1%}–{main['ci'][1]:.1%}, P(K ≥ k) = {main['p_all_inside']:.1e}) → {cal['verdict']} · backtests: {bt}")
+
+    step("forecast: interval calibration", calibration)
+
     def chart():
         c = get(f"/api/forecast/runs/{fid}/chart")
         it = c["items"]["cards-online"]
@@ -610,9 +739,25 @@ def forecast(st: dict[str, Any]) -> None:
         md = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
         check("## 11. Forecasting" in md, "card section")
         lat = v["result"]["version"]["latency"]
+        st["fc_ver"] = v["id"]
         return f"{v['id']} · {v['model_name']} v{v['version']} · card §11 Forecasting · forecast all items {lat['forecast_all_items_s_p50'] * 1e3:.0f} ms"
 
-    step("forecast: register + model card", register)
+    if step("forecast: register + model card", register):
+        def reg_batch():
+            src = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "transaction-volume", "data.csv"))
+            cut = src[src["timestamp"] <= "2026-09-30"]
+            b = j(C.post(f"/api/registry/versions/{st['fc_ver']}/batches", data={"created_by": "Smoke Analyst"},
+                         files={"file": ("history_to_sep.csv", cut.to_csv(index=False).encode(), "text/csv")}))
+            b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+            check(b["status"] == "succeeded", b.get("error"))
+            r = b["result"]
+            d = r["drift"]
+            dl = pd.read_csv(io.BytesIO(C.get(f"/api/registry/batches/{b['id']}/download").content))
+            check(len(dl) == 168 and "mean" in dl.columns, dl.shape)
+            return (f"{b['id']} · history to 2026-09-30 → {r['summary']['items']} series × 28 = {len(dl)} rows forecast · "
+                    f"PSI {', '.join(f'{f['feature']} {f['psi']:.3f}' for f in d['features'] if f['psi'] is not None)} · PSI(ŷ) {d['prediction']['psi']:.3f}")
+
+        step("forecast: registry batch + drift", reg_batch)
 
 
 def anomaly(st: dict[str, Any]) -> None:
@@ -655,6 +800,21 @@ def anomaly(st: dict[str, Any]) -> None:
 
     step("anomaly: precision@k (hidden truth)", precision)
 
+    def group_vs_plain():
+        g = st["an_rec"]["data"].get("group")
+        check(g and g["entity_column"] == "card_id", "group features on by default for the sample")
+        r = post("/api/anomaly/runs", {"dataset_id": "card-transactions", "contamination": 0.015, "lof": False,
+                                      "group_features": False, "drop_columns": ["card_id", "timestamp"], "source": "smoke"})
+        plain = wait_run(r["id"], 300)
+        tg, tp = st["an_rec"]["anomaly"]["truth"], plain["anomaly"]["truth"]
+        sg, sp = tg["by_kind"]["amount_spike"]["found"], tp["by_kind"]["amount_spike"]["found"]
+        check(sg > sp and tg["roc_auc"] > tp["roc_auc"], f"spikes {sg} vs {sp}, AUC {tg['roc_auc']} vs {tp['roc_auc']}")
+        p90 = lambda t: next(x["precision"] for x in t["precision_at_k"] if x["k"] == 90)
+        return (f"{', '.join(g['added'])} · amount spikes found {sp}/18 → {sg}/18 · P@90 {p90(tp):.2f} → {p90(tg):.2f} · "
+                f"AUC {tp['roc_auc']:.3f} → {tg['roc_auc']:.3f} (plain run {r['id']})")
+
+    step("anomaly: group-relative features vs plain", group_vs_plain)
+
     def batch():
         src = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "card-transactions", "data.csv")).sample(500, random_state=3)
         src.loc[src.index[:5], "amount_usd"] = 25_000.0
@@ -679,9 +839,26 @@ def anomaly(st: dict[str, Any]) -> None:
         check(out["kind"] == "anomaly" and out["flagged"], out)
         card = get(f"/api/registry/versions/{v['id']}/card")
         check(card["anomaly_detection"]["truth_check"], "card")
+        st["an_ver"] = v["id"]
         return f"{v['id']} · v{v['version']} ready · card §11 · Try It: s = {out['anomaly_score']:.3f} (pct {out['percentile']:.3f}) flagged — {out['why'][:60]}"
 
-    step("anomaly: register + Try It", register)
+    if step("anomaly: register + Try It", register):
+        def reg_batch():
+            src = pd.read_csv(os.path.join(get("/api/health")["data_dir"], "datasets", "card-transactions", "data.csv")).sample(800, random_state=5)
+            src.loc[src.index[:8], "amount_usd"] = src.loc[src.index[:8], "amount_usd"] * 30
+            b = j(C.post(f"/api/registry/versions/{st['an_ver']}/batches", data={"created_by": "Smoke Analyst"},
+                         files={"file": ("cards_new.csv", src.to_csv(index=False).encode(), "text/csv")}))
+            b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 300)
+            check(b["status"] == "succeeded", b.get("error"))
+            r = b["result"]
+            dl = pd.read_csv(io.BytesIO(C.get(f"/api/registry/batches/{b['id']}/download").content))
+            check(len(dl) == 800 and {"anomaly_score", "flagged", "amount_usd_over_entity_mean"} <= set(dl.columns), list(dl.columns)[-6:])
+            hit = int(dl["flagged"].iloc[:8].sum())
+            d = r["drift"]
+            return (f"{b['id']} · 800 rows · {r['summary']['n_flagged']} flagged at s* · {hit}/8 rows with amount ×30 flagged · "
+                    f"max PSI {d['max_psi']:.3f} · PSI(s) {d['prediction']['psi']:.3f}")
+
+        step("anomaly: registry batch + drift", reg_batch)
 
 
 def importer(st: dict[str, Any]) -> None:
@@ -755,6 +932,19 @@ def importer(st: dict[str, Any]) -> None:
 
     step("import: server path + validation", by_path)
 
+    def kinds():
+        runs = get("/api/runs", kind="all")["runs"]
+        by = {}
+        for r in runs:
+            by[r["kind"]] = by.get(r["kind"], 0) + 1
+        tab = get("/api/runs")["runs"]
+        check(all(r["kind"] in ("tabular", "import") for r in tab), "default list is tabular + imports")
+        need = {"tabular", "import"} | ({"forecast"} if "forecast" in ONLY else set()) | ({"anomaly"} if "anomaly" in ONLY else set())
+        check(need <= set(by), by)
+        return f"GET /api/runs?kind=all (Experiments, Home) · {len(runs)} runs · " + " · ".join(f"{k} {v}" for k, v in sorted(by.items()))
+
+    step("runs list: every kind (Experiments, Home)", kinds)
+
 
 def reset(st: dict[str, Any]) -> None:
     def run():
@@ -797,11 +987,14 @@ def reset(st: dict[str, Any]) -> None:
     step("reset: POST /api/admin/reset", run)
 
 
+ONLY: set[str] = set()
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,reset")
+    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -832,12 +1025,13 @@ def main() -> int:
 
 
 def _main(args) -> int:
-    global C
+    global C, ONLY
+    ONLY = {x.strip() for x in args.only.split(",")}
     C = httpx.Client(base_url=API, timeout=httpx.Timeout(600, connect=10))
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "reset": reset}
+                "import": importer, "fresh": fresh, "reset": reset}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

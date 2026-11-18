@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..engine.store import now
-from . import core
+from . import core, group
 
 router = APIRouter(prefix="/api/anomaly")
 
@@ -36,6 +36,11 @@ class AnomalyCreate(BaseModel):
     lof: bool = Field(True, description="Also fit LocalOutlierFactor (novelty=True) on robust-scaled features.")
     lof_neighbors: int = Field(20, ge=2, le=500)
     iforest_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to IsolationForest(...).")
+    group_features: bool | None = Field(None, description="Group-relative features (x ÷ the entity's mean, z within the "
+                                        "entity, time since its previous row). None: on when an entity column is mapped.")
+    entity_column: str | None = Field(None, description="The entity (card, account, customer); default: the sample's spec.")
+    time_column: str | None = None
+    relative_columns: list[str] | None = Field(None, description="Numeric columns compared within the entity.")
     source: str | None = None
 
 
@@ -60,6 +65,22 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     for c in (body.features or []) + (body.drop_columns or []):
         if c not in cols:
             raise HTTPException(400, f"No column named '{c}'.")
+    for c in [body.entity_column, body.time_column, *(body.relative_columns or [])]:
+        if c and c not in cols:
+            raise HTTPException(400, f"No column named '{c}'.")
+    if body.entity_column is None and body.group_features is not False:
+        spec = app.state.datasets.sidecar(body.dataset_id, "anomaly_truth.json") or {}
+        if spec.get("entity_column"):
+            body.entity_column, body.time_column = spec["entity_column"], spec.get("time_column")
+            body.relative_columns = body.relative_columns or spec.get("relative_columns")
+    if body.group_features is None:
+        body.group_features = bool(body.entity_column)
+    if body.group_features:
+        if not body.entity_column:
+            raise HTTPException(400, "group_features needs an entity_column.")
+        if not body.relative_columns:
+            body.relative_columns = [c for c, v in cols.items() if v["type"] == "number"
+                                     and any(h in c.lower() for h in group.AMOUNT_HINT)][:3]
     run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
     run_dir = settings.runs_dir / run_id
@@ -82,6 +103,17 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     out = run_out(store.get(run_id), store)
     out["config"] = {k: v for k, v in cfg.items() if k != "truth"}
     return out
+
+
+@router.get("/mapping/{dataset_id}")
+def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
+    """Suggested entity, time and relative columns for group-relative features: the sample's spec, else names and
+    types (a repeated ID-like column, a datetime column, amount-like numbers)."""
+    ds = _ds(request, dataset_id)
+    spec = request.app.state.datasets.sidecar(dataset_id, "anomaly_truth.json")
+    df = pd.read_csv(request.app.state.datasets.csv_path(dataset_id), nrows=20000)
+    types = {c["name"]: c["type"] for c in ds["profile"]["columns"]}
+    return group.suggest(df, types, spec)
 
 
 def _run(request: Request, run_id: str, done: bool = True) -> dict[str, Any]:

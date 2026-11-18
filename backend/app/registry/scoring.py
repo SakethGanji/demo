@@ -175,3 +175,100 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         (out_dir_p / "error.txt").write_text(traceback.format_exc())
         reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
         return {"ok": False, "error": str(e)}
+
+
+def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, cfg: dict[str, Any], csv_path: str,
+                     out_dir: str, version: dict[str, Any]) -> dict[str, Any]:
+    """(In a worker.) Batch scoring and drift for forecast and anomaly versions, in the registry's batch format.
+
+    Anomaly: every row scored with the version's IsolationForest (s, E[h], percentile among the fitted rows, the flag
+    at s*); PSI of each feature against the rows the forest was fitted on, and of the score s against the fitted
+    rows' scores. Forecast: the file is new history (same mapping); the version's TimeSeriesPredictor forecasts H
+    steps per series; PSI of the target and the numeric known covariates against the training history, and of the
+    forecast median against the run's own forecast."""
+    from . import drift
+
+    reg = RegistryStore(Database(Path(db_path)))
+    out_dir_p = Path(out_dir)
+    try:
+        reg.update_batch(batch_id, status="running", stage="loading", progress=0.05)
+        t_start = time.time()
+        df = pd.read_csv(csv_path)
+        if len(df) == 0:
+            raise ValueError("The file has no rows.")
+        train = pd.read_csv(cfg["csv_path"])
+        out_path = out_dir_p / "scored.csv"
+        reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.2)
+        if kind == "anomaly":
+            import joblib
+
+            from ..anomaly import core as an
+
+            model = joblib.load(Path(version_path) / "model.joblib")
+            t0 = time.time()
+            out, top, summ = an.score_frame(version_path, df)
+            score_s = time.time() - t0
+            out.to_csv(out_path, index=False)
+            feats = [c for c in model.num + model.cat if c in df.columns and c in train.columns]
+            kinds = {c: ("number" if c in model.num else "category") for c in feats}
+            ref_pred = pd.DataFrame({"y_pred": np.asarray(model.train_scores, dtype=float)})
+            cur_pred = pd.DataFrame({"y_pred": out["anomaly_score"].to_numpy(dtype=float)})
+            reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
+            rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=ref_pred, cur_pred=cur_pred, positive=None)
+            rep["prediction"]["output"] = "isolation score s(x, ψ)"
+            rep["prediction"]["feature"] = "s"
+            rep["prediction_reference"] = "the scores of the rows the forest was fitted on"
+            rep["reference"] = "the rows the forest was fitted on (the run's dataset)"
+            edges = np.linspace(min(ref_pred.y_pred.min(), cur_pred.y_pred.min()), max(ref_pred.y_pred.max(), cur_pred.y_pred.max()), 26)
+            summary = {"n_rows": int(len(df)), "seconds": time.time() - t_start, "score_seconds": score_s,
+                       "us_per_row": score_s / len(df) * 1e6, "model": "IsolationForest", "problem_type": "anomaly",
+                       "missing_columns": [], "extra_columns": [c for c in df.columns if c not in feats],
+                       "flagged_share": summ["flagged_share"], "threshold": summ["threshold"], "n_flagged": summ["n_flagged"],
+                       "expected_share": summ["expected_share"], "flag_rule": f"share with s ≥ s* = {summ['threshold']:.4f}",
+                       "mean_prediction": summ["mean_score"], "std_prediction": float(out["anomaly_score"].std()),
+                       "prediction_symbol": "s", "top": top[:10],
+                       "histogram": {"edges": edges.tolist(), "actual": np.histogram(cur_pred.y_pred, bins=edges)[0].tolist(),
+                                     "expected": np.histogram(ref_pred.y_pred, bins=edges)[0].tolist()}}
+        else:
+            from ..forecast import core as fc
+
+            t0 = time.time()
+            res = fc.predict_new(version_path, cfg, csv_path, str(out_path))
+            score_s = time.time() - t0
+            out = pd.read_csv(out_path)
+            mp = cfg["mapping"]
+            cols = [mp["target"]] + [c for c in (mp.get("known_covariates") or []) + (mp.get("past_covariates") or [])
+                                     if c in df.columns and c in train.columns]
+            obs_train = train[train[mp["target"]].notna()]
+            obs_new = df[df[mp["target"]].notna()] if mp["target"] in df.columns else df
+            kinds = {c: ("number" if pd.api.types.is_numeric_dtype(obs_train[c]) else "category") for c in cols}
+            ref_f = Path(cfg["run_dir"]) / "forecast.csv"
+            ref_pred = pd.DataFrame({"y_pred": pd.read_csv(ref_f)["mean"].to_numpy(dtype=float)}) if ref_f.exists() else pd.DataFrame({"y_pred": out["mean"].to_numpy(dtype=float)})
+            cur_pred = pd.DataFrame({"y_pred": out["mean"].to_numpy(dtype=float)})
+            reg.update_batch(batch_id, stage="drift (PSI of the history)", progress=0.8)
+            rep = drift.drift_report(obs_train, obs_new, kinds, problem_type="regression", ref_pred=ref_pred, cur_pred=cur_pred, positive=None)
+            rep["prediction"]["output"] = "forecast mean ŷ over every series and step"
+            rep["prediction_reference"] = "the run's own forecast past the end of its data"
+            rep["reference"] = "the observed history the predictor was trained on"
+            summary = {"n_rows": int(len(df)), "seconds": time.time() - t_start, "score_seconds": score_s,
+                       "us_per_row": score_s / max(len(out), 1) * 1e6, "model": res["model"], "problem_type": "forecast",
+                       "missing_columns": [], "extra_columns": [], "items": res["items"], "forecast_rows": res["rows"],
+                       "known_covariates_source": res["known_covariates_source"],
+                       "mean_prediction": float(out["mean"].mean()), "std_prediction": float(out["mean"].std()),
+                       "prediction_symbol": "ŷ"}
+        preview = jsonable(out.head(50).to_dict(orient="records"))
+        result = {"summary": summary, "drift": rep, "preview": preview, "columns": list(out.columns),
+                  "output_file": out_path.name, "kind": kind}
+        (out_dir_p / "drift.json").write_text(json.dumps(jsonable(rep)))
+        reg.update_batch(batch_id, status="succeeded", stage="done", progress=1.0, result=jsonable(result), finished_at=now())
+        v = reg.get_version(version["id"])
+        brec = reg.get_batch(batch_id)
+        reg.audit(actor=brec["created_by"] or "unknown", action="batch_scored", version=v,
+                  comment=f"{len(df):,} rows from {brec['filename']} ({kind})",
+                  details={"batch_id": batch_id, "n_rows": int(len(df)), "max_psi": rep.get("max_psi"),
+                           "prediction_psi": rep["prediction"]["psi"], "bands": rep["counts"]})
+        return {"ok": True}
+    except Exception as e:  # noqa: BLE001
+        (out_dir_p / "error.txt").write_text(traceback.format_exc())
+        reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
+        return {"ok": False, "error": str(e)}

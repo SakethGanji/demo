@@ -73,6 +73,8 @@ class RegisterRequest(BaseModel):
     infer_limit: float | None = Field(None, gt=0, description="Latency budget in seconds per row (AutoGluon's unit).")
     infer_limit_batch_size: int | None = Field(None, ge=1, le=100_000)
     clone_for_deployment: bool = Field(True, description="Keep only the served model and what it needs.")
+    serve_model: str | None = Field(None, description="Serve this model of the run (set_model_best), e.g. a faster one "
+                                    "with a measured one-row latency; after refit_full its _FULL copy is served.")
 
 
 @router.post("/runs/{run_id}/register", status_code=202)
@@ -113,7 +115,7 @@ async def latency_profile(run_id: str, request: Request, batch: int = Query(1000
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}.")
     cached = ((rec.get("result") or {}).get("latency_profile") or {}).get(str(batch))
-    if cached:
+    if cached and all("single_ms_p95" in m for m in cached.get("models", [])):
         return {"run_id": run_id, **cached, "cached": True}
     out = await request.app.state.heavy.run(scoring_profile, rec["config"], batch)
     prof = dict((rec.get("result") or {}).get("latency_profile") or {})
@@ -138,12 +140,13 @@ def scoring_profile(cfg: dict[str, Any], batch: int) -> dict[str, Any]:
     for m in p.model_names(can_infer=True):
         deps = build._deps(p, m)
         size = sum(build.dir_size(root / d) for d in deps if (root / d).exists())
-        t = build.measure_latency(p, X, model=m, batch_rows=min(batch, len(X)), repeats=3, singles=0, budget_s=4.0)
+        t = build.measure_latency(p, X, model=m, batch_rows=min(batch, len(X)), repeats=3, singles=15, budget_s=2.5)
         sv, st = lb.loc[m, "score_val"], lb.loc[m, "score_test"]
         parent = p._trainer.get_model_attribute(m, "refit_full_parent", default=None)
         if (sv != sv) and parent in lb.index:
             sv = lb.loc[parent, "score_val"]
         rows.append({"model": m, "us_per_row": t["us_per_row_p50"], "us_per_row_all": t["us_per_row"],
+                     "single_ms_p50": t["single_ms_p50"], "single_ms_p95": t["single_ms_p95"], "single_calls": t["single_calls"],
                      "score_val_natural": None if sv != sv else _natural(p.eval_metric, float(sv)),
                      "score_test_natural": None if st != st else _natural(p.eval_metric, float(st)),
                      "n_models": len(deps), "size_bytes": size, "stack_level": int(lb.loc[m, "stack_level"]),
@@ -403,9 +406,6 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
     _ready(v)
     who = _name_ok(created_by, "created_by")
     kind = (request.app.state.runs.get(v["run_id"]) or {}).get("config", {}).get("kind")
-    if kind in ("forecast", "anomaly"):
-        raise HTTPException(400, f"Batch scoring for {kind} versions is on its own page: "
-                                 f"POST /api/{kind}/runs/{v['run_id']}/{'predict' if kind == 'forecast' else 'score'}.")
     content = await file.read(config.MAX_UPLOAD_BYTES + 1)
     if len(content) > config.MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
@@ -420,6 +420,12 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
     reg = _reg(request)
     reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who})
     run = request.app.state.runs.get(v["run_id"])
+    if kind in ("forecast", "anomaly"):
+        # forecast: the file is new history (same mapping); anomaly: rows to score. Same batch record and drift format.
+        fut = request.app.state.heavy.submit(scoring.score_flow_batch, str(request.app.state.settings.db_path), bid, kind,
+                                             v["path"], run["config"], str(csv_path), str(bdir), {"id": vid})
+        request.app.state.jobs[bid] = fut
+        return reg.get_batch(bid)
     fut = request.app.state.heavy.submit(scoring.score_batch, str(request.app.state.settings.db_path), bid, v["path"],
                                          run["config"], str(csv_path), str(bdir), _kinds(request, run), {"id": vid})
     request.app.state.jobs[bid] = fut

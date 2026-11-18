@@ -489,7 +489,7 @@ SAMPLES = {
     "card-transactions": {
         "name": "Card transactions (sample)",
         "filename": "card_transactions_sample.csv",
-        "note": "Generated sample · 6,000 unlabeled card transactions, 1.5% planted anomalies (ground truth hidden)",
+        "note": "Generated sample · 6,000 unlabeled card transactions from 420 cards over 90 days, 1.5% planted anomalies (ground truth hidden)",
         "generate": generate_card_transactions,
         "sidecar": "anomaly_truth.json",
         "kind": "transactions",

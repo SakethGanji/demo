@@ -198,6 +198,7 @@ function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
   // threshold for the slider's c, from 201 quantiles of s (exact counts come back from the API)
   const sStar = top?.threshold ?? a?.threshold ?? null
   const truth = top?.truth ?? a?.truth ?? null
+  const group = ((run.data as Record<string, unknown> | null)?.group as GroupInfo | undefined) ?? null
   return (
     <div className="page anomaly" data-testid="anomaly-run" data-run={run.id} data-status={run.status}>
       <div className="page-head">
@@ -229,7 +230,8 @@ function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
           <Distribution a={a} scores={scores} c={c ?? a.contamination} setC={setC} sStar={sStar} />
           <div className="stack" style={{ gap: 16 }}>
             <IsolationFormula psi={a.psi} />
-            {truth && <TruthCard truth={truth} lofTruth={a.truth_lof} />}
+            {group && <GroupCard g={group} />}
+            {truth && <TruthCard truth={truth} lofTruth={a.truth_lof} group={group} />}
           </div>
         </div>
         <div className="grid an-two">
@@ -241,6 +243,24 @@ function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
         <div className="chips-row"><ParamChip sym="run" value={run.id} /><ParamChip sym="ψ" value={String(a.psi)} /><ParamChip sym="T" value={String(a.n_trees)} /><ParamChip sym="c" value={(c ?? a.contamination).toFixed(3)} />
           <span className="helper" style={{ fontSize: 12 }}>Model: <span className="mono">joblib.load("{run.predictor_path}/model.joblib")</span> (preprocessing, IsolationForest{a.lof ? ', LOF' : ''}, s*, robust stats).</span><StatusPill status="success">live</StatusPill></div>
       </>}
+    </div>
+  )
+}
+
+type GroupInfo = { entity_column: string; time_column: string | null; relative_columns: string[]; added: string[]; entities: number; rows_without_baseline: number }
+
+/** The group-relative features this run added, with their formulas bound to the run's entity and columns. */
+function GroupCard({ g }: { g: GroupInfo }) {
+  return (
+    <div className="formula an-formula" data-testid="an-group-card">
+      <div className="eq">r<sub>i</sub> = x<sub>i</sub> / x̄<sub>e,−i</sub>, &nbsp; z<sub>i</sub> = (x<sub>i</sub> − x̄<sub>e,−i</sub>) / s̃<sub>e,−i</sub>{g.time_column ? <>, &nbsp; Δt<sub>i</sub> = ln(1 + h<sub>i</sub>)</> : null}</div>
+      <dl className="where">
+        <dt>e</dt><dd>{g.entity_column}: {g.entities.toLocaleString()} entities; {g.rows_without_baseline} rows have no other row of their entity (no baseline: imputed + a missing flag)</dd>
+        <dt>x</dt><dd>{g.relative_columns.join(', ')}</dd>
+        <dt>x̄, s̃</dt><dd>mean and standard deviation of x over e’s other rows (leave-one-out), s̃ floored at 0.1·|x̄|</dd>
+        {g.time_column && <><dt>h<sub>i</sub></dt><dd>hours since e’s previous row by {g.time_column}</dd></>}
+        <dt>columns</dt><dd className="mono" style={{ fontSize: 11.5 }}>{g.added.join(' · ')}</dd>
+      </dl>
     </div>
   )
 }
@@ -268,7 +288,7 @@ function Distribution({ a, scores, c, setC, sStar }: { a: NonNullable<FlowRun['a
   )
 }
 
-function TruthCard({ truth, lofTruth }: { truth: NonNullable<AnTop['truth']>; lofTruth?: AnTop['truth'] | null }) {
+function TruthCard({ truth, lofTruth, group }: { truth: NonNullable<AnTop['truth']>; lofTruth?: AnTop['truth'] | null; group?: GroupInfo | null }) {
   const lofAt = (k: number) => lofTruth?.precision_at_k.find((r) => r.k === k)
   return (
     <div className="card" data-testid="an-truth">
@@ -278,7 +298,7 @@ function TruthCard({ truth, lofTruth }: { truth: NonNullable<AnTop['truth']>; lo
         <table className="table"><thead><tr><th className="r">k</th><th className="r">hits</th><th className="r">P@k (IF)</th><th className="r">recall</th>{lofTruth && <th className="r">P@k (LOF)</th>}</tr></thead>
           <tbody>{truth.precision_at_k.map((r) => <tr key={r.k}><td className="r table-cell">{r.k}</td><td className="r table-cell">{r.hits}</td><td className="r table-cell"><b>{pct(r.precision, 0)}</b></td><td className="r table-cell">{pct(r.recall, 0)}</td>{lofTruth && <td className="r table-cell">{pct(lofAt(r.k)?.precision, 0)}</td>}</tr>)}</tbody></table>
         <div className="an-kinds">{Object.entries(truth.by_kind).map(([k, v]) => <div key={k} className="fc-w"><span className="mono">{k}</span><span className="bar"><i style={{ width: `${(100 * v.found) / v.planted}%`, background: 'var(--viz-a)' }} /></span><span className="mono">{v.found}/{v.planted}</span></div>)}</div>
-        <p className="helper" style={{ fontSize: 12 }}>ROC AUC {f3(truth.roc_auc)} · AP {f3(truth.average_precision)} (base rate {pct(truth.base_rate)}). Per kind: found among the flagged. Spikes relative to the card’s own average are invisible to a model that sees amounts but not the ratio; adding amount ÷ avg as a feature is the fix.</p>
+        <p className="helper" style={{ fontSize: 12 }}>ROC AUC {f3(truth.roc_auc)} · AP {f3(truth.average_precision)} (base rate {pct(truth.base_rate)}). Per kind: found among the flagged. {group ? <>This run adds the group-relative features r, z{group.time_column ? ', Δt' : ''} on {group.entity_column}: an amount large only for its own card is now visible. Velocity bursts stay hard for an isolation forest (one short gap among {Object.keys(truth.by_kind).length} kinds of signal); review them with a rule on Δt.</> : <>Without group-relative features, spikes that are large only for the card’s own history are invisible to the forest (it sees the amount, not the ratio). Map an entity column on the setup page to add r = x / x̄<sub>e</sub> and z within the entity.</>}</p>
       </div>
     </div>
   )

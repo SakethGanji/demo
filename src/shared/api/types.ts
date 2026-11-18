@@ -538,9 +538,11 @@ export type BatchJob = {
   result: {
     summary: {
       n_rows: number; seconds: number; score_seconds: number; us_per_row: number; missing_columns: string[]; extra_columns: string[]; model: string
-      problem_type: ProblemType; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
+      problem_type: ProblemType | 'anomaly' | 'forecast'; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
       mean_p_reference?: number | null; flagged_share?: number; threshold?: number; mean_prediction?: number; std_prediction?: number
       histogram?: { edges: number[]; actual: number[]; expected: number[] }
+      /** Forecast and anomaly versions. */
+      flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; forecast_rows?: number; known_covariates_source?: string
     }
     drift: DriftReport; preview: Record<string, unknown>[]; columns: string[]; output_file: string
   } | null

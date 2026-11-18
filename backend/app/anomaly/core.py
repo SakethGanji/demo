@@ -135,11 +135,23 @@ class Model:
     def __init__(self, **kw: Any) -> None:
         self.__dict__.update(kw)
 
+    def augment(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Add the group-relative columns (against the training entities) when the model was fit with them."""
+        spec = getattr(self, "group", None)
+        if not spec or not spec.get("entity_column") or spec["entity_column"] not in df.columns:
+            return df
+        from . import group
+
+        if all(c in df.columns for c in group.names(spec)):
+            return df  # the training frame, already augmented (leave-one-out)
+        return group.add(df, spec, self.group_stats)
+
     def transform(self, df: pd.DataFrame) -> np.ndarray:
-        return self.pre.transform(_prep_frame(df, self.num, self.cat))
+        return self.pre.transform(_prep_frame(self.augment(df), self.num, self.cat))
 
     def score(self, df: pd.DataFrame) -> dict[str, np.ndarray]:
-        Z = self.transform(df)
+        df = self.augment(df)
+        Z = self.pre.transform(_prep_frame(df, self.num, self.cat))
         s = -self.iforest.score_samples(Z)
         out = {"s": s, "Eh": -c_n(self.psi) * np.log2(np.maximum(s, 1e-12))}
         if getattr(self, "lof", None) is not None:
@@ -153,7 +165,8 @@ def explain_rows(model: Model, df: pd.DataFrame, k_top: int = 6) -> list[dict[st
     anomalous); 'push' = −φ / Σ|φ| is each feature's share of the push towards anomalous."""
     import shap
 
-    Z = model.transform(df)
+    df = model.augment(df)
+    Z = model.pre.transform(_prep_frame(df, model.num, model.cat))
     try:
         ex = shap.TreeExplainer(model.iforest)
         phi = np.asarray(ex.shap_values(Z))
@@ -231,13 +244,33 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
 
     df = pd.read_csv(cfg["csv_path"])
     profile = cfg.get("profile")
-    num, cat = feature_columns(df, profile, cfg.get("features"), cfg.get("drop_columns"))
+    p = cfg["params"]
+    # Group-relative features (amount ÷ the entity's own mean, z within the entity, time since its previous row)
+    gspec = None
+    if p.get("group_features") and p.get("entity_column") in df.columns:
+        from . import group
+
+        gspec = {"entity_column": p["entity_column"],
+                 "time_column": p.get("time_column") if p.get("time_column") in df.columns else None,
+                 "relative_columns": [c for c in (p.get("relative_columns") or []) if c in df.columns]}
+        df = group.add(df, gspec)
+        added = group.names(gspec)
+        feats = cfg.get("features")
+        feats = [c for c in (feats or []) if c not in (gspec["entity_column"], gspec["time_column"])] + added if feats else None
+        drop = list(cfg.get("drop_columns") or []) + [gspec["entity_column"]] + ([gspec["time_column"]] if gspec["time_column"] else [])
+        num, cat = feature_columns(df, (profile or {}) and {"columns": (profile or {}).get("columns", []) + [{"name": c, "type": "number"} for c in added]}, feats, drop)
+        emit("log", message=f"group-relative features on {gspec['entity_column']}: {', '.join(added)}")
+    else:
+        num, cat = feature_columns(df, profile, cfg.get("features"), cfg.get("drop_columns"))
     X = _prep_frame(df, num, cat)
     info = {"rows": int(len(df)), "features": num + cat, "numeric": num, "categorical": cat,
             "dropped_columns": [c for c in df.columns if c not in num + cat]}
     emit("data_ready", **info)
+    if gspec:
+        info["group"] = {**gspec, "added": group.names(gspec),
+                         "entities": int(df[gspec["entity_column"]].nunique()),
+                         "rows_without_baseline": int(df[group.names(gspec)[0]].isna().sum()) if gspec["relative_columns"] else 0}
     merge(data=info, features=num + cat)
-    p = cfg["params"]
     contamination = float(p.get("contamination", 0.015))
     pre = build_pipeline(num, cat, scale=False)
     Z = pre.fit_transform(X)
@@ -281,13 +314,14 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     stats = robust_stats(X, num, cat)
     model = Model(pre=pre, pre_lof=pre_lof, iforest=forest, lof=lof, num=num, cat=cat, names=names,
                   origin=origin_map(names, num, cat), psi=psi, threshold=thr, contamination=contamination,
-                  stats=stats, train_scores=np.sort(s))
+                  stats=stats, train_scores=np.sort(s), group=gspec,
+                  group_stats=group.fit_stats(df, gspec) if gspec else None)
     mdir = Path(cfg["predictor_path"])
     mdir.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, mdir / "model.joblib")
     (mdir / "model.json").write_text(json.dumps({"kind": "anomaly", "numeric": num, "categorical": cat,
                                                  "threshold": thr, "contamination": contamination, "psi": psi,
-                                                 "iforest_kwargs": ifk}, indent=1, default=str))
+                                                 "iforest_kwargs": ifk, "group": gspec}, indent=1, default=str))
 
     Eh = -c_n(psi) * np.log2(np.maximum(s, 1e-12))
     scores = pd.DataFrame({"row": np.arange(len(df)), "s": s, "Eh": Eh})
@@ -355,6 +389,7 @@ def score_frame(model_dir: str, df: pd.DataFrame, explain_top: int = 50) -> tupl
     import joblib
 
     model: Model = joblib.load(Path(model_dir) / "model.joblib")
+    df = model.augment(df)
     missing = [c for c in model.num + model.cat if c not in df.columns]
     if missing:
         raise AnomalyError(f"the file lacks the feature column(s) {', '.join(missing)}")

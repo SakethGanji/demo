@@ -323,6 +323,68 @@ def item_errors(hist: dict[str, np.ndarray], actual: pd.DataFrame, pred: pd.Data
     return out
 
 
+def _wilson(k: int, n: int, z: float = 1.959964) -> list[float]:
+    if n == 0:
+        return [0.0, 1.0]
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return [max(0.0, c - h), min(1.0, c + h)]
+
+
+def calibration(actual: pd.DataFrame, pred: pd.DataFrame, quantiles: list[float],
+                backtests: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Is the fan honest? Pooled over every series and step of the holdout window: F̂(τ) = share of actuals at or
+    below q̂_τ for each quantile level (calibrated: F̂(τ) ≈ τ), and for each symmetric central interval [q_lo, q_hi]
+    its empirical coverage against hi − lo, with a 95% Wilson interval, the probability that a calibrated interval
+    would cover at least as many points (binomial upper tail), and its mean width over the mean actual."""
+    from scipy.stats import binom
+
+    ys, qs = [], {t: [] for t in quantiles}
+    for item, a in actual.groupby(level=0):
+        if item not in pred.index.get_level_values(0):
+            continue
+        p = pred.loc[item]
+        y = a.droplevel(0)["target"].reindex(p.index).to_numpy(dtype=float)
+        ok = ~np.isnan(y)
+        ys.append(y[ok])
+        for t in quantiles:
+            qs[t].append(p[str(t)].to_numpy(dtype=float)[ok])
+    if not ys:
+        return {}
+    y = np.concatenate(ys)
+    Q = {t: np.concatenate(v) for t, v in qs.items()}
+    n = int(len(y))
+    levels = []
+    for t in sorted(quantiles):
+        k = int((y <= Q[t]).sum())
+        levels.append({"tau": t, "below": k / n, "n": n, "ci": _wilson(k, n)})
+    qsorted = sorted(quantiles)
+    intervals = []
+    for lo in qsorted:
+        hi = round(1 - lo, 6)
+        if lo >= 0.5 or hi not in [round(x, 6) for x in qsorted]:
+            continue
+        hi_key = next(x for x in qsorted if round(x, 6) == hi)
+        inside = int(((y >= Q[lo]) & (y <= Q[hi_key])).sum())
+        nominal = hi_key - lo
+        tail = float(binom.sf(inside - 1, n, nominal)) if inside > nominal * n else float(binom.cdf(inside, n, nominal))
+        intervals.append({"lo": lo, "hi": hi_key, "nominal": nominal, "empirical": inside / n, "inside": inside, "n": n,
+                          "ci": _wilson(inside, n), "p_all_inside": tail,
+                          "width_rel": float(np.mean(Q[hi_key] - Q[lo]) / max(np.mean(np.abs(y)), 1e-9))})
+    intervals.sort(key=lambda r: -r["nominal"])
+    main = intervals[0] if intervals else None
+    verdict = "calibrated"
+    if main and not (main["ci"][0] <= main["nominal"] <= main["ci"][1]):
+        verdict = "too_wide" if main["empirical"] > main["nominal"] else "too_narrow"
+    bt = []
+    for model, ws in ((backtests or {}).get("models") or {}).items():
+        cov = [w.get("coverage") for w in ws if w.get("coverage") is not None]
+        bt.append({"model": model, "nominal": main["nominal"] if main else None, "empirical": float(np.mean(cov)) if cov else None})
+    return {"n": n, "levels": levels, "intervals": intervals, "verdict": verdict, "backtest": bt}
+
+
 def _fmt_ts(idx) -> list[str]:
     s = pd.DatetimeIndex(idx).strftime("%Y-%m-%d %H:%M:%S")
     return [x.replace(" 00:00:00", "") for x in s]
@@ -507,7 +569,8 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     cov = [r["coverage"] for r in per_item]
     holdout = {"model": best, "metrics": hold_metrics, "eval_metric": pk["eval_metric"],
                "coverage": float(np.mean(cov)) if cov else None, "interval": [min(quantiles), max(quantiles)],
-               "n_items": len(per_item), "horizon": H, "items": per_item}
+               "n_items": len(per_item), "horizon": H, "items": per_item,
+               "calibration": calibration(actual, hold_pred, quantiles, backtests)}
     merge(holdout=holdout)
     emit("evaluation", model=best, metrics=hold_metrics, coverage=holdout["coverage"])
 

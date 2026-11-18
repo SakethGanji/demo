@@ -18,10 +18,15 @@ const sci = (p: number) => (p >= 0.001 ? p.toFixed(3) : p.toExponential(1).repla
  *  central interval [q̂_lo, q̂_hi] should cover hi − lo of them. Measured on the last H steps of every series. */
 export function Calibration({ cal, model }: { cal: FcCalibration; model: string }) {
   const main = cal.intervals[0]
+  // Which models were near nominal in the backtest windows, and which were wide: says where the width comes from.
+  const bt = (cal.backtest ?? []).filter((b) => b.empirical != null)
+  const near = bt.filter((b) => Math.abs(b.empirical! - main.nominal) <= 0.05).map((b) => `${b.model} ${pct(b.empirical, 0)}`)
+  const wide = bt.filter((b) => b.empirical! - main.nominal > 0.05).map((b) => `${b.model} ${pct(b.empirical, 0)}`)
+  const why = bt.length ? <> In the backtest windows {near.length ? <>{near.join(', ')} {near.length === 1 ? 'was' : 'were'} near nominal, while </> : null}{wide.length ? <>{wide.join(', ')} covered more than {pct(main.nominal, 0)}</> : null}: the ensemble’s band follows its heaviest-weighted members.</> : null
   const verdict = cal.verdict === 'calibrated'
     ? <>Within sampling error of nominal: the bands can be read as stated.</>
     : cal.verdict === 'too_wide'
-      ? <>The bands are <b>too wide</b>: {main.inside} of {main.n} actuals fell inside the nominal {pct(main.nominal, 0)} interval. If it were calibrated, the chance of {main.inside === main.n ? 'all of them' : `${main.inside} or more`} landing inside would be P(K ≥ {main.inside}) = {main.p_all_inside != null ? sci(main.p_all_inside) : 'tiny'}, so this is not luck. The model overstates its uncertainty (here the noise around the trend and seasonality is small, while the quantile models price in more). Read the band as a conservative range, not as a {pct(main.nominal, 0)} probability; the median forecast and MASE are not affected.</>
+      ? <>The bands are <b>too wide</b>: {main.inside} of {main.n} actuals fell inside the nominal {pct(main.nominal, 0)} interval. If it were calibrated, the chance of {main.inside === main.n ? 'all of them' : `${main.inside} or more`} landing inside would be P(K ≥ {main.inside}) = {main.p_all_inside != null ? sci(main.p_all_inside) : 'tiny'}, so this is not luck. The model overstates its uncertainty.{why} Read the band as a conservative range, not as a {pct(main.nominal, 0)} probability; the median forecast and MASE are not affected.</>
       : <>The bands are <b>too narrow</b>: only {main.inside} of {main.n} actuals fell inside the nominal {pct(main.nominal, 0)} interval. The model understates its uncertainty; widen the band (or add num_val_windows) before using it for limits.</>
   const pts = cal.levels.map((l) => [l.tau, l.below] as [number, number])
   return (

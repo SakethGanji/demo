@@ -174,8 +174,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
             </>)}
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && flowOf(detail) === 'tabular' && tab === 'Try It' && <TryIt v={detail} run={run} ds={ds} />}
-          {detail.status === 'ready' && flowOf(detail) === 'tabular' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} />}
-          {detail.status === 'ready' && flowOf(detail) !== 'tabular' && (tab === 'Try It' || tab === 'Batch & Drift') && (
+          {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} kind={flowOf(detail)} />}
+          {detail.status === 'ready' && flowOf(detail) !== 'tabular' && tab === 'Try It' && (
             <div className="card card-body"><p className="helper">{flowOf(detail) === 'forecast'
               ? <>A forecasting version forecasts whole series: open the run to see its fan chart and upload new history to forecast from (no refit). </>
               : <>An anomaly version scores rows: open the run to score a new batch with its threshold s* and get a reason per flag. Try It over HTTP: <span className="mono">POST /api/registry/versions/{detail.id}/predict</span>. </>}

@@ -257,7 +257,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                 refit_info = {"skipped": True, "reason": f"the run's best model {src.model_best} is already a refit copy"}
                 step("refit_full", "skipped", reason=refit_info["reason"])
             else:
-                which = "all" if opts.get("infer_limit") else "best"
+                which = "all" if opts.get("infer_limit") else (opts.get("serve_model") or "best")
                 mapping = p.refit_full(model=which)
                 refit_info = {"model": which, "mapping": mapping, "seconds": time.time() - t0, "best": p.model_best}
                 step("refit_full", "done", seconds=refit_info["seconds"], best=p.model_best, refit=len(mapping))
@@ -294,6 +294,18 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                           "rule": "best validation score among models with measured time per row ≤ budget"
                                   + ("" if met else "; none met it, so the fastest model was kept")}
             step("infer_limit", "done" if met else "warning", chosen=chosen["model"], met=met, seconds=limit_info["seconds"])
+        elif opts.get("serve_model"):
+            step("infer_limit", "running")
+            want = opts["serve_model"]
+            names = p.model_names(can_infer=True)
+            if refit_info and not refit_info.get("skipped") and f"{want}_FULL" in names:
+                want = f"{want}_FULL"
+            if want not in names:
+                raise ValueError(f"serve_model: {opts['serve_model']} is not a model of this run")
+            p.set_model_best(want, save_trainer=True)
+            limit_info = {"serve_model": want, "chosen": want, "met": True, "seconds": 0.0,
+                          "rule": "chosen by the registrant (serve_model), from the measured one-row latency"}
+            step("infer_limit", "done", chosen=want, reason="serve_model")
         else:
             step("infer_limit", "skipped", reason="no latency budget")
 
@@ -384,7 +396,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         v = reg.get_version(version_id)
         reg.audit(actor=v["created_by"], action="registered", version=v, to_stage="None",
                   comment=opts.get("description") or "",
-                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment")},
+                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model")},
                            "best_model": final.model_best, "size_bytes": ver_size,
                            "us_per_row_p50": lat_ver["us_per_row_p50"], "data_sha256": data_hash})
         return {"ok": True, "version_id": version_id}
