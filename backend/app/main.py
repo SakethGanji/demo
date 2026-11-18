@@ -12,6 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 from . import __version__, config
 from .datasets import DatasetError, DatasetStore
 from .db import Database
+from .samples import SAMPLES
 from .schemas import Dataset, DatasetList, DatasetSummary, Health
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -50,7 +51,11 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     @app.get("/api/datasets", response_model=DatasetList)
     def list_datasets(request: Request) -> dict[str, Any]:
-        return {"datasets": [_summary(r) for r in request.app.state.db.list_datasets()]}
+        # Samples first, in a fixed order; then uploads, oldest first.
+        order = list(SAMPLES)
+        recs = sorted(request.app.state.db.list_datasets(),
+                      key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
+        return {"datasets": [_summary(r) for r in recs]}
 
     @app.get("/api/datasets/{dataset_id}", response_model=Dataset)
     def get_dataset(dataset_id: str, request: Request) -> dict[str, Any]:

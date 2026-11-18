@@ -56,7 +56,7 @@ class Database:
 
     def list_datasets(self) -> list[dict[str, Any]]:
         with self.connect() as con:
-            rows = con.execute("SELECT * FROM datasets ORDER BY source = 'upload', created_at, rowid").fetchall()
+            rows = con.execute("SELECT * FROM datasets ORDER BY created_at, rowid").fetchall()
         return [self._row(r) for r in rows]
 
     def get_dataset(self, dataset_id: str) -> dict[str, Any] | None:
