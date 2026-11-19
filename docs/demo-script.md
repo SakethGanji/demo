@@ -55,7 +55,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
    wrongly declined applicants). **Expect:** t* = c<sub>FP</sub> / (c<sub>FP</sub> + c<sub>FN</sub>) = **0.091**. The
    **Validation split** card above it already says **out-of-time** (the run's split is kept).
 3. Switch the Gym to **Advanced**. **Models** step: in **Monotone Constraints** set **debt_to_income ↑**. **Expect:** RF and LR are left
-   out (they cannot honour it); LightGBM, XGBoost, CatBoost get monotone subclasses. In the raw fit_kwargs editor:
+   out (they cannot honour it); LightGBM, XGBoost, CatBoost get monotone subclasses (GBM_MONO, XGB_MONO, CAT_MONO) and the scorecard uses monotone binning. In the raw fit_kwargs editor:
    `{"hyperparameters": {"GBM": {"num_boost_round": 150}, "XGB": {"n_estimators": 150}, "CAT": {"iterations": 150}}}`.
 4. **Train** (≈ 20 s). **Results → Business Cost · Per 1,000 Decisions**:
    - **Expect:** **702.5 [624.1, 787.1]** per 1,000 decisions at t = **0.061**, calibrated by AutoGluon on the cost.
