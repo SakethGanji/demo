@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import math
+import os
+import threading
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -36,3 +40,20 @@ def jsonable(v: Any) -> Any:
     if isinstance(v, pd.Timestamp):
         return v.isoformat()
     return str(v)
+
+
+def read_json(p: Path) -> Any:
+    """The JSON file at p, or None when it is missing or unreadable."""
+    try:
+        return json.loads(Path(p).read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def write_json(p: Path, obj: Any) -> None:
+    """Write obj (through `jsonable`, indent 1) atomically: a temp file in the same folder, then os.replace."""
+    p = Path(p)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(jsonable(obj), indent=1))
+    os.replace(tmp, p)

@@ -33,7 +33,6 @@ import logging
 import os
 import shutil
 import sys
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -44,6 +43,8 @@ import pandas as pd
 from scipy.stats import rankdata
 
 from ..stats import delong
+from .jobs import watch_parent
+from .jsonsafe import read_json, write_json
 
 SCHEMA = "shift/1"
 ORIGIN = "__shift_origin"
@@ -71,20 +72,11 @@ def job_dir(run_dir: Path, key: str) -> Path:
 
 
 def read_state(d: Path) -> dict[str, Any] | None:
-    try:
-        return json.loads((Path(d) / "state.json").read_text())
-    except (OSError, ValueError):
-        return None
+    return read_json(Path(d) / "state.json")
 
 
 def write_state(d: Path, state: dict[str, Any]) -> None:
-    from .jsonsafe import jsonable
-
-    d = Path(d)
-    d.mkdir(parents=True, exist_ok=True)
-    tmp = d / f"state.json.{os.getpid()}.tmp"
-    tmp.write_text(json.dumps(jsonable(state), indent=1))
-    os.replace(tmp, d / "state.json")
+    write_json(Path(d) / "state.json", state)
 
 
 def summary(state: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -256,20 +248,6 @@ def _feature_metadata(frame: pd.DataFrame, kinds: dict[str, str]):
     return fm.add_special_types({c: ["text"] for c in text})
 
 
-def _watch_parent(ppid: int) -> None:
-    def loop():
-        while True:
-            try:
-                os.kill(ppid, 0)
-            except ProcessLookupError:
-                os._exit(3)
-            except PermissionError:
-                pass
-            time.sleep(1)
-
-    threading.Thread(target=loop, daemon=True).start()
-
-
 def run(d: Path) -> int:
     from ..db import Database
     from ..registry.drift import feature_psi
@@ -423,7 +401,7 @@ def run(d: Path) -> int:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if len(sys.argv) > 2:
-        _watch_parent(int(sys.argv[2]))
+        watch_parent(int(sys.argv[2]), anchor=True)
     sys.exit(run(Path(sys.argv[1])))
 
 

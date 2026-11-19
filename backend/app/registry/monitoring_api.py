@@ -24,6 +24,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..http import batch_or_404, version_or_404
 from . import monitoring as M
 from .store import RegistryStore
 
@@ -40,10 +41,7 @@ def _dir(request: Request) -> Path:
 
 
 def _version(request: Request, vid: str) -> dict[str, Any]:
-    v = _reg(request).get_version(vid)
-    if not v:
-        raise HTTPException(404, f"No version with id '{vid}'.")
-    return v
+    return version_or_404(request, vid)
 
 
 def _label(v: dict[str, Any]) -> str:
@@ -177,10 +175,7 @@ async def upload_labels(bid: str, request: Request, file: UploadFile = File(...)
     """Labels that arrive after a batch was scored: a CSV with the id column and the label (and optionally label_date).
     Joined to the batch's rows on the id; performance on the joined rows, the lag label date − data date, and the paired
     champion / challenger comparison when the batch was shadow-scored."""
-    reg = _reg(request)
-    b = reg.get_batch(bid)
-    if not b:
-        raise HTTPException(404, f"No batch with id '{bid}'.")
+    b = batch_or_404(request, bid)
     if b["status"] != "succeeded":
         raise HTTPException(409, f"Batch {bid} is {b['status']}; labels join a scored batch.")
     who = (created_by or "").strip()

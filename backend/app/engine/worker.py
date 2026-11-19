@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import sys
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -27,6 +26,7 @@ import pandas as pd
 
 from ..db import Database
 from ..splits import holdout_mask
+from .jobs import watch_parent
 from .jsonsafe import jsonable
 from .store import RunStore
 
@@ -561,29 +561,6 @@ def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit)
 # --------------------------------------------------------------------------- main
 
 
-def _watch_parent(ppid: int, anchor: bool = False) -> None:
-    """Exit if the API dies, so a fit never runs on as an orphan. With `anchor` (dev reload), watch that pid
-    (uvicorn's reloader) instead of our parent, so a reload of the API process does not stop the fit."""
-    def gone() -> bool:
-        if not anchor:
-            return os.getppid() != ppid
-        try:
-            os.kill(ppid, 0)
-            return False
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            return False
-
-    def loop():
-        while True:
-            if gone():
-                os._exit(3)
-            time.sleep(1)
-
-    threading.Thread(target=loop, daemon=True).start()
-
-
 def run(run_dir: Path) -> int:
     cfg = json.loads((run_dir / "config.json").read_text())
     run_id = cfg["run_id"]
@@ -731,8 +708,7 @@ def run(run_dir: Path) -> int:
         try:  # MLflow tracking: parameters, metrics and light artifacts (S5); never fails the run
             from ..registry import tracking
 
-            mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
-            store.merge_result(run_id, mlflow=mlr)
+            mlr = tracking.ensure_logged(Path(cfg["db_path"]).parent, store, run_id, run_dir)
             # The MLflow run id goes out as `mlflow_run_id`: `run_id` names the ENSEMBLE run in every event.
             emit("tracked", **{("mlflow_run_id" if k == "run_id" else k): v for k, v in mlr.items()})
         except Exception as e:  # noqa: BLE001
@@ -801,8 +777,7 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
         try:
             from ..registry import tracking
 
-            mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
-            merge(mlflow=mlr)
+            mlr = tracking.ensure_logged(Path(cfg["db_path"]).parent, store, run_id, run_dir)
             emit("tracked", **{("mlflow_run_id" if k == "run_id" else k): v for k, v in mlr.items()})
         except Exception as e:  # noqa: BLE001
             emit("log", level="warning", logger="ensemble", message=f"MLflow logging failed: {e}")
@@ -822,7 +797,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     run_dir = Path(sys.argv[1])
     if len(sys.argv) > 2:
-        _watch_parent(int(sys.argv[2]), anchor=len(sys.argv) > 3 and sys.argv[3] == "anchor")
+        watch_parent(int(sys.argv[2]), anchor=len(sys.argv) > 3 and sys.argv[3] == "anchor")
     sys.exit(run(run_dir))
 
 

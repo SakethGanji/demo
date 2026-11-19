@@ -38,7 +38,6 @@ import logging
 import os
 import shutil
 import sys
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -46,6 +45,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from .jobs import watch_parent
+from .jsonsafe import read_json, write_json
 
 SCHEMA = "learning_curve/1"
 DEFAULT_FRACTIONS = (0.1, 0.25, 0.5, 1.0)
@@ -64,21 +66,11 @@ def lc_dir(run_dir: Path) -> Path:
 
 
 def read_state(run_dir: Path) -> dict[str, Any] | None:
-    p = lc_dir(run_dir) / "state.json"
-    try:
-        return json.loads(p.read_text())
-    except (OSError, ValueError):
-        return None
+    return read_json(lc_dir(run_dir) / "state.json")
 
 
 def write_state(run_dir: Path, state: dict[str, Any]) -> None:
-    from .jsonsafe import jsonable
-
-    d = lc_dir(run_dir)
-    d.mkdir(parents=True, exist_ok=True)
-    tmp = d / f"state.json.{os.getpid()}.tmp"
-    tmp.write_text(json.dumps(jsonable(state), indent=1))
-    os.replace(tmp, d / "state.json")
+    write_json(lc_dir(run_dir) / "state.json", state)
 
 
 def headline(state: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -292,20 +284,6 @@ def _rows_sha(index: np.ndarray) -> str:
     return hashlib.sha256(json.dumps([int(v) for v in np.sort(index)]).encode()).hexdigest()[:16]
 
 
-def _watch_parent(ppid: int) -> None:
-    def loop():
-        while True:
-            try:
-                os.kill(ppid, 0)
-            except ProcessLookupError:
-                os._exit(3)
-            except PermissionError:
-                pass
-            time.sleep(1)
-
-    threading.Thread(target=loop, daemon=True).start()
-
-
 def run(run_dir: Path) -> int:
     from ..db import Database
     from . import worker as w
@@ -436,7 +414,7 @@ def run(run_dir: Path) -> int:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if len(sys.argv) > 2:
-        _watch_parent(int(sys.argv[2]))
+        watch_parent(int(sys.argv[2]), anchor=True)
     sys.exit(run(Path(sys.argv[1])))
 
 

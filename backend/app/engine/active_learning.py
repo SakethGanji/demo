@@ -39,7 +39,6 @@ import logging
 import os
 import shutil
 import sys
-import threading
 import time
 import traceback
 from pathlib import Path
@@ -49,6 +48,8 @@ import numpy as np
 import pandas as pd
 
 from ..splits import holdout_mask
+from .jobs import watch_parent
+from .jsonsafe import read_json, write_json
 
 SCHEMA = "active_learning/1"
 DEFAULTS = {"pool": "hide", "hide_share": 0.9, "budget": 200, "rounds": 2, "strategy": "margin", "diversity": "cluster",
@@ -63,36 +64,20 @@ def al_dir(run_dir: Path) -> Path:
     return Path(run_dir) / "active_learning"
 
 
-def _read(p: Path) -> dict[str, Any] | None:
-    try:
-        return json.loads(p.read_text())
-    except (OSError, ValueError):
-        return None
-
-
 def read_state(run_dir: Path) -> dict[str, Any] | None:
-    return _read(al_dir(run_dir) / "state.json")
+    return read_json(al_dir(run_dir) / "state.json")
 
 
 def read_answers(run_dir: Path) -> dict[str, Any]:
-    return _read(al_dir(run_dir) / "answers.json") or {"answers": {}, "submitted": {}}
-
-
-def _write(p: Path, obj: dict[str, Any]) -> None:
-    from .jsonsafe import jsonable
-
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(jsonable(obj), indent=1))
-    os.replace(tmp, p)
+    return read_json(al_dir(run_dir) / "answers.json") or {"answers": {}, "submitted": {}}
 
 
 def write_state(run_dir: Path, state: dict[str, Any]) -> None:
-    _write(al_dir(run_dir) / "state.json", state)
+    write_json(al_dir(run_dir) / "state.json", state)
 
 
 def write_answers(run_dir: Path, answers: dict[str, Any]) -> None:
-    _write(al_dir(run_dir) / "answers.json", answers)
+    write_json(al_dir(run_dir) / "answers.json", answers)
 
 
 def headline(state: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -257,20 +242,6 @@ def summarise(state: dict[str, Any]) -> dict[str, Any]:
 
 def _rows_sha(index) -> str:
     return hashlib.sha256(json.dumps([int(v) for v in np.sort(np.asarray(index))]).encode()).hexdigest()[:16]
-
-
-def _watch_parent(ppid: int) -> None:
-    def loop():
-        while True:
-            try:
-                os.kill(ppid, 0)
-            except ProcessLookupError:
-                os._exit(3)
-            except PermissionError:
-                pass
-            time.sleep(1)
-
-    threading.Thread(target=loop, daemon=True).start()
 
 
 def _missing_pool(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
@@ -662,7 +633,7 @@ class Job:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if len(sys.argv) > 2:
-        _watch_parent(int(sys.argv[2]))
+        watch_parent(int(sys.argv[2]), anchor=True)
     import fcntl
 
     run_dir = Path(sys.argv[1])

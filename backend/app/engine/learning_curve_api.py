@@ -4,10 +4,8 @@
 from __future__ import annotations
 
 import json
-import os
 import signal
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Any
@@ -15,9 +13,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import config
 from . import learning_curve as lc
-from .runner import dev_reload
+from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
 from .store import now
 from ..http import run_or_404
 
@@ -40,23 +37,6 @@ class LearningCurveRequest(BaseModel):
                                                "instead of fitting it again.")
 
 
-def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-    except OSError:
-        return False
-    return "app.engine.learning_curve" in cmd
-
-
-def _kill(pid: int, sig: int = signal.SIGTERM) -> None:
-    try:
-        os.killpg(os.getpgid(pid), sig)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
 def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
     """The job's state, with a running job whose process is gone (an API restart, a crash) marked failed."""
     run_dir = Path(rec["config"]["run_dir"])
@@ -64,7 +44,7 @@ def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
     if st and st.get("status") in ("queued", "running"):
         with _LOCK:
             p = _PROCS.get(rec["id"])
-        if (p is None or p.poll() is not None) and not _alive(st.get("pid")):
+        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.learning_curve"):
             if p is not None and p.poll() is not None:
                 return lc.read_state(run_dir)  # the watcher thread is finishing it
             st.update(status="failed", error="The learning curve's process stopped (the API restarted).", finished_at=now())
@@ -145,18 +125,13 @@ def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Reque
         lc.write_state(run_dir, {"schema": lc.SCHEMA, "status": "queued", "request": req, "created_at": now(),
                                  "fits_total": (len(fr) - 1) * seeds + (0 if body.reuse_full else 1), "fits_done": 0,
                                  "points": []})
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
-               "PYTHONPATH": os.pathsep.join(x for x in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if x)}
-        watch = str(os.getppid()) if dev_reload() else str(os.getpid())
-        with open(d / "learning_curve.log", "ab") as out:
-            p = subprocess.Popen([sys.executable, "-m", "app.engine.learning_curve", str(run_dir), watch],
-                                 cwd=config.BACKEND_DIR, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        p = spawn("app.engine.learning_curve", [str(run_dir), watch_arg()], d / "learning_curve.log")
         _PROCS[run_id] = p
         _CANCELLED.discard(run_id)
 
     def wait():
         code = p.wait()
-        _kill(p.pid, signal.SIGKILL)  # anything the fits left behind (Ray)
+        kill_group(p.pid, signal.SIGKILL)  # anything the fits left behind (Ray)
         st = lc.read_state(run_dir) or {}
         with _LOCK:
             cancelled = run_id in _CANCELLED
@@ -179,14 +154,14 @@ def cancel_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
         p = _PROCS.get(run_id)
         if p is None or p.poll() is not None:
             st = lc.read_state(Path(rec["config"]["run_dir"]))
-            if st and _alive(st.get("pid")):  # started by a previous API process
+            if st and alive(st.get("pid"), "app.engine.learning_curve"):  # started by a previous API process
                 _CANCELLED.add(run_id)
-                _kill(st["pid"])
+                kill_group(st["pid"])
             else:
                 raise HTTPException(400, "No learning curve is running for this run.")
         else:
             _CANCELLED.add(run_id)
-            _kill(p.pid)
+            kill_group(p.pid)
     return {"run_id": run_id, "cancelled": True}
 
 
@@ -198,7 +173,7 @@ def shutdown() -> None:
         procs = list(_PROCS.values())
     for p in procs:
         if p.poll() is None:
-            _kill(p.pid)
+            kill_group(p.pid)
 
 
 def active() -> list[str]:

@@ -219,19 +219,29 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
                                            float(p.decision_threshold), pos)
             except Exception as e:  # noqa: BLE001 — the batch itself stands; the comparison says why it is missing
                 result["shadow"] = {"version_id": shadow["version_id"], "error": f"{type(e).__name__}: {e}"}
-        (out_dir_p / "drift.json").write_text(json.dumps(jsonable(rep)))
-        reg.update_batch(batch_id, status="succeeded", stage="done", progress=1.0, result=result, finished_at=now())
-        v = reg.get_version(version["id"])
-        brec = reg.get_batch(batch_id)
-        reg.audit(actor=brec["created_by"] or "unknown", action="batch_scored", version=v,
-                  comment=f"{n:,} rows from {brec['filename']}",
-                  details={"batch_id": batch_id, "n_rows": n, "max_psi": rep.get("max_psi"),
-                           "prediction_psi": rep["prediction"]["psi"], "bands": rep["counts"]})
-        return {"ok": True}
+        return _finish_batch(reg, batch_id, out_dir_p, version, rep, result, n, "")
     except Exception as e:  # noqa: BLE001
-        (out_dir_p / "error.txt").write_text(traceback.format_exc())
-        reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
-        return {"ok": False, "error": str(e)}
+        return _fail_batch(reg, batch_id, out_dir_p, e)
+
+
+def _finish_batch(reg: RegistryStore, batch_id: str, out_dir_p: Path, version: dict[str, Any], rep: dict[str, Any],
+                  result: dict[str, Any], n: int, suffix: str) -> dict[str, Any]:
+    """Store a scored batch's result and drift report and write its audit entry."""
+    (out_dir_p / "drift.json").write_text(json.dumps(jsonable(rep)))
+    reg.update_batch(batch_id, status="succeeded", stage="done", progress=1.0, result=jsonable(result), finished_at=now())
+    v = reg.get_version(version["id"])
+    brec = reg.get_batch(batch_id)
+    reg.audit(actor=brec["created_by"] or "unknown", action="batch_scored", version=v,
+              comment=f"{n:,} rows from {brec['filename']}{suffix}",
+              details={"batch_id": batch_id, "n_rows": n, "max_psi": rep.get("max_psi"),
+                       "prediction_psi": rep["prediction"]["psi"], "bands": rep["counts"]})
+    return {"ok": True}
+
+
+def _fail_batch(reg: RegistryStore, batch_id: str, out_dir_p: Path, e: Exception) -> dict[str, Any]:
+    (out_dir_p / "error.txt").write_text(traceback.format_exc())
+    reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
+    return {"ok": False, "error": str(e)}
 
 
 def _shadow(shadow: dict[str, Any], df: pd.DataFrame, train: pd.DataFrame, out_dir: Path, p_champ: np.ndarray,
@@ -465,19 +475,9 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
         preview = jsonable(out.head(50).to_dict(orient="records"))
         result = {"summary": summary, "drift": rep, "preview": preview, "columns": list(out.columns),
                   "output_file": out_path.name, "kind": kind}
-        (out_dir_p / "drift.json").write_text(json.dumps(jsonable(rep)))
-        reg.update_batch(batch_id, status="succeeded", stage="done", progress=1.0, result=jsonable(result), finished_at=now())
-        v = reg.get_version(version["id"])
-        brec = reg.get_batch(batch_id)
-        reg.audit(actor=brec["created_by"] or "unknown", action="batch_scored", version=v,
-                  comment=f"{len(df):,} rows from {brec['filename']} ({kind})",
-                  details={"batch_id": batch_id, "n_rows": int(len(df)), "max_psi": rep.get("max_psi"),
-                           "prediction_psi": rep["prediction"]["psi"], "bands": rep["counts"]})
-        return {"ok": True}
+        return _finish_batch(reg, batch_id, out_dir_p, version, rep, result, int(len(df)), f" ({kind})")
     except Exception as e:  # noqa: BLE001
-        (out_dir_p / "error.txt").write_text(traceback.format_exc())
-        reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
-        return {"ok": False, "error": str(e)}
+        return _fail_batch(reg, batch_id, out_dir_p, e)
 
 
 # --------------------------------------------------------------------------- online scoring (F3)
