@@ -3,7 +3,6 @@ import { api } from '@/shared/api/client'
 import { flows, type AnBatch, type AnRow, type AnScores, type AnTop, type FlowRun, type AnGroup, type AnVelocity } from '@/shared/api/flows'
 import { useActor } from '@/features/registry/lib'
 import { ReviewButtons, SupervisedPanel, VelocityCard } from './Review'
-import { useApi } from '@/shared/api/mode'
 import type { DatasetDetail, DatasetSummary } from '@/shared/api/types'
 import { LiveModels, Register } from '@/shared/components/FlowParts'
 import { PlotFrame } from '@/shared/components/PlotFrame'
@@ -14,7 +13,7 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fix, pct } from '@/shared/lib/format'
 import { useHashParam } from '@/shared/hooks/useHashParam'
-import { ErrorCard, Loading } from '@/shared/components/Status'
+import { ApiOnly, ErrorCard, Loading } from '@/shared/components/Status'
 
 const EULER = 0.5772156649
 const cn = (n: number) => (n <= 2 ? 1 : 2 * (Math.log(n - 1) + EULER) - (2 * (n - 1)) / n)
@@ -23,14 +22,15 @@ const val = (v: unknown) => (v == null ? '—' : typeof v === 'number' ? (Math.a
 /** Anomaly detection without labels: IsolationForest (and LOF) on a table, the isolation score's distribution and
  *  threshold, the most anomalous rows with their reasons, and a batch scorer. */
 export function AnomalyPage({ go }: { go: (r: string) => void }) {
-  const { mode } = useApi()
   const runId = useHashParam('run')
-  if (mode === 'mock') return (
+  return (
+    <ApiOnly mock={(
     <div className="page"><div className="page-head"><div><h1 className="page-title">Anomaly Detection</h1></div></div>
       <div className="card card-body" data-testid="anomaly-mock"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span>; this page then fits IsolationForest on the card-transactions sample or your CSV.</p></div></div>
+    )}>
+      {runId ? <AnomalyRun key={runId} runId={runId} go={go} /> : <AnomalySetup />}
+    </ApiOnly>
   )
-  if (mode === 'checking') return <Loading>Connecting…</Loading>
-  return runId ? <AnomalyRun key={runId} runId={runId} go={go} /> : <AnomalySetup />
 }
 
 function IsolationFormula({ psi, extra, psiRule }: { psi: number; extra?: React.ReactNode; psiRule?: string }) {

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useApi } from '@/shared/api/mode'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 
 /** Full-page loading card. */
@@ -15,3 +16,9 @@ export const ErrorCard = ({ err }: { err: ReactNode }) => (
 export const HeroCell = ({ label, sub, subClass, children }: { label: string; sub?: string; subClass?: string; children: ReactNode }) => (
   <div className="eh-cell"><span className="micro-label">{label}</span><b className="mono">{children}</b>{sub != null && <small className={subClass}>{sub}</small>}</div>
 )
+
+/** Live-only page gate: `mock` while the API is offline, a loading card while connecting, else the page. */
+export function ApiOnly({ mock, children }: { mock: ReactNode; children: ReactNode }) {
+  const { mode } = useApi()
+  return mode === 'mock' ? <>{mock}</> : mode === 'checking' ? <Loading>Connecting…</Loading> : <>{children}</>
+}

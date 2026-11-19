@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { LearningCurve, Run } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
@@ -9,6 +9,7 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { pctTrim } from '@/shared/lib/format'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 const sgn = (v: number, d = 4) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`
 const nfmt = (n: number) => Math.round(n).toLocaleString()
@@ -22,30 +23,17 @@ const VERDICT = {
  *  the run's holdout; a power law u(n) = A − b·(n/N)^(−c) through the means, extrapolated to 2N and 4N with bootstrap
  *  intervals, and the verdict. Every number is GET /api/runs/{id}/learning-curve. */
 export function LearningCurvePanel({ run }: { run: Run }) {
-  const [lc, setLc] = useState<LearningCurve | null>(null)
-  const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [fractions, setFractions] = useState('0.1, 0.25, 0.5, 1')
   const [seeds, setSeeds] = useState(3)
   const [timeLimit, setTimeLimit] = useState<number | null>(null)
   const [minGain, setMinGain] = useState('')
-  const [tick, setTick] = useState(0)
 
-  useEffect(() => {
-    let alive = true
-    api.runs.learningCurve(run.id).then((r) => {
-      if (!alive) return
-      setLc(r); setErr('')
-      if (timeLimit == null && r.defaults.time_limit) setTimeLimit(r.defaults.time_limit)
-    }).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [run.id, tick]) // eslint-disable-line react-hooks/exhaustive-deps
+  const { data: lc, setData: setLc, err, setErr, reload } = useFetch(() => api.runs.learningCurve(run.id), [run.id], {
+    pollMs: 2000, while: (d) => d?.status === 'queued' || d?.status === 'running',
+    onData: (r) => { if (timeLimit == null && r.defaults.time_limit) setTimeLimit(r.defaults.time_limit) },
+  })
   const active = lc?.status === 'queued' || lc?.status === 'running'
-  useEffect(() => {
-    if (!active) return
-    const t = setTimeout(() => setTick((v) => v + 1), 2000)
-    return () => clearTimeout(t)
-  }, [active, lc])
 
   const start = async () => {
     setBusy(true); setErr('')
@@ -57,7 +45,7 @@ export function LearningCurvePanel({ run }: { run: Run }) {
       setLc(r)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const cancel = async () => { try { await api.runs.cancelLearningCurve(run.id); setTick((v) => v + 1) } catch (e) { setErr((e as Error).message) } }
+  const cancel = async () => { try { await api.runs.cancelLearningCurve(run.id); reload() } catch (e) { setErr((e as Error).message) } }
 
   if (!lc && !err) return <div className="card card-body row"><ResonanceWave /> Reading the learning curve…</div>
   const d = lc?.defaults

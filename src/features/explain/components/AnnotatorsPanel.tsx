@@ -5,6 +5,7 @@ import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fix, pct } from '@/shared/lib/format'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 const ci = (c: [number, number] | null | undefined, d = 4) => (c ? `[${c[0].toFixed(d)}, ${c[1].toFixed(d)}]` : '')
 const nfmt = (n: number) => Math.round(n).toLocaleString()
@@ -15,22 +16,9 @@ const PAGE = 30
  *  disagreement queue to vote or adjudicate under a reviewer name; the final labels as a dataset version (holdout
  *  untouched). Every number is GET /api/runs/{id}/annotations. */
 export function AnnotatorsPanel({ run }: { run: Run }) {
-  const [an, setAn] = useState<Annotations | null>(null)
-  const [err, setErr] = useState('')
-  const [tick, setTick] = useState(0)
   const [page, setPage] = useState(0)
-  useEffect(() => {
-    let alive = true
-    api.runs.annotations(run.id, { offset: page * PAGE, limit: PAGE }).then((r) => { if (alive) { setAn(r); setErr('') } }).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [run.id, tick, page])
+  const { data: an, setData: setAn, err, setErr, reload } = useFetch(() => api.runs.annotations(run.id, { offset: page * PAGE, limit: PAGE }), [run.id, page], { pollMs: 2000, while: (d) => d?.status === 'computing' })
   const working = an?.status === 'computing'
-  useEffect(() => {
-    if (!working) return
-    const t = setTimeout(() => setTick((v) => v + 1), 2000)
-    return () => clearTimeout(t)
-  }, [working, an])
-  const reload = () => setTick((v) => v + 1)
 
   if (!an && !err) return <div className="card card-body row"><ResonanceWave /> Reading the annotations…</div>
   const ready = an?.status === 'ready' && !!an.summary

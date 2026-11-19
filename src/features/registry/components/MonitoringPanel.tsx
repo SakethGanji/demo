@@ -9,6 +9,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { BAND_COLOR, pct, versionLabel } from '../lib'
 import { fix } from '@/shared/lib/format'
 import { HeroCell } from '@/shared/components/Status'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 const sgn = (v: number | null | undefined, d = 4) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`)
 const COLORS = ['var(--viz-a)', 'var(--viz-b)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-e)']
@@ -18,21 +19,8 @@ const KIND_STATUS = { covariate: 'warning', score: 'warning', performance: 'dang
  *  distribution, F15's adversarial AUC, performance once labels arrive (with the lag), alerts, the challenger's shadow
  *  comparison and the retrain proposal. Every number comes from GET /registry/versions/{id}/monitoring. */
 export function MonitoringPanel({ v, actor, versions, onSelect, onChanged }: { v: ModelVersion; actor: string; versions: ModelVersion[]; onSelect: (id: string) => void; onChanged?: () => void }) {
-  const [m, setM] = useState<MonitoringState | null>(null)
-  const [err, setErr] = useState('')
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    let alive = true
-    api.registry.monitoring(v.id).then((x) => alive && (setM(x), setErr(''))).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [v.id, tick])
-  const running = (m?.running.length ?? 0) > 0
-  useEffect(() => {
-    if (!running) return
-    const t = setTimeout(() => setTick((x) => x + 1), 1500)
-    return () => clearTimeout(t)
-  }, [running, m])
-  const reload = () => { setTick((x) => x + 1); onChanged?.() }
+  const { data: m, err, reload: refetch } = useFetch(() => api.registry.monitoring(v.id), [v.id], { pollMs: 1500, while: (d) => (d?.running.length ?? 0) > 0 })
+  const reload = () => { refetch(); onChanged?.() }
   if (err) return <div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div>
   if (!m) return <div className="card card-body row"><ResonanceWave /> Reading the monitoring state…</div>
   const pts = m.points

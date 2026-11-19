@@ -3,7 +3,6 @@ import type { FcBand } from '@/shared/api/flows'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/shared/api/client'
 import { flows, type FcChart, type FcCreate, type FcEnsembleKind, type FcMapping, type FcOptions, type FcPreview, type FlowRun } from '@/shared/api/flows'
-import { useApi } from '@/shared/api/mode'
 import type { DatasetDetail, DatasetSummary } from '@/shared/api/types'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { ParamChip } from '@/shared/primitives/ParamChip'
@@ -13,20 +12,21 @@ import { FAMILY_COLOR, LiveModels, Register } from '@/shared/components/FlowPart
 import { FanChart, fmtNum } from './components/FanChart'
 import { fix, pct } from '@/shared/lib/format'
 import { useHashParam } from '@/shared/hooks/useHashParam'
-import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
 
 /** New Forecast: AutoGluon's TimeSeriesPredictor on long-format data (item, time, target, covariates), live, with the
  *  leaderboard, the ensemble, backtest windows, per-series errors and the quantile fan. Every number is the API's. */
 export function ForecastPage({ go }: { go: (r: string) => void }) {
-  const { mode } = useApi()
   const runId = useHashParam('run')
-  if (mode === 'mock') return (
+  return (
+    <ApiOnly mock={(
     <div className="page"><div className="page-head"><div><h1 className="page-title">New Forecast</h1><p className="helper sub">AutoGluon TimeSeriesPredictor on the API.</p></div></div>
       <div className="card card-body" data-testid="forecast-mock"><p className="helper">▲ mock mode: the API is offline, so nothing can be forecast. Start it with <span className="mono">make dev</span>; this page then fits TimeSeriesPredictor live on the transaction-volume sample or your CSV.</p></div></div>
+    )}>
+      {runId ? <ForecastRun key={runId} runId={runId} go={go} /> : <ForecastSetup go={go} />}
+    </ApiOnly>
   )
-  if (mode === 'checking') return <Loading>Connecting…</Loading>
-  return runId ? <ForecastRun key={runId} runId={runId} go={go} /> : <ForecastSetup go={go} />
 }
 
 // --------------------------------------------------------------------------- setup

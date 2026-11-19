@@ -9,6 +9,7 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { pctTrim } from '@/shared/lib/format'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 const sgn = (v: number, d = 4) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`
 const nfmt = (n: number) => Math.round(n).toLocaleString()
@@ -31,10 +32,9 @@ const U_FORMULA = {
  *  active-vs-random comparison (the hidden labels as the oracle) says whether picking beats chance at the same budget.
  *  Every number is GET /api/runs/{id}/active-learning. */
 export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: string }) {
-  const [al, setAl] = useState<ActiveLearning | null>(null)
-  const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [tick, setTick] = useState(0)
+  const { data: al, setData: setAl, err, setErr, reload } = useFetch(() => api.runs.activeLearning(run.id), [run.id], { pollMs: 2000, while: (d) => d?.status === 'queued' || d?.status === 'running' || !!d?.queue?.submitted_pending })
+  const working = al?.status === 'queued' || al?.status === 'running' || !!al?.queue?.submitted_pending
   const [body, setBody] = useState<ALRequest>(sliceId ? { slice_id: sliceId } : {})
   const [pool, setPool] = useState<SlicePool | null>(null)
   useEffect(() => {
@@ -44,18 +44,6 @@ export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: stri
     return () => { alive = false }
   }, [run.id, sliceId])
 
-  useEffect(() => {
-    let alive = true
-    api.runs.activeLearning(run.id).then((r) => { if (alive) { setAl(r); setErr('') } }).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [run.id, tick])
-  const working = al?.status === 'queued' || al?.status === 'running' || !!al?.queue?.submitted_pending
-  useEffect(() => {
-    if (!working) return
-    const t = setTimeout(() => setTick((v) => v + 1), 2000)
-    return () => clearTimeout(t)
-  }, [working, al])
-  const reload = () => setTick((v) => v + 1)
 
   const d = al?.defaults
   // F16: pre-filtered to a weak slice, the pool is the slice's hidden training rows: default b to fit the rounds.

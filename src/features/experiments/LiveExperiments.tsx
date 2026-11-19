@@ -11,6 +11,7 @@ import { CompareRuns } from './components/CompareRuns'
 import { ParamDiff } from './components/ParamDiff'
 import { RunCoordinates } from './components/RunCoordinates'
 import { ErrorCard, Loading } from '@/shared/components/Status'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 export const STATUS_PILL: Record<string, Status> = { succeeded: 'success', running: 'info', queued: 'neutral', failed: 'danger', cancelled: 'warning' }
 export const RUN_COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-b)', 'var(--viz-e)', '#0F766E']
@@ -36,13 +37,10 @@ type Filters = { dataset: string; type: string; status: string; q: string; min: 
 
 /** Experiments on the API's real runs: filter, plot the runs across their parameters and metrics, compare, diff. */
 export function LiveExperiments({ go }: { go: (r: string) => void }) {
-  const [runs, setRuns] = useState<Run[] | null>(null)
-  const [err, setErr] = useState('')
+  const { data: runs, err } = useFetch(() => api.runs.list(undefined, 'all'), [], { pollMs: 5000 })
   const [tab, setTab] = useState<Tab>('Runs')
   const [sel, setSel] = useState<string[]>([])
   const [f, setF] = useState<Filters>({ dataset: 'all', type: 'all', status: 'all', q: '', min: '' })
-  const load = () => api.runs.list(undefined, 'all').then((rs) => { setRuns(rs); setErr('') }).catch((e) => setErr((e as Error).message))
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t) }, [])
   // #/experiments?compare=a,b (from a Vela patch's retrain): select those runs and open Compare.
   const fromUrl = useRef(new URLSearchParams(location.hash.split('?')[1] ?? '').get('compare')).current
   useEffect(() => { if (fromUrl) { setSel(fromUrl.split(',').filter(Boolean)); setTab('Compare') } }, [fromUrl])
