@@ -47,6 +47,7 @@ function href(s: IntakeSuggestion, dsId: string): string {
 function prefillLine(s: IntakeSuggestion): string {
   const p = s.prefill
   if (s.route === 'forecast') return `t = ${p.timestamp}${p.item_id ? ` · series = ${p.item_id}` : ''} · y = ${p.value}`
+  if (s.route === 'multilabel') return `Y = ${p.label_column} · ${(p.labels as string[] | undefined)?.length ?? ''} labels · one model per label`
   if (s.route === 'survival') return `T = ${p.duration} · δ = ${p.event} · Cox PH + survival forest`
   if (s.route === 'reject-inference') return `y = ${p.label}${p.decision ? ` · A = ${p.decision}` : ''} · approved-only vs 3 methods, k = 2`
   if (s.route === 'segmented') return `y = ${p.label} · one model per ${p.segment} vs one global`

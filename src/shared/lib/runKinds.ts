@@ -3,12 +3,12 @@ import type { Run } from '@/shared/api/types'
 /** Every run in the `runs` table has a kind: a tabular fit, an imported TabularPredictor, a TimeSeriesPredictor
  *  forecast or an IsolationForest anomaly run. Pages that list runs use this to show each with the metric that
  *  suits it and to open it on the right page. */
-export type RunKind = 'tabular' | 'import' | 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'reject_inference'
+export type RunKind = 'tabular' | 'import' | 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'reject_inference' | 'multilabel'
 export type KindedRun = Run & { kind?: string; anomaly?: { n_flagged?: number; threshold?: number; contamination?: number; truth?: { roc_auc: number | null; precision_at_k: { k: number; precision: number }[]; planted: number } | null } | null }
 
 export const kindOf = (r: Run): RunKind => {
   const k = (r as KindedRun).kind
-  return k === 'forecast' || k === 'anomaly' || k === 'import' || k === 'expected_loss' || k === 'segmented' || k === 'survival' || k === 'reject_inference' ? k : 'tabular'
+  return k === 'forecast' || k === 'anomaly' || k === 'import' || k === 'expected_loss' || k === 'segmented' || k === 'survival' || k === 'reject_inference' || k === 'multilabel' ? k : 'tabular'
 }
 
 /** The type filter's value for a run: the tabular problem type, or the kind for the others. */
@@ -17,7 +17,7 @@ export const typeOf = (r: Run): string => {
   return k === 'tabular' ? r.problem_type ?? 'pending' : k === 'import' ? 'imported' : k
 }
 
-export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quantile', 'forecast', 'anomaly', 'expected_loss', 'segmented', 'survival', 'reject_inference', 'imported'] as const
+export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quantile', 'forecast', 'anomaly', 'expected_loss', 'segmented', 'survival', 'reject_inference', 'multilabel', 'imported'] as const
 
 /** The page a run opens on. */
 export const runPage = (r: Run): string => {
@@ -28,6 +28,7 @@ export const runPage = (r: Run): string => {
   if (k === 'segmented') return `segmented?run=${r.id}`
   if (k === 'survival') return `survival?run=${r.id}`
   if (k === 'reject_inference') return `reject-inference?run=${r.id}`
+  if (k === 'multilabel') return `multilabel?run=${r.id}`
   return `quick-train?run=${r.id}`
 }
 
@@ -59,6 +60,7 @@ export function problemLine(r: Run): string {
   if (k === 'anomaly') return `anomaly · IsolationForest${r.config.lof ? ' + LOF' : ''}`
   if (k === 'expected_loss') return 'expected loss · PD × LGD × EAD'
   if (k === 'survival') return `time to event · ${(r.config as { duration_column?: string }).duration_column ?? 'T'}, ${(r.config as { event_column?: string }).event_column ?? 'δ'}`
+  if (k === 'multilabel') return `multi-label · ${(r.config as { labels_spec?: { labels?: string[] } }).labels_spec?.labels?.length ?? ''} labels in ${r.label ?? 'Y'}`
   if (k === 'reject_inference') return `reject inference · k = ${(r.config as { k?: number }).k ?? 2}`
   if (k === 'segmented') return `segmented · ${r.problem_type ?? ''} · one model per ${(r.config as { segment_column?: string }).segment_column ?? 'segment'}`
   const lv = (r as Run & { quantile_levels?: number[] | null }).quantile_levels

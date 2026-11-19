@@ -157,6 +157,28 @@ export type SurvTry = { served: 'cox' | 'rsf'; unit: string | null; horizons: nu
   baseline_curve: number[]; km_all: number[]; features: string[]; missing_columns: string[]
   contributions?: { feature: string; value: unknown; log_hr: number; hr: number }[]; hr_vs_average?: number; predict_ms: number }
 
+// G8 · Multi-label (backend/app/multilabel): one AutoGluon binary model per label, each with its own F1 threshold.
+export type MlDetect = { dataset_id: string; source: 'delimited' | 'columns' | null; label_column: string | null; label_columns: string[]; delimiter: string | null
+  labels: string[]; evidence: string[]; candidates: string[]; counts?: { label: string; n: number; share: number }[]; multi_share?: number; mean_labels?: number
+  text_columns: string[]; drop_columns: string[]; split: string; time_column: string | null; split_why: string }
+export type MlCreate = { dataset_id: string; label_column?: string; label_columns?: string[]; drop_columns?: string[]; time_limit?: number }
+export type MlLabel = { label: string; support: number; prevalence: number; threshold: number; precision: number | null; recall: number | null
+  f1: number; f1_ci: [number, number]; f1_at_05: number; tp: number; fp: number; fn: number
+  pr: { ap: number | null; precision: number[]; recall: number[]; threshold: number[] } }
+export type MlMetrics = { macro_f1: number; micro_f1: number; hamming_loss: number; subset_accuracy: number; jaccard: number }
+export type MlResult = MlMetrics & { source: 'delimited' | 'columns'; label_column: string; label_columns: string[]; delimiter: string | null; labels: string[]
+  skipped: { label: string; why: string }[]; fits: { label: string; best_model?: string; fit_seconds?: number; threshold?: number; train_positives: number }[]
+  holdout_rows: number; tuning_rows: number; train_rows: number; ci: Record<'macro_f1' | 'micro_f1' | 'hamming_loss', [number, number]>; at_05: MlMetrics
+  baseline_hamming: number; per_label: MlLabel[]
+  cardinality: { true: number; predicted: number; hist: Record<string, [number, number]>; multi_share_true: number; multi_share_pred: number; empty_pred: number }
+  examples: { row: Record<string, unknown>; true: string[] }[]; text_columns: string[]; threshold_rule: string; detected: Partial<MlDetect> }
+export type MlRun = { run_id: string; name: string; status: string; error: string | null; dataset_id: string; split: { strategy?: string } & Record<string, unknown>
+  config: { label: string; text_columns: string[]; drop_columns: string[]; presets: string | null; time_limit: number | null; detected: Partial<MlDetect>
+    labels_spec: { labels: string[] } }
+  multilabel: MlResult | null }
+export type MlTry = { labels: string[]; scores: { label: string; p: number; t: number; on: boolean }[]; n_labels: number; rule: string; predict_ms: number
+  nearest_miss: { label: string; p: number; t: number } | null }
+
 // G7 · Reject inference (backend/app/reject): approved-only against reweighting, parcelling and fuzzy augmentation.
 export type RiMethod = 'approved_only' | 'reweighting' | 'parcelling' | 'fuzzy'
 export type RiDetect = { dataset_id: string; label: string | null; decision_column: string | null; approved_value: string | null; declined_value: string | null
@@ -184,7 +206,7 @@ export type RiRun = { run_id: string; name: string; status: string; error: strin
   reject_inference: RiResult | null }
 
 export const flows = {
-  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'reject_inference' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
+  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'reject_inference' | 'multilabel' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
   run: (id: string) => request<FlowRun>(`/runs/${encodeURIComponent(id)}`),
   forecast: {
     options: () => request<FcOptions>('/forecast/options'),
@@ -215,6 +237,12 @@ export const flows = {
     detect: (ds: string) => request<RiDetect>(`/reject-inference/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
     create: (body: RiCreate) => request<FlowRun>('/reject-inference/runs', { ...J(body), timeoutMs: 60_000 }),
     get: (id: string) => request<RiRun>(`/reject-inference/runs/${encodeURIComponent(id)}`),
+  },
+  ml: {
+    detect: (ds: string) => request<MlDetect>(`/multilabel/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
+    create: (body: MlCreate) => request<FlowRun>('/multilabel/runs', { ...J(body), timeoutMs: 60_000 }),
+    get: (id: string) => request<MlRun>(`/multilabel/runs/${encodeURIComponent(id)}`),
+    tryIt: (vid: string, row: Record<string, unknown>) => request<MlTry>(`/registry/versions/${encodeURIComponent(vid)}/predict`, { ...J({ row }), timeoutMs: 60_000 }),
   },
   surv: {
     detect: (ds: string) => request<SurvDetect>(`/survival/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),

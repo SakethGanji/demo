@@ -37,8 +37,10 @@ from .samples_g4 import SAMPLES_G4
 from .samples_g5 import SAMPLES_G5
 from .samples_g6 import SAMPLES_G6
 from .samples_g7 import SAMPLES_G7
+from .samples_g8 import SAMPLES_G8
 from .segmented import api as segmented_api
 from .survival import api as survival_api
+from .multilabel import api as multilabel_api
 from .reject import api as reject_api
 from .el import api as el_api
 from .fairlending import api as fairlending_api
@@ -114,7 +116,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.get("/api/datasets", response_model=DatasetList)
     def list_datasets(request: Request) -> dict[str, Any]:
         # Samples first, in a fixed order; then uploads, oldest first.
-        order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5, *SAMPLES_G6, *SAMPLES_G7]
+        order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5, *SAMPLES_G6, *SAMPLES_G7, *SAMPLES_G8]
         recs = sorted(request.app.state.db.list_datasets(),
                       key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
         return {"datasets": [_summary(r) for r in recs]}
@@ -258,6 +260,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(fairlending_api.router)
     app.include_router(segmented_api.router)
     app.include_router(survival_api.router)
+    app.include_router(multilabel_api.router)
     app.include_router(reject_api.router)
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)

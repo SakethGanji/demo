@@ -721,6 +721,9 @@ INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
                                             "utilization": F, "months_employed": F, "recent_inquiries": F,
                                             "num_delinquencies": F, "loan_amount": M, "decision": "decision",
                                             "defaulted": "target"}),
+    "complaint-topics": ("multilabel", {"complaint_id": "id", "received_date": "date", "product": "segment", "channel": CAT,
+                                        "customer_tenure_years": "duration", "amount_disputed": M, "narrative": "text",
+                                        "topics": "multilabel"}),
 }
 KEY_ROLES = ("target", "date", "id", "entity", "segment")
 
@@ -4945,6 +4948,73 @@ def survival(st: dict[str, Any]) -> None:
     step("surv: version: Try It curve, /score, batch, card", registry)
 
 
+def multilabel(st: dict[str, Any]) -> None:
+    """G8: multi-label on the complaint-topics sample, zero-config. Intake's top suggestion is "Multi-label: topics" (a
+    ';'-delimited list); the same table with one 0/1 column per label is detected too. The run is started with nothing but
+    the dataset (one AutoGluon model per label, each with its own F1 threshold). Asserts the acceptance: macro F1 is
+    reported per label (F1, CI, threshold, AP for every label), and Try It returns two or more labels for a multi-topic
+    complaint text. Then /score, a batch (a label set and p̂ per label per row) and the card section."""
+    ds = "complaint-topics"
+    s: dict[str, Any] = {}
+
+    def suggest():
+        it = get(f"/api/datasets/{ds}/intake")
+        s0 = it["suggestions"][0]
+        check(s0["id"] == "multilabel" and s0["route"] == "multilabel", f"top {s0['id']}")
+        check(s0["prefill"]["label_column"] == "topics" and len(s0["prefill"]["labels"]) == 6, s0["prefill"])
+        d = get("/api/multilabel/detect", dataset_id=ds)
+        check(d["source"] == "delimited" and d["delimiter"] == ";" and d["text_columns"] == ["narrative"], d)
+        check(sorted(d["drop_columns"]) == ["complaint_id", "received_date"] and d["split"] == "time", d)
+        return f"top {s0['id']} ({s0['score']:g}) · {len(d['labels'])} labels · {d['multi_share'] * 100:.0f}% multi · {d['split']} split"
+    step("ml: Build suggests multi-label, label set detected", suggest)
+
+    def train():
+        rec = post("/api/multilabel/runs", {"dataset_id": ds})  # zero-config
+        check(rec["kind"] == "multilabel", rec.get("kind"))
+        t0 = time.time()
+        done = wait_run(rec["id"], 1500)
+        check(done["status"] == "succeeded", done.get("error"))
+        r = get(f"/api/multilabel/runs/{rec['id']}")["multilabel"]
+        per = r["per_label"]
+        check(len(per) == 6 and all(p["f1"] is not None and p["f1_ci"][0] <= p["f1"] <= p["f1_ci"][1] and 0 < p["threshold"] < 1
+                                    and p["pr"]["ap"] is not None for p in per), "per-label F1")  # acceptance 1
+        check(abs(r["macro_f1"] - sum(p["f1"] for p in per) / 6) < 1e-9, "macro F1 = mean of per-label F1")
+        check(r["hamming_loss"] < r["baseline_hamming"] and r["macro_f1"] > 0.6, (r["macro_f1"], r["hamming_loss"]))
+        s.update(run=rec["id"], r=r)
+        st["ml"] = {k: r[k] for k in ("macro_f1", "micro_f1", "hamming_loss", "ci")}
+        return (f"{rec['id']} in {time.time() - t0:.0f} s · macro F1 {r['macro_f1']:.3f} [{r['ci']['macro_f1'][0]:.3f}, "
+                f"{r['ci']['macro_f1'][1]:.3f}] · micro F1 {r['micro_f1']:.3f} · Hamming {r['hamming_loss']:.4f} (empty "
+                f"{r['baseline_hamming']:.3f}) · " + ", ".join(f"{p['label']} {p['f1']:.3f} (t {p['threshold']:.2f})" for p in per))
+    if not step("ml: zero-config run, F1 per label, micro/macro F1, Hamming (acceptance)", train):
+        return
+    run, r = s["run"], s["r"]
+
+    def registry():
+        v = post(f"/api/runs/{run}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.multilabel"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready" and v["result"]["version"]["problem_type"] == "multilabel", v.get("error"))
+        vid = v["id"]
+        row = dict(r["examples"][0]["row"])
+        row["narrative"] = ("There are transactions on my card that I did not make. I waited over an hour on hold and "
+                            "nobody called me back as promised. I was also charged an overdraft fee I never agreed to.")
+        t = post(f"/api/registry/versions/{vid}/predict", {"row": row})
+        check(len(t["labels"]) >= 2 and {"fraud", "service"} <= set(t["labels"]), t["labels"])  # acceptance 2
+        check(all((x["p"] >= x["t"]) == x["on"] for x in t["scores"]), "rule")
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": [row, r["examples"][-1]["row"]]})["results"]
+        check(len(sc) == 2 and sc[0]["labels"] == t["labels"], sc)
+        rows = pd.DataFrame([e["row"] for e in r["examples"]] * 20)
+        b = j(C.post(f"/api/registry/versions/{vid}/batches", files={"file": ("complaints.csv", rows.to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+        check(b["status"] == "succeeded", b.get("error"))
+        check({"labels", "n_labels", "p_fraud"} <= set(b["result"]["columns"]), b["result"]["columns"])
+        card = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Multi-label classification" in card and "macro F1" in card, "card section")
+        return (f"{vid} ready · Try It: {t['labels']} (" + ", ".join(f"{x['label']} {x['p']:.2f}/{x['t']:.2f}" for x in t["scores"][:4])
+                + f") · /score 2 rows · batch {b['result']['summary']['n_rows']} rows, mean |Ŷ| {b['result']['summary']['ml_mean_labels']:.2f} · card section")
+    step("ml: version: Try It label set, /score, batch, card", registry)
+
+
 def reject_inference(st: dict[str, Any]) -> None:
     """G7: reject inference on the credit-rejects sample, zero-config. Intake finds the decision column (the outcome is
     blank for every declined row) and puts "Reject inference" on top; the run is started with nothing but the dataset
@@ -5159,7 +5229,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

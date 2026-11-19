@@ -197,6 +197,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "expected_loss": _el_section(run),
         "segmented": _seg_section(run),
         "survival": _surv_section(run),
+        "multilabel": _ml_section(run),
         "imported": res.get("imported"),
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
@@ -382,6 +383,13 @@ def _seg_section(run: dict[str, Any]) -> dict[str, Any] | None:
 def _surv_section(run: dict[str, Any]) -> dict[str, Any] | None:
     """G6: a time-to-event version's discrimination, calibration against Kaplan–Meier and Cox hazard ratios."""
     from ..survival.api import card_section
+
+    return card_section(run)
+
+
+def _ml_section(run: dict[str, Any]) -> dict[str, Any] | None:
+    """G8: a multi-label version's labels, per-label thresholds and F1, micro/macro F1 and Hamming loss."""
+    from ..multilabel.api import card_section
 
     return card_section(run)
 
@@ -600,6 +608,23 @@ def to_markdown(c: dict[str, Any]) -> str:
         L += ["", "| Cox term | HR per unit [95% CI] | p |", "| --- | --- | ---: |"]
         L += [f"| {h['term']} | {_fmt(h['hr'])} [{_fmt(h['hr_ci'][0])}, {_fmt(h['hr_ci'][1])}] | {_fmt(h.get('p_value'))} |"
               for h in sv.get("hazard_ratios") or []]
+        L.append("")
+    ml = c.get("multilabel")
+    if ml:
+        ci = ml.get("ci") or {}
+        src = (f"'{ml.get('label_column')}' (lists split by '{ml.get('delimiter')}')" if ml.get("source") == "delimited"
+               else f"the 0/1 columns {ml.get('label_column')}")
+        L += ["**Multi-label classification**", "",
+              f"Labels from {src}: {len(ml.get('labels') or [])} labels, one AutoGluon binary model per label on the same inputs. "
+              f"Ŷ(x) = {{l : p̂_l(x) ≥ t_l}}; each threshold t_l maximises F1 on {ml.get('threshold_rule', '').replace('F1 on ', '')}"
+              + (f". Not modelled (too few positives): {', '.join(ml['skipped'])}" if ml.get("skipped") else "") + ".", "",
+              f"Holdout ({ml.get('holdout_rows')} rows): macro F1 {_fmt(ml.get('macro_f1'))} [{_fmt((ci.get('macro_f1') or [None])[0])}, "
+              f"{_fmt((ci.get('macro_f1') or [None, None])[1])}], micro F1 {_fmt(ml.get('micro_f1'))} [{_fmt((ci.get('micro_f1') or [None])[0])}, "
+              f"{_fmt((ci.get('micro_f1') or [None, None])[1])}], Hamming loss {_fmt(ml.get('hamming_loss'))} (empty prediction: "
+              f"{_fmt(ml.get('baseline_hamming'))}), exact label sets {_fmt(ml.get('subset_accuracy'))}.", "",
+              "| label | support | t | precision | recall | F1 [95% CI] | AP |", "| --- | ---: | ---: | ---: | ---: | --- | ---: |"]
+        L += [f"| {r['label']} | {r['support']} | {_fmt(r['threshold'], 3)} | {_fmt(r['precision'], 3)} | {_fmt(r['recall'], 3)} | "
+              f"{_fmt(r['f1'], 3)} [{_fmt(r['f1_ci'][0], 3)}, {_fmt(r['f1_ci'][1], 3)}] | {_fmt(r.get('ap'), 3)} |" for r in ml.get("per_label") or []]
         L.append("")
     ri = c.get("reject_inference")
     if ri:

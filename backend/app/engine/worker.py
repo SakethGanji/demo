@@ -570,7 +570,7 @@ def run(run_dir: Path) -> int:
         return store.emit(run_id, type_, **data)
 
     started = time.time()
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel"):
         return run_other(cfg, run_dir, store, emit, started)
     try:
         emit("run_started", pid=os.getpid())
@@ -778,6 +778,8 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
             from ..survival import core
         elif cfg["kind"] == "reject_inference":  # G7: approved-only against three reject-inference methods (AutoGluon)
             from ..reject import core
+        elif cfg["kind"] == "multilabel":  # G8: one binary TabularPredictor per label, each with its own threshold
+            from ..multilabel import core
         else:
             from ..anomaly import core
         out = core.run(cfg, run_dir, emit, merge)

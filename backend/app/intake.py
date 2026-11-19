@@ -138,13 +138,14 @@ def _single_auc(x: pd.Series, y: pd.Series) -> float | None:
     return float(max(auc, 1 - auc))
 
 
-def _target_candidates(df: pd.DataFrame, types: dict[str, str]) -> list[tuple[float, str, str, list[str]]]:
-    """(score, column, task, evidence) for every column that could be the target, best first."""
+def _target_candidates(df: pd.DataFrame, types: dict[str, str], skip: set[str] | None = None) -> list[tuple[float, str, str, list[str]]]:
+    """(score, column, task, evidence) for every column that could be the target, best first. `skip`: label columns of
+    a multi-label set (G8), which are a target together, not one by one."""
     out = []
     ncol = len(df.columns)
     for i, col in enumerate(df.columns):
         t, s = types[col], df[col]
-        if t in ("text", "id"):
+        if t in ("text", "id") or col in (skip or ()):
             continue
         k = int(s.nunique(dropna=True))
         last = i == ncol - 1
@@ -176,7 +177,12 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
     """Every column's role with a confidence and its evidence, plus the target candidates."""
     n = len(df)
     types = {c: detect_type(str(c), df[c]) for c in df.columns}
-    cands = _target_candidates(df, types)
+    from .multilabel.core import indicator_groups
+
+    # G8: a column of label lists, or a group of 0/1 columns one per label, is a multi-label target, never a single one
+    ind = {c: g for g in indicator_groups(df) for c in g["columns"]}
+    lists = {c for c in df.columns if types[c] in ("category", "text") and df[c].nunique() > 2 and _multilabel(df[c])}
+    cands = _target_candidates(df, types, set(ind) | lists)
     # A target needs a name that reads like a label, or the last column; a table with neither has no label.
     target = cands[0] if cands and (cands[0][0] >= 5) else None
     if series_value:
@@ -247,6 +253,10 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
                 d, v, m = ml
                 found.append(_role("multilabel", 0.8, f"values are lists split by '{d}'", f"{v} distinct labels",
                                    f"{m * 100:.0f}% of rows carry 2 or more"))
+        if col in ind:
+            g = ind[col]
+            found.append(_role("multilabel", 0.85, f"one of {len(g['columns'])} 0/1 columns named '{g['prefix']}_…': one per label",
+                               f"{g['multi_share'] * 100:.0f}% of rows carry 2 or more"))
         if t == "category" and col != tcol and 2 <= k <= 20 and SEGMENT.search(name):
             found.append(_role("segment", 0.75, f"name '{col}' reads like a segment", f"{k} groups, smallest "
                                f"{int(nn.value_counts().iloc[-1]):,} rows"))
@@ -624,6 +634,26 @@ def _reject_inference(ctx: Ctx):
              "title": f"Reject inference for {t}"})
 
 
+def _multilabel_set(ctx: Ctx):
+    """G8: a column of label lists ('fees;fraud') or a group of 0/1 label columns → one AutoGluon model per label, each
+    with its own threshold; the row's prediction is a label set."""
+    from .multilabel.core import find, label_matrix
+
+    f = find(ctx.df, ctx.columns)
+    if not f["source"] or len(f["labels"]) < 2:
+        return None
+    M, _ = label_matrix(ctx.df, f)
+    multi = float((M.sum(axis=1) >= 2).mean())
+    text = ctx.roles.get("text") or []
+    return (97 if multi >= 0.1 else 50,
+            f"Each row carries several labels in {('' if f['source'] == 'delimited' else 'the columns ') + repr(f['label_column'])}: "
+            f"{len(f['labels'])} labels, {multi * 100:.0f}% of rows with two or more. One AutoGluon model per label"
+            f"{f' (reading {text[0]!r} as text)' if text else ''}, each with its own F1 threshold, gives every row a label set; "
+            f"scored by per-label F1, micro/macro F1 and Hamming loss.",
+            {"dataset_only": True, "label_column": f["label_column"], "labels": f["labels"],
+             "title": f"Multi-label: {f['label_column']}"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -641,6 +671,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("segmented", "Segmented models", "segmented", _segmented),  # G5
     Suggestion("survival", "Time to event (survival)", "survival", _survival),  # G6
     Suggestion("reject_inference", "Reject inference", "reject-inference", _reject_inference),  # G7
+    Suggestion("multilabel", "Multi-label classifier", "multilabel", _multilabel_set),  # G8
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 

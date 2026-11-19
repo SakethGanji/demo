@@ -448,6 +448,31 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
                        "mean_prediction": float(out["risk_score"].mean()), "std_prediction": float(out["risk_score"].std()),
                        "prediction_symbol": "r̂", "surv_groups": summ["groups"], "surv_mean_survival": summ["mean_survival"],
                        "surv_unit": meta.get("unit"), "surv_first_horizon": h0}
+        elif kind == "multilabel":  # G8: the label set and p̂ per label per row; PSI of the inputs and of the label count
+            from ..multilabel import core as mlc
+
+            t0 = time.time()
+            out, summ = mlc.score_batch(version_path, df)
+            score_s = time.time() - t0
+            out.to_csv(out_path, index=False)
+            meta = mlc.load(version_path)["meta"]
+            feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns and c not in meta["text_columns"]]
+            kinds = {c: ("number" if c in meta["numeric"] else "category") for c in feats}
+            ref_f = Path(cfg["run_dir"]) / "ml_holdout.csv"
+            ref = pd.read_csv(ref_f)["n_labels"].to_numpy(dtype=float) if ref_f.exists() else out["n_labels"].to_numpy(dtype=float)
+            reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
+            rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=pd.DataFrame({"y_pred": ref}),
+                                     cur_pred=pd.DataFrame({"y_pred": out["n_labels"].to_numpy(dtype=float)}), positive=None)
+            rep["prediction"]["output"] = "labels per row |Ŷ|"
+            rep["prediction_reference"] = "the label models on the run's holdout rows"
+            rep["reference"] = "the rows the models were trained on"
+            summary = {"n_rows": int(len(df)), "seconds": time.time() - t_start, "score_seconds": score_s,
+                       "us_per_row": score_s / len(df) * 1e6, "model": f"{len(meta['labels'])} label models",
+                       "problem_type": "multilabel", "missing_columns": [c for c in meta["inputs"] if c not in df.columns],
+                       "extra_columns": [c for c in df.columns if c not in meta["inputs"]],
+                       "mean_prediction": summ["mean_labels"], "std_prediction": float(out["n_labels"].std()),
+                       "prediction_symbol": "|Ŷ|", "ml_labels": summ["labels"], "ml_mean_labels": summ["mean_labels"],
+                       "ml_empty": summ["empty"], "ml_multi": summ["multi"]}
         elif kind == "segmented":  # G5: each row through its segment's model; reason codes for the first adverse rows
             from ..segmented import core as sgc
 

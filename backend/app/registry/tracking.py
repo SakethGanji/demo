@@ -96,7 +96,7 @@ def log_run(data_dir: Path, rec: dict[str, Any], run_dir: Path) -> dict[str, Any
         tags = {"ensemble.run_id": rec["id"], "ensemble.dataset_id": rec["dataset_id"], "ensemble.label": rec["label"],
                 "ensemble.predictor_path": rec["config"].get("predictor_path", ""), "ensemble.best_model": str(res.get("best_model")),
                 "ensemble.problem_type": str(res.get("problem_type")), "mlflow.runName": rec["name"][:250],
-                "engine": {"forecast": "autogluon.timeseries", "anomaly": "scikit-learn", "survival": "scikit-survival"}.get(rec["config"].get("kind"), "autogluon.tabular")}
+                "engine": {"forecast": "autogluon.timeseries", "anomaly": "scikit-learn", "survival": "scikit-survival", "multilabel": "autogluon.tabular"}.get(rec["config"].get("kind"), "autogluon.tabular")}
         run = c.create_run(exp_id, run_name=rec["name"][:250], tags=tags)
         rid = run.info.run_id
         from mlflow.entities import Metric, Param

@@ -154,6 +154,13 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             <p className="helper" style={{ fontSize: 12 }}>{`T = ${g.duration_column}, event ${g.event_column} = 1 (0 = censored). Serving ${g.served === 'cox' ? 'Cox PH' : 'a random survival forest'}, chosen on ${g.chosen_on}. Holdout (${g.holdout_rows} rows, ${g.events.holdout} events): Harrell's C ${g.c_index.toFixed(4)} [${g.c_index_ci[0].toFixed(3)}, ${g.c_index_ci[1].toFixed(3)}] (the other model ${g.other.c_index?.toFixed(4) ?? '—'}); ${g.at.map((a) => `AUC(${a.t}) ${a.auc.toFixed(3)}`).join(', ')}. Calibration against Kaplan–Meier by risk quartile: max |Ŝ − Ŝ_KM| ${g.calibration.max_abs_diff.toFixed(3)}, ${g.calibration.in_ci}/${g.calibration.cells} inside the KM 95% CI (${g.calibration.ok ? 'calibrated' : 'not calibrated'}). Cox hazard ratios per unit: ${g.hazard_ratios.slice(0, 5).map((h) => `${h.term} ${h.hr.toFixed(2)} [${h.hr_ci[0].toFixed(2)}, ${h.hr_ci[1].toFixed(2)}]`).join('; ')}.`}</p>
           </div>
         })()}
+        {c.multilabel && (() => {
+          const g = c.multilabel
+          return <div data-testid="card-ml" style={{ marginTop: 8 }}>
+            <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Multi-label classification</h4>
+            <p className="helper" style={{ fontSize: 12 }}>{`${g.labels.length} labels from ${g.label_column}, one AutoGluon yes/no model per label; Ŷ(x) = {l : p̂_l(x) ≥ t_l}, each t_l the best F1 on ${g.threshold_rule.replace('F1 on ', '')}. Holdout (${g.holdout_rows} rows): macro F1 ${g.macro_f1.toFixed(3)} [${g.ci.macro_f1[0].toFixed(3)}, ${g.ci.macro_f1[1].toFixed(3)}], micro F1 ${g.micro_f1.toFixed(3)}, Hamming loss ${g.hamming_loss.toFixed(4)} (no labels: ${g.baseline_hamming.toFixed(3)}). Per label F1 (t): ${g.per_label.map((p) => `${p.label} ${p.f1.toFixed(3)} (${p.threshold.toFixed(2)})`).join(', ')}.${g.skipped.length ? ` Not modelled: ${g.skipped.join(', ')}.` : ''}`}</p>
+          </div>
+        })()}
         {c.reject_inference && (() => {
           const g = c.reject_inference
           const ms = Object.entries(g.methods ?? {}).filter(([, x]) => x)

@@ -9,6 +9,7 @@ import { ExpectedLossPage } from '@/features/expected-loss/ExpectedLossPage'
 import { SegmentedPage } from '@/features/segmented/SegmentedPage'
 import { RejectInferencePage } from '@/features/reject-inference/RejectInferencePage'
 import { SurvivalPage } from '@/features/survival/SurvivalPage'
+import { MultilabelPage } from '@/features/multilabel/MultilabelPage'
 import { ImportPage } from '@/features/import/ImportPage'
 import { HomePage } from '@/features/home/HomePage'
 import { QuickTrainPage } from '@/features/quick-train/QuickTrainPage'
@@ -104,6 +105,7 @@ export default function App() {
           {route === 'segmented' && <SegmentedPage go={go} />}
           {route === 'survival' && <SurvivalPage go={go} />}
           {route === 'reject-inference' && <RejectInferencePage go={go} />}
+          {route === 'multilabel' && <MultilabelPage go={go} />}
         </main>
       </div>
 

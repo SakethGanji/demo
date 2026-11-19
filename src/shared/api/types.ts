@@ -509,7 +509,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished' | 'seg_model_started' | 'seg_model_finished' | 'surv_model_started' | 'surv_model_finished' | 'ri_model_started' | 'ri_model_finished'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished' | 'seg_model_started' | 'seg_model_finished' | 'surv_model_started' | 'surv_model_finished' | 'ri_model_started' | 'ri_model_finished' | 'ml_model_started' | 'ml_model_finished'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */
@@ -842,12 +842,12 @@ export type BatchJob = {
   result: {
     summary: {
       n_rows: number; seconds: number; score_seconds: number; us_per_row: number; missing_columns: string[]; extra_columns: string[]; model: string
-      problem_type: ProblemType | 'anomaly' | 'forecast' | 'survival'; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
+      problem_type: ProblemType | 'anomaly' | 'forecast' | 'survival' | 'multilabel'; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
       mean_p_reference?: number | null; flagged_share?: number; threshold?: number; mean_prediction?: number; std_prediction?: number
       histogram?: { edges: number[]; actual: number[]; expected: number[] }
       /** Forecast and anomaly versions. */
       quantile_levels?: number[]; prediction_is?: string; interval?: { lo: number; hi: number; nominal: number; mean_width: number; median_width: number; mean_width_reference?: number }
-      flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; seg_segments?: { value: string; n: number; model: string; mean_prediction: number; adverse_share?: number }[]; surv_groups?: Record<string, number>; surv_mean_survival?: Record<string, number>; surv_unit?: string | null; seg_global_rows?: number; reasons_rows?: number; forecast_rows?: number; known_covariates_source?: string
+      flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; seg_segments?: { value: string; n: number; model: string; mean_prediction: number; adverse_share?: number }[]; surv_groups?: Record<string, number>; surv_mean_survival?: Record<string, number>; surv_unit?: string | null; ml_labels?: { label: string; n: number; share: number; mean_p: number }[]; ml_mean_labels?: number; ml_empty?: number; ml_multi?: number; seg_global_rows?: number; reasons_rows?: number; forecast_rows?: number; known_covariates_source?: string
       /** F10: reason codes for the adverse decisions. */
       reasons?: BatchReasons
     }
@@ -891,6 +891,11 @@ export type ModelCard = {
   reject_inference?: { run_id: string; k: number; through_the_door: boolean; n: number | null; best: string | null; better: string[] | null; assumption: string
     methods: Record<string, { auc: number | null; log_loss: number; mean_p: number; bad_rate: number; verdict: string
       delta_auc: { delta: number; ci: [number, number] } | null; delta_log_loss: { delta: number; ci: [number, number] } | null } | null> | null } | null
+  /** G8: a multi-label version's labels, thresholds and holdout F1. */
+  multilabel?: { label_column: string; source: string; delimiter: string | null; labels: string[]; macro_f1: number; micro_f1: number; hamming_loss: number
+    baseline_hamming: number; ci: Record<'macro_f1' | 'micro_f1' | 'hamming_loss', [number, number]>; subset_accuracy: number; holdout_rows: number
+    threshold_rule: string; skipped: string[]
+    per_label: { label: string; support: number; threshold: number; precision: number | null; recall: number | null; f1: number; f1_ci: [number, number]; ap: number | null }[] } | null
   survival?: { duration_column: string; event_column: string; unit: string | null; served: 'cox' | 'rsf'; chosen_on: string; c_index: number; c_index_ci: [number, number]
     other: { model: string; c_index: number | null }; at: { t: number; auc: number; brier: number; mean_S: number }[]
     calibration: { max_abs_diff: number; in_ci: number; cells: number; ok: boolean }; holdout_rows: number; events: { holdout: number }

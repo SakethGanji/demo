@@ -16,6 +16,7 @@ import { RegisterPanel } from './components/RegisterPanel'
 import { ElVersionTab } from '@/features/expected-loss/ExpectedLossPage'
 import { SegVersionTab } from '@/features/segmented/SegmentedPage'
 import { SurvTryIt, SurvVersionTab } from '@/features/survival/SurvivalPage'
+import { MlTryIt, MlVersionTab } from '@/features/multilabel/MultilabelPage'
 import { TryIt } from './components/TryIt'
 import { ReasonCodes } from './components/ReasonCodes'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
@@ -23,8 +24,8 @@ import { ServingCard } from './components/ServingCard'
 import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
 import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
-type Tab = 'Overview' | 'Expected Loss' | 'Segments' | 'Survival' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending' | 'Audit'
-const TABS: Tab[] = ['Overview', 'Expected Loss', 'Segments', 'Survival', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Fair Lending', 'Audit']
+type Tab = 'Overview' | 'Expected Loss' | 'Segments' | 'Survival' | 'Labels' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending' | 'Audit'
+const TABS: Tab[] = ['Overview', 'Expected Loss', 'Segments', 'Survival', 'Labels', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Fair Lending', 'Audit']
 
 /** The registry on the API's real data: versions built from runs, their stages and reviews, the audit log, lineage,
  *  and each version's card, Try It and batch scoring with drift. */
@@ -182,7 +183,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
               ? <button className="btn sm" onClick={() => go(`explain?run=${detail.run_id}`)}>Explain run →</button>
               : <button className="btn sm" onClick={() => go(`${flowRoute(detail)}?run=${detail.run_id}`)} data-testid="vd-open-flow">Open {flowOf(detail).replace('_', ' ')} run →</button>}
           </div>
-          <Tabs tabs={TABS.filter((t) => ((t !== 'Credit Report' && t !== 'Fair Lending') || (flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary')) && (t !== 'Reason Codes' || (rowFlow(detail) && detail.result?.version?.problem_type === 'binary')) && (t !== 'Monitoring' || flowOf(detail) === 'tabular') && (t !== 'Expected Loss' || flowOf(detail) === 'expected_loss') && (t !== 'Segments' || flowOf(detail) === 'segmented') && (t !== 'Survival' || flowOf(detail) === 'survival'))} value={tab} onChange={(t) => select(detail.id, t as Tab)} />
+          <Tabs tabs={TABS.filter((t) => ((t !== 'Credit Report' && t !== 'Fair Lending') || (flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary')) && (t !== 'Reason Codes' || (rowFlow(detail) && detail.result?.version?.problem_type === 'binary')) && (t !== 'Monitoring' || flowOf(detail) === 'tabular') && (t !== 'Expected Loss' || flowOf(detail) === 'expected_loss') && (t !== 'Segments' || flowOf(detail) === 'segmented') && (t !== 'Survival' || flowOf(detail) === 'survival') && (t !== 'Labels' || flowOf(detail) === 'multilabel'))} value={tab} onChange={(t) => select(detail.id, t as Tab)} />
           {tab === 'Overview' && (detail.status !== 'ready'
             ? <BuildSteps v={detail} />
             : <>
@@ -196,6 +197,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
           {detail.status === 'ready' && tab === 'Segments' && flowOf(detail) === 'segmented' && <SegVersionTab runId={detail.run_id} />}
           {detail.status === 'ready' && tab === 'Survival' && flowOf(detail) === 'survival' && <SurvVersionTab runId={detail.run_id} />}
           {detail.status === 'ready' && tab === 'Try It' && flowOf(detail) === 'survival' && <SurvTryIt key={detail.id} v={detail} />}
+          {detail.status === 'ready' && tab === 'Labels' && flowOf(detail) === 'multilabel' && <MlVersionTab runId={detail.run_id} />}
+          {detail.status === 'ready' && tab === 'Try It' && flowOf(detail) === 'multilabel' && <MlTryIt key={detail.id} v={detail} />}
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && rowFlow(detail) && tab === 'Try It' && <TryIt v={detail} run={run} ds={ds} />}
           {detail.status === 'ready' && tab === 'Reason Codes' && rowFlow(detail) && detail.result?.version?.problem_type === 'binary' && <ReasonCodes key={detail.id} v={detail} actor={actor} onEdited={bump} />}
@@ -203,7 +206,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
           {detail.status === 'ready' && tab === 'Credit Report' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <CreditReport key={detail.id} v={detail} actor={actor} />}
           {detail.status === 'ready' && tab === 'Fair Lending' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <FairLendingPanel key={detail.id} runId={detail.run_id} />}
           {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} kind={flowOf(detail)} />}
-          {detail.status === 'ready' && !rowFlow(detail) && flowOf(detail) !== 'survival' && tab === 'Try It' && (
+          {detail.status === 'ready' && !rowFlow(detail) && flowOf(detail) !== 'survival' && flowOf(detail) !== 'multilabel' && tab === 'Try It' && (
             <div className="card card-body"><p className="helper">{flowOf(detail) === 'expected_loss'
               ? <>An expected-loss version scores loans: PD̂, LGD̂, EAD̂ and EL per row. Score a file in Batch & Drift, or over HTTP: <span className="mono">POST /api/registry/versions/{detail.id}/score</span>. </>
               : flowOf(detail) === 'forecast'

@@ -220,7 +220,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
     work, dest = vdir / "work", vdir / "predictor"
     data_dir = Path(db_path).parent
     step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel"):
         return build_other(db_path, version_id, registry_dir)
     try:
         from autogluon.tabular import TabularPredictor
@@ -661,6 +661,28 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                        "calibration_max_diff": (sv.get("calibration") or {}).get("max_abs_diff")}
             problem = "survival"
             metric = "c_index"
+        elif kind == "multilabel":  # G8: one predictor per label and meta.json (labels, thresholds); scored together
+            from ..multilabel import core as mlc
+
+            df = pd.read_csv(cfg["csv_path"])
+            mlc.score_rows(str(dest), df.head(50))  # warm-up
+            ts, single = [], []
+            for _ in range(3):
+                t1 = time.perf_counter()
+                mlc.score_rows(str(dest), df.head(2000))
+                ts.append((time.perf_counter() - t1) / min(len(df), 2000) * 1e6)
+            for i in range(10):
+                t1 = time.perf_counter()
+                mlc.score_rows(str(dest), [df.iloc[i].to_dict()])
+                single.append((time.perf_counter() - t1) * 1e3)
+            lat = {"us_per_row_p50": _pct(ts, 50), "single_ms_p50": _pct(single, 50), "single_ms_p95": _pct(single, 95),
+                   "batch_rows": min(len(df), 2000)}
+            ml = res.get("multilabel") or {}
+            best = res.get("best_model") or "label models"
+            holdout = {"macro_f1": ml.get("macro_f1"), "micro_f1": ml.get("micro_f1"), "hamming_loss": ml.get("hamming_loss"),
+                       "labels": len(ml.get("labels") or [])}
+            problem = "multilabel"
+            metric = "macro_f1"
         elif kind == "segmented":  # G5: the global and segment predictors and meta.json, routed per row
             from ..segmented import core as sgc
 
@@ -731,6 +753,10 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
             sv = res.get("survival") or {}
             result["version"].update(duration_column=sv.get("duration_column"), event_column=sv.get("event_column"),
                                      horizons=sv.get("horizons"), served=sv.get("served"), unit=sv.get("unit"))
+        if kind == "multilabel":  # G8: what Try It and the card read
+            ml = res.get("multilabel") or {}
+            result["version"].update(labels=ml.get("labels"), thresholds={p["label"]: p["threshold"] for p in ml.get("per_label") or []},
+                                     label_column=ml.get("label_column"), delimiter=ml.get("delimiter"), examples=ml.get("examples"))
         if kind == "segmented":  # G5: what the reason-code card section and Try It read for a binary version
             sg = res.get("segmented") or {}
             result["version"].update(positive_class=sg.get("positive_class"), decision_threshold=sg.get("threshold"),
@@ -745,7 +771,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                 "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
                 "data_sha256": data_hash, "best_model": best, "kind": kind, "approval": "pending",
                 "registered_by": v["created_by"]}, description=v["options"].get("description") or "",
-                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind in ("expected_loss", "segmented", "survival") else "scikit-learn")
+                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind in ("expected_loss", "segmented", "survival", "multilabel") else "scikit-learn")
             reg.merge_version_result(version_id, mlflow={**mv, "experiment_id": mlr["experiment_id"]})
             step("mlflow", "done", version=mv["version"])
         except Exception as e:  # noqa: BLE001
