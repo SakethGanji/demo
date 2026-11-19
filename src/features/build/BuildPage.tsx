@@ -6,6 +6,8 @@ import { ApiOnly, HeroCell } from '@/shared/components/Status'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { Segmented } from '@/shared/primitives/Segmented'
+import { SqlLineageLine, SqlSource } from './SqlSource'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
 const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip', 'decision']  // G4: protected attributes, surname and zip are never model inputs; G7: nor the approve/decline decision
@@ -77,7 +79,7 @@ export function BuildPage({ go }: { go: (r: string) => void }) {
 function BuildHead({ go }: { go: (r: string) => void }) {
   return (
     <div className="page-head">
-      <div><h1 className="page-title">Build</h1><p className="helper sub">Upload a table → here is what we found → here is what you can build.</p></div>
+      <div><h1 className="page-title">Build</h1><p className="helper sub">Upload a table or query a database → here is what we found → here is what you can build.</p></div>
       <div className="seg" role="tablist" aria-label="Mode">
         <button className="on" role="tab" aria-selected>Guided</button>
         <button role="tab" aria-selected={false} onClick={() => go('gym')} data-testid="build-advanced" title="Every AutoGluon fit() argument: the Training Gym">Advanced</button>
@@ -96,6 +98,10 @@ function BuildLive({ go }: { go: (r: string) => void }) {
   const intake = useFetch(dsId ? () => api.datasets.intake(dsId, edited ? edits : undefined) : null, [dsId, JSON.stringify(edits)])
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
+  const [refreshed, setRefreshed] = useState<{ id: string; msg: string } | null>(null)
+  const [from, setFrom] = useState<'CSV file' | 'SQL query'>('CSV file')  // G9: a second way in
+  const detail = useFetch(dsId ? () => api.datasets.get(dsId) : null, [dsId])
+  const sqlDs = detail.data?.id === dsId && (detail.data?.profile.lineage as { source?: string } | undefined)?.source === 'sql' ? detail.data : null
 
   const upload = async (f: File) => {
     setBusy('Uploading and profiling…'); setErr('')
@@ -121,18 +127,21 @@ function BuildLive({ go }: { go: (r: string) => void }) {
       <BuildHead go={go} />
       <div className="grid build-top">
         <div className="card">
-          <div className="card-head"><h3 className="card-title">1 · Your table</h3></div>
+          <div className="card-head"><h3 className="card-title">1 · Your table</h3><Segmented options={['CSV file', 'SQL query']} value={from} onChange={setFrom} /></div>
           <div className="card-body stack" style={{ gap: 12 }}>
-            <DropZone title={busy || 'Drop a CSV here'} helper="or click to browse. It is uploaded to the local API and profiled there." onFile={upload} onError={setErr} />
+            {from === 'CSV file'
+              ? <DropZone title={busy || 'Drop a CSV here'} helper="or click to browse. It is uploaded to the local API and profiled there." onFile={upload} onError={setErr} />
+              : <SqlSource onLoaded={(d) => { list.reload(); setDs(d.id) }} />}
             <select className="select" value={dsId ?? ''} onChange={(e) => setDs(e.target.value)} aria-label="Dataset" data-testid="build-dataset">
               <option value="" disabled>…or pick a dataset on this machine</option>
               {(list.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} rows × {d.n_cols}</option>)}
             </select>
             {(err || list.err) && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err || list.err}</p>}
+            {sqlDs && <SqlLineageLine ds={sqlDs} note={refreshed?.id === sqlDs.id ? refreshed.msg : ''} onRefreshed={(id, msg) => { setRefreshed({ id, msg }); list.reload(); setDs(id) }} />}
           </div>
         </div>
         {current ? <Found intake={current} edits={edits} setEdits={setEdits} />
-          : <div className="card card-body row helper">{dsId ? (intake.err ? <span style={{ color: 'var(--status-danger)' }}>✕ {intake.err}</span> : <><ResonanceWave /> Reading every column…</>) : 'Drop a CSV or pick a dataset: Smart Intake finds the target, dates, IDs, money, segments and what to leave out, and says why.'}</div>}
+          : <div className="card card-body row helper">{dsId ? (intake.err ? <span style={{ color: 'var(--status-danger)' }}>✕ {intake.err}</span> : <><ResonanceWave /> Reading every column…</>) : 'Drop a CSV, query a database or pick a dataset: Smart Intake finds the target, dates, IDs, money, segments and what to leave out, and says why.'}</div>}
       </div>
       {current && <Suggestions intake={current} onOpen={open} busy={!!busy} />}
     </div>

@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -9,6 +9,8 @@ export class ApiError extends Error {
 }
 
 const BASE = '/api'
+
+type SqlQuery = { url: string; query: string; limit?: number; password?: string }
 
 export async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const { timeoutMs = 15_000, ...rest } = init
@@ -42,6 +44,15 @@ export const api = {
       form.append('file', file)
       if (target) form.append('target', target)
       return request<DatasetDetail>('/datasets', { method: 'POST', body: form, timeoutMs: 120_000 })
+    },
+    /** G9: a dataset from a read-only SQL query (SQLite/DuckDB files on the server, or Postgres). The password is sent, never stored. */
+    sql: {
+      demo: () => request<SqlDemo>('/sql/demo'),
+      tables: (url: string, password?: string) => json<{ tables: SqlTable[] }>('/sql/tables', 'POST', { url, password }),
+      preview: (q: SqlQuery) => json<SqlPreview>('/sql/preview', 'POST', q, 120_000),
+      create: (q: SqlQuery & { name?: string }) => json<DatasetDetail>('/sql/datasets', 'POST', q, 300_000),
+      refresh: (id: string, password?: string) => json<DatasetDetail & { refresh: { parent: string; version: number; diff: SqlLineage['diff']; unchanged: boolean } }>(`/sql/datasets/${encodeURIComponent(id)}/refresh`, 'POST', { password }, 300_000),
+      versions: (id: string) => request<SqlVersions>(`/sql/datasets/${encodeURIComponent(id)}/versions`),
     },
     /** F4: confirm the column to predict; the API re-profiles and draws (or reuses) that target's own holdout. */
     setTarget: (id: string, target: string) => request<DatasetDetail>(`/datasets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ target }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),

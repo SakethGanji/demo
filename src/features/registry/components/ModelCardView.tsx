@@ -80,6 +80,8 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             {bal && <table className="table compact" data-testid="card-balance"><thead><tr><th>class</th><th className="r">train</th><th className="r">share</th><th className="r">holdout</th><th className="r">share</th></tr></thead>
               <tbody>{bal.map((b) => <tr key={b.class}><td className="mono">{b.class}</td><td className="r mono">{b.train.toLocaleString()}</td><td className="r mono">{pct(b.train_share, 2)}</td><td className="r mono">{b.holdout.toLocaleString()}</td><td className="r mono">{pct(b.holdout_share, 2)}</td></tr>)}</tbody></table>}
             <p className="helper" style={{ fontSize: 12 }}>Split: {d.split}.</p>
+            {d.sql && <div data-testid="card-sql"><p className="helper" style={{ fontSize: 12, marginBottom: 4 }}>Loaded by SQL query · v{d.sql.version} · <span className="mono">{d.sql.url}</span> · fetched {d.sql.fetched_at} · data SHA-256 <span className="mono">{d.sql.data_sha}</span>{d.sql.parent ? <> · refreshed from <span className="mono">{d.sql.parent}</span></> : null}</p>
+              <pre className="reg-call">{d.sql.query}</pre></div>}
             {d.warnings.map((w) => <p key={w} className="helper" style={{ fontSize: 12, color: 'var(--status-warning)' }}>▲ {w}</p>)}
           </div>
         </div>

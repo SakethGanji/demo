@@ -60,6 +60,8 @@ export type Profile = {
   /** given: named on upload (or a sample's label) · guessed: the profiler's pick, not yet confirmed · confirmed: by the user */
   target_source?: 'given' | 'guessed' | 'confirmed'
   target_history?: { target: string; at: string }[]
+  /** G9: a dataset loaded by a SQL query (Autopilot's derived versions carry their own lineage shape). */
+  lineage?: SqlLineage | Record<string, unknown>
 }
 
 /** The split a run used (F4): its target's holdout and folds, recorded at run creation. */
@@ -862,7 +864,7 @@ export type ModelCard = {
   summary: Record<string, unknown> & { stage: Stage; approval: Approval; model_sha256: string; best_model: string; source_run: string; eval_metric: string; problem_type: ProblemType; label: string; positive_class: string | null; registered_by: string; registered_at: string; mlflow: VersionResult['mlflow'] | null }
   data: Record<string, unknown> & { rows: number; columns: number; features: number; train_rows: number; holdout_rows: number; sha256: string; splits_sha256: string; name: string; source: string; filename: string; split: string; dropped_missing_label: number; dropped_columns: string[]; warnings: string[]
     label_balance: { class: string; train: number; train_share: number; holdout: number; holdout_share: number }[] | { mean: number; std: number; min: number; median: number; max: number } | null
-    feature_table: { name: string; type: string; missing_share: number; unique: number }[] }
+    feature_table: { name: string; type: string; missing_share: number; unique: number }[]; sql?: SqlLineage | null }
   training: { call: string; notes: string[]; fit_seconds: number; n_models: number; presets: unknown; time_limit: number | null; registration: Record<string, unknown>; refit: VersionResult['refit'] }
   validation: { holdout_ci: HoldoutCI | null; source_holdout_ci: HoldoutCI | null; threshold: ThresholdRecord | null; version_threshold: number | null; confusion_matrix: number[][] | null; classes: string[] | null; validation_score: number | null }
   importance: { features: FeatureImportanceCI[]; method: string }
@@ -1400,3 +1402,15 @@ export type FairLending = {
     comparison: { group: string; judged: boolean; air: number | null; plain_air: number | null; true_air: number | null; true_air_ci: [number, number]; n_true: number; delta: number | null; plain_delta: number | null }[]
   }
 }
+
+/** G9: where a SQL-loaded dataset came from. The URL has its password masked; credentials are never stored. */
+export type SqlLineage = {
+  source: 'sql'; dialect: string; url: string; needs_password: boolean; query: string; query_sha: string; limit: number; truncated: boolean
+  rows: number; columns: string[]; fetched_at: string; seconds: number; data_sha: string; version: number; root: string; parent: string | null
+  base_name: string; diff: { added: number; removed: number; kept: number; columns_changed: number } | null
+}
+export type SqlTable = { name: string; kind: string; rows: number | null; columns: { name: string; type: string }[] }
+export type SqlDemo = { url: string; query: string; tables: SqlTable[]; limit: number; max_limit: number; note: string }
+export type SqlPreview = { columns: { name: string; dtype: string; missing: number }[]; rows: Record<string, unknown>[]; n_rows: number; truncated: boolean; limit: number; seconds: number; url: string; dialect: string }
+export type SqlVersions = { dataset_id: string; root?: string; query?: string; url?: string
+  versions: { id: string; name: string; rows: number; created_at: string; version: number; parent: string | null; data_sha: string; diff: SqlLineage['diff']; truncated: boolean; fetched_at: string }[] }

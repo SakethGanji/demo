@@ -5188,6 +5188,94 @@ def _dr_evidence(kind: str, ev: dict[str, Any]) -> str:
     return json.dumps(ev)[:120]
 
 
+def sql_source(st: dict[str, Any]) -> None:
+    """G9: load data from a SQL query. The demo database (a SQLite file built from the samples) is listed; the read-only
+    guard refuses writes, a second statement and files outside the data directory. A copy of the demo database with the
+    last 3,000 applications' outcomes missing is queried with the pre-filled join → a dataset (query in its lineage);
+    Smart Intake's top suggestion on it is the binary model with its out-of-time + group split, which trains end to end
+    and registers (the model card shows the query). Then the outcomes arrive in the source, and Refresh makes v2: the
+    same query, 12,000 rows, +3,000 new, its parent and root in the lineage, the target carried over (acceptance)."""
+    import shutil
+    import sqlite3
+
+    s: dict[str, Any] = {}
+
+    def demo():
+        d = get("/api/sql/demo")
+        t = {x["name"]: x["rows"] for x in d["tables"]}
+        check(t == {"accounts": 10000, "applications": 12000, "loans": 9000, "outcomes": 12000}, t)
+        bad = {"DELETE FROM outcomes": "Only SELECT", "SELECT 1 a, 2 b; DROP TABLE outcomes": "One statement",
+               "WITH x AS (SELECT 1) INSERT INTO outcomes SELECT * FROM x": "INSERT"}
+        for q, why in bad.items():
+            r = C.post("/api/sql/preview", json={"url": d["url"], "query": q})
+            check(r.status_code == 400 and why in r.text, (q, r.text[:160]))
+        r = C.post("/api/sql/preview", json={"url": "sqlite:////etc/hosts", "query": "SELECT 1 a, 2 b"})
+        check(r.status_code == 400 and "outside" in r.text, r.text[:160])
+        p = post("/api/sql/preview", {"url": d["url"], "query": d["query"], "limit": 500})
+        check(p["n_rows"] == 500 and p["truncated"] and len(p["rows"]) == 20 and p["columns"][-1]["name"] == "defaulted", p["n_rows"])
+        s["demo"] = d
+        return f"{len(t)} tables · 3 writes refused, outside file refused · preview 500 rows (limit reached) in {p['seconds'] * 1000:.0f} ms"
+    if not step("sql: demo database, read-only guard, preview", demo):
+        return
+
+    def load_train():
+        data_dir = get("/api/health")["data_dir"]
+        src, dst = os.path.join(data_dir, "demo", "bank.sqlite"), os.path.join(data_dir, "sql-smoke", "bank.sqlite")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+        with sqlite3.connect(dst) as con:  # the newest 3,000 applications have no outcome yet
+            late = con.execute("SELECT applicant_id FROM applications ORDER BY application_date DESC, applicant_id DESC LIMIT 3000").fetchall()
+            con.execute("CREATE TABLE outcomes_late AS SELECT * FROM outcomes WHERE applicant_id IN (%s)" % ",".join("?" * len(late)), [r[0] for r in late])
+            con.execute("DELETE FROM outcomes WHERE applicant_id IN (SELECT applicant_id FROM outcomes_late)")
+        url = "sqlite:///sql-smoke/bank.sqlite"
+        d = post("/api/sql/datasets", {"url": url, "query": s["demo"]["query"], "name": "smoke applications"})
+        lin = d["profile"]["lineage"]
+        check(d["rows"] == 9000 and lin["source"] == "sql" and lin["version"] == 1 and lin["root"] == d["id"] and lin["query"] == s["demo"]["query"], lin)
+        it = get(f"/api/datasets/{d['id']}/intake")
+        top = it["suggestions"][0]
+        pf = top["prefill"]
+        check(top["id"] == "binary" and pf["target"] == "defaulted" and pf["split"] == "time-group", (top["id"], pf))
+        C.patch(f"/api/datasets/{d['id']}", json={"target": pf["target"]}).raise_for_status()
+        body = {"dataset_id": d["id"], "label": pf["target"], "problem_type": "binary", "presets": "medium_quality", "time_limit": 90,
+                "fit_kwargs": {"hyperparameters": HP}, "drop_columns": pf.get("drop", []) + [pf["time"]], "feature_importance": False,
+                "split_spec": {"strategy": "time-group", "time_column": pf["time"], "group_column": pf["group"]},
+                "calibrate_threshold": None, "source": "smoke-sql"}
+        t0 = time.time()
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        m, sc = primary(rec)
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": f"smoke.sql.{d['id']}"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready", v.get("error"))
+        card = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
+        check("Loaded by SQL query" in card and "JOIN outcomes" in card, "card has no SQL lineage")
+        s.update(ds=d, url=url, dst=dst, run=rec)
+        st["sql"] = {"v1": d["id"], "rows_v1": d["rows"], "run": rec["id"], "metric": m, "score": sc, "version": v["id"]}
+        return (f"{d['id']} · 9,000 rows · intake top binary (y defaulted, time-group) → {rec['id']} in {time.time() - t0:.0f} s · "
+                f"holdout {m} {sc:.4f}, ROC AUC {(rec['holdout'].get('scores') or {}).get('roc_auc', float('nan')):.4f} → {v['id']} ready · card shows the query")
+    if not step("sql: query → dataset → Smart Intake → train → register (acceptance 1)", load_train):
+        return
+
+    def refresh():
+        with sqlite3.connect(s["dst"]) as con:  # the outcomes arrive
+            con.execute("INSERT INTO outcomes SELECT * FROM outcomes_late")
+        v1 = s["ds"]["id"]
+        r = post(f"/api/sql/datasets/{v1}/refresh", {})
+        lin, f = r["profile"]["lineage"], r["refresh"]
+        check(r["id"] != v1 and r["rows"] == 12000 and lin["version"] == 2 and lin["parent"] == v1 and lin["root"] == v1, lin)
+        check(f["diff"] == {"added": 3000, "removed": 0, "kept": 9000, "columns_changed": 0} and not f["unchanged"], f)
+        check(r["target"] == "defaulted" and r["profile"]["target_source"] == "given" and lin["query"] == s["ds"]["profile"]["lineage"]["query"], r["target"])
+        vs = get(f"/api/sql/datasets/{r['id']}/versions")["versions"]
+        check([x["version"] for x in vs] == [1, 2] and [x["id"] for x in vs] == [v1, r["id"]], vs)
+        again = post(f"/api/sql/datasets/{r['id']}/refresh", {})["refresh"]
+        check(again["version"] == 3 and again["unchanged"], again)
+        st["sql"].update(v2=r["id"], rows_v2=r["rows"], diff=f["diff"])
+        shutil.rmtree(os.path.dirname(s["dst"]), ignore_errors=True)
+        return (f"v2 {r['id']} · {r['rows']:,} rows · +{f['diff']['added']:,} new, −{f['diff']['removed']}, {f['diff']['kept']:,} kept · "
+                f"parent {v1} · target carried · v3 with no change: same data hash")
+    step("sql: refresh → new version with lineage (acceptance 2)", refresh)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -5229,7 +5317,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
