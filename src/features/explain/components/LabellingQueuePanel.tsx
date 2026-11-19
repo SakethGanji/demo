@@ -77,6 +77,9 @@ export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: stri
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="al-panel" data-status={al?.status}>
       {err && <div className="card card-body" role="alert" data-testid="al-error"><p className="helper">✕ {err}</p></div>}
       {al && started && s && <Hero al={al} metric={metric} />}
+      {al && started && al.slice && (
+        <p className="helper" style={{ fontSize: 12.5 }} data-testid="al-slice-on">Pool pre-filtered to the weak slice <span className="mono">{al.slice.label}</span> (F16): {nfmt(al.slice.n_pool)} unlabelled training rows inside it of {nfmt(al.slice.n_train_in_slice)}; active and random pick from the same restricted pool.</p>
+      )}
       {al && started && (al.queue?.points.length ?? 0) > 0 && <Chart al={al} metric={metric} />}
       {al && working && (
         <div className="card card-body row" data-testid="al-progress" style={{ gap: 'var(--space-12)', flexWrap: 'wrap' }}>
@@ -90,9 +93,6 @@ export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: stri
       {al && started && al.queue && <Queue al={al} onChange={reload} />}
       {al && started && s && <Formula al={al} metric={metric} />}
       {al && started && <Rounds al={al} metric={metric} />}
-      {al && started && al.slice && (
-        <p className="helper" style={{ fontSize: 12.5 }} data-testid="al-slice-on">Pool pre-filtered to the weak slice <span className="mono">{al.slice.label}</span> (F16): {nfmt(al.slice.n_pool)} unlabelled training rows inside it of {nfmt(al.slice.n_train_in_slice)}; active and random pick from the same restricted pool.</p>
-      )}
       {al && !working && (al.status !== 'awaiting_labels' || (sliceId && al.slice?.id !== sliceId)) && (
         <div className="card" data-testid="al-start">
           <div className="card-head"><div className="left"><h3 className="card-title">{started ? 'Start a New Queue' : 'Which Rows Should a Person Label?'}</h3>

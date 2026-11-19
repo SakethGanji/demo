@@ -92,7 +92,7 @@ function Hero({ r }: { r: SliceSearch }) {
   return <>
     <div className="card navy explain-hero" data-testid="slices-hero">
       <div className="eh-cell lead"><span className="micro-label">weak slices</span><b className="mono" data-testid="slices-weak">{weak}</b><small>of m = {r.tested.total.toLocaleString()} slices tested, q ≤ {r.params.alpha}</small></div>
-      <div className="eh-cell"><span className="micro-label">worst slice</span><b style={{ fontSize: top && top.label.length > 22 ? 15 : 18, overflowWrap: 'anywhere' }} data-testid="slices-top">{top ? top.label : '—'}</b><small>{top ? <>n = {top.n} · Δ = +{f3(top.delta)} [{f3(top.ci[0])}, {f3(top.ci[1])}]</> : 'nothing significantly worse than the rest'}</small></div>
+      <div className="eh-cell"><span className="micro-label">worst slice</span><b style={{ fontSize: top && top.label.length > 22 ? 14 : 18, overflowWrap: 'anywhere', whiteSpace: 'normal', lineHeight: 1.3 }} data-testid="slices-top">{top ? top.label : '—'}</b><small>{top ? <>n = {top.n} · Δ = +{f3(top.delta)} [{f3(top.ci[0])}, {f3(top.ci[1])}]</> : 'nothing significantly worse than the rest'}</small></div>
       <div className="eh-cell"><span className="micro-label">overall ℓ̄</span><b className="mono">{f3(r.overall)}</b><small>{r.loss.unit} over n = {r.n.toLocaleString()} holdout rows</small></div>
       {r.null && <div className="eh-cell"><span className="micro-label">permutation null</span><b className="mono">{r.null.mean?.toFixed(1)}</b><small>weak slices found with ℓ shuffled ({r.null.weak_found.join(', ')}; R = {r.null.permutations})</small></div>}
     </div>
@@ -116,7 +116,7 @@ function Table({ r, sel, onPick, links }: { r: SliceSearch; sel: string | null; 
           <tbody>{r.slices.map((s) => (
             <tr key={s.id} data-testid={`slice-${s.rank}`} data-id={s.id} onClick={() => onPick(s.id)} style={{ cursor: 'pointer', background: s.id === sel ? 'var(--surface-sunken, rgba(0,0,0,0.04))' : undefined }}>
               <td className="r mono">{s.rank}</td>
-              <td className="mono" style={{ whiteSpace: 'normal', maxWidth: 320 }}>{s.label}</td>
+              <td className="mono" style={{ whiteSpace: 'normal', minWidth: 240, maxWidth: 340, fontSize: 12.5 }}>{s.label}</td>
               <td className="r mono">{s.n} <span className="muted" style={{ fontSize: 11 }}>{pct(s.share)}</span></td>
               <td className="r mono"><b>{f3(s.mean)}</b></td><td className="r mono">{f3(s.mean_rest)}</td>
               <td className="r mono">+{f3(s.delta)}</td>
@@ -127,10 +127,12 @@ function Table({ r, sel, onPick, links }: { r: SliceSearch; sel: string | null; 
                 <circle cx={X(s.delta)} cy={7} r={3} fill="var(--viz-b)" />
               </svg></td>
               <td className="r mono">{pfmt(s.q)}</td>
-              <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
-                <button className="btn sm" onClick={() => onPick(s.id)}>Rows & SHAP</button>{' '}
-                {(run_is_classifier(r)) && <button className="btn sm" onClick={() => links.onLabel(s)} data-testid={`slice-label-${s.rank}`}>Label more</button>}{' '}
-                {s.fairness_columns.map((c) => <button key={c} className="btn sm" onClick={() => links.onFairness(c)} data-testid={`slice-fair-${s.rank}-${c}`}>Fairness · {c}</button>)}
+              <td onClick={(e) => e.stopPropagation()} style={{ fontSize: 12 }}>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  <button className="btn sm" onClick={() => onPick(s.id)}>Rows & SHAP</button>
+                  {run_is_classifier(r) && <button className="btn sm" onClick={() => links.onLabel(s)} data-testid={`slice-label-${s.rank}`}>Label more</button>}
+                  {s.fairness_columns.length > 0 && <span className="helper">fairness by {s.fairness_columns.map((c, i) => <span key={c}>{i ? ' · ' : ''}<a href="#" onClick={(e) => { e.preventDefault(); links.onFairness(c) }} data-testid={`slice-fair-${s.rank}-${c}`}>{c}</a></span>)}</span>}
+                </div>
               </td>
             </tr>))}</tbody></table>
       </div>
