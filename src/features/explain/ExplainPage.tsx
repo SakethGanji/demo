@@ -19,11 +19,12 @@ import { LabellingQueuePanel } from './components/LabellingQueuePanel'
 import { AnnotatorsPanel } from './components/AnnotatorsPanel'
 import { ShiftPanel } from './components/ShiftPanel'
 import { SlicesPanel } from './components/SlicesPanel'
+import { DoctorPanel } from './components/DoctorPanel'
 import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 
-type Tab = 'Performance' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Weak Slices' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
+type Tab = 'Performance' | 'Model Doctor' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Weak Slices' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
 const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
@@ -65,6 +66,7 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
   const tabs = useMemo<Tab[]>(() => {
     if (!run) return ['Performance']
     const t: Tab[] = ['Performance']
+    if (!run.kind || run.kind === 'tabular') t.push('Model Doctor')
     if (run.problem_type === 'binary') t.push('Threshold')
     t.push('Features & SHAP', 'Errors', 'Fairness')
     if (run.problem_type === 'binary' || run.problem_type === 'regression') t.push('Monotonicity')
@@ -149,6 +151,7 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
         <Curves ex={ex} run={run} />
         <PerClass ex={ex} />
       </> : <Errors ex={ex} run={run} part="residuals" />)}
+      {tab === 'Model Doctor' && <DoctorPanel run={run} links={{ go, onApplyPatch, openTab: (t, more) => pickTab(t as Tab, more ?? {}) }} />}
       {tab === 'Threshold' && run.problem_type === 'binary' && <ThresholdPanel run={run} onChanged={() => setVersion((v) => v + 1)} />}
       {tab === 'Features & SHAP' && <div className="stack" style={{ gap: 'var(--space-16)' }}>
         <Importance run={run} />

@@ -5,6 +5,7 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { MathText } from '@/shared/components/MathText'
+import { DoctorPanel } from '@/features/explain/components/DoctorPanel'
 
 const SOURCE: Record<string, string> = { 'anthropic-sdk': 'Anthropic SDK', 'claude-cli': 'Claude CLI', 'anthropic-api': 'Anthropic API', computed: 'computed text' }
 const SEV: Record<string, 'danger' | 'warning' | 'info'> = { critical: 'danger', warning: 'warning', info: 'info' }
@@ -87,6 +88,8 @@ export function LiveVela({ open, preferredRun, appliedKey, onApply, onRun }: {
       {!runs.length && !err && <p className="helper" style={{ fontSize: 12 }}>No finished runs yet: train one in New Model or the Gym, and Vela reads it.</p>}
       {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
       {runId && !res && !err && <div className="thinking"><ResonanceWave width={84} height={18} fast /> Computing findings from {runId}</div>}
+      {res && runs.find((r) => r.id === res.run_id) && (!runs.find((r) => r.id === res.run_id)!.kind || runs.find((r) => r.id === res.run_id)!.kind === 'tabular') &&
+        <DoctorPanel run={runs.find((r) => r.id === res.run_id)!} compact links={{ go: (r) => { location.hash = `#/${r}` }, onApplyPatch: (rid, p) => onApply(rid, { id: p.id, kind: 'doctor', severity: 'warning', title: p.title, text: '', computed_text: '', numbers: {}, formula: '', patch: p } as unknown as VelaFinding) }} />}
       {res && res.findings.length === 0 && <div className="patch" data-testid="vela-none"><div className="ph"><VelaCrest size={16} /><b className="card-title" style={{ fontSize: 13 }}>Nothing to fix</b></div><p>No check fired on {res.run_id}: no leakage suspect, no overfit gap beyond 2 SE, the budget was not exhausted, no weak class, segment, imbalance, drift or degenerate column.</p></div>}
       {res?.findings.filter((f) => !dismissed.has(f.id)).map((f) => {
         const applied = appliedKey === `${res.run_id}:${f.patch.id}`

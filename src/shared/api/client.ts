@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, Doctor } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -95,6 +95,16 @@ export const api = {
     simulateActiveLearning: (id: string) => request<{ answered: number }>(`/runs/${encodeURIComponent(id)}/active-learning/simulate`, { method: 'POST' }),
     submitActiveLearning: (id: string) => request<{ round: number }>(`/runs/${encodeURIComponent(id)}/active-learning/submit`, { method: 'POST' }),
     cancelActiveLearning: (id: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/active-learning/cancel`, { method: 'POST' }),
+    /** F17: the Model Doctor (latency_ms: one-row budget; measure_latency: measure the served latency when missing). */
+    doctor: (id: string, q: { latency_ms?: number | null; measure_latency?: boolean } = {}) => {
+      const p = new URLSearchParams()
+      if (q.latency_ms) p.set('latency_ms', String(q.latency_ms))
+      if (q.measure_latency) p.set('measure_latency', 'true')
+      return request<Doctor>(`/runs/${encodeURIComponent(id)}/doctor${p.toString() ? `?${p}` : ''}`, { timeoutMs: 600_000 })
+    },
+    /** F17: run one of the doctor's offers or prescriptions that is an API call (its endpoint, method and body). */
+    doctorCall: (endpoint: string, method: 'GET' | 'POST' = 'POST', body?: Record<string, unknown>) =>
+      request<Record<string, unknown>>(endpoint.replace(/^\/api/, ''), method === 'GET' ? { timeoutMs: 600_000 } : { method: 'POST', body: JSON.stringify(body ?? {}), headers: { 'Content-Type': 'application/json' }, timeoutMs: 600_000 }),
     /** F16: weak slices of the holdout (the latest search; searched with the defaults if there is none). */
     slices: (id: string) => request<SliceSearch>(`/runs/${encodeURIComponent(id)}/slices`, { timeoutMs: 60_000 }),
     searchSlices: (id: string, body: SliceRequest = {}) =>

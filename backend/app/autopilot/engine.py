@@ -46,8 +46,14 @@ ACTIONS = {
     "add_families": "Retrain with more model families (gradient boosting on n-grams / CatBoost / extra trees) at the same preset.",
     "synthesize_minority": "Text only: write synthetic examples for the starved class (marked synthetic, training folds only, never the holdout), then retrain.",
     "reduce_latency": "Retrain with refit_full + set_best_to_refit_full (one model per family serves instead of the bag of fold models) and AutoGluon's infer_limit at 60 % of the latency requirement.",
+    "apply_prescription": "Apply the Model Doctor's prescription for the best model's limiting factor (a Gym patch: e.g. regularise an overfitting family, escalate an underfitting preset, drop a leaking column).",
     "stop": "Stop: the requirements are met, or nothing on the menu can meet them within the budget left.",
 }
+# F17: which menu action answers which Model Doctor factor (layer 1 walks the doctor's factors in its order).
+DOCTOR_ACTIONS = {"latency": ["reduce_latency"], "imbalance": ["calibrate_threshold", "rebalance", "apply_prescription"],
+                  "weak_class": ["rebalance", "calibrate_threshold", "apply_prescription"], "budget": ["escalate_preset"],
+                  "underfit": ["escalate_preset", "apply_prescription"], "overfit": ["apply_prescription"],
+                  "leakage": ["apply_prescription"], "shift": ["apply_prescription"]}
 PRESETS = ["medium_quality", "good_quality", "high_quality"]
 MIN_STEP_SECONDS = 45
 OVERRUN = 1.4  # a step's wall time / its time_limit, measured: refit_full, holdout scoring and latency come on top
@@ -656,8 +662,50 @@ class Pilot:
         if (f["text_columns"] and f["problem_type"] != "regression" and "synthesize_minority" not in tried
                 and (f["minority_share"] or 1) < 0.06 and llm.enabled() and self.st["brief"].get("allow_synthetic", True)):
             out["synthesize_minority"] = ACTIONS["synthesize_minority"]
+        rx = self.prescription()
+        if rx:
+            out["apply_prescription"] = f"{ACTIONS['apply_prescription']} Now: {rx['factor']} → {rx['title']}."
         out["stop"] = ACTIONS["stop"]
         return out
+
+    # ------------------------------------------------------------------ F17: the Model Doctor
+
+    def doctor(self) -> dict[str, Any] | None:
+        """The Model Doctor's diagnosis of the best step's run (cached per run). The latency budget is the brief's
+        latency requirement; the served p95 is this autopilot's own one-row measurement of that run."""
+        best = self.best_step()
+        if not best or not best.get("run_id"):
+            return None
+        cache = self.st.setdefault("doctor", {})
+        if cache.get("run_id") == best["run_id"] and cache.get("data"):
+            return cache["data"]
+        params: dict[str, Any] = {}
+        if self._latency_required():
+            params["latency_ms"] = min(float(r["value"]) for r in self.st["brief"]["requirements"] if M.is_latency(r["metric"]))
+            p95 = (best.get("latency") or {}).get("p95_ms")
+            if p95 is not None:
+                params["served_p95_ms"] = p95
+        try:
+            d = self.http("GET", f"/api/runs/{best['run_id']}/doctor", params=params)
+        except Exception as e:  # noqa: BLE001 — the fixed order still decides
+            self.st["doctor"] = {"run_id": best["run_id"], "data": None, "error": str(e)[:300]}
+            return None
+        self.st["doctor"] = {"run_id": best["run_id"], "data": d}
+        self.save()
+        return d
+
+    def _factors(self, d: dict[str, Any] | None) -> list[dict[str, Any]]:
+        return ([d["primary"]] + list(d.get("secondary") or [])) if d and d.get("primary") else []
+
+    def prescription(self) -> dict[str, Any] | None:
+        """The first doctor factor (in its ranked order) whose prescription is a Gym patch not yet tried."""
+        tried = {(x.get("decision") or {}).get("prescription_id") for x in self.st["steps"]}
+        for f in self._factors(self.doctor()):
+            rx = f.get("prescription") or {}
+            if rx.get("kind") == "gym_patch" and rx.get("patch") and f"{f['id']}:{rx['patch']['id']}" not in tried:
+                return {"factor": f["id"], "severity": f["severity"], "title": rx["title"], "patch": rx["patch"],
+                        "id": f"{f['id']}:{rx['patch']['id']}", "reason": f["reason"]}
+        return None
 
     @staticmethod
     def _next_preset(body: dict[str, Any]) -> str:
@@ -684,6 +732,20 @@ class Pilot:
             return "stop", f"{rem:.0f} s of budget left, under the {MIN_STEP_SECONDS * OVERRUN:.0f} s a step needs; stopping."
         gaps = [c for c in (best or {}).get("checks", []) if not c["ok"]]
         g = "; ".join(f"{c['metric']} {c['observed']:.4g} vs {c['op']} {c['value']}" for c in gaps if c["observed"] is not None)
+        # F17: the Model Doctor names the limiting factors of the best run; take the first one a menu action answers.
+        d = self.doctor()
+        rx = self.prescription()
+        skipped = []
+        for f in self._factors(d):
+            for a in DOCTOR_ACTIONS.get(f["id"], []):
+                if a == "apply_prescription" and not (rx and rx["factor"] == f["id"]):
+                    continue
+                if a in menu:
+                    lead = f"Open: {g or 'the requirements'}. The Model Doctor's {'primary' if f is d['primary'] else 'next'} factor is {f['title'].lower()} ({f['severity']}): {f['reason']}"
+                    if skipped:
+                        lead += f" (Factors no menu action can answer: {', '.join(skipped)}.)"
+                    return a, f"{lead} Fixed strategy: {a.replace('_', ' ')}" + (f": {rx['title']}." if a == "apply_prescription" else ".")
+            skipped.append(f["id"].replace("_", " "))
         for a in ("reduce_latency", "rebalance", "calibrate_threshold", "escalate_preset", "add_families"):
             if a in menu:
                 why = {"reduce_latency": "a latency requirement is open and the served model is still a bag of fold models",
@@ -691,7 +753,8 @@ class Pilot:
                        "calibrate_threshold": "the default 0.5 threshold is rarely right for an imbalanced binary target",
                        "escalate_preset": f"a stronger preset is next with {rem:.0f} s left",
                        "add_families": "more model families widen the ensemble"}[a]
-                return a, f"Open: {g or 'the requirements'}. Fixed strategy: {a.replace('_', ' ')}, because {why}."
+                pre = f"The Model Doctor names {', '.join(skipped)}, which no menu action answers; " if skipped else ""
+                return a, f"Open: {g or 'the requirements'}. {pre}Fixed strategy: {a.replace('_', ' ')}, because {why}."
         return "stop", f"Open: {g}. The fixed strategy has nothing left to try."
 
     def decide(self) -> dict[str, Any]:
@@ -699,6 +762,14 @@ class Pilot:
         l1_action, l1_why = self.layer1(menu)
         want = self.st["brief"].get("decider", "auto")
         d: dict[str, Any] = {"at": now(), "after_step": self.st["steps"][-1]["id"], "menu": list(menu)}
+        doc = (self.st.get("doctor") or {}).get("data")
+        if doc:  # F17: what the Model Doctor said about the best run when this decision was taken
+            d["doctor"] = {"run_id": doc["run_id"], "primary": doc["primary"] and {k: doc["primary"][k] for k in ("id", "title", "severity", "reason")},
+                           "secondary": [{"id": c["id"], "severity": c["severity"]} for c in doc.get("secondary") or []],
+                           "headline": doc["headline"]}
+        rx = self.prescription()
+        if rx:
+            d["prescription_id"] = rx["id"]
         if want != "layer1" and llm.enabled() and len(menu) > 1:
             prompt = self.decision_prompt(menu)
             obj, meta = llm.ask_json(prompt, timeout=float(self.st["brief"].get("llm_timeout", 60)))
@@ -710,11 +781,15 @@ class Pilot:
                          time_limit=obj.get("time_limit"), layer1_would=l1_action, cost_usd=meta.get("cost_usd"))
                 if d["action"] == "stop" and l1_action != "stop" and self.remaining() > 2 * MIN_STEP_SECONDS and not (self.best_step() or {}).get("met"):
                     pass  # Claude may stop early; that is its call and it is logged with layer 1's alternative.
+                if d["action"] != "apply_prescription":
+                    d.pop("prescription_id", None)
                 self.st["decisions"].append(d)
                 self.save()
                 return d
             d["layer2_error"] = ("reply not on the menu: " + json.dumps(obj)[:200]) if obj else "; ".join(a.get("error", "") for a in meta["attempts"]) or "language model disabled"
         d.update(action=l1_action, rationale=l1_why, layer="layer-1", source="computed", model=None)
+        if d["action"] != "apply_prescription":
+            d.pop("prescription_id", None)
         self.st["decisions"].append(d)
         self.save()
         return d
@@ -737,8 +812,22 @@ class Pilot:
                 "inbox": {"items": len(ib.get("items") or []), "kinds": ib.get("kinds"),
                           "answered": sum(1 for it in ib.get("items") or [] if it.get("answer"))},
                 "dataset_versions": [{k: v[k] for k in ("version", "relabelled", "dropped", "synthetic")} for v in self.st["dataset_versions"]],
+                "model_doctor": self._doctor_digest(),
                 "budget_seconds": self.st["brief"]["budget_seconds"], "spent_seconds": round(self.spent()),
                 "remaining_seconds": round(self.remaining())}
+
+    def _doctor_digest(self) -> dict[str, Any] | None:
+        """F17: the Model Doctor's diagnosis of the best run, for layer 2 (the factors in its order, with evidence)."""
+        doc = (self.st.get("doctor") or {}).get("data")
+        if not doc:
+            return None
+        def one(c):
+            return {"factor": c["id"], "severity": c["severity"], "reason": c["reason"][:400],
+                    "prescription": (c.get("prescription") or {}).get("title")}
+        return {"run_id": doc["run_id"], "primary": one(doc["primary"]) if doc.get("primary") else None,
+                "secondary": [one(c) for c in doc.get("secondary") or []],
+                "not_yet_measured": [c["id"] for c in doc["checks"] if c["status"] == "missing"],
+                "no_evidence": [c["id"] for c in doc["checks"] if c["status"] == "no-evidence"]}
 
     def decision_prompt(self, menu: dict[str, str]) -> str:
         return (
@@ -749,7 +838,8 @@ class Pilot:
             "\n\nRules: stop if every requirement is met, or if the budget left cannot fit another useful step "
             f"(a step needs at least {MIN_STEP_SECONDS} s). Prefer the action most likely to close the largest open gap "
             "without breaking a requirement that already holds (e.g. latency). Give time_limit in seconds, at most the "
-            "remaining budget.\n\n"
+            "remaining budget. model_doctor is a fixed diagnosis of the best run's limiting factor (primary first); prefer the "
+            "action that answers it when one does.\n\n"
             'Return only JSON: {"action": "<id>", "time_limit": <seconds>, "rationale": "<one or two sentences, first '
             'person, as Vela, citing the numbers from the state that drove the choice>"}'
         )
@@ -827,6 +917,19 @@ class Pilot:
             body["time_limit"] = self._limit(d, base_t)
             self.do_train("reduce_latency", "Refit one model per family (latency)", best, body,
                           change=f"fit_kwargs.refit_full = True, set_best_to_refit_full = True, infer_limit = {body['fit_kwargs']['infer_limit']} s/row", decision=d)
+        elif a == "apply_prescription":
+            rx = self.prescription()
+            if not rx:
+                self.note("The Model Doctor's prescription is no longer open; nothing applied.")
+                return
+            from ..vela.findings import _set_path
+
+            for ch in rx["patch"]["changes"]:
+                _set_path(body, ch["path"], json.loads(json.dumps(ch["to"])))
+            body["time_limit"] = self._limit(d, base_t)
+            d["prescription_id"] = rx["id"]
+            self.do_train("apply_prescription", f"Doctor: {rx['title']}", best, body,
+                          change="; ".join(f"{c['path']} = {json.dumps(c['to'])[:80]}" for c in rx["patch"]["changes"]), decision=d)
         elif a == "synthesize_minority":
             if self.do_synthesize(d):
                 body = self.base_body()

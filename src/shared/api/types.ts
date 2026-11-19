@@ -460,6 +460,8 @@ export type Run = {
   shift?: ShiftSummary | null
   /** F16: the latest weak-slice search's summary (slices/1), for the Model Doctor. */
   slices?: SliceSummary | null
+  /** F17: the Model Doctor's last diagnosis (doctor/1 summary); the full one is GET /runs/{id}/doctor. */
+  doctor?: DoctorSummary | null
   /** F9: quantile runs: the levels, and the holdout report (the list keeps only levels, pinball and coverage). */
   quantile_levels?: number[] | null
   quantile?: QuantileReport | null
@@ -866,6 +868,9 @@ export type ApDecision = {
   at: string; after_step: string; menu: string[]; action: string; rationale: string; layer: 'layer-1' | 'layer-2'
   source: string; model: string | null; seconds?: number; attempts?: { source: string; ok: boolean; error?: string; seconds: number }[]
   layer1_would?: string; layer2_error?: string; time_limit?: number; cost_usd?: number
+  /** F17: the Model Doctor's diagnosis of the best run when this decision was taken. */
+  doctor?: { run_id: string; headline: string; primary: { id: string; title: string; severity: string; reason: string } | null; secondary: { id: string; severity: string }[] } | null
+  prescription_id?: string
 }
 export type ApStep = {
   id: string; n: number; kind: string; title: string; status: 'running' | 'done' | 'dropped' | 'skipped' | 'failed' | 'interrupted'
@@ -1184,3 +1189,29 @@ export type SliceShap = {
   background_size: number; nsamples: number; seconds: number; method: string
 }
 export type SlicePool = { run_id: string; slice_id: string; label: string; conditions: SliceCondition[]; train_rows: number; in_slice: number; labelled_in_slice: number }
+
+/** F17 · Model Doctor (GET /api/runs/{id}/doctor, schema doctor/1). */
+export type DoctorStatus = 'finding' | 'clear' | 'no-evidence' | 'missing' | 'n/a'
+export type DoctorSeverity = 'critical' | 'major' | 'minor'
+export type DoctorAction = {
+  kind: 'gym_patch' | 'split_twin' | 'run_check' | 'labelling_queue' | 'shift_weights' | 'register' | 'inbox' | 'open_slice' | 'info'
+  title: string; why?: string; endpoint?: string; method?: 'GET' | 'POST'; body?: Record<string, unknown>; check?: string
+  run_id?: string; slice_id?: string
+  patch?: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }
+}
+export type DoctorCheck = {
+  id: string; title: string; status: DoctorStatus; severity: DoctorSeverity | null; reason: string
+  evidence: Record<string, unknown>; prescription: DoctorAction | null; offer: DoctorAction | null; formula: string | null
+  source: string | null; rule: string | null
+}
+export type Doctor = {
+  schema: 'doctor/1'; procedure: string; run_id: string; computed_at: string; problem_type: string
+  primary: DoctorCheck | null; secondary: DoctorCheck[]; checks: DoctorCheck[]; offers: DoctorAction[]; headline: string
+  precedence: string[]; severity_order: DoctorSeverity[]; rules: Record<string, string>
+  inputs: { latency_budget_ms: number | null; measured_errors: string[]; vela_errors: string[] }
+}
+export type DoctorSummary = {
+  schema: 'doctor/1'; computed_at: string; latency_budget_ms: number | null; headline: string; missing: string[]; no_evidence: string[]
+  primary: { id: string; title: string; severity: DoctorSeverity; reason: string; prescription: { kind: string; title: string } | null } | null
+  secondary: { id: string; title: string; severity: DoctorSeverity; reason: string }[]
+}

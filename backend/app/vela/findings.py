@@ -71,6 +71,11 @@ def _metric(res: dict[str, Any]):
 
 
 def _score(metric, y_true: np.ndarray, y_pred: np.ndarray, proba: pd.DataFrame | None, positive: Any) -> float:
+    if positive is not None and (proba is None or proba.shape[1] == 2):
+        # binary with string labels ('Yes'/'No'): AutoGluon's scorers take 0/1 with 1 = the positive class (F17 fix:
+        # roc_auc and f1 raised on strings here, so the bootstrap SE, and Vela's overfit check with it, never ran)
+        y_true = (np.asarray(y_true).astype(str) == str(positive)).astype(int)
+        y_pred = (np.asarray(y_pred).astype(str) == str(positive)).astype(int)
     if getattr(metric, "needs_pred", True) and not (getattr(metric, "needs_proba", False) or getattr(metric, "needs_threshold", False)):
         return float(metric(y_true, y_pred))
     if proba is None:

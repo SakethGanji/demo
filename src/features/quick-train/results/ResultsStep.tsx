@@ -10,6 +10,7 @@ import { CustomEnsemble } from './CustomEnsemble'
 import { ClassReport, Residuals, TopWords } from './Diagnostics'
 import { Leaderboard, ModelCard, ScoreScatter } from './Leaderboard'
 import { SplitCompare } from './SplitCompare'
+import { DoctorPanel } from '@/features/explain/components/DoctorPanel'
 import { CostCompare } from './CostCompare'
 import { MetricCards } from './MetricCards'
 import { QuantileResults } from './QuantileResults'
@@ -89,6 +90,8 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
       </div>
 
       <MetricCards run={run} preds={preds} />
+
+      {live && (!run.kind || run.kind === 'tabular') && <DoctorPanel run={run} links={{ go }} compact />}
 
       {run.problem_type === 'quantile' && <QuantileResults run={run} />}
 

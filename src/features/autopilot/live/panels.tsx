@@ -30,6 +30,7 @@ export function LiveDecisionLog({ a }: { a: Autopilot }) {
               </div>
               <p>{e.text}</p>
               {d && d.layer === 'layer-2' && d.layer1_would && d.layer1_would !== d.action && <div className="diffline">layer 1 would have chosen: {d.layer1_would.replace(/_/g, ' ')}</div>}
+              {d?.doctor && <div className="diffline" data-testid="ap-doctor">Model Doctor on <span className="mono">{d.doctor.run_id}</span>: {d.doctor.primary ? <><b>{d.doctor.primary.title}</b> ({d.doctor.primary.severity}){d.doctor.secondary.length ? <>, then {d.doctor.secondary.map((x) => `${x.id.replace(/_/g, ' ')} (${x.severity})`).join(', ')}</> : null}</> : 'no limiting factor found'}</div>}
               {d && d.layer === 'layer-1' && d.layer2_error && <div className="diffline">layer 2 unavailable: {d.layer2_error.slice(0, 160)}</div>}
               {step?.change && <div className="diffline mono">{step.change}</div>}
               <span className="muted" style={{ fontSize: 10.5 }}>{e.t.slice(11, 19)} UTC{d?.seconds != null ? ` · decided in ${d.seconds.toFixed(1)} s` : ''}</span>

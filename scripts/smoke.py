@@ -56,6 +56,11 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              pair, Welch t vs the rest, Benjamini–Hochberg, Δ with a 95% CI, all recomputed with scipy + statsmodels; the
              planted slice at rank 1–3 (acceptance); its rows, SHAP inside vs outside, fairness, the F13 queue pre-filtered
              to it; the per-row loss of threshold, cost (F7), regression and quantile (F9) runs; the summary for F17
+  doctor     F17: the Model Doctor on six crafted, seeded scenarios with a known answer (leaky feature, label noise,
+             data-limited, shift, overfit, latency): each trained, the checks it needs started through the doctor's own
+             offers (learning curve → more seeds when noisy, out-of-time twin, shift check, latency profile), the primary
+             diagnosis asserted; the ranking rule recomputed, determinism, the run payload's doctor/1, the overfit
+             prescription applied (before → after), the latency prescription's model within budget
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -1598,9 +1603,15 @@ def autopilot(st: dict[str, Any]) -> None:
         check(a["status"] == "finished", f"{a['status']}: {a.get('error')}")
         layers = {d["layer"] for d in a["decisions"]}
         check(layers <= {"layer-1"}, layers)
+        # F17: layer 1 reads the Model Doctor's diagnosis of the best run before every decision
+        docs = [d.get("doctor") for d in a["decisions"]]
+        check(a["decisions"] and all(docs), f"decisions without the doctor: {[d['action'] for d in a['decisions'] if not d.get('doctor')]}")
+        check(all("Model Doctor" in d["rationale"] or d["action"] == "stop" or not (d["doctor"] or {}).get("primary")
+                  or "no menu action" in d["rationale"] for d in a["decisions"]), [d["rationale"][:160] for d in a["decisions"]])
         v = a["verdict"]
+        trail = " → ".join(f"{(d['doctor']['primary'] or {}).get('id', 'none')}⇒{d['action']}" for d in a["decisions"])
         return (f"{a['id']} · no LLM · auto-accepted c ≥ 0.9 · {len([s for s in a['steps'] if s.get('run_id')])} runs · "
-                f"{'MET' if v['met'] else 'NOT MET'} · Δ{a['primary']} {v['delta']:+.4f}")
+                f"{'MET' if v['met'] else 'NOT MET'} · Δ{a['primary']} {v['delta']:+.4f} · doctor ⇒ action: {trail}")
 
     step("autopilot: layer 1 only (no LLM), auto", layer1)
 
@@ -3767,6 +3778,283 @@ def slices(st: dict[str, Any]) -> None:
     step("slices: summary for F17", summary_f17)
 
 
+# --------------------------------------------------------------------------- F17 · Model Doctor
+
+
+def _dr_base(n: int, seed: int, k: int = 6) -> tuple[np.random.Generator, pd.DataFrame]:
+    r = np.random.default_rng(seed)
+    X = pd.DataFrame({f"x{i}": np.round(r.normal(size=n), 4) for i in range(k)})
+    X.insert(0, "row_id", [f"R-{seed}-{i:05d}" for i in range(n)])
+    return r, X
+
+
+def _dr_leaky(seed: int = 171) -> pd.DataFrame:
+    """A moderate credit-like signal plus `recovery_status`, recorded after the outcome (the label with 2 % flips)."""
+    r, df = _dr_base(2000, seed)
+    z = 0.9 * df.x0 - 0.7 * df.x1 + 0.5 * df.x2 * df.x3 - 0.4
+    y = (1 / (1 + np.exp(-z))) > r.random(len(df))
+    df["recovery_status"] = np.where(y ^ (r.random(len(df)) < 0.02), "in_collections", "current")
+    df["defaulted"] = np.where(y, "yes", "no")
+    return df
+
+
+def _dr_noise(seed: int = 172) -> pd.DataFrame:
+    """A deterministic rule (separable), then 20 % of the labels flipped at random."""
+    r, df = _dr_base(3000, seed)
+    y = (1.5 * df.x0 + df.x1 * df.x2 - df.x3) > 0
+    df["defaulted"] = np.where(y ^ (r.random(len(df)) < 0.2), "yes", "no")
+    return df
+
+
+def _dr_data_limited(seed: int = 173) -> pd.DataFrame:
+    """Clean labels, a wiggly rule: every doubling of n still helps at n = 2,400 training rows."""
+    r, df = _dr_base(3000, seed)
+    df["defaulted"] = np.where((np.sin(3 * df.x0) + np.sin(3 * df.x1) + np.sin(3 * df.x2)) > 0, "yes", "no")
+    return df
+
+
+def _dr_shift(seed: int = 174) -> pd.DataFrame:
+    """Dated rows; x0 drifts upward over time, and once x0 > 2 (only after about t = 0.9 of the period) the rule changes."""
+    n = 3000
+    r, df = _dr_base(n, seed)
+    t = np.sort(r.random(n))
+    df.insert(1, "application_date", (pd.Timestamp("2023-01-01") + pd.to_timedelta((t * 730).astype(int), unit="D")).strftime("%Y-%m-%d"))
+    df["x0"] = np.round(df.x0 * 0.3 + (t - 0.5) * 5, 4)
+    df["defaulted"] = np.where(np.where(df.x0 > 2, df.x2 > 0, df.x1 > 0), "yes", "no")
+    return df
+
+
+def _dr_overfit(seed: int = 175) -> pd.DataFrame:
+    """A weak logistic signal in 2 of 30 features, trained with a 1-nearest-neighbour memoriser."""
+    r, df = _dr_base(1200, seed, k=30)
+    z = 0.8 * df.x0 + 0.5 * df.x1
+    df["defaulted"] = np.where(1 / (1 + np.exp(-z)) > r.random(len(df)), "yes", "no")
+    return df
+
+
+def _dr_latency(seed: int = 176) -> pd.DataFrame:
+    """An easy clean rule, trained as a 5-fold bagged ensemble of five families (served slowly), budget 10 ms."""
+    r, df = _dr_base(2000, seed)
+    df["defaulted"] = np.where((df.x0 + 0.5 * df.x1 - 0.3 * df.x2) > 0, "yes", "no")
+    return df
+
+
+DR_SCENARIOS = {
+    "leaky feature": dict(gen=_dr_leaky, hp={"GBM": {}, "LR": {}}, expect="leakage"),
+    "label noise": dict(gen=_dr_noise, hp={"GBM": {}}, expect="label_noise"),
+    "data-limited": dict(gen=_dr_data_limited, hp={"GBM": {}}, expect="data_limited"),
+    "shift": dict(gen=_dr_shift, hp={"GBM": {}}, expect="shift"),
+    "overfit": dict(gen=_dr_overfit, hp={"KNN": {"n_neighbors": 1}}, expect="overfit"),
+    "latency": dict(gen=_dr_latency, hp={"GBM": {}, "RF": {"n_estimators": 300}, "XT": {"n_estimators": 300}, "KNN": {}, "LR": {}},
+                    bag=5, expect="latency", latency_ms=10.0),
+}
+DR_STATUSES = {"finding", "clear", "no-evidence", "missing", "n/a"}
+
+
+def _dr_check_shape(d: dict[str, Any]) -> None:
+    """The procedure's own invariants: schema, every check has a status, the primary is the highest-severity finding with
+    ties broken by the precedence list, the secondaries follow in the same order, and every finding has a prescription."""
+    check(d["schema"] == "doctor/1" and d["procedure"], d.get("schema"))
+    check(all(c["status"] in DR_STATUSES for c in d["checks"]), [c["status"] for c in d["checks"]])
+    sev = {"critical": 3, "major": 2, "minor": 1}
+    found = [c for c in d["checks"] if c["status"] == "finding"]
+    order = sorted(found, key=lambda c: (-sev[c["severity"]], d["precedence"].index(c["id"])))
+    got = ([d["primary"]] if d["primary"] else []) + d["secondary"]
+    check([c["id"] for c in got] == [c["id"] for c in order], f"ranking {[c['id'] for c in got]} vs rule {[c['id'] for c in order]}")
+    for c in found:
+        check(c.get("prescription") and c["prescription"].get("kind") and c["reason"] and c["rule"], f"{c['id']}: no prescription / reason / rule")
+    for c in d["checks"]:
+        if c["status"] == "missing":
+            check(c.get("offer") and c["offer"].get("endpoint"), f"{c['id']} missing without an offer")
+
+
+def _dr_offer(d: dict[str, Any], cid: str) -> dict[str, Any]:
+    c = next(c for c in d["checks"] if c["id"] == cid)
+    check(c.get("offer"), f"{cid}: no offer ({c['status']}: {c['reason']})")
+    return c["offer"]
+
+
+def doctor(st: dict[str, Any]) -> None:
+    """F17: the Model Doctor. Six crafted scenarios, each a small seeded dataset or config where the limiting factor is
+    known (leaky feature, label noise, data-limited, shift, overfit, latency). Each is trained through POST /api/runs;
+    the expensive checks it needs are started through the doctor's own offers (learning curve, out-of-time twin, shift
+    check, latency profile), as the page's buttons do; then GET /api/runs/{id}/doctor must name the known factor as
+    primary. Also: the ranking rule recomputed from the checks, determinism, refusals, the run payload's doctor/1
+    summary, and one prescription applied (the overfit patch through the Gym body) with its before → after."""
+    s: dict[str, Any] = {"results": {}}
+
+    def refusals():
+        check(C.get("/api/runs/run_nothing/doctor").status_code == 404, "unknown run")
+        r = C.get("/api/runs/run_nothing/doctor", params={"latency_ms": -1})
+        check(r.status_code in (404, 422), r.status_code)
+        return "unknown run → 404 · latency_ms ≤ 0 → 422"
+
+    step("doctor: refusals", refusals)
+
+    def train_all():
+        for name, sc in DR_SCENARIOS.items():
+            df = sc["gen"]()
+            d = j(C.post("/api/datasets", files={"file": (f"f17_{name.replace(' ', '_')}.csv", df.to_csv(index=False).encode(), "text/csv")},
+                         data={"target": "defaulted"}))
+            fk: dict[str, Any] = {"hyperparameters": sc["hp"]}
+            if sc.get("bag"):
+                fk["num_bag_folds"] = sc["bag"]
+            body = {"dataset_id": d["id"], "label": "defaulted", "problem_type": "binary", "eval_metric": "accuracy",
+                    "presets": "medium_quality", "time_limit": 90, "drop_columns": ["row_id"], "fit_kwargs": fk,
+                    "scorecard": False, "source": "smoke-doctor"}
+            s.setdefault("runs", {})[name] = post("/api/runs", body)["id"]
+            s.setdefault("bodies", {})[name] = body
+        for name, rid in s["runs"].items():
+            s.setdefault("recs", {})[name] = wait_run(rid)
+        return " · ".join(f"{n} {rid} {primary(s['recs'][n])[1]:.3f}" for n, rid in s["runs"].items())
+
+    if not step("doctor: train the six scenarios", train_all):
+        return
+
+    def diagnose(name: str, prepare: Callable[[str], str] | None = None, **params: Any) -> Callable[[], str]:
+        def fn():
+            rid = s["runs"][name]
+            extra = prepare(rid) if prepare else ""
+            d = get(f"/api/runs/{rid}/doctor", **params)
+            _dr_check_shape(d)
+            s["results"][name] = d
+            want = DR_SCENARIOS[name]["expect"]
+            got = d["primary"]["id"] if d["primary"] else None
+            s.setdefault("table", []).append((name, want, got, d["primary"] and d["primary"]["severity"],
+                                             [f"{c['id']}:{c['severity']}" for c in d["secondary"]]))
+            check(got == want, f"primary {got} ({d['headline'][:300]}), expected {want}")
+            ev = d["primary"]["evidence"]
+            pay = get(f"/api/runs/{rid}")["doctor"]
+            check(pay["schema"] == "doctor/1" and pay["primary"]["id"] == want, pay)
+            return (f"{rid} → primary {got} ({d['primary']['severity']}) · {_dr_evidence(want, ev)} · rx {d['primary']['prescription']['kind']}: "
+                    f"{d['primary']['prescription']['title']} · secondary [{', '.join(c['id'] + ':' + c['severity'] for c in d['secondary']) or '—'}]"
+                    + (f" · {extra}" if extra else ""))
+        return fn
+
+    step("doctor: leaky feature", diagnose("leaky feature"))
+    step("doctor: label noise", diagnose("label noise"))
+
+    def lc_prepare(rid: str) -> str:
+        d0 = get(f"/api/runs/{rid}/doctor")
+        off = _dr_offer(d0, "data_limited")
+        check(off["kind"] == "run_check" and off["check"] == "learning_curve", off)
+        notes = [f"before: data_limited {next(c['status'] for c in d0['checks'] if c['id'] == 'data_limited')}"]
+        for _ in range(2):
+            r = C.post(off["endpoint"], json=off.get("body") or {})
+            check(r.status_code == 202, r.text[:300])
+            lc = _lc_wait(rid)
+            v = lc["verdict"]
+            notes.append(f"curve ({(off.get('body') or {}).get('seeds', 3)} seeds) {v['label']} Δ₂ {v['slope_per_doubling']['value']:+.4f} "
+                         f"[{v['slope_per_doubling']['ci'][0]:+.4f}, {v['slope_per_doubling']['ci'][1]:+.4f}] vs ε {v['evidence']['min_gain']:.4f}")
+            d1 = get(f"/api/runs/{rid}/doctor")
+            c = next(c for c in d1["checks"] if c["id"] == "data_limited")
+            if v["label"] != "noisy":
+                break
+            check(c["status"] == "no-evidence", f"a noisy curve read as {c['status']}")  # noisy = no evidence, never a finding
+            notes.append("noisy → no-evidence, offer: rerun with more seeds")
+            off = c["offer"]
+            check((off.get("body") or {}).get("seeds", 0) > 3, off)
+        return " · ".join(notes)
+
+    step("doctor: data-limited", diagnose("data-limited", lc_prepare))
+
+    def shift_prepare(rid: str) -> str:
+        d0 = get(f"/api/runs/{rid}/doctor")
+        c0 = next(c for c in d0["checks"] if c["id"] == "shift")
+        check(c0["status"] == "missing", c0)
+        off = c0["offer"]
+        check(off["kind"] == "split_twin" and off["body"]["split_spec"]["strategy"] == "time", off)
+        tw = post(off["endpoint"], off["body"])
+        wait_run(tw["id"])
+        d1 = get(f"/api/runs/{rid}/doctor")
+        c1 = next(c for c in d1["checks"] if c["id"] == "shift")
+        oot = c1["evidence"]["out_of_time"]
+        off2 = _dr_offer(d1, "shift")
+        check(off2["check"] == "shift", off2)
+        r = post(off2["endpoint"], off2["body"])
+        g = _shift_wait(rid, r["key"])
+        check(g["status"] == "succeeded", g.get("error"))
+        return (f"before: shift missing · twin {tw['id']} (offer) → {c1['status']} {c1['severity']}: random {oot['random_score']:.4f} vs time "
+                f"{oot['oot_score']:.4f}, z {oot['z']:.1f} · shift check (offer) AUC {g['summary']['auc']:.3f} {g['summary']['verdict']}")
+
+    step("doctor: shift", diagnose("shift", shift_prepare))
+
+    def overfit_after():
+        d = s["results"].get("overfit")
+        check(d, "overfit not diagnosed")
+        rx = d["primary"]["prescription"]
+        check(rx["kind"] == "gym_patch", rx)
+        body = dict(rx["patch"]["body"])
+        body.update({"source": "smoke-doctor", "parent_run_id": s["runs"]["overfit"], "scorecard": False})
+        rec = wait_run(post("/api/runs", body)["id"])
+        d2 = get(f"/api/runs/{rec['id']}/doctor")
+        _dr_check_shape(d2)
+        ov1 = next(c for c in d["checks"] if c["id"] == "overfit")["evidence"]
+        ov2 = next(c for c in d2["checks"] if c["id"] == "overfit")
+        check(not (d2["primary"] and d2["primary"]["id"] == "overfit" and d2["primary"]["severity"] == "critical"), d2["headline"])
+        hp = body["fit_kwargs"]["hyperparameters"]
+        return (f"patch {rx['title']} ({json.dumps(hp)[:80]}) → {rec['id']}: holdout accuracy {ov1['holdout']:.4f} → {ov2['evidence'].get('holdout', float('nan')):.4f}, "
+                f"z {ov1['z']:.1f} → {ov2['evidence'].get('z') or float('nan'):.1f}; overfit {ov2['status']}{' ' + ov2['severity'] if ov2['severity'] else ''}; "
+                f"new primary {d2['primary']['id'] + ':' + d2['primary']['severity'] if d2['primary'] else 'none'}")
+
+    step("doctor: overfit", diagnose("overfit"))
+    step("doctor: overfit prescription applied", overfit_after)
+
+    def lat_prepare(rid: str) -> str:
+        bud = DR_SCENARIOS["latency"]["latency_ms"]
+        d0 = get(f"/api/runs/{rid}/doctor", latency_ms=bud)
+        off = _dr_offer(d0, "latency")
+        check(off["check"] == "latency" and off["method"] == "GET", off)
+        prof = get(off["endpoint"])
+        best = next(m for m in prof["models"] if m["best"])
+        return f"before: latency missing · profile (offer): {len(prof['models'])} models, best {best['model']} served p95 {best['served_ms_p95']:.1f} ms"
+
+    def lat_after():
+        d = s["results"].get("latency")
+        check(d, "latency not diagnosed")
+        rx = d["primary"]["prescription"]
+        ev = d["primary"]["evidence"]
+        if rx["kind"] == "register":
+            pick = ev["best_within_budget"]
+            check(pick and pick["served_p95_ms"] <= ev["budget_ms"] and rx["body"]["serve_model"] == pick["model"], (rx, pick))
+            return f"serve {pick['model']} at p95 {pick['served_p95_ms']:.1f} ms ≤ {ev['budget_ms']:g} ms (holdout {pick['score_test']:.4f} vs {pick['best_score_test']:.4f})"
+        check(rx["kind"] == "gym_patch", rx)
+        return f"no model within budget: {rx['title']}"
+
+    step("doctor: latency", diagnose("latency", lat_prepare, latency_ms=DR_SCENARIOS["latency"]["latency_ms"]))
+    step("doctor: latency prescription", lat_after)
+
+    def determinism():
+        rid = s["runs"]["label noise"]
+        a, b = get(f"/api/runs/{rid}/doctor"), get(f"/api/runs/{rid}/doctor")
+        strip = lambda d: json.dumps([(c["id"], c["status"], c["severity"], c["reason"]) for c in d["checks"]])  # noqa: E731
+        check(strip(a) == strip(b), "two calls disagree")
+        n = sum(1 for t in s.get("table", []) if t[1] == t[2])
+        return (f"same checks, statuses and reasons on a second call · ACCEPTANCE {n}/{len(DR_SCENARIOS)} scenarios diagnosed correctly: "
+                + "; ".join(f"{t[0]} → {t[2]}" + (" ✓" if t[1] == t[2] else f" ✗ (want {t[1]})") for t in s.get("table", [])))
+
+    step("doctor: determinism + acceptance", determinism)
+
+
+def _dr_evidence(kind: str, ev: dict[str, Any]) -> str:
+    if kind == "leakage":
+        su = ev["suspects"][0]
+        return f"{su['feature']} alone {su.get('single_measure', '')} {su.get('single_score', float('nan')):.3f}, {su.get('share') or 0:.0%} of importance"
+    if kind == "label_noise":
+        return (f"error floor {ev['floor']:.3f} [{ev['floor_ci'][0]:.3f}, {ev['floor_ci'][1]:.3f}] in the top {ev['n_top']} (model expects "
+                f"{ev['expected_top']:.3f}), cleanlab {ev['cleanlab_rate']:.1%}")
+    if kind == "overfit":
+        return f"train {ev['train']:.4f} vs holdout {ev['holdout']:.4f}, z {ev['z']:.1f}, overconfident {ev['overconfident']}"
+    if kind == "data_limited":
+        return f"Δ₂ {ev['slope']:+.4f} [{ev['ci'][0]:+.4f}, {ev['ci'][1]:+.4f}] vs ε {ev['min_gain']:.4f}"
+    if kind == "shift":
+        o, a = ev.get("out_of_time") or {}, ev.get("adversarial") or {}
+        return f"OOT Δ {o.get('delta', float('nan')):+.4f} (z {o.get('z') or float('nan'):.1f}), adversarial AUC {a.get('auc', float('nan')):.3f} {a.get('verdict')}"
+    if kind == "latency":
+        return f"{ev['model']} served p95 {ev['served_p95_ms']:.1f} ms vs budget {ev['budget_ms']:g} ms"
+    return json.dumps(ev)[:120]
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -3808,7 +4096,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")
