@@ -157,8 +157,34 @@ export type SurvTry = { served: 'cox' | 'rsf'; unit: string | null; horizons: nu
   baseline_curve: number[]; km_all: number[]; features: string[]; missing_columns: string[]
   contributions?: { feature: string; value: unknown; log_hr: number; hr: number }[]; hr_vs_average?: number; predict_ms: number }
 
+// G7 · Reject inference (backend/app/reject): approved-only against reweighting, parcelling and fuzzy augmentation.
+export type RiMethod = 'approved_only' | 'reweighting' | 'parcelling' | 'fuzzy'
+export type RiDetect = { dataset_id: string; label: string | null; decision_column: string | null; approved_value: string | null; declined_value: string | null
+  positive_class: string | number | null; evidence: Record<string, string[]>; missing_share?: number; drop_columns: string[]; split: string; time_column: string | null
+  split_why: string; approval_rate?: number; declined?: number; through_the_door: boolean; k: number }
+export type RiCreate = { dataset_id: string; label?: string; decision_column?: string; k?: number; drop_columns?: string[]; time_limit?: number }
+export type RiDelta = { delta: number; ci: [number, number]; se: number; p_value?: number | null }
+export type RiCompare = { n: number; bad_rate: number; mean_p: number; log_loss: number; brier: number; auc?: number; delta_auc?: RiDelta; delta_log_loss: RiDelta; delta_brier: RiDelta
+  declined?: { mean_p: number; bad_rate: number } | null; approve_at_old_rate?: { share: number; approved: number; bad_rate: number }
+  deciles?: { group: number; n: number; mean_p: number; bad_rate: number }[]; verdict?: 'baseline' | 'better' | 'worse' | 'mixed' | 'no clear difference' }
+export type RiFit = { rows: number; best_model: string; fit_seconds: number; n_models: number }
+export type RiResult = { label: string; positive_class: string | number; decision_column: string | null; approved_value: string | null; k: number; k_default: number
+  methods: Record<RiMethod, string>; fits: Record<RiMethod, RiFit>
+  detail: { reweighting: { acceptance_model: RiFit; w_max: number; weights: { min: number; median: number; max: number; clipped: number }; effective_n: number }
+    parcelling: { bands: { band: number; approved: number; approved_bad_rate: number | null; declined: number; assigned_bad_rate: number; drawn_bad: number }[]; assigned_bad_rate: number }
+    fuzzy: { mean_q: number; declined_weight: number } }
+  approved_holdout: Record<RiMethod, RiCompare>
+  ttd: { n: number; bad_rate: number; bad_rate_approved: number | null; bad_rate_declined: number | null; old_policy: { share: number; bad_rate: number | null }
+    methods: Record<RiMethod, RiCompare>; better: RiMethod[]; best: RiMethod } | null
+  shift: Record<RiMethod, { declined_mean_p: number | null; approved_mean_p: number | null }>; truth: string | null
+  data: { rows: number; train_approved: number; train_declined: number; holdout: number; holdout_approved: number; holdout_declined: number; approval_rate: number; features: string[] }
+  presets: string | null; time_limit: number | null }
+export type RiRun = { run_id: string; name: string; status: string; error: string | null; dataset_id: string; split: { strategy?: string } & Record<string, unknown>
+  config: { label: string; k: number; found: { decision_column: string | null; approved_value: string | null }; drop_columns: string[]; presets: string | null; time_limit: number | null; detected: Partial<RiDetect> }
+  reject_inference: RiResult | null }
+
 export const flows = {
-  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
+  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'reject_inference' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
   run: (id: string) => request<FlowRun>(`/runs/${encodeURIComponent(id)}`),
   forecast: {
     options: () => request<FcOptions>('/forecast/options'),
@@ -184,6 +210,11 @@ export const flows = {
     detect: (ds: string) => request<SegDetect>(`/segmented/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
     create: (body: SegCreate) => request<FlowRun>('/segmented/runs', { ...J(body), timeoutMs: 60_000 }),
     get: (id: string) => request<SegRun>(`/segmented/runs/${encodeURIComponent(id)}`),
+  },
+  ri: {
+    detect: (ds: string) => request<RiDetect>(`/reject-inference/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
+    create: (body: RiCreate) => request<FlowRun>('/reject-inference/runs', { ...J(body), timeoutMs: 60_000 }),
+    get: (id: string) => request<RiRun>(`/reject-inference/runs/${encodeURIComponent(id)}`),
   },
   surv: {
     detect: (ds: string) => request<SurvDetect>(`/survival/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),

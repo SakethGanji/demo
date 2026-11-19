@@ -7,6 +7,7 @@ import { ExplainPage } from '@/features/explain/ExplainPage'
 import { ForecastPage } from '@/features/forecast/ForecastPage'
 import { ExpectedLossPage } from '@/features/expected-loss/ExpectedLossPage'
 import { SegmentedPage } from '@/features/segmented/SegmentedPage'
+import { RejectInferencePage } from '@/features/reject-inference/RejectInferencePage'
 import { SurvivalPage } from '@/features/survival/SurvivalPage'
 import { ImportPage } from '@/features/import/ImportPage'
 import { HomePage } from '@/features/home/HomePage'
@@ -102,6 +103,7 @@ export default function App() {
           {route === 'expected-loss' && <ExpectedLossPage go={go} />}
           {route === 'segmented' && <SegmentedPage go={go} />}
           {route === 'survival' && <SurvivalPage go={go} />}
+          {route === 'reject-inference' && <RejectInferencePage go={go} />}
         </main>
       </div>
 

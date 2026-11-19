@@ -509,7 +509,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished' | 'seg_model_started' | 'seg_model_finished' | 'surv_model_started' | 'surv_model_finished'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished' | 'seg_model_started' | 'seg_model_finished' | 'surv_model_started' | 'surv_model_finished' | 'ri_model_started' | 'ri_model_finished'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */
@@ -887,6 +887,10 @@ export type ModelCard = {
   segmented?: { segment_column: string; problem_type: string; headline: string; threshold: number | null; routing_rule: string; routes: string[]
     overall: SegCardCmp | null; segments: { value: string; train_rows: number; holdout_rows: number; routed: boolean; why: string; own: SegCardCmp | null }[] } | null
   /** G6: a time-to-event version: discrimination, calibration against Kaplan–Meier, Cox hazard ratios. */
+  /** G7: the latest reject-inference check on the version's table (a yes/no model trained on approved applicants only). */
+  reject_inference?: { run_id: string; k: number; through_the_door: boolean; n: number | null; best: string | null; better: string[] | null; assumption: string
+    methods: Record<string, { auc: number | null; log_loss: number; mean_p: number; bad_rate: number; verdict: string
+      delta_auc: { delta: number; ci: [number, number] } | null; delta_log_loss: { delta: number; ci: [number, number] } | null } | null> | null } | null
   survival?: { duration_column: string; event_column: string; unit: string | null; served: 'cox' | 'rsf'; chosen_on: string; c_index: number; c_index_ci: [number, number]
     other: { model: string; c_index: number | null }; at: { t: number; auc: number; brier: number; mean_S: number }[]
     calibration: { max_abs_diff: number; in_ci: number; cells: number; ok: boolean }; holdout_rows: number; events: { holdout: number }

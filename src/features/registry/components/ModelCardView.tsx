@@ -154,6 +154,17 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             <p className="helper" style={{ fontSize: 12 }}>{`T = ${g.duration_column}, event ${g.event_column} = 1 (0 = censored). Serving ${g.served === 'cox' ? 'Cox PH' : 'a random survival forest'}, chosen on ${g.chosen_on}. Holdout (${g.holdout_rows} rows, ${g.events.holdout} events): Harrell's C ${g.c_index.toFixed(4)} [${g.c_index_ci[0].toFixed(3)}, ${g.c_index_ci[1].toFixed(3)}] (the other model ${g.other.c_index?.toFixed(4) ?? '—'}); ${g.at.map((a) => `AUC(${a.t}) ${a.auc.toFixed(3)}`).join(', ')}. Calibration against Kaplan–Meier by risk quartile: max |Ŝ − Ŝ_KM| ${g.calibration.max_abs_diff.toFixed(3)}, ${g.calibration.in_ci}/${g.calibration.cells} inside the KM 95% CI (${g.calibration.ok ? 'calibrated' : 'not calibrated'}). Cox hazard ratios per unit: ${g.hazard_ratios.slice(0, 5).map((h) => `${h.term} ${h.hr.toFixed(2)} [${h.hr_ci[0].toFixed(2)}, ${h.hr_ci[1].toFixed(2)}]`).join('; ')}.`}</p>
           </div>
         })()}
+        {c.reject_inference && (() => {
+          const g = c.reject_inference
+          const ms = Object.entries(g.methods ?? {}).filter(([, x]) => x)
+          const d = (x: { delta: number; ci: [number, number] } | null) => (x == null ? '—' : `${x.delta >= 0 ? '+' : '−'}${Math.abs(x.delta).toFixed(4)} [${x.ci[0].toFixed(4)}, ${x.ci[1].toFixed(4)}]`)
+          return <div data-testid="card-ri" style={{ marginTop: 8 }}>
+            <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Reject inference (through-the-door check)</h4>
+            <p className="helper" style={{ fontSize: 12 }}>{`This model learns from approved applicants only. Run ${g.run_id} compared that with three ways of adding the declined back, assuming ${g.assumption}. `
+              + (g.through_the_door ? `On ${g.n} through-the-door applicants: ${ms.map(([m, x]) => `${m.replace('_', ' ')} AUC ${x!.auc?.toFixed(4) ?? '—'}${m === 'approved_only' ? '' : ` (Δ ${d(x!.delta_auc)}, ${x!.verdict})`}`).join('; ')}. Approved-only mean p̂ ${g.methods?.approved_only?.mean_p.toFixed(3)} against a bad rate of ${g.methods?.approved_only?.bad_rate.toFixed(3)}.`
+                : 'No through-the-door outcomes exist for this table, so the methods were compared on approved applicants only.')}</p>
+          </div>
+        })()}
         {c.segmented && (() => {
           const g = c.segmented
           const k = g.headline.toLowerCase()

@@ -8,7 +8,7 @@ import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
-const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip']  // G4: protected attributes, surname and zip are never model inputs
+const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip', 'decision']  // G4: protected attributes, surname and zip are never model inputs; G7: nor the approve/decline decision
 const SPLIT_NAME: Record<string, string> = { time: 'out-of-time', group: 'group', 'time-group': 'out-of-time + group' }
 
 /** The flow's URL for a suggestion: New Model, Forecast and Anomaly open pre-filled on this dataset. */
@@ -28,6 +28,10 @@ function href(s: IntakeSuggestion, dsId: string): string {
     const p = s.prefill as { duration?: string; event?: string }
     return `survival?${new URLSearchParams({ dataset: dsId, duration: p.duration ?? '', event: p.event ?? '' })}`
   }
+  if (s.route === 'reject-inference') {  // G7: the outcome and decision as Build shows them (edits included)
+    const p = s.prefill as { label?: string; decision?: string | null }
+    return `reject-inference?${new URLSearchParams({ dataset: dsId, label: p.label ?? '', decision: p.decision ?? '' })}`
+  }
   if (s.route === 'segmented') {  // G5: the target and segment as Build shows them (edits included)
     const p = s.prefill as { label?: string; segment?: string }
     return `segmented?${new URLSearchParams({ dataset: dsId, label: p.label ?? '', segment: p.segment ?? '' })}`
@@ -44,6 +48,7 @@ function prefillLine(s: IntakeSuggestion): string {
   const p = s.prefill
   if (s.route === 'forecast') return `t = ${p.timestamp}${p.item_id ? ` · series = ${p.item_id}` : ''} · y = ${p.value}`
   if (s.route === 'survival') return `T = ${p.duration} · δ = ${p.event} · Cox PH + survival forest`
+  if (s.route === 'reject-inference') return `y = ${p.label}${p.decision ? ` · A = ${p.decision}` : ''} · approved-only vs 3 methods, k = 2`
   if (s.route === 'segmented') return `y = ${p.label} · one model per ${p.segment} vs one global`
   if (s.route === 'expected-loss') return `y = ${p.pd} · LGD = ${p.lgd} · EAD = ${p.ead}${(p.segments as string[] | undefined)?.length ? ` · by ${(p.segments as string[]).join(', ')}` : ''}`
   if (s.route !== 'quick-train') return ''
