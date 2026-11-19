@@ -179,7 +179,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
                 "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels",
-                "learning_curve", "active_learning", "annotations", "shift", "slices", "doctor", "expected_loss", "segmented", "survival"):
+                "learning_curve", "active_learning", "annotations", "shift", "slices", "doctor", "expected_loss", "segmented", "survival", "reject_inference"):
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     sc = res.get("scorecard")  # F11: the headline only; the table is GET /runs/{id}/scorecard
@@ -470,7 +470,7 @@ async def split_twin(run_id: str, body: SplitTwin, request: Request) -> dict[str
     from ..gym.api import run_body
 
     rec = run_or_404(request, run_id)
-    if rec["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or rec["config"].get("import"):
+    if rec["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference") or rec["config"].get("import"):
         raise HTTPException(400, "Only trained tabular runs can be re-run under another split.")
     b = run_body(rec)
     b["split_spec"] = body.split_spec
@@ -503,7 +503,7 @@ def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
     for r in store.list():  # newest first
         cfg = r["config"]
         if r["dataset_id"] != base["dataset_id"] or r["label"] != base["label"] or r["status"] != "succeeded" \
-                or cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or cfg.get("import"):
+                or cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference") or cfg.get("import"):
             continue
         m, v, _ = _score(r)
         sp = cfg.get("split") or {}
@@ -981,7 +981,7 @@ async def metric_twin(run_id: str, body: MetricTwin, request: Request) -> dict[s
     from ..gym.api import check_run_body, run_body
 
     rec = run_or_404(request, run_id)
-    if rec["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or rec["config"].get("import"):
+    if rec["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference") or rec["config"].get("import"):
         raise HTTPException(400, "Only trained tabular runs can be re-run to another metric.")
     if (body.eval_metric is None) == (body.cost is None):
         raise HTTPException(400, "Give eval_metric or cost.")
@@ -1024,7 +1024,7 @@ async def cost_comparison(run_id: str, request: Request, c_fp: float | None = Qu
         for r in store.list():  # newest first
             cfg = r["config"]
             if r["id"] == run_id or r["dataset_id"] != rec["dataset_id"] or r["label"] != rec["label"] \
-                    or r["status"] != "succeeded" or cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or cfg.get("import"):
+                    or r["status"] != "succeeded" or cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference") or cfg.get("import"):
                 continue
             if (cfg.get("split") or {}).get("key") != key0 or any(cfg.get(k) != cfg0.get(k) for k in COST_FAIR_KEYS):
                 continue

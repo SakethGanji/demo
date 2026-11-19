@@ -97,6 +97,9 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
     rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; only a finished run can be registered.")
+    if rec["config"].get("kind") == "reject_inference":
+        raise HTTPException(400, "A reject-inference run is a comparison of methods, not one model to serve: train the "
+                                 "chosen method as a yes/no model and register that.")
     if body.distill and rec["config"].get("monotone"):
         raise HTTPException(400, "This run has monotone constraints; distill would serve an unconstrained student. "
                                  "Register without distill.")
@@ -124,7 +127,7 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
         # Warm the new version in every predict worker, so its first Try It or /score call is not a cold one.
         try:
             got = reg.get_version(vid)
-            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss", "segmented", "survival")):
+            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference")):
                 heavy.warm_path(got["path"])
                 if _inproc_ok(got, 1):  # its own thread: this callback runs in the pool's management thread
                     import threading
@@ -367,7 +370,17 @@ def _card(request: Request, vid: str) -> dict[str, Any]:
     ds = request.app.state.db.get_dataset(run["dataset_id"])
     return card.build_card(v, run, ds, list(reversed(reg.audit_log(version_id=vid))), reg.list_batches(vid),
                            reasons=_reasons_for_card(request, v, run), recourse=_recourse_for_card(request, v, run),
-                           credit_report=_credit_for_card(v, run))
+                           credit_report=_credit_for_card(v, run), reject_inference=_ri_for_card(request, run))
+
+
+def _ri_for_card(request: Request, run: dict[str, Any]) -> dict[str, Any] | None:
+    """G7: a yes/no tabular model of a table with declined applicants: the latest reject-inference check on that table."""
+    if run["config"].get("kind") or (run.get("result") or {}).get("problem_type") != "binary":
+        return None
+    from ..reject.api import card_section
+
+    same = [r for r in request.app.state.runs.list() if r["dataset_id"] == run["dataset_id"]]
+    return card_section(sorted(same, key=lambda r: r.get("created_at") or "", reverse=True))
 
 
 def _credit_for_card(v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
@@ -593,7 +606,7 @@ def _inproc_ok(v: dict[str, Any], n_rows: int) -> bool:
 
 def warm_version(request: Request, v: dict[str, Any]) -> None:
     """Warm a tabular version in every predict worker and, when it qualifies, in the API process (in a thread)."""
-    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
+    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference"):
         return
     request.app.state.heavy.warm_path(v["path"])
     if _inproc_ok(v, 1):
@@ -698,7 +711,7 @@ async def benchmark(vid: str, request: Request) -> dict[str, Any]:
     1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
+    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference"):
         raise HTTPException(400, "The serving benchmark measures tabular versions (one row per call).")
     out = await request.app.state.heavy.run(scoring.benchmark_version, v["path"], run["config"])
     _reg(request).merge_version_result(vid, serving_benchmark=out)
@@ -745,7 +758,7 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
     data_date = monitoring_api.resolve_data_date(request, run, csv_path, data_date)
     reg = _reg(request)
     reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who, "data_date": data_date})
-    if kind in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
+    if kind in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference"):
         # forecast: the file is new history (same mapping); anomaly: rows to score. Same batch record and drift format.
         fut = request.app.state.heavy.submit(scoring.score_flow_batch, str(request.app.state.settings.db_path), bid, kind,
                                              v["path"], run["config"], str(csv_path), str(bdir), {"id": vid},

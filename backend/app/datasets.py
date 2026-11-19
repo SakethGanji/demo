@@ -28,6 +28,7 @@ from .samples_g3 import SAMPLES_G3  # G3 adds its sample here: samples.py stays 
 from .samples_g4 import SAMPLES_G4  # G4: loan applications with surname and zip (BISG)
 from .samples_g5 import SAMPLES_G5  # G5: loans from customer types that behave differently
 from .samples_g6 import SAMPLES_G6  # G6: accounts followed until they close or the data ends (censoring)
+from .samples_g7 import SAMPLES_G7  # G7: applications with declines (outcomes only for the approved)
 from . import splits as splits_mod
 from .splits import RANDOM_STRATIFIED, load_splits, make_splits, save_splits, split_key, summarize
 
@@ -221,7 +222,7 @@ class DatasetStore:
     def ensure_samples(self) -> list[str]:
         """Generate the sample datasets if they are missing. Returns the IDs generated."""
         made = []
-        for dataset_id, spec in {**SAMPLES, **SAMPLES_G3, **SAMPLES_G4, **SAMPLES_G5, **SAMPLES_G6}.items():
+        for dataset_id, spec in {**SAMPLES, **SAMPLES_G3, **SAMPLES_G4, **SAMPLES_G5, **SAMPLES_G6, **SAMPLES_G7}.items():
             # A sample made by an older generator is stale (new columns, new planted truth): regenerate it.
             # The fingerprint is the source of the module that defines the generator.
             fp = _generator_fingerprint(spec["generate"])

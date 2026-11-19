@@ -716,6 +716,11 @@ INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
                                        "age": F, "num_products": F, "digital_logins_30d": F, "complaints_12m": F,
                                        "rate_vs_market_pp": F, "has_salary_mandate": F, "avg_balance_gbp": M,
                                        "churned": "target", "duration_months": "duration"}),
+    "credit-rejects": ("reject_inference", {"application_id": "id", "application_date": "date", "channel": CAT,
+                                            "home_ownership": CAT, "credit_score": F, "income": M, "debt_to_income": F,
+                                            "utilization": F, "months_employed": F, "recent_inquiries": F,
+                                            "num_delinquencies": F, "loan_amount": M, "decision": "decision",
+                                            "defaulted": "target"}),
 }
 KEY_ROLES = ("target", "date", "id", "entity", "segment")
 
@@ -4940,6 +4945,76 @@ def survival(st: dict[str, Any]) -> None:
     step("surv: version: Try It curve, /score, batch, card", registry)
 
 
+def reject_inference(st: dict[str, Any]) -> None:
+    """G7: reject inference on the credit-rejects sample, zero-config. Intake finds the decision column (the outcome is
+    blank for every declined row) and puts "Reject inference" on top; the run is started with nothing but the dataset
+    (approved-only, reweighting, parcelling and fuzzy augmentation, AutoGluon, k = 2). Asserts the acceptance: on the
+    through-the-door holdout (hidden outcomes of the declined, from the sample's sidecar) at least one method beats
+    approved-only on AUC or log loss with a paired CI that excludes 0; also that approved-only understates the TTD bad
+    rate. Then a quick approved-only yes/no model of the same table is registered and its card carries the check."""
+    ds = "credit-rejects"
+    s: dict[str, Any] = {}
+
+    def suggest():
+        it = get(f"/api/datasets/{ds}/intake")
+        s0 = it["suggestions"][0]
+        check(s0["id"] == "reject_inference" and s0["route"] == "reject-inference", f"top {s0['id']}")
+        check(s0["prefill"]["label"] == "defaulted" and s0["prefill"]["decision"] == "decision", s0["prefill"])
+        d = get("/api/reject-inference/detect", dataset_id=ds)
+        check(d["decision_column"] == "decision" and d["approved_value"] == "approved" and d["through_the_door"], d)
+        check({"application_id", "application_date"} <= set(d["drop_columns"]) and d["split"] == "time", d)
+        b = next(x for x in it["suggestions"] if x["id"] == "binary")
+        check("decision" in b["prefill"]["drop"] and "Reject inference" in b["reason"], b)
+        s["pf"] = b["prefill"]
+        return (f"top {s0['id']} ({s0['score']:g}) · decision = {d['decision_column']} ({d['approved_value']}), approval rate "
+                f"{d['approval_rate']:.3f}, {d['declined']:,} declined · {d['split']} split · binary pre-fill drops {b['prefill']['drop']}")
+    step("ri: Build suggests reject inference, decision detected", suggest)
+
+    def train():
+        rec = post("/api/reject-inference/runs", {"dataset_id": ds})  # zero-config
+        check(rec["kind"] == "reject_inference", rec.get("kind"))
+        t0 = time.time()
+        done = wait_run(rec["id"])
+        check(done["status"] == "succeeded", done.get("error"))
+        r = get(f"/api/reject-inference/runs/{rec['id']}")["reject_inference"]
+        t = r["ttd"]
+        check(t is not None and t["n"] > 1000, "no through-the-door check")
+        base = t["methods"]["approved_only"]
+        check(base["mean_p"] < t["bad_rate"], "approved-only should understate the TTD bad rate")
+        check(len(t["better"]) >= 1, {m: c["verdict"] for m, c in t["methods"].items()})  # acceptance
+        st["ri"] = {m: {k: c.get(k) for k in ("auc", "log_loss", "brier", "mean_p", "delta_auc", "delta_log_loss", "verdict")}
+                    for m, c in t["methods"].items()}
+        def line(m):
+            c = t["methods"][m]
+            if m == "approved_only":
+                return f"{m} AUC {c['auc']:.4f} LL {c['log_loss']:.4f} p̄ {c['mean_p']:.3f}"
+            da, dl = c["delta_auc"], c["delta_log_loss"]
+            return (f"{m} AUC {c['auc']:.4f} (Δ {da['delta']:+.4f} [{da['ci'][0]:+.4f}, {da['ci'][1]:+.4f}]) "
+                    f"LL {c['log_loss']:.4f} (Δ {dl['delta']:+.4f} [{dl['ci'][0]:+.4f}, {dl['ci'][1]:+.4f}]) p̄ {c['mean_p']:.3f} {c['verdict']}")
+        return (f"{rec['id']} in {time.time() - t0:.0f} s · TTD n {t['n']:,}, bad rate {t['bad_rate']:.3f} · "
+                + " · ".join(line(m) for m in t["methods"]) + f" · better: {t['better']}")
+    if not step("ri: zero-config run, TTD comparison (acceptance)", train):
+        return
+
+    def card():
+        pf = s["pf"]
+        body = {"dataset_id": ds, "label": pf["target"], "problem_type": "binary", "presets": "medium_quality", "time_limit": 60,
+                "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 150}}}, "drop_columns": pf["drop"] + [pf["time"]],
+                "feature_importance": False, "split_spec": {"strategy": "time", "time_column": pf["time"]}, "source": "smoke-ri"}
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit-rejects"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        md = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
+        check("Reject inference (through-the-door check)" in md, "card section")
+        bad = C.post(f"/api/runs/{get('/api/runs', kind='reject_inference')['runs'][0]['id']}/register",
+                     json={"created_by": "Smoke Analyst", "model_name": "smoke.ri"})
+        check(bad.status_code == 400, bad.status_code)
+        return f"{rec['id']} (approved only, {rec['data']['train_rows']:,} rows) → {v['id']} · card has the TTD table · RI run register → 400"
+    step("ri: approved-only model's card carries the check", card)
+
+
 def fair_lending(st: dict[str, Any]) -> None:
     """G4: the fair-lending check without protected attributes (BISG) on the fair-lending sample, zero-config. Intake
     finds surname, zip and the hidden true group (protected: left out of the model with the IDs); the binary pre-fill
@@ -5084,7 +5159,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

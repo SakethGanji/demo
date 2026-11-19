@@ -413,7 +413,7 @@ def _proposal(request: Request, vid: str, months: int | None, include_reference:
     run = request.app.state.runs.get(v["run_id"])
     if not run:
         raise HTTPException(404, f"The run behind {_label(v)} is gone.")
-    if (run.get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or (run.get("config") or {}).get("import"):
+    if (run.get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference") or (run.get("config") or {}).get("import"):
         raise HTTPException(400, "The retrain proposal is for trained tabular versions.")
     cfg = get_config(request, v["model_name"])
     months = months or cfg.get("retrain_window_months") or 6

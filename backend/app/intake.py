@@ -40,6 +40,7 @@ ROLES: dict[str, str] = {
     "zip": "zip / postal code",
     "geography": "geography",
     "protected": "protected attribute (fairness only, excluded)",
+    "decision": "approve/decline decision (reject inference, excluded)",
     "multilabel": "multi-label list",
     "segment": "segment",
     "category": "category",
@@ -48,7 +49,7 @@ ROLES: dict[str, str] = {
     "constant": "constant (excluded)",
     "feature": "feature",
 }
-EXCLUDED = ("id", "leak", "constant", "protected")
+EXCLUDED = ("id", "leak", "constant", "protected", "decision")
 # Never model inputs on a credit decision, but kept for the fair-lending check (G4: BISG reads surname × zip).
 NOT_INPUTS = ("surname", "zip")
 # Roles a column can carry beside its primary one (churned: the target and the survival event; ead_usd: EAD and money).
@@ -74,6 +75,8 @@ REG_TARGET = re.compile(r"(amount|value|price|volume|sales|revenue|balance|spend
 # LABEL_NAME is looser: it also takes 'merchant_category', which is a feature.)
 TARGET_NAME = re.compile(r"^(label|target|class|category|sentiment|outcome|y|response|result)$|churn|default|fraud|"
                          r"delinq|attrit|lapse|arrear|bad_flag|^is_|^has_|^will_", re.I)
+DECISION = re.compile(r"(decision|approv\w*|accept\w*|declin\w*|reject\w*|app\w*_status|underwrit\w*)", re.I)
+DECISION_WORDS = re.compile(r"^(approved?|accept(ed)?|declined?|reject(ed)?|denied|refused|booked|funded|granted)$", re.I)
 RATIO = re.compile(r"(_to_|ratio|pct|percent|rate|share|score|util)", re.I)
 DELIMS = (";", "|", ",")
 
@@ -99,6 +102,27 @@ def _multilabel(s: pd.Series) -> tuple[str, int, float] | None:
         if multi >= 0.1 and 2 <= len(vocab) <= 60 and parts.map(len).max() <= 12:
             return d, len(vocab), multi
     return None
+
+
+def _decision(s: pd.Series, y: pd.Series | None) -> dict[str, Any] | None:
+    """G7: an approve/decline column (approved/declined, accepted/rejected, or a 0/1 or yes/no flag named like a
+    decision). Strongest when the outcome is blank exactly for the declined rows: outcomes exist only for the approved."""
+    from .reject.core import decision_values
+
+    vals = decision_values(s)
+    if not vals:
+        return None
+    words = all(DECISION_WORDS.match(str(v).strip()) for v in vals)
+    if not words and not DECISION.search(str(s.name)):
+        return None
+    ev = [f"values '{vals[0]}' / '{vals[1]}' read like an approve/decline decision"]
+    conf = 0.75
+    if y is not None and y.isna().any():
+        dec = s.astype(str) == vals[1]
+        if dec.any() and (~dec).any() and y[dec].isna().mean() >= 0.99 and y[~dec].notna().mean() >= 0.95:
+            conf = 0.95
+            ev.append(f"'{y.name}' is blank for every '{vals[1]}' row: outcomes exist only for the approved")
+    return _role("decision", conf, *ev)
 
 
 def _single_auc(x: pd.Series, y: pd.Series) -> float | None:
@@ -201,6 +225,10 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
                 found.append(_role("money", 0.8, "name reads like a money amount", f"non-negative, median {float(nn.median()):,.2f}"))
         if col != tcol and k == 2 and _binary01(s) and EVENT.search(name):
             found.append(_role("event", 0.7, f"0/1 flag named '{col}'"))
+        if col != tcol and k == 2:
+            dv = _decision(s, df[tcol] if tcol else None)
+            if dv:
+                found.append(dv)
         if s.dtype == object and k > 2:
             if SURNAME.search(name):
                 found.append(_role("surname", 0.9, "name reads like a surname column", f"{k:,} distinct"))
@@ -393,7 +421,7 @@ def _binary(ctx: Ctx):
     if _task_of(ctx) != "binary":
         return None
     t = ctx.target
-    vc = ctx.df[t].astype(str).value_counts()
+    vc = ctx.df[t].dropna().astype(str).value_counts()
     rare = vc.index[-1]
     p = _tabular_prefill(ctx, metric="expected_cost")
     risk = re.search(r"default|churn|fraud|delinq|attrit|lapse|arrear", t, re.I)
@@ -402,7 +430,9 @@ def _binary(ctx: Ctx):
             f"'{t}' has two values ({rare} is {vc.iloc[-1] / vc.sum() * 100:.1f}% of rows), so it is a yes/no outcome. "
             f"Pre-filled with {_split_words(p)} and a business cost (a missed {rare} costs 10× a false alarm; edit it in Goal)."
             + (f" {', '.join(repr(c) for c in fl)} {'is' if len(fl) == 1 else 'are'} left out of the model and kept for the "
-               f"fair-lending check (Registry → Fair Lending)." if (fl := [c for r in ("surname", "zip", "protected") for c in ctx.roles.get(r) or []]) else ""),
+               f"fair-lending check (Registry → Fair Lending)." if (fl := [c for r in ("surname", "zip", "protected") for c in ctx.roles.get(r) or []]) else "")
+            + (f" Only the approved applicants have an outcome, so this model learns from them alone: see Reject inference."
+               if ctx.roles.get("decision") and ctx.df[t].isna().any() else ""),
             {**p, "title": what})
 
 
@@ -574,6 +604,26 @@ def _survival(ctx: Ctx):
              "title": f"Time to {e['column']} (survival)"})
 
 
+def _reject_inference(ctx: Ctx):
+    """G7: a yes/no outcome that is blank for the declined applicants (a decision column, or just missing outcomes) →
+    reject inference: approved-only against reweighting, parcelling and fuzzy augmentation."""
+    if _task_of(ctx) != "binary":
+        return None
+    t = ctx.target
+    miss = float(ctx.df[t].isna().mean())
+    dec = next((c for c in ctx.columns if c["role"] == "decision"), None)
+    if miss < 0.05 or (dec is None and miss < 0.15):
+        return None
+    strong = bool(dec and dec["confidence"] >= 0.9)
+    return (97 if strong else 60,
+            f"'{t}' is known for only {(1 - miss) * 100:.0f}% of rows"
+            + (f": the applicants '{dec['name']}' approved. " if dec else " (the rest are taken as declined). ")
+            + "A model trained on them is used on everyone who applies; reject inference adds the declined applicants back "
+              "(reweighting, parcelling, fuzzy augmentation) and compares each with the approved-only model.",
+            {"dataset_only": True, "label": t, "decision": dec["name"] if dec else None,
+             "title": f"Reject inference for {t}"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -590,6 +640,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("fair_lending", "Fair-lending check (BISG)", "registry", _fair_lending),  # G4
     Suggestion("segmented", "Segmented models", "segmented", _segmented),  # G5
     Suggestion("survival", "Time to event (survival)", "survival", _survival),  # G6
+    Suggestion("reject_inference", "Reject inference", "reject-inference", _reject_inference),  # G7
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 

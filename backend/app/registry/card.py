@@ -82,7 +82,8 @@ def fit_call(resolved: dict[str, Any], cls: str = "TabularPredictor") -> str:
 
 def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, Any] | None,
                audit: list[dict[str, Any]], batches: list[dict[str, Any]], reasons: dict[str, Any] | None = None,
-               recourse: dict[str, Any] | None = None, credit_report: dict[str, Any] | None = None) -> dict[str, Any]:
+               recourse: dict[str, Any] | None = None, credit_report: dict[str, Any] | None = None,
+               reject_inference: dict[str, Any] | None = None) -> dict[str, Any]:
     res = run.get("result") or {}
     cfg = run["config"]
     vres = version.get("result") or {}
@@ -202,6 +203,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "reasons": _reasons_section(reasons, batches),
         "recourse": recourse,
         "credit_report": credit_report,
+        "reject_inference": reject_inference,
         "scorecard": _scorecard_section(res),
         "diagnostics": _diagnostics_section(cfg, res),
     }
@@ -598,6 +600,27 @@ def to_markdown(c: dict[str, Any]) -> str:
         L += ["", "| Cox term | HR per unit [95% CI] | p |", "| --- | --- | ---: |"]
         L += [f"| {h['term']} | {_fmt(h['hr'])} [{_fmt(h['hr_ci'][0])}, {_fmt(h['hr_ci'][1])}] | {_fmt(h.get('p_value'))} |"
               for h in sv.get("hazard_ratios") or []]
+        L.append("")
+    ri = c.get("reject_inference")
+    if ri:
+        L += ["**Reject inference (through-the-door check)**", "",
+              f"This model learns from approved applicants only. Reject-inference run {ri['run_id']} on the same table "
+              f"compared approved-only training with three ways of adding the declined applicants back, under the assumption "
+              f"that {ri['assumption']}."]
+        if ri.get("through_the_door") and ri.get("methods"):
+            L += [f"On a through-the-door holdout of {ri.get('n')} applicants (hidden outcomes of the declined, validation "
+                  f"only): better than approved-only: {', '.join(ri.get('better') or []) or 'none'}.", "",
+                  "| Method | TTD AUC | ΔAUC [95% CI] | log loss | Δ log loss [95% CI] | mean p̂ vs bad rate | verdict |",
+                  "| --- | ---: | --- | ---: | --- | --- | --- |"]
+            for m, x in ri["methods"].items():
+                if not x:
+                    continue
+                da, dl = x.get("delta_auc") or {}, x.get("delta_log_loss") or {}
+                dci = lambda d: f"{_fmt(d.get('delta'))} [{_fmt((d.get('ci') or [None, None])[0])}, {_fmt((d.get('ci') or [None, None])[1])}]" if d else "—"  # noqa: E731
+                L.append(f"| {m.replace('_', ' ')} | {_fmt(x.get('auc'))} | {dci(da) if m != 'approved_only' else '—'} | {_fmt(x.get('log_loss'))} "
+                         f"| {dci(dl) if m != 'approved_only' else '—'} | {_fmt(x.get('mean_p'))} vs {_fmt(x.get('bad_rate'))} | {x.get('verdict')} |")
+        else:
+            L.append(" No through-the-door outcomes exist for this table, so the methods could only be compared on approved applicants.")
         L.append("")
     cr = c.get("credit_report")
     if cr:

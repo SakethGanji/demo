@@ -220,7 +220,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
     work, dest = vdir / "work", vdir / "predictor"
     data_dir = Path(db_path).parent
     step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference"):
         return build_other(db_path, version_id, registry_dir)
     try:
         from autogluon.tabular import TabularPredictor
