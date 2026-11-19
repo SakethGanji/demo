@@ -62,7 +62,10 @@ async function main() {
     await page.getByTestId('dataset-profile').waitFor({ timeout: 60_000 })
     await page.getByRole('button', { name: 'Continue →' }).click()
     await page.getByTestId('label-select').selectOption(label)
-    await page.getByTestId('confirm-target-btn').click()
+    // a sample names its target on upload (already confirmed); an uploaded CSV needs the explicit confirm (F4)
+    await page.getByTestId('confirm-target').waitFor({ timeout: 60_000 })
+    const cb = page.getByTestId('confirm-target-btn')
+    if (await cb.count()) await cb.click()
     await page.getByTestId('confirm-target').and(page.locator('[data-confirmed="yes"]')).waitFor({ timeout: 60_000 })
     for (const c of ignore) await page.getByTestId(`coltype-${c}`).selectOption('id')
     await page.getByTestId('split-card').waitFor({ timeout: 30_000 })
@@ -115,6 +118,10 @@ async function main() {
     await page.waitForTimeout(1500)
   }
 
+  // the script: "Close Vela for now"
+  await go('home')
+  const vclose = page.getByRole('button', { name: 'Close Vela' })
+  if (await vclose.count()) await vclose.click().catch(() => {})
   const S = {}
   // ── Before the audience arrives: the production champion and its challenger on loan-stream
   await step('prep: loan-stream champion + challenger, registered, approved, staged', async () => {
