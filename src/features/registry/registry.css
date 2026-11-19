@@ -140,3 +140,6 @@
 .mon-month.fed { color: var(--text-primary); background: var(--bg-subtle); }
 .mon-month.drift { border-top: 2px solid var(--status-warning); }
 .mon-flag { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; }
+/* F19: the card's diagnostics lines are sentences: let them wrap */
+.table.mc-diag { table-layout: fixed; width: 100%; }
+.table.mc-diag td { white-space: normal; height: auto; padding-top: 6px; padding-bottom: 6px; line-height: 1.45; }

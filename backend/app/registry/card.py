@@ -632,6 +632,7 @@ def _diagnostics_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, 
     if cfg.get("kind") not in (None, "tabular"):
         return None
     sp = cfg.get("split") or {}
+    spp = sp.get("params") or {}
     cost = cfg.get("cost")
     lc = res.get("learning_curve") or {}
     v = lc.get("verdict") or {}
@@ -642,7 +643,8 @@ def _diagnostics_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, 
     x2 = ((v.get("extrapolation") or {}).get("x2") or {})
     out = {
         "split": {"strategy": sp.get("strategy") or "random-stratified", "key": sp.get("key"),
-                  "group_column": sp.get("group_column"), "time_column": sp.get("time_column"), "cutoff": sp.get("cutoff")},
+                  "group_column": spp.get("group_column") or sp.get("group_column"),
+                  "time_column": spp.get("time_column") or sp.get("time_column"), "cutoff": sp.get("cutoff")},
         "cost": ({"kind": cost.get("kind"), "c_fp": cost.get("c_fp"), "c_fn": cost.get("c_fn"), "g_tp": cost.get("g_tp")}
                  if isinstance(cost, dict) else None),
         "learning_curve": ({"verdict": v.get("label"), "reason": v.get("reason"), "metric": v.get("metric"),
@@ -674,7 +676,8 @@ def _diagnostics_md(d: dict[str, Any] | None) -> list[str]:
     L = ["### Diagnostics", "", "| Check | Result |", "| --- | --- |"]
     where = ", ".join(x for x in (sp.get("group_column") and f"group `{sp['group_column']}`",
                                   sp.get("time_column") and f"time `{sp['time_column']}`") if x)
-    L.append(f"| Split (F6) | {sp['strategy']}{f' ({where})' if where else ''} |")
+    name = {"random-stratified": "random (stratified)", "time": "out-of-time", "time-group": "out-of-time + group"}.get(sp["strategy"], sp["strategy"])
+    L.append(f"| Split (F6) | {name}{f' ({where})' if where else ''} |")
     if d.get("cost"):
         c = d["cost"]
         L.append(f"| Business cost (F7) | c_FP = {c.get('c_fp')}, c_FN = {c.get('c_fn')}, g_TP = {c.get('g_tp') or 0}; eval_metric expected_cost |")
@@ -690,5 +693,5 @@ def _diagnostics_md(d: dict[str, Any] | None) -> list[str]:
     if an:
         L.append(f"| Annotators (F14) | least reliable {an.get('worst')}; Fleiss κ {_fmt(an.get('fleiss_kappa'), 3)}; consensus changes {an.get('changed_vs_given')} labels |")
     doc = d.get("doctor")
-    L.append(f"| Model Doctor (F17) | {doc['headline']} |" if doc else "| Model Doctor (F17) | not run (Explain → Model Doctor) |")
+    L.append(f"| Model Doctor (F17) | {doc['headline']} |".replace("\n", " ") if doc else "| Model Doctor (F17) | not run (Explain → Model Doctor) |")
     return L + [""]

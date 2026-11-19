@@ -51,7 +51,11 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
   const [shapRow, setShapRow] = useState<number | null>(null)
   const [version, setVersion] = useState(0) // bumps when the threshold changes: re-read everything that depends on it
 
-  useEffect(() => { const f = () => setRunId(runParam()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
+  // F19: a link to Explain while it is open (Vela, the Doctor's notices, a pasted URL) also selects its view
+  useEffect(() => {
+    const f = () => { setRunId(runParam()); const t = tabParam() as Tab | null; if (t) setTab(t) }
+    addEventListener('hashchange', f); return () => removeEventListener('hashchange', f)
+  }, [])
   useEffect(() => {
     if (mode !== 'live') return
     api.runs.list().then((rs) => {

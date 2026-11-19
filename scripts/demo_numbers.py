@@ -23,6 +23,8 @@ import smoke as S  # noqa: E402  (the smoke's HTTP helpers: get, post, wait_run,
 
 DS, LABEL = "credit-default", "defaulted"
 HP = {"GBM": {"num_boost_round": 40}, "RF": {"n_estimators": 40}, "LR": {}}  # pasted in New Model → Advanced
+# Gym → Models: the three families that can honour a monotone constraint (pasted in the Gym's fit_kwargs editor)
+HP_MONO = {"GBM": {"num_boost_round": 150}, "XGB": {"n_estimators": 150}, "CAT": {"iterations": 150}}
 
 
 def say(k: str, v: object) -> None:
@@ -39,7 +41,9 @@ def main() -> int:
     t0 = time.time()
 
     prof = get(f"/api/datasets/{DS}")["profile"]
-    drop = [c["name"] for c in prof["columns"] if c["type"] == "id" and c["name"] != LABEL]
+    # Target step: customer_id and application_date set to "ignore": a reason code can be neither
+    drop = [c["name"] for c in prof["columns"] if (c["type"] == "id" or c["name"] in ("customer_id", "application_date"))
+            and c["name"] != LABEL]
     opts = get(f"/api/datasets/{DS}/split-options", target=LABEL)
     p = opts["suggested_params"]
     oot = {"strategy": "time", "time_column": p.get("time_column"), "cutoff": None, "tuning_share": p.get("tuning_share", 0.2)}
@@ -52,15 +56,15 @@ def main() -> int:
     sp = A["split"]
     say("run", f"{A['id']} · split {sp.get('strategy')} · cut-off {sp.get('cutoff')} · holdout {A['data']['holdout_rows']:,}")
     say("holdout ROC AUC (out-of-time)", f"{S.primary(A)[1]:.4f} · t = {A['threshold']['value']:.3f}")
-    R = S.wait_run(post(f"/api/runs/{A['id']}/split-twin", {"split_spec": None})["id"])
+    R = S.wait_run(post(f"/api/runs/{A['id']}/split-twin", {"split_spec": {"strategy": "random-stratified"}})["id"])
     c = get(f"/api/runs/{A['id']}/split-comparison")
     by = {x["strategy"]: x for x in c["runs"] if x["same_config"] or x["this_run"]}
     say("random twin ROC AUC", f"{by['random-stratified']['score']:.4f} ({R['id']})")
     say("optimism random − out-of-time", f"{by['time']['optimism']:+.4f}")
 
-    print("2 · Gym from that run: business cost FN = 10 × FP + debt_to_income ↑ (compliant families)")
+    print("2 · Gym from that run: GBM + XGB + CAT, business cost FN = 10 × FP, debt_to_income ↑")
     g = get(f"/api/runs/{A['id']}/gym")["body"]
-    g = {**g, "eval_metric": None, "cost": {"c_fp": 1, "c_fn": 10, "g_tp": 0}, "calibrate_threshold": None,
+    g = {**g, "fit_kwargs": {**(g.get("fit_kwargs") or {}), "hyperparameters": HP_MONO}, "eval_metric": None, "cost": {"c_fp": 1, "c_fn": 10, "g_tp": 0}, "calibrate_threshold": None,
          "monotone": {"constraints": {"debt_to_income": "increasing"}, "compliant_only": True}, "source": "gym"}
     B = S.wait_run(post("/api/runs", g)["id"])
     say("run", f"{B['id']} · best {B['best_model']} · t = {B['threshold']['value']:.3f} (cost-calibrated)")
@@ -89,9 +93,9 @@ def main() -> int:
     rows = df.iloc[np.asarray(hp_["rows"], dtype=int)].drop(columns=[LABEL])
     import json
     recs = json.loads(rows.to_json(orient="records"))
-    sc = post(f"/api/registry/versions/{v['id']}/score", {"rows": recs[:400]})
-    adv = [r for r in (sc.get("reasons") or {}).get("codes", []) if r]
-    say("/score 400 holdout rows", f"{len(adv)} adverse with codes · first: {adv[0] if adv else '—'}"[:300])
+    sc = post(f"/api/registry/versions/{v['id']}/score", {"rows": recs[:400], "reasons": True})["reasons"]
+    adv = [c for a, c in zip(sc["adverse"], sc["codes"]) if a]
+    say("/score 400 holdout rows", f"{len(adv)} adverse · {sum(len(c) == 4 for c in adv)} with 4 codes")
     for r in recs[:60]:
         out = post(f"/api/registry/versions/{v['id']}/predict", {"row": r, "explain": False})
         rs = out.get("reasons") or {}
@@ -111,7 +115,11 @@ def main() -> int:
     vd = lc.get("verdict") or {}
     say("verdict", f"{vd.get('label')} · gain per doubling {vd.get('slope_per_doubling', {}).get('value', float('nan')):+.4f} "
                    f"{vd.get('slope_per_doubling', {}).get('ci')} · 2N {vd.get('extrapolation', {}).get('x2', {}).get('score')}")
-    say("points", [(pt.get("n"), round(pt.get("mean", float("nan")), 4)) for pt in lc.get("curve", [])][:4])
+    import collections
+    agg = collections.defaultdict(list)
+    for pt in lc.get("points", []):
+        agg[pt["n"]].append(pt["score"])
+    say("points (n: mean score)", " · ".join(f"{n:,}: {sum(v) / len(v):.4f}" for n, v in sorted(agg.items())))
 
     print("6 · Explain → Model Doctor")
     d = get(f"/api/runs/{B['id']}/doctor")

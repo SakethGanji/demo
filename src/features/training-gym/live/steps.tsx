@@ -137,7 +137,9 @@ export function GoalStep({ body, set, setBody, schema, v }: StepProps) {
       <div className="card"><div className="card-head"><h2 className="card-title">Goal</h2><span className="helper" style={{ fontSize: 12 }}>metric, quality preset and the time budget τ</span></div>
         <div className="card-body">
           <Row label="Metric" sub="AutoGluon's eval_metric; models and the ensemble are chosen on it">
-            <select className="select" value={body.eval_metric ?? ''} onChange={(e) => set('eval_metric', e.target.value || null)} data-testid="gym-metric">
+            <select className="select" value={body.cost ? 'expected_cost' : body.eval_metric ?? ''} disabled={!!body.cost} title={body.cost ? 'set by the Business cost card below (F7)' : undefined}
+              onChange={(e) => set('eval_metric', e.target.value || null)} data-testid="gym-metric">
+              {body.cost ? <option value="expected_cost">expected_cost (Business cost below)</option> : null}
               <option value="">auto ({pt === 'regression' ? 'root_mean_squared_error' : 'accuracy'})</option>
               {metrics.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>

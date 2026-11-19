@@ -54,7 +54,7 @@ number on the seeded samples. The detail is in the rows above and in `docs/progr
 | F4 target confirmation | New Model → Target (Confirm The Target) | `targets` | API and browser holdouts identical (RMSE 2,434.33 both) |
 | F5 LLM layer | Vela, Settings → Language Model | `llm` | `/api/health` under 48 asks: 5,088 ms → < 80 ms; timeouts fall back within budget |
 | F6 out-of-time / group splits | New Model → How The Holdout Is Drawn, Results → Random vs Out-Of-Time, **Gym → Goal** | `splits` | credit-default ROC AUC 0.7720 random vs 0.7144 out-of-time; 0 shared customers |
-| F7 business cost | New Model → Goal, Results → Business Cost, Explain → Threshold, **Gym → Goal** | `cost` | FN = 10 × FP: 553.8 → 478.3 per 1,000 decisions (Δ +75.4 [+12.1, +139.6]) |
+| F7 business cost | New Model → Goal, Results → Business Cost, Explain → Threshold, **Gym → Goal** | `cost` | FN = 10 × FP: 553.8 → 522.1 per 1,000 decisions (Δ +31.7 [−29.6, +90.9]; 478.3 before F11 added the scorecard to the zoo) |
 | F8 monotone constraints | Gym → Models (Advanced), Explain → Monotonicity, model card | `monotone` | debt_to_income ↑: 0/200 ICE curves violate (195/200 without) |
 | F9 quantile regression | New Model → Target ("a range"), Results, Try It, model card | `quantile` | loan-amount [q0.1, q0.9] holdout coverage ≈ 0.80 |
 | F10 reason codes | Registry → Reason Codes, Try It, batch columns, model card | `reasons` | 517 adverse rows, 515 with 4 codes (2 with 3), all agree with the SHAP signs |
@@ -261,6 +261,14 @@ registry, Vela and export.
 - Presets `high_quality`, `best_quality` and Chronos-2 download model weights on first use and are slow on 4 CPUs.
 - No GPU support is exercised (shown as unavailable without CUDA). No sign-in: the "acting as" name goes in the audit log.
 - Autopilots run in API threads; a development reload resumes them, but their wall time then counts from the resume.
+- **Integration** (F19). Explain shows one group of views at a time (Evaluate · Explain · Diagnose · Labels); a link
+  to any view (`&tab=…`) opens its group. The Gym's split card picks the strategy with the suggested columns; the
+  timeline, the cut-off picker and the random-vs-out-of-time comparison stay in New Model and Results. The model card's
+  diagnostics are the summaries the source run holds when the card is opened (nothing is recomputed); a check that was
+  never run reads "not run". The Model Doctor's "Serve <model>" opens Register with that model preselected only if the
+  run's latency profile lists it. The full smoke (every section) takes about 1.5–2 hours on 4 CPUs.
+- **Targets** (F4). Splits are keyed by target and strategy but not by seed or holdout share (fixed at 42 and 20 %); a
+  numeric target gets a plain random holdout.
 
 ## Screens (hash routes)
 

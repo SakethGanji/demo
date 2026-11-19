@@ -1,19 +1,148 @@
-# ENSEMBLE · a 10-minute live demo for a bank audience
+# ENSEMBLE · a 15-minute demo for a bank's credit-risk audience
 
-The story: *a file the system has never seen goes from upload to an approved, explained, monitored model in under ten
-minutes, on AutoGluon, with nothing hidden.* Every number below was measured on this build (4 CPUs, 16 GB) with the
-seeded data; AutoGluon is deterministic for these configs, so expect the same values or within the last digit.
+The story: *a credit-default model validated the way a model-risk team validates it.* Out of time, trained on what a
+wrong decision costs, monotone where policy demands it, explained per decision, benchmarked against a scorecard,
+diagnosed, and then watched in production until it needs retraining. All on AutoGluon, nothing hidden.
 
-## Before the audience arrives (5 minutes)
+Every number below was measured on this build (4 CPUs, 16 GB) with the seeded samples, by replaying the clicks as the
+API calls the UI makes (`backend/.venv/bin/python scripts/demo_numbers.py`, 70 s, prints each number in order). The
+fits are deterministic for these configs; the threshold, the learning curve and the timings can move in the last digits.
 
-1. `make dev`, then `make reset` (an empty workbench; the six samples regenerated).
-2. `python scripts/fresh_data.py ~/Desktop/demo` writes the three "fresh" CSVs: `card_fraud.csv` (12,000 card-not-present
-   authorisations, 1.7% fraud, `is_fraud` = 1/0), `complaints.csv` (6,000 complaint narratives, 7 product teams),
-   `deposit_balances.csv` (7,000 accounts, next quarter's average balance).
-3. Open http://localhost:5190 at 1920×1080 (1366×768 works; Vela starts closed below 1600 px). Close Vela for now.
-4. Optional safety net: stop the API and the UI still opens in mock mode, labelled SIMULATED.
+## Before the audience arrives (10 minutes)
 
-## 0:00 – 0:45 · Home: one workbench for every model the bank builds
+1. `make dev`, then `make reset` (an empty workbench; the samples regenerated). Open http://localhost:5190 at 1920×1080
+   (1366×768 works). Type your name in *acting as* (top right), e.g. **Dana Dev**.
+2. **Prepare the production champion for part 8** (it needs a registered version with a challenger):
+   - New Model → sample **loan-stream** → target `defaulted` → Confirm The Target → How The Holdout Is Drawn:
+     **out-of-time** on `application_date` → Goal: ROC AUC → Advanced:
+     `{"hyperparameters": {"GBM": {"num_boost_round": 200}, "LR": {}}}` → Start Training (≈ 20 s).
+   - Again with `{"hyperparameters": {"XGB": {"n_estimators": 200}}}`: the challenger.
+   - Model Registry → Register both (model name `loan-stream`). As **Riley Review**: approve the first → **Production**,
+     the second → **Staging**. Back as Dana.
+   - **Expect:** champion holdout AUC **0.7765 [0.7495, 0.8034]**.
+3. Close Vela for now.
+
+## 0:00 – 1:00 · The question
+
+- **Say:** "A credit-default model. Five questions a validator asks: does it hold up on the future, does it optimise
+  what a mistake costs, does it respect policy, can we tell an applicant why, and is it better than the scorecard we
+  already trust? Then: what limits it, and how do we know when it stops working?"
+
+## 1:00 – 3:30 · 1. Out of time, not at random
+
+1. **New Model →** pick the sample **credit-default** (12,000 applications 2022–2024, 8,074 customers, 7.4 % default,
+   drifting from 5.6 % to 9.6 %).
+2. **Continue →** target **defaulted**, **Confirm The Target**. In the column list set `customer_id` and
+   `application_date` to **ignore**: neither may become a reason for declining someone.
+3. **How The Holdout Is Drawn** (appears once the target is confirmed).
+   - **Expect:** the warning on *random*: "'application_date' is a date: a random split trains on rows from after the
+     holdout's dates …", and the customer warning (1.49 rows per customer). Suggested: out-of-time + group.
+   - Click **out-of-time**. **Expect:** the timeline with the cut-off **2024-06-20**: train 7,675 · tuning 1,925 ·
+     holdout 2,400 rows.
+4. **Continue →** Goal: **ROC AUC**. Open **Advanced** and paste, so it trains in ≈ 10 s:
+   `{"hyperparameters": {"GBM": {"num_boost_round": 40}, "RF": {"n_estimators": 40}, "LR": {}}}` → **Start Training**.
+5. **Results →**. **Expect:** holdout ROC AUC **0.7150** (out-of-time).
+6. **Random vs Out-Of-Time** card → **random split** (trains the same body under a random split, ≈ 10 s).
+   - **Expect:** random **0.7537** vs out-of-time **0.7150**: random is optimistic by **+0.039**.
+   - **Say:** "A random split scores the model on applications from the same months it learned from. The bank lends
+     in the future. The honest number is the lower one." (With `customer_id` kept as a feature the random split even
+     reaches 0.7720: the model remembers customers.)
+
+## 3:30 – 5:30 · 2. Train on what a mistake costs · 3. Monotone where policy demands it
+
+1. On the out-of-time run's Results: **Tune In Gym →** (the Gym opens with the run's exact body).
+2. **Goal** step → **Business cost** card → **on**: c<sub>FP</sub> = 1, c<sub>FN</sub> = 10 (a missed default costs ten
+   wrongly declined applicants). **Expect:** t* = c<sub>FP</sub> / (c<sub>FP</sub> + c<sub>FN</sub>) = **0.091**. The
+   **Validation split** card above it already says **out-of-time** (the run's split is kept).
+3. Switch the Gym to **Advanced**. **Models** step: in **Monotone Constraints** set **debt_to_income ↑**. **Expect:** RF and LR are left
+   out (they cannot honour it); LightGBM, XGBoost, CatBoost get monotone subclasses. In the raw fit_kwargs editor:
+   `{"hyperparameters": {"GBM": {"num_boost_round": 150}, "XGB": {"n_estimators": 150}, "CAT": {"iterations": 150}}}`.
+4. **Train** (≈ 20 s). **Results → Business Cost · Per 1,000 Decisions**:
+   - **Expect:** **702.5 [624.1, 787.1]** per 1,000 decisions at t = **0.061**, calibrated by AutoGluon on the cost.
+   - Under *Compare: train this run again, same settings, optimising* click **ROC AUC** (the twin): **857.1** at its F₁ threshold t = 0.124.
+     **Δ = +154.6 per 1,000 [+86.2, +225.9]**, paired on the same 2,400 holdout applications.
+   - **Say:** "Same data, same models. Optimising the bank's cost instead of a textbook metric saves about 155 per
+     thousand decisions, and the interval says it is not luck."
+5. **Explain → Explain group → Monotonicity**. **Expect:** **0 of 200** ICE curves of the served model go down in
+   debt_to_income; partial dependence rises monotonically (range 0.09). "Policy says more debt never lowers the risk.
+   It is enforced by construction and checked on a grid."
+
+## 5:30 – 7:30 · 4. Why this applicant was declined
+
+1. **Register Model Version** (Results). Model name `demo.credit-default` → **Register version →** (≈ 20 s).
+2. Version → **Reason Codes** tab: the mapping table (feature → plain-English statement, editable, audited).
+3. **Try It** on a declined applicant (p̂ ≥ t). **Expect** for the first adverse holdout row: p = **0.093** and the
+   four reasons **R09 debt_to_income · R12 months_employed · R03 income_usd · R10 utilization**, each a feature
+   pushing toward default (φ > 0), ranked by φ.
+4. **Batch & Drift**: score the holdout. **Expect** on the first 400 rows: **126 declined, all 126 with 4 codes**, as
+   extra columns of the download.
+   - **Say:** "The adverse-action letter is generated from the served model's own Shapley values, never a factor that
+     lowered the risk. The codes are templates; compliance signs off the wording."
+5. **Model Card**: section 5 shows the constraint, the reason codes, the scorecard benchmark and the new
+   **Diagnostics of the source run** (split out-of-time, cost c<sub>FN</sub> = 10, learning curve, shift, slices,
+   Model Doctor: "not run" until you run them).
+
+## 7:30 – 9:00 · 5. Better than the scorecard?
+
+1. **Explain → Explain group → Scorecard** (trained beside the ensemble by default on binary labels).
+   - **Expect:** a 9-feature scorecard (binning → WoE → logistic regression → points, PDO 20, 600 at 50:1) with its
+     table, IV per feature and the CSV export.
+   - **Expect:** ΔAUC (served − scorecard) = **+0.0010 [−0.0000, +0.0020]**: AUC 0.6987 vs 0.6977.
+   - **Say:** "On the future, the interpretable scorecard is as good as the ensemble. That is a finding, not a failure:
+     the product tells you when the simple model is enough." (Under a random split the ensemble wins by +0.025.)
+
+## 9:00 – 11:00 · 6. Do we need more data? · 7. What limits this model?
+
+1. **Explain → Diagnose group → Learning Curve → Start** (9 fits, ≈ 40 s).
+   - **Expect:** points at n = 768 / 1,919 / 3,838 / 7,675 and the power-law fit with 2N and 4N extrapolations. Verdict
+     **noisy**: the gain per doubling is +0.02 with a 95 % CI from 0 to 0.04 (expected cost per decision, lower is
+     better). "The seeds disagree too much to promise that more data helps; 5 seeds in Advanced would tell."
+2. **Model Doctor** (same group). **Expect:** primary **Overfitting (minor)**: validation −0.593 vs holdout −0.779
+   (expected cost, higher is better on this scale), 4.4× the noise. Checks To Run: **shift** and **weak slices** are
+   offered with one click each; the learning curve is now read as *no evidence*.
+   - **Say:** "One fixed procedure over every check the workbench has, the same one Autopilot uses to choose its next
+     step. Each finding comes with the numbers and one prescription."
+   - Optional: **Run** the shift check (≈ 15 s) and **Diagnose Again**.
+
+## 11:00 – 14:00 · 8. Watching it in production
+
+1. **Model Registry →** `loan-stream` (Production) → **Monitoring** tab.
+2. **Champion · Challenger**: the Staging XGBoost is set as challenger (Set Challenger).
+3. **Sample Stream · 2025 → Feed the rest** (12 monthly batches of 1,200 applications, scored and shadow-scored,
+   ≈ 20 s; labels arrive 3 months later).
+   - **Expect:** PSI(debt_to_income) per month 0.00–0.02 for January–June, then **0.41 in 2025-07** (⚑ the first drift
+     alert, never before), 0.65, 1.03 …
+   - **Which Signal Caught What:** in 2025-07 the observed default rate is **0.351 [0.324, 0.378] vs p̂ 0.250**
+     (z = +9.0) while the AUC barely moves (**0.772 vs 0.776**): the concept change shows in calibration, visible
+     only when the labels land (2025-10-31).
+   - Challenger: pooled on 10,800 labelled rows, AUC **0.7861 vs 0.7841**, Δ −0.0020 [−0.0044, +0.0003] (DeLong):
+     no reason to switch, and nothing is promoted automatically.
+4. **Retrain Proposal** → **Launch Retrain Run**: the same config on the latest labelled window (2025-04-01 … 2025-09-30,
+   7,200 rows). On its newest 1,464 rows the champion scores AUC **0.7510**, the retrained run **0.7739**.
+5. Back in **Explain → Model Doctor** of the champion run: **Shift (critical)**, prescription **Retrain On Recent Data**.
+
+## 14:00 – 15:00 · Close
+
+- **Say:** "Out-of-time validation, a cost the business set, a policy constraint enforced and checked, reasons per
+  decision, the scorecard benchmark, a diagnosis with evidence, and monitoring that knew in July. Every model is a plain
+  AutoGluon predictor on disk; every number on screen comes from the API with its formula next to it."
+
+## If something goes wrong
+
+| Symptom | Do this |
+| --- | --- |
+| The API stopped | The UI falls back to mock mode (SIMULATED badge). `make dev` again; open runs resume by replay. |
+| A run is slow | The race has a 3× button; Cancel Run stops the whole process group. |
+| Wrong numbers on stage | `make reset` and re-run: the data and the configs above are seeded. `scripts/demo_numbers.py` prints the expected values. |
+| Learning curve or shift check "busy" (409) | One runs at a time across the workbench; wait for the other or cancel it. |
+| Questions about a run | Open Vela (top right) and ask; it answers from the run's computed facts, and the Model Doctor card is there too. |
+
+## Appendix · the round-1 10-minute demo on fresh files
+
+The fresh-file story (fraud, complaints, deposits, anomalies, forecasting) still works as written; its numbers predate
+round 2 (e.g. the anomaly forest now finds 13/18 bursts, P@90 0.80, and forecast intervals are recalibrated to 90.5 %).
+
+### 0:00 – 0:45 · Home: one workbench for every model the bank builds
 
 - **Click:** nothing yet. Point at the panel **No runs yet. Start with a sample.**
 - **Say:** "This is ENSEMBLE, our AutoML workbench. The engine is AutoGluon, which is Amazon's open-source AutoML
@@ -21,7 +150,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
   churn, credit default, loan amounts, a forecasting set and card transactions for anomaly detection. Today I'll bring
   a file it has never seen."
 
-## 0:45 – 3:15 · New Model on a fresh fraud file
+### 0:45 – 3:15 · New Model on a fresh fraud file
 
 1. **Click** *New Model →*. Drop `card_fraud.csv` on the drop zone.
    - **Expect:** 12,000 rows × 12 columns profiled; `auth_id` typed as an ID and dropped; `device_age_days` 3% missing.
@@ -47,7 +176,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
      (0.360). **Say:** "It doesn't hide that. The ensemble was chosen on validation; the holdout tells you when a
      simpler model would do."
 
-## 3:15 – 4:45 · Explain: the decision a fraud team actually makes
+### 3:15 – 4:45 · Explain: the decision a fraud team actually makes
 
 1. **Explain this model →**, tab **Threshold**.
    - **Expect at t = 0.143:** TP 23, FP 36, FN 27, TN 2,314 → precision 0.39, recall 0.46, F₁ 0.42, 2.5% flagged.
@@ -59,7 +188,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
    lead), then **why?** on a row: the waterfall φ₀ → f(x) with f(x) = φ₀ + Σφᵢ written out to four decimals.
 3. Tab **Fairness**, group **customer_segment**: selection rate per segment and the demographic-parity gap.
 
-## 4:45 – 6:45 · Register, approve, use
+### 4:45 – 6:45 · Register, approve, use
 
 1. **Register Model Version** (from the results or Experiments). Type your name in *acting as* (e.g. Dana Dev).
    - **Expect:** the latency · score frontier, every model measured on 1,000 holdout rows, and the **one-row latency**
@@ -77,7 +206,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
 6. **Batch & Drift**: score 500 new rows. **Expect:** 1.8% flagged (vs 2.5% on the holdout), max feature PSI 0.03
    (stable), PSI of p̂ 0.02, with PSI = Σ (aᵢ − eᵢ) ln(aᵢ/eᵢ) per bin on screen. Download the scored CSV.
 
-## 6:45 – 8:00 · Anomalies with no labels, and a fix measured honestly
+### 6:45 – 8:00 · Anomalies with no labels, and a fix measured honestly
 
 1. **Anomaly Detection** (sidebar). The card-transactions sample is selected, with **group-relative features** on
    (entity `card_id`, time `timestamp`, amount `amount_usd`). Point at r = x / x̄ₑ,₋ᵢ and z within the card.
@@ -89,7 +218,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
      isolation forest, 2 of 18, and the page says so."
 3. Click the top row: TreeSHAP reasons, e.g. *amount_usd_over_entity_mean = 56 (z = +125)*.
 
-## 8:00 – 9:15 · Forecasting with intervals you can audit
+### 8:00 – 9:15 · Forecasting with intervals you can audit
 
 1. **New Forecast**: the transaction-volume sample (6 series × 730 days, holidays and paydays as known covariates).
    Set presets **fast_training** and hyperparameters
@@ -103,7 +232,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
    - **Say:** "We show the empirical coverage next to the nominal and explain it. The median forecast is good; the
      band is conservative. Nothing is rescaled to look right."
 
-## 9:15 – 10:00 · Close: open, auditable, not a black box
+### 9:15 – 10:00 · Close: open, auditable, not a black box
 
 - **Experiments**: every run of every kind in one table with a type filter (binary, multiclass, regression,
   forecast, anomaly, imported), each with its own metric.
@@ -112,7 +241,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
 - **Say:** "Every model here is a plain AutoGluon predictor on disk. If ENSEMBLE disappeared tomorrow, your models and
   the code to rebuild them would still be there."
 
-## If something goes wrong
+### If something goes wrong
 
 | Symptom | Do this |
 | --- | --- |
@@ -121,7 +250,7 @@ seeded data; AutoGluon is deterministic for these configs, so expect the same va
 | Wrong numbers on stage | `make reset` and re-run: the data and the configs above are seeded. |
 | Questions about a run | Open Vela (top right) and ask; it answers from the run's computed facts, and says which model answered. |
 
-## Other numbers you may be asked for
+### Other numbers you may be asked for
 
 | Flow | Data | Result |
 | --- | --- | --- |

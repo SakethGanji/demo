@@ -239,18 +239,18 @@ function QuantileCardSection({ q }: { q: NonNullable<ModelCard['quantile']> }) {
 function DiagnosticsBlock({ d }: { d: NonNullable<ModelCard['diagnostics']> }) {
   const sp = d.split
   const rows: [string, React.ReactNode][] = [
-    ['Split (F6)', <>{sp.strategy}{sp.group_column ? <> · group <span className="mono">{sp.group_column}</span></> : null}{sp.time_column ? <> · time <span className="mono">{sp.time_column}</span></> : null}</>],
+    ['Split (F6)', <>{({ 'random-stratified': 'random (stratified)', group: 'group', time: 'out-of-time', 'time-group': 'out-of-time + group' } as Record<string, string>)[sp.strategy] ?? sp.strategy}{sp.group_column ? <> · group <span className="mono">{sp.group_column}</span></> : null}{sp.time_column ? <> · time <span className="mono">{sp.time_column}</span></> : null}</>],
     ...(d.cost ? [['Business cost (F7)', <>c<sub>FP</sub> = {d.cost.c_fp}, c<sub>FN</sub> = {d.cost.c_fn}{d.cost.g_tp ? <>, g<sub>TP</sub> = {d.cost.g_tp}</> : null} · eval_metric <span className="mono">expected_cost</span></>] as [string, React.ReactNode]] : []),
     ['Learning curve (F12)', d.learning_curve ? <><b>{d.learning_curve.verdict}</b>{d.learning_curve.slope != null ? <> · gain per doubling <span className="mono">{fmtScore(d.learning_curve.slope, 4)}</span>{d.learning_curve.slope_ci ? <> [{fmtScore(d.learning_curve.slope_ci[0], 4)}, {fmtScore(d.learning_curve.slope_ci[1], 4)}]</> : null}</> : null}</> : 'not run'],
     ['Shift (F15)', d.shift ? <>{d.shift.reference} vs {d.shift.new}: AUC <span className="mono">{fmtScore(d.shift.auc, 3)}</span> · <b>{d.shift.verdict}</b>{d.shift.top ? <> · top <span className="mono">{d.shift.top}</span></> : null}</> : 'not run'],
     ['Weak slices (F16)', d.slices ? <>{d.slices.n_weak} weak of {d.slices.n_tested?.toLocaleString()} tested ({d.slices.loss}, α = {d.slices.alpha}){d.slices.top[0] ? <> · first <span className="mono">{d.slices.top[0].label}</span> (n = {d.slices.top[0].n}, Δ = {fmtScore(d.slices.top[0].delta, 3)})</> : null}</> : 'not run'],
     ...(d.annotators ? [['Annotators (F14)', <>least reliable <b>{d.annotators.worst ?? '—'}</b> · Fleiss κ <span className="mono">{fmtScore(d.annotators.fleiss_kappa, 3)}</span> · consensus changes {d.annotators.changed_vs_given ?? '—'} labels</>] as [string, React.ReactNode]] : []),
-    ['Model Doctor (F17)', d.doctor ? <>{d.doctor.primary ? <b>{d.doctor.primary.title} ({d.doctor.primary.severity})</b> : <b>no limiting factor found</b>}{d.doctor.headline ? <> · {d.doctor.headline}</> : null}</> : 'not run (Explain → Model Doctor)'],
+    ['Model Doctor (F17)', d.doctor ? <>{d.doctor.primary ? <b>{d.doctor.primary.title} ({d.doctor.primary.severity})</b> : <b>no limiting factor found</b>}{d.doctor.primary?.reason ? <> · {d.doctor.primary.reason}</> : null}</> : 'not run (Explain → Model Doctor)'],
   ]
   return (
     <div data-testid="card-diagnostics" style={{ marginTop: 8 }}>
       <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Diagnostics of the source run</h4>
-      <table className="table compact"><tbody>{rows.map(([k, v]) => <tr key={k}><td style={{ width: 180 }}>{k}</td><td>{v}</td></tr>)}</tbody></table>
+      <table className="table compact mc-diag"><tbody>{rows.map(([k, v]) => <tr key={k}><td style={{ width: 180 }}>{k}</td><td>{v}</td></tr>)}</tbody></table>
     </div>
   )
 }
