@@ -128,32 +128,7 @@ class DatasetStore:
         10 distinct) and entity columns (ID-like name or a high-cardinality category whose values repeat: several
         rows per customer) are offered for time and group splits; a random split on data with either gets a
         warning, because it lets the same customer, or the future, into training."""
-        df = self.load_frame(dataset_id)
-        n = len(df)
-        dates, groups = [], []
-        for c in df.columns:
-            if c == target:
-                continue
-            s = df[c]
-            nn = s.dropna()
-            if len(nn) == 0:
-                continue
-            if s.dtype == object:
-                sample = nn.astype(str).head(500)
-                looks = sample.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}") | sample.str.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}")
-                if looks.mean() >= 0.95:
-                    t = splits_mod.time_values(s)
-                    if t.notna().mean() >= 0.95 and t.nunique() >= 10:
-                        dates.append({"column": c, "from": splits_mod._fmt_time(t.min()), "to": splits_mod._fmt_time(t.max()),
-                                      "distinct": int(t.nunique()), "parsed_share": float(t.notna().mean())})
-                        continue
-            k = int(nn.nunique())
-            per = len(nn) / max(k, 1)
-            id_name = bool(re.search(r"(^id$|_id$|^id_|uuid|^key$|(customer|account|client|member)(_?(id|no|number|key|ref))?$)", str(c), re.I))
-            if per > 1.05 and k >= 20 and (id_name or (s.dtype == object and k >= max(50, 0.05 * n))):
-                groups.append({"column": c, "groups": k, "rows_per_group": round(per, 2),
-                               "max_rows": int(nn.value_counts().iloc[0]), "id_like_name": id_name})
-        groups.sort(key=lambda g: (not g["id_like_name"], -g["rows_per_group"]))
+        dates, groups = splits_mod.date_and_group_columns(self.load_frame(dataset_id), target)
         warnings = []
         if dates:
             warnings.append(f"'{dates[0]['column']}' is a date: a random split trains on rows from after the holdout's "

@@ -154,6 +154,29 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return {"dataset_id": dataset_id, "target": target or rec["target"],
                 **store(request).split_options(dataset_id, target or rec["target"])}
 
+    @app.get("/api/datasets/{dataset_id}/intake")
+    def dataset_intake(dataset_id: str, request: Request) -> dict[str, Any]:
+        """G0 Smart Intake: each column's role (target, date, entity, money, ...) with a confidence and its evidence,
+        and what can be built from the table, best first, each with a reason and the pre-fill for its flow."""
+        return _intake(request, dataset_id, None)
+
+    @app.post("/api/datasets/{dataset_id}/intake")
+    def dataset_intake_edit(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """The same with the user's role edits, body {"roles": {"column": "role"}}: the suggestions follow them."""
+        roles = (body or {}).get("roles") or {}
+        if not isinstance(roles, dict):
+            raise HTTPException(400, 'Send {"roles": {"<column>": "<role>"}}.')
+        return _intake(request, dataset_id, roles)
+
+    def _intake(request: Request, dataset_id: str, roles: dict[str, str] | None) -> dict[str, Any]:
+        from .intake import intake
+
+        dataset_or_404(request, dataset_id)
+        try:
+            return {"dataset_id": dataset_id, **intake(store(request).load_frame(dataset_id), roles)}
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+
     @app.post("/api/datasets/{dataset_id}/splits")
     def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """F6: draw (or reuse) the split for {target, strategy, group_column?, time_column?, cutoff?, tuning_share?}

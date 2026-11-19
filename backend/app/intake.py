@@ -1,0 +1,468 @@
+"""G0 Smart Intake: what each column is for, and what can be built from the table.
+
+1. Column roles. Simple, explainable rules on top of the profiler (`profiling.detect_type`) and F6's date/entity
+   finder (`splits.date_and_group_columns`): name patterns, value patterns, ranges and cardinality. Every role carries
+   a confidence in [0, 1] and the evidence for it, so the user can see why and override it. No LLM.
+2. Use-case suggestions. `SUGGESTIONS` is a plain list of `Suggestion`s; each looks at the roles and returns a score,
+   a reason and the pre-fill for its flow, or None. Later G-sessions append their own entry to the list (survival,
+   expected loss, fair lending, multi-label, segmented models, ...); nothing else changes.
+
+    intake(df)                   -> {"columns": [...], "roles": {...}, "suggestions": [...]}
+    intake(df, {"col": "role"})  -> the same with the user's overrides applied (confidence 1, evidence "set by you")
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Any, Callable
+
+import numpy as np
+import pandas as pd
+
+from .profiling import MAX_CLASSES, detect_type
+from .splits import date_and_group_columns
+
+# --------------------------------------------------------------------------------------------------------------- roles
+
+# Every role a column can have, with the words the UI shows. G-sessions add theirs here and in the detector.
+ROLES: dict[str, str] = {
+    "target": "target (what to predict)",
+    "date": "date / time",
+    "entity": "entity / customer ID (group)",
+    "id": "row ID (excluded)",
+    "money": "money amount",
+    "duration": "duration (time to event)",
+    "event": "event flag (survival)",
+    "lgd": "loss given default (0–1)",
+    "ead": "exposure at default",
+    "surname": "surname",
+    "zip": "zip / postal code",
+    "geography": "geography",
+    "multilabel": "multi-label list",
+    "segment": "segment",
+    "category": "category",
+    "text": "free text",
+    "leak": "leaky: known after the outcome (excluded)",
+    "constant": "constant (excluded)",
+    "feature": "feature",
+}
+EXCLUDED = ("id", "leak", "constant")
+
+MONEY = re.compile(r"(usd|eur|gbp|amount|amt|income|salary|balance|price|revenue|mrr|arr|spend|payment|limit|fee|"
+                   r"principal|exposure|loss|value|cost|(^|_)loan(_|$))", re.I)
+DURATION = re.compile(r"(tenure|duration|time_to|months_on_book|survival|days_to|weeks_to|months_to|_time$|^time$|"
+                      r"days_active|lifetime)", re.I)
+EVENT = re.compile(r"(event|churn\w*|default\w*|died|death|censor\w*|observed|prepaid|prepay\w*|closed|attrit\w*|lapsed)", re.I)
+LGD = re.compile(r"(^lgd|_lgd|loss_given|recovery_rate|loss_rate|loss_frac|loss_share|loss_pct)", re.I)
+EAD = re.compile(r"(^ead|_ead|exposure|balance_at_default|outstanding)", re.I)
+SURNAME = re.compile(r"(surname|last_name|lastname|family_name)", re.I)
+ZIP = re.compile(r"(zip|postal|postcode|post_code)", re.I)
+GEO = re.compile(r"(^|_)(region|state|county|country|city|province|district|branch_region|geo\w*|msa|territory)($|_)", re.I)
+SEGMENT = re.compile(r"(segment|product|customer_type|client_type|tier|plan|portfolio|line_of_business|business_line|"
+                     r"book|programme|program)", re.I)
+LEAK = re.compile(r"(recover\w*|collection\w*|charge_?off|write_?off|days_past_due|(^|_)dpd|default_date|closed_date|"
+                  r"outcome_date|paid_off|settle\w*|resolution\w*|resolved|refund\w*|post_)", re.I)
+REG_TARGET = re.compile(r"(amount|value|price|volume|sales|revenue|balance|spend|loss|demand|(^|_)y$|_next|next_)", re.I)
+# A target's name: a generic label word on its own, an outcome word anywhere, or an is_/has_ flag. (The profiler's
+# LABEL_NAME is looser: it also takes 'merchant_category', which is a feature.)
+TARGET_NAME = re.compile(r"^(label|target|class|category|sentiment|outcome|y|response|result)$|churn|default|fraud|"
+                         r"delinq|attrit|lapse|arrear|bad_flag|^is_|^has_|^will_", re.I)
+RATIO = re.compile(r"(_to_|ratio|pct|percent|rate|share|score|util)", re.I)
+DELIMS = (";", "|", ",")
+
+
+def _role(role: str, confidence: float, *evidence: str) -> dict[str, Any]:
+    return {"role": role, "confidence": round(float(min(1.0, max(0.0, confidence))), 2), "evidence": list(evidence)}
+
+
+def _binary01(s: pd.Series) -> bool:
+    v = set(pd.Series(s.dropna().unique()).astype(str).str.lower())
+    return 0 < len(v) <= 2 and v <= {"0", "1", "0.0", "1.0", "true", "false", "yes", "no", "y", "n"}
+
+
+def _multilabel(s: pd.Series) -> tuple[str, int, float] | None:
+    """A delimited list of labels: (delimiter, vocabulary size, share of rows with >= 2 labels), or None."""
+    vals = s.dropna().astype(str).head(2000)
+    if len(vals) < 20 or vals.str.len().mean() > 120:
+        return None
+    for d in DELIMS:
+        parts = vals.str.split(re.escape(d), regex=True).map(lambda xs: [x.strip() for x in xs if x.strip()])
+        multi = float((parts.map(len) >= 2).mean())
+        vocab = {t for xs in parts for t in xs}
+        if multi >= 0.1 and 2 <= len(vocab) <= 60 and parts.map(len).max() <= 12:
+            return d, len(vocab), multi
+    return None
+
+
+def _single_auc(x: pd.Series, y: pd.Series) -> float | None:
+    """AUC of one numeric column against a binary target (max of it and 1 − it): a near-perfect value means a leak."""
+    ok = x.notna() & y.notna()
+    if ok.sum() < 50 or y[ok].nunique() != 2 or not pd.api.types.is_numeric_dtype(x):
+        return None
+    from scipy.stats import rankdata
+    pos = (y[ok].astype(str) == sorted(y[ok].astype(str).unique())[1]).to_numpy()
+    r = rankdata(x[ok].to_numpy())
+    n1, n0 = int(pos.sum()), int((~pos).sum())
+    auc = (r[pos].sum() - n1 * (n1 + 1) / 2) / (n1 * n0)
+    return float(max(auc, 1 - auc))
+
+
+def _target_candidates(df: pd.DataFrame, types: dict[str, str]) -> list[tuple[float, str, str, list[str]]]:
+    """(score, column, task, evidence) for every column that could be the target, best first."""
+    out = []
+    ncol = len(df.columns)
+    for i, col in enumerate(df.columns):
+        t, s = types[col], df[col]
+        if t in ("text", "id"):
+            continue
+        k = int(s.nunique(dropna=True))
+        last = i == ncol - 1
+        ev, score = [], 0.0
+        named = bool(TARGET_NAME.search(str(col)))
+        if named:
+            score += 10; ev.append(f"name '{col}' reads like a label")
+        if 2 <= k <= MAX_CLASSES and (t == "category" or k <= 10):
+            task = "binary" if k == 2 else "multiclass"
+            score += 2 if t == "category" else 1
+            ev.append(f"{k} distinct values")
+        elif t == "number" and k > MAX_CLASSES and (named or (last and REG_TARGET.search(str(col)))):
+            task = "regression"
+            score += 3
+            ev.append(f"numeric with {k:,} distinct values")
+        else:
+            continue
+        if last:
+            score += 3; ev.append("last column")
+        score += i / max(1, ncol)
+        if s.isna().any():
+            score -= 1; ev.append(f"{int(s.isna().sum())} rows without a value")
+        out.append((score, col, task, ev))
+    out.sort(key=lambda c: -c[0])
+    return out
+
+
+def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
+    """Every column's role with a confidence and its evidence, plus the target candidates."""
+    n = len(df)
+    types = {c: detect_type(str(c), df[c]) for c in df.columns}
+    cands = _target_candidates(df, types)
+    # A target needs a name that reads like a label, or the last column; a table with neither has no label.
+    target = cands[0] if cands and (cands[0][0] >= 5) else None
+    if series_value:
+        target = (10.0, series_value, "forecast", ["the numeric value of the time series"])
+    tcol = target[1] if target else None
+    dates, groups = date_and_group_columns(df, tcol)
+    date_cols = {d["column"]: d for d in dates}
+    group_cols = {g["column"]: g for g in groups}
+
+    cols: list[dict[str, Any]] = []
+    for col in df.columns:
+        s, t, name = df[col], types[col], str(col)
+        nn = s.dropna()
+        k = int(nn.nunique())
+        found: list[dict[str, Any]] = []
+        if col == tcol:
+            found.append(_role("target", min(0.97, 0.45 + target[0] / 25), *target[3], f"task: {target[2]}"))
+        if k <= 1:
+            found.append(_role("constant", 1.0, f"{k} distinct value{'s' if k != 1 else ''}"))
+        if col in date_cols:
+            d = date_cols[col]
+            found.append(_role("date", 0.95, f"{d['parsed_share'] * 100:.0f}% of values parse as dates",
+                               f"{d['distinct']:,} distinct, {d['from']} → {d['to']}"))
+        if t == "id":
+            found.append(_role("id", 0.95, f"{k:,} distinct values in {len(nn):,} rows (unique per row)",
+                               *(["ID-like name"] if re.search(r"id|key|uuid", name, re.I) else [])))
+        if col in group_cols and t != "text":
+            g = group_cols[col]
+            found.append(_role("entity", 0.9 if g["id_like_name"] else 0.7,
+                               f"{g['groups']:,} values, {g['rows_per_group']:.2f} rows each on average (repeats)",
+                               *(["ID-like name"] if g["id_like_name"] else [])))
+        elif col not in date_cols and t != "id" and re.search(r"(_id$|^id_|item|series|store|branch|sku)", name, re.I) \
+                and s.dtype == object and 2 <= k <= max(500, n // 5) and n / max(k, 1) >= 5:
+            found.append(_role("entity", 0.75, f"{k} values with {n / k:.0f} rows each: one series per value",
+                               "ID-like name"))
+        num = pd.api.types.is_numeric_dtype(s) and not pd.api.types.is_bool_dtype(s)
+        if num and k > 2:
+            lo, hi = float(nn.min()), float(nn.max())
+            if LGD.search(name) and lo >= 0 and hi <= 1:
+                found.append(_role("lgd", 0.9, "name reads like loss given default", f"values in [{lo:g}, {hi:g}]"))
+            if EAD.search(name) and lo >= 0:
+                found.append(_role("ead", 0.85, "name reads like exposure at default", f"non-negative, max {hi:,.0f}"))
+            if DURATION.search(name) and lo >= 0:
+                found.append(_role("duration", 0.75, f"name '{col}' reads like a duration", f"non-negative, {lo:g} → {hi:g}"))
+            if MONEY.search(name) and lo >= 0 and not LGD.search(name) and not RATIO.search(name):
+                found.append(_role("money", 0.8, "name reads like a money amount", f"non-negative, median {float(nn.median()):,.2f}"))
+        if col != tcol and k == 2 and _binary01(s) and EVENT.search(name):
+            found.append(_role("event", 0.7, f"0/1 flag named '{col}'"))
+        if s.dtype == object and k > 2:
+            if SURNAME.search(name):
+                found.append(_role("surname", 0.9, "name reads like a surname column", f"{k:,} distinct"))
+            if ZIP.search(name) or (nn.astype(str).head(500).str.fullmatch(r"\d{5}(-\d{4})?").mean() > 0.95):
+                found.append(_role("zip", 0.85, "name or 5-digit values read like a zip code"))
+        if ZIP.search(name) and num and k > 2 and nn.between(0, 99999).all():
+            found.append(_role("zip", 0.85, "name reads like a zip code", "integers up to 5 digits"))
+        if GEO.search(name) and 3 <= k <= 500:
+            found.append(_role("geography", 0.7, f"name '{col}' reads like a place", f"{k} values"))
+        if t in ("category", "text") and col != tcol:
+            ml = _multilabel(s)
+            if ml:
+                d, v, m = ml
+                found.append(_role("multilabel", 0.8, f"values are lists split by '{d}'", f"{v} distinct labels",
+                                   f"{m * 100:.0f}% of rows carry 2 or more"))
+        if t == "category" and col != tcol and 2 <= k <= 20 and SEGMENT.search(name):
+            found.append(_role("segment", 0.75, f"name '{col}' reads like a segment", f"{k} groups, smallest "
+                               f"{int(nn.value_counts().iloc[-1]):,} rows"))
+        if t == "text":
+            found.append(_role("text", 0.9, "long strings with several words that rarely repeat"))
+        if col != tcol and LEAK.search(name):
+            found.append(_role("leak", 0.6, f"name '{col}' reads like something known only after the outcome"))
+        if tcol and col != tcol and t != "id" and target[2] == "binary":
+            auc = _single_auc(s, df[tcol]) if num else None
+            if auc is not None and auc >= 0.99:
+                found.append(_role("leak", 0.9, f"alone it separates {tcol} with AUC {auc:.3f}"))
+            elif not num and 2 <= k <= MAX_CLASSES:
+                pure = df.groupby(col, dropna=True)[tcol].nunique()
+                if len(pure) and (pure <= 1).all() and k < n / 20:
+                    found.append(_role("leak", 0.85, f"every value of '{col}' has one {tcol}: it gives the answer away"))
+        if t == "category" and not any(f["role"] in ("segment", "geography", "multilabel", "target", "event", "constant", "date", "entity") for f in found):
+            found.append(_role("category", 0.6, f"{k} distinct values"))
+        found.append(_role("feature", 0.5, f"profiled as {t}"))
+        # The primary role: the target if it is one, else the most confident (ties: the earlier, more specific role
+        # in ROLES); 'feature' is the fallback.
+        order = list(ROLES)
+        primary = found[0] if col == tcol else max(found, key=lambda f: (f["confidence"], -order.index(f["role"])))
+        cols.append({"name": name, "type": t, "unique": k, "role": primary["role"], "confidence": primary["confidence"],
+                     "evidence": primary["evidence"], "also": [f for f in found if f is not primary and f["role"] != "feature"]})
+    series = _series(df, cols)
+    if series and not series_value and (not target or (target[0] < 10 and target[1] not in series["values"])):
+        # A time series whose last column is a weak label candidate (e.g. a segment): the target is the series value.
+        return detect(df, next((v for v in series["values"] if REG_TARGET.search(v)), series["values"][0]))
+    return {"columns": cols, "target_candidates": [{"column": c, "task": task, "score": round(sc, 2), "evidence": ev}
+                                                   for sc, c, task, ev in cands[:5]],
+            "task": target[2] if target else None, "series": series}
+
+
+def _series(df: pd.DataFrame, cols: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """A time series table: a date with one row per (item, date), or one row per date, and a numeric value."""
+    dates = [c["name"] for c in cols if c["role"] == "date" or any(a["role"] == "date" for a in c["also"])]
+    if not dates:
+        return None
+    t = dates[0]
+    items = [c["name"] for c in cols if c["role"] == "entity" and c["name"] != t]
+    key = None
+    if df[t].duplicated().mean() < 0.02:
+        key = []
+    for it in items:
+        # a panel: one row per (item, date), and the items share one calendar (not one timestamp per event)
+        k = df[it].nunique()
+        if df[[it, t]].duplicated().mean() < 0.02 and k <= max(500, len(df) // 20) and df[t].nunique() <= 1.1 * len(df) / k:
+            key = [it]
+            break
+    if key is None:
+        return None
+    values = [c["name"] for c in cols if c["type"] == "number" and c["unique"] > 10 and c["name"] not in key + [t]]
+    return {"timestamp": t, "item_id": key[0] if key else None, "values": values} if values else None
+
+
+def apply_overrides(found: dict[str, Any], overrides: dict[str, str] | None) -> dict[str, Any]:
+    """The user's role edits: one role per column, confidence 1. A new target replaces the old one."""
+    if not overrides:
+        return found
+    bad = {r for r in overrides.values() if r not in ROLES}
+    if bad:
+        raise ValueError(f"Unknown role {sorted(bad)[0]!r}; use one of {', '.join(ROLES)}.")
+    names = {c["name"] for c in found["columns"]}
+    missing = [c for c in overrides if c not in names]
+    if missing:
+        raise ValueError(f"Column '{missing[0]}' is not in the file.")
+    new_target = next((c for c, r in overrides.items() if r == "target"), None)
+    cols = []
+    for c in found["columns"]:
+        c = dict(c)
+        if c["name"] in overrides:
+            r = overrides[c["name"]]
+            if r != c["role"]:
+                c["also"] = [a for a in c["also"] if a["role"] != r] + [{"role": c["role"], "confidence": c["confidence"], "evidence": c["evidence"]}]
+            c.update(role=r, confidence=1.0, evidence=["set by you"], overridden=True)
+        elif new_target and c["role"] == "target":
+            c.update(role="feature", confidence=0.5, evidence=["the target you chose is another column"])
+        cols.append(c)
+    return {**found, "columns": cols}
+
+
+def summary(cols: list[dict[str, Any]]) -> dict[str, Any]:
+    """Role → columns, primary roles first, then the secondary roles a column also has (e.g. churned is the target
+    and the survival event)."""
+    out: dict[str, list[str]] = {}
+    for c in cols:
+        out.setdefault(c["role"], []).append(c["name"])
+    for c in cols:
+        for a in c["also"]:
+            if a["role"] not in EXCLUDED and c["name"] not in out.get(a["role"], []) and c["role"] not in EXCLUDED:
+                out.setdefault(a["role"], []).append(c["name"])
+    return out
+
+
+# --------------------------------------------------------------------------------------------------------- suggestions
+
+@dataclass
+class Ctx:
+    """What a suggestion sees: the frame, the columns with their roles, role → columns, and the target's task."""
+    df: pd.DataFrame
+    columns: list[dict[str, Any]]
+    roles: dict[str, list[str]]
+    series: dict[str, Any] | None
+
+    def first(self, role: str) -> str | None:
+        return (self.roles.get(role) or [None])[0]
+
+    @property
+    def target(self) -> str | None:
+        return self.first("target")
+
+    @property
+    def excluded(self) -> list[str]:
+        """Columns left out of training: row IDs, leaks, constants. (Entity IDs too, but they drive the group split.)"""
+        return [c["name"] for c in self.columns if c["role"] in EXCLUDED or c["role"] == "entity"]
+
+
+@dataclass
+class Suggestion:
+    """One thing the user can build. `match` returns (score 0–100, reason, pre-fill params for `route`) or None."""
+    id: str
+    title: str
+    route: str
+    match: Callable[[Ctx], tuple[float, str, dict[str, Any]] | None]
+    available: bool = True  # False: the flow is not built yet; the suggestion is not shown
+
+
+def _task_of(ctx: Ctx) -> str | None:
+    """The target's task, from its values (so a target the user picked works the same as a detected one)."""
+    t = ctx.target
+    if not t:
+        return None
+    k = int(ctx.df[t].nunique(dropna=True))
+    if pd.api.types.is_numeric_dtype(ctx.df[t]) and k > MAX_CLASSES:
+        return "regression"
+    return "binary" if k == 2 else "multiclass" if 2 < k <= MAX_CLASSES else None
+
+
+def _tabular_prefill(ctx: Ctx, **extra: Any) -> dict[str, Any]:
+    p: dict[str, Any] = {"target": ctx.target}
+    if ctx.excluded:
+        p["drop"] = [c for c in ctx.excluded if c != ctx.target]
+    date, ent = ctx.first("date"), ctx.first("entity")
+    if date and ent:
+        p.update(split="time-group", time=date, group=ent)
+    elif date:
+        p.update(split="time", time=date)
+    elif ent:
+        p.update(split="group", group=ent)
+    p.update(extra)
+    return p
+
+
+def _split_words(p: dict[str, Any]) -> str:
+    return {"time-group": f"an out-of-time + group split (by {p.get('time')}, no {p.get('group')} in both)",
+            "time": f"an out-of-time split by {p.get('time')}", "group": f"a group split by {p.get('group')}"}.get(p.get("split", ""), "a random stratified split")
+
+
+def _binary(ctx: Ctx):
+    if _task_of(ctx) != "binary":
+        return None
+    t = ctx.target
+    vc = ctx.df[t].astype(str).value_counts()
+    rare = vc.index[-1]
+    p = _tabular_prefill(ctx, metric="expected_cost")
+    risk = re.search(r"default|churn|fraud|delinq|attrit|lapse|arrear", t, re.I)
+    what = f"{risk.group(0).capitalize()} risk model" if risk else "Yes/no classifier"
+    return (95 if TARGET_NAME.search(t) else 80,
+            f"'{t}' has two values ({rare} is {vc.iloc[-1] / vc.sum() * 100:.1f}% of rows), so it is a yes/no outcome. "
+            f"Pre-filled with {_split_words(p)} and a business cost (a missed {rare} costs 10× a false alarm; edit it in Goal).",
+            {**p, "title": what})
+
+
+def _multiclass(ctx: Ctx):
+    if _task_of(ctx) != "multiclass":
+        return None
+    t, k = ctx.target, int(ctx.df[ctx.target].nunique())
+    text = ctx.roles.get("text") or []
+    p = _tabular_prefill(ctx)
+    return (90 if TARGET_NAME.search(t) else 75,
+            f"'{t}' has {k} classes{f', with free text in {text[0]}' if text else ''}: a classifier routes each row to one. "
+            f"Pre-filled with {_split_words(p)}.", p)
+
+
+def _regression(ctx: Ctx):
+    if _task_of(ctx) != "regression":
+        return None
+    t = ctx.target
+    s = ctx.df[t].dropna()
+    p = _tabular_prefill(ctx)
+    return (85, f"'{t}' is a number ({s.min():,.4g} → {s.max():,.4g}, median {s.median():,.4g}): regression predicts it, "
+                f"and a range (quantiles) is one switch away. Pre-filled with {_split_words(p)}.", p)
+
+
+def _forecast(ctx: Ctx):
+    s = ctx.series
+    if not s:
+        return None
+    v = ctx.target if ctx.target in s["values"] else s["values"][0]
+    items = ctx.df[s["item_id"]].nunique() if s["item_id"] else 1
+    labelled = ctx.target and ctx.target not in s["values"] and TARGET_NAME.search(ctx.target)
+    return (60 if labelled else 97,
+            f"'{s['timestamp']}' orders the rows in time{f', one series per {s["item_id"]} ({items})' if s['item_id'] else ''} "
+            f"with a numeric value '{v}': forecast its future.",
+            {"dataset_only": True, "timestamp": s["timestamp"], "item_id": s["item_id"], "value": v})
+
+
+def _anomaly(ctx: Ctx):
+    nums = [c["name"] for c in ctx.columns if c["type"] == "number" and c["role"] not in EXCLUDED]
+    if len(nums) < 2:
+        return None
+    if not ctx.target and not ctx.series:
+        return (90, f"No column reads like a label, so nothing can be learned from outcomes; IsolationForest flags the "
+                    f"unusual rows from {len(nums)} numeric columns instead"
+                    f"{f', compared within each {ctx.first("entity")}' if ctx.first('entity') else ''}.",
+                {"dataset_only": True})
+    return (30, f"Even with a label, unusual rows are worth a look: IsolationForest on {len(nums)} numeric columns.",
+            {"dataset_only": True})
+
+
+def _import(ctx: Ctx):
+    return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
+
+
+SUGGESTIONS: list[Suggestion] = [
+    Suggestion("binary", "Yes/no classifier", "quick-train", _binary),
+    Suggestion("multiclass", "Classifier", "quick-train", _multiclass),
+    Suggestion("regression", "Predict a number", "quick-train", _regression),
+    Suggestion("forecast", "Forecast", "forecast", _forecast),
+    Suggestion("anomaly", "Find unusual rows", "anomaly", _anomaly),
+    Suggestion("import", "Import a predictor", "import", _import),
+]
+
+
+def suggest(ctx: Ctx) -> list[dict[str, Any]]:
+    out = []
+    for s in SUGGESTIONS:
+        if not s.available:
+            continue
+        m = s.match(ctx)
+        if m:
+            score, reason, prefill = m
+            title = prefill.pop("title", s.title)
+            out.append({"id": s.id, "title": title, "route": s.route, "score": score, "reason": reason, "prefill": prefill})
+    out.sort(key=lambda x: -x["score"])
+    return out
+
+
+def intake(df: pd.DataFrame, overrides: dict[str, str] | None = None) -> dict[str, Any]:
+    found = apply_overrides(detect(df), overrides)
+    cols = found["columns"]
+    roles = summary(cols)
+    series = _series(df, cols) if overrides else found["series"]  # edited roles: recompute the series
+    ctx = Ctx(df, cols, roles, series)
+    return {"rows": int(len(df)), "columns": cols, "roles": roles, "target_candidates": found["target_candidates"],
+            "series": series, "suggestions": suggest(ctx), "role_names": ROLES}

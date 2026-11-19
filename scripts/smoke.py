@@ -8,6 +8,8 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              SHAP / fairness → custom ensemble → register → approve → Try It → batch score → drift → Gym → Vela patch
              → retrain → compare → export.py run in a subprocess
   samples    loan-amount (regression) and support-tickets (text) through train and predict
+  intake     G0 Smart Intake: every column's role on all bundled samples against a truth table (key roles 100 %), the
+             top suggestion and its pre-fill, three fresh CSVs uploaded without a target, role edits and their effect
   autopilot  a full Autopilot on support-tickets: start, inbox, bulk answers, retrain, requirements, inbox recall
   forecast   transaction-volume sample and an uploaded CSV: mapping → preview → TimeSeriesPredictor run + SSE →
              leaderboard, weights, backtests (W auto) → per-item errors → interval calibration → conformal recalibration
@@ -666,6 +668,98 @@ FRESH = [
     ("deposit_balances.csv", "avg_balance_next_q_gbp", "root_mean_squared_error", "regression",
      {"hyperparameters": {"GBM": {"num_boost_round": 200}, "XT": {}, "LR": {}}}),
 ]
+
+
+# G0: the right role for every column of every bundled sample (my reading of each generator), and the right first flow.
+F, M, CAT = "feature", "money", "category"
+INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
+    "support-tickets": ("multiclass", {"ticket_id": "id", "subject": CAT, "body": "text", "channel": CAT, "priority": CAT,
+                                       "customer_tier": "segment", "category": "target"}),
+    "account-churn": ("binary", {"account_id": "id", "plan": "segment", "region": "geography", "contract": CAT, "seats": F,
+                                 "mrr_usd": M, "tenure_months": "duration", "tickets_90d": F, "last_login_days": F, "nps": F,
+                                 "churned": "target"}),
+    "credit-default": ("binary", {"applicant_id": "id", "customer_id": "entity", "application_date": "date", "age": F,
+                                  "employment": CAT, "income_usd": M, "home_ownership": CAT, "loan_purpose": CAT,
+                                  "region": "geography", "loan_amount_usd": M, "credit_score": F, "debt_to_income": F,
+                                  "utilization": F, "delinquencies_2y": F, "months_employed": F, "defaulted": "target"}),
+    "loan-amount": ("regression", {"application_id": "id", "income_usd": M, "credit_score": F, "existing_debt_usd": M,
+                                   "term_months": F, "purpose": CAT, "home_ownership": CAT, "region": "geography",
+                                   "open_accounts": F, "loan_amount_usd": "target"}),
+    "transaction-volume": ("forecast", {"item_id": "entity", "timestamp": "date", "volume": "target", "holiday": F,
+                                        "payday": F, "segment": "segment"}),
+    "card-transactions": ("anomaly", {"txn_id": "id", "card_id": "entity", "timestamp": "date", "amount_usd": M,
+                                      "avg_amount_90d": M, "merchant_category": CAT, "channel": CAT, "card_present": F,
+                                      "foreign": F, "hour": F, "distance_from_home_km": F, "txns_last_24h": F,
+                                      "account_age_days": F}),
+    "personal-loans": ("binary", {"application_id": "id", "age": F, "income_usd": M, "credit_score": F, "debt_to_income": F,
+                                  "channel": CAT, "region": "geography", "employment": CAT, "term_months": F,
+                                  "loan_amount_usd": M, "prior_defaults": F, "defaulted": "target"}),
+    "loan-stream": ("binary", {"application_id": "id", "application_date": "date", "age": F, "income_usd": M,
+                               "credit_score": F, "debt_to_income": F, "utilization": F, "channel": CAT, "employment": CAT,
+                               "term_months": F, "loan_amount_usd": M, "prior_defaults": F, "defaulted": "target"}),
+}
+KEY_ROLES = ("target", "date", "id", "entity", "segment")
+
+
+def intake(st: dict[str, Any]) -> None:
+    """G0 Smart Intake: GET /api/datasets/{id}/intake on every bundled sample. Every column's role against the truth
+    above (all roles, and the acceptance roles target / date / ID / entity / segment, which must be 100 %), the first
+    suggestion is the right flow, and its pre-fill names the target and split. Then three fresh CSVs uploaded without a
+    target, and a role edit (POST) that moves the suggestions."""
+    acc: dict[str, str] = {}
+
+    def one(sid: str, top: str, truth: dict[str, str]):
+        def f():
+            r = get(f"/api/datasets/{sid}/intake")
+            got = {c["name"]: c["role"] for c in r["columns"]}
+            check(set(got) == set(truth), f"columns {sorted(set(got) ^ set(truth))} differ from the truth table")
+            wrong = {c: (truth[c], got[c]) for c in truth if got[c] != truth[c]}
+            key = [c for c in truth if truth[c] in KEY_ROLES or got[c] in KEY_ROLES]
+            key_wrong = {c: v for c, v in wrong.items() if c in key}
+            check(not key_wrong, f"key roles wrong (truth, got): {key_wrong}")
+            s0 = r["suggestions"][0]
+            check(s0["id"] == top, f"top suggestion {s0['id']} ≠ {top} ({[x['id'] for x in r['suggestions']]})")
+            check(s0["reason"] and all(c["evidence"] for c in r["columns"]), "a suggestion or a role came without its reason")
+            if s0["route"] == "quick-train":
+                check(s0["prefill"]["target"] == next(c for c, v in truth.items() if v == "target"), f"pre-fill {s0['prefill']}")
+            n_ok = len(truth) - len(wrong)
+            acc[sid] = f"{n_ok}/{len(truth)}"
+            return (f"roles {n_ok}/{len(truth)} ({n_ok / len(truth) * 100:.0f}%) · key {len(key)}/{len(key)} · top {s0['id']} "
+                    f"({s0['score']:g}){' · split ' + s0['prefill']['split'] if s0['prefill'].get('split') else ''}"
+                    f"{' · off: ' + ', '.join(f'{c} {g}≠{t}' for c, (t, g) in wrong.items()) if wrong else ''}")
+        return f
+
+    for sid, (top, truth) in INTAKE_TRUTH.items():
+        step(f"intake: {sid}", one(sid, top, truth))
+
+    def fresh_csvs():
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import fresh_data
+
+        out = []
+        for fname, (top, target) in {"card_fraud.csv": ("binary", "is_fraud"), "complaints.csv": ("multiclass", "product_team"),
+                                     "deposit_balances.csv": ("regression", "avg_balance_next_q_gbp")}.items():
+            df = fresh_data.FILES[fname]()
+            d = j(C.post("/api/datasets", files={"file": (fname, df.to_csv(index=False).encode(), "text/csv")}))
+            r = get(f"/api/datasets/{d['id']}/intake")
+            s0 = r["suggestions"][0]
+            check(s0["id"] == top and s0["prefill"]["target"] == target, f"{fname}: top {s0['id']} {s0['prefill']} ≠ {top} {target}")
+            out.append(f"{fname.split('.')[0]} → {s0['title']} (y = {target})")
+        return " · ".join(out)
+    step("intake: fresh CSVs, no target given", fresh_csvs)
+
+    def edit():
+        r = post("/api/datasets/credit-default/intake", {"roles": {"employment": "segment", "loan_amount_usd": "target"}})
+        cols = {c["name"]: c for c in r["columns"]}
+        check(cols["employment"]["role"] == "segment" and cols["employment"]["evidence"] == ["set by you"], "override not applied")
+        check(cols["defaulted"]["role"] != "target", "the old target is still a target")
+        s0 = r["suggestions"][0]
+        check(s0["id"] == "regression" and s0["prefill"]["target"] == "loan_amount_usd", f"top after the edit: {s0['id']}")
+        bad = C.post("/api/datasets/credit-default/intake", json={"roles": {"age": "wizard"}})
+        check(bad.status_code == 400, f"an unknown role → {bad.status_code}")
+        return f"employment → segment, y = loan_amount_usd → top {s0['id']} · unknown role → 400"
+    step("intake: role edits move the suggestions", edit)
+    st["intake_accuracy"] = acc
 
 
 def fresh(st: dict[str, Any]) -> None:
@@ -4308,7 +4402,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
+    ap.add_argument("--only", default="core,samples,intake,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -4345,7 +4439,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

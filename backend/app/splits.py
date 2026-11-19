@@ -164,6 +164,37 @@ def time_values(s: pd.Series) -> pd.Series:
     return pd.to_datetime(s, errors="coerce", format="mixed")
 
 
+def date_and_group_columns(df: pd.DataFrame, target: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """F6 (and G0 Smart Intake): the date columns (>= 95 % of values read as dates, at least 10 distinct) and the
+    entity columns (ID-like name or a high-cardinality category whose values repeat: several rows per customer)."""
+    n = len(df)
+    dates, groups = [], []
+    for c in df.columns:
+        if c == target:
+            continue
+        s = df[c]
+        nn = s.dropna()
+        if len(nn) == 0:
+            continue
+        if s.dtype == object:
+            sample = nn.astype(str).head(500)
+            looks = sample.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}") | sample.str.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}")
+            if looks.mean() >= 0.95:
+                t = time_values(s)
+                if t.notna().mean() >= 0.95 and t.nunique() >= 10:
+                    dates.append({"column": c, "from": _fmt_time(t.min()), "to": _fmt_time(t.max()),
+                                  "distinct": int(t.nunique()), "parsed_share": float(t.notna().mean())})
+                    continue
+        k = int(nn.nunique())
+        per = len(nn) / max(k, 1)
+        id_name = bool(re.search(r"(^id$|_id$|^id_|uuid|^key$|(customer|account|client|member)(_?(id|no|number|key|ref))?$)", str(c), re.I))
+        if per > 1.05 and k >= 20 and (id_name or (s.dtype == object and k >= max(50, 0.05 * n))):
+            groups.append({"column": c, "groups": k, "rows_per_group": round(per, 2),
+                           "max_rows": int(nn.value_counts().iloc[0]), "id_like_name": id_name})
+    groups.sort(key=lambda g: (not g["id_like_name"], -g["rows_per_group"]))
+    return dates, groups
+
+
 def _fmt_time(v: Any) -> Any:
     if v is None or (isinstance(v, float) and np.isnan(v)) or v is pd.NaT:
         return None
