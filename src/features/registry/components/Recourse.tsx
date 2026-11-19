@@ -130,9 +130,8 @@ export function RecoursePanel({ v, actor, onEdited }: { v: ModelVersion; actor: 
                     <select className="input" value={edits[f.feature] ?? f.action} data-testid={`recourse-action-${f.feature}`} onChange={(e) => setEdits({ ...edits, [f.feature]: e.target.value as RecourseAction })}>
                       {(['fixed', 'any', 'increase', 'decrease'] as RecourseAction[]).map((a) => <option key={a} value={a}>{ACTION_WORDS[a]}</option>)}
                     </select>
-                    {f.effective !== f.action && <small className="helper"> → {ACTION_WORDS[f.effective]}</small>}
                   </td>
-                  <td className="helper" style={{ fontSize: 12 }}>{f.monotone ?? f.why}{f.range ? ` · ${val(f.range.min)} → ${val(f.range.max)}` : ''}</td>
+                  <td className="helper" style={{ fontSize: 12 }}>{f.effective !== f.action ? <b>{ACTION_WORDS[f.effective]}: </b> : null}{f.monotone ?? f.why}{f.range ? ` · ${val(f.range.min)} → ${val(f.range.max)}` : ''}</td>
                 </tr>
               ))}</tbody>
             </table>
