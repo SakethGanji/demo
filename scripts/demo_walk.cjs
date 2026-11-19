@@ -131,10 +131,10 @@ async function main() {
   await step('prep: loan-stream champion + challenger, registered, approved, staged', async () => {
     const fit1 = { hyperparameters: { GBM: { num_boost_round: 200 }, LR: {} } }
     const fit2 = { hyperparameters: { XGB: { n_estimators: 200 } } }
-    const a = await newModel({ ds: 'loan-stream', label: 'defaulted', split: 'time', metric: 'roc_auc', fit: fit1, tag: 'prep' })
+    const a = await newModel({ ds: 'loan-stream', label: 'defaulted', ignore: ['application_date'], split: 'time', metric: 'roc_auc', fit: fit1, tag: 'prep' })
     S.champRun = a.runId
-    expectNum('prep', 'champion holdout ROC AUC', await text('result-primary'), 0.7826, 0.003)
-    const b = await newModel({ ds: 'loan-stream', label: 'defaulted', split: 'time', metric: 'roc_auc', fit: fit2, tag: 'prep' })
+    expectNum('prep', 'champion holdout ROC AUC', await text('result-primary'), 0.7765, 0.003)
+    const b = await newModel({ ds: 'loan-stream', label: 'defaulted', ignore: ['application_date'], split: 'time', metric: 'roc_auc', fit: fit2, tag: 'prep' })
     S.challRun = b.runId
     S.champ = await register(S.champRun, 'loan-stream')
     S.chall = await register(S.challRun, 'loan-stream')
@@ -315,7 +315,7 @@ open(sys.argv[3], 'w').write(rows.to_json(orient='records'))
     await page.waitForTimeout(1500)
     await shot('15-explain-doctor')
     expectText('7', 'primary: Overfitting (minor)', await text('doctor-hero').catch(() => text('doctor-panel')), /Overfitting/)
-    expectNum('7', 'gap in noise units (z)', await text('doctor-panel'), 4.4, 0.6)
+    expectNum('7', 'gap in noise units (z)', await text('doctor-panel'), 4.4, 0.05)
   })
 
   // ── 8. Monitoring

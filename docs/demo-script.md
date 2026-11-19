@@ -13,13 +13,17 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 1. `make dev`, then `make reset` (an empty workbench; the samples regenerated). Open http://localhost:5190 at 1920×1080
    (1366×768 works). Type your name in *acting as* (top right), e.g. **Dana Dev**.
 2. **Prepare the production champion for part 8** (it needs a registered version with a challenger):
-   - New Model → sample **loan-stream** → target `defaulted` → Confirm The Target → How The Holdout Is Drawn:
-     **out-of-time** on `application_date` → Goal: ROC AUC → Advanced:
+   - New Model → sample **loan-stream** → target `defaulted` (named on upload, already confirmed) → in the column list
+     set `application_date` to **ignore** → How The Holdout Is Drawn: **out-of-time** on `application_date` → Goal:
+     ROC AUC → Advanced:
      `{"hyperparameters": {"GBM": {"num_boost_round": 200}, "LR": {}}}` → Start Training (≈ 20 s).
    - Again with `{"hyperparameters": {"XGB": {"n_estimators": 200}}}`: the challenger.
    - Model Registry → Register both (model name `loan-stream`). As **Riley Review**: approve the first → **Production**,
      the second → **Staging**. Back as Dana.
-   - **Expect:** champion holdout AUC **0.7826 [0.7556, 0.8091]** (the smoke drops `application_date` as a feature and gets 0.7765).
+   - **Expect:** champion holdout AUC **0.7765 [0.7495, 0.8034]**.
+   - Do not skip *ignore* on `application_date`. Kept as a feature, every 2025 batch lies outside the training dates,
+     so its PSI raises a drift alert from 2025-01 (seen in F20: PSI 0.359 on application_date, AUC 0.7826, challenger
+     Δ −0.0083). Part 8's story would be lost.
 3. Close Vela for now.
 
 ## 0:00 – 1:00 · The question

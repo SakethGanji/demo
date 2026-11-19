@@ -1,33 +1,34 @@
 {
  "ids": {
-  "champRun": "run_a49a7f92",
-  "challRun": "run_cc9ff681",
-  "champ": "mv_91538cff",
-  "chall": "mv_747bab8f",
-  "A": "run_81c89352",
-  "B": "run_6a85053f",
-  "vB": "mv_66b9df81"
+  "champRun": "run_0a791fdd",
+  "challRun": "run_2274b01c",
+  "champ": "mv_c552d5a7",
+  "chall": "mv_99bd5f0e",
+  "A": "run_0edafcf1",
+  "B": "run_d0e50b97",
+  "vB": "mv_d0e17a37",
+  "retrain": "run_c1cc7597"
  },
  "steps": [
   {
    "name": "prep: loan-stream champion + challenger, registered, approved, staged",
    "ok": true,
-   "s": 65
+   "s": 67
   },
   {
    "name": "1 out-of-time vs random",
    "ok": true,
-   "s": 30
+   "s": 31
   },
   {
    "name": "2-3 Gym: cost + monotone, cost per 1,000, twin, monotonicity",
    "ok": true,
-   "s": 93
+   "s": 94
   },
   {
    "name": "4 register, reason codes, Try It, batch, model card",
    "ok": true,
-   "s": 38
+   "s": 34
   },
   {
    "name": "5 scorecard",
@@ -36,15 +37,13 @@
   },
   {
    "name": "6-7 learning curve, Model Doctor",
-   "ok": false,
-   "s": 902,
-   "error": "locator.waitFor: Timeout 900000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('lc-verdict') to be visible\u001b[22m\n"
+   "ok": true,
+   "s": 26
   },
   {
    "name": "8 monitoring: challenger, stream, alerts, retrain",
-   "ok": false,
-   "s": 684,
-   "error": "locator.waitFor: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - waiting for getByTestId('mon-feed-one').filter({ hasText: 'All 12 months fed' }) to be visible\u001b[22m\n"
+   "ok": true,
+   "s": 60
   }
  ],
  "checks": [
@@ -167,16 +166,16 @@
    "what": "cost per 1,000 (cost run)",
    "want": 702.5,
    "tol": 15,
-   "ok": false,
-   "seen": "860.8"
+   "ok": true,
+   "seen": 702.5
   },
   {
    "step": "2",
    "what": "cost-calibrated threshold t",
    "want": 0.061,
    "tol": 0.004,
-   "ok": false,
-   "seen": "1000 1 10 860.8 95 757.1 980 1000 1054.2 894.6 33.7 1000"
+   "ok": true,
+   "seen": 0.061
   },
   {
    "step": "2",
@@ -184,15 +183,15 @@
    "want": 857.1,
    "tol": 15,
    "ok": true,
-   "seen": 860.8
+   "seen": 857.1
   },
   {
    "step": "2",
    "what": "Δ per 1,000",
    "want": 154.6,
    "tol": 15,
-   "ok": false,
-   "seen": "857.1 860.8 -3.8 1000 95 -44.2 35.8 2400 0.124 1 1000 0"
+   "ok": true,
+   "seen": 154.6
   },
   {
    "step": "3",
@@ -206,23 +205,23 @@
    "what": "Try It p̂ of the first adverse row",
    "want": 0.093,
    "tol": 0.004,
-   "ok": false,
-   "seen": "0.14 4 0 0.1403 11 2 2 3 0.0606 9 0.621 0.0397"
+   "ok": true,
+   "seen": 0.093
   },
   {
    "step": "4",
    "what": "four reasons R09 · R12 · R03 · R10",
    "want": "/R09.*debt_to_income.*R12.*months_employed.*R03.*income_usd.*R10.*utilization/",
-   "ok": false,
-   "seen": "Reason Codes adverse ⟺ ŷ = Yes ⟺ p̂ ≥ t = 0.1400 · top 4 features with s·φⱼ > 0 ● adverse (p̂ = 0.1403) R11 Delinquencies in the last 2 years too high (delinque"
+   "ok": true,
+   "seen": "R09 Debt to income too high (debt_to_income = 0.657, φ = +0.0380) R12 Months employed too low (months_employed = 0, φ = +0.0249) R03 Income (USD) too low (income_usd = 22600, φ = +0.0084) R10 Utilization too low (utilization"
   },
   {
    "step": "4",
    "what": "adverse rows of 400 in the batch",
    "want": 126,
    "tol": 3,
-   "ok": false,
-   "seen": "43 4 0 219.6 8 84 11 72 10 65"
+   "ok": true,
+   "seen": 126
   },
   {
    "step": "4",
@@ -250,7 +249,7 @@
    "step": "5",
    "what": "scorecard AUC",
    "want": 0.6977,
-   "tol": 0.003,
+   "tol": 0.0005,
    "ok": true,
    "seen": 0.6977
   },
@@ -258,9 +257,9 @@
    "step": "5",
    "what": "served AUC",
    "want": 0.6987,
-   "tol": 0.003,
+   "tol": 0.0005,
    "ok": true,
-   "seen": 0.6977
+   "seen": 0.6987
   },
   {
    "step": "5",
@@ -268,6 +267,144 @@
    "want": "/\\S/",
    "ok": true,
    "seen": "S"
+  },
+  {
+   "step": "6",
+   "what": "verdict noisy",
+   "want": "/nois/i",
+   "ok": true,
+   "seen": "Nois"
+  },
+  {
+   "step": "6",
+   "what": "gain per doubling",
+   "want": 0.021,
+   "tol": 0.01,
+   "ok": true,
+   "seen": 0.0207
+  },
+  {
+   "step": "6",
+   "what": "learning-curve point n = 768",
+   "want": 768,
+   "tol": 1,
+   "ok": true,
+   "seen": 768
+  },
+  {
+   "step": "6",
+   "what": "learning-curve point n = 1919",
+   "want": 1919,
+   "tol": 1,
+   "ok": true,
+   "seen": 1919
+  },
+  {
+   "step": "6",
+   "what": "learning-curve point n = 3838",
+   "want": 3838,
+   "tol": 1,
+   "ok": true,
+   "seen": 3838
+  },
+  {
+   "step": "6",
+   "what": "learning-curve point n = 7675",
+   "want": 7675,
+   "tol": 1,
+   "ok": true,
+   "seen": 7675
+  },
+  {
+   "step": "7",
+   "what": "primary: Overfitting (minor)",
+   "want": "/Overfitting/",
+   "ok": true,
+   "seen": "Overfitting"
+  },
+  {
+   "step": "7",
+   "what": "gap in noise units (z)",
+   "want": 4.4,
+   "tol": 0.6,
+   "ok": true,
+   "seen": 4
+  },
+  {
+   "step": "8",
+   "what": "PSI(debt_to_income) 2025-07",
+   "want": 0.41,
+   "tol": 0.03,
+   "ok": true,
+   "seen": 0.409
+  },
+  {
+   "step": "8",
+   "what": "first drift alert 2025-07",
+   "want": "/2025-07/",
+   "ok": false,
+   "seen": "FIRST DRIFT ALERT\n2025-01\nseen when scored"
+  },
+  {
+   "step": "8",
+   "what": "observed default rate 2025-07",
+   "want": 0.351,
+   "tol": 0.01,
+   "ok": true,
+   "seen": 0.359
+  },
+  {
+   "step": "8",
+   "what": "p̂ 2025-07",
+   "want": 0.25,
+   "tol": 0.01,
+   "ok": true,
+   "seen": 0.25
+  },
+  {
+   "step": "8",
+   "what": "challenger ΔAUC (paired)",
+   "want": -0.002,
+   "tol": 0.0015,
+   "ok": false,
+   "seen": "-0.0083 -0.0108 -0.0058 0 10800"
+  },
+  {
+   "step": "8",
+   "what": "retrain window 2025-04-01 … 2025-09-30",
+   "want": "/2025-04-01 … 2025-09-30/",
+   "ok": true,
+   "seen": "2025-04-01 … 2025-09-30"
+  },
+  {
+   "step": "8",
+   "what": "retrain window rows",
+   "want": 7200,
+   "tol": 0,
+   "ok": true,
+   "seen": 7200
+  },
+  {
+   "step": "8",
+   "what": "retrained run holdout ROC AUC",
+   "want": 0.7739,
+   "tol": 0.004,
+   "ok": true,
+   "seen": 0.774475663787333
+  },
+  {
+   "step": "8",
+   "what": "champion doctor: Shift",
+   "want": "/Shift/",
+   "ok": true,
+   "seen": "Shift"
+  },
+  {
+   "step": "8",
+   "what": "prescription: Retrain On Recent Data",
+   "want": "/Retrain On Recent Data/i",
+   "ok": true,
+   "seen": "Retrain On Recent Data"
   }
  ],
  "errors": []
