@@ -18,7 +18,7 @@
 .nav-item.active::after { content: ""; position: absolute; left: var(--space-20); right: var(--space-20); bottom: 3px; height: 2px; background: var(--grad-string); border-radius: 1px; }
 .nav-item svg { flex: none; }
 .collapsed .nav-item { justify-content: center; padding: 0; }
-.collapsed .nav-item span, .collapsed .sidebar-footer .who, .collapsed .role-pill { display: none; }
+.collapsed .nav-item span, .collapsed .sidebar-footer .who { display: none; }
 .collapsed .nav-item.active::after { left: 18px; right: 18px; }
 .sidebar-footer { border-top: 1px solid var(--border-shell); padding: var(--space-12) var(--space-16); display: flex; align-items: center; gap: var(--space-8); }
 .collapsed .sidebar-footer { flex-direction: column; padding: var(--space-12) 0; }
@@ -26,7 +26,6 @@
 .who { min-width: 0; flex: 1; }
 .who b { display: block; color: var(--text-on-shell); font-weight: 500; font-size: 12.5px; line-height: 16px; }
 .who small { font-size: 11px; line-height: 14px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.role-pill { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px; border-radius: var(--radius-badge); border: 1px solid var(--border-shell); color: var(--accent-primary-shell); }
 .icon-btn { background: none; border: 1px solid transparent; border-radius: var(--radius-control); width: 28px; height: 28px; display: grid; place-items: center; color: inherit; flex: none; }
 .icon-btn:hover { background: var(--bg-shell-hover); color: var(--text-on-shell); }
 

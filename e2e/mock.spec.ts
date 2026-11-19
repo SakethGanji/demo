@@ -44,12 +44,12 @@ test('dataset step uses the built-in samples and the browser profiler', async ({
   expect(errors).toEqual([])
 })
 
-test('experiments and explain in mock mode: the simulation is labelled, explain says it needs the API', async ({ page, errors }) => {
-  await open(page, 'experiments')
+test('models and a run in mock mode: the simulation is labelled, the Doctor says it needs the API', async ({ page, errors }) => {
+  await open(page, 'models')
   await expect(page.getByTestId('exp-simulated')).toContainText('SIMULATED')
   await expect(page.getByTestId('experiments-live')).toHaveCount(0)
-  await open(page, 'explain')
-  await expect(page.getByTestId('explain-mock')).toContainText('mock mode')
+  await open(page, 'models?run=run_894a&tab=Doctor')
+  await expect(page.getByTestId('run-page')).toContainText('mock mode')
   await expect(page.locator('.statusbar')).toContainText('simulated')
   expect(errors).toEqual([])
 })

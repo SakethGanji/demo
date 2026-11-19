@@ -109,10 +109,9 @@ async function main() {
     await page.waitForFunction(() => ['ready', 'failed'].includes(document.querySelector('[data-testid=version-detail]')?.getAttribute('data-status')), null, { timeout: 900_000 })
     return page.getByTestId('version-detail').getAttribute('data-version')
   }
+  // G11: Explain and the Doctor are tabs of the run page in Models; the view opens by name (sub=)
   const explainTab = async (runId, group, tab) => {
-    await go(`explain?run=${runId}`)
-    await page.getByTestId(`tab-group-${group}`).click()
-    await page.getByRole('tab', { name: tab, exact: true }).click()
+    await go(`models?run=${runId}&tab=${group === 'Diagnose' ? 'Doctor' : 'Explain'}&sub=${encodeURIComponent(tab)}`)
     await page.waitForTimeout(1500)
   }
   const versionTab = async (vid, tab) => {
@@ -176,7 +175,7 @@ async function main() {
 
   // ── 2. Business cost · 3. Monotone (in the Gym from that run)
   await step('2-3 Gym: cost + monotone, cost per 1,000, twin, monotonicity', async () => {
-    await go(`quick-train?run=${S.A}`)
+    await go(`models?run=${S.A}`)
     await page.getByTestId('results-gym').click()
     await page.getByTestId('gym-live').waitFor({ timeout: 30_000 })
     await page.getByTestId('gym-step-3').click()

@@ -33,7 +33,6 @@ export function Sidebar({ route, collapsed, go, onToggle }: { route: Route; coll
         </> : <>
           <div className="avatar">ML</div>
           <div className="who"><b>Maya Lin</b><small>Lead ML Engineer (demo)</small></div>
-          <span className="role-pill">Admin</span>
         </>}
         <button className={`icon-btn ${route === 'settings' ? 'on' : ''}`} aria-label="Settings" title="Settings" data-testid="nav-settings" aria-current={route === 'settings' ? 'page' : undefined} onClick={() => go('settings')}><Icon.settings width={16} height={16} /></button>
         <button className="icon-btn" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={onToggle}><Icon.collapse width={16} height={16} /></button>

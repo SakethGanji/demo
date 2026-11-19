@@ -73,6 +73,14 @@ card's Validation section lists the source run's diagnostics (split, cost, learn
 annotators, Model Doctor) or "not run". The Model Doctor's latency prescription opens Register with its model
 preselected (`#/registry?register=<run>&serve=<model>`).
 
+**G11 navigation.** Five places: Home, Build, Models, Registry, Vela (Settings in the sidebar footer). In the rows above,
+"Explain → X" is now a tab of the run's page in Models: **Explain** holds Performance, Errors, Features & SHAP and
+Fairness (fair lending included), with Threshold, Monotonicity, Scorecard and Text under its Advanced group; **Doctor**
+holds the Model Doctor, Weak Slices, Shift, Learning Curve and Labels (labelling queue and annotators). New Forecast,
+Anomaly Detection, Import and the credit flows are Build choices; their runs open in Models. Autopilot is Vela's "Run
+it end to end". Every old route redirects. The Model Doctor also lists what else applies to the run's table
+(segmented models, reject inference, fair lending, recourse), with a link that opens each pre-filled.
+
 ## Quickstart
 
 ```
@@ -272,20 +280,23 @@ registry, Vela and export.
 
 ## Screens (hash routes)
 
+The sidebar has five places: **Home, Build, Models, Registry, Vela**. Settings is the gear in its footer.
+
 | Route | What it shows |
 | --- | --- |
 | `#/home` | The workbench: the samples on a fresh install, runs of every kind as strings, best scores per dataset, registry activity, a training monitor and log |
-| `#/build` | **Build** (G0 Smart Intake), the single entry point: upload or pick a table → each column's role (target, date, entity, row ID, money, duration, segment, geography, text, leaky, …) as an editable chip with its confidence and evidence → what you can build, best first, each opening its flow pre-filled (New Model with target, split, dropped columns and business cost; Forecast; Anomaly; Import). Advanced opens the Training Gym. `?dataset=` |
-| `#/quick-train` | **New Model**: opened from Build (`?dataset=&target=&split=&time=&group=&drop=&metric=`; without `?dataset=` it goes to Build), or in mock mode a sample or a CSV profiled in the browser → label, problem type and column types → metric, preset, budget, raw `fit_kwargs` → the live race → results (metrics with bootstrap CIs, leaderboard, ensemble, confusion or residuals, custom ensemble, a first prediction). `?run=` resumes |
-| `#/explain?run=` | Performance, Threshold, Features & SHAP, Errors, Fairness, Text |
-| `#/experiments` | Every run of every kind (binary, multiclass, regression, forecast, anomaly, imported) with a type filter and its own metric; parallel coordinates, Compare and Parameter Diff for tabular runs |
-| `#/registry` | Register (frontier, one-row latency, faster model), lineage, versions, Overview, Model Card, Try It, Batch & Drift (all kinds), Monitoring (F18: time series, alerts, labels, challenger, retrain proposal, the sample stream), Audit |
-| `#/gym` | Training Gym, Guided and Advanced |
-| `#/autopilot` | Vela Autopilot: brief, the run as one string, Ground-Truth Inbox, decision log, requirements |
-| `#/forecast` | New Forecast and forecast runs (`?run=`) |
-| `#/anomaly` | Anomaly Detection and anomaly runs (`?run=`) |
-| `#/import` | Import a TabularPredictor (zip or server path) |
-| `#/settings` | Layout, string tension and motion, density, Guided/Advanced default, Vela, toolbelt |
+| `#/build` | **Build** (G0 Smart Intake), the single entry point: upload, pick a table or load one from SQL → each column's role (target, date, entity, row ID, money, duration, segment, geography, text, leaky, …) as an editable chip with its confidence and evidence → what you can build, best first, each opening its flow pre-filled: New Model, Forecast, Anomaly, Import, Expected loss, Segmented models, Time to event, Reject inference, Multi-label. **Advanced** opens the Training Gym (`#/gym`). `?dataset=` |
+| `#/quick-train` | **New Model** (a Build choice): label, problem type and column types → metric, preset, budget, raw `fit_kwargs` → the live race. A finished run opens in Models. `?run=` watches a run that is still training |
+| `#/expected-loss` · `#/segmented` · `#/survival` · `#/reject-inference` · `#/multilabel` | The setup of each credit flow (one shared `KindFlow` shell): the columns it uses with their evidence, one primary action, Advanced closed. The run opens in Models |
+| `#/forecast` · `#/anomaly` · `#/import` | The setup of a forecast, an anomaly run or an import; the run opens in Models |
+| `#/models` | **Models**: every run of every kind with a type filter (`?type=`) and its own metric; parallel coordinates, Compare and Parameter Diff for tabular runs |
+| `#/models?run=` | One run. Tabular: **Results** (metrics with CIs, leaderboard, ensemble, cost and split comparisons, a first prediction, Register…), **Explain** (Performance, Errors, Features & SHAP, Fairness with fair lending; Advanced: Threshold, Monotonicity, Scorecard, Text) and **Doctor** (Model Doctor, Weak Slices, Shift, Learning Curve, Labels). `&tab=&sub=` open a view. Forecast, anomaly and the credit flows show their own results |
+| `#/registry` | Register, lineage, versions; per version: Overview, Results (the credit flows' results), Model Card, Try It (one row, a survival curve or a label set), Reason Codes and recourse, Batch & Drift (all kinds), Monitoring (F18), Credit Report, Fair Lending (a link to the run's Fairness); the audit log, filtered to the selected version |
+| `#/vela` | **Vela**: Ask Vela (the agent: one typed tool per step, one-click confirmation for writes) and Run it end to end (Autopilot: brief, the run as one string, Ground-Truth Inbox, decision log, requirements) |
+| `#/settings` | Layout, string tension and motion, density, Guided/Advanced default, Vela sidecar, the LLM |
+
+Old routes redirect: `#/experiments` → `#/models`, `#/explain?run=X&tab=T` → the run page's tab that holds T, `#/autopilot` →
+`#/vela?mode=auto`, and `?run=` on every per-flow route → `#/models?run=`.
 
 ## API reference
 
@@ -356,7 +367,7 @@ Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `hol
 | `GET/POST /api/anomaly/runs/{id}/labels` | The dataset's reviewed rows; POST `{items: [{row, label: fraud \| not_fraud \| null}], by}` confirms, dismisses or clears (stored in `anomaly_labels.json`, audited as `anomaly_review`). `can_train` once ≥ 10 confirmed. |
 | `POST /api/anomaly/runs/{id}/supervised` · `GET …/supervised` | `{time_limit, presets, eval_metric='average_precision', num_bag_folds=5, negatives='unlabeled' \| 'dismissed_only', include_score, fit_kwargs}`: a new dataset version (data + group/velocity columns + s + `confirmed_fraud`) and an AutoGluon binary run on it. GET lists them with the comparison against the forest on unreviewed rows (out-of-fold scores; hidden truth for the sample). |
 | `GET /api/anomaly/mapping/{dataset}` | Suggested `entity_column`, `time_column`, `relative_columns` for group-relative features (the sample's spec, else names and types). `POST /api/anomaly/runs` takes `group_features` (default: on when an entity column is mapped; on for the card sample), `entity_column`, `time_column`, `relative_columns`, and (F2) `velocity_features` (default: on with entity and time), `amount_column`, `category_column`, `velocity_in_forest`; `max_samples` defaults to min(1024, n). The mapping also suggests the amount and category columns. |
-| `GET /api/runs?kind=all` | Every run with its `kind` (tabular, import, forecast, anomaly): what Experiments and Home list. |
+| `GET /api/runs?kind=all` | Every run with its `kind` (tabular, import, forecast, anomaly): what Models and Home list. |
 
 ### Autopilot API (S7)
 
@@ -451,31 +462,32 @@ src/
 │   ├── routes.ts                routes, titles, sidebar order
 │   └── shell/                   Sidebar, ContextBar, StatusBar, CommandPalette (+ shell.css)
 ├── features/                    one folder per page
-│   ├── home/                    HomePage · components/ToolCard
+│   ├── home/                    HomePage, LiveHome
 │   ├── quick-train/             New Model wizard: QuickTrainPage · wizard.ts (choices, metrics with formulas, presets)
 │   │                              components/{DatasetStep, TargetStep, GoalStep} · datasets.ts
 │   │                              race/{useRace (events → state, readable playback), RaceStage, ModelString, EnsembleMerge,
 │   │                                StackEquation, mockRun (mock mode's simulated run)}
 │   │                              results/{ResultsStep, MetricCards, Leaderboard (+ ScoreScatter, ModelCard), Diagnostics
-│   │                                (ClassReport, Residuals, TopWords), CustomEnsemble, TryPrediction, stats (metrics, bootstrap)}
+│   │                                (ClassReport, TopWords: mock mode), CustomEnsemble, TryPrediction, stats (metrics, bootstrap)}
 │   ├── autopilot/               AutopilotPage · components/{BriefStep, IterationString, RequirementGauge, DecisionLog,
 │   │                              GroundTruthInbox, DataChanges} · run.tsx (the scripted run)
 │   ├── training-gym/            TrainingGymPage · components/{Hyperparameters, ConfigBlock, ClassBalance, PipelineCard,
 │   │                              ValidationCurve, FitEstimate, ConsoleDock, StepSummary} · params.ts
-│   ├── experiments/             ExperimentsPage (live → LiveExperiments; mock → the simulated runs) · components/{RunTable (mock),
-│   │                              RunCoordinates, CompareRuns, ParamDiff}
-│   ├── explain/                 ExplainPage · components/{Curves (ROC, PR, calibration, per-class), ThresholdPanel, Importance,
-│   │                              ShapPanel, Errors (worst rows, residuals), FairnessPanel}
+│   ├── models/                  ModelsPage (the list; ?run= → RunPage: Results, Explain, Doctor) · RunList · tabs.ts
+│   │                              components/{RunTable (mock), RunCoordinates, CompareRuns, ParamDiff}
+│   │                              explain/ExplainTab · explain/components/{Curves, ThresholdPanel, Importance, ShapPanel,
+│   │                                Errors, FairnessPanel, FairLendingPanel, DoctorPanel, SlicesPanel, ShiftPanel, …}
 │   ├── registry/                RegistryPage
 │   ├── settings/                SettingsPage · components/SettingRow
 │   └── vela/                    VelaSidecar · components/PatchCard (the assistant panel, shown on every page)
 └── shared/
     ├── primitives/              fundamentals: one small thing each, no layout of their own
     │                              StatusPill, ParamChip, Segmented, Tabs, NumberInput, Icon, VelaCrest,
-    │                              ResonanceWave, SparkWave, PluckString, ToolGlyph
+    │                              ResonanceWave, SparkWave, PluckString
     ├── components/              larger pieces composed from primitives
     │                              FretSlider, PlotFrame, LineChart, XYPlot (real-valued axes, hover, marks),
-    │                              ConfusionMatrix, StringPlot, TopWords, Graph, RunString, StringField
+    │                              ConfusionMatrix, StringPlot, TopWords, Graph, RunString, StringField,
+    │                              KindFlow (the credit flows' setup and run), KindResults (their results, shared with Registry)
     ├── api/                     the typed API client, its types, and the live/mock mode provider (useApi)
     ├── hooks/                   useWidth
     ├── lib/                     prefs (saved settings), tools (the toolkit list), random, format, metrics (metrics with

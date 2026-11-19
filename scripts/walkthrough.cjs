@@ -83,11 +83,12 @@ async function main() {
     const metric = run.eval_metric.name
     const score = run.holdout.metrics[metric]
     // 6. Explain (every tab this run has)
-    await go(`explain?run=${runId}`)
-    await page.getByRole('tab').first().waitFor({ timeout: 60_000 })
-    const tabs = await page.getByRole('tab').allTextContents()
+    // G11: Explain is a tab of the run page in Models; walk its views (the Explain group, then Advanced)
+    await go(`models?run=${runId}&tab=Explain`)
+    await page.getByTestId('explain').waitFor({ timeout: 60_000 })
+    const tabs = await page.locator('[data-testid=explain] [role=tab]').allTextContents()
     for (const [i, t] of tabs.entries()) {
-      await page.getByRole('tab', { name: t, exact: true }).click()
+      await page.goto(`${UI}/#/models?run=${runId}&tab=Explain&sub=${encodeURIComponent(t)}`)
       await page.waitForTimeout(t.includes('SHAP') ? 9000 : 2500)
       await shot(`${f.tag}-07-explain-${i + 1}-${t.toLowerCase().replace(/[^a-z]+/g, '-')}`)
     }

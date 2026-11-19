@@ -8,6 +8,26 @@ Every number below was measured on this build (4 CPUs, 16 GB) with the seeded sa
 API calls the UI makes (`backend/.venv/bin/python scripts/demo_numbers.py`, 70 s, prints each number in order). The
 fits are deterministic for these configs; the threshold, the learning curve and the timings can move in the last digits.
 
+## Where things are (G11)
+
+The sidebar has five places: **Home**, **Build**, **Models**, **Registry** and **Vela**. Settings is the gear in the
+sidebar footer.
+
+- **Build** is where every model starts: upload a table or pick a sample, Smart Intake shows each column's role and
+  what you can build. New Model, Forecast, Anomaly, Import and the credit flows (expected loss, segmented, survival,
+  reject inference, multi-label) open from its suggestions, pre-filled. **Advanced** opens the Training Gym.
+- **Models** lists every run. A run's page has three tabs:
+  - **Results**: metrics, leaderboard, cost and split comparisons, and **Register…**;
+  - **Explain**: Performance, Errors, Features & SHAP, Fairness (fair lending included), and an **Advanced** group
+    with Threshold, Monotonicity, Scorecard and Text;
+  - **Doctor**: Model Doctor, Weak Slices, Shift, Learning Curve and Labels.
+- **Registry**: versions, reviews, the model card, Try It, reason codes, batch scoring and drift, monitoring and the
+  credit report.
+- **Vela**: ask the agent in plain language, or **Run it end to end** (Autopilot).
+
+Old links (`#/experiments`, `#/explain?run=…&tab=…`, `#/autopilot`, `#/forecast?run=…` and the other per-flow
+`?run=` links) still work: they redirect to the new places.
+
 ## Before the audience arrives (10 minutes)
 
 1. `make dev`, then `make reset` (an empty workbench; the samples regenerated). Open http://localhost:5190 at 1920×1080
@@ -18,7 +38,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
      ROC AUC → Advanced:
      `{"hyperparameters": {"GBM": {"num_boost_round": 200}, "LR": {}}}` → Start Training (≈ 20 s).
    - Again with `{"hyperparameters": {"XGB": {"n_estimators": 200}}}`: the challenger.
-   - Model Registry → Register both (model name `loan-stream`). As **Riley Review**: approve the first → **Production**,
+   - Registry → Register both (model name `loan-stream`). As **Riley Review**: approve the first → **Production**,
      the second → **Staging**. Back as Dana.
    - **Expect:** champion holdout AUC **0.7765 [0.7495, 0.8034]**.
    - Do not skip *ignore* on `application_date`. Kept as a feature, every 2025 batch lies outside the training dates,
@@ -34,7 +54,8 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 
 ## 1:00 – 3:30 · 1. Out of time, not at random
 
-1. **New Model →** pick the sample **credit-default** (12,000 applications 2022–2024, 8,074 customers, 7.4 % default,
+1. **Build →** pick the sample **credit-default** → **Yes/no classifier** (New Model opens pre-filled), or Build's
+   New Model choice (12,000 applications 2022–2024, 8,074 customers, 7.4 % default,
    drifting from 5.6 % to 9.6 %).
 2. **Continue →** target **defaulted**, **Confirm The Target**. In the column list set `customer_id` and
    `application_date` to **ignore**: neither may become a reason for declining someone.
@@ -54,7 +75,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 
 ## 3:30 – 5:30 · 2. Train on what a mistake costs · 3. Monotone where policy demands it
 
-1. On the out-of-time run's Results: **Tune In Gym →** (the Gym opens with the run's exact body).
+1. On the out-of-time run's Results: **Advanced** (the Training Gym opens with the run's exact body).
 2. **Goal** step → **Business cost** card → **on**: c<sub>FP</sub> = 1, c<sub>FN</sub> = 10 (a missed default costs ten
    wrongly declined applicants). **Expect:** t* = c<sub>FP</sub> / (c<sub>FP</sub> + c<sub>FN</sub>) = **0.091**. The
    **Validation split** card above it already says **out-of-time** (the run's split is kept).
@@ -67,13 +88,13 @@ fits are deterministic for these configs; the threshold, the learning curve and 
      **Δ = +154.6 per 1,000 [+86.2, +225.9]**, paired on the same 2,400 holdout applications.
    - **Say:** "Same data, same models. Optimising the bank's cost instead of a textbook metric saves about 155 per
      thousand decisions, and the interval says it is not luck."
-5. **Explain → Explain group → Monotonicity**. **Expect:** **0 of 200** ICE curves of the served model go down in
+5. The run's **Explain** tab → **Advanced → Monotonicity**. **Expect:** **0 of 200** ICE curves of the served model go down in
    debt_to_income; partial dependence rises monotonically (range 0.09). "Policy says more debt never lowers the risk.
    It is enforced by construction and checked on a grid."
 
 ## 5:30 – 7:30 · 4. Why this applicant was declined
 
-1. **Register Model Version** (Results). Model name `demo.credit-default` → **Register version →** (≈ 20 s).
+1. **Register…** (Results). Model name `demo.credit-default` → **Register version →** (≈ 20 s).
 2. Version → **Reason Codes** tab: the mapping table (feature → plain-English statement, editable, audited).
 3. **Try It** on a declined applicant (p̂ ≥ t). **Expect** for the first adverse holdout row: p = **0.093** and the
    four reasons **R09 debt_to_income · R12 months_employed · R03 income_usd · R10 utilization**, each a feature
@@ -88,7 +109,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 
 ## 7:30 – 9:00 · 5. Better than the scorecard?
 
-1. **Explain → Explain group → Scorecard** (trained beside the ensemble by default on binary labels).
+1. The run's **Explain** tab → **Advanced → Scorecard** (trained beside the ensemble by default on binary labels).
    - **Expect:** a 9-feature scorecard (binning → WoE → logistic regression → points, PDO 20, 600 at 50:1) with its
      table, IV per feature and the CSV export.
    - **Expect:** ΔAUC (served − scorecard) = **+0.0010 [−0.0000, +0.0020]**: AUC 0.6987 vs 0.6977.
@@ -97,11 +118,11 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 
 ## 9:00 – 11:00 · 6. Do we need more data? · 7. What limits this model?
 
-1. **Explain → Diagnose group → Learning Curve → Run the learning curve** (9 fits, ≈ 40–60 s).
+1. The run's **Doctor** tab → **Learning Curve → Run the learning curve** (9 fits, ≈ 40–60 s).
    - **Expect:** points at n = 768 / 1,919 / 3,838 / 7,675 and the power-law fit with 2N and 4N extrapolations. Verdict
      **noisy**: the gain per doubling is +0.02 with a 95 % CI from 0 to 0.04 (expected cost per decision, lower is
      better). "The seeds disagree too much to promise that more data helps; 5 seeds in Advanced would tell."
-2. **Model Doctor** (same group). **Expect:** primary **Overfitting (minor)**: validation −0.593 vs holdout −0.779
+2. **Model Doctor** (same tab). **Expect:** primary **Overfitting (minor)**: validation −0.593 vs holdout −0.779
    (expected cost, higher is better on this scale), 4.4× the noise. Checks To Run: **shift** and **weak slices** are
    offered with one click each; the learning curve is now read as *no evidence*.
    - **Say:** "One fixed procedure over every check the workbench has, the same one Autopilot uses to choose its next
@@ -110,7 +131,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 
 ## 11:00 – 14:00 · 8. Watching it in production
 
-1. **Model Registry →** `loan-stream` (Production) → **Monitoring** tab.
+1. **Registry →** `loan-stream` (Production) → **Monitoring** tab.
 2. **Champion · Challenger**: the Staging XGBoost is set as challenger (Set Challenger).
 3. **Sample Stream · 2025 → Feed the rest** (12 monthly batches of 1,200 applications, scored and shadow-scored,
    ≈ 20 s; labels arrive 3 months later).
@@ -123,7 +144,40 @@ fits are deterministic for these configs; the threshold, the learning curve and 
      no reason to switch, and nothing is promoted automatically.
 4. **Retrain Proposal** → **Launch Retrain Run**: the same config on the latest labelled window (2025-04-01 … 2025-09-30,
    7,200 rows). On its newest 1,464 rows the champion scores AUC **0.7510**, the retrained run **0.7739**.
-5. Back in **Explain → Model Doctor** of the champion run: **Shift (critical)**, prescription **Retrain On Recent Data**.
+5. Back in **Models →** the champion run → **Doctor**: **Shift (critical)**, prescription **Retrain On Recent Data**.
+
+## Optional · the credit-risk add-on (about 5 minutes)
+
+For a credit-risk audience that wants more than the core story. Each step stands alone.
+
+1. **Recourse.** Registry → the `demo.credit-default` version → **Try It** on a declined applicant.
+   - Under the reason codes: **What would change the decision**, the smallest realistic changes (re-scored by the served
+     model) that flip the decline. Fixed columns (age, region, IDs) are never changed.
+   - Codes on geography or protected characteristics carry a **not for adverse-action notices** tag: they explain
+     the model but cannot be given as a reason.
+2. **The credit report.** Same version → **Credit Report**: Gini and KS by month, score bands, PSI/CSI and vintage
+   curves, exportable for the model-risk file.
+3. **Expected loss and stress.** **Build** → sample **loan-losses** → **Expected loss (PD × LGD × EAD)** → **Train PD,
+   LGD and EAD →**. On the run page: ΣEL against the realised loss on the holdout with its 95 % interval, by segment,
+   then **Stress** → add a scenario (e.g. `income_usd` −10 %) → **Run scenario**: ΣEL stressed against the base, per
+   segment.
+4. **Fair lending.** Build → sample **fair-lending** → Yes/no classifier → train. On the run page: **Explain →
+   Fairness**: BISG proxy groups from surname and zip, the adverse impact ratio per group against the four-fifths rule.
+   The Model Doctor's **Also Worth Checking** card links here too, and to segmented models, reject inference and
+   recourse when they apply.
+
+## Optional · the Vela agent (about 2 minutes)
+
+1. **Vela → Ask Vela.** Type: *"Train a default model on credit_default.csv with an out-of-time split, run the Model
+   Doctor, apply its fix and compare the two runs. Keep each training to about 60 seconds."*
+2. **Expect:** step cards, one per tool call (the tool, its arguments, the result and a link to the page it touched).
+   Reads run at once. Anything that changes state (training, the Gym patch, registering) stops on a confirm card with
+   the exact call: click **Run It** or **Skip**.
+3. **Say:** "The agent uses the workbench's own API, one typed tool at a time. It can request an approval, but it
+   cannot approve or promote: that stays human. Every call is in the audit log as *Vela agent on behalf of* you, and
+   every number in its answer is checked against the tool results."
+4. Ask: *"Why was applicant C-500123 declined by the latest version, and what would change it?"* Reason codes and
+   counterfactuals, no confirmation needed (reads only).
 
 ## 14:00 – 15:00 · Close
 
@@ -182,7 +236,7 @@ round 2 (e.g. the anomaly forest now finds 13/18 bursts, P@90 0.80, and forecast
 
 ### 3:15 – 4:45 · Explain: the decision a fraud team actually makes
 
-1. **Explain this model →**, tab **Threshold**.
+1. The run's **Explain** tab → **Advanced → Threshold**.
    - **Expect at t = 0.143:** TP 23, FP 36, FN 27, TN 2,314 → precision 0.39, recall 0.46, F₁ 0.42, 2.5% flagged.
    - Set the costs **c_FP = 1, c_FN = 20** (a missed fraud costs 20 reviews). The cost curve's minimum moves to t ≈ 0.03,
      and the Bayes line sits at c_FP / (c_FP + c_FN) = 0.048.
@@ -194,7 +248,7 @@ round 2 (e.g. the anomaly forest now finds 13/18 bursts, P@90 0.80, and forecast
 
 ### 4:45 – 6:45 · Register, approve, use
 
-1. **Register Model Version** (from the results or Experiments). Type your name in *acting as* (e.g. Dana Dev).
+1. **Register…** (from the run's Results, or Models). Type your name in *acting as* (e.g. Dana Dev).
    - **Expect:** the latency · score frontier, every model measured on 1,000 holdout rows, and the **one-row latency**
      box: τ₉₅ of the ensemble per single-row call.
    - **Say:** "Batch µs per row hides what an online API waits for; this is the 95th percentile of real one-row calls.
@@ -212,7 +266,7 @@ round 2 (e.g. the anomaly forest now finds 13/18 bursts, P@90 0.80, and forecast
 
 ### 6:45 – 8:00 · Anomalies with no labels, and a fix measured honestly
 
-1. **Anomaly Detection** (sidebar). The card-transactions sample is selected, with **group-relative features** on
+1. **Build → Find unusual rows** (Anomaly). The card-transactions sample is selected, with **group-relative features** on
    (entity `card_id`, time `timestamp`, amount `amount_usd`). Point at r = x / x̄ₑ,₋ᵢ and z within the card.
 2. **Find Anomalies** (≈ 6 s).
    - **Expect:** 90 flagged at s* = 0.550 (c = 1.5%); against the hidden planted truth (sample only):
@@ -224,7 +278,7 @@ round 2 (e.g. the anomaly forest now finds 13/18 bursts, P@90 0.80, and forecast
 
 ### 8:00 – 9:15 · Forecasting with intervals you can audit
 
-1. **New Forecast**: the transaction-volume sample (6 series × 730 days, holidays and paydays as known covariates).
+1. **Build → Forecast**: the transaction-volume sample (6 series × 730 days, holidays and paydays as known covariates).
    Set presets **fast_training** and hyperparameters
    `{"SeasonalNaive": {}, "ETS": {}, "DirectTabular": {}, "Chronos": {"model_path": "bolt_tiny"}}`, num_val_windows 2,
    then **Start** (≈ 20 s).
@@ -238,7 +292,7 @@ round 2 (e.g. the anomaly forest now finds 13/18 bursts, P@90 0.80, and forecast
 
 ### 9:15 – 10:00 · Close: open, auditable, not a black box
 
-- **Experiments**: every run of every kind in one table with a type filter (binary, multiclass, regression,
+- **Models**: every run of every kind in one table with a type filter (binary, multiclass, regression,
   forecast, anomaly, imported), each with its own metric.
 - **Training Gym**: every `fit()` argument, validated by the server; *Export.py* reproduces any run with plain
   AutoGluon and checks the leaderboard model by model.

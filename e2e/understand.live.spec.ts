@@ -40,7 +40,7 @@ test('explain: curves, the decision threshold, importance, SHAP, errors and fair
   expect(run.threshold!.source).toBe('calibrated')
   const t = run.threshold!.value
 
-  await open(page, `explain?run=${run.id}`)
+  await open(page, `models?run=${run.id}&tab=Explain`)
   await expect(page.getByTestId('explain')).toHaveAttribute('data-run', run.id)
   await expect(page.getByTestId('explain-primary')).toHaveText(fmt(run.holdout.metrics.roc_auc))
   await expect(page.getByTestId('explain-threshold')).toHaveText(t.toFixed(3))
@@ -55,6 +55,7 @@ test('explain: curves, the decision threshold, importance, SHAP, errors and fair
   for (const row of ex.confusion_matrix as number[][]) for (const v of row) await expect(cm).toContainText(String(v))
 
   // Threshold: the readout equals the API's analysis at the run's t; moving the slider reads the API's grid
+  await page.getByTestId('tab-group-Advanced').click() // G11: Threshold is under Explain → Advanced
   await page.getByRole('tab', { name: 'Threshold' }).click()
   const a = await get(page, `/api/runs/${run.id}/threshold?cost_fp=1&cost_fn=5`)
   await expect(page.getByTestId('thr-t')).toHaveText(t.toFixed(3))
@@ -81,6 +82,7 @@ test('explain: curves, the decision threshold, importance, SHAP, errors and fair
   await expect(page.getByTestId('explain-threshold')).toHaveText(after.threshold.value.toFixed(3))
 
   // Features & SHAP: permutation importance with its intervals, and a waterfall that adds up to f(x)
+  await page.getByTestId('tab-group-Explain').click()
   await page.getByRole('tab', { name: 'Features & SHAP' }).click()
   await expect(page.getByTestId('importance')).toBeVisible({ timeout: 180_000 })
   const fi = await get(page, `/api/runs/${run.id}/feature-importance`)
@@ -121,13 +123,13 @@ test('explain: curves, the decision threshold, importance, SHAP, errors and fair
   expect(errors).toEqual([])
 })
 
-test('experiments: real runs, filters, parallel coordinates, comparison and parameter diff', async ({ page, errors }) => {
+test('models: real runs, filters, parallel coordinates, comparison and parameter diff', async ({ page, errors }) => {
   test.setTimeout(420_000)
   const a = await train(page.request, { ...CREDIT_FAST, calibrate_threshold: 'f1' })
   const b = await train(page.request, { dataset_id: 'credit-default', eval_metric: 'roc_auc', time_limit: 90, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 120 }, KNN: {} } } })
   const c = await train(page.request, { dataset_id: 'loan-amount', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
 
-  await open(page, 'experiments')
+  await open(page, 'models')
   await expect(page.getByTestId('experiments-live')).toBeVisible()
   for (const r of [a, b, c]) {
     await expect(page.getByTestId(`exp-row-${r.id}`)).toBeVisible()
@@ -183,7 +185,7 @@ test('experiments: real runs, filters, parallel coordinates, comparison and para
 
 test('status bar shows the real machine, versions and the active run', async ({ page, errors }) => {
   test.setTimeout(240_000)
-  await open(page, 'experiments')
+  await open(page, 'models')
   const st = await get(page, '/api/status')
   await expect(page.getByTestId('sb-cpu')).toContainText(`${st.cpu_count} CPUs`)
   await expect(page.getByTestId('sb-version')).toHaveText(`ENSEMBLE ${st.version}`)

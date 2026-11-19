@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
 import { useApi } from '@/shared/api/mode'
 import type { DoctorAction, Run } from '@/shared/api/types'
@@ -62,6 +62,7 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
   const [tab, setTab] = useTabParam<Tab>(TABS, 'Results')
   const subParam = useHashParam('sub')
   const [sub, setSub] = useState<string>(() => tabOfSub(subParam)?.sub ?? '')
+  useEffect(() => { const to = tabOfSub(subParam); if (to) setSub(to.sub) }, [subParam]) // a redirect or a link while open
   const q = new URLSearchParams(location.hash.split('?')[1] ?? '')
   const [extra, setExtra] = useState<Record<string, string>>(() => Object.fromEntries(['slice', 'group'].flatMap((k) => (q.get(k) ? [[k, q.get(k)!]] : []))))
   const done = run.status === 'succeeded'

@@ -107,7 +107,7 @@ test('gym: configure in Advanced, train, apply a Vela patch, retrain, compare', 
 
   await page.getByTestId('see-results').click()
   await page.getByTestId('results-compare-parent').click()
-  await expect(page).toHaveURL(/#\/experiments\?compare=/)
+  await expect(page).toHaveURL(/#\/models\?compare=/)
   const cmp = page.getByTestId('exp-patch-compare')
   await expect(cmp).toContainText(parentId)
   await expect(cmp).toContainText(childId)

@@ -48,7 +48,7 @@ test('registry: register the winner, approve, promote, card, Try It, batch score
   const run = await train(page.request, { dataset_id: 'credit-default', eval_metric: 'roc_auc', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
 
   // Register from the Experiments row
-  await open(page, 'experiments')
+  await open(page, 'models')
   await page.getByTestId(`exp-register-${run.id}`).click()
   await expect(page.getByTestId('register-panel')).toBeVisible()
   await page.getByTestId('actor').fill('Dana Dev')
