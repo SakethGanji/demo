@@ -366,7 +366,17 @@ def _card(request: Request, vid: str) -> dict[str, Any]:
     run = request.app.state.runs.get(v["run_id"])
     ds = request.app.state.db.get_dataset(run["dataset_id"])
     return card.build_card(v, run, ds, list(reversed(reg.audit_log(version_id=vid))), reg.list_batches(vid),
-                           reasons=_reasons_for_card(request, v, run), recourse=_recourse_for_card(request, v, run))
+                           reasons=_reasons_for_card(request, v, run), recourse=_recourse_for_card(request, v, run),
+                           credit_report=_credit_for_card(v, run))
+
+
+def _credit_for_card(v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
+    """G2: the card's link to the credit-risk report and its last headline (no recompute)."""
+    if not _is_binary(v, run):
+        return None
+    from .credit_report_api import card_section
+
+    return card_section(v)
 
 
 def _recourse_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:

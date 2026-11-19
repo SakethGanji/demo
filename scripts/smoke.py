@@ -4529,6 +4529,146 @@ def monitor(st: dict[str, Any]) -> None:
 
     step("monitor: the retrain proposal launches a run", retrain)
 
+def credit(st: dict[str, Any]) -> None:
+    """G2: the credit-risk model report on the F18 stream, zero-config. The loan-stream intake pre-fill (target, time
+    split on application_date, dropped id) trains a quick GBM with the F7 cost; it is registered and fed the 12 stream
+    months (labels arrive 3 months late). Asserts the acceptance: Gini by month with DeLong CIs (9 labelled months),
+    CSI flags debt_to_income from 2025-07 (and on no earlier month), vintage curves for ≥ 6 cohorts. Also: the band
+    and decile tables add up, Gini = 2·AUC − 1 on the pooled batches recomputed from the rows, the Q3/Q4-2025 cohorts
+    (the concept change) run above Q1/Q2, the Markdown/HTML export, the model card link, the Build suggestion, and a
+    tape upload whose columns come from the roles (then removed)."""
+    ds, label, model = "loan-stream", "defaulted", "smoke.credit-report"
+    s: dict[str, Any] = {}
+
+    def train_feed():
+        it = get(f"/api/datasets/{ds}/intake")
+        pf = next(x for x in it["suggestions"] if x["id"] == "binary")["prefill"]
+        check(pf["target"] == label and pf["split"] == "time" and pf["time"] == "application_date", pf)
+        body = {"dataset_id": ds, "label": label, "problem_type": "binary", "presets": "medium_quality", "time_limit": 120,
+                "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 200}}}, "drop_columns": pf.get("drop", []) + [pf["time"]],
+                "feature_importance": False, "split_spec": {"strategy": "time", "time_column": pf["time"]},
+                "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto", "source": "smoke-credit"}
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": model})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        t0 = time.time()
+        for m in range(1, 13):
+            r = post(f"/api/registry/versions/{v['id']}/monitoring/stream", {"month": m, "actor": "Smoke Ops"})
+            b = _mo_batch(r["batch"]["id"])
+            check(b["status"] == "succeeded", b.get("error"))
+        s.update(vid=v["id"], run=rec)
+        return f"intake pre-fill → {rec['id']} → {v['id']} (t = {v['result']['version']['decision_threshold']:.4f}) · 12 months fed in {time.time() - t0:.0f} s"
+
+    if not step("credit: zero-config run, registered, 12 stream months fed", train_feed):
+        return
+    vid = s["vid"]
+
+    def report():
+        t0 = time.time()
+        r = get(f"/api/registry/versions/{vid}/credit-report")
+        secs = time.time() - t0
+        check(r["schema"] == "credit-report/1", r.get("schema"))
+        d = r["detected"]
+        check(d["date"]["column"] == "application_date" and d["id"]["column"] == "application_id", d)
+        bm = [p for p in r["periods"] if p["source"] == "batch"]
+        check([p["period"] for p in bm] == [f"2025-{k:02d}" for k in range(1, 10)], [p["period"] for p in bm])
+        check([p["period"] for p in r["pending"]] == ["2025-10", "2025-11", "2025-12"], r["pending"])
+        for p in r["periods"]:
+            check(p.get("gini_ci") and p["gini_ci"][0] < p["gini"] < p["gini_ci"][1], (p["period"], p.get("gini"), p.get("gini_ci")))
+            check(abs(p["gini"] - (2 * p["auc"] - 1)) < 1e-9 and p["ks_ci"][0] <= p["ks"] <= p["ks_ci"][1], p["period"])
+        # independent: Gini and KS of the pooled labelled batches from the rows
+        data = os.path.join(get("/api/health")["data_dir"], "registry", "batches")
+        ys, ps = [], []
+        for p in bm:
+            for bid in p["batches"]:
+                lab = pd.read_csv(os.path.join(data, bid, "labels.csv"))
+                sc = pd.read_csv(os.path.join(data, bid, "scored.csv"))
+                ys.append((lab["y"].astype(str) == r["positive_class"]).astype(int).to_numpy())
+                ps.append(sc[f"p_{r['positive_class']}"].to_numpy()[lab["row"].to_numpy()])
+        y, pp = np.concatenate(ys), np.concatenate(ps)
+        from sklearn.metrics import roc_auc_score, roc_curve
+
+        fpr, tpr, _ = roc_curve(y, pp)
+        g, ks = 2 * roc_auc_score(y, pp) - 1, float(np.max(tpr - fpr))
+        ob = r["overall"]["batches"]
+        check(abs(ob["gini"] - g) < 1e-6 and abs(ob["ks"] - ks) < 1e-6 and ob["n"] == 9 * 1200, (ob["gini"], g, ob["ks"], ks))
+        # bands and deciles add up
+        b = r["bands"]
+        check(sum(x["n"] for x in b["rows"]) == b["n"] and abs(b["rows"][-1]["cum_capture"] - 1) < 1e-9, "band totals")
+        dec = r["deciles"]
+        check(sum(x["n"] for x in dec) == b["n"] and dec[0]["bad_rate"] > 2 * dec[-1]["bad_rate"], [x["bad_rate"] for x in dec])
+        # CSI flags debt_to_income from 2025-07, on no earlier month
+        cs = r["stability"]["csi"]
+        dti = next(f for f in cs["features"] if f["feature"] == "debt_to_income")
+        csi = dict(zip(cs["periods"], dti["csi"]))
+        check(dti["first_shift"] == "2025-07" and dti["stays_flagged"], dti)
+        check(all(v < 0.25 for k, v in csi.items() if k < "2025-07"), csi)
+        check(r["stability"]["first_flag"]["feature"] == "debt_to_income", r["stability"]["first_flag"])
+        # vintage curves
+        vin = r["vintage"]
+        co = vin["cohorts"]
+        check(len(co) >= 6, len(co))
+        for c in co:
+            ys_ = [x["cum_bad_rate"] for x in c["curve"]]
+            check(all(a <= b_ + 1e-12 for a, b_ in zip(ys_, ys_[1:])), f"{c['cohort']} not monotone")
+        at6 = {c["cohort"]: next(x["cum_bad_rate"] for x in c["curve"] if x["mob"] == 6) for c in co if c["observed_mob"] >= 6}
+        early = np.mean([at6[k] for k in ("2025Q1", "2025Q2")])
+        late = np.mean([at6[k] for k in ("2025Q3", "2025Q4") if k in at6])
+        check(late > early, (early, late))
+        s["r"] = r
+        g9 = " · ".join(f"{p['period'][2:]} {p['gini']:.3f} [{p['gini_ci'][0]:.3f}, {p['gini_ci'][1]:.3f}]" for p in bm)
+        h = r["overall"]["holdout"]
+        return (f"{secs:.1f} s · holdout Gini {h['gini']:.3f} [{h['gini_ci'][0]:.3f}, {h['gini_ci'][1]:.3f}], KS {h['ks']:.3f} · "
+                f"Gini by month: {g9} · pooled batches Gini {g:.4f}, KS {ks:.4f} (recomputed) · decile bad rate {dec[0]['bad_rate']:.3f} → "
+                f"{dec[-1]['bad_rate']:.3f} · CSI debt_to_income: " + ", ".join(f"{k[2:]} {v:.2f}" for k, v in csi.items())
+                + f" → first shift {dti['first_shift']} · {len(co)} vintage cohorts ({vin['cohort_by']}), V(6) 2025H1 {early:.3f} vs H2 {late:.3f}")
+
+    if not step("credit: report (acceptance)", report):
+        return
+
+    def export_card_build():
+        md = C.get(f"/api/registry/versions/{vid}/credit-report", params={"format": "md"})
+        check(md.status_code == 200 and "# Model Performance Report" in md.text and "## 4. Vintage curves" in md.text, md.text[:200])
+        ht = C.get(f"/api/registry/versions/{vid}/credit-report", params={"format": "html", "download": "true"})
+        check(ht.status_code == 200 and "<h2>3. Stability</h2>" in ht.text and "attachment" in ht.headers.get("content-disposition", ""), ht.status_code)
+        card = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Credit model performance report" in card and "credit-report?format=html" in card, "card link")
+        sug = next((x for x in get(f"/api/datasets/{ds}/intake")["suggestions"] if x["id"] == "credit_report"), None)
+        check(sug and sug["route"] == "registry" and sug["prefill"]["tab"] == "Credit Report", sug)
+        bad = C.get("/api/registry/versions/nope/credit-report")
+        check(bad.status_code == 404, bad.status_code)
+        return (f"Markdown {len(md.text):,} chars, HTML {len(ht.text):,} chars (download) · model card links it · Build suggests "
+                f"'{sug['title']}' ({sug['score']:.0f}) → registry tab Credit Report · unknown version 404")
+
+    step("credit: export, model card, Build suggestion", export_card_build)
+
+    def tape():
+        rows = []
+        rng = np.random.default_rng(2)
+        for m in range(1, 9):
+            for i in range(150):
+                bad = rng.random() < 0.1
+                rows.append({"loan_ref": f"T{m}-{i}", "open_date": f"2023-{m:02d}-15",
+                             "default_date": f"2023-{min(m + 1 + i % 6, 12):02d}-10" if bad else "", "as_of_date": "2023-12-31"})
+        csv = pd.DataFrame(rows).to_csv(index=False).encode()
+        bad = C.post(f"/api/registry/versions/{vid}/credit-report/tape", files={"file": ("t.csv", b"a,b\n1,2\n")}, data={"actor": "Smoke"})
+        check(bad.status_code == 400, bad.status_code)
+        r = j(C.post(f"/api/registry/versions/{vid}/credit-report/tape", files={"file": ("tape.csv", csv)}, data={"actor": "Smoke Analyst"}))
+        mp = r["tape"]["mapping"]
+        check(mp["open"] == "open_date" and mp["default"] == "default_date" and mp["until"] == "as_of_date", mp)
+        v2 = get(f"/api/registry/versions/{vid}/credit-report")["vintage"]
+        check(v2["source"]["kind"] == "uploaded" and v2["cohort_by"] == "month" and len(v2["cohorts"]) == 8, (v2["source"], len(v2["cohorts"])))
+        d = C.delete(f"/api/registry/versions/{vid}/credit-report/tape", params={"actor": "Smoke Analyst"})
+        check(d.status_code == 200, d.status_code)
+        v3 = get(f"/api/registry/versions/{vid}/credit-report")["vintage"]
+        check(v3["source"]["kind"] == "sample", v3["source"])
+        return f"columns from the roles: {mp['open']}, {mp['default']}, {mp['until']} · {len(v2['cohorts'])} monthly cohorts · bad tape 400 · removed → sample tape again"
+
+    step("credit: tape upload (roles → columns), then removed", tape)
+
+
 def _dr_evidence(kind: str, ev: dict[str, Any]) -> str:
     if kind == "leakage":
         su = ev["suspects"][0]
@@ -4589,7 +4729,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

@@ -466,6 +466,23 @@ def _recourse(ctx: Ctx):
             {"version": v["id"], "tab": "Reason Codes"})
 
 
+def _credit_report(ctx: Ctx):
+    """G2: the standard credit model report (Gini/KS by month, score bands, PSI/CSI, vintage curves) of a registered
+    yes/no model of this table. Strongest with a date column (by-month tables) and a default-like target."""
+    if _task_of(ctx) != "binary":
+        return None
+    match = [v for v in ctx.versions if v.get("label") in (None, ctx.target)]
+    if not match:
+        return None
+    v, date = match[0], ctx.first("date")
+    risk = re.search(r"default|delinq|arrear|bad", ctx.target, re.I)
+    return (68 if risk and date else 50,
+            f"A model performance report for {v['model_name']} v{v['version']}: Gini and KS "
+            f"{f'by month of {date}' if date else 'by scored batch'}, score bands with bad rate, capture and lift, PSI of "
+            f"the score and CSI per feature, and vintage curves. Opens the Credit report tab.",
+            {"version": v["id"], "tab": "Credit Report"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -477,6 +494,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("forecast", "Forecast", "forecast", _forecast),
     Suggestion("anomaly", "Find unusual rows", "anomaly", _anomaly),
     Suggestion("recourse", "What would change the decision", "registry", _recourse),  # G1
+    Suggestion("credit_report", "Credit model report", "registry", _credit_report),  # G2
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 

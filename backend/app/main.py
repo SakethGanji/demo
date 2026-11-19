@@ -26,6 +26,7 @@ from .engine import active_learning_api, annotations_api, learning_curve_api, sh
 from .engine.pool import HeavyPool
 from .registry import api as registry_api
 from .registry import monitoring_api
+from .registry import credit_report_api
 from .registry.store import RegistryStore
 from .engine.serving import PredictorCache
 from .engine.store import RunStore
@@ -242,6 +243,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(anomaly_api.router)
     app.include_router(registry_api.router)
     app.include_router(monitoring_api.router)
+    app.include_router(credit_report_api.router)
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)
     app.include_router(autopilot_api.router)

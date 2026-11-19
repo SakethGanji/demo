@@ -82,7 +82,7 @@ def fit_call(resolved: dict[str, Any], cls: str = "TabularPredictor") -> str:
 
 def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, Any] | None,
                audit: list[dict[str, Any]], batches: list[dict[str, Any]], reasons: dict[str, Any] | None = None,
-               recourse: dict[str, Any] | None = None) -> dict[str, Any]:
+               recourse: dict[str, Any] | None = None, credit_report: dict[str, Any] | None = None) -> dict[str, Any]:
     res = run.get("result") or {}
     cfg = run["config"]
     vres = version.get("result") or {}
@@ -198,6 +198,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "quantile": _quantile_section(cfg, res, vres),
         "reasons": _reasons_section(reasons, batches),
         "recourse": recourse,
+        "credit_report": credit_report,
         "scorecard": _scorecard_section(res),
         "diagnostics": _diagnostics_section(cfg, res),
     }
@@ -489,6 +490,17 @@ def to_markdown(c: dict[str, Any]) -> str:
                   f"{ck['out_of_range']}; direction breaks: {ck['wrong_direction']}.", ""]
         else:
             L += ["Check: not run yet (Registry → version → Reason codes → Recourse → Run the check).", ""]
+    cr = c.get("credit_report")
+    if cr:
+        h = ((cr.get("last") or {}).get("headline")) or {}
+        L += ["**Credit model performance report**", ""]
+        if h:
+            ci = h.get("gini_ci") or [None, None]
+            L += [f"Last computed {cr['last'].get('computed_at')} UTC: holdout Gini {_fmt(h.get('gini'))} (95% CI {_fmt(ci[0])}–{_fmt(ci[1])}), "
+                  f"KS {_fmt(h.get('ks'))}, bad rate {_fmt(h.get('bad_rate'))}; {h.get('months') or 0} labelled months; "
+                  f"first CSI flag: {h.get('first_csi_flag') or 'none'}; {h.get('cohorts') or 0} vintage cohorts.", ""]
+        L += [f"Full report (rank ordering by month, score bands, deciles, PSI/CSI, vintage curves): "
+              f"[HTML]({cr['links']['html']}) · [Markdown]({cr['links']['md']}).", ""]
     scd = c.get("scorecard")
     if scd:
         d = scd["delta_auc"]
@@ -606,9 +618,14 @@ def _inline(s: str) -> str:
 
 
 def to_html(c: dict[str, Any]) -> str:
-    """The Markdown rendered by a small converter (headings, tables, code, quotes, lists, paragraphs)."""
-    md = to_markdown(c).splitlines()
-    out: list[str] = [f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(c['title'])}</title>"
+    return md_html(to_markdown(c), c["title"])
+
+
+def md_html(markdown: str, title: str) -> str:
+    """Markdown rendered by a small converter (headings, tables, code, quotes, lists, paragraphs). The model card and
+    G2's credit report export through it."""
+    md = markdown.splitlines()
+    out: list[str] = [f"<!doctype html><html><head><meta charset='utf-8'><title>{html.escape(title)}</title>"
                       f"<style>{CSS}</style></head><body>"]
     i = 0
     while i < len(md):
@@ -638,6 +655,8 @@ def to_html(c: dict[str, Any]) -> str:
             out.append(f"<h1>{_inline(ln[2:])}</h1>")
         elif ln.startswith("## "):
             out.append(f"<h2>{_inline(ln[3:])}</h2>")
+        elif ln.startswith("### "):
+            out.append(f"<h3>{_inline(ln[4:])}</h3>")
         elif ln.startswith("> "):
             out.append(f"<blockquote>{_inline(ln[2:])}</blockquote>")
         elif ln.startswith("- "):
