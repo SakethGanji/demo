@@ -1,0 +1,154 @@
+{
+ "ids": {
+  "champRun": "run_0a55da64",
+  "challRun": "run_db9245c3",
+  "champ": "mv_05028f76",
+  "chall": "mv_e1a814f9",
+  "A": "run_f5a71f12"
+ },
+ "steps": [
+  {
+   "name": "prep: loan-stream champion + challenger, registered, approved, staged",
+   "ok": true,
+   "s": 66
+  },
+  {
+   "name": "1 out-of-time vs random",
+   "ok": true,
+   "s": 30
+  },
+  {
+   "name": "2-3 Gym: cost + monotone, cost per 1,000, twin, monotonicity",
+   "ok": false,
+   "s": 36,
+   "error": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('gym-start')\u001b[22m\n"
+  },
+  {
+   "name": "4 register, reason codes, Try It, batch, model card",
+   "ok": false,
+   "s": 11,
+   "error": "page.waitForFunction: Target page, context or browser has been closed"
+  },
+  {
+   "name": "5 scorecard",
+   "ok": false,
+   "s": 0,
+   "error": "page.goto: Target page, context or browser has been closed"
+  },
+  {
+   "name": "6-7 learning curve, Model Doctor",
+   "ok": false,
+   "s": 0,
+   "error": "page.goto: Target page, context or browser has been closed"
+  },
+  {
+   "name": "8 monitoring: challenger, stream, alerts, retrain",
+   "ok": false,
+   "s": 0,
+   "error": "page.goto: Target page, context or browser has been closed"
+  }
+ ],
+ "checks": [
+  {
+   "step": "prep",
+   "what": "champion holdout ROC AUC",
+   "want": 0.7826,
+   "tol": 0.003,
+   "ok": true,
+   "seen": 0.7826
+  },
+  {
+   "step": "1",
+   "what": "random-split warning names application_date",
+   "want": "/'application_date' is a date/",
+   "ok": true,
+   "seen": "'application_date' is a date"
+  },
+  {
+   "step": "1",
+   "what": "rows per customer in the warning",
+   "want": 1.49,
+   "tol": 0.005,
+   "ok": true,
+   "seen": 1.49
+  },
+  {
+   "step": "1",
+   "what": "cut-off 2024-06-20",
+   "want": "/2024-06-20/",
+   "ok": true,
+   "seen": "2024-06-20"
+  },
+  {
+   "step": "1",
+   "what": "train rows",
+   "want": 7675,
+   "tol": 0,
+   "ok": true,
+   "seen": 7675
+  },
+  {
+   "step": "1",
+   "what": "tuning rows",
+   "want": 1925,
+   "tol": 0,
+   "ok": true,
+   "seen": 1925
+  },
+  {
+   "step": "1",
+   "what": "holdout rows",
+   "want": 2400,
+   "tol": 0,
+   "ok": true,
+   "seen": 2400
+  },
+  {
+   "step": "1",
+   "what": "holdout ROC AUC (out-of-time)",
+   "want": 0.715,
+   "tol": 0.003,
+   "ok": true,
+   "seen": 0.715
+  },
+  {
+   "step": "1",
+   "what": "random twin ROC AUC",
+   "want": 0.7537,
+   "tol": 0.003,
+   "ok": true,
+   "seen": 0.7537
+  },
+  {
+   "step": "1",
+   "what": "optimism",
+   "want": 0.039,
+   "tol": 0.002,
+   "ok": true,
+   "seen": 0.0386
+  },
+  {
+   "step": "2",
+   "what": "t* = c_FP/(c_FP+c_FN)",
+   "want": 0.091,
+   "tol": 0.0005,
+   "ok": true,
+   "seen": 0.091
+  },
+  {
+   "step": "2",
+   "what": "validation split kept: out-of-time",
+   "want": "/out-of-time/i",
+   "ok": true,
+   "seen": "out-of-time"
+  },
+  {
+   "step": "3",
+   "what": "monotone families: LightGBM, XGBoost, CatBoost",
+   "want": "/LightGBM.*XGBoost.*CatBoost|GBM_MONO.*XGB_MONO.*CAT_MONO/",
+   "ok": false,
+   "seen": "Honour it: CatBoost (CAT_MONO), LightGBM (GBM_MONO), Scorecard (monotone binning), XGBoost (XGB_MONO)"
+  }
+ ],
+ "errors": []
+}
