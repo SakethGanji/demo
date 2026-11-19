@@ -48,6 +48,8 @@ ROLES: dict[str, str] = {
     "feature": "feature",
 }
 EXCLUDED = ("id", "leak", "constant")
+# Roles a column can carry beside its primary one (churned: the target and the survival event; ead_usd: EAD and money).
+SECONDARY = ("event", "money", "duration", "geography", "segment", "lgd", "ead")
 
 MONEY = re.compile(r"(usd|eur|gbp|amount|amt|income|salary|balance|price|revenue|mrr|arr|spend|payment|limit|fee|"
                    r"principal|exposure|loss|value|cost|(^|_)loan(_|$))", re.I)
@@ -221,13 +223,22 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
             auc = _single_auc(s, df[tcol]) if num else None
             if auc is not None and auc >= 0.99:
                 found.append(_role("leak", 0.9, f"alone it separates {tcol} with AUC {auc:.3f}"))
-            elif not num and 2 <= k <= MAX_CLASSES:
+            if s.isna().any() and df[tcol].notna().all():
+                known = s.notna().groupby(df[tcol].astype(str)).mean()
+                if len(known) == 2 and known.max() >= 0.99 and known.min() <= 0.01:
+                    found.append(_role("leak", 0.9, f"filled in only when {tcol} = {known.idxmax()}: known after the outcome"))
+            if not num and 2 <= k <= MAX_CLASSES:
                 pure = df.groupby(col, dropna=True)[tcol].nunique()
                 if len(pure) and (pure <= 1).all() and k < n / 20:
                     found.append(_role("leak", 0.85, f"every value of '{col}' has one {tcol}: it gives the answer away"))
         if t == "category" and not any(f["role"] in ("segment", "geography", "multilabel", "target", "event", "constant", "date", "entity") for f in found):
             found.append(_role("category", 0.6, f"{k} distinct values"))
         found.append(_role("feature", 0.5, f"profiled as {t}"))
+        best: dict[str, dict[str, Any]] = {}
+        for f in found:  # one entry per role: the most confident
+            if f["role"] not in best or f["confidence"] > best[f["role"]]["confidence"]:
+                best[f["role"]] = f
+        found = list(best.values())
         # The primary role: the target if it is one, else the most confident (ties: the earlier, more specific role
         # in ROLES); 'feature' is the fallback.
         order = list(ROLES)
@@ -299,7 +310,7 @@ def summary(cols: list[dict[str, Any]]) -> dict[str, Any]:
         out.setdefault(c["role"], []).append(c["name"])
     for c in cols:
         for a in c["also"]:
-            if a["role"] not in EXCLUDED and c["name"] not in out.get(a["role"], []) and c["role"] not in EXCLUDED:
+            if a["role"] in SECONDARY and c["name"] not in out.get(a["role"], []) and c["role"] not in EXCLUDED:
                 out.setdefault(a["role"], []).append(c["name"])
     return out
 
@@ -323,8 +334,10 @@ class Ctx:
 
     @property
     def excluded(self) -> list[str]:
-        """Columns left out of training: row IDs, leaks, constants. (Entity IDs too, but they drive the group split.)"""
-        return [c["name"] for c in self.columns if c["role"] in EXCLUDED or c["role"] == "entity"]
+        """Columns left out of training: row IDs, constants, leaks (also a column whose second role is a confident
+        leak, e.g. LGD, filled in only for defaulters), and entity IDs (they drive the group split instead)."""
+        return [c["name"] for c in self.columns if c["role"] in EXCLUDED or c["role"] == "entity"
+                or any(a["role"] == "leak" and a["confidence"] >= 0.85 for a in c["also"])]
 
 
 @dataclass
