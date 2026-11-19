@@ -140,6 +140,13 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             : 'Check: not run yet (Reason Codes tab → Recourse).'}
             {Object.keys(c.recourse.overrides).length ? ` Set by ${c.recourse.updated_by ?? 'a user'}: ${Object.entries(c.recourse.overrides).map(([f, a]) => `${f} → ${a}`).join(', ')}.` : ''} Method: {c.recourse.method}.</p>
         </div>}
+        {c.credit_report && <div data-testid="card-credit" style={{ marginTop: 8 }}>
+          <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Credit model performance report</h4>
+          <p className="helper" style={{ fontSize: 12 }}>{c.credit_report.last
+            ? `Holdout Gini ${c.credit_report.last.headline.gini?.toFixed(3) ?? '—'} (95% CI ${c.credit_report.last.headline.gini_ci?.map((x) => x.toFixed(3)).join('–') ?? '—'}), KS ${c.credit_report.last.headline.ks?.toFixed(3) ?? '—'}; ${c.credit_report.last.headline.months} labelled months; first CSI flag: ${c.credit_report.last.headline.first_csi_flag ?? 'none'}; ${c.credit_report.last.headline.cohorts} vintage cohorts (computed ${c.credit_report.last.computed_at} UTC). `
+            : 'Not opened yet (Credit Report tab). '}
+            <a href={api.registry.creditReportUrl(v.id, 'html')} download data-testid="card-credit-html">Model Performance Report (.html)</a> · <a href={api.registry.creditReportUrl(v.id, 'md')} download>.md</a></p>
+        </div>}
         {c.diagnostics && <DiagnosticsBlock d={c.diagnostics} />}
       </section>}
 

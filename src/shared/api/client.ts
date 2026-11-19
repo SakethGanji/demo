@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -281,6 +281,18 @@ export const api = {
       if (dataDate) form.append('data_date', dataDate)
       return request<BatchJob>(`/registry/versions/${encodeURIComponent(id)}/batches`, { method: 'POST', body: form, timeoutMs: 120_000 })
     },
+    /** G2: the credit-risk model report; its export links; a performance tape for the vintage curves. */
+    creditReport: (id: string, q: { on?: 'holdout' | 'batches'; date_column?: string; cohort?: string } = {}) =>
+      request<CreditReport>(`/registry/versions/${encodeURIComponent(id)}/credit-report?${new URLSearchParams(Object.entries(q).filter(([, v]) => v) as [string, string][])}`, { timeoutMs: 120_000 }),
+    creditReportUrl: (id: string, format: 'md' | 'html') => `${BASE}/registry/versions/${encodeURIComponent(id)}/credit-report?format=${format}&download=true`,
+    uploadCreditTape: (id: string, file: File, actor: string) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('actor', actor)
+      return request<{ tape: { mapping: Record<string, unknown>; rows: number }; cohorts: number }>(`/registry/versions/${encodeURIComponent(id)}/credit-report/tape`, { method: 'POST', body: form, timeoutMs: 120_000 })
+    },
+    removeCreditTape: (id: string, actor: string) =>
+      request<{ removed: boolean }>(`/registry/versions/${encodeURIComponent(id)}/credit-report/tape?actor=${encodeURIComponent(actor)}`, { method: 'DELETE' }),
     /** F18: monitoring over time (series, alerts, challenger, retrain proposal). */
     monitoring: (id: string) => request<MonitoringState>(`/registry/versions/${encodeURIComponent(id)}/monitoring`, { timeoutMs: 60_000 }),
     putMonitoring: (model: string, body: { actor: string; thresholds?: Record<string, number>; challenger_version_id?: string; id_column?: string; label_column?: string; retrain_window_months?: number }) =>

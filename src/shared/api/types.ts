@@ -877,6 +877,7 @@ export type ModelCard = {
   } | null
   /** G1: counterfactuals: the user's overrides and the stored acceptance check. */
   recourse?: { method: string; overrides: Record<string, RecourseAction>; updated_by?: string | null; check: RecourseCheck | null } | null
+  credit_report?: { last: { headline: CreditReport['headline']; on: string; computed_at: string } | null; links: { html: string; md: string } } | null
   /** F19: what the source run's later checks found (F6 split, F7 cost, F12, F14, F15, F16, F17), as summaries. */
   diagnostics?: {
     split: { strategy: string; key: string | null; group_column: string | null; time_column: string | null; cutoff: string | null }
@@ -1307,3 +1308,41 @@ export type RetrainProposal = {
 export type StreamSpec = { dataset: string; months: { month: number; label: string; start: string; end: string; rows: number; labels_arrive: string; covariate_drift: Record<string, number>; concept_change: boolean }[]
   rows_per_month: number; drift_month: number; label_lag_months: number; label_rule: string; covariate_drift: Record<string, unknown>; concept_change: Record<string, unknown>; id_column: string; date_column: string }
 export type StreamFeedResult = { month: number; period: string; batch: BatchJob; data_date: string; labels_delivered: { month: number; batch_id: string; label_date: string; lag_days: number; n: number }[]; labels_pending: unknown[]; labels_due: { month: number; arrive: string } }
+
+/** G2 · credit-risk model report (GET /registry/versions/{id}/credit-report). */
+export type CreditRank = {
+  n: number; bads: number; bad_rate: number | null; bad_rate_ci: [number, number] | null; mean_p: number | null
+  auc?: number; auc_ci?: [number, number]; gini?: number; gini_ci?: [number, number]; ks?: number; ks_ci?: [number, number] | null
+  ks_at_p?: number | null; ks_at_score?: number | null; small?: boolean; note?: string
+}
+export type CreditPeriod = CreditRank & { period: string; source: 'holdout' | 'batch'; batches?: string[] }
+export type CreditBand = {
+  band: string; n: number; share: number | null; bads: number; bad_rate: number | null; bad_rate_ci: [number, number] | null; mean_p: number | null
+  cum_share: number | null; cum_capture: number | null; lift: number | null; cum_lift: number | null; decision: 'approve' | 'decline' | 'mixed' | null
+}
+export type CreditDecile = { decile: number; n: number; bads: number; bad_rate: number | null; bad_rate_ci: [number, number] | null; mean_p: number | null; lift: number | null; cum_capture: number | null }
+export type CreditDetected = { column: string; confidence: number; evidence: string[] } | null
+export type CreditCohort = { cohort: string; n: number; observed_mob: number; curve: { mob: number; cum_bad_rate: number; defaults: number }[]; bad_rate_12: number | null }
+export type CreditReport = {
+  schema: string; version_id: string; label: string; model: string; positive_class: string; threshold: number | null; title: string
+  detected: { date: CreditDetected; id: CreditDetected; date_candidates: string[]; label: string }
+  on: 'holdout' | 'batches'
+  overall: { holdout: CreditRank; batches?: CreditRank }
+  periods: CreditPeriod[]
+  pending: { period: string; batch_id: string; n: number; filename: string }[]
+  bands: { rows: CreditBand[]; n: number; bads: number; bad_rate: number; threshold_score: number | null; scale: { pdo: number; base_score: number; base_odds: number; factor: number; offset: number } }
+  deciles: CreditDecile[]
+  stability: {
+    score_psi: { period: string; psi: number | null; n: number | null; mean_p: number | null }[]
+    csi: { periods: string[]; features: { feature: string; csi: (number | null)[]; max: number | null; first_shift: string | null; stays_flagged: boolean }[]; shift: number; watch: number }
+    first_flag: { feature: string; period: string; stays_flagged: boolean } | null
+    flag_bins: { feature: string; period: string; csi: number; bins: { label: string; expected: number; actual: number; term: number }[] } | null
+    reference: string
+  }
+  vintage: null | {
+    cohort_by: 'month' | 'quarter'; cohorts: CreditCohort[]; max_mob: number; loans: number; as_of: string | null
+    source: { kind: 'sample' | 'uploaded'; file?: string; by?: string; note?: string; filtered_to?: string; mapping: { open: string | null; default: string | null; until: string | null; id: string | null; evidence: Record<string, string> } }
+  }
+  formulas: Record<string, string>
+  headline: { gini: number | null; gini_ci: [number, number] | null; ks: number | null; bad_rate: number | null; months: number; first_csi_flag: string | null; cohorts: number }
+}
