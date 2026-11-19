@@ -58,7 +58,7 @@ function Formula({ k }: { k: number }) {
 function Assumption({ k, decision }: { k: number; decision: string | null }) {
   return (
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="ri-assumption">
-      <b>The assumption.</b> Nothing in the data says how a declined applicant would have done. {decision ? <>The decision ({decision})</> : <>The decision</>} may have used
+      <b>The assumption.</b> Nothing in the data says how a declined applicant would have done. The decision{decision ? <> (<span className="mono">{decision}</span>)</> : null} may have used
       what the table does not hold (an interview, a phone call, policy rules), so declined applicants can be riskier than approved ones who look the same.
       Parcelling and fuzzy augmentation assume they are <b>k = {k}×</b> as likely to default as an approved applicant the approved-only model scores the same (k = 1: the decline told us nothing
       beyond x). Reweighting assumes k = 1: the decision depended only on x, so it can only re-balance the approved rows. k cannot be learned from approved outcomes; 2 is a common rule of thumb.
@@ -109,12 +109,12 @@ function Setup({ go }: { go: (r: string) => void }) {
               <tr><td>outcome y</td>
                 <td><select className="input mono" value={d.label ?? ''} onChange={(e) => setPick({ ...pick, label: e.target.value })} data-testid="ri-label">
                   {!d.label && <option value="">—</option>}{two.map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{d.label ? why('label') : 'nothing detected: pick the yes/no outcome'}</td></tr>
+                <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal' }}>{d.label ? why('label') : 'nothing detected: pick the yes/no outcome'}</td></tr>
               <tr><td>decision A</td>
                 <td><select className="input mono" value={d.decision_column ?? ''} onChange={(e) => setPick({ ...pick, decision_column: e.target.value || null })} data-testid="ri-decision">
                   <option value="">(no column: no outcome = declined)</option>{two.filter((c) => c.name !== d.label).map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{d.decision_column ? <>{why('decision_column')}{det.data.approved_value && !pick.decision_column ? <> · approved = <span className="mono">{det.data.approved_value}</span></> : null}</> : 'declined = rows with no outcome'}</td></tr>
-              <tr><td>left out</td><td className="mono" colSpan={2}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs, dates, leaks, protected · {d.split_why}</span></td></tr>
+                <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal' }}>{d.decision_column ? <>{why('decision_column')}{det.data.approved_value && !pick.decision_column ? <> · approved = <span className="mono">{det.data.approved_value}</span></> : null}</> : 'declined = rows with no outcome'}</td></tr>
+              <tr><td>left out</td><td className="mono" colSpan={2} style={{ whiteSpace: 'normal' }}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs, dates, leaks, protected · {d.split_why}</span></td></tr>
               <tr><td>check</td><td colSpan={2} className={d.through_the_door ? 'el-ok' : 'helper'} style={{ fontSize: 12.5 }}>{d.through_the_door
                 ? '● Through the door: this sample keeps the outcomes the declined applicants would have had, aside, so every method is checked on everyone in the holdout.'
                 : 'Approved holdout only: nobody knows how the declined would have done, so the methods can be compared only where outcomes exist, which is the biased view.'}</td></tr>
@@ -191,9 +191,8 @@ export function RiResults({ r, decision }: { r: RiResult; decision: string | nul
   const best = t ? t.best : 'approved_only'
   const b = view[best]
   const span = Math.max(1e-6, ...ORDER.slice(1).map((m) => view[m].delta_auc).filter(Boolean).map((d) => Math.max(Math.abs(d!.ci[0]), Math.abs(d!.ci[1])))) * 1.1
-  const lspan = Math.max(1e-6, ...ORDER.slice(1).map((m) => Math.max(Math.abs(view[m].delta_log_loss.ci[0]), Math.abs(view[m].delta_log_loss.ci[1])))) * 1.1
   const vcls = (v?: string) => (v === 'better' ? 'el-ok' : v === 'worse' ? 'el-bad' : 'helper')
-  const dl = (d?: { delta: number; ci: [number, number] }) => (d ? <>{sgn(d.delta)} <span className="helper">[{sgn(d.ci[0])}, {sgn(d.ci[1])}]</span></> : '—')
+  const dl = (d?: { delta: number; ci: [number, number] }) => (d ? <>{sgn(d.delta, 3)} <span className="helper">[{sgn(d.ci[0], 3)}, {sgn(d.ci[1], 3)}]</span></> : '—')
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="ri-results">
       <div className="card">
@@ -221,16 +220,16 @@ export function RiResults({ r, decision }: { r: RiResult; decision: string | nul
       <div className="card" data-testid="ri-table">
         <div className="card-head"><div className="left"><h3 className="card-title">Four Ways to Train</h3><span className="helper" style={{ fontSize: 12 }}>each against approved only, on the same {t ? 'through-the-door' : 'approved'} holdout rows</span></div></div>
         <div className="table-wrap"><table className="table compact">
-          <thead><tr><th>method</th><th className="r">AUC</th><th className="r">ΔAUC [95% CI]</th><th style={{ width: '12%' }}>0-centred</th><th className="r">log loss</th><th className="r">Δ log loss [95% CI]</th><th style={{ width: '12%' }}>0-centred</th>
-            <th className="r">mean p̂</th>{t && <th className="r" title="mean p̂ of the declined holdout applicants, against their hidden bad rate">declined: p̂ vs bad</th>}{t && <th className="r" title={`approve the ${pct(t.old_policy.share)} with the lowest p̂ (the old approval rate): their bad rate; the old policy's was ${pct(t.old_policy.bad_rate ?? 0)}`}>bad rate at {pct(t.old_policy.share)} approved</th>}<th>verdict</th></tr></thead>
+          <thead><tr><th>method</th><th className="r">AUC</th><th className="r">ΔAUC [95% CI]</th><th style={{ width: '7%' }} title="ΔAUC and its CI on an axis centred at 0" /><th className="r">log loss</th><th className="r">Δ log loss [95% CI]</th>
+            <th className="r" title="mean p̂ against the observed bad rate">p̂ / bad</th>{t && <th className="r" title="the declined holdout applicants: mean p̂ against their hidden bad rate">declined p̂ / bad</th>}{t && <th className="r" title={`approve the ${pct(t.old_policy.share)} with the lowest p̂ (the old approval rate): their bad rate; the old policy's was ${pct(t.old_policy.bad_rate ?? 0)}`}>bad @ {pct(t.old_policy.share)}</th>}<th>verdict</th></tr></thead>
           <tbody>
             {ORDER.map((m) => { const c = view[m]; return (
               <tr key={m} data-testid="ri-row" className={m === best && m !== 'approved_only' ? 'seg-total' : undefined}>
                 <td><b>{NAME[m]}</b></td><td className="r mono">{fix(c.auc ?? null, 4)}</td>
                 <td className="r mono">{m === 'approved_only' ? '—' : dl(c.delta_auc)}</td><td>{m === 'approved_only' ? null : <CiBar d={c.delta_auc} span={span} better="up" />}</td>
-                <td className="r mono">{fix(c.log_loss, 4)}</td><td className="r mono">{m === 'approved_only' ? '—' : dl(c.delta_log_loss)}</td><td>{m === 'approved_only' ? null : <CiBar d={c.delta_log_loss} span={lspan} better="down" />}</td>
-                <td className="r mono">{fix(c.mean_p, 3)} <span className="helper">vs {fix(c.bad_rate, 3)}</span></td>
-                {t && <td className="r mono">{c.declined ? <>{fix(c.declined.mean_p, 3)} <span className="helper">vs {fix(c.declined.bad_rate, 3)}</span></> : '—'}</td>}
+                <td className="r mono">{fix(c.log_loss, 4)}</td><td className="r mono">{m === 'approved_only' ? '—' : dl(c.delta_log_loss)}</td>
+                <td className="r mono">{fix(c.mean_p, 3)}<span className="helper"> / {fix(c.bad_rate, 3)}</span></td>
+                {t && <td className="r mono">{c.declined ? <>{fix(c.declined.mean_p, 3)}<span className="helper"> / {fix(c.declined.bad_rate, 3)}</span></> : '—'}</td>}
                 {t && <td className="r mono">{c.approve_at_old_rate ? pct(c.approve_at_old_rate.bad_rate) : '—'}</td>}
                 <td className={vcls(c.verdict)}>{m === 'approved_only' ? 'baseline' : (c.verdict ?? '—')}</td>
               </tr>) })}
