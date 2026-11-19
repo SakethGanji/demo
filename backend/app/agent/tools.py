@@ -60,7 +60,7 @@ class Tool:
 
     def public(self) -> dict[str, Any]:
         return {"name": self.name, "description": self.description, "kind": self.kind, "group": self.group,
-                "input_schema": self.schema()}
+                "http": HTTP.get(self.name), "input_schema": self.schema()}
 
 
 # ------------------------------------------------------------------------------------------------------------ http
@@ -653,3 +653,40 @@ def catalog_text() -> str:
                        for k, v in t.params.items())
         lines.append(f"- {t.name}({ps}) [{t.kind}] {t.description}")
     return "\n".join(lines)
+
+
+# The route(s) each tool calls, shown on its card (the confirm card shows the exact call before a write runs).
+HTTP = {
+    "list_datasets": "GET /api/datasets", "profile_dataset": "GET /api/datasets/{dataset_id}",
+    "intake_suggestions": "GET /api/datasets/{dataset_id}/intake", "find_rows": "GET /api/datasets/{dataset_id}/rows",
+    "upload_dataset": "POST /api/datasets", "sql_preview": "POST /api/sql/preview", "sql_save_dataset": "POST /api/sql/datasets",
+    "sql_refresh": "POST /api/sql/datasets/{dataset_id}/refresh",
+    "train_from_intake": "GET /api/datasets/{dataset_id}/intake → POST /api/gym/validate → POST /api/runs",
+    "start_run": "POST /api/gym/validate → POST /api/runs", "watch_run": "GET /api/runs/{run_id} (polled)",
+    "get_results": "GET /api/runs/{run_id}", "list_runs": "GET /api/runs", "compare_runs": "GET /api/runs/{base_run_id}, /api/runs/{other_run_id}",
+    "explain_run": "GET /api/runs/{run_id}/explain, /feature-importance", "model_doctor": "GET /api/runs/{run_id}/doctor",
+    "preview_gym_patch": "GET /api/runs/{run_id}/doctor → POST /api/gym/validate",
+    "apply_gym_patch": "GET /api/runs/{run_id}/doctor → POST /api/gym/validate → POST /api/runs (parent_run_id {run_id})",
+    "gym_validate": "POST /api/gym/validate", "split_twin": "POST /api/runs/{run_id}/split-twin",
+    "run_check": "POST /api/runs/{run_id}/{check}", "get_check": "GET /api/runs/{run_id}/{check}",
+    "register_version": "POST /api/runs/{run_id}/register", "request_approval": "POST /api/registry/versions/{version_id}/transition (Staging)",
+    "list_versions": "GET /api/registry/versions", "try_it": "POST /api/registry/versions/{version_id}/predict",
+    "explain_decision": "POST /api/registry/versions/{version_id}/score (reasons)", "counterfactuals": "POST /api/registry/versions/{version_id}/recourse",
+    "batch_score": "POST /api/registry/versions/{version_id}/batches", "monitoring": "GET /api/registry/versions/{version_id}/monitoring",
+    "credit_report": "GET /api/registry/versions/{version_id}/credit-report", "expected_loss_run": "POST /api/expected-loss/runs",
+    "expected_loss_stress": "POST /api/expected-loss/runs/{run_id}/stress", "fair_lending": "GET /api/runs/{run_id}/fair-lending",
+    "segmented_run": "POST /api/segmented/runs", "survival_run": "POST /api/survival/runs", "reject_inference_run": "POST /api/reject-inference/runs",
+    "multilabel_run": "POST /api/multilabel/runs", "get_special_run": "GET /api/{kind}/runs/{run_id}", "autopilot_start": "POST /api/autopilot",
+}
+assert set(HTTP) == set(BY_NAME), set(BY_NAME) ^ set(HTTP)
+
+
+def http_of(name: str, args: dict[str, Any]) -> str | None:
+    class _D(dict):
+        def __missing__(self, k: str) -> str:
+            return "{" + k + "}"
+    tpl = HTTP.get(name)
+    if not tpl:
+        return None
+    a = {k: (CHECKS.get(v, v) if k == "check" else SPECIAL.get(v, v) if k == "kind" else v) for k, v in args.items() if isinstance(v, str)}
+    return tpl.format_map(_D(a))

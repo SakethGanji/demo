@@ -262,11 +262,15 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                 raise HTTPException(409, busy)
         if any(getattr(a, "is_alive", lambda: False)() for a in getattr(st.autopilot, "threads", {}).values()):
             raise HTTPException(409, "An autopilot is running; cancel it first.")
+        if any(not t.done() for t in st.agent.tasks.values()):
+            raise HTTPException(409, "The Vela agent is working on a conversation; stop it first.")
         st.predictors = PredictorCache()
         registry_api.clear_serving_caches()
         out = reset_mod.reset(settings)
         st.autopilot.store.root.mkdir(parents=True, exist_ok=True)
         st.autopilot.threads.clear()
+        st.agent.sessions.clear()
+        st.agent.root.mkdir(parents=True, exist_ok=True)
         return out
 
     app.include_router(import_api.router)

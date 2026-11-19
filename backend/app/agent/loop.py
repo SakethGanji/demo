@@ -499,6 +499,8 @@ class AgentManager:
                 s["status"] = "thinking"
                 self.save(s)
                 obj, meta = await decide(s)
+                if sid in self.stops:  # Stop while the model was choosing (the CLI turns a cancel into a timeout)
+                    raise asyncio.CancelledError
                 if obj is None:
                     s["timeline"].append({"type": "note", "at": now(), "error": True, "decider": _dmeta(meta),
                                           "text": f"The model gave no usable reply ({meta.get('reason') or 'no JSON'}); stopping. "
@@ -533,6 +535,7 @@ class AgentManager:
                     continue
                 invalid_in_row = 0
                 step["link"] = None
+                step["http"] = T.http_of(name, args)
                 if tool.kind == T.WRITE:
                     step["status"] = "awaiting"
                     s["status"] = "awaiting_confirmation"

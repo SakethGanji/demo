@@ -73,6 +73,10 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              the concept change seen only in labelled performance (z of observed vs predicted), visible 2025-10-31;
              paired ΔAUC champion vs challenger with DeLong's CI; no automatic promotion; the Model Doctor's shift check
              reads the alert and prescribes the retrain proposal; the proposal launches a run on the labelled window
+  agent      G10: the Vela agent through this API's planner (claude CLI without a key; SMOKE_AGENT_DECIDER=stub):
+             train → doctor → patch → compare → register from one instruction, paused before training; one decline
+             explained with reason codes and counterfactuals; a batch scored and its drift reported; number guard on every
+             answer; Skip and Stop
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -5310,6 +5314,226 @@ def main() -> int:
             proc.wait(30)
 
 
+# --------------------------------------------------------------------------- G10 · Vela agent
+
+
+def _agent_drive(message: str, user: str, decider: str, on_confirm: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
+                 timeout: float = 1800, **kw: Any) -> dict[str, Any]:
+    """Start a conversation and follow it as the page does (poll by rev); click Run It on every write unless
+    `on_confirm` says otherwise. Returns the final session plus the wall time and the confirmations seen."""
+    t0 = time.time()
+    s = post("/api/agent/sessions", {"message": message, "user": user, "decider": decider, **kw})
+    sid, confirms = s["id"], []
+    while time.time() - t0 < timeout:
+        s = get(f"/api/agent/sessions/{sid}")
+        if s["status"] == "awaiting_confirmation":
+            stp = next(i for i in s["timeline"] if i.get("id") == s["pending"])
+            ok = on_confirm(s, stp) if on_confirm else True
+            confirms.append({"tool": stp["tool"], "http": stp.get("http"), "approved": ok})
+            post(f"/api/agent/sessions/{sid}/confirm", {"step_id": stp["id"], "approve": ok})
+            time.sleep(0.3)
+            continue
+        if s["status"] in ("idle", "failed", "stopped", "no_model", "done"):
+            break
+        time.sleep(1)
+    else:
+        post(f"/api/agent/sessions/{sid}/stop", {})
+        raise SmokeError(f"agent {sid} still working after {timeout:.0f} s")
+    s["wall"] = time.time() - t0
+    s["confirms"] = confirms
+    return s
+
+
+def _agent_steps(s: dict[str, Any]) -> list[dict[str, Any]]:
+    return [i for i in s["timeline"] if i["type"] == "step"]
+
+
+def _agent_answer(s: dict[str, Any]) -> dict[str, Any]:
+    ans = [i for i in s["timeline"] if i["type"] == "answer"]
+    check(ans, f"no answer: status {s['status']} · " + " | ".join(i.get("text", "") for i in s["timeline"] if i["type"] == "note"))
+    a = ans[-1]
+    check(a["guard"]["ok"], f"number guard flagged {a['guard']['unsupported']} in: {a['text'][:300]}")
+    return a
+
+
+def _agent_line(s: dict[str, Any]) -> str:
+    steps = _agent_steps(s)
+    srcs = sorted({(i.get("decider") or {}).get("source") or "?" for i in s["timeline"] if i["type"] in ("step", "answer")})
+    return (f"{len(steps)} calls ({' → '.join(x['tool'] + ('✓' if x['status'] == 'done' else '·' + x['status']) for x in steps)}) · "
+            f"wall {s['wall']:.0f} s · decider {'/'.join(srcs)}")
+
+
+def agent(st: dict[str, Any]) -> None:
+    """G10: the Vela agent, driven like the page: start a conversation, follow it, click Run It on each write. The planner
+    is this API's (the claude CLI when there is no ANTHROPIC_API_KEY; SMOKE_AGENT_DECIDER=stub for the deterministic
+    planner). Three acceptance scenarios: (1) train → doctor → apply patch → compare (→ register, request approval)
+    from one instruction, stopping for confirmation before training (no run exists until Run It); (2) explain one
+    decline with reason codes and counterfactuals; (3) score a batch and report drift. The number guard passes on
+    every answer; approve/promote are not tools; every call is in the audit log as the agent on behalf of the user."""
+    status = get("/api/agent/status")
+    dec = os.environ.get("SMOKE_AGENT_DECIDER") or status["default"]
+    check(dec != "none", "no planner here: set ANTHROPIC_API_KEY, install the claude CLI, or SMOKE_AGENT_DECIDER=stub")
+    s: dict[str, Any] = {"dec": dec}
+    user = "Smoke Analyst"
+
+    def registry():
+        t = get("/api/agent/tools")
+        names = {x["name"] for x in t["tools"]}
+        need = {"list_datasets", "profile_dataset", "upload_dataset", "intake_suggestions", "sql_preview", "train_from_intake", "watch_run",
+                "get_results", "explain_run", "model_doctor", "apply_gym_patch", "gym_validate", "split_twin", "run_check",
+                "register_version", "request_approval", "try_it", "explain_decision", "batch_score", "monitoring", "counterfactuals",
+                "credit_report", "expected_loss_run", "expected_loss_stress", "fair_lending", "segmented_run", "survival_run",
+                "reject_inference_run", "multilabel_run"}
+        check(need <= names, need - names)
+        check(not names & {"approve", "approve_version", "review_version", "promote", "promote_version", "transition"}, names)
+        check(not any(n.startswith(("approve", "promote", "review")) for n in names), names)
+        check(all(x["input_schema"]["type"] == "object" and x["http"] for x in t["tools"]), "schema/http")
+        writes = {x["name"] for x in t["tools"] if x["kind"] == "write"}
+        check({"train_from_intake", "apply_gym_patch", "register_version", "request_approval", "batch_score", "upload_dataset"} <= writes, writes)
+        bad = C.post("/api/agent/sessions/as_nope/confirm", json={"step_id": "x", "approve": True})
+        check(bad.status_code == 404, bad.status_code)
+        return (f"{len(names)} tools ({len(writes)} write) with JSON schemas and their routes · no approve/promote tool · "
+                f"planner {dec} (route {status['route'] or 'none'}; SDK: {status['sdk']['why']})")
+
+    step("agent: tool registry + planner", registry)
+
+    def scenario1():
+        before = {r["id"] for r in get("/api/runs")["runs"]}
+        seen: dict[str, Any] = {}
+
+        def on_confirm(sess, stp):
+            if "first" not in seen:  # the first write: the agent must have stopped before training anything
+                seen["first"] = stp["tool"]
+                seen["runs_unchanged"] = {r["id"] for r in get("/api/runs")["runs"]} == before
+            return True
+
+        msg = ("Train a default model on credit_default.csv with an out-of-time split, run the Model Doctor, apply its fix, "
+               "compare the two runs and register the better one, then request approval. Keep each training to about 60 seconds.")
+        x = _agent_drive(msg, user, dec, on_confirm, max_steps=24, max_seconds=1500)
+        steps = _agent_steps(x)
+        tools = [i["tool"] for i in steps if i["status"] == "done"]
+        check(seen.get("first") in ("train_from_intake", "start_run"), f"first write was {seen.get('first')}")
+        check(seen.get("runs_unchanged"), "a run was created before the user confirmed")
+        for t in ("model_doctor", "apply_gym_patch", "compare_runs", "register_version"):
+            check(t in tools, f"{t} missing: {tools}")
+        tr = next(i for i in steps if i["tool"] in ("train_from_intake", "start_run") and i["status"] == "done")
+        sp = (tr["result"].get("body") or tr["args"].get("body") or {}).get("split_spec") or {}
+        check(sp.get("strategy") in ("time", "time-group"), f"split {sp}")
+        a = _agent_answer(x)
+        reg = next(i for i in steps if i["tool"] == "register_version" and i["status"] == "done")["result"]
+        check(reg["status"] == "ready" and reg["approval"] == "pending" and reg["created_by"].startswith("Vela agent on behalf of"), reg)
+        v = get(f"/api/registry/versions/{reg['version_id']}")
+        check(v["stage"] != "Production" and v["approval"] == "pending", (v["stage"], v["approval"]))
+        cmp_ = next(i for i in steps if i["tool"] == "compare_runs" and i["status"] == "done")["result"]
+        child = next(i for i in steps if i["tool"] == "apply_gym_patch" and i["status"] == "done")["result"]
+        check(get(f"/api/runs/{child['run_id']}")["config"].get("parent_run_id") == child["parent_run_id"], "lineage")
+        aud = get("/api/registry/audit", limit=400)["entries"]
+        mine = [e for e in aud if e["actor"] == f"Vela agent on behalf of {user}" and (e.get("details") or {}).get("session") == x["id"]]
+        check(len(mine) >= len([i for i in steps if i["status"] in ("done", "declined", "error")]), f"{len(mine)} audit entries")
+        s.update(s1=x, vid=reg["version_id"], run=reg["run_id"])
+        st["agent_s1"] = {"wall": x["wall"], "steps": len(steps)}
+        return (f"{_agent_line(x)} · paused before training ({seen['first']} waited, no run yet) · {len(x['confirms'])} confirmations "
+                f"· split {sp.get('strategy')} · {cmp_['metric']} Δ {cmp_['delta']} (same holdout {cmp_['same_holdout_rows']}) · "
+                f"registered {reg['version_id']} (now {v['stage']}, {v['approval']}) · {len(mine)} audit entries · guard ✓ "
+                f"{a['guard']['numbers']} numbers · \"{a['text'][:140]}…\"")
+
+    step("agent: 1 · train → doctor → patch → compare → register", scenario1)
+
+    if "vid" not in s:  # scenario 1 did not register: a version of our own for 2 and 3
+        def fallback():
+            it = get("/api/datasets/credit-default/intake")
+            pf = next(x for x in it["suggestions"] if x["id"] == "binary")["prefill"]
+            body = {"dataset_id": "credit-default", "label": "defaulted", "presets": "medium_quality", "time_limit": 60,
+                    "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 150}}}, "drop_columns": pf["drop"] + [pf["time"]],
+                    "split_spec": {"strategy": "time", "time_column": pf["time"]}, "cost": {"c_fp": 1, "c_fn": 10},
+                    "calibrate_threshold": "auto", "feature_importance": False, "source": "smoke-agent"}
+            rec = wait_run(post("/api/runs", body)["id"])
+            v = post(f"/api/runs/{rec['id']}/register", {"created_by": user, "model_name": "smoke.agent.credit"})
+            v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+            check(v["status"] == "ready", v.get("error"))
+            s.update(vid=v["id"], run=rec["id"])
+            return f"{rec['id']} → {v['id']}"
+
+        if not step("agent: fallback version for 2 and 3", fallback):
+            return
+    vid = s["vid"]
+
+    def scenario2():
+        ds = get(f"/api/runs/{s['run']}")["dataset_id"]
+        rows = get(f"/api/datasets/{ds}/rows", value="C-500123")["rows"]
+        check(rows, "C-500123 not in the dataset")
+        p = post(f"/api/registry/versions/{vid}/score", {"rows": [{k: v for k, v in rows[0].items() if k != "defaulted"}], "reasons": True})
+        adverse = p["reasons"]["adverse"][0]
+        app_id = "C-500123"
+        if not adverse:  # pick an applicant this version declines, so the question is a decline
+            hold = get(f"/api/datasets/{ds}/rows", value="self-employed", column="employment", limit=50)["rows"]
+            q = post(f"/api/registry/versions/{vid}/score", {"rows": [{k: v for k, v in r.items() if k != "defaulted"} for r in hold], "reasons": True})
+            app_id = next(r["applicant_id"] for r, a in zip(hold, q["reasons"]["adverse"]) if a)
+        x = _agent_drive(f"Why was applicant {app_id} declined by version {vid}, and what would change it?", user, dec, max_steps=12, max_seconds=600)
+        steps = _agent_steps(x)
+        tools = [i["tool"] for i in steps if i["status"] == "done"]
+        check("explain_decision" in tools or "try_it" in tools, tools)
+        check("counterfactuals" in tools, tools)
+        check(not x["confirms"], f"read-only question asked for confirmation: {x['confirms']}")
+        cf = next(i for i in steps if i["tool"] == "counterfactuals" and i["status"] == "done")["result"]
+        check(cf["adverse"] and any(o["flips_decision"] for o in cf["options"]), cf)
+        a = _agent_answer(x)
+        rc = next((i for i in steps if i["tool"] == "explain_decision" and i["status"] == "done"), None)
+        codes = [c["code"] for c in (rc["result"]["reason_codes"] if rc else [])]
+        check(any(c in a["text"] for c in codes) or any((c.get("feature") or "") in a["text"] for c in (rc["result"]["reason_codes"] if rc else [])), "answer names no reason")
+        check(any(o["changes"][0]["feature"] in a["text"] for o in cf["options"]), "answer names no counterfactual")
+        s["s2"] = x
+        return (f"{_agent_line(x)} · {app_id}: codes {', '.join(codes)} · {len(cf['options'])} counterfactuals, all flip "
+                f"{all(o['flips_decision'] for o in cf['options'])} · no confirmation needed · guard ✓ {a['guard']['numbers']} numbers · "
+                f"\"{a['text'][:140]}…\"")
+
+    step("agent: 2 · explain a decline (reason codes + counterfactuals)", scenario2)
+
+    def scenario3():
+        ds = get(f"/api/runs/{s['run']}")["dataset_id"]
+        import glob
+
+        files = glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend", "data", "datasets", ds, "*.csv"))
+        check(files, f"no CSV for {ds} under backend/data (the smoke reads the sample to build a shifted batch)")
+        raw = pd.read_csv(files[0])
+        b = raw.tail(800).drop(columns=["defaulted"], errors="ignore").copy()
+        if "debt_to_income" in b:
+            b["debt_to_income"] = (b["debt_to_income"] * 1.5).round(3)
+        up = j(C.post("/api/datasets", files={"file": ("agent_batch_march.csv", b.to_csv(index=False).encode(), "text/csv")}))
+        x = _agent_drive(f"Score the dataset {up['id']} as a batch with version {vid} and tell me if anything drifted.", user, dec,
+                         max_steps=10, max_seconds=600)
+        steps = _agent_steps(x)
+        bs = next((i for i in steps if i["tool"] == "batch_score" and i["status"] == "done"), None)
+        check(bs, [(i["tool"], i["status"], i.get("error")) for i in steps])
+        check([c["tool"] for c in x["confirms"]] and x["confirms"][0]["tool"] == "batch_score", x["confirms"])
+        d = bs["result"]["drift"]
+        check(d["max_psi"] is not None and "debt_to_income" in d["drifted"], d)
+        a = _agent_answer(x)
+        check("debt_to_income" in a["text"], a["text"])
+        b2 = get(f"/api/registry/batches/{bs['result']['batch_id']}")
+        check(b2["created_by"] == f"Vela agent on behalf of {user}", b2.get("created_by"))
+        s["s3"] = x
+        return (f"{_agent_line(x)} · batch {bs['result']['batch_id']} {bs['result']['rows']} rows · max PSI {d['max_psi']} · drifted "
+                f"{', '.join(d['drifted'])} · created_by the agent · guard ✓ {a['guard']['numbers']} numbers · \"{a['text'][:140]}…\"")
+
+    step("agent: 3 · score a batch and report drift", scenario3)
+
+    def stop_decline():
+        x = _agent_drive("Train a default model on credit-default with a random split.", user, dec, lambda sess, stp: False,
+                         max_steps=6, max_seconds=300)
+        steps = _agent_steps(x)
+        check(x["confirms"] and not x["confirms"][0]["approved"], x["confirms"])
+        check(any(i["status"] == "declined" for i in steps), [i["status"] for i in steps])
+        y = post("/api/agent/sessions", {"message": "List the datasets, then describe each one in detail.", "user": user, "decider": dec})
+        time.sleep(0.5)
+        post(f"/api/agent/sessions/{y['id']}/stop", {})
+        y = poll(f"/api/agent/sessions/{y['id']}", lambda z: z["status"] in ("stopped", "idle", "failed"), 60, 0.5)
+        check(y["status"] == "stopped", y["status"])
+        return f"Skip → nothing trained ({len(steps)} calls, {x['status']}) · Stop → {y['status']}"
+
+    step("agent: skip a write, stop a conversation", stop_decline)
+
+
 def _main(args) -> int:
     global C, ONLY
     ONLY = {x.strip() for x in args.only.split(",")}
@@ -5317,7 +5541,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

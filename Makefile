@@ -41,8 +41,8 @@ ui:
 	npx vite --port $(UI_PORT)
 
 ## The smoke chain (scripts/smoke.py) against the API on :$(API_PORT); starts the API itself if nothing answers there
-## (and stops it afterwards). SMOKE_ONLY=core,samples,intake,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,recourse,scorecard,learning,active,annotators,shift,slices,doctor,monitor,credit,el,fair,seg,surv,ri,ml,sql,llm,reset picks sections.
-SMOKE_ONLY ?= core,samples,intake,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,recourse,scorecard,learning,active,annotators,shift,slices,doctor,monitor,credit,el,fair,seg,surv,ri,ml,sql,llm,reset
+## (and stops it afterwards). SMOKE_ONLY=core,samples,intake,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,recourse,scorecard,learning,active,annotators,shift,slices,doctor,monitor,credit,el,fair,seg,surv,ri,ml,sql,agent,llm,reset picks sections.
+SMOKE_ONLY ?= core,samples,intake,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,recourse,scorecard,learning,active,annotators,shift,slices,doctor,monitor,credit,el,fair,seg,surv,ri,ml,sql,agent,llm,reset
 smoke:
 	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
 		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY); \

@@ -21,6 +21,6 @@ const REDIRECTS: Record<string, (q: string) => string> = { autopilot: (q) => `ve
 
 export const readRoute = (): Route => {
   const [h, q = ''] = location.hash.replace('#/', '').split('?')
-  if (REDIRECTS[h]) { history.replaceState(null, '', `#/${REDIRECTS[h](q)}`); return 'vela' }
+  if (REDIRECTS[h]) { location.replace(`#/${REDIRECTS[h](q)}`); return 'vela' } // fires hashchange, so ?mode= readers update
   return h in TITLES ? (h as Route) : 'home'
 }

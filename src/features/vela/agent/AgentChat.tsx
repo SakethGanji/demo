@@ -17,7 +17,7 @@ const USER_KEY = 'ensemble.agent.user'
 function glance(r: Record<string, unknown> | undefined): string {
   if (!r) return ''
   const keys = ['run_id', 'version_id', 'batch_id', 'dataset_id', 'status', 'metric', 'holdout_score', 'best_model', 'decision', 'p_adverse_class',
-    'threshold', 'delta', 'headline', 'n', 'rows', 'patch', 'autopilot_id']
+    'threshold', 'delta', 'stage', 'approval', 'headline', 'n', 'rows', 'patch', 'autopilot_id']
   const out: string[] = []
   for (const k of keys) {
     const v = r[k]

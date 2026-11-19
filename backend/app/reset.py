@@ -1,4 +1,4 @@
-"""Reset the workbench: delete every run, registered model, batch, autopilot, MLflow record and uploaded dataset, then
+"""Reset the workbench: delete every run, registered model, batch, autopilot, agent conversation, MLflow record and uploaded dataset, then
 regenerate the sample datasets exactly (they are seeded). `make reset` calls POST /api/admin/reset when the API is
 running (so its in-memory state is cleared too), else `python -m app.reset` offline."""
 
@@ -11,7 +11,7 @@ from . import config
 from .db import Database
 
 TABLES = ("run_events", "runs", "batch_jobs", "audit_log", "model_versions", "registered_models", "datasets")
-FOLDERS = ("runs", "registry", "mlflow", "autopilot", "datasets")
+FOLDERS = ("runs", "registry", "mlflow", "autopilot", "agent", "datasets")
 
 
 def reset(settings: config.Settings) -> dict[str, Any]:
