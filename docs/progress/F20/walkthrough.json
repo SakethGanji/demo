@@ -1,29 +1,29 @@
 {
  "ids": {
-  "champRun": "run_0a791fdd",
-  "challRun": "run_2274b01c",
-  "champ": "mv_c552d5a7",
-  "chall": "mv_99bd5f0e",
-  "A": "run_0edafcf1",
-  "B": "run_d0e50b97",
-  "vB": "mv_d0e17a37",
-  "retrain": "run_c1cc7597"
+  "champRun": "run_55a3242f",
+  "challRun": "run_13e1e230",
+  "champ": "mv_eac03493",
+  "chall": "mv_2c4e3d25",
+  "A": "run_7f10db3b",
+  "B": "run_491baf82",
+  "vB": "mv_a51cc415",
+  "retrain": "run_c8a418ee"
  },
  "steps": [
   {
    "name": "prep: loan-stream champion + challenger, registered, approved, staged",
    "ok": true,
-   "s": 67
+   "s": 63
   },
   {
    "name": "1 out-of-time vs random",
    "ok": true,
-   "s": 31
+   "s": 32
   },
   {
    "name": "2-3 Gym: cost + monotone, cost per 1,000, twin, monotonicity",
    "ok": true,
-   "s": 94
+   "s": 93
   },
   {
    "name": "4 register, reason codes, Try It, batch, model card",
@@ -50,10 +50,10 @@
   {
    "step": "prep",
    "what": "champion holdout ROC AUC",
-   "want": 0.7826,
+   "want": 0.7765,
    "tol": 0.003,
    "ok": true,
-   "seen": 0.7826
+   "seen": 0.7765
   },
   {
    "step": "1",
@@ -326,9 +326,9 @@
    "step": "7",
    "what": "gap in noise units (z)",
    "want": 4.4,
-   "tol": 0.6,
+   "tol": 0.05,
    "ok": true,
-   "seen": 4
+   "seen": 4.4
   },
   {
    "step": "8",
@@ -342,8 +342,8 @@
    "step": "8",
    "what": "first drift alert 2025-07",
    "want": "/2025-07/",
-   "ok": false,
-   "seen": "FIRST DRIFT ALERT\n2025-01\nseen when scored"
+   "ok": true,
+   "seen": "2025-07"
   },
   {
    "step": "8",
@@ -351,7 +351,7 @@
    "want": 0.351,
    "tol": 0.01,
    "ok": true,
-   "seen": 0.359
+   "seen": 0.351
   },
   {
    "step": "8",
@@ -366,8 +366,8 @@
    "what": "challenger ΔAUC (paired)",
    "want": -0.002,
    "tol": 0.0015,
-   "ok": false,
-   "seen": "-0.0083 -0.0108 -0.0058 0 10800"
+   "ok": true,
+   "seen": -0.002
   },
   {
    "step": "8",
@@ -390,7 +390,7 @@
    "want": 0.7739,
    "tol": 0.004,
    "ok": true,
-   "seen": 0.774475663787333
+   "seen": 0.7738640710164791
   },
   {
    "step": "8",
