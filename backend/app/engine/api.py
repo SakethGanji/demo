@@ -26,6 +26,7 @@ from ..splits import load_splits
 from . import catalogue, costs, explain, heavy, serving, threshold
 from .runner import JobRunner
 from .store import TERMINAL_EVENTS, RunStore, now
+from ..http import run_or_404, dataset_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -182,13 +183,6 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     return out
 
 
-def _get_run(request: Request, run_id: str) -> dict[str, Any]:
-    rec = _store(request).get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
-    return rec
-
-
 @router.get("/models")
 def models() -> dict[str, Any]:
     return {"families": catalogue.catalogue(), "engine": engine_info()}
@@ -208,16 +202,13 @@ def engine_info() -> dict[str, Any]:
 async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     from ..gym.api import check_run_body
 
-    app = request.app
     await check_run_body(request, body.model_dump())
     return await run_in_threadpool(_create_run, body, request)
 
 
 def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     app = request.app
-    ds = app.state.db.get_dataset(body.dataset_id)
-    if not ds:
-        raise HTTPException(404, f"No dataset with id '{body.dataset_id}'.")
+    ds = dataset_or_404(request, body.dataset_id)
     profile = ds["profile"]
     cols = {c["name"]: c for c in profile["columns"]}
     label = body.label or ds["target"]
@@ -441,7 +432,7 @@ def list_runs(request: Request, dataset_id: str | None = None, full: bool = Fals
 
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, request: Request) -> dict[str, Any]:
-    return run_out(_get_run(request, run_id), _store(request))
+    return run_out(run_or_404(request, run_id), _store(request))
 
 
 class SplitTwin(BaseModel):
@@ -461,7 +452,7 @@ async def split_twin(run_id: str, body: SplitTwin, request: Request) -> dict[str
     with GET /api/runs/{id}/split-comparison."""
     from ..gym.api import run_body
 
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     if rec["config"].get("kind") in ("forecast", "anomaly") or rec["config"].get("import"):
         raise HTTPException(400, "Only trained tabular runs can be re-run under another split.")
     b = run_body(rec)
@@ -488,7 +479,7 @@ def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
     metric's direction (positive: the random split looks better than the other split says). `same_config` says
     whether the run's fit settings match this run's (only then is Δ about the split alone)."""
     store = _store(request)
-    base = _get_run(request, run_id)
+    base = run_or_404(request, run_id)
     metric, _, gib = _score(base)
     cfg0 = base["config"]
     rows, seen = [], set()
@@ -529,7 +520,7 @@ def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     if not _runner(request).cancel(run_id):
         raise HTTPException(409, f"Run {run_id} has already finished ({rec['status']}).")
     return {"id": run_id, "cancelling": True}
@@ -537,7 +528,7 @@ def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
 
 @router.delete("/runs/{run_id}", status_code=204)
 def delete_run(run_id: str, request: Request) -> None:
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     if rec["status"] in ("queued", "running"):
         raise HTTPException(409, "Cancel the run before deleting it.")
     with request.app.state.db.connect() as con:
@@ -552,7 +543,7 @@ async def run_events(run_id: str, request: Request, start: int = Query(0, alias=
     """Every event of the run from `from` (default 0). SSE by default: `id` is the event's seq, `event` its type,
     `data` the JSON payload; a reconnect with Last-Event-ID resumes after it. The stream ends after the terminal
     event (run_succeeded, run_failed or run_cancelled). `format=json` returns what is there now, once."""
-    _get_run(request, run_id)
+    run_or_404(request, run_id)
     store = _store(request)
     if format == "json":
         evs = await run_in_threadpool(store.events, run_id, start, 100_000)
@@ -598,7 +589,7 @@ def _require_succeeded(rec: dict[str, Any]) -> None:
 
 @router.post("/runs/{run_id}/predict")
 async def predict(run_id: str, body: PredictRequest, request: Request) -> dict[str, Any]:
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     if len(body.rows) > 10_000:
         raise HTTPException(413, "At most 10,000 rows per request.")
@@ -642,7 +633,7 @@ async def monotone_check(run_id: str, request: Request, model: str | None = None
     """F8: individual conditional expectation and partial dependence of one model (default: the best) on raw holdout
     rows, for the run's monotone constraints (or `constraints=col:increasing,…` for any run, e.g. an unconstrained
     twin), plus the report the worker stored after the fit (where each constraint landed, every model's check)."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     if rec["config"].get("kind") or rec["config"].get("import"):
         raise HTTPException(400, "Monotone checks apply to tabular runs trained here.")
@@ -678,7 +669,7 @@ def scorecard_report(run_id: str, request: Request) -> dict[str, Any]:
     """F11: the scorecard challenger. The deployable scorecard's table (points per bin, refitted on all training rows),
     IV and coefficient per feature, its holdout AUC / Gini / KS next to the served model's, and ΔAUC (served −
     scorecard) with a paired bootstrap CI. With an F7 cost: both models' expected cost per 1,000 decisions."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     sc = _scorecard_report(rec)
     return {"run_id": run_id, **sc, "family": catalogue.get("SCORECARD"),
             "export": f"/api/runs/{run_id}/scorecard.csv"}
@@ -690,7 +681,7 @@ def scorecard_csv(run_id: str, request: Request):
     a last `_scaling` row with PDO, base score / odds, factor, offset and intercept."""
     from fastapi.responses import FileResponse
 
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _scorecard_report(rec)
     path = Path(rec["config"]["run_dir"]) / "scorecard" / "scorecard.csv"
     if not path.exists():
@@ -708,7 +699,7 @@ class ScorecardScore(BaseModel):
 async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -> dict[str, Any]:
     """F11: score rows with the deployable scorecard: points per feature (and the bin), the total score, P(event), and
     the scorecard's own reason codes: features ranked by points lost against their best bin."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _scorecard_report(rec)
     if (body.rows is None) == (body.holdout_index is None):
         raise HTTPException(400, "Give rows or holdout_index (one of them).")
@@ -721,7 +712,7 @@ async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -
 
 @router.get("/runs/{run_id}/oof")
 async def out_of_fold(run_id: str, request: Request, model: str | None = None) -> dict[str, Any]:
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     try:
         out = await request.app.state.heavy.run(heavy.out_of_fold, rec["config"]["predictor_path"], model)
@@ -736,7 +727,7 @@ async def feature_importance(run_id: str, request: Request,
     """Permutation importance on the holdout: stored if the run computed it, else computed now and stored.
     `shuffles` recomputes it with that many shuffle sets (tighter intervals). Each feature has a 95% t-interval
     importance ± t₀.₉₇₅,ₙ₋₁·s/√n over the n shuffles."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     res = rec.get("result") or {}
     fi = res.get("feature_importance")
@@ -758,7 +749,7 @@ async def feature_importance(run_id: str, request: Request,
 async def holdout_predictions(run_id: str, request: Request) -> dict[str, Any]:
     """The best model's predictions on the holdout rows: data.csv row, true label, prediction and (classification)
     one probability per class. Residuals and curves are computed from these."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     path = Path(rec["config"]["run_dir"]) / "holdout_predictions.csv"
     if not path.exists():
@@ -837,7 +828,7 @@ def _fit_custom_ensemble(app, rec: dict[str, Any], models: list[str]) -> dict[st
 async def custom_ensemble(run_id: str, body: EnsembleRequest, request: Request) -> dict[str, Any]:
     """Fit a weighted ensemble on the models you choose: `TabularPredictor.fit_weighted_ensemble(base_models=...)`.
     The result has its weights, its validation and holdout scores, and whether it beats the best single model."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     models = list(dict.fromkeys(body.models))
     names = {r["model"] for r in (rec.get("result") or {}).get("leaderboard") or []}
@@ -882,7 +873,7 @@ async def get_threshold(run_id: str, request: Request, cost_fp: float = Query(1.
     """Binary runs: precision, recall, F1, balanced accuracy, MCC, the confusion counts and the cost
     C(t) = c_FP·FP + c_FN·FN on the holdout at every t on a 0.005 grid (and at `t` exactly), the thresholds that
     maximise F1 / balanced accuracy / MCC and minimise cost, and the threshold the predictor uses now."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     res = _require_binary(rec)
     df = _holdout_df(rec)
@@ -945,7 +936,7 @@ async def run_cost(run_id: str, request: Request, c_fp: float | None = Query(Non
     threshold in use, at the Bayes threshold t* = c_FP/(c_FP + c_FN + g_TP), at 0.5, at the threshold calibrated for
     this cost on the run's validation data, flagging nobody / everybody, and the cost curve over t on a 0.005 grid.
     Multiclass: the served labels (arg-max) and the Bayes decisions, with the cost per confusion cell."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     cost = _cost_for(rec, c_fp, c_fn, g_tp)
     res = rec.get("result") or {}
@@ -972,7 +963,7 @@ async def metric_twin(run_id: str, body: MetricTwin, request: Request) -> dict[s
     cost, so the cost-optimised run can be compared with, say, the ROC-AUC-optimised one on the same holdout rows."""
     from ..gym.api import check_run_body, run_body
 
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     if rec["config"].get("kind") in ("forecast", "anomaly") or rec["config"].get("import"):
         raise HTTPException(400, "Only trained tabular runs can be re-run to another metric.")
     if (body.eval_metric is None) == (body.cost is None):
@@ -1002,7 +993,7 @@ async def cost_comparison(run_id: str, request: Request, c_fp: float | None = Qu
     each run uses, and (binary) at the threshold each run would get if calibrated for this cost on its own validation
     data, with paired bootstrap intervals of Δ = cost(other) − cost(this) on the shared holdout rows, and each run's
     cost curve over t."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     cost = _cost_for(rec, c_fp, c_fn, g_tp)
     app = request.app
@@ -1083,7 +1074,7 @@ class ThresholdRequest(BaseModel):
 async def set_threshold(run_id: str, body: ThresholdRequest, request: Request) -> dict[str, Any]:
     """Calibrate (`metric`) or set (`value`) the decision threshold and persist it in the predictor
     (`set_decision_threshold` + `save`), so every later prediction uses it. The holdout is re-scored at it."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     _require_binary(rec)
     if (body.metric is None) == (body.value is None):
@@ -1124,7 +1115,7 @@ async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
     multiclass) with AUC and average precision, the reliability curve with the Brier score and ECE, and the worst
     mistakes with their features. Regression: residuals against predictions, their histogram, RMSE/MAE/R² and the
     largest errors. Plus the columns that can define groups for fairness."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     res = rec.get("result") or {}
     df = _holdout_df(rec)
@@ -1154,7 +1145,7 @@ async def fairness(run_id: str, request: Request, group: str = Query(..., min_le
     """fairlearn's MetricFrame on the holdout, one row per value of `group` (numbers with more than 8 values are cut
     into quartiles). Binary: selection rate, base rate, accuracy, TPR, FPR, precision per group at the run's threshold
     (or `t`), with the demographic parity difference and the equalised odds difference."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     res = rec.get("result") or {}
     df = _holdout_df(rec)
@@ -1179,7 +1170,7 @@ async def shap_values(run_id: str, request: Request, row: int = Query(..., ge=0)
     """Kernel SHAP for one holdout row (data.csv row number) on the best model: f(x) = φ₀ + Σᵢ φᵢ, where f is
     predict_proba of `target` (default: the positive class, or the predicted class for multiclass) or the predicted
     value (regression), φ₀ = E[f] over a fixed sample of 50 training rows. Cached per row."""
-    rec = _get_run(request, run_id)
+    rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     cfg = rec["config"]
     app = request.app

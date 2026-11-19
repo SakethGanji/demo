@@ -23,7 +23,6 @@ import numpy as np
 import pandas as pd
 
 EPS = 1e-4
-BANDS = ((0.10, "stable"), (0.25, "watch"), (float("inf"), "shift"))
 MISSING = "(missing)"
 OTHER = "(other)"
 MAX_CATS = 19

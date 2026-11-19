@@ -150,9 +150,6 @@ class Model:
                 df = velocity.add(df, vspec, self.velocity_history)
         return df
 
-    def transform(self, df: pd.DataFrame) -> np.ndarray:
-        return self.pre.transform(_prep_frame(self.augment(df), self.num, self.cat))
-
     def score(self, df: pd.DataFrame) -> dict[str, np.ndarray]:
         df = self.augment(df)
         Z = self.pre.transform(_prep_frame(df, self.num, self.cat))
@@ -413,12 +410,6 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     emit("evaluation", n_flagged=n_flag, threshold=thr,
          precision_at_k=(result["anomaly"].get("truth") or {}).get("precision_at_k"))
     return {"best_model": "IsolationForest", "n_flagged": n_flag}
-
-
-def rescore_threshold(scores_csv: str, contamination: float) -> dict[str, Any]:
-    s = pd.read_csv(scores_csv)["s"].to_numpy()
-    thr = float(np.quantile(s, 1 - contamination))
-    return {"threshold": thr, "n_flagged": int((s >= thr).sum())}
 
 
 def score_frame(model_dir: str, df: pd.DataFrame, explain_top: int = 50) -> tuple[pd.DataFrame, list[dict[str, Any]], dict[str, Any]]:

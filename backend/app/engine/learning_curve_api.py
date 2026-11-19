@@ -19,6 +19,7 @@ from .. import config
 from . import learning_curve as lc
 from .runner import dev_reload
 from .store import now
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -37,13 +38,6 @@ class LearningCurveRequest(BaseModel):
                                                          "default 2.5 % of the remaining gap to the metric's optimum.")
     reuse_full: bool = Field(True, description="Use the run itself as the 100 % point (the same call on the same rows) "
                                                "instead of fitting it again.")
-
-
-def _run(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
-    return rec
 
 
 def _alive(pid: int | None) -> bool:
@@ -98,7 +92,7 @@ def get_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
     """F12: the run's learning curve: status and progress while it runs; then every point, the mean ± t-interval per
     fraction, the fitted power law with its bootstrap band, extrapolation to 2N and 4N, and the verdict. Status 'none'
     (with the defaults a start would use) when none was started."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     st = _state(rec, request.app.state.runs)
     if not st:
         return {"run_id": run_id, "status": "none", "defaults": defaults(rec)}
@@ -110,7 +104,7 @@ def get_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
 def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Request) -> dict[str, Any]:
     """F12: fit the run's exact config on nested subsamples of its training rows (default 10 / 25 / 50 %, 3 seeds each;
     100 % is the run itself), each scored on the run's holdout, in a separate process. Poll GET …/learning-curve."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     if rec["status"] != "succeeded":
         raise HTTPException(400, f"Run {run_id} is {rec['status']}; a learning curve needs a finished run.")
@@ -180,7 +174,7 @@ def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Reque
 
 @router.post("/runs/{run_id}/learning-curve/cancel")
 def cancel_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     with _LOCK:
         p = _PROCS.get(run_id)
         if p is None or p.poll() is not None:

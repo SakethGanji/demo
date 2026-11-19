@@ -3,7 +3,6 @@ import type { FcBand } from '@/shared/api/flows'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '@/shared/api/client'
 import { flows, type FcChart, type FcCreate, type FcEnsembleKind, type FcMapping, type FcOptions, type FcPreview, type FlowRun } from '@/shared/api/flows'
-import { useApi } from '@/shared/api/mode'
 import type { DatasetDetail, DatasetSummary } from '@/shared/api/types'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { ParamChip } from '@/shared/primitives/ParamChip'
@@ -11,23 +10,23 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { FAMILY_COLOR, LiveModels, Register } from '@/shared/components/FlowParts'
 import { FanChart, fmtNum } from './components/FanChart'
+import { fix, pct } from '@/shared/lib/format'
+import { useHashParam } from '@/shared/hooks/useHashParam'
+import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
-const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
-const f3 = (v: number | null | undefined, d = 3) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d))
-const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
 
 /** New Forecast: AutoGluon's TimeSeriesPredictor on long-format data (item, time, target, covariates), live, with the
  *  leaderboard, the ensemble, backtest windows, per-series errors and the quantile fan. Every number is the API's. */
 export function ForecastPage({ go }: { go: (r: string) => void }) {
-  const { mode } = useApi()
-  const [runId, setRunId] = useState<string | null>(runParam)
-  useEffect(() => { const f = () => setRunId(runParam()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
-  if (mode === 'mock') return (
+  const runId = useHashParam('run')
+  return (
+    <ApiOnly mock={(
     <div className="page"><div className="page-head"><div><h1 className="page-title">New Forecast</h1><p className="helper sub">AutoGluon TimeSeriesPredictor on the API.</p></div></div>
       <div className="card card-body" data-testid="forecast-mock"><p className="helper">▲ mock mode: the API is offline, so nothing can be forecast. Start it with <span className="mono">make dev</span>; this page then fits TimeSeriesPredictor live on the transaction-volume sample or your CSV.</p></div></div>
+    )}>
+      {runId ? <ForecastRun key={runId} runId={runId} go={go} /> : <ForecastSetup go={go} />}
+    </ApiOnly>
   )
-  if (mode === 'checking') return <div className="page"><div className="card card-body row"><ResonanceWave /> Connecting…</div></div>
-  return runId ? <ForecastRun key={runId} runId={runId} go={go} /> : <ForecastSetup go={go} />
 }
 
 // --------------------------------------------------------------------------- setup
@@ -110,11 +109,11 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
         <div className="eh-cell lead"><span className="micro-label">the task</span>
           <b className="math" style={{ fontSize: 20 }}>ŷ<sub>i,t+h|t</sub> = q̂<sub>τ</sub>(y<sub>i,t+h</sub> | y<sub>i,≤t</sub>, x<sub>i,≤t+h</sub>, s<sub>i</sub>)</b>
           <small>for every series i, horizon h = 1…H and quantile level τ</small></div>
-        <div className="eh-cell"><span className="micro-label">series i</span><b className="mono">{prev?.items ?? '—'}</b><small className="math-s">item_id values</small></div>
-        <div className="eh-cell"><span className="micro-label">length n</span><b className="mono">{prev ? (prev.length_min === prev.length_max ? prev.length_min : `${prev.length_min}–${prev.length_max}`) : '—'}</b><small className="math-s">steps per series</small></div>
-        <div className="eh-cell"><span className="micro-label">freq · season m</span><b className="mono">{prev?.freq ?? '—'} · {m}</b><small className="math-s">inferred; m from freq</small></div>
-        <div className="eh-cell"><span className="micro-label">horizon H</span><b className="mono">{cfg.H}</b><small className="math-s">prediction_length</small></div>
-        <div className="eh-cell"><span className="micro-label">known x past t</span><b className="mono">{prev?.future_rows ?? 0}</b><small className="math-s">future rows with covariates</small></div>
+        <HeroCell label="series i" sub="item_id values" subClass="math-s">{prev?.items ?? '—'}</HeroCell>
+        <HeroCell label="length n" sub="steps per series" subClass="math-s">{prev ? (prev.length_min === prev.length_max ? prev.length_min : `${prev.length_min}–${prev.length_max}`) : '—'}</HeroCell>
+        <HeroCell label="freq · season m" sub="inferred; m from freq" subClass="math-s">{prev?.freq ?? '—'} · {m}</HeroCell>
+        <HeroCell label="horizon H" sub="prediction_length" subClass="math-s">{cfg.H}</HeroCell>
+        <HeroCell label="known x past t" sub="future rows with covariates" subClass="math-s">{prev?.future_rows ?? 0}</HeroCell>
       </div>
 
       <div className="grid fc-setup">
@@ -210,7 +209,7 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
         <div className="card-head"><div className="left"><h3 className="card-title">Forecast runs</h3></div></div>
         <div className="table-wrap"><table className="table"><thead><tr><th>run</th><th>name</th><th>status</th><th className="r">holdout</th><th>best model</th><th /></tr></thead>
           <tbody>{past.slice(0, 12).map((r) => <tr key={r.id}><td className="table-cell">{r.id}</td><td>{r.name}</td><td><StatusPill status={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'info'}>{r.status}</StatusPill></td>
-            <td className="r table-cell">{r.holdout ? `${r.holdout.eval_metric ?? r.eval_metric?.name} ${f3((r.holdout.metrics as Record<string, number>)[String(r.eval_metric?.name)] ?? r.leaderboard?.[0]?.score_test_natural)}` : '—'}</td>
+            <td className="r table-cell">{r.holdout ? `${r.holdout.eval_metric ?? r.eval_metric?.name} ${fix((r.holdout.metrics as Record<string, number>)[String(r.eval_metric?.name)] ?? r.leaderboard?.[0]?.score_test_natural)}` : '—'}</td>
             <td className="mono" style={{ fontSize: 12 }}>{r.best_model ?? '—'}</td><td><button className="chip-btn" onClick={() => { location.hash = `#/forecast?run=${r.id}` }}>Open</button></td></tr>)}</tbody></table></div>
       </div>}
     </div>
@@ -248,8 +247,8 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
     flows.forecast.chart(runId).then((c) => { setChart(c); setItem((cur) => cur || Object.keys(c.items)[0]) }).catch((e) => setErr(e.message))
   }, [run?.status, runId])
 
-  if (err && !run) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!run) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading forecast run {runId}…</div></div>
+  if (err && !run) return <ErrorCard err={err} />
+  if (!run) return <Loading>Reading forecast run {runId}…</Loading>
   const done = run.status === 'succeeded'
   const lb = run.leaderboard ?? []
   const metric = run.eval_metric?.name ?? String(run.config.eval_metric)
@@ -281,10 +280,10 @@ function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) 
 
       <div className="card navy explain-hero">
         <div className="eh-cell lead"><span className="micro-label">{done ? `holdout ${metric} · ${run.best_model}` : live.stage}</span>
-          <b className="mono" data-testid="fc-primary">{done ? f3(best?.score_test_natural) : live.status === 'failed' ? 'failed' : <ResonanceWave />}</b>
+          <b className="mono" data-testid="fc-primary">{done ? fix(best?.score_test_natural) : live.status === 'failed' ? 'failed' : <ResonanceWave />}</b>
           <small>{done ? `last H = ${H} steps of each series, never seen in fit or model selection` : elapsed != null ? `${elapsed.toFixed(0)} s of τ = ${tau} s` : 'queued'}</small></div>
-        {done && naive && <Cell k="vs SeasonalNaive" v={`${f3(naive.score_test_natural)}`} d={<>skill 1 − {metric}<sub>best</sub> / {metric}<sub>naive</sub> = {pct(1 - (best!.score_test_natural ?? 0) / (naive.score_test_natural || 1))}</>} />}
-        {h && <Cell k={recal ? 'WQL · recalibrated' : 'WQL'} v={f3(h.metrics.WQL, 4)} d={<>{recal && h.metrics_raw ? <>AutoGluon {f3(h.metrics_raw.WQL, 4)} · </> : null}2 Σ<sub>τ</sub>Σ<sub>t</sub> ρ<sub>τ</sub>(y<sub>t</sub> − q̂<sub>τ,t</sub>) / (|T| Σ<sub>t</sub>|y<sub>t</sub>|)</>} />}
+        {done && naive && <Cell k="vs SeasonalNaive" v={`${fix(naive.score_test_natural)}`} d={<>skill 1 − {metric}<sub>best</sub> / {metric}<sub>naive</sub> = {pct(1 - (best!.score_test_natural ?? 0) / (naive.score_test_natural || 1))}</>} />}
+        {h && <Cell k={recal ? 'WQL · recalibrated' : 'WQL'} v={fix(h.metrics.WQL, 4)} d={<>{recal && h.metrics_raw ? <>AutoGluon {fix(h.metrics_raw.WQL, 4)} · </> : null}2 Σ<sub>τ</sub>Σ<sub>t</sub> ρ<sub>τ</sub>(y<sub>t</sub> − q̂<sub>τ,t</sub>) / (|T| Σ<sub>t</sub>|y<sub>t</sub>|)</>} />}
         {h && <Cell k="sMAPE" v={pct(h.metrics.SMAPE)} d={<>mean 2|e<sub>t</sub>| / (|y<sub>t</sub>| + |ŷ<sub>t</sub>|)</>} />}
         {h && <Cell k={`coverage [q${h.interval[0]}, q${h.interval[1]}]`} v={pct(h.coverage)} d={<>nominal {pct(h.interval[1] - h.interval[0])}{recal && rawMain ? <> · AutoGluon {pct(rawMain.empirical)}</> : null}{cal ? <> · <span className={cal.verdict === 'calibrated' ? '' : 'g-warn'} style={{ fontWeight: 600 }}>{cal.verdict === 'calibrated' ? (recal ? 'recalibrated: within error' : 'within error') : cal.verdict === 'too_wide' ? 'bands too wide' : 'bands too narrow'}</span></> : null}</>} />}
         <Cell k="models" v={`${live.models.filter((m) => m.status === 'done').length || lb.length}`} d={`${Object.keys(w).length} in the ensemble`} />
@@ -342,7 +341,7 @@ function Leaderboard({ run, metric }: { run: FlowRun; metric: string }) {
           <tr key={r.model} className={r.model === run.best_model ? 'sel' : ''}>
             <td className="table-cell">{r.rank}</td><td className="table-cell">{r.model}</td>
             <td><span className="dot-inline" style={{ background: FAMILY_COLOR[(r.family as string) ?? 'other'] }} />{r.family}</td>
-            <td className="r table-cell">{f3(r.score_val_natural)}</td><td className="r table-cell"><b>{f3(r.score_test_natural)}</b></td>
+            <td className="r table-cell">{fix(r.score_val_natural)}</td><td className="r table-cell"><b>{fix(r.score_test_natural)}</b></td>
             <td className="r table-cell">{pct((r as unknown as { coverage_test?: number | null }).coverage_test)}</td>
             <td className="r table-cell">{r.fit_time != null ? `${Number(r.fit_time).toFixed(2)} s` : '—'}</td><td className="r table-cell">{r.pred_time_test != null ? `${Number(r.pred_time_test).toFixed(2)} s` : '—'}</td>
             <td className="r table-cell">{run.ensemble?.weights?.[r.model] != null ? run.ensemble.weights[r.model].toFixed(3) : ''}</td>
@@ -362,7 +361,7 @@ function EnsembleCard({ weights, lb, metric }: { weights: Record<string, number>
           <div className="eq" style={{ fontSize: 15, paddingTop: 0 }}>= {entries.map(([k, v], i) => <span key={k}>{i ? ' + ' : ''}<b className="mono">{v.toFixed(3)}</b>·q̂<sup>({k})</sup></span>)}</div>
           <dl className="where"><dt>w<sub>m</sub></dt><dd>weight of model m: the share of greedy picks that lowered the backtest {metric}</dd><dt>q̂<sub>τ</sub><sup>(m)</sup></dt><dd>model m’s forecast of quantile τ, applied per quantile and per step</dd></dl></div>
         {entries.map(([k, v]) => <div key={k} className="fc-w"><span className="mono">{k}</span><span className="bar"><i style={{ width: `${v * 100}%` }} /></span><span className="mono">{v.toFixed(3)}</span></div>)}
-        {ens && <p className="helper" style={{ fontSize: 12 }}>Ensemble val {metric} {f3(ens.score_val_natural)} · holdout {f3(ens.score_test_natural)}.</p>}
+        {ens && <p className="helper" style={{ fontSize: 12 }}>Ensemble val {metric} {fix(ens.score_val_natural)} · holdout {fix(ens.score_test_natural)}.</p>}
       </div>
     </div>
   )
@@ -376,7 +375,7 @@ function Backtests({ run, metric }: { run: FlowRun; metric: string }) {
     <div className="card" data-testid="fc-backtests">
       <div className="card-head"><div className="left"><h3 className="card-title">Backtest windows</h3><span className="helper" style={{ fontSize: 12 }}>expanding windows inside the training range (num_val_windows = {bt.windows.length}); MASE per window</span></div></div>
       <div className="table-wrap"><table className="table"><thead><tr><th>model</th>{bt.windows.map((w) => <th key={w.window} className="r" title={`${w.start} → ${w.end}`}>w{w.window} <span className="muted">{w.start.slice(5, 10)}</span></th>)}<th className="r">mean</th><th className="r">WQL̄</th></tr></thead>
-        <tbody>{models.map(([k, ws]) => <tr key={k}><td className="table-cell">{k}</td>{ws.map((x) => <td key={x.window} className="r table-cell">{f3(x.MASE)}</td>)}<td className="r table-cell"><b>{f3(mean(ws.map((x) => x.MASE)))}</b></td><td className="r table-cell">{f3(mean(ws.map((x) => x.WQL)), 4)}</td></tr>)}</tbody></table></div>
+        <tbody>{models.map(([k, ws]) => <tr key={k}><td className="table-cell">{k}</td>{ws.map((x) => <td key={x.window} className="r table-cell">{fix(x.MASE)}</td>)}<td className="r table-cell"><b>{fix(mean(ws.map((x) => x.MASE)))}</b></td><td className="r table-cell">{fix(mean(ws.map((x) => x.WQL)), 4)}</td></tr>)}</tbody></table></div>
       <p className="helper caption-pad" style={{ fontSize: 12 }}>Each window w forecasts H steps from the data before it; the {metric} that picks the models averages these windows. MASE &lt; 1 beats the in-sample seasonal-naive step.</p>
     </div>
   )
@@ -392,7 +391,7 @@ function ItemErrors({ run, onItem }: { run: FlowRun; onItem: (k: string) => void
       <div className="card-head"><div className="left"><h3 className="card-title">Errors per series</h3><span className="helper" style={{ fontSize: 12 }}>{h.model} on the holdout window, worst MASE first</span></div></div>
       <div className="table-wrap"><table className="table"><thead><tr><th>series i</th><th className="r">MASE<sub>i</sub></th><th className="r">WQL<sub>i</sub></th><th className="r">sMAPE</th><th className="r">bias ē</th><th className="r">coverage</th><th className="r">scale</th></tr></thead>
         <tbody>{h.items.map((r) => <tr key={r.item_id} onClick={() => onItem(r.item_id)} style={{ cursor: 'pointer' }}>
-          <td className="table-cell">{r.item_id}</td><td className="r table-cell"><b>{f3(r.MASE)}</b></td><td className="r table-cell">{f3(r.WQL, 4)}</td><td className="r table-cell">{pct(r.sMAPE)}</td>
+          <td className="table-cell">{r.item_id}</td><td className="r table-cell"><b>{fix(r.MASE)}</b></td><td className="r table-cell">{fix(r.WQL, 4)}</td><td className="r table-cell">{pct(r.sMAPE)}</td>
           <td className="r table-cell">{fmtNum(r.bias)}</td><td className="r table-cell" style={{ color: Math.abs(r.coverage - (r.interval[1] - r.interval[0])) > 0.2 ? 'var(--status-warning)' : undefined }}>{pct(r.coverage)}</td><td className="r table-cell muted">{fmtNum(r.scale)}</td></tr>)}</tbody></table></div>
       <p className="helper caption-pad" style={{ fontSize: 12 }}>MASE<sub>i</sub> = mean|e<sub>t</sub>| / ((1/(n−m)) Σ<sub>t&gt;m</sub>|y<sub>t</sub> − y<sub>t−m</sub>|), the denominator (scale) from series i’s own history; bias ē = mean(ŷ − y); coverage = share of actuals inside [q{h.interval[0]}, q{h.interval[1]}] (nominal {pct(h.interval[1] - h.interval[0])}).</p>
     </div>

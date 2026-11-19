@@ -6,6 +6,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { useWidth } from '@/shared/hooks/useWidth'
 import type { Dataset } from '../datasets'
 import { sub } from '../wizard'
+import { pct } from '@/shared/lib/format'
 
 export const STRATEGY_NAME: Record<SplitStrategy, string> = {
   'random-stratified': 'random', group: 'group', time: 'out-of-time', 'time-group': 'out-of-time + group',
@@ -120,7 +121,6 @@ export function SplitCard({ ds, label, spec, onSpec }: { ds: Dataset; label: str
   )
 }
 
-const pct = (v?: number) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
 const k = (v?: number) => (v == null ? '—' : v.toLocaleString())
 
 /** The definition of H, T and F for the strategy in view, with every symbol bound to the drawn split's numbers. */

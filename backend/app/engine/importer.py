@@ -17,6 +17,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from .. import config
 from .store import now
+from ..http import dataset_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -70,9 +71,7 @@ async def import_run(request: Request, dataset_id: str = Form(...), file: Upload
     from .api import run_out
 
     app = request.app
-    ds = app.state.db.get_dataset(dataset_id)
-    if not ds:
-        raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+    ds = dataset_or_404(request, dataset_id)
     if (file is None) == (not path):
         raise HTTPException(400, "Give either a zipped predictor folder (file) or a server path (path), not both.")
     run_id = "run_" + secrets.token_hex(4)

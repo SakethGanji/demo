@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..splits import holdout_mask
 from .jsonsafe import jsonable
 
 
@@ -435,8 +436,7 @@ def _shap_background(cfg: dict[str, Any], features: list[str], background: int):
 
     df = pd.read_csv(cfg["csv_path"])
     splits = json.loads(Path(cfg["splits_path"]).read_text())
-    is_h = np.zeros(len(df), dtype=bool)
-    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    is_h = holdout_mask(splits, len(df))
     train = df.loc[~is_h & df[cfg["label"]].notna(), features]
     return df, train, shap.sample(train, min(background, len(train)), random_state=0)
 

@@ -3,7 +3,6 @@ import { api } from '@/shared/api/client'
 import { flows, type AnBatch, type AnRow, type AnScores, type AnTop, type FlowRun, type AnGroup, type AnVelocity } from '@/shared/api/flows'
 import { useActor } from '@/features/registry/lib'
 import { ReviewButtons, SupervisedPanel, VelocityCard } from './Review'
-import { useApi } from '@/shared/api/mode'
 import type { DatasetDetail, DatasetSummary } from '@/shared/api/types'
 import { LiveModels, Register } from '@/shared/components/FlowParts'
 import { PlotFrame } from '@/shared/components/PlotFrame'
@@ -12,10 +11,10 @@ import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { fix, pct } from '@/shared/lib/format'
+import { useHashParam } from '@/shared/hooks/useHashParam'
+import { ApiOnly, ErrorCard, Loading } from '@/shared/components/Status'
 
-const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
-const f3 = (v: number | null | undefined, d = 3) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d))
-const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const EULER = 0.5772156649
 const cn = (n: number) => (n <= 2 ? 1 : 2 * (Math.log(n - 1) + EULER) - (2 * (n - 1)) / n)
 const val = (v: unknown) => (v == null ? '—' : typeof v === 'number' ? (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : String(Number(v.toPrecision(5)))) : String(v))
@@ -23,15 +22,15 @@ const val = (v: unknown) => (v == null ? '—' : typeof v === 'number' ? (Math.a
 /** Anomaly detection without labels: IsolationForest (and LOF) on a table, the isolation score's distribution and
  *  threshold, the most anomalous rows with their reasons, and a batch scorer. */
 export function AnomalyPage({ go }: { go: (r: string) => void }) {
-  const { mode } = useApi()
-  const [runId, setRunId] = useState<string | null>(runParam)
-  useEffect(() => { const f = () => setRunId(runParam()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
-  if (mode === 'mock') return (
+  const runId = useHashParam('run')
+  return (
+    <ApiOnly mock={(
     <div className="page"><div className="page-head"><div><h1 className="page-title">Anomaly Detection</h1></div></div>
       <div className="card card-body" data-testid="anomaly-mock"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span>; this page then fits IsolationForest on the card-transactions sample or your CSV.</p></div></div>
+    )}>
+      {runId ? <AnomalyRun key={runId} runId={runId} go={go} /> : <AnomalySetup />}
+    </ApiOnly>
   )
-  if (mode === 'checking') return <div className="page"><div className="card card-body row"><ResonanceWave /> Connecting…</div></div>
-  return runId ? <AnomalyRun key={runId} runId={runId} go={go} /> : <AnomalySetup />
 }
 
 function IsolationFormula({ psi, extra, psiRule }: { psi: number; extra?: React.ReactNode; psiRule?: string }) {
@@ -145,7 +144,7 @@ function AnomalySetup() {
         <div className="card-head"><div className="left"><h3 className="card-title">Anomaly runs</h3></div></div>
         <div className="table-wrap"><table className="table"><thead><tr><th>run</th><th>name</th><th>status</th><th className="r">flagged</th><th className="r">s*</th><th /></tr></thead>
           <tbody>{past.slice(0, 10).map((r) => <tr key={r.id}><td className="table-cell">{r.id}</td><td>{r.name}</td><td><StatusPill status={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'info'}>{r.status}</StatusPill></td>
-            <td className="r table-cell">{r.anomaly?.n_flagged ?? '—'}</td><td className="r table-cell">{f3(r.anomaly?.threshold, 4)}</td>
+            <td className="r table-cell">{r.anomaly?.n_flagged ?? '—'}</td><td className="r table-cell">{fix(r.anomaly?.threshold, 4)}</td>
             <td><button className="chip-btn" onClick={() => { location.hash = `#/anomaly?run=${r.id}` }}>Open</button></td></tr>)}</tbody></table></div>
       </div>}
     </div>
@@ -256,8 +255,8 @@ function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
     return () => clearTimeout(t)
   }, [c, run?.status, runId])
 
-  if (err && !run) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!run) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading anomaly run {runId}…</div></div>
+  if (err && !run) return <ErrorCard err={err} />
+  if (!run) return <Loading>Reading anomaly run {runId}…</Loading>
   const a = run.anomaly
   const done = run.status === 'succeeded' && a
   // threshold for the slider's c, from 201 quantiles of s (exact counts come back from the API)
@@ -280,7 +279,7 @@ function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
           <b className="mono" data-testid="an-flagged">{done ? (top?.n_flagged ?? a.n_flagged).toLocaleString() : <ResonanceWave />}</b>
           <small>{done ? `of n = ${(top?.n_rows ?? 0).toLocaleString()} rows at contamination c = ${(c ?? a.contamination).toFixed(3)}` : 'fitting'}</small></div>
         {done && <>
-          <Cell k="threshold s*" v={f3(sStar, 4)} d="(1 − c) quantile of s" />
+          <Cell k="threshold s*" v={fix(sStar, 4)} d="(1 − c) quantile of s" />
           <Cell k="ψ · c(ψ)" v={`${a.psi} · ${a.c_n.toFixed(3)}`} d="rows per tree · mean path" />
           <Cell k="trees T" v={`${a.n_trees}`} d={`max depth ⌈log₂ ψ⌉ = ${a.mean_depth.toFixed(0)}`} />
           <Cell k="s range" v={`${a.distribution.min.toFixed(3)}–${a.distribution.max.toFixed(3)}`} d={`median ${a.distribution.quantiles['0.5'].toFixed(3)}`} />
@@ -366,7 +365,7 @@ function TruthCard({ truth, lofTruth, group, vel }: { truth: NonNullable<AnTop['
         <table className="table"><thead><tr><th className="r">k</th><th className="r">hits</th><th className="r">P@k (IF)</th><th className="r">recall</th>{lofTruth && <th className="r">P@k (LOF)</th>}</tr></thead>
           <tbody>{truth.precision_at_k.map((r) => <tr key={r.k}><td className="r table-cell">{r.k}</td><td className="r table-cell">{r.hits}</td><td className="r table-cell"><b>{pct(r.precision, 0)}</b></td><td className="r table-cell">{pct(r.recall, 0)}</td>{lofTruth && <td className="r table-cell">{pct(lofAt(r.k)?.precision, 0)}</td>}</tr>)}</tbody></table>
         <div className="an-kinds">{Object.entries(truth.by_kind).map(([k, v]) => <div key={k} className="fc-w"><span className="mono">{k}</span><span className="bar"><i style={{ width: `${(100 * v.found) / v.planted}%`, background: 'var(--viz-a)' }} /></span><span className="mono">{v.found}/{v.planted}</span></div>)}</div>
-        <p className="helper" style={{ fontSize: 12 }}>ROC AUC {f3(truth.roc_auc)} · AP {f3(truth.average_precision)} (base rate {pct(truth.base_rate)}). Per kind: found among the flagged. {group ? <>This run adds the group-relative features r, z{group.time_column ? ', Δt' : ''} on {group.entity_column}: an amount large only for its own card is now visible. {vel ? <>The velocity features ({vel.in_forest.join(', ')} in the forest) give a burst minutes after the card’s previous transaction its own short paths: n<sub>1h</sub> ≥ 1 and a tiny Δ are rare on their own.</> : <>Without velocity features a burst is one short gap among many features and is rarely isolated; map a time column to add them.</>}</> : <>Without group-relative features, spikes that are large only for the card’s own history are invisible to the forest (it sees the amount, not the ratio). Map an entity column on the setup page to add r = x / x̄<sub>e</sub> and z within the entity.</>}</p>
+        <p className="helper" style={{ fontSize: 12 }}>ROC AUC {fix(truth.roc_auc)} · AP {fix(truth.average_precision)} (base rate {pct(truth.base_rate)}). Per kind: found among the flagged. {group ? <>This run adds the group-relative features r, z{group.time_column ? ', Δt' : ''} on {group.entity_column}: an amount large only for its own card is now visible. {vel ? <>The velocity features ({vel.in_forest.join(', ')} in the forest) give a burst minutes after the card’s previous transaction its own short paths: n<sub>1h</sub> ≥ 1 and a tiny Δ are rare on their own.</> : <>Without velocity features a burst is one short gap among many features and is rarely isolated; map a time column to add them.</>}</> : <>Without group-relative features, spikes that are large only for the card’s own history are invisible to the forest (it sees the amount, not the ratio). Map an entity column on the setup page to add r = x / x̄<sub>e</sub> and z within the entity.</>}</p>
       </div>
     </div>
   )
@@ -380,7 +379,7 @@ function TopTable({ top, sel, setSel, onReview }: { top: AnTop | null; sel: AnRo
       <div className="table-wrap an-top-wrap"><table className="table"><thead><tr><th className="r">#</th><th className="r">row</th><th className="r">s</th><th className="r">E[h]</th><th className="r">LOF</th><th>why</th>{top.truth && <th title="planted in the sample (hidden truth)">✓</th>}<th title="Confirm fraud / dismiss">review</th></tr></thead>
         <tbody>{top.rows.map((r) => <tr key={r.row} className={sel?.row === r.row ? 'sel' : ''} onClick={() => setSel(r)} style={{ cursor: 'pointer' }}>
           <td className="r table-cell">{r.rank}</td><td className="r table-cell">{r.row}</td>
-          <td className="r table-cell" style={{ color: r.flagged ? 'var(--status-danger)' : undefined }}><b>{r.s.toFixed(3)}</b></td><td className="r table-cell">{r.Eh.toFixed(2)}</td><td className="r table-cell">{f3(r.lof, 2)}</td>
+          <td className="r table-cell" style={{ color: r.flagged ? 'var(--status-danger)' : undefined }}><b>{r.s.toFixed(3)}</b></td><td className="r table-cell">{r.Eh.toFixed(2)}</td><td className="r table-cell">{fix(r.lof, 2)}</td>
           <td className="an-why" style={{ maxWidth: 200 }}>{r.reasons.slice(0, 3).map((x) => x.feature).join(', ')}</td>{top.truth && <td>{r.planted ? '●' : ''}</td>}<td><ReviewButtons row={r} onReview={onReview} /></td></tr>)}</tbody></table></div>
     </div>
   )
@@ -394,7 +393,7 @@ function Reason({ row, onReview }: { row: AnRow; onReview: (row: number, label: 
       <div className="card-body stack" style={{ gap: 10 }}>
         <div className="row" style={{ gap: 8 }}><span className="micro-label">analyst review</span><ReviewButtons row={row} onReview={onReview} size="sm" />
           <span className="helper" style={{ fontSize: 12 }}>{row.review ? `${row.review.label === 1 ? 'confirmed fraud' : 'dismissed'} by ${row.review.by}` : 'not reviewed'}</span></div>
-        <div className="formula"><div className="eq" style={{ fontSize: 16 }}>E[h(x)] = φ₀ + Σ<sub>j</sub> φ<sub>j</sub> = {f3(row.phi0, 2)} {row.phi_sum >= 0 ? '+' : '−'} {Math.abs(row.phi_sum).toFixed(2)}</div>
+        <div className="formula"><div className="eq" style={{ fontSize: 16 }}>E[h(x)] = φ₀ + Σ<sub>j</sub> φ<sub>j</sub> = {fix(row.phi0, 2)} {row.phi_sum >= 0 ? '+' : '−'} {Math.abs(row.phi_sum).toFixed(2)}</div>
           <dl className="where"><dt>φ₀</dt><dd>mean path length over the background (TreeSHAP’s expected value)</dd><dt>φ<sub>j</sub></dt><dd>feature j’s share of the path length (one-hot columns summed back to j); φ<sub>j</sub> &lt; 0 shortens the path, i.e. pushes x towards anomalous</dd><dt>z</dt><dd>(x<sub>j</sub> − median) / (1.4826·MAD), robust deviation of a number</dd></dl></div>
         {row.reasons.map((r) => (
           <div key={r.feature} className="an-reason-row">

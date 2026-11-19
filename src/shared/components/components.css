@@ -244,3 +244,4 @@
 .empty-state .es-body { font-size: 13px; line-height: 1.55; color: var(--text-body); max-width: 68ch; }
 .empty-state .es-body p { margin: 0 0 6px; }
 .empty-state .es-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.an-adv summary { cursor: pointer; }

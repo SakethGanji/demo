@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { LearningCurve, Run } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
@@ -8,9 +8,10 @@ import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { pctTrim } from '@/shared/lib/format'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 const sgn = (v: number, d = 4) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`
-const pct = (f: number) => `${+(f * 100).toFixed(1)}%`
 const nfmt = (n: number) => Math.round(n).toLocaleString()
 const VERDICT = {
   'data-limited': { pill: 'warning', head: 'Data-limited', say: 'More rows of the same kind are expected to help.' },
@@ -22,30 +23,17 @@ const VERDICT = {
  *  the run's holdout; a power law u(n) = A − b·(n/N)^(−c) through the means, extrapolated to 2N and 4N with bootstrap
  *  intervals, and the verdict. Every number is GET /api/runs/{id}/learning-curve. */
 export function LearningCurvePanel({ run }: { run: Run }) {
-  const [lc, setLc] = useState<LearningCurve | null>(null)
-  const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [fractions, setFractions] = useState('0.1, 0.25, 0.5, 1')
   const [seeds, setSeeds] = useState(3)
   const [timeLimit, setTimeLimit] = useState<number | null>(null)
   const [minGain, setMinGain] = useState('')
-  const [tick, setTick] = useState(0)
 
-  useEffect(() => {
-    let alive = true
-    api.runs.learningCurve(run.id).then((r) => {
-      if (!alive) return
-      setLc(r); setErr('')
-      if (timeLimit == null && r.defaults.time_limit) setTimeLimit(r.defaults.time_limit)
-    }).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [run.id, tick]) // eslint-disable-line react-hooks/exhaustive-deps
+  const { data: lc, setData: setLc, err, setErr, reload } = useFetch(() => api.runs.learningCurve(run.id), [run.id], {
+    pollMs: 2000, while: (d) => d?.status === 'queued' || d?.status === 'running',
+    onData: (r) => { if (timeLimit == null && r.defaults.time_limit) setTimeLimit(r.defaults.time_limit) },
+  })
   const active = lc?.status === 'queued' || lc?.status === 'running'
-  useEffect(() => {
-    if (!active) return
-    const t = setTimeout(() => setTick((v) => v + 1), 2000)
-    return () => clearTimeout(t)
-  }, [active, lc])
 
   const start = async () => {
     setBusy(true); setErr('')
@@ -57,7 +45,7 @@ export function LearningCurvePanel({ run }: { run: Run }) {
       setLc(r)
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const cancel = async () => { try { await api.runs.cancelLearningCurve(run.id); setTick((v) => v + 1) } catch (e) { setErr((e as Error).message) } }
+  const cancel = async () => { try { await api.runs.cancelLearningCurve(run.id); reload() } catch (e) { setErr((e as Error).message) } }
 
   if (!lc && !err) return <div className="card card-body row"><ResonanceWave /> Reading the learning curve…</div>
   const d = lc?.defaults
@@ -74,7 +62,7 @@ export function LearningCurvePanel({ run }: { run: Run }) {
         <div className="card card-body row" data-testid="lc-progress" style={{ gap: 'var(--space-12)', flexWrap: 'wrap' }}>
           <ResonanceWave />
           <span>Fitting <b className="mono">{lc.fits_done ?? 0} / {lc.fits_total}</b> subsamples
-            {lc.current ? <> · now {pct(lc.current.fraction)} of the rows, seed {lc.current.seed}</> : null}
+            {lc.current ? <> · now {pctTrim(lc.current.fraction)} of the rows, seed {lc.current.seed}</> : null}
             {' '}· the run's own fit is the 100% point</span>
           <button className="btn" onClick={cancel} data-testid="lc-cancel">Cancel</button>
         </div>
@@ -136,7 +124,7 @@ function Verdict({ lc }: { lc: LearningCurve }) {
     </div>
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="lc-reason">
       <StatusPill status={meta.pill}>{v.label}</StatusPill>{' '}Because {v.reason}.
-      {ev.observed_last_step && <> Measured directly, going from {pct(ev.observed_last_step.from_fraction)} to 100% of the rows gained {sgn(ev.observed_last_step.gain)} in {v.metric} ({v.greater_is_better ? 'higher' : 'lower'} is better; + = better; 95% CI [{sgn(ev.observed_last_step.ci[0])}, {sgn(ev.observed_last_step.ci[1])}]).</>}
+      {ev.observed_last_step && <> Measured directly, going from {pctTrim(ev.observed_last_step.from_fraction)} to 100% of the rows gained {sgn(ev.observed_last_step.gain)} in {v.metric} ({v.greater_is_better ? 'higher' : 'lower'} is better; + = better; 95% CI [{sgn(ev.observed_last_step.ci[0])}, {sgn(ev.observed_last_step.ci[1])}]).</>}
     </p>
   </>
 }
@@ -214,7 +202,7 @@ function Formula({ lc, metric }: { lc: LearningCurve; metric: string }) {
       <div className="card" data-testid="lc-split">
         <div className="card-head"><div className="left"><h3 className="card-title">How the Subsamples Were Drawn</h3></div></div>
         <div className="card-body stack" style={{ gap: 6 }}>
-          <p className="helper" style={{ fontSize: 12.5 }}>Inside the run's own {lc.split?.strategy} split <span className="mono">{lc.split?.key}</span>: {lc.split?.subsample}. For each seed the sets are nested ({pct(lc.summary?.[0]?.fraction ?? 0)} ⊂ … ⊂ 100%){lc.nested ? ' ✓' : ' ✕'}{lc.groups_whole != null ? <>; every {lc.split?.group_column} is either wholly in or wholly out {lc.groups_whole ? '✓' : '✕'}</> : null}.
+          <p className="helper" style={{ fontSize: 12.5 }}>Inside the run's own {lc.split?.strategy} split <span className="mono">{lc.split?.key}</span>: {lc.split?.subsample}. For each seed the sets are nested ({pctTrim(lc.summary?.[0]?.fraction ?? 0)} ⊂ … ⊂ 100%){lc.nested ? ' ✓' : ' ✕'}{lc.groups_whole != null ? <>; every {lc.split?.group_column} is either wholly in or wholly out {lc.groups_whole ? '✓' : '✕'}</> : null}.
             {lc.tuning_rows ? <> The split's tuning slice ({lc.tuning_rows.toLocaleString()} rows) is kept whole in every fit.</> : null} Every fit is scored on the same {lc.holdout_rows?.toLocaleString()} holdout rows (<span className="mono">{lc.holdout_sha}</span>).</p>
           <details className="an-adv"><summary className="micro-label">The fit call ({lc.fit_call?.notes.length ?? 0} notes)</summary>
             <ul className="helper" style={{ fontSize: 12, paddingLeft: 16 }}>{lc.fit_call?.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
@@ -233,7 +221,7 @@ function PointsTable({ lc, metric }: { lc: LearningCurve; metric: string }) {
       <div className="card-body" style={{ overflowX: 'auto' }}>
         <table className="table compact"><thead><tr><th>share</th><th className="r">n</th><th className="r">k</th><th className="r">mean {metric}</th><th className="r">sd s</th><th className="r">95% t-interval</th><th>each fit</th></tr></thead>
           <tbody>{lc.summary?.map((s) => <tr key={s.fraction}>
-            <td className="mono">{pct(s.fraction)}</td><td className="r mono">{nfmt(s.n)}</td><td className="r mono">{s.k}</td>
+            <td className="mono">{pctTrim(s.fraction)}</td><td className="r mono">{nfmt(s.n)}</td><td className="r mono">{s.k}</td>
             <td className="r mono"><b>{fmtScore(s.mean)}</b></td><td className="r mono">{s.sd == null ? '—' : s.sd.toFixed(4)}</td>
             <td className="r mono">{s.ci ? `[${fmtScore(s.ci[0])}, ${fmtScore(s.ci[1])}]` : 'the run itself'}</td>
             <td className="mono" style={{ fontSize: 12 }}>{s.scores.map((v) => fmtScore(v)).join(' · ')}</td>

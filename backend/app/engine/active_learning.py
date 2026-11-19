@@ -48,6 +48,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..splits import holdout_mask
+
 SCHEMA = "active_learning/1"
 DEFAULTS = {"pool": "hide", "hide_share": 0.9, "budget": 200, "rounds": 2, "strategy": "margin", "diversity": "cluster",
             "candidates_factor": 10, "compare_random": True, "seeds": 3}
@@ -278,8 +280,7 @@ def _missing_pool(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
     df = pd.read_csv(cfg["csv_path"])
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     fold = np.asarray(sp["fold"], dtype=int)
-    hold = np.zeros(len(df), dtype=bool)
-    hold[np.asarray(sp["holdout"], dtype=int)] = True
+    hold = holdout_mask(sp, len(df))
     structured = bool(sp.get("params"))
     out_of_train = hold | ((fold == -3) | (fold == -2) if structured else False)
     sel = ~out_of_train & df[cfg["label"]].isna().to_numpy()

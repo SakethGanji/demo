@@ -17,6 +17,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..splits import holdout_mask
+
 DISCLAIMER = ("This card is generated from the run's recorded artefacts to support model risk review. It documents the "
               "model's development and the developer's own testing; it does not replace independent model validation, "
               "ongoing monitoring or the effective challenge expected under SR 11-7 / OCC 2011-12.")
@@ -94,8 +96,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
     try:
         df = pd.read_csv(cfg["csv_path"], usecols=[label])
         splits = json.loads(Path(cfg["splits_path"]).read_text())
-        is_h = np.zeros(len(df), dtype=bool)
-        is_h[np.asarray(splits["holdout"], dtype=int)] = True
+        is_h = holdout_mask(splits, len(df))
         y = df[label]
         if res.get("problem_type") in ("binary", "multiclass"):
             tr = y[~is_h].dropna().astype(str).value_counts()

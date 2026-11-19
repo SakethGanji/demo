@@ -25,7 +25,6 @@
 .an-review { display: inline-flex; gap: 2px; }
 .chip-btn.xs { padding: 0 6px; min-height: 20px; font-size: 11px; }
 .chip-btn.on.danger { background: var(--status-danger); border-color: var(--status-danger); color: var(--text-on-accent, #fff); }
-.an-adv summary { cursor: pointer; }
 .an-progress { display: grid; grid-template-columns: minmax(120px, 1fr) auto auto; gap: var(--space-12); align-items: center; font-size: 12px; }
 .an-progress .bar { height: 8px; background: var(--border-row); border-radius: 4px; overflow: hidden; }
 .an-progress .bar i { display: block; height: 100%; background: var(--viz-a); }

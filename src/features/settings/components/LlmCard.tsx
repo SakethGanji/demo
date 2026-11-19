@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { LlmStatus } from '@/shared/api/types'
 import { NumberInput } from '@/shared/primitives/NumberInput'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { DECIDER } from '@/features/vela/components/DeciderTrail'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 const ORDER = ['anthropic-sdk', 'claude-cli', 'computed'] as const
 const fmt = (s: number | null) => (s == null ? '—' : s < 0.01 ? `${(s * 1000).toFixed(2)} ms` : `${s.toFixed(2)} s`)
@@ -11,11 +11,8 @@ const fmt = (s: number | null) => (s == null ? '—' : s < 0.01 ? `${(s * 1000).
 /** F5: the language-model router behind Vela and Autopilot: its route, latency per decider, cache and timeouts. Every
  *  number comes from GET /api/llm; the timeouts are saved on the server (PUT /api/llm/settings). */
 export function LlmCard() {
-  const [st, setSt] = useState<LlmStatus | null>(null)
-  const [err, setErr] = useState<string | null>(null)
+  const { data: st, setData: setSt, err, setErr, reload: load } = useFetch(() => api.llm.status(), [], { pollMs: 5000 })
   const [saved, setSaved] = useState<string | null>(null)
-  const load = () => api.llm.status().then((s) => { setSt(s); setErr(null) }).catch((e) => setErr((e as Error).message))
-  useEffect(() => { load(); const t = setInterval(load, 5000); return () => clearInterval(t) }, [])
   const put = (patch: Parameters<typeof api.llm.update>[0], what: string) =>
     api.llm.update(patch).then((s) => { setSt(s); setSaved(what); setTimeout(() => setSaved(null), 2500) }).catch((e) => setErr((e as Error).message))
 

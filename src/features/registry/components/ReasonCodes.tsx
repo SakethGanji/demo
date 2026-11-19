@@ -4,8 +4,9 @@ import type { ModelVersion, ReasonCode, ReasonMapping, ReasonsConfig } from '@/s
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { pct } from '@/shared/lib/format'
+import { HeroCell } from '@/shared/components/Status'
 
-const pct = (x: number | null | undefined) => (x == null ? '—' : `${(x * 100).toFixed(0)}%`)
 
 /** F10 · reason codes for adverse decisions: the rule at the version's threshold, how φ is computed for the served
  *  model, the editable mapping table (per model) and the stability check. */
@@ -122,14 +123,14 @@ export function ReasonCodes({ v, actor, onEdited }: { v: ModelVersion; actor: st
             <>
               <div className="navy-well" style={{ padding: 'var(--space-8) var(--space-16)', marginBottom: 8, minHeight: 0 }}><div className="tp-eq" style={{ fontSize: 13.5 }}>x̃ⱼ = xⱼ + ε·σⱼ·z, &nbsp;z ~ N(0, 1), &nbsp;ε = {st.noise}; same coalitions and background for x and x̃; compare reasons(x) with reasons(x̃)</div></div>
               <div className="card navy explain-hero">
-                <div className="eh-cell"><span className="micro-label">top-{c.top_k} set unchanged</span><b className="mono" data-testid="stab-set">{pct(st.same_set)}</b></div>
-                <div className="eh-cell"><span className="micro-label">first reason unchanged</span><b className="mono">{pct(st.same_top1)}</b></div>
-                <div className="eh-cell"><span className="micro-label">same order</span><b className="mono">{pct(st.same_order)}</b></div>
-                <div className="eh-cell"><span className="micro-label">mean Jaccard</span><b className="mono">{fmtScore(st.mean_jaccard, 2)}</b></div>
-                <div className="eh-cell"><span className="micro-label">decision flipped</span><b className="mono">{pct(st.decision_flips)}</b></div>
+                <div className="eh-cell"><span className="micro-label">top-{c.top_k} set unchanged</span><b className="mono" data-testid="stab-set">{pct(st.same_set, 0)}</b></div>
+                <HeroCell label="first reason unchanged">{pct(st.same_top1, 0)}</HeroCell>
+                <HeroCell label="same order">{pct(st.same_order, 0)}</HeroCell>
+                <HeroCell label="mean Jaccard">{fmtScore(st.mean_jaccard, 2)}</HeroCell>
+                <HeroCell label="decision flipped">{pct(st.decision_flips, 0)}</HeroCell>
               </div>
               <p className="helper" style={{ fontSize: 12, marginTop: 8 }}>{st.rows} adverse decisions among the first {st.holdout_rows} holdout rows × {st.repeats} draws ({st.comparisons} comparisons where the decision stayed adverse); σⱼ is feature j's standard deviation among the reference applicants; categories unchanged. {st.seconds.toFixed(0)} s.
-                {st.vs_reference && <> Estimator check against the same game with M = {st.vs_reference.coalitions.toLocaleString()}: same top-{c.top_k} set on {pct(st.vs_reference.same_set)} of rows, mean overlap {pct(st.vs_reference.mean_overlap)}, {pct(st.vs_reference.cited_positive)} of cited features have reference aⱼ &gt; 0.</>}</p>
+                {st.vs_reference && <> Estimator check against the same game with M = {st.vs_reference.coalitions.toLocaleString()}: same top-{c.top_k} set on {pct(st.vs_reference.same_set, 0)} of rows, mean overlap {pct(st.vs_reference.mean_overlap, 0)}, {pct(st.vs_reference.cited_positive, 0)} of cited features have reference aⱼ &gt; 0.</>}</p>
             </>
           )}
           {st?.error && <p className="helper">{st.error}</p>}

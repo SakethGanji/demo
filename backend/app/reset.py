@@ -5,7 +5,6 @@ running (so its in-memory state is cleared too), else `python -m app.reset` offl
 from __future__ import annotations
 
 import shutil
-import sys
 from typing import Any
 
 from . import config
@@ -37,4 +36,3 @@ if __name__ == "__main__":
 
     out = reset(config.load_settings())
     print(json.dumps(out, indent=1))
-    sys.exit(0)

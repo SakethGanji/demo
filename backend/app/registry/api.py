@@ -3,6 +3,7 @@ model card, Try It, batch scoring with drift, and MLflow's view of a version."""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import secrets
@@ -16,8 +17,9 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..engine import explain
+from ..http import run_or_404
 from . import build, card, scoring, tracking
-from .store import STAGES, RegistryStore
+from .store import RegistryStore
 
 router = APIRouter(prefix="/api")
 
@@ -92,9 +94,7 @@ class RegisterRequest(BaseModel):
 async def register(run_id: str, body: RegisterRequest, request: Request) -> dict[str, Any]:
     """Register a finished run as a new version of a registered model. The version is built in a worker process
     (status 'building', then 'ready' or 'failed'); poll GET /api/registry/versions/{id} for its steps."""
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; only a finished run can be registered.")
     if body.distill and rec["config"].get("monotone"):
@@ -145,9 +145,7 @@ async def latency_profile(run_id: str, request: Request, batch: int = Query(1000
     `frontier` lists the models no other model beats on both served one-row p95 and validation score. What
     refit_full / infer_limit / distillation / clone_for_deployment trade against. Measured in a worker process;
     cached per batch size."""
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}.")
     cached = ((rec.get("result") or {}).get("latency_profile") or {}).get(str(batch))
@@ -240,10 +238,19 @@ def _version(request: Request, vid: str) -> dict[str, Any]:
     return v
 
 
-def _ready(v: dict[str, Any]) -> None:
+def _batch(request: Request, bid: str) -> dict[str, Any]:
+    b = _reg(request).get_batch(bid)
+    if not b:
+        raise HTTPException(404, f"No batch with id '{bid}'.")
+    return b
+
+
+def _ready_version(request: Request, vid: str) -> dict[str, Any]:
+    v = _version(request, vid)
     if v["status"] != "ready":
         raise HTTPException(409, f"Version {v['model_name']} v{v['version']} is {v['status']}"
                                  + (f": {v['error']}" if v.get("error") else "; wait until it is ready."))
+    return v
 
 
 @router.get("/registry/versions")
@@ -265,8 +272,7 @@ def audit(request: Request, model: str | None = None, version_id: str | None = N
 @router.get("/registry/versions/{vid}/mlflow")
 async def version_mlflow(vid: str, request: Request) -> dict[str, Any]:
     """MLflow's own record of the version: stage, aliases, tags, and the source run's params and metrics."""
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     ml = (v.get("result") or {}).get("mlflow")
     if not ml:
         raise HTTPException(404, "This version has no MLflow record (registration in MLflow failed; see its steps).")
@@ -307,8 +313,7 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
     """Move a version between stages. Production needs an approved review; promoting a version to Production
     archives the model's previous Production version. Every change is written to the audit log."""
     reg = _reg(request)
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     actor = _name_ok(body.actor, "actor")
     if body.stage == v["stage"]:
         raise HTTPException(409, f"Version {v['version']} is already in {v['stage']}.")
@@ -333,9 +338,7 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
         await _sync(request, o)
     ml = await _sync(request, v2, {"stage_changed_by": actor})
     if body.stage == "Production" and v2.get("path"):
-        kind = ((request.app.state.runs.get(v2["run_id"]) or {}).get("config") or {}).get("kind")
-        if kind not in ("forecast", "anomaly"):
-            warm_version(request, v2)  # F3: Production is served warm
+        warm_version(request, v2)  # F3: Production is served warm
     return {"version": version_out(v2), "audit": entry, "archived": [o["id"] for o in changed], "mlflow": ml}
 
 
@@ -345,8 +348,7 @@ async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, A
     person who registered it. Rejecting needs a comment, and archives the version if it was in Staging or
     Production."""
     reg = _reg(request)
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     who = _name_ok(body.reviewer, "reviewer")
     if v["approval"] != "pending":
         raise HTTPException(409, f"Version {v['version']} was already {v['approval']}; register the run again for a new review.")
@@ -369,8 +371,7 @@ async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, A
 
 
 def _card(request: Request, vid: str) -> dict[str, Any]:
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     reg = _reg(request)
     run = request.app.state.runs.get(v["run_id"])
     ds = request.app.state.db.get_dataset(run["dataset_id"])
@@ -380,7 +381,6 @@ def _card(request: Request, vid: str) -> dict[str, Any]:
 
 def _reasons_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
     """F10: the card's reason-code section from the saved mapping (defaults filled), with no worker call."""
-    import json as _json
 
     args = _reason_args(request, v, run)
     if args is None:
@@ -396,7 +396,7 @@ def _reasons_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) 
     return {"adverse_class": str(conf.get("adverse_class") or pos), "positive_class": pos,
             "threshold": ver.get("decision_threshold"), "top_k": int(conf.get("top_k") or rc.TOP_K),
             "mapping": rc.merge_mapping(conf.get("mapping"), rc.default_mapping(features, args[1], cons)),
-            "constraints": cons, "stability": _json.loads(sp.read_text()) if sp.exists() else None,
+            "constraints": cons, "stability": json.loads(sp.read_text()) if sp.exists() else None,
             "reference": str(conf.get("reference") or "approved")}
 
 
@@ -445,8 +445,7 @@ async def version_monotone(vid: str, request: Request, constraints: str | None =
     from ..engine import heavy, serving
     from ..engine.api import parse_constraints
 
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
     if run["config"].get("kind") or run["config"].get("import"):
         raise HTTPException(400, "Monotone checks apply to tabular versions trained here.")
@@ -471,8 +470,7 @@ class TryRequest(BaseModel):
 async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]:
     """One row through the version's predictor: the prediction, the class probabilities and (explain) Kernel SHAP
     for that row, f(x) = φ₀ + Σ φᵢ, with the top reasons. Computed in a worker process."""
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
     kind = run["config"].get("kind")
     if kind == "forecast":
@@ -559,6 +557,8 @@ def _inproc_ok(v: dict[str, Any], n_rows: int) -> bool:
 
 def warm_version(request: Request, v: dict[str, Any]) -> None:
     """Warm a tabular version in every predict worker and, when it qualifies, in the API process (in a thread)."""
+    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly"):
+        return
     request.app.state.heavy.warm_path(v["path"])
     if _inproc_ok(v, 1):
         import threading
@@ -577,8 +577,7 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
     meta = _SCORE_META.get(vid)
     if meta is None:
         # A ready version's path, kind and size never change: read them once, not on every online call.
-        v = _version(request, vid)
-        _ready(v)
+        v = _ready_version(request, vid)
         run = request.app.state.runs.get(v["run_id"])
         meta = {"path": v["path"], "kind": run["config"].get("kind"), "model_name": v["model_name"],
                 "version": v["version"], "inproc": _inproc_ok(v, 1)}
@@ -610,9 +609,7 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
     if body.reasons:
         full = _version(request, vid)
         run = request.app.state.runs.get(full["run_id"])
-        rc_args = _reason_args(request, full, run)
-        if rc_args is None:
-            raise HTTPException(400, "Reason codes are for binary classification versions.")
+        rc_args = _reason_args_or_400(request, full, run)
         try:
             out["reasons"] = await request.app.state.heavy.run(scoring.reasons_rows, full["path"], run["config"], *rc_args,
                                                                body.rows, True, body.reasons_reference)
@@ -633,8 +630,7 @@ def serving_state() -> dict[str, Any]:
 async def benchmark(vid: str, request: Request) -> dict[str, Any]:
     """Measure the version as served, in a predict worker: one-row p50 / p95 on holdout rows and batches of
     1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
     if run["config"].get("kind") in ("forecast", "anomaly"):
         raise HTTPException(400, "The serving benchmark measures tabular versions (one row per call).")
@@ -658,8 +654,7 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
     `data_date` (YYYY-MM-DD) is the date of the data in the batch (default: the latest date in the run's time column
     when the file has it, else the upload day); a Production version whose model has a challenger also shadow-scores
     the batch with it."""
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     who = _name_ok(created_by, "created_by")
     content = await file.read(config.MAX_UPLOAD_BYTES + 1)
     if len(content) > config.MAX_UPLOAD_BYTES:
@@ -712,17 +707,12 @@ def list_batches(vid: str, request: Request) -> dict[str, Any]:
 
 @router.get("/registry/batches/{bid}")
 def get_batch(bid: str, request: Request) -> dict[str, Any]:
-    b = _reg(request).get_batch(bid)
-    if not b:
-        raise HTTPException(404, f"No batch with id '{bid}'.")
-    return b
+    return _batch(request, bid)
 
 
 @router.get("/registry/batches/{bid}/download")
 def download_batch(bid: str, request: Request):
-    b = _reg(request).get_batch(bid)
-    if not b:
-        raise HTTPException(404, f"No batch with id '{bid}'.")
+    b = _batch(request, bid)
     if b["status"] != "succeeded":
         raise HTTPException(409, f"Batch {bid} is {b['status']}.")
     path = _dir(request) / "batches" / bid / "scored.csv"
@@ -753,6 +743,13 @@ def _reason_args(request: Request, v: dict[str, Any], run: dict[str, Any] | None
     return rc.load_config(_reasons_path(request, v["model_name"])), _kinds(request, run)
 
 
+def _reason_args_or_400(request: Request, v: dict[str, Any], run: dict[str, Any] | None):
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    return args
+
+
 def _stability_path(v: dict[str, Any]) -> Path:
     return Path(v["path"]).parent / "reasons_stability.json"
 
@@ -761,14 +758,10 @@ def _stability_path(v: dict[str, Any]) -> Path:
 async def reasons_config(vid: str, request: Request) -> dict[str, Any]:
     """F10: the reason-code set-up of a binary version: the adverse class, the served threshold t, the attribution
     method chosen for the served model, and the mapping table (feature → code and statements; edited per model)."""
-    import json as _json
 
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    args = _reason_args(request, v, run)
-    if args is None:
-        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    args = _reason_args_or_400(request, v, run)
     from ..engine import reasons as rc
 
     try:
@@ -779,7 +772,7 @@ async def reasons_config(vid: str, request: Request) -> dict[str, Any]:
     saved = args[0]
     return {"version_id": vid, "model_name": v["model_name"], **info, "saved": bool(saved),
             "updated_by": saved.get("updated_by"), "updated_at": saved.get("updated_at"),
-            "stability": _json.loads(sp.read_text()) if sp.exists() else None}
+            "stability": json.loads(sp.read_text()) if sp.exists() else None}
 
 
 class ReasonsBody(BaseModel):
@@ -794,17 +787,13 @@ class ReasonsBody(BaseModel):
 async def edit_reasons(vid: str, body: ReasonsBody, request: Request) -> dict[str, Any]:
     """Edit the model's mapping table (codes and plain-English statements) or the adverse class. Stored per registry
     model (every version of it uses it) and recorded in the audit log."""
-    import json as _json
 
     from ..engine import reasons as rc
     from ..engine.store import now
 
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    args = _reason_args(request, v, run)
-    if args is None:
-        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    args = _reason_args_or_400(request, v, run)
     who = _name_ok(body.actor, "actor")
     cur = dict(args[0])
     features = ((v.get("result") or {}).get("version") or {}).get("features") or []
@@ -837,7 +826,7 @@ async def edit_reasons(vid: str, body: ReasonsBody, request: Request) -> dict[st
     cur.update({"updated_by": who, "updated_at": now()})
     path = _reasons_path(request, v["model_name"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_json.dumps(cur, indent=1))
+    path.write_text(json.dumps(cur, indent=1))
     _reg(request).audit(actor=who, action="reason_codes_edited", version=v, comment=", ".join(changed) or "no change")
     return await reasons_config(vid, request)
 
@@ -854,12 +843,9 @@ async def reasons_stability(vid: str, body: StabilityBody, request: Request) -> 
     change when every numeric input moves by ε·σ·N(0, 1). Stored beside the version; the model card shows it."""
     from ..engine import reasons as rc
 
-    v = _version(request, vid)
-    _ready(v)
+    v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    args = _reason_args(request, v, run)
-    if args is None:
-        raise HTTPException(400, "Reason codes are for binary classification versions.")
+    args = _reason_args_or_400(request, v, run)
     try:
         out = await request.app.state.heavy.run(scoring.reasons_stability, v["path"], run["config"], *args, body.rows,
                                                 body.noise, body.repeats, str(_stability_path(v)))

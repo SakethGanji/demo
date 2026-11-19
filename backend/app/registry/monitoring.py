@@ -26,6 +26,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..stats import delong, delong_parts, wilson
+
 DEFAULT_THRESHOLDS: dict[str, Any] = {
     "feature_psi": 0.25,          # alert when any feature's PSI exceeds this
     "feature_psi_watch": 0.10,    # watch band (drift.py's bands)
@@ -42,7 +44,6 @@ THRESHOLD_RULES = {
     "auc_drop": "upper 95 % bound of AUC_batch < AUC_baseline − δ",
     "calibration_z": "|z| = |Σy − Σp̂| / √Σp̂(1 − p̂) > θ_z",
 }
-LEVEL = 0.95
 Z = 1.959963984540054
 
 
@@ -52,16 +53,6 @@ def _f(v: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return f if np.isfinite(f) else None
-
-
-def wilson(k: int, n: int, z: float = Z) -> list[float]:
-    if n == 0:
-        return [0.0, 1.0]
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * np.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return [float(max(0.0, c - h)), float(min(1.0, c + h))]
 
 
 def days_between(a: str | None, b: str | None) -> int | None:
@@ -74,25 +65,13 @@ def days_between(a: str | None, b: str | None) -> int | None:
 # --------------------------------------------------------------------------- performance on labelled rows
 
 
-def _delong_parts(y: np.ndarray, s: np.ndarray) -> tuple[float, np.ndarray, np.ndarray]:
-    from ..engine.shift import _midrank
-
-    pos, neg = s[y == 1], s[y == 0]
-    m, n = len(pos), len(neg)
-    tx, ty, tz = _midrank(pos), _midrank(neg), _midrank(np.concatenate([pos, neg]))
-    auc = float((tz[:m].sum() - m * (m + 1) / 2) / (m * n))
-    v10 = (tz[:m] - tx) / n
-    v01 = 1.0 - (tz[m:] - ty) / m
-    return auc, v10, v01
-
-
 def paired_delong(y: np.ndarray, s1: np.ndarray, s2: np.ndarray) -> dict[str, Any]:
     """ΔAUC = AUC(s2) − AUC(s1) on the same rows; Var(Δ) from DeLong's structural components of both scores."""
     from scipy.stats import norm
 
     y = np.asarray(y).astype(int)
-    a1, v10a, v01a = _delong_parts(y, np.asarray(s1, dtype=float))
-    a2, v10b, v01b = _delong_parts(y, np.asarray(s2, dtype=float))
+    a1, v10a, v01a = delong_parts(y, np.asarray(s1, dtype=float))
+    a2, v10b, v01b = delong_parts(y, np.asarray(s2, dtype=float))
     m, n = len(v10a), len(v01a)
     s10 = np.cov(np.vstack([v10a, v10b]), ddof=1)
     s01 = np.cov(np.vstack([v01a, v01b]), ddof=1)
@@ -124,12 +103,11 @@ def paired_bootstrap(loss1: np.ndarray, loss2: np.ndarray, B: int = 2000, seed: 
 
 def perf_binary(y: np.ndarray, p: np.ndarray, threshold: float, cost: dict[str, Any] | None = None) -> dict[str, Any]:
     """Performance of p̂ = P(y = 1 | x) on labelled rows. y is 0/1 with 1 = the positive class."""
-    from ..engine.shift import delong
 
     y = np.asarray(y).astype(int)
     p = np.asarray(p, dtype=float)
     n, k = len(y), int(y.sum())
-    out: dict[str, Any] = {"n": n, "positives": k, "observed_rate": k / n if n else None, "observed_ci": wilson(k, n),
+    out: dict[str, Any] = {"n": n, "positives": k, "observed_rate": k / n if n else None, "observed_ci": wilson(k, n, Z, empty=[0.0, 1.0]),
                            "mean_p": float(p.mean()) if n else None}
     var = float((p * (1 - p)).sum())
     out["calibration_z"] = float((k - p.sum()) / np.sqrt(var)) if var > 0 else None
@@ -162,7 +140,7 @@ def perf_other(problem_type: str, y: pd.Series, pred: pd.Series, proba: pd.DataF
     n = len(y)
     if problem_type == "multiclass":
         ok = (pred.astype(str).to_numpy() == y.astype(str).to_numpy())
-        out = {"n": n, "accuracy": float(ok.mean()), "accuracy_ci": wilson(int(ok.sum()), n)}
+        out = {"n": n, "accuracy": float(ok.mean()), "accuracy_ci": wilson(int(ok.sum()), n, Z, empty=[0.0, 1.0])}
         if proba is not None:
             cols = [str(c) for c in proba.columns]
             pr = proba.to_numpy()

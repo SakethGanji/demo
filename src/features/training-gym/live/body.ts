@@ -103,4 +103,3 @@ export const fmtNum = (v: number) => {
 
 export const fmtSecs = (s: number) => (s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)} s` : s < 3600 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s` : `${(s / 3600).toFixed(1)} h`)
 
-export const pretty = (v: unknown) => JSON.stringify(v, null, 2)

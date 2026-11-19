@@ -1,9 +1,9 @@
 import { useApi } from '@/shared/api/mode'
 import { Graph } from '@/shared/components/Graph'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { LiveRegistry } from './LiveRegistry'
 import { SparkWave } from '@/shared/primitives/SparkWave'
 import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
+import { Loading } from '@/shared/components/Status'
 
 const VERSIONS: [string, Status, string, string, string, string, string, string][] = [
   ['v3.0.0-rc1', 'warning', 'Staging', 'run_894a', '0.914', '0.941', 'Awaiting · Arun Patel', '2026-11-16'],
@@ -16,7 +16,7 @@ const VERSIONS: [string, Status, string, string, string, string, string, string]
 export function RegistryPage({ go, approved, onApprove }: { go: (r: string) => void; approved: boolean; onApprove: () => void }) {
   const { mode } = useApi()
   if (mode === 'live') return <LiveRegistry go={go} />
-  if (mode === 'checking') return <div className="page"><div className="card card-body row"><ResonanceWave /> Connecting…</div></div>
+  if (mode === 'checking') return <Loading>Connecting…</Loading>
   return <MockRegistry go={go} approved={approved} onApprove={onApprove} />
 }
 

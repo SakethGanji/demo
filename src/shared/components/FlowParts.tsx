@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { flows } from '@/shared/api/flows'
 import type { LiveState } from '@/shared/hooks/useRunEvents'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { fix } from '@/shared/lib/format'
 
 /** Pieces shared by the forecast, anomaly and import pages. */
 export const FAMILY_COLOR: Record<string, string> = { baseline: 'var(--text-muted)', statistical: 'var(--viz-b)', tabular: 'var(--viz-a)', deep: 'var(--viz-c)', foundation: 'var(--viz-e)', ensemble: 'var(--viz-d)', iforest: 'var(--viz-a)', lof: 'var(--viz-c)', other: 'var(--text-body)' }
-const f3 = (v: number | null | undefined, d = 3) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d))
 
 export function LiveModels({ live, metric }: { live: LiveState; metric: string }) {
   const done = live.models.filter((m) => m.val != null)
@@ -21,7 +21,7 @@ export function LiveModels({ live, metric }: { live: LiveState; metric: string }
             <span className="dot" style={{ background: FAMILY_COLOR[m.family ?? 'other'] }} />
             <span className="mono name">{m.model}</span><span className="muted fam">{m.family}</span>
             <span className="bar">{m.status === 'running' ? <ResonanceWave /> : m.val != null ? <i style={{ width: `${(100 * (m.val - lo)) / (hi - lo || 1)}%`, background: FAMILY_COLOR[m.family ?? 'other'] }} /> : null}</span>
-            <span className="mono r">{m.status === 'failed' ? 'failed' : m.val != null ? f3(m.val) : '…'}</span>
+            <span className="mono r">{m.status === 'failed' ? 'failed' : m.val != null ? fix(m.val) : '…'}</span>
             <span className="mono r muted">{m.fit != null ? `${m.fit.toFixed(1)} s` : ''}</span>
           </div>
         ))}

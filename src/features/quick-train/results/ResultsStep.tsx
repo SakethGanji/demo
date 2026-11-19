@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { HoldoutPredictions, ModelFamily, Run } from '@/shared/api/types'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fromServer, type Dataset } from '../datasets'
 import { StackEquation } from '../race/StackEquation'
@@ -16,6 +15,7 @@ import { MetricCards } from './MetricCards'
 import { QuantileResults } from './QuantileResults'
 import { residuals } from './stats'
 import { TryPrediction } from './TryPrediction'
+import { ErrorCard, Loading } from '@/shared/components/Status'
 
 /** Step 5: what the run produced. Live: everything from GET /api/runs/{id}; mock: the simulated run. */
 export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
@@ -49,8 +49,8 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
     return () => { alive = false }
   }, [runId, mockRun])
 
-  if (err) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!run) return <div className="page"><div className="card card-body row"><ResonanceWave /> Loading the results…</div></div>
+  if (err) return <ErrorCard err={err} />
+  if (!run) return <Loading>Loading the results…</Loading>
   if (run.status !== 'succeeded') return <div className="page"><div className="card card-body" role="alert">This run {run.status}{run.error ? `: ${run.error}` : '.'}</div></div>
 
   const reg = run.problem_type === 'regression' || run.problem_type === 'quantile'

@@ -99,7 +99,7 @@ def log_run(data_dir: Path, rec: dict[str, Any], run_dir: Path) -> dict[str, Any
                 "engine": {"forecast": "autogluon.timeseries", "anomaly": "scikit-learn"}.get(rec["config"].get("kind"), "autogluon.tabular")}
         run = c.create_run(exp_id, run_name=rec["name"][:250], tags=tags)
         rid = run.info.run_id
-        from mlflow.entities import Metric, Param, RunTag  # noqa: F401
+        from mlflow.entities import Metric, Param
 
         import time
 
@@ -163,7 +163,7 @@ def sync_version(data_dir: Path, model_name: str, version: int, *, stage: str, t
     """Mirror a stage change / review into MLflow: the (deprecated but still served) stage, an alias per live
     stage ('staging', 'production'), and tags for the approval."""
     with client(data_dir) as (c, _):
-        mv = c.transition_model_version_stage(model_name, str(version), stage, archive_existing_versions=False)
+        c.transition_model_version_stage(model_name, str(version), stage, archive_existing_versions=False)
         for k, v in tags.items():
             c.set_model_version_tag(model_name, str(version), k, str(v)[:5000])
         for alias in ("staging", "production"):

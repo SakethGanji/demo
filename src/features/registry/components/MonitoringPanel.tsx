@@ -7,9 +7,10 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { BAND_COLOR, pct, versionLabel } from '../lib'
+import { fix } from '@/shared/lib/format'
+import { HeroCell } from '@/shared/components/Status'
+import { useFetch } from '@/shared/hooks/useFetch'
 
-const f3 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(3))
-const f4 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(4))
 const sgn = (v: number | null | undefined, d = 4) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`)
 const COLORS = ['var(--viz-a)', 'var(--viz-b)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-e)']
 const KIND_STATUS = { covariate: 'warning', score: 'warning', performance: 'danger' } as const
@@ -18,21 +19,8 @@ const KIND_STATUS = { covariate: 'warning', score: 'warning', performance: 'dang
  *  distribution, F15's adversarial AUC, performance once labels arrive (with the lag), alerts, the challenger's shadow
  *  comparison and the retrain proposal. Every number comes from GET /registry/versions/{id}/monitoring. */
 export function MonitoringPanel({ v, actor, versions, onSelect, onChanged }: { v: ModelVersion; actor: string; versions: ModelVersion[]; onSelect: (id: string) => void; onChanged?: () => void }) {
-  const [m, setM] = useState<MonitoringState | null>(null)
-  const [err, setErr] = useState('')
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    let alive = true
-    api.registry.monitoring(v.id).then((x) => alive && (setM(x), setErr(''))).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [v.id, tick])
-  const running = (m?.running.length ?? 0) > 0
-  useEffect(() => {
-    if (!running) return
-    const t = setTimeout(() => setTick((x) => x + 1), 1500)
-    return () => clearTimeout(t)
-  }, [running, m])
-  const reload = () => { setTick((x) => x + 1); onChanged?.() }
+  const { data: m, err, reload: refetch } = useFetch(() => api.registry.monitoring(v.id), [v.id], { pollMs: 1500, while: (d) => (d?.running.length ?? 0) > 0 })
+  const reload = () => { refetch(); onChanged?.() }
   if (err) return <div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div>
   if (!m) return <div className="card card-body row"><ResonanceWave /> Reading the monitoring state…</div>
   const pts = m.points
@@ -213,7 +201,7 @@ function PerfOverTime({ m }: { m: MonitoringState }) {
       <XYPlot height={230} testId="mon-perf" x={xAxis(pts)} y={{ min: Math.max(0, lo), max: Math.min(1, hi), ticks: niceTicks(Math.max(0, lo), Math.min(1, hi), 4), title: 'AUC', fmt: (v) => v.toFixed(2) }}
         refs={b?.auc != null ? [{ y: b.auc, label: 'AUC₀', dash: '4 3' }, { y: b.auc - th.auc_drop, label: 'AUC₀ − δ', color: 'var(--status-danger)', dash: '2 3' }] : []}
         series={[
-          { name: 'AUC', color: 'var(--viz-a)', dots: true, points: lab.map(([i, p]) => [i, p.performance!.auc!] as [number, number]), tip: (k) => { const p = lab[k][1]; return `[${f3(p.performance!.auc_ci![0])}, ${f3(p.performance!.auc_ci![1])}] · n ${p.performance!.n} · labels ${p.labels_date} (lag ${p.label_lag_days} d)` } },
+          { name: 'AUC', color: 'var(--viz-a)', dots: true, points: lab.map(([i, p]) => [i, p.performance!.auc!] as [number, number]), tip: (k) => { const p = lab[k][1]; return `[${fix(p.performance!.auc_ci![0])}, ${fix(p.performance!.auc_ci![1])}] · n ${p.performance!.n} · labels ${p.labels_date} (lag ${p.label_lag_days} d)` } },
           { name: 'challenger', color: 'var(--viz-e)', dash: '4 2', dots: true, points: lab.filter(([, p]) => p.paired?.auc).map(([i, p]) => [i, p.paired!.auc!.auc_challenger] as [number, number]) },
         ]}>
         {(sx, sy) => <g>
@@ -267,12 +255,12 @@ function BatchTable({ m, actor, onLabelled }: { m: MonitoringState; actor: strin
           return (
             <tr key={p.batch_id} data-testid={`mon-row-${p.period}`}>
               <td className="mono" title={p.batch_id}>{p.period}</td><td className="r mono">{p.n_rows?.toLocaleString()}</td>
-              <td className="r mono" style={{ color: worst ? BAND_COLOR[worst.band] : undefined }}>{f3(p.max_psi)}</td><td className="mono">{worst?.feature}</td>
-              <td className="r mono">{f3(p.prediction_psi)}</td><td className="r mono">{f3(p.mean_p)}</td>
-              <td className="r mono">{p.adversarial?.auc != null ? `${f3(p.adversarial.auc)} ${p.adversarial.verdict ?? ''}` : p.adversarial?.status === 'running' ? '…' : '—'}</td>
+              <td className="r mono" style={{ color: worst ? BAND_COLOR[worst.band] : undefined }}>{fix(p.max_psi)}</td><td className="mono">{worst?.feature}</td>
+              <td className="r mono">{fix(p.prediction_psi)}</td><td className="r mono">{fix(p.mean_p)}</td>
+              <td className="r mono">{p.adversarial?.auc != null ? `${fix(p.adversarial.auc)} ${p.adversarial.verdict ?? ''}` : p.adversarial?.status === 'running' ? '…' : '—'}</td>
               <td className="mono">{p.labels_date ?? <span className="helper">awaiting</span>}</td><td className="r mono">{p.label_lag_days != null ? `${p.label_lag_days} d` : '—'}</td>
-              <td className="r mono" title={pf?.auc_ci ? `95 % [${f3(pf.auc_ci[0])}, ${f3(pf.auc_ci[1])}]` : ''}>{f3(pf?.auc)}</td>
-              <td className="r mono">{pf ? `${f3(pf.observed_rate)} · ${f3(pf.mean_p)} (${sgn(pf.calibration_z, 1)})` : '—'}</td>
+              <td className="r mono" title={pf?.auc_ci ? `95 % [${fix(pf.auc_ci[0])}, ${fix(pf.auc_ci[1])}]` : ''}>{fix(pf?.auc)}</td>
+              <td className="r mono">{pf ? `${fix(pf.observed_rate)} · ${fix(pf.mean_p)} (${sgn(pf.calibration_z, 1)})` : '—'}</td>
               <td>{p.alerts.map((x, i) => <StatusPill key={i} status={KIND_STATUS[x.kind]}>{x.signal.replace('_', ' ')}</StatusPill>)}</td>
             </tr>
           )
@@ -313,24 +301,24 @@ function ChallengerCard({ m, v, actor, versions, onSelect, onSaved }: { m: Monit
         <div className="card-body">
           <div className="card navy explain-hero">
             <div className="eh-cell"><span className="micro-label">challenger</span><b className="mono">{ch.label.split(' ').pop()}</b><small>{ch.label} · {ch.stage} · review {ch.approval} · {ch.batches} batches shadowed</small></div>
-            <div className="eh-cell"><span className="micro-label">same decision</span><b className="mono">{pct(ch.agreement_mean)}</b><small className="math-s">mean over batches · 1[p̂₁ ≥ t₁] = 1[p̂₂ ≥ t₂]</small></div>
-            <div className="eh-cell"><span className="micro-label">score PSI</span><b className="mono">{f3(ch.psi_mean)}</b><small className="math-s">p̂₂ on p̂₁'s deciles · Spearman ρ {f3(ch.spearman_mean)}</small></div>
-            {pool?.auc && <div className="eh-cell" data-testid="mon-paired"><span className="micro-label">ΔAUC (paired)</span><b className="mono" style={{ color: pool.auc.ci[0] > 0 ? BAND_COLOR.stable : pool.auc.ci[1] < 0 ? BAND_COLOR.shift : undefined }}>{sgn(pool.auc.delta)}</b><small className="math-s">[{sgn(pool.auc.ci[0])}, {sgn(pool.auc.ci[1])}] · p {f3(pool.auc.p_value)} · n {pool.n.toLocaleString()}</small></div>}
+            <HeroCell label="same decision" sub="mean over batches · 1[p̂₁ ≥ t₁] = 1[p̂₂ ≥ t₂]" subClass="math-s">{pct(ch.agreement_mean)}</HeroCell>
+            <div className="eh-cell"><span className="micro-label">score PSI</span><b className="mono">{fix(ch.psi_mean)}</b><small className="math-s">p̂₂ on p̂₁'s deciles · Spearman ρ {fix(ch.spearman_mean)}</small></div>
+            {pool?.auc && <div className="eh-cell" data-testid="mon-paired"><span className="micro-label">ΔAUC (paired)</span><b className="mono" style={{ color: pool.auc.ci[0] > 0 ? BAND_COLOR.stable : pool.auc.ci[1] < 0 ? BAND_COLOR.shift : undefined }}>{sgn(pool.auc.delta)}</b><small className="math-s">[{sgn(pool.auc.ci[0])}, {sgn(pool.auc.ci[1])}] · p {fix(pool.auc.p_value)} · n {pool.n.toLocaleString()}</small></div>}
             {pool && <div className="eh-cell"><span className="micro-label">Δ log loss (paired)</span><b className="mono">{sgn(pool.log_loss.delta)}</b><small className="math-s">[{sgn(pool.log_loss.ci[0])}, {sgn(pool.log_loss.ci[1])}] · bootstrap B = {pool.log_loss.B}</small></div>}
           </div>
           <div className="formula" style={{ marginTop: 8 }}>
             <div className="eq">Δ = AUC₂ − AUC₁,  Var(Δ) = Var(A₁) + Var(A₂) − 2 Cov(A₁, A₂)</div>
             <dl className="where">
-              <dt>AUC₁</dt><dd>the champion ({m.label}) on the labelled rows{pool?.auc ? `: ${f4(pool.auc.auc_champion)}` : ''}</dd>
-              <dt>AUC₂</dt><dd>the challenger ({ch.label}) on the same rows{pool?.auc ? `: ${f4(pool.auc.auc_challenger)}` : ''}</dd>
-              <dt>Cov</dt><dd>DeLong's structural components of both scores on the same positives and negatives{pool?.auc?.corr != null ? ` (correlation ${f3(pool.auc.corr)})` : ''}; paired, so the interval is narrower than two separate ones</dd>
+              <dt>AUC₁</dt><dd>the champion ({m.label}) on the labelled rows{pool?.auc ? `: ${fix(pool.auc.auc_champion, 4)}` : ''}</dd>
+              <dt>AUC₂</dt><dd>the challenger ({ch.label}) on the same rows{pool?.auc ? `: ${fix(pool.auc.auc_challenger, 4)}` : ''}</dd>
+              <dt>Cov</dt><dd>DeLong's structural components of both scores on the same positives and negatives{pool?.auc?.corr != null ? ` (correlation ${fix(pool.auc.corr)})` : ''}; paired, so the interval is narrower than two separate ones</dd>
             </dl>
           </div>
           {!pool && <p className="helper" style={{ fontSize: 12 }}>The paired comparison needs labels: it appears once a shadow-scored batch is labelled.</p>}
         </div>
         {shadowed.length > 0 && <div className="table-wrap"><table className="table compact">
           <thead><tr><th>data month</th><th className="r">same decision</th><th className="r nocase">κ</th><th className="r">score PSI</th><th className="r nocase">ρ</th><th className="r">flagged 1 · 2</th><th className="r nocase">ΔAUC [95 %]</th></tr></thead>
-          <tbody>{shadowed.map((p) => <tr key={p.batch_id}><td className="mono">{p.period}</td><td className="r mono">{pct(p.shadow!.agreement)}</td><td className="r mono">{f3(p.shadow!.kappa)}</td><td className="r mono">{f3(p.shadow!.psi)}</td><td className="r mono">{f3(p.shadow!.spearman)}</td>
+          <tbody>{shadowed.map((p) => <tr key={p.batch_id}><td className="mono">{p.period}</td><td className="r mono">{pct(p.shadow!.agreement)}</td><td className="r mono">{fix(p.shadow!.kappa)}</td><td className="r mono">{fix(p.shadow!.psi)}</td><td className="r mono">{fix(p.shadow!.spearman)}</td>
             <td className="r mono">{pct(p.shadow!.flagged_champion)} · {pct(p.shadow!.flagged_challenger)}</td>
             <td className="r mono">{p.paired?.auc ? `${sgn(p.paired.auc.delta, 3)} [${sgn(p.paired.auc.ci[0], 3)}, ${sgn(p.paired.auc.ci[1], 3)}]` : <span className="helper">awaiting labels</span>}</td></tr>)}</tbody>
         </table></div>}

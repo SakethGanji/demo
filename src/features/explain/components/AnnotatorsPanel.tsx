@@ -4,10 +4,9 @@ import type { AnnItem, Annotations, Run } from '@/shared/api/types'
 import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { fix, pct } from '@/shared/lib/format'
+import { useFetch } from '@/shared/hooks/useFetch'
 
-const f3 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(3))
-const f4 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(4))
-const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const ci = (c: [number, number] | null | undefined, d = 4) => (c ? `[${c[0].toFixed(d)}, ${c[1].toFixed(d)}]` : '')
 const nfmt = (n: number) => Math.round(n).toLocaleString()
 const PAGE = 30
@@ -17,22 +16,9 @@ const PAGE = 30
  *  disagreement queue to vote or adjudicate under a reviewer name; the final labels as a dataset version (holdout
  *  untouched). Every number is GET /api/runs/{id}/annotations. */
 export function AnnotatorsPanel({ run }: { run: Run }) {
-  const [an, setAn] = useState<Annotations | null>(null)
-  const [err, setErr] = useState('')
-  const [tick, setTick] = useState(0)
   const [page, setPage] = useState(0)
-  useEffect(() => {
-    let alive = true
-    api.runs.annotations(run.id, { offset: page * PAGE, limit: PAGE }).then((r) => { if (alive) { setAn(r); setErr('') } }).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [run.id, tick, page])
+  const { data: an, setData: setAn, err, setErr, reload } = useFetch(() => api.runs.annotations(run.id, { offset: page * PAGE, limit: PAGE }), [run.id, page], { pollMs: 2000, while: (d) => d?.status === 'computing' })
   const working = an?.status === 'computing'
-  useEffect(() => {
-    if (!working) return
-    const t = setTimeout(() => setTick((v) => v + 1), 2000)
-    return () => clearTimeout(t)
-  }, [working, an])
-  const reload = () => setTick((v) => v + 1)
 
   if (!an && !err) return <div className="card card-body row"><ResonanceWave /> Reading the annotations…</div>
   const ready = an?.status === 'ready' && !!an.summary
@@ -63,10 +49,10 @@ function Hero({ an }: { an: Annotations }) {
   const t = s.truth
   return <>
     <div className="card navy explain-hero" data-testid="ann-hero">
-      <div className="eh-cell lead"><span className="micro-label">agreement · Fleiss' κ</span><b className="mono" data-testid="ann-fleiss">{f3(fk?.value)}</b>
+      <div className="eh-cell lead"><span className="micro-label">agreement · Fleiss' κ</span><b className="mono" data-testid="ann-fleiss">{fix(fk?.value)}</b>
         <small>95% CI {ci(fk?.ci, 3)} · {s.agreement.interpretation} (Landis–Koch) · {nfmt(s.n_rows)} rows × {s.annotations_per_row.mean.toFixed(1)} labels</small></div>
       <div className="eh-cell"><span className="micro-label">least reliable annotator</span><b data-testid="ann-worst">{s.worst_annotator?.name ?? '—'}</b>
-        <small>quality {f3(s.worst_annotator?.quality)}{t?.worst_by_truth ? <> · truth says {t.worst_by_truth.name} ({pct(t.worst_by_truth.accuracy)}) {t.worst_identified ? '✓' : '✕'}</> : null}</small></div>
+        <small>quality {fix(s.worst_annotator?.quality)}{t?.worst_by_truth ? <> · truth says {t.worst_by_truth.name} ({pct(t.worst_by_truth.accuracy)}) {t.worst_identified ? '✓' : '✕'}</> : null}</small></div>
       {t ? <div className="eh-cell"><span className="micro-label">consensus vs majority vote · simulated truth</span>
         <b className="mono" data-testid="ann-acc">{pct(t.accuracy.consensus.accuracy, 2)} vs {pct(t.accuracy.majority_vote.accuracy, 2)}</b>
         <small>accuracy on {nfmt(t.n)} rows · {t.paired.consensus_right_mv_wrong} fixed, {t.paired.mv_right_consensus_wrong} broken · McNemar p = {t.paired.mcnemar_p.toExponential(1)}</small></div>
@@ -105,10 +91,10 @@ function AnnotatorTable({ an }: { an: Annotations }) {
               <td><b>{a.name}</b>{worst && <> <StatusPill status="danger">least reliable</StatusPill></>}
                 {truth && <div className="muted" style={{ fontSize: 11, whiteSpace: 'normal', maxWidth: 260 }}>{a.truth?.profile?.profile ?? 'not simulated (a person in this page)'}</div>}</td>
               <td className="r mono">{a.n}</td>
-              <td className="mono"><Bar v={a.quality} color={worst ? 'var(--status-danger)' : 'var(--viz-a)'} />{f3(a.quality)}</td>
+              <td className="mono"><Bar v={a.quality} color={worst ? 'var(--status-danger)' : 'var(--viz-a)'} />{fix(a.quality)}</td>
               <td className="r mono">{pct(a.agreement_with_consensus)}</td>
-              <td className="r mono">{f3(a.weight)}</td>
-              <td className="r mono">{f3(a.kappa_mean)}</td>
+              <td className="r mono">{fix(a.weight)}</td>
+              <td className="r mono">{fix(a.kappa_mean)}</td>
               <td style={{ fontSize: 12 }}>{tc ? <><b>{tc.consensus} → {tc.given}</b>{tc.share_of_class > 0.3 ? <> <StatusPill status="warning">systematic?</StatusPill></> : null}<div className="muted" style={{ fontSize: 11 }}>{tc.n} of {tc.of_class_rows} consensus-{tc.consensus} rows ({pct(tc.share_of_class, 0)})</div></> : '—'}</td>
               {truth && <td className="mono"><Bar v={a.truth?.accuracy} color="var(--viz-b)" />{pct(a.truth?.accuracy)}<div className="muted" style={{ fontSize: 10.5 }}>{ci(a.truth?.ci, 3)}</div></td>}
             </tr>
@@ -143,7 +129,7 @@ function TruthCard({ an }: { an: Annotations }) {
       <div className="card-body" style={{ overflowX: 'auto' }}>
         <table className="table compact">
           <thead><tr><th>labels</th><th>rule</th><th className="r">accuracy</th><th className="r">95% Wilson CI</th><th className="r">correct of {t.n}</th></tr></thead>
-          <tbody>{rows.map(([k, rule, a]) => a && <tr key={k}><td><b>{k}</b></td><td className="muted" style={{ fontSize: 12 }}>{rule}</td><td className="r mono"><b>{f4(a.accuracy)}</b></td><td className="r mono">{ci(a.ci)}</td><td className="r mono">{a.correct}</td></tr>)}</tbody>
+          <tbody>{rows.map(([k, rule, a]) => a && <tr key={k}><td><b>{k}</b></td><td className="muted" style={{ fontSize: 12 }}>{rule}</td><td className="r mono"><b>{fix(a.accuracy, 4)}</b></td><td className="r mono">{ci(a.ci)}</td><td className="r mono">{a.correct}</td></tr>)}</tbody>
         </table>
         <div className="formula" style={{ marginTop: 'var(--space-12)' }}>
           <div className="eq">b = {t.paired.consensus_right_mv_wrong}, c = {t.paired.mv_right_consensus_wrong} · Δ = (b − c) ⁄ n = <b className="mono">{(t.paired.gain * 100).toFixed(2)} points</b> · P(Bin(b + c, ½) as extreme) = <b className="mono">{t.paired.mcnemar_p.toExponential(2)}</b></div>
@@ -186,7 +172,7 @@ function Agreement({ an }: { an: Annotations }) {
             })}</tr>)}</tbody>
           </table>
           {p && p.kappa != null && <div className="formula compact" style={{ marginTop: 'var(--space-8)' }}>
-            <div className="eq">κ<sub>{p.a},{p.b}</sub> = (p<sub>o</sub> − p<sub>e</sub>) ⁄ (1 − p<sub>e</sub>) = ({f3(p.agreement)} − {f3(pe)}) ⁄ (1 − {f3(pe)}) = <b className="mono">{f3(p.kappa)}</b> <span className="muted">95% CI {ci(p.ci, 3)}</span></div>
+            <div className="eq">κ<sub>{p.a},{p.b}</sub> = (p<sub>o</sub> − p<sub>e</sub>) ⁄ (1 − p<sub>e</sub>) = ({fix(p.agreement)} − {fix(pe)}) ⁄ (1 − {fix(pe)}) = <b className="mono">{fix(p.kappa)}</b> <span className="muted">95% CI {ci(p.ci, 3)}</span></div>
             <dl className="where"><dt>p<sub>o</sub></dt><dd>the share of the {p.n} rows both labelled where they agree</dd><dt>p<sub>e</sub></dt><dd>Σ<sub>k</sub> p<sub>{p.a},k</sub> · p<sub>{p.b},k</sub>: the agreement expected by chance from each one's class shares</dd><dt>CI</dt><dd>bootstrap over the shared rows, B = 300</dd></dl>
           </div>}
         </div>
@@ -194,7 +180,7 @@ function Agreement({ an }: { an: Annotations }) {
       <div className="stack" style={{ gap: 'var(--space-12)' }}>
         {fk && <div className="formula compact" data-testid="ann-fleiss-formula">
           <div className="micro-label">Fleiss' κ, all annotators at once</div>
-          <div className="eq">κ = (P̄ − P̄<sub>e</sub>) ⁄ (1 − P̄<sub>e</sub>) = ({f4(fk.P_bar)} − {f4(fk.P_e)}) ⁄ (1 − {f4(fk.P_e)}) = <b className="mono">{f4(fk.value)}</b></div>
+          <div className="eq">κ = (P̄ − P̄<sub>e</sub>) ⁄ (1 − P̄<sub>e</sub>) = ({fix(fk.P_bar, 4)} − {fix(fk.P_e, 4)}) ⁄ (1 − {fix(fk.P_e, 4)}) = <b className="mono">{fix(fk.value, 4)}</b></div>
           <dl className="where">
             <dt>P̄</dt><dd>the mean over the {nfmt(fk.n_rows)} rows of P<sub>i</sub> = Σ<sub>k</sub> n<sub>ik</sub>(n<sub>ik</sub> − 1) ⁄ (n<sub>i</sub>(n<sub>i</sub> − 1)): the share of agreeing annotator pairs on row i</dd>
             <dt>n<sub>ik</sub></dt><dd>annotators who gave row i class k; n<sub>i</sub> = {fk.raters_per_row.min === fk.raters_per_row.max ? fk.raters_per_row.min : `${fk.raters_per_row.min}–${fk.raters_per_row.max}`} labels per row</dd>
@@ -205,7 +191,7 @@ function Agreement({ an }: { an: Annotations }) {
         {cl.model_weight != null && <div className="formula compact" data-testid="ann-crowdlab-formula">
           <div className="micro-label">The CROWDLAB consensus</div>
           <div className="eq">p̃<sub>k</sub>(x) = [w<sub>M</sub> p̂<sub>k</sub>(x) + Σ<sub>j∈A(x)</sub> w<sub>j</sub> · (π if ℓ<sub>j</sub>(x) = k, else (1 − π) ⁄ (K − 1))] ⁄ (w<sub>M</sub> + Σ<sub>j∈A(x)</sub> w<sub>j</sub>)</div>
-          <div className="eq">ŷ(x) = arg max<sub>k</sub> p̃<sub>k</sub>(x) · w<sub>M</sub> = <b className="mono">{f3(cl.model_weight)}</b> · π = <b className="mono">{f3(cl.pi)}</b> · K = {s.classes.length}</div>
+          <div className="eq">ŷ(x) = arg max<sub>k</sub> p̃<sub>k</sub>(x) · w<sub>M</sub> = <b className="mono">{fix(cl.model_weight)}</b> · π = <b className="mono">{fix(cl.pi)}</b> · K = {s.classes.length}</div>
           <dl className="where">
             <dt>p̂<sub>k</sub>(x)</dt><dd>the model's out-of-fold probability of class k ({s.probs.model}, {s.probs.source === 'run-oof' ? "the run's own OOF" : 'a quick bagged fit'})</dd>
             <dt>A(x), ℓ<sub>j</sub>(x)</dt><dd>the annotators of row x and j's label</dd>

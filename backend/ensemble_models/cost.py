@@ -74,18 +74,19 @@ def multiclass_expected_cost_argmax(y_true, y_pred_proba, *, matrix: Sequence[Se
     return float(m[np.asarray(y_true).astype(int), p.argmax(axis=1)].mean())
 
 
-def binary_cost_scorer(c_fp: float, c_fn: float, g_tp: float = 0.0):
+def _binary_scorer(name: str, score_fn, c_fp: float, c_fn: float, g_tp: float, **kind):
     from autogluon.core.metrics import make_scorer
 
-    return make_scorer(METRIC_NAME, binary_expected_cost_bayes, optimum=-float(g_tp), greater_is_better=False,
-                       needs_proba=True, c_fp=float(c_fp), c_fn=float(c_fn), g_tp=float(g_tp))
+    return make_scorer(name, score_fn, optimum=-float(g_tp), greater_is_better=False, **kind,
+                       c_fp=float(c_fp), c_fn=float(c_fn), g_tp=float(g_tp))
+
+
+def binary_cost_scorer(c_fp: float, c_fn: float, g_tp: float = 0.0):
+    return _binary_scorer(METRIC_NAME, binary_expected_cost_bayes, c_fp, c_fn, g_tp, needs_proba=True)
 
 
 def binary_cost_class_scorer(c_fp: float, c_fn: float, g_tp: float = 0.0):
-    from autogluon.core.metrics import make_scorer
-
-    return make_scorer(CLASS_METRIC_NAME, binary_expected_cost_labels, optimum=-float(g_tp), greater_is_better=False,
-                       needs_class=True, c_fp=float(c_fp), c_fn=float(c_fn), g_tp=float(g_tp))
+    return _binary_scorer(CLASS_METRIC_NAME, binary_expected_cost_labels, c_fp, c_fn, g_tp, needs_class=True)
 
 
 def multiclass_cost_scorer(matrix: Sequence[Sequence[float]]):
@@ -97,16 +98,6 @@ def multiclass_cost_scorer(matrix: Sequence[Sequence[float]]):
     # and in predictor.evaluate / leaderboard (a needs_class multiclass scorer gets the original labels there).
     return make_scorer(METRIC_NAME, multiclass_expected_cost_argmax, optimum=min(best, 0.0), greater_is_better=False,
                        needs_proba=True, matrix=m)
-
-
-def scorer_for(cost: dict, problem_type: str, classes: Sequence | None = None):
-    """The eval_metric of a cost run. `cost` is the run's request: {c_fp, c_fn, g_tp} (binary) or
-    {classes, matrix} (multiclass; reordered here to `classes`, AutoGluon's internal order)."""
-    if problem_type == "binary":
-        return binary_cost_scorer(cost["c_fp"], cost["c_fn"], cost.get("g_tp") or 0.0)
-    if problem_type == "multiclass":
-        return multiclass_cost_scorer(reorder_matrix(cost, classes))
-    raise ValueError(f"A cost metric applies to binary or multiclass labels, not {problem_type}.")
 
 
 def reorder_matrix(cost: dict, classes: Sequence | None) -> list[list[float]]:

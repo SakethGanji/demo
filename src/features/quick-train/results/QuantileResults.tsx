@@ -5,9 +5,9 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import type { QuantileEval, QuantileReport, Run } from '@/shared/api/types'
 import { fmtScore } from '../wizard'
+import { pct } from '@/shared/lib/format'
 
 const g = (t: number) => String(Number(t.toFixed(6)))
-const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const NC = { textTransform: 'none' as const, letterSpacing: 0 }
 const Q = ({ t }: { t: number }) => <>q̂<sub>{g(t)}</sub></>
 

@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from .. import config
 from ..engine.store import now
 from . import core
+from ..http import dataset_or_404
 
 router = APIRouter(prefix="/api/forecast")
 
@@ -64,13 +65,6 @@ class PreviewRequest(BaseModel):
     mapping: Mapping
 
 
-def _ds(request: Request, dataset_id: str) -> dict[str, Any]:
-    ds = request.app.state.db.get_dataset(dataset_id)
-    if not ds:
-        raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
-    return ds
-
-
 @router.get("/options")
 def options() -> dict[str, Any]:
     return {"presets": [{"key": k, "info": core.PRESET_INFO[k]} for k in core.PRESETS],
@@ -85,7 +79,7 @@ def options() -> dict[str, Any]:
 
 
 def suggest_mapping(request: Request, dataset_id: str) -> dict[str, Any]:
-    ds = _ds(request, dataset_id)
+    ds = dataset_or_404(request, dataset_id)
     spec = request.app.state.datasets.sidecar(dataset_id, "forecast_spec.json")
     if spec and spec.get("forecast"):
         f = spec["forecast"]
@@ -125,7 +119,7 @@ def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/preview")
 async def preview(body: PreviewRequest, request: Request) -> dict[str, Any]:
-    _ds(request, body.dataset_id)
+    dataset_or_404(request, body.dataset_id)
     try:
         return await run_in_threadpool(core.preview, str(request.app.state.datasets.csv_path(body.dataset_id)),
                                        body.mapping.model_dump())
@@ -144,7 +138,7 @@ def _create(body: ForecastCreate, request: Request) -> dict[str, Any]:
     from ..engine.api import run_out
 
     app = request.app
-    ds = _ds(request, body.dataset_id)
+    ds = dataset_or_404(request, body.dataset_id)
     cols = {c["name"] for c in ds["profile"]["columns"]}
     m = body.mapping
     for f in [m.timestamp, m.target, *([m.item_id] if m.item_id else []), *m.known_covariates, *m.static_features, *m.past_covariates]:

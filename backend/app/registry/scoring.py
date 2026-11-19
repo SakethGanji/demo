@@ -18,6 +18,7 @@ from ..engine import explain
 from ..engine.jsonsafe import jsonable
 from ..engine.pool import load_predictor
 from ..engine.store import now
+from ..splits import holdout_mask
 from .store import RegistryStore
 
 
@@ -83,8 +84,7 @@ def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target
 def _train_frame(cfg: dict[str, Any], features: list[str]) -> pd.DataFrame:
     df = pd.read_csv(cfg["csv_path"])
     splits = json.loads(Path(cfg["splits_path"]).read_text())
-    is_h = np.zeros(len(df), dtype=bool)
-    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    is_h = holdout_mask(splits, len(df))
     return df.loc[~is_h & df[cfg["label"]].notna(), [c for c in features if c in df.columns]]
 
 
@@ -372,7 +372,7 @@ def _batch_reasons(reg: RegistryStore, batch_id: str, predictor_path: str, cfg: 
         out[c] = v
     by_code = {r["code"]: r for r in rs.mapping.values()}
     top = sorted(freq.items(), key=lambda kv: -kv[1])
-    return jsonable({**{k: v for k, v in rs.info().items()}, "n_adverse": int(len(idx)), "adverse_share": float(adverse.mean()),
+    return jsonable({**rs.info(), "n_adverse": int(len(idx)), "adverse_share": float(adverse.mean()),
                      "n_explained": int(len(idx)), "seconds": secs, "setup_seconds": setup_s,
                      "rows_per_s": len(idx) / secs if secs > 0 else None, "methods": sorted(methods), "notes": sorted(notes),
                      "additivity_max": add_max, "codes_per_row": {str(k): int(v) for k, v in zip(*np.unique(n_codes[idx], return_counts=True))} if len(idx) else {},

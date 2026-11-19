@@ -181,11 +181,3 @@ class _SoftmaxSVC:
             m = np.column_stack([-m, m])
         e = np.exp(m - m.max(axis=1, keepdims=True))
         return e / e.sum(axis=1, keepdims=True)
-
-
-def register() -> None:
-    from autogluon.tabular.registry import ag_model_registry
-
-    for cls in (TfidfLogRegModel, TfidfSVMModel):
-        if not ag_model_registry.exists(cls) and cls.ag_key not in ag_model_registry.keys:
-            ag_model_registry.add(cls)

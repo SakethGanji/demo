@@ -24,7 +24,6 @@ The run's predictor is never changed. The version gets its own predictor folder:
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import shutil
 import time

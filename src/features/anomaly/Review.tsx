@@ -3,9 +3,8 @@ import { flows, type AnCompare, type AnReviewSummary, type AnRow, type AnSupervi
 import { useActor } from '@/features/registry/lib'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { fix, sig4 } from '@/shared/lib/format'
 
-const f3 = (v: number | null | undefined, d = 3) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d))
-const num = (v: number) => (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : String(Number(v.toPrecision(4))))
 
 /** F2 · the velocity features this run added: the formulas bound to the run's entity, time, amount and category
  *  columns, and each column's mean / p99 / max over the rows, with the ones the forest sees marked. */
@@ -23,7 +22,7 @@ export function VelocityCard({ v }: { v: AnVelocity }) {
         <dt>forest</dt><dd>sees one column per signal ({v.in_forest.join(', ')}): each isolation split picks a feature at random, so near-duplicates (Σ<sub>W</sub> ≈ n<sub>W</sub>·x̄, k ≈ n) would multiply one signal’s say. All columns go to the supervised model.</dd>
       </dl>
       <table className="table" style={{ marginTop: 8 }}><thead><tr><th>column</th><th className="r">mean</th><th className="r">p99</th><th className="r">max</th><th>forest</th></tr></thead>
-        <tbody>{v.added.map((c) => { const s = v.summary[c]; return <tr key={c}><td className="mono" style={{ fontSize: 11.5 }}>{c}</td><td className="r table-cell">{s ? num(s.mean) : '—'}</td><td className="r table-cell">{s ? num(s.p99) : '—'}</td><td className="r table-cell">{s ? num(s.max) : '—'}</td><td>{v.in_forest.includes(c) ? '✓' : ''}</td></tr> })}</tbody></table>
+        <tbody>{v.added.map((c) => { const s = v.summary[c]; return <tr key={c}><td className="mono" style={{ fontSize: 11.5 }}>{c}</td><td className="r table-cell">{s ? sig4(s.mean) : '—'}</td><td className="r table-cell">{s ? sig4(s.p99) : '—'}</td><td className="r table-cell">{s ? sig4(s.max) : '—'}</td><td>{v.in_forest.includes(c) ? '✓' : ''}</td></tr> })}</tbody></table>
     </div>
   )
 }
@@ -122,8 +121,8 @@ function Comparison({ c }: { c: AnCompare }) {
   const rows: { name: string; f: (t: AnTruth | undefined, t2: AnTruth | undefined) => string }[] = [
     { name: `hits in the top ${k} (R-precision)`, f: (t) => `${at(t, k)?.hits ?? '—'} / ${k}` },
     { name: `hits in the top ${c.k}`, f: (_t, t2) => `${at(t2, c.k)?.hits ?? '—'} / ${k}` },
-    { name: 'average precision', f: (t) => f3(t?.average_precision) },
-    { name: 'ROC AUC', f: (t) => f3(t?.roc_auc) },
+    { name: 'average precision', f: (t) => fix(t?.average_precision) },
+    { name: 'ROC AUC', f: (t) => fix(t?.roc_auc) },
   ]
   const kinds = Object.keys(c.supervised_at_k?.by_kind ?? {})
   return (

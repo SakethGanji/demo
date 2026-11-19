@@ -20,9 +20,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..splits import holdout_mask
 from . import active_learning as al
 from .runner import dev_reload
 from .store import now
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -60,13 +62,6 @@ class Answers(BaseModel):
     reviewer: str = Field("you", min_length=1, max_length=60)
 
 
-def _run(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
-    return rec
-
-
 def _alive(pid: int | None) -> bool:
     if not pid:
         return False
@@ -82,12 +77,6 @@ def _kill(pid: int, sig: int = signal.SIGTERM) -> None:
         os.killpg(os.getpgid(pid), sig)
     except (ProcessLookupError, PermissionError):
         pass
-
-
-def _running(run_id: str) -> bool:
-    with _LOCK:
-        p = _PROCS.get(run_id)
-    return p is not None and p.poll() is None
 
 
 def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
@@ -154,7 +143,7 @@ def get_active_learning(run_id: str, request: Request) -> dict[str, Any]:
     """F13: the labelling queue (items with their answers), the score per round against labels used, and the simulated
     active-vs-random comparison with its summary (`summary`, schema active_learning/1). Status 'none' with the defaults
     when none was started."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     st = _state(rec, request.app.state.runs)
     if not st:
         return {"run_id": run_id, "status": "none", "defaults": defaults(rec)}
@@ -210,7 +199,7 @@ def _pending(run_dir: Path, st: dict[str, Any]) -> bool:
 def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dict[str, Any]:
     """F13: start a labelling queue on the run: fit its exact call on the seed labels, pick the first batch by
     uncertainty + diversity, and (pool = hide) simulate active vs random with the hidden labels as the oracle."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     res = rec.get("result") or {}
     if rec["status"] != "succeeded":
@@ -285,8 +274,7 @@ def _slice_filter(request: Request, rec: dict[str, Any], sid: str) -> dict[str, 
     cols = {c["column"] for c in s["conditions"]} | {rec["label"]}
     data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
     splits = json.loads(Path(cfg["splits_path"]).read_text())
-    is_h = np.zeros(len(data), dtype=bool)
-    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    is_h = holdout_mask(splits, len(data))
     m = sl.slice_mask(data, s["conditions"]) & ~is_h
     lab = data[rec["label"]].notna().to_numpy()
     return {"id": sid, "label": s["label"], "conditions": s["conditions"], "train_in_slice": int((m & lab).sum()),
@@ -312,7 +300,7 @@ def _open_queue(rec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], in
 def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
     """Answer queue items: confirm (the model's guess is right), relabel (give the label), skip (can't tell; the row
     leaves the pool), or null (clear). Stored per item with the reviewer's name."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     with _LOCK:
         st, ans, qr = _open_queue(rec)
         items = {it["id"]: it for it in st["arms"]["queue"]["queue"]}
@@ -337,7 +325,7 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
 def simulate(run_id: str, request: Request) -> dict[str, Any]:
     """Fill the open queue's unanswered items from the hidden labels (pool = hide only), as reviewer
     'simulated-oracle': a stand-in for a person, marked as such everywhere it is shown."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     with _LOCK:
         st, ans, qr = _open_queue(rec)
@@ -420,7 +408,7 @@ def al_train_rows(cfg: dict[str, Any]) -> list[int]:
 def submit(run_id: str, request: Request) -> dict[str, Any]:
     """Close the round: answered rows join the labelled set (open items count as skipped), a dataset version with
     lineage is made, and the run's call is refitted; the next queue follows."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     run_dir = Path(rec["config"]["run_dir"])
     with _LOCK:
         st, ans, qr = _open_queue(rec)
@@ -442,7 +430,7 @@ def submit(run_id: str, request: Request) -> dict[str, Any]:
 
 @router.post("/runs/{run_id}/active-learning/cancel")
 def cancel(run_id: str, request: Request) -> dict[str, Any]:
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     run_dir = Path(rec["config"]["run_dir"])
     with _LOCK:
         p = _PROCS.get(run_id)

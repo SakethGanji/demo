@@ -212,7 +212,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     post = {p["call"]: p["kwargs"] for p in resolved.get("post_fit") or []}
     pl = cfg.get("pseudolabel")
     pseudo = {"method": pl.get("method", "fit_pseudolabel"), "max_iter": int(pl.get("max_iter", 3))} if pl else None
-    distill = post.get("distill") if "distill" in post else None
+    distill = post.get("distill")
     lb = {r["model"]: [r.get("score_val"), r.get("score_test")] for r in res.get("leaderboard") or [] if not r.get("custom")}
     fname = f"export_{rec['id']}.py"
     head = HEADER.format(run_id=rec["id"], name=rec["name"].replace('"', "'"), ts=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),

@@ -27,6 +27,8 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
+from ..stats import wilson
+
 log = logging.getLogger("ensemble.forecast")
 
 Emit = Callable[..., int]
@@ -323,16 +325,6 @@ def item_errors(hist: dict[str, np.ndarray], actual: pd.DataFrame, pred: pd.Data
     return out
 
 
-def _wilson(k: int, n: int, z: float = 1.959964) -> list[float]:
-    if n == 0:
-        return [0.0, 1.0]
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return [max(0.0, c - h), min(1.0, c + h)]
-
-
 def calibration(actual: pd.DataFrame, pred: pd.DataFrame, quantiles: list[float],
                 backtests: dict[str, Any] | None = None) -> dict[str, Any]:
     """Is the fan honest? Pooled over every series and step of the holdout window: F̂(τ) = share of actuals at or
@@ -359,7 +351,7 @@ def calibration(actual: pd.DataFrame, pred: pd.DataFrame, quantiles: list[float]
     levels = []
     for t in sorted(quantiles):
         k = int((y <= Q[t]).sum())
-        levels.append({"tau": t, "below": k / n, "n": n, "ci": _wilson(k, n)})
+        levels.append({"tau": t, "below": k / n, "n": n, "ci": wilson(k, n, empty=[0.0, 1.0])})
     qsorted = sorted(quantiles)
     intervals = []
     for lo in qsorted:
@@ -371,7 +363,7 @@ def calibration(actual: pd.DataFrame, pred: pd.DataFrame, quantiles: list[float]
         nominal = hi_key - lo
         tail = float(binom.sf(inside - 1, n, nominal)) if inside > nominal * n else float(binom.cdf(inside, n, nominal))
         intervals.append({"lo": lo, "hi": hi_key, "nominal": nominal, "empirical": inside / n, "inside": inside, "n": n,
-                          "ci": _wilson(inside, n), "p_all_inside": tail,
+                          "ci": wilson(inside, n, empty=[0.0, 1.0]), "p_all_inside": tail,
                           "width_rel": float(np.mean(Q[hi_key] - Q[lo]) / max(np.mean(np.abs(y)), 1e-9))})
     intervals.sort(key=lambda r: -r["nominal"])
     main = intervals[0] if intervals else None
@@ -447,7 +439,7 @@ def ensemble_weights(mdl, quantiles: list[float]) -> tuple[dict[str, float] | No
 CONFORMAL_FILE = "ensemble_conformal.json"  # inside the predictor folder, so a registry version (a copy of it) keeps it
 
 
-def _center_col(cols, quantiles: list[float]) -> str:
+def _center_col(quantiles: list[float]) -> str:
     """The band's centre: the median column when 0.5 is a quantile level, else the mean."""
     return next((str(t) for t in quantiles if abs(t - 0.5) < 1e-9), "mean")
 
@@ -483,7 +475,7 @@ def conformal_fit(preds: list, targets: list, quantiles: list[float], scope: str
         return {"error": "no backtest predictions"}
     allp = pd.concat(rows)
     allp = allp[allp["__y"].notna()]
-    centre = _center_col(allp.columns, quantiles)
+    centre = _center_col(quantiles)
     m = allp[centre].to_numpy(dtype=float)
     y = allp["__y"].to_numpy(dtype=float)
     items = allp.index.get_level_values(0).astype(str).to_numpy()
@@ -579,7 +571,7 @@ def model_coverage(predictor, train, kc_h, actual, quantiles: list[float], backt
         n = int(ok.sum())
         bcov = [w.get("coverage") for w in bt.get(name, []) if w.get("coverage") is not None]
         out.append({"model": name, "family": family(name), "lo": lo, "hi": hi, "nominal": nominal, "inside": inside, "n": n,
-                    "empirical": inside / n if n else None, "ci": _wilson(inside, n),
+                    "empirical": inside / n if n else None, "ci": wilson(inside, n, empty=[0.0, 1.0]),
                     "backtest": float(np.mean(bcov)) if bcov else None})
     return out
 
@@ -917,7 +909,3 @@ def predict_new(predictor_path: str, cfg: dict[str, Any], csv_path: str, out_pat
     return {"items": int(pred.num_items), "rows": int(len(pred)), "seconds": secs, "known_covariates_source": src,
             "chart": chart_payload(data, None, pred, q, history=90), "model": p.model_best,
             "recalibrated": conf is not None, "conformal_factors": (conf or {}).get("factors")}
-
-
-def _nan_none(x):
-    return None if x is None or (isinstance(x, float) and math.isnan(x)) else x

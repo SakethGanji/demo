@@ -11,7 +11,6 @@ POST /registry/versions/{vid}/monitoring/stream        feed one month of it: sco
 
 from __future__ import annotations
 
-import io
 import json
 import secrets
 from datetime import date
@@ -308,7 +307,6 @@ def _pooled_paired(request: Request, points: list[dict[str, Any]], cid: str | No
             continue
         lab = pd.read_csv(bdir / "labels.csv")
         sh = pd.read_csv(bdir / "shadow.csv").set_index("row")
-        pos = None
         b_rec = _reg(request).get_batch(p["batch_id"]) or {}
         pos = ((b_rec.get("result") or {}).get("summary") or {}).get("positive_class")
         ys.append((lab["y"].astype(str) == str(pos)).astype(int).to_numpy())

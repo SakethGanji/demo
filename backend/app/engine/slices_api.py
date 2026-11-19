@@ -26,10 +26,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from ..splits import holdout_mask
 from . import explain, heavy
 from . import slices as sl
 from .jsonsafe import jsonable
 from .store import now
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -51,9 +53,7 @@ class ShapRequest(BaseModel):
 
 
 def _rec(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; it needs to finish first.")
     cfg = rec["config"]
@@ -268,8 +268,7 @@ async def slice_pool(run_id: str, sid: str, request: Request) -> dict[str, Any]:
         cols = {c["column"] for c in s["conditions"]} | {rec["label"]}
         data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
         splits = json.loads(Path(cfg["splits_path"]).read_text())
-        is_h = np.zeros(len(data), dtype=bool)
-        is_h[np.asarray(splits["holdout"], dtype=int)] = True
+        is_h = holdout_mask(splits, len(data))
         m = sl.slice_mask(data, s["conditions"]) & ~is_h
         return {"run_id": run_id, "slice_id": sid, "label": s["label"], "conditions": s["conditions"],
                 "train_rows": int((~is_h).sum()), "in_slice": int(m.sum()),

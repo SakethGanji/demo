@@ -16,6 +16,7 @@ import { ReasonCodes } from './components/ReasonCodes'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
 import { ServingCard } from './components/ServingCard'
 import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
+import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
 type Tab = 'Overview' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Audit'
 const TABS: Tab[] = ['Overview', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Audit']
@@ -78,8 +79,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   }
   const okRuns = runs.filter((r) => r.status === 'succeeded')
 
-  if (err && !loaded) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!loaded || !counts) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading the registry: registered models, versions, stages, the audit log and lineage…</div></div>
+  if (err && !loaded) return <ErrorCard err={err} />
+  if (!loaded || !counts) return <Loading>Reading the registry: registered models, versions, stages, the audit log and lineage…</Loading>
   const prod = versions.filter((v) => v.stage === 'Production')
 
   return (
@@ -107,8 +108,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
         <div className="eh-cell"><span className="micro-label">staging</span><b className="mono" data-testid="kpi-staging">{counts.stages.Staging}</b><small className="math-s">awaiting promotion</small></div>
         <div className="eh-cell"><span className="micro-label">pending review</span><b className="mono" data-testid="kpi-pending" style={{ color: counts.approvals.pending ? 'var(--accent-secondary-shell)' : undefined }}>{counts.approvals.pending}</b><small className="math-s">four eyes: reviewer ≠ registrant</small></div>
         <div className="eh-cell"><span className="micro-label">approved · rejected</span><b className="mono">{counts.approvals.approved} · {counts.approvals.rejected}</b><small className="math-s">of {counts.versions} versions</small></div>
-        <div className="eh-cell"><span className="micro-label">building</span><b className="mono">{counts.building}</b><small className="math-s">in worker processes</small></div>
-        <div className="eh-cell"><span className="micro-label">batches scored</span><b className="mono">{counts.batches}</b><small className="math-s">with PSI drift</small></div>
+        <HeroCell label="building" sub="in worker processes" subClass="math-s">{counts.building}</HeroCell>
+        <HeroCell label="batches scored" sub="with PSI drift" subClass="math-s">{counts.batches}</HeroCell>
       </div>
 
       {versions.length === 0 ? (

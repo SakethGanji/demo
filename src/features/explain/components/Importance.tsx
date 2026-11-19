@@ -1,23 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { ImportanceResponse, Run } from '@/shared/api/types'
+import type { Run } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { useFetch } from '@/shared/hooks/useFetch'
 
 /** Permutation importance on the holdout with 95% t-intervals (AutoGluon's feature_importance; the interval is the API's). */
 export function Importance({ run }: { run: Run }) {
-  const [fi, setFi] = useState<ImportanceResponse | null>(null)
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
+  const { data: fi, setData: setFi, err, setErr } = useFetch(() => api.runs.importance(run.id), [run.id])
   const [ref, W] = useWidth<HTMLDivElement>()
-  useEffect(() => {
-    let alive = true
-    api.runs.importance(run.id).then((r) => alive && setFi(r)).catch((e) => alive && setErr((e as Error).message))
-    return () => { alive = false }
-  }, [run.id])
   const tighten = async () => {
     setBusy(true)
     try { setFi(await api.runs.importance(run.id, 10)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }

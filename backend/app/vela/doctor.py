@@ -39,13 +39,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from ..engine.store import now
+from ..stats import wilson
 
 SCHEMA = "doctor/1"
 PROCEDURE = "doctor-procedure/1"
@@ -80,28 +81,6 @@ RULES = {
 }
 
 
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-
-def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
-    if n <= 0:
-        return (0.0, 1.0)
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return (max(0.0, c - h), min(1.0, c + h))
-
-
-def _f(v: Any) -> float | None:
-    try:
-        x = float(v)
-    except (TypeError, ValueError):
-        return None
-    return None if x != x else x
-
-
 # --------------------------------------------------------------------------- the measurements (worker)
 
 
@@ -122,7 +101,7 @@ def _confidence(hp: pd.DataFrame, top: float = 0.2) -> dict[str, Any] | None:
     k = int((arg[sel] != y[sel]).sum())
     floor = k / max(1, n_top)
     expected = float((1 - conf[sel]).mean())
-    lo, hi = wilson(k, n_top)
+    lo, hi = wilson(k, n_top, 1.96, empty=(0.0, 1.0))
     overconfident = bool(floor - expected >= 0.05 and expected < floor / 3)
     out = {"top_share": top, "conf_cut": q, "n_top": n_top, "errors_top": k, "floor": floor, "floor_ci": [lo, hi],
            "expected": expected, "overconfident": overconfident, "n": int(len(y)),
@@ -458,7 +437,7 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
         txt = (f"{fit['metric']} on the training rows {fit['train']:.4f} vs the holdout {fit['holdout']:.4f}: gap {fit['gap']:.4f}, "
                f"z = {z:.1f} (SE {fit['se']:.4f}).")
         cond = z >= 3 and (not clf or (conf or {}).get("overconfident"))
-        patch = _overfit_patch(ctx, None)
+        patch = _overfit_patch(ctx)
         if cond:
             sev = "critical" if z >= 8 else "major"
             checks.append(_check("overfit", "finding", txt + (" The model is overconfident on the holdout: its most confident "
@@ -622,9 +601,7 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
             "inputs": {"latency_budget_ms": budget, "measured_errors": m.get("errors") or [], "vela_errors": ctx.get("vela_errors") or []}}
 
 
-def _overfit_patch(ctx: dict[str, Any], of: dict[str, Any] | None) -> dict[str, Any]:
-    if of:
-        return _patch_rx(of)
+def _overfit_patch(ctx: dict[str, Any]) -> dict[str, Any]:
     from .findings import _with_params, _zoo, make_patch
 
     base = ctx.get("base") or {}
