@@ -41,6 +41,7 @@ from .samples_g8 import SAMPLES_G8
 from .segmented import api as segmented_api
 from .survival import api as survival_api
 from .multilabel import api as multilabel_api
+from .sqlsource import api as sql_api
 from .reject import api as reject_api
 from .el import api as el_api
 from .fairlending import api as fairlending_api
@@ -261,6 +262,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(segmented_api.router)
     app.include_router(survival_api.router)
     app.include_router(multilabel_api.router)
+    app.include_router(sql_api.router)
     app.include_router(reject_api.router)
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)

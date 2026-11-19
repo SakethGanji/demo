@@ -144,7 +144,8 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
             "mlflow": vres.get("mlflow"), "path": version.get("path"),
         },
         "data": {
-            "dataset_id": run["dataset_id"], "name": (dataset or {}).get("name"), "source": (dataset or {}).get("source"),
+            "dataset_id": run["dataset_id"], "name": (dataset or {}).get("name"),
+            "source": "SQL query" if _sql_lineage(prof) else (dataset or {}).get("source"),
             "filename": (dataset or {}).get("filename"), "rows": data.get("rows") or (dataset or {}).get("rows"),
             "columns": prof.get("n_cols"), "features": len(features), "train_rows": data.get("train_rows"),
             "holdout_rows": data.get("holdout_rows"), "dropped_missing_label": data.get("dropped_missing_label"),
@@ -157,6 +158,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
                         if cfg.get("kind") in (None, "tabular") and cfg.get("split") else ""),
             "missing_cells_share": (prof.get("missing") or {}).get("share"), "duplicates": (prof.get("duplicates") or {}).get("rows"),
             "warnings": prof.get("warnings") or [],
+            "sql": _sql_lineage(prof),
         },
         "training": {
             "call": fit_call(res.get("resolved") or {}, {"forecast": "TimeSeriesPredictor", "anomaly": "IsolationForest"}.get(cfg.get("kind"), "TabularPredictor")), "resolved": res.get("resolved"),
@@ -208,6 +210,15 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "scorecard": _scorecard_section(res),
         "diagnostics": _diagnostics_section(cfg, res),
     }
+
+
+def _sql_lineage(prof: dict[str, Any]) -> dict[str, Any] | None:
+    """G9: the query a SQL-loaded dataset came from (URL with the password masked, version, data hash)."""
+    lin = prof.get("lineage") or {}
+    if lin.get("source") != "sql":
+        return None
+    return {k: lin.get(k) for k in ("dialect", "url", "query", "limit", "truncated", "rows", "fetched_at", "data_sha",
+                                    "version", "root", "parent", "diff")}
 
 
 def _scorecard_section(res: dict[str, Any]) -> dict[str, Any] | None:
@@ -426,6 +437,11 @@ def to_markdown(c: dict[str, Any]) -> str:
                    ("features", "Features used"), ("train_rows", "Training rows"), ("holdout_rows", "Holdout rows"),
                    ("dropped_missing_label", "Rows dropped (no label)"), ("sha256", "File SHA-256"), ("splits_sha256", "Split SHA-256")):
         L.append(f"| {lab} | {_fmt(d.get(k)) if isinstance(d.get(k), (int, float)) else (d.get(k) or '—')} |")
+    if d.get("sql"):
+        q = d["sql"]
+        L += ["", f"**Loaded by SQL query** (version {q['version']}, `{q['url']}`, fetched {q['fetched_at']}, "
+                  f"limit {q['limit']:,}{', truncated' if q['truncated'] else ''}, data SHA-256 `{q['data_sha']}`"
+                  + (f", refreshed from `{q['parent']}`" if q.get("parent") else "") + "):", "", "```sql", q["query"], "```"]
     L += ["", f"Split: {d['split']}.", ""]
     if isinstance(d.get("label_balance"), list):
         L += ["**Label balance**", "", "| Class | Train | Share | Holdout | Share |", "| --- | ---: | ---: | ---: | ---: |"]

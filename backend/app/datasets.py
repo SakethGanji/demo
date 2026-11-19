@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -298,21 +299,34 @@ class DatasetStore:
             raise DatasetError("No comma-separated columns found. Give a CSV with a header row and at least two columns.")
         if len(df) < 2:
             raise DatasetError("This file has fewer than two data rows.")
+        stem = re.sub(r"\.(csv|tsv|txt)$", "", Path(filename).name, flags=re.I)
+        return self.create_from_frame(df, name=stem, filename=Path(filename).name, note="Uploaded file", target=target)
+
+    def create_from_frame(self, df: pd.DataFrame, *, name: str, filename: str, note: str, target: str | None = None,
+                          lineage: dict[str, Any] | None = None) -> dict[str, Any]:
+        """A new dataset from a frame (an upload, or G9's SQL query). `lineage` (G9: the query, the redacted URL, the
+        version) goes to lineage.json and the profile, like Autopilot's derived versions."""
         df.columns = [str(c).strip() or f"col_{i + 1}" for i, c in enumerate(df.columns)]
         if df.columns.duplicated().any():
             raise DatasetError("Column names must be unique.")
-
+        if df.shape[1] < 2:
+            raise DatasetError("A dataset needs at least two columns.")
+        if len(df) < 2:
+            raise DatasetError("A dataset needs at least two rows.")
         dataset_id = "ds_" + secrets.token_hex(4)
         d = self.dir(dataset_id)
         d.mkdir(parents=True, exist_ok=True)
         df.to_csv(self.csv_path(dataset_id), index=False)
         df = pd.read_csv(self.csv_path(dataset_id))  # profile exactly what the engine will read back
-        stem = re.sub(r"\.(csv|tsv|txt)$", "", Path(filename).name, flags=re.I)
         try:
-            return self._register(dataset_id, df, name=stem, filename=Path(filename).name, source="upload",
-                                  note="Uploaded file", size_bytes=len(content), target=target)
+            rec = self._register(dataset_id, df, name=name, filename=filename, source="upload", note=note,
+                                 size_bytes=self.csv_path(dataset_id).stat().st_size, target=target)
         except DatasetError:
-            for p in d.iterdir():
-                p.unlink()
-            d.rmdir()
+            shutil.rmtree(d, ignore_errors=True)
             raise
+        if lineage:
+            lineage = {**lineage, "root": lineage.get("root") or dataset_id}
+            (d / "lineage.json").write_text(json.dumps(lineage))
+            rec["profile"]["lineage"] = lineage
+            self.db.insert_dataset(rec)
+        return rec
