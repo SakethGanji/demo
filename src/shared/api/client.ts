@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, Doctor } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -264,12 +264,33 @@ export const api = {
     batchShift: (bid: string) => request<ShiftCheck | { batch_id: string; status: 'none'; run_id?: string; key?: string }>(`/registry/batches/${encodeURIComponent(bid)}/shift`),
     startBatchShift: (bid: string) => request<ShiftCheck>(`/registry/batches/${encodeURIComponent(bid)}/shift`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
     batchUrl: (bid: string) => `${BASE}/registry/batches/${encodeURIComponent(bid)}/download`,
-    scoreBatch: (id: string, file: File, createdBy: string) => {
+    scoreBatch: (id: string, file: File, createdBy: string, dataDate?: string) => {
       const form = new FormData()
       form.append('file', file)
       form.append('created_by', createdBy)
+      if (dataDate) form.append('data_date', dataDate)
       return request<BatchJob>(`/registry/versions/${encodeURIComponent(id)}/batches`, { method: 'POST', body: form, timeoutMs: 120_000 })
     },
+    /** F18: monitoring over time (series, alerts, challenger, retrain proposal). */
+    monitoring: (id: string) => request<MonitoringState>(`/registry/versions/${encodeURIComponent(id)}/monitoring`, { timeoutMs: 60_000 }),
+    putMonitoring: (model: string, body: { actor: string; thresholds?: Record<string, number>; challenger_version_id?: string; id_column?: string; label_column?: string; retrain_window_months?: number }) =>
+      json<{ model: string; config: MonitoringConfig; changed: Record<string, unknown> }>(`/registry/models/${encodeURIComponent(model)}/monitoring`, 'PUT', body),
+    uploadLabels: (bid: string, file: File, createdBy: string, idColumn?: string, labelColumn?: string, labelDate?: string) => {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('created_by', createdBy)
+      if (idColumn) form.append('id_column', idColumn)
+      if (labelColumn) form.append('label_column', labelColumn)
+      if (labelDate) form.append('label_date', labelDate)
+      return request<{ batch_id: string; labels: Record<string, unknown> }>(`/registry/batches/${encodeURIComponent(bid)}/labels`, { method: 'POST', body: form, timeoutMs: 120_000 })
+    },
+    retrainProposal: (id: string, windowMonths?: number) =>
+      request<RetrainProposal>(`/registry/versions/${encodeURIComponent(id)}/monitoring/retrain${windowMonths ? `?window_months=${windowMonths}` : ''}`, { timeoutMs: 60_000 }),
+    launchRetrain: (id: string, actor: string, windowMonths?: number) =>
+      json<{ proposal: RetrainProposal; dataset: { id: string; rows: number; name: string }; run: { id: string; status: string } }>(`/registry/versions/${encodeURIComponent(id)}/monitoring/retrain`, 'POST', { actor, window_months: windowMonths }, 120_000),
+    stream: () => request<StreamSpec>('/monitoring/stream'),
+    feedStream: (id: string, month: number, actor: string) =>
+      json<StreamFeedResult>(`/registry/versions/${encodeURIComponent(id)}/monitoring/stream`, 'POST', { month, actor }, 120_000),
   },
 }
 

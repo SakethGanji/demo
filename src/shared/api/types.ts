@@ -724,7 +724,7 @@ export type RegistryCounts = {
 }
 
 export type AuditEntry = {
-  id: number; ts: string; actor: string; action: 'registered' | 'stage_changed' | 'approved' | 'rejected' | 'card_edited' | 'batch_scored'
+  id: number; ts: string; actor: string; action: 'registered' | 'stage_changed' | 'approved' | 'rejected' | 'card_edited' | 'batch_scored' | 'labels_attached' | 'monitoring_configured' | 'retrain_launched' | 'reason_codes_edited'
   model_name: string | null; version: number | null; version_id: string | null; run_id: string | null
   from_stage: string | null; to_stage: string | null; comment: string; model_hash: string | null; details: Record<string, unknown> | null
 }
@@ -799,6 +799,7 @@ export type DriftReport = {
 }
 
 export type BatchJob = {
+  data_date?: string | null
   id: string; version_id: string; status: 'queued' | 'running' | 'succeeded' | 'failed'; created_at: string; finished_at: string | null
   created_by: string; filename: string; n_rows: number | null; progress: number; stage: string; error: string | null
   result: {
@@ -1194,9 +1195,9 @@ export type SlicePool = { run_id: string; slice_id: string; label: string; condi
 export type DoctorStatus = 'finding' | 'clear' | 'no-evidence' | 'missing' | 'n/a'
 export type DoctorSeverity = 'critical' | 'major' | 'minor'
 export type DoctorAction = {
-  kind: 'gym_patch' | 'split_twin' | 'run_check' | 'labelling_queue' | 'shift_weights' | 'register' | 'inbox' | 'open_slice' | 'info'
+  kind: 'gym_patch' | 'split_twin' | 'run_check' | 'labelling_queue' | 'shift_weights' | 'register' | 'inbox' | 'open_slice' | 'info' | 'retrain'
   title: string; why?: string; endpoint?: string; method?: 'GET' | 'POST'; body?: Record<string, unknown>; check?: string
-  run_id?: string; slice_id?: string
+  run_id?: string; slice_id?: string; version_id?: string
   patch?: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }
 }
 export type DoctorCheck = {
@@ -1215,3 +1216,48 @@ export type DoctorSummary = {
   primary: { id: string; title: string; severity: DoctorSeverity; reason: string; prescription: { kind: string; title: string } | null } | null
   secondary: { id: string; title: string; severity: DoctorSeverity; reason: string }[]
 }
+
+// --------------------------------------------------------------------------- F18 · monitoring over time
+
+export type MonitoringThresholds = { feature_psi: number; feature_psi_watch: number; prediction_psi: number; adversarial_auc: number; auc_drop: number; calibration_z: number; min_labelled: number }
+export type MonitoringConfig = { thresholds: MonitoringThresholds; challenger_version_id: string | null; id_column: string | null; label_column: string | null; retrain_window_months: number; updated_by: string | null; updated_at: string | null }
+export type MonitoringPerf = {
+  n: number; positives: number; observed_rate: number; observed_ci: [number, number]; mean_p: number; calibration_z: number | null
+  log_loss: number; brier: number; auc: number | null; auc_ci: [number, number] | null; auc_se: number | null
+  threshold: number; flagged_share: number; recall: number | null; precision: number | null; cost_per_1000?: number | null
+}
+export type MonitoringAlert = { signal: string; kind: 'covariate' | 'score' | 'performance'; severity: string; value: number; threshold: number; rule: string; text: string; features?: string[]; ci?: [number, number]; baseline?: number; lag_days?: number | null; batch_id?: string; period?: string; visible_on?: string }
+export type PairedAuc = { auc_champion: number; auc_challenger: number; delta: number; se: number; ci: [number, number]; z: number | null; p_value: number | null; corr: number | null; m: number; n: number; method: string }
+export type PairedLoss = { delta: number; ci: [number, number]; se: number; B: number; n: number; method: string }
+export type ShadowSummary = { version_id: string; label: string | null; model?: string; error?: string; n: number; psi: number; band: string; ks: number; spearman: number; agreement: number; kappa: number | null
+  mean_p_champion: number; mean_p_challenger: number; flagged_champion: number; flagged_challenger: number; threshold_champion: number; threshold_challenger: number; disagree: { champion_only: number; challenger_only: number } }
+export type MonitoringPoint = {
+  batch_id: string; filename: string; data_date: string | null; period: string | null; scored_at: string | null; n_rows: number
+  max_psi: number | null; features: { feature: string; psi: number | null; band: string }[]; prediction_psi: number | null; prediction_ks: number | null
+  mean_p: number | null; mean_p_reference: number | null; flagged_share: number | null; score_quantiles: Record<'q10' | 'q25' | 'q50' | 'q75' | 'q90', number> | null; mean_prediction: number | null
+  adversarial: { status: string; auc: number | null; ci: [number, number] | null; verdict: string | null; top_features: { feature: string; significant: boolean }[] | null } | null
+  performance: MonitoringPerf | null; labels_date: string | null; label_lag_days: number | null; label_coverage: number | null
+  shadow: ShadowSummary | null; paired: { n: number; auc?: PairedAuc; log_loss: PairedLoss; challenger_performance?: MonitoringPerf } | null
+  alerts: MonitoringAlert[]
+}
+export type FirstAlert = { batch_id: string; data_date: string | null; period: string | null; visible_on: string | null; signals: string[]; text: string } | null
+export type MonitoringState = {
+  schema: 'monitoring/1'; version_id: string; label: string; stage: Stage; model: string; run_id: string; problem_type: string | null
+  config: MonitoringConfig; rules: Record<string, string>; baseline: (MonitoringPerf & { source: string }) | null
+  points: MonitoringPoint[]; running: { batch_id: string; status: string; stage: string; data_date: string | null }[]
+  alerts: { first_covariate: FirstAlert; first_score: FirstAlert; first_performance: FirstAlert; active: MonitoringAlert[]
+    latest_labelled: { batch_id: string; period: string; data_date: string; labels_date: string; label_lag_days: number } | null; unlabelled_since: string | null; n_points: number; n_labelled: number }
+  challenger: { version_id: string; label: string; stage: Stage; approval: string; run_id: string; batches: number; agreement_mean: number | null; psi_mean: number | null; spearman_mean: number | null
+    pooled: { n: number; auc?: PairedAuc; log_loss: PairedLoss; batches: string[] } | null; decision: string; promote: { review: string; transition: string } } | null
+  stream: { dataset: string; fed_months: number[]; next_month: number | null } | null
+  retrain: { endpoint: string; suggested: boolean }
+  formulas: Record<string, string>
+}
+export type RetrainProposal = {
+  version_id: string; label: string; champion_run_id: string; window_months: number; window: { start: string | null; end: string | null }
+  batches: { batch_id: string; filename: string; data_date: string; rows: number; label_date: string }[]; rows: number; rows_window: number; rows_reference: number
+  include_reference: boolean; body: Record<string, unknown>; split_note: string; why: string[]; ready: boolean; blocked: string | null; note: string
+}
+export type StreamSpec = { dataset: string; months: { month: number; label: string; start: string; end: string; rows: number; labels_arrive: string; covariate_drift: Record<string, number>; concept_change: boolean }[]
+  rows_per_month: number; drift_month: number; label_lag_months: number; label_rule: string; covariate_drift: Record<string, unknown>; concept_change: Record<string, unknown>; id_column: string; date_column: string }
+export type StreamFeedResult = { month: number; period: string; batch: BatchJob; data_date: string; labels_delivered: { month: number; batch_id: string; label_date: string; lag_days: number; n: number }[]; labels_pending: unknown[]; labels_due: { month: number; arrive: string } }

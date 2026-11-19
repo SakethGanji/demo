@@ -131,3 +131,12 @@
 .serving-grid .table { width: 100%; table-layout: auto; }
 @media (max-width: 1400px) { .serving-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 1750px) { .tradeoff-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* F18 · monitoring: the stream's twelve months */
+.mon-months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; }
+.mon-month { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; border: 1px solid var(--border-default); border-radius: var(--radius-control); color: var(--text-muted); }
+.mon-month b { font-size: 12px; }
+.mon-month small { font-size: 10px; white-space: nowrap; }
+.mon-month.fed { color: var(--text-primary); background: var(--bg-subtle); }
+.mon-month.drift { border-top: 2px solid var(--status-warning); }
+.mon-flag { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; }

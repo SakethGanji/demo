@@ -65,6 +65,8 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
     if (a.kind === 'open_slice') return tab('Weak Slices', a.slice_id ? { slice: a.slice_id } : {})
     if (a.kind === 'inbox') return tab('Annotators')
     if (a.kind === 'register') return links.go(`registry?register=${run.id}`)
+    // F18: the retrain proposal lives on the version's monitoring page; it launches there, on a click
+    if (a.kind === 'retrain' && a.version_id) return links.go(`registry?version=${a.version_id}&tab=Monitoring`)
     if (!a.endpoint) return
     setBusy(a.title)
     try {

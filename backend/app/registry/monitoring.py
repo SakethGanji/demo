@@ -268,8 +268,10 @@ def first_alert(points: list[dict[str, Any]], kinds: tuple[str, ...]) -> dict[st
     for p in points:
         a = [x for x in p.get("alerts") or [] if x["kind"] in kinds]
         if a:
-            seen = p.get("labels_date") if kinds == ("performance",) else p.get("scored_at") or p.get("data_date")
-            return {"batch_id": p["batch_id"], "data_date": p.get("data_date"), "period": p.get("period"),
+            # performance is visible on the label date; drift on the day the batch is scored, which for a batch of a
+            # period is its data date (the stream feeds each month at its end; `scored_at` is the wall-clock record)
+            seen = p.get("labels_date") if kinds == ("performance",) else p.get("data_date") or p.get("scored_at")
+            return {"batch_id": p["batch_id"], "data_date": p.get("data_date"), "period": p.get("period"), "scored_at": p.get("scored_at"),
                     "visible_on": seen, "signals": sorted({x["signal"] for x in a}), "text": a[0]["text"]}
     return None
 

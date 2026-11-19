@@ -4,6 +4,7 @@ import { ACTION_WORD, short, when } from '../lib'
 
 const TONE: Record<AuditEntry['action'], 'success' | 'warning' | 'danger' | 'neutral' | 'info'> = {
   registered: 'neutral', stage_changed: 'info', approved: 'success', rejected: 'danger', card_edited: 'neutral', batch_scored: 'neutral',
+  labels_attached: 'neutral', monitoring_configured: 'info', retrain_launched: 'warning', reason_codes_edited: 'neutral',
 }
 
 /** Append-only: who did what to which version, when, with the model's SHA-256 at that moment. */

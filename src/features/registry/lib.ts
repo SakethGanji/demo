@@ -25,6 +25,7 @@ export const versionLabel = (v: Pick<ModelVersion, 'model_name' | 'version'>) =>
 
 export const ACTION_WORD: Record<AuditEntry['action'], string> = {
   registered: 'registered', stage_changed: 'moved', approved: 'approved', rejected: 'rejected', card_edited: 'edited card', batch_scored: 'scored a batch',
+  labels_attached: 'attached labels', monitoring_configured: 'set monitoring', retrain_launched: 'launched a retrain', reason_codes_edited: 'edited reason codes',
 }
 
 /** Who is acting: there is no sign-in, so the name is typed once and kept in this browser; every action records it. */

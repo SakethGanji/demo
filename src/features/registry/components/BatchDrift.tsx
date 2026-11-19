@@ -20,6 +20,7 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
   const [sel, setSel] = useState<string | null>(null)
   const [job, setJob] = useState<BatchJob | null>(null)
   const [file, setFile] = useState<File | null>(null)
+  const [dataDate, setDataDate] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const input = useRef<HTMLInputElement>(null)
@@ -42,7 +43,7 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
   const submit = async () => {
     if (!file) return
     setBusy(true); setErr('')
-    try { const b = await api.registry.scoreBatch(v.id, file, actor); setJob(b); setSel(b.id); refresh() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    try { const b = await api.registry.scoreBatch(v.id, file, actor, dataDate || undefined); setJob(b); setSel(b.id); refresh() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const r = job?.result
   return (
@@ -55,6 +56,8 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
             <span className="mono">{file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : 'Choose a CSV…'}</span>
             <button className="btn sm" onClick={(e) => { e.preventDefault(); input.current?.click() }}>Browse</button>
           </label>
+          <label className="row" style={{ gap: 4 }} title="F18: the date of the data in this file (its last day). Default: the latest date in the run's time column when the file has it, else today. Monitoring orders batches by it.">
+            <span className="helper">data date</span><input className="input sm mono" style={{ width: 110 }} placeholder="YYYY-MM-DD" value={dataDate} onChange={(e) => setDataDate(e.target.value)} data-testid="batch-date" /></label>
           <button className="btn primary" data-testid="batch-submit" disabled={!file || busy || !actor.trim() || v.status !== 'ready'} onClick={submit}>Score {file ? file.name : 'file'} →</button>
           {!actor.trim() && <span className="helper" style={{ fontSize: 12, color: 'var(--status-warning)' }}>▲ type your name in “acting as” first</span>}
           {err && <span role="alert" className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</span>}
@@ -68,10 +71,10 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
         {list.length > 0 && (
           <div className="table-wrap" style={{ borderTop: '1px solid var(--border-default)' }}>
             <table className="table compact" data-testid="batch-list">
-              <thead><tr><th>batch</th><th>file</th><th>by</th><th>when</th><th className="r">rows</th><th className="r">max PSI</th><th className="r nocase">PSI({kind === 'anomaly' ? 's' : kind === 'forecast' ? 'ŷ' : 'p̂'})</th><th>status</th></tr></thead>
+              <thead><tr><th>batch</th><th>file</th><th>data date</th><th>by</th><th>when</th><th className="r">rows</th><th className="r">max PSI</th><th className="r nocase">PSI({kind === 'anomaly' ? 's' : kind === 'forecast' ? 'ŷ' : 'p̂'})</th><th>status</th></tr></thead>
               <tbody>{list.map((b) => (
                 <tr key={b.id} className={b.id === sel ? 'sel' : ''} onClick={() => setSel(b.id)} style={{ cursor: 'pointer' }}>
-                  <td className="mono">{b.id}</td><td className="mono">{b.filename}</td><td>{b.created_by}</td><td className="mono">{when(b.created_at)}</td>
+                  <td className="mono">{b.id}</td><td className="mono">{b.filename}</td><td className="mono">{b.data_date ?? '—'}</td><td>{b.created_by}</td><td className="mono">{when(b.created_at)}</td>
                   <td className="r mono">{b.n_rows?.toLocaleString() ?? '—'}</td><td className="r mono">{psiFmt(b.max_psi)}</td><td className="r mono">{psiFmt(b.prediction_psi)}</td>
                   <td><StatusPill status={b.status === 'succeeded' ? 'success' : b.status === 'failed' ? 'danger' : 'info'}>{b.status}</StatusPill></td>
                 </tr>

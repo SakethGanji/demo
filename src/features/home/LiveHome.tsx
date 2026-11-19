@@ -12,7 +12,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import type { DatasetSummary } from '@/shared/api/types'
 import { headline, kindOf, problemLine, runPage } from '@/shared/lib/runKinds'
 
-const ACTION: Record<AuditEntry['action'], string> = { registered: 'registered', stage_changed: 'moved', approved: 'approved', rejected: 'rejected', card_edited: 'edited the card of', batch_scored: 'scored a batch with' }
+const ACTION: Record<AuditEntry['action'], string> = { registered: 'registered', stage_changed: 'moved', approved: 'approved', rejected: 'rejected', card_edited: 'edited the card of', batch_scored: 'scored a batch with', labels_attached: 'attached labels to', monitoring_configured: 'set monitoring for', retrain_launched: 'launched a retrain of', reason_codes_edited: 'edited the reason codes of' }
 const ago = (iso: string | null) => {
   if (!iso) return ''
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
