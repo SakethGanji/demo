@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
@@ -212,8 +213,14 @@ def _stress(request: Request, rec: dict[str, Any], body: StressBody) -> dict[str
     base = {**cfg, "drop_columns": [c for c in cfg["drop_columns"] if c not in (cfg["lgd_column"], cfg["ead_column"])]}
     _, holdout, _, _ = load_frames(base)
     scen = {"name": body.name, "shocks": [s.model_dump() for s in body.shocks], "expect": body.expect}
+    base_scores = None
+    f = Path(cfg["run_dir"]) / "el_holdout.csv"
+    if f.exists():  # the run's own holdout scores, in the same row order: only the shocked rows need scoring
+        b = pd.read_csv(f)
+        if len(b) == len(holdout) and (b["row"].to_numpy() == holdout.index.to_numpy()).all():
+            base_scores = b[["pd", "lgd", "ead", "el"]].reset_index(drop=True)
     try:
-        out = core.stress(models, holdout, scen, meta.get("segments") or [])
+        out = core.stress(models, holdout, scen, meta.get("segments") or [], base=base_scores)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     if body.save:

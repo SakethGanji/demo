@@ -240,7 +240,7 @@ function Segments({ el }: { el: ElResult }) {
 
 function Stress({ run, onChanged }: { run: ElRun; onChanged: () => void }) {
   const el = run.expected_loss as ElResult
-  const all: ElScenario[] = [...el.scenarios, ...run.custom_scenarios]
+  const all: ElScenario[] = [...el.scenarios, ...run.custom_scenarios.filter((c) => !el.scenarios.some((x) => x.name === c.name))]
   const [sel, setSel] = useState(all[0]?.name ?? '')
   const s = all.find((x) => x.name === sel) ?? all[0]
   const segCols = el.segment_columns

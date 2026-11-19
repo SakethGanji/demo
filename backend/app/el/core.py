@@ -333,8 +333,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit, merge) -> dict[str, Any]:
     el = {"portfolio": port, "components": comp, "segments": segs, "scenarios": scen, "segment_columns": seg_cols,
           "columns": {"pd": y_col, "lgd": lgd_col, "ead": ead_col, "positive_class": meta["positive_class"]},
           "inputs": inputs, "ranges": ranges, "detected": cfg.get("detected") or {}, "holdout_rows": int(len(holdout))}
-    merge(expected_loss=el, problem_type="expected_loss", best_model=f"PD {fits['pd']['best_model']} · LGD "
-          f"{fits['lgd']['best_model']} · EAD {fits['ead']['best_model']}", features=inputs,
+    merge(expected_loss=el, problem_type="expected_loss", best_model="PD × LGD × EAD", features=inputs,
           holdout={"metrics": {"el_ratio": port["ratio"], "auc": comp["pd"]["auc"]}},
           eval_metric={"name": "el_ratio", "greater_is_better": True, "optimum": 1.0})
     return {"el_ratio": port["ratio"], "el": port["el"], "realised": port["realised"]}
