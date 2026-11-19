@@ -8,6 +8,7 @@ import { Tabs } from '@/shared/primitives/Tabs'
 import { AuditTable } from './components/AuditTable'
 import { BatchDrift } from './components/BatchDrift'
 import { MonitoringPanel } from './components/MonitoringPanel'
+import { FairLendingPanel } from '@/features/explain/components/FairLendingPanel'
 import { CreditReport } from './components/CreditReport'
 import { Lineage } from './components/Lineage'
 import { ModelCardView } from './components/ModelCardView'
@@ -20,8 +21,8 @@ import { ServingCard } from './components/ServingCard'
 import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
 import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
-type Tab = 'Overview' | 'Expected Loss' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Audit'
-const TABS: Tab[] = ['Overview', 'Expected Loss', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Audit']
+type Tab = 'Overview' | 'Expected Loss' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending' | 'Audit'
+const TABS: Tab[] = ['Overview', 'Expected Loss', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Fair Lending', 'Audit']
 
 /** The registry on the API's real data: versions built from runs, their stages and reviews, the audit log, lineage,
  *  and each version's card, Try It and batch scoring with drift. */
@@ -170,7 +171,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
               ? <button className="btn sm" onClick={() => go(`explain?run=${detail.run_id}`)}>Explain run →</button>
               : <button className="btn sm" onClick={() => go(`${flowRoute(detail)}?run=${detail.run_id}`)} data-testid="vd-open-flow">Open {flowOf(detail).replace('_', ' ')} run →</button>}
           </div>
-          <Tabs tabs={TABS.filter((t) => ((t !== 'Reason Codes' && t !== 'Credit Report') || (flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary')) && (t !== 'Monitoring' || flowOf(detail) === 'tabular') && (t !== 'Expected Loss' || flowOf(detail) === 'expected_loss'))} value={tab} onChange={(t) => select(detail.id, t as Tab)} />
+          <Tabs tabs={TABS.filter((t) => ((t !== 'Reason Codes' && t !== 'Credit Report' && t !== 'Fair Lending') || (flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary')) && (t !== 'Monitoring' || flowOf(detail) === 'tabular') && (t !== 'Expected Loss' || flowOf(detail) === 'expected_loss'))} value={tab} onChange={(t) => select(detail.id, t as Tab)} />
           {tab === 'Overview' && (detail.status !== 'ready'
             ? <BuildSteps v={detail} />
             : <>
@@ -186,6 +187,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
           {detail.status === 'ready' && tab === 'Reason Codes' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <ReasonCodes key={detail.id} v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && tab === 'Monitoring' && flowOf(detail) === 'tabular' && <MonitoringPanel key={detail.id} v={detail} actor={actor} versions={versions} onSelect={(id) => select(id, 'Overview')} onChanged={bump} />}
           {detail.status === 'ready' && tab === 'Credit Report' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <CreditReport key={detail.id} v={detail} actor={actor} />}
+          {detail.status === 'ready' && tab === 'Fair Lending' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <FairLendingPanel key={detail.id} runId={detail.run_id} />}
           {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} kind={flowOf(detail)} />}
           {detail.status === 'ready' && flowOf(detail) !== 'tabular' && tab === 'Try It' && (
             <div className="card card-body"><p className="helper">{flowOf(detail) === 'expected_loss'

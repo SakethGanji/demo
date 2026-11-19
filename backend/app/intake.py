@@ -39,6 +39,7 @@ ROLES: dict[str, str] = {
     "surname": "surname",
     "zip": "zip / postal code",
     "geography": "geography",
+    "protected": "protected attribute (fairness only, excluded)",
     "multilabel": "multi-label list",
     "segment": "segment",
     "category": "category",
@@ -47,7 +48,9 @@ ROLES: dict[str, str] = {
     "constant": "constant (excluded)",
     "feature": "feature",
 }
-EXCLUDED = ("id", "leak", "constant")
+EXCLUDED = ("id", "leak", "constant", "protected")
+# Never model inputs on a credit decision, but kept for the fair-lending check (G4: BISG reads surname × zip).
+NOT_INPUTS = ("surname", "zip")
 # Roles a column can carry beside its primary one (churned: the target and the survival event; ead_usd: EAD and money).
 SECONDARY = ("event", "money", "duration", "geography", "segment", "lgd", "ead")
 
@@ -60,6 +63,7 @@ LGD = re.compile(r"(^lgd|_lgd|loss_given|recovery_rate|loss_rate|loss_frac|loss_
 EAD = re.compile(r"(^ead|_ead|exposure|balance_at_default|outstanding)", re.I)
 SURNAME = re.compile(r"(surname|last_name|lastname|family_name)", re.I)
 ZIP = re.compile(r"(zip|postal|postcode|post_code)", re.I)
+PROTECTED = re.compile(r"(^|_)(race|ethnic\w*|gender|sex|religion|national_origin|nationality|marital_status)($|_)", re.I)
 GEO = re.compile(r"(^|_)(region|state|county|country|city|province|district|branch_region|geo\w*|msa|territory)($|_)", re.I)
 SEGMENT = re.compile(r"(segment|product|customer_type|client_type|tier|plan|portfolio|line_of_business|business_line|"
                      r"book|programme|program)", re.I)
@@ -204,6 +208,9 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
                 found.append(_role("zip", 0.85, "name or 5-digit values read like a zip code"))
         if ZIP.search(name) and num and k > 2 and nn.between(0, 99999).all():
             found.append(_role("zip", 0.85, "name reads like a zip code", "integers up to 5 digits"))
+        if col != tcol and PROTECTED.search(name) and 2 <= k <= 20:
+            found.append(_role("protected", 0.9, f"name '{col}' reads like a protected attribute: never a model input",
+                               "used only to check fairness"))
         if GEO.search(name) and 3 <= k <= 500:
             found.append(_role("geography", 0.7, f"name '{col}' reads like a place", f"{k} values"))
         if t in ("category", "text") and col != tcol:
@@ -337,7 +344,7 @@ class Ctx:
     def excluded(self) -> list[str]:
         """Columns left out of training: row IDs, constants, leaks (also a column whose second role is a confident
         leak, e.g. LGD, filled in only for defaulters), and entity IDs (they drive the group split instead)."""
-        return [c["name"] for c in self.columns if c["role"] in EXCLUDED or c["role"] == "entity"
+        return [c["name"] for c in self.columns if c["role"] in EXCLUDED or c["role"] in NOT_INPUTS or c["role"] == "entity"
                 or any(a["role"] == "leak" and a["confidence"] >= 0.85 for a in c["also"])]
 
 
@@ -393,7 +400,9 @@ def _binary(ctx: Ctx):
     what = f"{risk.group(0).capitalize()} risk model" if risk else "Yes/no classifier"
     return (95 if TARGET_NAME.search(t) else 80,
             f"'{t}' has two values ({rare} is {vc.iloc[-1] / vc.sum() * 100:.1f}% of rows), so it is a yes/no outcome. "
-            f"Pre-filled with {_split_words(p)} and a business cost (a missed {rare} costs 10× a false alarm; edit it in Goal).",
+            f"Pre-filled with {_split_words(p)} and a business cost (a missed {rare} costs 10× a false alarm; edit it in Goal)."
+            + (f" {', '.join(repr(c) for c in fl)} {'is' if len(fl) == 1 else 'are'} left out of the model and kept for the "
+               f"fair-lending check (Registry → Fair Lending)." if (fl := [c for r in ("surname", "zip", "protected") for c in ctx.roles.get(r) or []]) else ""),
             {**p, "title": what})
 
 
@@ -503,6 +512,22 @@ def _expected_loss(ctx: Ctx):
                 f"scenarios.", {"dataset_only": True, "pd": ctx.target, "lgd": lgd, "ead": ead, "segments": segs})
 
 
+def _fair_lending(ctx: Ctx):
+    """G4: a fair-lending check without protected attributes. BISG estimates each applicant's group probabilities from
+    surname × zip; adverse impact ratios follow on the registered yes/no model's holdout decisions."""
+    if _task_of(ctx) != "binary" or not ctx.first("surname"):
+        return None
+    match = [v for v in ctx.versions if v.get("label") in (None, ctx.target)]
+    if not match:
+        return None
+    v, z = match[0], ctx.first("zip")
+    truth = ctx.first("protected")
+    return (72, f"'{ctx.first('surname')}'{f' and {z!r}' if z else ''} give each applicant's estimated group probabilities "
+                f"(BISG: surname × {'zip' if z else 'the national mix'}), so adverse impact ratios and approval-rate gaps "
+                f"can be checked without recording race or ethnicity{f'; {truth!r} validates the proxy' if truth else ''}. "
+                f"Opens {v['model_name']} v{v['version']}, Fair Lending tab.", {"version": v["id"], "tab": "Fair Lending"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -516,6 +541,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("recourse", "What would change the decision", "registry", _recourse),  # G1
     Suggestion("credit_report", "Credit model report", "registry", _credit_report),  # G2
     Suggestion("expected_loss", "Expected loss (PD × LGD × EAD)", "expected-loss", _expected_loss),  # G3
+    Suggestion("fair_lending", "Fair-lending check (BISG)", "registry", _fair_lending),  # G4
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 
@@ -556,6 +582,7 @@ def intake(df: pd.DataFrame, overrides: dict[str, str] | None = None,
 ACTIONS = ("fixed", "any", "increase", "decrease")
 IMMUTABLE_ROLES = {"id": "a row ID", "entity": "a customer/entity ID", "date": "a date", "surname": "a surname",
                    "zip": "a zip/postal code", "geography": "where the applicant lives", "target": "the outcome",
+                   "protected": "a protected attribute",
                    "leak": "known only after the outcome", "constant": "constant"}
 IMMUTABLE_NAME = re.compile(r"(^|_)(age|birth\w*|dob|gender|sex|race|ethnic\w*|marital\w*|nationality|religion|"
                             r"citizenship|disab\w*)($|_)", re.I)

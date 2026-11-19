@@ -8,7 +8,7 @@ import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
-const EXCLUDED = ['id', 'leak', 'constant']
+const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip']  // G4: protected attributes, surname and zip are never model inputs
 const SPLIT_NAME: Record<string, string> = { time: 'out-of-time', group: 'group', 'time-group': 'out-of-time + group' }
 
 /** The flow's URL for a suggestion: New Model, Forecast and Anomaly open pre-filled on this dataset. */

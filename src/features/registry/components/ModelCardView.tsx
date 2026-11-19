@@ -163,6 +163,8 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         {Object.keys(c.fairness.reports).length ? Object.entries(c.fairness.reports).map(([g, r]) => (
           <p key={g} className="helper" style={{ fontSize: 12.5 }}><b className="mono">{g}</b> ({r.binning}{r.threshold != null ? `, t = ${r.threshold.toFixed(3)}` : ''}): {Object.entries(r.gaps).map(([k, x]) => `${k.replace(/_/g, ' ')} = ${fmtScore(x, 3)}`).join(' · ')}</p>
         )) : <p className="helper" style={{ fontSize: 12.5 }}>{c.fairness.note}</p>}
+        {c.fairness.fair_lending && (() => { const fl = c.fairness.fair_lending; return (
+          <p className="helper" style={{ fontSize: 12.5 }} data-testid="card-fair-lending"><b>Fair-lending check (BISG{fl.tables === 'synthetic' ? ', synthetic stand-in tables' : ''})</b>: {fl.surname} × {fl.zip ?? 'national mix'}, {fl.n.toLocaleString()} holdout applicants at t = {fl.threshold.toFixed(3)}. AIR vs White: {Object.entries(fl.air).filter(([g]) => g !== 'white').map(([g, v]) => `${g} ${fmtScore(v ?? NaN, 3)}`).join(' · ')}; below 0.80: {fl.below_080.join(', ') || 'none'}. Proxy accuracy {fl.proxy_accuracy != null ? `${(fl.proxy_accuracy * 100).toFixed(1)}% vs the true groups` : `≈ ${(fl.proxy_expected_accuracy * 100).toFixed(1)}% (expected)`}{fl.max_abs_delta_vs_truth != null ? `; AIRs within ${fmtScore(fl.max_abs_delta_vs_truth, 3)} of the true-group AIRs` : ''}.</p>) })()}
       </section>
 
       {flowKind(c) === 'tabular' && <section className="mc-sec"><h3><i>8</i> Deployment trade-off <small>measured</small></h3>

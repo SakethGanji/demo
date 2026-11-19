@@ -587,7 +587,7 @@ export type GroupCandidate = { column: string; type: 'category' | 'number'; grou
 
 type ExplainBase = {
   run_id: string; model: string; problem_type: ProblemType; eval_metric: EvalMetric | null; label: string
-  threshold: ThresholdRecord | null; group_candidates: GroupCandidate[]; text_columns: string[]; n: number
+  threshold: ThresholdRecord | null; group_candidates: GroupCandidate[]; text_columns: string[]; n: number; bisg_surname?: string | null
 }
 
 export type WorstClassified = {
@@ -863,7 +863,9 @@ export type ModelCard = {
   training: { call: string; notes: string[]; fit_seconds: number; n_models: number; presets: unknown; time_limit: number | null; registration: Record<string, unknown>; refit: VersionResult['refit'] }
   validation: { holdout_ci: HoldoutCI | null; source_holdout_ci: HoldoutCI | null; threshold: ThresholdRecord | null; version_threshold: number | null; confusion_matrix: number[][] | null; classes: string[] | null; validation_score: number | null }
   importance: { features: FeatureImportanceCI[]; method: string }
-  fairness: { reports: Record<string, { gaps: Record<string, number>; threshold: number | null; computed_at: string; binning: string; by_group: Record<string, unknown>[] }>; note: string | null }
+  fairness: { reports: Record<string, { gaps: Record<string, number>; threshold: number | null; computed_at: string; binning: string; by_group: Record<string, unknown>[] }>; note: string | null
+    fair_lending?: { tables: string; surname: string; zip: string | null; n: number; threshold: number; approval_rate: number; air: Record<string, number | null>; below_080: string[]
+      lowest: { group: string; air: number; air_ci: [number, number] } | null; proxy_accuracy: number | null; proxy_expected_accuracy: number; max_abs_delta_vs_truth: number | null } | null }
   ensemble: { model: string | null; weights: Record<string, number> | null; stack_level: number | null; version_best: string; dependencies: string[]; leaderboard: Record<string, unknown>[] }
   deployment: { source: { best_model: string; size_bytes: number; n_models: number; latency: Latency }; version: { best_model: string; size_bytes: number; n_models: number; latency: Latency }; tradeoff: VersionResult['tradeoff']; infer_limit: VersionResult['infer_limit'] }
   use: { fields: CardField[] }
@@ -1347,4 +1349,34 @@ export type CreditReport = {
   }
   formulas: Record<string, string>
   headline: { gini: number | null; gini_ci: [number, number] | null; ks: number | null; bad_rate: number | null; months: number; first_csi_flag: string | null; cohorts: number }
+}
+
+/** G4 · GET /runs/{id}/fair-lending: BISG proxy groups, adverse impact ratios with CIs, the proxy's error. */
+export type FairLendingCol = { column: string; source: 'detected' | 'set by you'; evidence: string[]; note?: string } | null
+export type FairLendingGroup = {
+  group: string; n_eff: number; separability: number; reference: boolean; judged: boolean; flag: string | null
+  approval: number; approval_ci: [number, number]; air: number | null; air_ci: [number, number]; diff: number; diff_ci: [number, number]
+  plain_approval: number; plain_air: number | null; plain_diff: number
+}
+export type FairLending = {
+  run_id: string; label: string; ready: boolean; reason?: string
+  detected: { surname: FairLendingCol; zip: FairLendingCol; truth: FairLendingCol }
+  candidates: { surname: string[]; zip: string[]; truth: string[] }
+  tables: { source: 'synthetic' | 'census'; label: string; surnames: number; zips: number }
+  groups: string[]; group_labels: Record<string, string>; reference: string
+  n: number; threshold: number; positive_class: string
+  favourable: { adverse_label: boolean; approved_when: string; approval_rate: number }
+  coverage: { surname: number; zip: number | null }
+  air: FairLendingGroup[]
+  metricframe: { metrics: string[]; overall: Record<string, number | null>; by_group: ({ group: string } & Record<string, number | null>)[]; difference: Record<string, number | null> }
+  proxy: {
+    expected_accuracy: number; estimated_shares: Record<string, number>; accuracy?: number; brier?: number
+    by_group?: { group: string; n_true: number; true_share: number; estimated_share: number; recall: number | null; precision: number | null; mean_p_true: number | null }[]
+    confusion?: number[][]
+  }
+  limits: { min_eff_n: number; min_separability: number; bootstrap: number }
+  truth?: {
+    column: string; max_abs_delta: number | null; max_abs_plain_delta: number | null; within_005: boolean | null
+    comparison: { group: string; judged: boolean; air: number | null; plain_air: number | null; true_air: number | null; true_air_ci: [number, number]; n_true: number; delta: number | null; plain_delta: number | null }[]
+  }
 }

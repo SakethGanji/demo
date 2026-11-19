@@ -705,6 +705,9 @@ INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
                                       "income": M, "credit_score": F, "debt_to_income": F, "utilization": F, "credit_limit": M,
                                       "current_balance": M, "collateral_value": M, "term_months": F, "defaulted": "target",
                                       "lgd": "lgd", "ead": "ead"}),
+    "fair-lending": ("binary", {"application_id": "id", "application_date": "date", "surname": "surname", "zip": "zip",
+                                "income": M, "credit_score": F, "debt_to_income": F, "loan_amount": M, "employment_years": F,
+                                "home_ownership": CAT, "race_ethnicity_true": "protected", "defaulted": "target"}),
 }
 KEY_ROLES = ("target", "date", "id", "entity", "segment")
 
@@ -4763,6 +4766,90 @@ def expected_loss(st: dict[str, Any]) -> None:
     step("el: registered; scores loans and a batch; model card", registry)
 
 
+def fair_lending(st: dict[str, Any]) -> None:
+    """G4: the fair-lending check without protected attributes (BISG) on the fair-lending sample, zero-config. Intake
+    finds surname, zip and the hidden true group (protected: left out of the model with the IDs); the binary pre-fill
+    trains a quick GBM with the F7 cost (time split), which is registered. GET /fair-lending with no parameters
+    detects every input. Asserts the acceptance: the proxy-corrected weighted AIRs are within ±0.05 of the AIRs with the
+    hidden true groups (every judged group), and the proxy's error is reported (accuracy, Brier). Also: Σ n_eff = n,
+    CIs bracket the estimates, the plain weighted AIRs sit closer to 1 (attenuated), the Build suggestion, the model card
+    section, and a bad column → 400."""
+    ds = "fair-lending"
+    s: dict[str, Any] = {}
+
+    def roles():
+        it = get(f"/api/datasets/{ds}/intake")
+        r = it["roles"]
+        check(r.get("surname") == ["surname"] and r.get("zip") == ["zip"] and r.get("protected") == ["race_ethnicity_true"], r)
+        pf = next(x for x in it["suggestions"] if x["id"] == "binary")["prefill"]
+        check({"surname", "zip", "race_ethnicity_true", "application_id"} <= set(pf["drop"]) and pf["split"] == "time", pf)
+        s["pf"] = pf
+        return f"surname, zip, protected = race_ethnicity_true · binary pre-fill drops {pf['drop']} · {pf['split']} split on {pf['time']}"
+    if not step("fair: intake roles and pre-fill", roles):
+        return
+
+    def train():
+        pf = s["pf"]
+        body = {"dataset_id": ds, "label": pf["target"], "problem_type": "binary", "presets": "medium_quality", "time_limit": 90,
+                "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 200}}}, "drop_columns": pf["drop"] + [pf["time"]],
+                "feature_importance": False, "split_spec": {"strategy": "time", "time_column": pf["time"]},
+                "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto", "source": "smoke-fair"}
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        feats = set(rec.get("features") or [])
+        check(not feats & {"surname", "zip", "race_ethnicity_true"}, feats)
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.fair-lending"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        s.update(run=rec["id"], version=v["id"])
+        return f"{rec['id']} · features {sorted(feats)} · {v['id']} ready"
+    if not step("fair: train the pre-filled model, register", train):
+        return
+
+    def check_bisg():
+        t0 = time.time()
+        r = get(f"/api/runs/{s['run']}/fair-lending")
+        dt = time.time() - t0
+        check(r["ready"] and r["detected"]["surname"]["column"] == "surname" and r["detected"]["zip"]["column"] == "zip", r["detected"])
+        check(r["detected"]["truth"]["column"] == "race_ethnicity_true" and r["tables"]["source"] == "synthetic", r["tables"])
+        check(r["coverage"]["surname"] > 0.99 and r["coverage"]["zip"] > 0.99, r["coverage"])
+        check(abs(sum(g["n_eff"] for g in r["air"]) - r["n"]) < 1e-6 * r["n"], "Σ n_eff ≠ n")
+        for g in r["air"]:
+            if not g["reference"] and g["judged"]:
+                check(g["air_ci"][0] <= g["air"] <= g["air_ci"][1] and g["diff_ci"][0] <= g["diff"] <= g["diff_ci"][1], g["group"])
+        tr = r["truth"]
+        judged = [c for c in tr["comparison"] if c["judged"]]
+        check(len(judged) >= 3, judged)
+        check(tr["within_005"] and tr["max_abs_delta"] <= 0.05, [(c["group"], round(c["delta"], 3)) for c in judged])
+        gap = [c for c in judged if c["true_air"] < 0.95]
+        check(all(c["plain_air"] > c["true_air"] for c in gap), "plain weighting not attenuated")
+        pq = r["proxy"]
+        check(0 < pq["accuracy"] < 1 and pq["brier"] > 0 and len(pq["confusion"]) == len(r["groups"]), pq.get("accuracy"))
+        mf = r["metricframe"]
+        check(len(mf["by_group"]) == len(r["groups"]) and "selection_rate" in mf["metrics"], mf["metrics"])
+        st["fair"] = {"max_abs_delta": tr["max_abs_delta"], "max_abs_plain_delta": tr["max_abs_plain_delta"], "accuracy": pq["accuracy"],
+                      "air": {c["group"]: (round(c["air"], 3), round(c["true_air"], 3), round(c["plain_air"], 3)) for c in tr["comparison"]}}
+        return (f"{dt:.1f} s · n {r['n']} · t {r['threshold']:.3f} · approval {r['favourable']['approval_rate']:.3f} · proxy accuracy "
+                f"{pq['accuracy']:.3f} (expects {pq['expected_accuracy']:.3f}), Brier {pq['brier']:.3f} · AIR corrected / true / plain: "
+                + ", ".join(f"{c['group']} {c['air']:.3f}/{c['true_air']:.3f}/{c['plain_air']:.3f}{'' if c['judged'] else ' (not judged)'}" for c in tr["comparison"])
+                + f" · max |Δ| {tr['max_abs_delta']:.3f} (plain {tr['max_abs_plain_delta']:.3f})")
+    step("fair: BISG AIRs vs the hidden true groups (acceptance ±0.05), proxy error", check_bisg)
+
+    def surfaces():
+        it = get(f"/api/datasets/{ds}/intake")
+        sg = next((x for x in it["suggestions"] if x["id"] == "fair_lending"), None)
+        check(sg and sg["prefill"].get("tab") == "Fair Lending" and sg["prefill"].get("version"), it["suggestions"])
+        card = C.get(f"/api/registry/versions/{s['version']}/card", params={"format": "md"}).text
+        check("Fair-lending check without protected attributes (BISG)" in card and "synthetic stand-in" in card, "card section")
+        bad = C.get(f"/api/runs/{s['run']}/fair-lending", params={"surname": "nope"})
+        check(bad.status_code == 400, bad.status_code)
+        nozip = get(f"/api/runs/{s['run']}/fair-lending", zip="")
+        check(nozip["ready"], "surname only")
+        return (f"Build suggests '{sg['title']}' ({sg['score']:g}) → {sg['prefill']['tab']} · card section · unknown column → 400 · "
+                f"surname only: proxy accuracy {nozip['proxy']['accuracy']:.3f}")
+    step("fair: Build suggestion, model card, overrides", surfaces)
+
+
 def _dr_evidence(kind: str, ev: dict[str, Any]) -> str:
     if kind == "leakage":
         su = ev["suspects"][0]
@@ -4823,7 +4910,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

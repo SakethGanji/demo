@@ -20,7 +20,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from .. import config
+from .. import config, intake
 from ..datasets import DatasetError
 from ..splits import load_splits
 from . import catalogue, costs, explain, heavy, serving, threshold
@@ -1153,7 +1153,11 @@ async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, "model": res.get("best_model"), "problem_type": res.get("problem_type"),
             "eval_metric": res.get("eval_metric"), "label": rec["label"], "threshold": res.get("threshold"),
             "group_candidates": explain.group_candidates(cfg, res.get("features") or [], ds["profile"] if ds else None),
-            "text_columns": cfg.get("text_columns") or [], **body}
+            "text_columns": cfg.get("text_columns") or [],
+            # G4: a surname column makes the BISG estimated groups available in Fairness (binary runs)
+            "bisg_surname": next((c["name"] for c in (ds["profile"] if ds else {}).get("columns", [])
+                                  if res.get("problem_type") == "binary" and intake.SURNAME.search(str(c["name"]))), None),
+            **body}
 
 
 @router.get("/runs/{run_id}/fairness")

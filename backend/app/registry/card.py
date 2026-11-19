@@ -172,7 +172,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
                                       if r.get("model") == res.get("best_model")), None),
         },
         "importance": {"features": fi[:20], "method": "permutation importance on the holdout (AutoGluon feature_importance), 95% t-intervals"},
-        "fairness": {"reports": fairness,
+        "fairness": {"reports": fairness, "fair_lending": res.get("fair_lending"),
                      "note": None if fairness else "Not computed. Open Explain → Fairness for a group column (e.g. region, age band) to add it."},
         "ensemble": {"model": ens.get("model"), "weights": ens.get("weights"), "stack_level": ens.get("stack_level"),
                      "version_best": ver.get("best_model"), "dependencies": ver.get("dependencies"),
@@ -344,6 +344,28 @@ def _anomaly_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]
 
 
 # --------------------------------------------------------------------------- Markdown
+
+
+def _fair_lending_md(fl: dict[str, Any] | None) -> list[str]:
+    """G4: the last fair-lending check (BISG proxy groups), as computed on the Fair Lending tab."""
+    if not fl:
+        return ["", "Fair-lending check (BISG): not run yet. Open Registry → Fair Lending, or Explain → Fairness → estimated groups."]
+    lo = fl.get("lowest") or {}
+    L = ["", "### Fair-lending check without protected attributes (BISG)", "",
+         f"Group probabilities from `{fl.get('surname')}` × `{fl.get('zip') or 'national mix'}` "
+         f"({'synthetic stand-in tables, not Census data' if fl.get('tables') == 'synthetic' else 'Census tables'}), "
+         f"{fl.get('n')} holdout applicants at t = {_fmt(fl.get('threshold'))}; approval rate {_fmt(fl.get('approval_rate'))}. "
+         "Adverse impact ratio AIR_r = A_r / A_White with proxy-corrected weighted approval rates A_r.", "",
+         "| Group | AIR |", "| --- | ---: |"]
+    L += [f"| {g} | {_fmt(v)} |" for g, v in (fl.get("air") or {}).items()]
+    if lo:
+        L += ["", f"Lowest: {lo.get('group')} AIR {_fmt(lo.get('air'))} [{_fmt((lo.get('air_ci') or [None])[0])}, "
+              f"{_fmt((lo.get('air_ci') or [None, None])[1])}]; below 0.80: {', '.join(fl.get('below_080') or []) or 'none'}."]
+    pe = f"proxy accuracy {_fmt(fl.get('proxy_accuracy'))} against the true groups" if fl.get("proxy_accuracy") is not None \
+        else f"expected proxy accuracy {_fmt(fl.get('proxy_expected_accuracy'))} (no true groups to check it)"
+    L += [f"The proxy is an estimate: {pe}"
+          + (f"; largest |AIR − true AIR| {_fmt(fl.get('max_abs_delta_vs_truth'))}." if fl.get("max_abs_delta_vs_truth") is not None else ".")]
+    return L
 
 
 def _el_section(run: dict[str, Any]) -> dict[str, Any] | None:
@@ -558,6 +580,7 @@ def to_markdown(c: dict[str, Any]) -> str:
             L.append(f"- Group `{g}`: " + ", ".join(f"{k} = {_fmt(val)}" for k, val in gaps.items() if isinstance(val, (int, float))))
     else:
         L.append(c["fairness"]["note"])
+    L += _fair_lending_md(c["fairness"].get("fair_lending"))
     dp = c["deployment"]
     L += ["", "## 8. Deployment trade-off (measured)", "", "| | Source run | This version |", "| --- | ---: | ---: |"]
     for k, lab, f in (("best_model", "Model", str), ("n_models", "Models on disk", str), ("size_bytes", "Size on disk", _bytes)):

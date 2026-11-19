@@ -6,8 +6,11 @@ import { useWidth } from '@/shared/hooks/useWidth'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { FairLendingPanel } from './FairLendingPanel'
 
-const LABELS: Record<string, [string, string]> = {
+const BISG = '__bisg'
+
+export const LABELS: Record<string, [string, string]> = {
   count: ['n_g', 'rows in group g'],
   selection_rate: ['P(ŷ = 1 | g)', 'share flagged positive'],
   base_rate: ['P(y = 1 | g)', 'share actually positive'],
@@ -31,30 +34,32 @@ const DOT_METRICS: Record<string, { key: string; color: string }[]> = {
 export function FairnessPanel({ run, ex, initialGroup }: { run: Run; ex: Explain; initialGroup?: string }) {
   const cands = ex.group_candidates
   const pref = cands.find((c) => c.column === initialGroup) ?? cands.find((c) => c.type === 'category' && /region|segment|gender|sex|age|group|employment|home/i.test(c.column)) ?? cands[0]
-  const [group, setGroup] = useState(pref?.column ?? '')
+  const [group, setGroup] = useState(ex.bisg_surname && (!initialGroup || initialGroup === 'bisg') ? BISG : pref?.column ?? '')
   const [f, setF] = useState<Fairness | null>(null)
   const [err, setErr] = useState('')
   const [ref, W] = useWidth<HTMLDivElement>()
   useEffect(() => {
-    if (!group) return
+    if (!group || group === BISG) return
     let alive = true
     setErr('')
     api.runs.fairness(run.id, group).then((r) => alive && setF(r)).catch((e) => alive && setErr((e as Error).message))
     return () => { alive = false }
   }, [run.id, group, run.threshold?.value])
-  if (!cands.length) return <div className="card card-body helper">No column can define groups (categories with ≤ 50 values or numbers).</div>
+  if (!cands.length && !ex.bisg_surname) return <div className="card card-body helper">No column can define groups (categories with ≤ 50 values or numbers).</div>
   const pt = run.problem_type ?? 'binary'
   const dots = DOT_METRICS[pt] ?? DOT_METRICS.binary
   const head = (
     <div className="row" style={{ gap: 'var(--space-8)', flexWrap: 'wrap' }}>
       <span className="micro-label">group by</span>
       <select className="select" aria-label="Group column" value={group} onChange={(e) => setGroup(e.target.value)} data-testid="fair-group">
+        {ex.bisg_surname && <option value={BISG}>estimated race/ethnicity (BISG: {ex.bisg_surname} × zip)</option>}
         {cands.map((c) => <option key={c.column} value={c.column}>{c.column} ({c.type === 'number' ? 'quartiles' : `${c.groups} values`})</option>)}
       </select>
       {f?.threshold != null && <ParamChip sym="t" value={f.threshold.toFixed(3)} />}
-      {!f && !err && <ResonanceWave />}
+      {!f && !err && group !== BISG && <ResonanceWave />}
     </div>
   )
+  if (group === BISG) return <div className="stack" style={{ gap: 'var(--space-16)' }}><div className="card card-body">{head}</div><FairLendingPanel runId={run.id} /></div>
   if (err) return <div className="card card-body">{head}<p role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p></div>
   if (!f) return <div className="card card-body">{head}</div>
 
