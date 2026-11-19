@@ -11,7 +11,6 @@ Both expose `top_words(k)`: the k words with the largest coefficient for each cl
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 import pandas as pd
@@ -45,15 +44,11 @@ class _TfidfModel(AbstractModel):
     def _model_defaults(self) -> dict:
         return {}
 
-
-    def _text_frame(self, X: pd.DataFrame) -> pd.DataFrame:
-        return X[self._features].fillna("").astype(str)
-
     def _preprocess(self, X: pd.DataFrame, is_train: bool = False, **kwargs):
         X = super()._preprocess(X, **kwargs)
         from sklearn.feature_extraction.text import TfidfVectorizer
 
-        T = self._text_frame(X)
+        T = X[self._features].fillna("").astype(str)
         p = self._get_model_params()
         if is_train:
             self._vectorizers, self._vocab = {}, []
@@ -76,11 +71,9 @@ class _TfidfModel(AbstractModel):
         return {k: v for k, v in p.items() if k not in self._tfidf_defaults}
 
     def _fit(self, X: pd.DataFrame, y: pd.Series, time_limit: float | None = None, num_cpus: int = 1, **kwargs):
-        start = time.time()
         Xt = self.preprocess(X, is_train=True)
         self.model = self._make_estimator(y, num_cpus=num_cpus)
         self.model.fit(Xt, np.asarray(y))
-        log.debug("%s fit in %.2fs on %s", self.name, time.time() - start, Xt.shape)
 
     def _make_estimator(self, y: pd.Series, num_cpus: int = 1):
         raise NotImplementedError
@@ -153,8 +146,6 @@ class TfidfSVMModel(_TfidfModel):
         min_count = int(pd.Series(np.asarray(y)).value_counts().min())
         cv = min(int(p["calibration_cv"]), min_count)
         if cv < 2:
-            cv = "prefit_fallback"
-        if cv == "prefit_fallback":
             # A class with a single row can't be cross-calibrated: fall back to softmax of the margins.
             return _SoftmaxSVC(svc)
         return CalibratedClassifierCV(svc, method=p["calibration"], cv=cv)

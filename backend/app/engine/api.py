@@ -115,6 +115,29 @@ class PredictRequest(BaseModel):
     model: str | None = None
 
 
+def display_name(ds: dict[str, Any]) -> str:
+    return ds["name"].replace(" (sample)", "")
+
+
+def alloc_run(app: Any) -> tuple[str, Path]:
+    """A fresh run id and its (created) folder."""
+    run_id = "run_" + secrets.token_hex(4)
+    run_dir = app.state.settings.runs_dir / run_id
+    run_dir.mkdir(parents=True)
+    return run_id, run_dir
+
+
+def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, label: str, cfg: dict[str, Any], /,
+              **queued: Any) -> RunStore:
+    """Write the run's config, record it, emit run_queued (with `queued` as the event's fields) and hand it to the runner."""
+    (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
+    store = app.state.runs
+    store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
+    store.emit(run_id, "run_queued", **queued)
+    app.state.runner.submit(run_id)
+    return store
+
+
 def _runner(request: Request) -> JobRunner:
     return request.app.state.runner
 
@@ -280,10 +303,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         if g != label and g not in drop:
             drop = [*drop, g]
 
-    run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
-    run_dir = settings.runs_dir / run_id
-    run_dir.mkdir(parents=True, exist_ok=False)
+    run_id, run_dir = alloc_run(app)
     cfg = {
         **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone", "scorecard"}),
         "column_types": {c: t for c, t in types.items() if c not in drop},
@@ -310,14 +331,10 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         cfg["predictor_kwargs"] = {k: v for k, v in (cfg.get("predictor_kwargs") or {}).items() if k != "quantile_levels"}
     if body.pseudolabel:
         cfg["unlabeled_csv_path"] = str(app.state.datasets.csv_path(body.pseudolabel["dataset_id"]))
-    (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
-    name = body.name or f"{ds['name'].replace(' (sample)', '')} · {label}"
-    store = _store(request)
-    store.create({"id": run_id, "name": name, "dataset_id": body.dataset_id, "label": label,
-                  "created_at": now(), "config": cfg})
-    store.emit(run_id, "run_queued", dataset_id=body.dataset_id, label=label, problem_type=cfg["problem_type"],
-               eval_metric=body.eval_metric, presets=body.presets, time_limit=body.time_limit)
-    _runner(request).submit(run_id)
+    name = body.name or f"{display_name(ds)} · {label}"
+    store = queue_run(app, run_id, run_dir, name, body.dataset_id, label, cfg, dataset_id=body.dataset_id, label=label,
+                      problem_type=cfg["problem_type"], eval_metric=body.eval_metric, presets=body.presets,
+                      time_limit=body.time_limit)
     return run_out(store.get(run_id), store)
 
 

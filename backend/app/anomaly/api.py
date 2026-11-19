@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import secrets
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -16,10 +15,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .. import config
 from ..engine.store import now
 from . import core, group, labels as review, velocity
-from ..http import dataset_or_404
+from ..http import dataset_or_404, stash_upload
 
 router = APIRouter(prefix="/api/anomaly")
 
@@ -61,7 +59,7 @@ async def create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
 
 
 def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
-    from ..engine.api import run_out
+    from ..engine.api import alloc_run, display_name, queue_run, run_out
 
     app = request.app
     ds = dataset_or_404(request, body.dataset_id)
@@ -101,10 +99,8 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
         if bad:
             raise HTTPException(400, f"velocity_in_forest: unknown column(s) {', '.join(bad)}; "
                                      f"choose from {', '.join(velocity.names(body.model_dump()))}.")
-    run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
-    run_dir = settings.runs_dir / run_id
-    run_dir.mkdir(parents=True)
+    run_id, run_dir = alloc_run(app)
     truth = (app.state.datasets.sidecar(body.dataset_id, "anomaly_truth.json") or {}).get("anomalies")
     params = body.model_dump(exclude={"dataset_id", "name", "features", "drop_columns", "source"})
     cfg = {"kind": "anomaly", "dataset_id": body.dataset_id, "features": body.features, "drop_columns": body.drop_columns or [],
@@ -114,12 +110,9 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
            "truth": truth, "run_id": run_id, "db_path": str(settings.db_path),
            "csv_path": str(app.state.datasets.csv_path(body.dataset_id)), "run_dir": str(run_dir),
            "predictor_path": str(run_dir / "model")}
-    (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
-    name = body.name or f"{ds['name'].replace(' (sample)', '')} · anomalies · c={body.contamination:g}"
-    store = app.state.runs
-    store.create({"id": run_id, "name": name, "dataset_id": body.dataset_id, "label": "anomaly", "created_at": now(), "config": cfg})
-    store.emit(run_id, "run_queued", kind="anomaly", dataset_id=body.dataset_id, contamination=body.contamination)
-    app.state.runner.submit(run_id)
+    name = body.name or f"{display_name(ds)} · anomalies · c={body.contamination:g}"
+    store = queue_run(app, run_id, run_dir, name, body.dataset_id, "anomaly", cfg, kind="anomaly",
+                      dataset_id=body.dataset_id, contamination=body.contamination)
     out = run_out(store.get(run_id), store)
     out["config"] = {k: v for k, v in cfg.items() if k != "truth"}
     return out
@@ -449,13 +442,7 @@ async def score_batch(run_id: str, request: Request, file: UploadFile = File(...
     """Score a new batch with the run's model: s(x,n), E[h(x)], the percentile among the fitted rows, the flag at
     the saved threshold, reasons for the top rows; the scored CSV to download."""
     rec = _run(request, run_id)
-    content = await file.read(config.MAX_UPLOAD_BYTES + 1)
-    if not content.strip():
-        raise HTTPException(400, "The file is empty.")
-    bid = "ab_" + secrets.token_hex(4)
-    d = Path(rec["config"]["run_dir"]) / "batches" / bid
-    d.mkdir(parents=True)
-    (d / "input.csv").write_bytes(content)
+    bid, d = await stash_upload(rec, file, "batches", "ab_")
     try:
         out = await request.app.state.heavy.run(core.score_batch, rec["config"]["predictor_path"], str(d / "input.csv"),
                                                 str(d / "scored.csv"))

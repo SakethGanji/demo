@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import secrets
+from pathlib import Path
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, UploadFile
+
+from . import config
 
 
 def run_or_404(request: Request, run_id: str, msg: str | None = None) -> dict[str, Any]:
@@ -33,3 +37,15 @@ def batch_or_404(request: Request, bid: str) -> dict[str, Any]:
     if not b:
         raise HTTPException(404, f"No batch with id '{bid}'.")
     return b
+
+
+async def stash_upload(rec: dict[str, Any], file: UploadFile, sub: str, prefix: str) -> tuple[str, Path]:
+    """Save an uploaded CSV as <run_dir>/<sub>/<prefix+id>/input.csv; returns (the new id, that folder)."""
+    content = await file.read(config.MAX_UPLOAD_BYTES + 1)
+    if not content.strip():
+        raise HTTPException(400, "The file is empty.")
+    new_id = prefix + secrets.token_hex(4)
+    d = Path(rec["config"]["run_dir"]) / sub / new_id
+    d.mkdir(parents=True)
+    (d / "input.csv").write_bytes(content)
+    return new_id, d

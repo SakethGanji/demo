@@ -7,7 +7,6 @@ threshold record, importance, MLflow). Explain, the registry, the model card, Tr
 from __future__ import annotations
 
 import json
-import secrets
 import shutil
 import zipfile
 from pathlib import Path
@@ -16,7 +15,6 @@ from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from .. import config
-from .store import now
 from ..http import dataset_or_404
 
 router = APIRouter(prefix="/api")
@@ -68,16 +66,14 @@ def inspect_predictor(path: str) -> dict[str, Any]:
 async def import_run(request: Request, dataset_id: str = Form(...), file: UploadFile | None = File(None),
                      path: str | None = Form(None), name: str | None = Form(None),
                      created_by: str = Form("")) -> dict[str, Any]:
-    from .api import run_out
+    from .api import alloc_run, queue_run, run_out
 
     app = request.app
     ds = dataset_or_404(request, dataset_id)
     if (file is None) == (not path):
         raise HTTPException(400, "Give either a zipped predictor folder (file) or a server path (path), not both.")
-    run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
-    run_dir = settings.runs_dir / run_id
-    run_dir.mkdir(parents=True)
+    run_id, run_dir = alloc_run(app)
     dest = run_dir / "predictor"
     try:
         if file is not None:
@@ -136,10 +132,6 @@ async def import_run(request: Request, dataset_id: str = Form(...), file: Upload
            "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(dataset_id)),
            "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
            "predictor_path": str(dest)}
-    (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
-    store = app.state.runs
-    store.create({"id": run_id, "name": name or f"Imported · {source.split('/')[-1]} · {label}", "dataset_id": dataset_id,
-                  "label": label, "created_at": now(), "config": cfg})
-    store.emit(run_id, "run_queued", kind="import", dataset_id=dataset_id, label=label, **imp)
-    app.state.runner.submit(run_id)
+    store = queue_run(app, run_id, run_dir, name or f"Imported · {source.split('/')[-1]} · {label}", dataset_id, label, cfg,
+                      kind="import", dataset_id=dataset_id, label=label, **imp)
     return {**run_out(store.get(run_id), store), "inspected": info}

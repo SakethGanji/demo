@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import re
-import secrets
 from pathlib import Path
 from typing import Any, Literal
 
@@ -15,10 +14,8 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from .. import config
-from ..engine.store import now
 from . import core
-from ..http import dataset_or_404
+from ..http import dataset_or_404, stash_upload
 
 router = APIRouter(prefix="/api/forecast")
 
@@ -135,7 +132,7 @@ async def create(body: ForecastCreate, request: Request) -> dict[str, Any]:
 
 
 def _create(body: ForecastCreate, request: Request) -> dict[str, Any]:
-    from ..engine.api import run_out
+    from ..engine.api import alloc_run, display_name, queue_run, run_out
 
     app = request.app
     ds = dataset_or_404(request, body.dataset_id)
@@ -154,21 +151,15 @@ def _create(body: ForecastCreate, request: Request) -> dict[str, Any]:
     for k in ("train_data", "path"):
         if k in body.fit_kwargs or k in body.predictor_kwargs:
             raise HTTPException(400, f"{k} is set by the run.")
-    run_id = "run_" + secrets.token_hex(4)
     settings = app.state.settings
-    run_dir = settings.runs_dir / run_id
-    run_dir.mkdir(parents=True)
+    run_id, run_dir = alloc_run(app)
     cfg = {**body.model_dump(exclude={"name"}), "quantile_levels": q, "kind": "forecast", "label": m.target,
            "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
            "run_dir": str(run_dir), "predictor_path": str(run_dir / "predictor"), "drop_columns": []}
-    (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
-    name = body.name or f"{ds['name'].replace(' (sample)', '')} · forecast {m.target} · H={body.prediction_length}"
-    store = app.state.runs
-    store.create({"id": run_id, "name": name, "dataset_id": body.dataset_id, "label": m.target, "created_at": now(), "config": cfg})
-    store.emit(run_id, "run_queued", kind="forecast", dataset_id=body.dataset_id, label=m.target,
-               prediction_length=body.prediction_length, eval_metric=body.eval_metric, presets=body.presets,
-               time_limit=body.time_limit)
-    app.state.runner.submit(run_id)
+    name = body.name or f"{display_name(ds)} · forecast {m.target} · H={body.prediction_length}"
+    store = queue_run(app, run_id, run_dir, name, body.dataset_id, m.target, cfg, kind="forecast", dataset_id=body.dataset_id,
+                      label=m.target, prediction_length=body.prediction_length, eval_metric=body.eval_metric,
+                      presets=body.presets, time_limit=body.time_limit)
     return run_out(store.get(run_id), store)
 
 
@@ -206,13 +197,7 @@ async def predict_new(run_id: str, request: Request, file: UploadFile = File(...
     rec = _run(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}.")
-    content = await file.read(config.MAX_UPLOAD_BYTES + 1)
-    if not content.strip():
-        raise HTTPException(400, "The file is empty.")
-    pid = "fc_" + secrets.token_hex(4)
-    d = Path(rec["config"]["run_dir"]) / "predictions" / pid
-    d.mkdir(parents=True)
-    (d / "input.csv").write_bytes(content)
+    pid, d = await stash_upload(rec, file, "predictions", "fc_")
     try:
         out = await request.app.state.heavy.run(core.predict_new, rec["config"]["predictor_path"], rec["config"],
                                                 str(d / "input.csv"), str(d / "forecast.csv"))
