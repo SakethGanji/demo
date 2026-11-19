@@ -60,7 +60,8 @@ TITLES = {"leakage": "Leakage", "shift": "Shift between training and deployment"
 RULES = {
     "leakage": "critical: one feature alone predicts the label (AUC / accuracy ≥ 0.97, R² ≥ 0.97) with ≥ 50 % of the importance; "
                "major: an identifier used as a feature (Vela's leakage check)",
-    "shift": "critical: out-of-time optimism z ≥ 3 and Δ ≥ 0.02, or adversarial verdict strong; major: z ≥ 2, or verdict moderate; "
+    "shift": "prescription: importance weights when their ESS ≥ 20 % of the rows, else drop the top shifting column, else an out-of-time twin; "
+             "critical: out-of-time optimism z ≥ 3 and Δ ≥ 0.02, or adversarial verdict strong; major: z ≥ 2, or verdict moderate; "
              "minor: verdict slight, or a batch PSI > 0.25",
     "label_noise": "classification: error floor (top-20 % confidence) Wilson lower bound ≥ 0.06, not overconfident, cleanlab rate ≥ 0.05 → "
                    "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major",
@@ -354,10 +355,12 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
         shift_actions = ctx.get("shift_actions") or []
         w = next((a for a in shift_actions if a.get("kind") == "weights-version"), None)
         dr = next((a for a in shift_actions if a.get("kind") == "gym-patch"), None)
-        if oot and w:  # already validated out of time: weight training towards the new period
+        w_ok = bool(w and (w.get("ess_share") or 0) >= 0.2)  # weights with an ESS under 20 % of the rows rest on a few rows
+        if oot and w_ok:  # the out-of-time gap is already measured: weight training towards the new period
             rx = {"kind": "shift_weights", "title": "Importance-Weight Training", "endpoint": w["endpoint"], "why": w["why"]}
-        elif not rx and dr:
-            rx = {"kind": "gym_patch", "title": dr["title"], "patch": dr["patch"], "why": dr["why"]}
+        elif (oot or not rx) and dr:
+            rx = {"kind": "gym_patch", "title": dr["title"], "patch": dr["patch"], "why": dr["why"] + (
+                f" (Importance weights would keep an effective {w.get('ess_share', 0):.1%} of the rows, too few.)" if w and not w_ok else "")}
         elif not rx and w:
             rx = {"kind": "shift_weights", "title": "Importance-Weight Training", "endpoint": w["endpoint"], "why": w["why"]}
         checks.append(_check("shift", "finding", " ".join(x for x in why if x), ev, sev, rx, offer=offer_shift or None,

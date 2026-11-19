@@ -699,10 +699,19 @@ class Pilot:
 
     def prescription(self) -> dict[str, Any] | None:
         """The first doctor factor (in its ranked order) whose prescription is a Gym patch not yet tried."""
+        from ..vela.findings import _get_path
+
         tried = {(x.get("decision") or {}).get("prescription_id") for x in self.st["steps"]}
+        bodies = [x["body"] for x in self.st["steps"] if x.get("run_id") and x.get("body")]
+
+        def done_before(patch: dict[str, Any]) -> bool:  # an earlier step already trained with exactly these values
+            return any(all(json.dumps(_get_path(b, c["path"]), sort_keys=True) == json.dumps(c["to"], sort_keys=True)
+                           for c in patch["changes"]) for b in bodies)
+
         for f in self._factors(self.doctor()):
             rx = f.get("prescription") or {}
-            if rx.get("kind") == "gym_patch" and rx.get("patch") and f"{f['id']}:{rx['patch']['id']}" not in tried:
+            if rx.get("kind") == "gym_patch" and rx.get("patch") and f"{f['id']}:{rx['patch']['id']}" not in tried \
+                    and not done_before(rx["patch"]):
                 return {"factor": f["id"], "severity": f["severity"], "title": rx["title"], "patch": rx["patch"],
                         "id": f"{f['id']}:{rx['patch']['id']}", "reason": f["reason"]}
         return None
@@ -743,7 +752,7 @@ class Pilot:
                 if a in menu:
                     lead = f"Open: {g or 'the requirements'}. The Model Doctor's {'primary' if f is d['primary'] else 'next'} factor is {f['title'].lower()} ({f['severity']}): {f['reason']}"
                     if skipped:
-                        lead += f" (Factors no menu action can answer: {', '.join(skipped)}.)"
+                        lead += f" (Factors no remaining menu action answers: {', '.join(skipped)}.)"
                     return a, f"{lead} Fixed strategy: {a.replace('_', ' ')}" + (f": {rx['title']}." if a == "apply_prescription" else ".")
             skipped.append(f["id"].replace("_", " "))
         for a in ("reduce_latency", "rebalance", "calibrate_threshold", "escalate_preset", "add_families"):
@@ -753,7 +762,7 @@ class Pilot:
                        "calibrate_threshold": "the default 0.5 threshold is rarely right for an imbalanced binary target",
                        "escalate_preset": f"a stronger preset is next with {rem:.0f} s left",
                        "add_families": "more model families widen the ensemble"}[a]
-                pre = f"The Model Doctor names {', '.join(skipped)}, which no menu action answers; " if skipped else ""
+                pre = f"The Model Doctor names {', '.join(skipped)}, which no remaining menu action answers; " if skipped else ""
                 return a, f"Open: {g or 'the requirements'}. {pre}Fixed strategy: {a.replace('_', ' ')}, because {why}."
         return "stop", f"Open: {g}. The fixed strategy has nothing left to try."
 

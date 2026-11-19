@@ -1607,7 +1607,7 @@ def autopilot(st: dict[str, Any]) -> None:
         docs = [d.get("doctor") for d in a["decisions"]]
         check(a["decisions"] and all(docs), f"decisions without the doctor: {[d['action'] for d in a['decisions'] if not d.get('doctor')]}")
         check(all("Model Doctor" in d["rationale"] or d["action"] == "stop" or not (d["doctor"] or {}).get("primary")
-                  or "no menu action" in d["rationale"] for d in a["decisions"]), [d["rationale"][:160] for d in a["decisions"]])
+                  or "no remaining menu action" in d["rationale"] for d in a["decisions"]), [d["rationale"][:160] for d in a["decisions"]])
         v = a["verdict"]
         trail = " → ".join(f"{(d['doctor']['primary'] or {}).get('id', 'none')}⇒{d['action']}" for d in a["decisions"])
         return (f"{a['id']} · no LLM · auto-accepted c ≥ 0.9 · {len([s for s in a['steps'] if s.get('run_id')])} runs · "

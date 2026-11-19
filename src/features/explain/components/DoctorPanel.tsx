@@ -80,7 +80,7 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
 
 function ActBtn({ a, act, busy, primary, testId }: { a: DoctorAction; act: (a: DoctorAction) => void; busy: string | null; primary?: boolean; testId?: string }) {
   if (a.kind === 'info') return <span className="helper" style={{ fontSize: 12 }}>{a.title}</span>
-  return <button className={`btn sm ${primary ? 'primary' : ''}`} onClick={() => act(a)} disabled={busy != null} title={a.why ?? ''} data-testid={testId}>
+  return <button className={`btn sm ${primary ? 'primary' : ''}`} style={{ whiteSpace: 'normal', maxWidth: '100%', textAlign: 'left', height: 'auto', minHeight: 28 }} onClick={() => act(a)} disabled={busy != null} title={a.why ?? ''} data-testid={testId}>
     {busy === a.title ? 'Working…' : `${a.title}${a.kind === 'gym_patch' ? ' → Gym' : ''}`}</button>
 }
 
@@ -111,10 +111,10 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
 
   if (compact) return (
     <div className="card doc-compact" data-testid="doctor-compact" data-primary={p?.id ?? 'none'}>
-      <div className="card-head"><div className="left"><h3 className="card-title">Model Doctor</h3>
-        <span className="helper" style={{ fontSize: 12 }}>the limiting factor, by a fixed procedure over {d.checks.length} checks</span></div>
+      <div className="card-head"><div className="left"><h3 className="card-title">Model Doctor</h3></div>
         {p ? <span className={`pill ${SEV_PILL[p.severity!]}`}>{p.severity}</span> : <StatusPill status="success">nothing limiting</StatusPill>}</div>
       <div className="card-body stack" style={{ gap: 8 }}>
+        <span className="micro-label">limiting factor · fixed procedure over {d.checks.length} checks</span>
         {p ? <>
           <b data-testid="doctor-primary">{p.title}</b>
           <p className="helper" style={{ fontSize: 12.5, margin: 0 }}>{p.reason}</p>
