@@ -143,3 +143,4 @@
 /* F19: the card's diagnostics lines are sentences: let them wrap */
 .table.mc-diag { table-layout: fixed; width: 100%; }
 .table.mc-diag td { white-space: normal; height: auto; padding-top: 6px; padding-bottom: 6px; line-height: 1.45; }
+.warn-chip { margin-left: 6px; font-size: 11px; color: var(--status-warning); border-color: color-mix(in srgb, var(--status-warning) 40%, var(--border-default)); }

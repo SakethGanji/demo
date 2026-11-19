@@ -99,7 +99,7 @@ export function ReasonCodes({ v, actor, onEdited }: { v: ModelVersion; actor: st
             <thead><tr><th>feature</th><th>code</th><th>statement when the value is high · or for a category ({'{value}'})</th><th>statement when low</th><th>missing</th></tr></thead>
             <tbody>{rows.map((r, i) => (
               <tr key={r.feature}>
-                <td className="mono">{r.feature}{r.constraint ? <small className="helper"> {r.constraint > 0 ? '↑' : '↓'}</small> : null}</td>
+                <td className="mono">{r.feature}{r.constraint ? <small className="helper"> {r.constraint > 0 ? '↑' : '↓'}</small> : null}{r.notice === false && <NotForNotice title={r.notice_note} />}</td>
                 <td><input className="input" style={{ width: '100%' }} value={r.code} data-testid={`reason-code-${r.feature}`} onChange={(e) => set(i, 'code', e.target.value)} /></td>
                 <td>{r.kind === 'number'
                   ? <input className="input" style={{ width: '100%' }} value={r.high ?? ''} data-testid={`reason-high-${r.feature}`} onChange={(e) => set(i, 'high', e.target.value)} />
@@ -143,6 +143,9 @@ export function ReasonCodes({ v, actor, onEdited }: { v: ModelVersion; actor: st
   )
 }
 
+/** Geography or a protected characteristic: it explains the model, but a lender may not give it as a reason. */
+const NotForNotice = ({ title }: { title?: string }) => <span className="chip warn-chip" data-testid="not-for-notice" title={title ?? 'geography or a protected characteristic (or a proxy for one)'}>not for adverse-action notices</span>
+
 /** The codes of one decision (Try It). */
 export function ReasonList({ codes, adverse, adverseClass, testId }: { codes: ReasonCode[] | null; adverse: boolean; adverseClass: string; testId?: string }) {
   if (!adverse) return <p className="helper" data-testid={testId}>Not adverse (ŷ ≠ {adverseClass}): no reason codes.</p>
@@ -151,7 +154,7 @@ export function ReasonList({ codes, adverse, adverseClass, testId }: { codes: Re
       {(codes ?? []).map((r) => (
         <li key={r.code}>
           <span className="reason-dir up mono" style={{ minWidth: 44 }}>{r.code}</span>
-          <span><b>{r.statement}</b> <small className="helper">(<span className="mono">{r.feature}</span> = <span className="mono">{r.value == null ? 'missing' : String(r.value)}</span>, φ = <span className="mono">{r.phi >= 0 ? '+' : ''}{r.phi.toFixed(4)}</span>)</small></span>
+          <span><b>{r.statement}</b>{r.notice === false && <NotForNotice />} <small className="helper">(<span className="mono">{r.feature}</span> = <span className="mono">{r.value == null ? 'missing' : String(r.value)}</span>, φ = <span className="mono">{r.phi >= 0 ? '+' : ''}{r.phi.toFixed(4)}</span>)</small></span>
         </li>
       ))}
     </ol>

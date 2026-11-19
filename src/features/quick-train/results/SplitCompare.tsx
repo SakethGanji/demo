@@ -105,7 +105,7 @@ export function SplitCompare({ run, go }: { run: Run; go: (r: string) => void })
             {rows.map((r) => (
               <tr key={r.run_id} className={r.this_run ? 'sel' : ''} data-testid={`split-compare-${r.strategy}`}>
                 <td><span className="chip" style={{ fontSize: 11 }}>{STRATEGY_NAME[r.strategy]}</span></td>
-                <td className="mono muted" style={{ fontSize: 12 }}>{r.this_run ? <>{r.run_id} ◂</> : <a href={`#/quick-train?run=${r.run_id}`} onClick={(e) => { e.preventDefault(); go(`quick-train?run=${r.run_id}`) }}>{r.run_id}</a>}</td>
+                <td className="mono muted" style={{ fontSize: 12 }}>{r.this_run ? <>{r.run_id} ◂</> : <a href={`#/models?run=${r.run_id}`} onClick={(e) => { e.preventDefault(); go(`models?run=${r.run_id}`) }}>{r.run_id}</a>}</td>
                 <td className="table-cell">{r.holdout_rows?.toLocaleString()}{r.cutoff ? <span className="muted"> · ≥ {r.cutoff}</span> : ''}</td>
                 <td className="table-cell">{r.train_rows?.toLocaleString()}{r.tuning_rows ? <span className="muted"> + {r.tuning_rows.toLocaleString()} T</span> : ''}</td>
                 <td className="table-cell mono"><b>{fmt(r.score)}</b></td>

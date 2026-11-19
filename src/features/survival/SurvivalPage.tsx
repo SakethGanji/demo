@@ -1,50 +1,17 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/shared/api/client'
-import { flows, type SurvDetect, type SurvGroup, type SurvResult, type SurvRun, type SurvTry } from '@/shared/api/flows'
+import { flows, type SurvGroup, type SurvResult, type SurvRun, type SurvTry } from '@/shared/api/flows'
 import type { ModelVersion } from '@/shared/api/types'
-import { Register } from '@/shared/components/FlowParts'
+import { CiBar, KindFlow, NumField, type KindSpec } from '@/shared/components/KindFlow'
 import { PlotFrame } from '@/shared/components/PlotFrame'
-import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 import { XYPlot, niceTicks, type XYSeries } from '@/shared/components/XYPlot'
 import { useFetch } from '@/shared/hooks/useFetch'
-import { useHashParam } from '@/shared/hooks/useHashParam'
-import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { fix, pct } from '@/shared/lib/format'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import { CiBar } from '@/features/segmented/SegmentedPage'
-import '@/features/expected-loss/expected-loss.css'
-import '@/features/segmented/segmented.css'
 
 const MODEL = { cox: 'Cox PH', rsf: 'random survival forest' } as const
 const GROUP_COLOR: Record<string, string> = { low: 'var(--viz-a)', 'medium-low': 'var(--viz-b)', 'medium-high': 'var(--viz-c)', high: 'var(--status-danger)' }
 const u = (unit: string | null | undefined) => (unit ? `${unit}s` : 'time units')
-
-/**
- * G6 · Time to event, a choice inside Build. Without ?run: the setup, pre-filled from the G0 roles (duration, event,
- * horizons, what to leave out, the split), one primary action. With ?run: Cox PH and a random survival forest on the same
- * holdout: Harrell's C, AUC(τ), calibration against Kaplan–Meier by risk group, hazard ratios. Registry → Survival shows the
- * same view; Try It draws one applicant's survival curve.
- */
-export function SurvivalPage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
-  return (
-    <ApiOnly mock={(
-      <div className="page"><Head />
-        <div className="card card-body"><p className="helper">▲ mock mode: survival models train on the API, which is offline. Start it with <span className="mono">make dev</span>.</p></div></div>
-    )}>
-      {runId ? <RunView key={runId} runId={runId} go={go} /> : <Setup go={go} />}
-    </ApiOnly>
-  )
-}
-
-function Head({ right }: { right?: React.ReactNode }) {
-  return (
-    <div className="page-head">
-      <div><h1 className="page-title">Time to Event</h1><p className="helper sub">How long until an event (an account closes, a loan prepays), using every row, censored ones included.</p></div>
-      {right}
-    </div>
-  )
-}
+const horizonsOf = (hz: string) => hz.split(/[,\s]+/).map(Number).filter((x) => Number.isFinite(x) && x > 0)
 
 function Formula() {
   return (
@@ -56,108 +23,41 @@ function Formula() {
   )
 }
 
-// ------------------------------------------------------------------------------------------------------------ setup
-
-function Setup({ go }: { go: (r: string) => void }) {
-  const dsId = useHashParam('dataset') ?? 'account-attrition'
-  const det = useFetch(() => flows.surv.detect(dsId), [dsId])
-  const ds = useFetch(() => api.datasets.get(dsId), [dsId])
-  // Build passes its roles (with the user's edits) as ?duration=&event=; they override the detection.
-  const fromBuild = (): Partial<SurvDetect> => {
-    const q = new URLSearchParams(location.hash.split('?')[1] ?? '')
-    return { ...(q.get('duration') ? { duration_column: q.get('duration') } : {}), ...(q.get('event') ? { event_column: q.get('event') } : {}) }
-  }
-  const [pick, setPick] = useState<Partial<SurvDetect>>(fromBuild)
-  const [hz, setHz] = useState('')
-  const [trees, setTrees] = useState(200)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  useEffect(() => setPick(fromBuild()), [dsId]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (det.data) setHz(det.data.horizons.join(', ')) }, [det.data])
-  if (det.err || ds.err) return <div className="page"><Head /><ErrorCard err={det.err || ds.err} /></div>
-  if (!det.data || !ds.data) return <div className="page"><Head /><Loading>Reading the column roles…</Loading></div>
-  const d = { ...det.data, ...pick }
-  const nums = ds.data.profile.columns.filter((c) => c.type === 'number' && c.unique > 5)
-  const flags = ds.data.profile.columns.filter((c) => c.unique === 2)
-  const horizons = hz.split(/[,\s]+/).map(Number).filter((x) => Number.isFinite(x) && x > 0)
-  const start = async () => {
-    setBusy(true); setErr('')
-    try {
-      const r = await flows.surv.create({ dataset_id: dsId, duration_column: d.duration_column!, event_column: d.event_column!, horizons,
-        drop_columns: d.drop_columns.filter((c) => c !== d.duration_column && c !== d.event_column), n_estimators: trees })
-      go(`survival?run=${r.id}`)
-    } catch (e) { setErr((e as Error).message); setBusy(false) }
-  }
-  const why = (k: 'duration_column' | 'event_column') => (pick[k] && pick[k] !== det.data![k] ? 'set by you' : (det.data!.evidence[d[k] ?? ''] ?? []).join(' · '))
-  return (
-    <div className="page" data-testid="surv-setup">
-      <Head />
-      <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">What we use</h3><span className="helper" style={{ fontSize: 12 }}>{ds.data.name} · {ds.data.rows.toLocaleString()} rows · detected from the column roles; change any of them</span></div>
-          <button className="btn primary" disabled={!d.duration_column || !d.event_column || !horizons.length || busy} onClick={start} data-testid="surv-start">{busy ? 'Starting…' : 'Train Cox + survival forest →'}</button></div>
-        <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
-          <Formula />
-          <div className="table-wrap"><table className="table compact" data-testid="surv-detected">
-            <thead><tr><th>input</th><th>column</th><th>why</th></tr></thead>
-            <tbody>
-              <tr><td>time T</td>
-                <td><select className="input mono" value={d.duration_column ?? ''} onChange={(e) => setPick({ ...pick, duration_column: e.target.value })} data-testid="surv-duration">
-                  {!d.duration_column && <option value="">—</option>}{nums.map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{d.duration_column ? why('duration_column') : 'nothing detected: pick the time each row was followed'}</td></tr>
-              <tr><td>event δ</td>
-                <td><select className="input mono" value={d.event_column ?? ''} onChange={(e) => setPick({ ...pick, event_column: e.target.value })} data-testid="surv-event">
-                  {!d.event_column && <option value="">—</option>}{flags.map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{d.event_column ? why('event_column') : 'nothing detected: pick the 0/1 column (1 = the event happened, 0 = censored)'}</td></tr>
-              <tr><td>horizons τ</td>
-                <td><input className="input mono" value={hz} onChange={(e) => setHz(e.target.value)} style={{ width: 140 }} data-testid="surv-horizons" /></td>
-                <td className="helper" style={{ fontSize: 12 }}>Ŝ(τ) is reported at these {u(det.data.unit)}{det.data.duration_range ? ` (T runs ${det.data.duration_range[0]}–${det.data.duration_range[1]})` : ''}</td></tr>
-              <tr><td>left out</td><td className="mono" colSpan={2}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs, dates, leaks · {d.split_why}</span></td></tr>
-            </tbody>
-          </table></div>
-          {!det.data.strong && det.data.duration_column && <p className="helper el-bad" style={{ fontSize: 12.5 }}>● '{det.data.duration_column}' reads like time so far (a snapshot), not necessarily time up to '{det.data.event_column}'. Only train if each row's time ends at its event or at censoring.</p>}
-          <details className="an-adv">
-            <summary className="micro-label">Advanced · {trees} trees</summary>
-            <div className="row" style={{ gap: 8, padding: 'var(--space-8) 0' }}>
-              <label className="helper">trees in the forest</label>
-              <input className="input mono" type="number" min={20} max={1000} value={trees} onChange={(e) => setTrees(Number(e.target.value) || 200)} style={{ width: 90 }} data-testid="surv-trees" />
-              <span className="helper" style={{ fontSize: 12 }}>Cox PH has nothing to tune (a tiny ridge, α = 0.001, keeps it stable).</span>
-            </div>
-          </details>
-          <p className="helper" style={{ fontSize: 12.5 }}>A censored row (δ = 0) still counts: we know it lasted at least T. Both models train on the same rows; the one with the lower integrated Brier score on a validation slice serves, so the holdout stays untouched until the comparison.</p>
-          {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
-        </div>
-      </div>
-    </div>
-  )
+/**
+ * G6 · Time to event, a choice inside Build: the setup, pre-filled from the G0 roles (duration, event, horizons, what to leave
+ * out, the split). The run (Models): Cox PH and a random survival forest on the same holdout: Harrell's C, AUC(τ), calibration
+ * against Kaplan–Meier by risk group, hazard ratios. Registry → Results shows the same view; Try It draws one subject's curve.
+ */
+export const SURV_SPEC: KindSpec = {
+  id: 'survival', title: 'Time to Event', testId: 'surv', defaultDataset: 'account-attrition', mockWhat: 'survival models train',
+  sub: 'How long until an event (an account closes, a loan prepays), using every row, censored ones included.',
+  detect: flows.surv.detect, create: (b) => flows.surv.create(b as never),
+  roles: [
+    { key: 'duration_column', label: 'time T', urlParam: 'duration', testId: 'surv-duration', emptyHint: 'nothing detected: pick the time each row was followed',
+      options: (ds) => ds.profile.columns.filter((c) => c.type === 'number' && c.unique > 5).map((c) => c.name) },
+    { key: 'event_column', label: 'event δ', urlParam: 'event', testId: 'surv-event', emptyHint: 'nothing detected: pick the 0/1 column (1 = the event happened, 0 = censored)',
+      options: (ds) => ds.profile.columns.filter((c) => c.unique === 2).map((c) => c.name) },
+  ],
+  rows: ({ det, o, set }) => (
+    <tr><td>horizons τ</td>
+      <td><input className="input mono" value={o.hz} onChange={(e) => set({ hz: e.target.value })} style={{ width: 140 }} data-testid="surv-horizons" /></td>
+      <td className="helper" style={{ fontSize: 12 }}>Ŝ(τ) is reported at these {u(det.unit)}{det.duration_range ? ` (T runs ${det.duration_range[0]}–${det.duration_range[1]})` : ''}</td></tr>),
+  leftOut: ({ d }) => <>IDs, dates, leaks · {d.split_why}</>,
+  Formula: () => <Formula />,
+  note: ({ det }) => !det.strong && det.duration_column && <p className="helper el-bad" style={{ fontSize: 12.5 }}>● '{det.duration_column}' reads like time so far (a snapshot), not necessarily time up to '{det.event_column}'. Only train if each row's time ends at its event or at censoring.</p>,
+  advanced: { initial: (det) => ({ trees: 200, hz: det.horizons.join(', ') }), summary: (o) => `${o.trees} trees`,
+    Body: ({ o, set }) => <><NumField label="trees in the forest" value={o.trees} set={(trees) => set({ trees })} min={20} max={1000} testId="surv-trees" /><span className="helper" style={{ fontSize: 12 }}>Cox PH has nothing to tune (a tiny ridge, α = 0.001, keeps it stable).</span></> },
+  explain: () => <>A censored row (δ = 0) still counts: we know it lasted at least T. Both models train on the same rows; the one with the lower integrated Brier score on a validation slice serves, so the holdout stays untouched until the comparison.</>,
+  startLabel: () => 'Train Cox + survival forest →',
+  canStart: ({ d, o }) => !!(d.duration_column && d.event_column && horizonsOf(o.hz).length),
+  body: ({ d, o }) => ({ duration_column: d.duration_column, event_column: d.event_column, horizons: horizonsOf(o.hz),
+    drop_columns: d.drop_columns.filter((c: string) => c !== d.duration_column && c !== d.event_column), n_estimators: o.trees }),
+  running: { events: 'surv', line: () => 'Fitting both models, then the holdout checks', steps: () => (['cox', 'rsf'] as const).map((m) => ({ key: m, label: <b>{MODEL[m]}</b> })) },
+  meta: (run) => `T = ${run.config.duration_column} · δ = ${run.config.event_column}`,
+  registerName: (run) => `${run.dataset_id}.survival`,
 }
 
-// --------------------------------------------------------------------------------------------------------- run page
-
-function RunView({ runId, go }: { runId: string; go: (r: string) => void }) {
-  const live = useRunEvents(runId)
-  const r = useFetch(() => flows.surv.get(runId), [runId, live.done], { pollMs: 3000, while: (d) => !!d && (d.status === 'queued' || d.status === 'running') })
-  if (r.err) return <div className="page"><Head /><ErrorCard err={r.err} /></div>
-  if (!r.data) return <div className="page"><Head /><Loading>Loading the run…</Loading></div>
-  const run = r.data
-  const done = new Set(live.events.filter((e) => e.type === 'surv_model_finished').map((e) => e.model as string))
-  const on = new Set(live.events.filter((e) => e.type === 'surv_model_started').map((e) => e.model as string))
-  return (
-    <div className="page" data-testid="surv-run" data-status={run.status}>
-      <Head right={run.status === 'succeeded' ? <Register runId={runId} go={go} name={`${run.dataset_id}.survival`} /> : undefined} />
-      <p className="helper mono" style={{ fontSize: 12, marginTop: -8 }}>{run.name} · {runId} · T = {run.config.duration_column} · δ = {run.config.event_column}</p>
-      {run.status === 'failed' && <ErrorCard err={run.error ?? 'The run failed.'} />}
-      {(run.status === 'queued' || run.status === 'running') && (
-        <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
-          <div className="row"><ResonanceWave /> <span>Fitting both models, then the holdout checks · {live.stage}</span></div>
-          <div className="el-steps">{(['cox', 'rsf'] as const).map((m) => (
-            <div key={m} className={`el-step ${done.has(m) ? 'done' : on.has(m) ? 'on' : ''}`}><b>{MODEL[m]}</b><span className="mono">{done.has(m) ? '✓' : on.has(m) ? '…' : ''}</span></div>
-          ))}</div>
-        </div></div>
-      )}
-      {run.status === 'succeeded' && run.survival && <SurvResults run={run} />}
-    </div>
-  )
-}
+export const SurvivalPage = ({ go }: { go: (r: string) => void }) => <KindFlow spec={SURV_SPEC} go={go} />
 
 // ---------------------------------------------------------------------------------------------- results (shared)
 

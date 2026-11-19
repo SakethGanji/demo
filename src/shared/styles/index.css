@@ -8,8 +8,8 @@
 @import '../../features/home/home.css';
 @import '../../features/build/build.css';
 @import '../../features/quick-train/quick-train.css';
-@import '../../features/explain/explain.css';
-@import '../../features/experiments/experiments.css';
+@import '../../features/models/explain/explain.css';
+@import '../../features/models/models.css';
 @import '../../features/vela/autopilot/autopilot.css';
 @import '../../features/training-gym/training-gym.css';
 @import '../../features/registry/registry.css';

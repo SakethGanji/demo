@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/shared/api/client'
 import { flows, type FlowRun } from '@/shared/api/flows'
-import { useApi } from '@/shared/api/mode'
+import { ApiOnly, HeroCell } from '@/shared/components/Status'
 import type { DatasetSummary } from '@/shared/api/types'
 import { LiveModels } from '@/shared/components/FlowParts'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { fix } from '@/shared/lib/format'
-import { useHashParam } from '@/shared/hooks/useHashParam'
-import { HeroCell } from '@/shared/components/Status'
 
 
 /** Import an AutoGluon TabularPredictor someone already trained (a zipped folder or a path on the server): it is
  *  checked, scored on a dataset's holdout like a trained run, and then works everywhere a run does. */
-export function ImportPage({ go }: { go: (r: string) => void }) {
-  const { mode } = useApi()
-  const runId = useHashParam('run')
+export function ImportPage() {
+  return (
+    <ApiOnly mock={<div className="page"><div className="page-head"><h1 className="page-title">Import Predictor</h1></div><div className="card card-body"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span> to import a predictor.</p></div></div>}>
+      <ImportSetup />
+    </ApiOnly>
+  )
+}
+
+function ImportSetup() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
   const [dsId, setDsId] = useState('credit-default')
   const [file, setFile] = useState<File | null>(null)
@@ -24,13 +28,12 @@ export function ImportPage({ go }: { go: (r: string) => void }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => { if (mode === 'live') { api.datasets.list().then(setDatasets).catch(() => {}) } }, [mode, runId])
-  if (mode === 'mock') return <div className="page"><div className="page-head"><h1 className="page-title">Import Predictor</h1></div><div className="card card-body"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span> to import a predictor.</p></div></div>
+  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => {}) }, [])
   const submit = async () => {
     setBusy(true); setErr('')
     try {
       const r = await flows.importRun({ dataset_id: dsId, file: how === 'zip' ? file : null, path: how === 'path' ? path : undefined, created_by: localStorage.getItem('ensemble.actor') ?? '' })
-      location.hash = `#/import?run=${r.id}`
+      location.hash = `#/models?run=${r.id}`
     } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   return (
@@ -61,13 +64,13 @@ export function ImportPage({ go }: { go: (r: string) => void }) {
           </div>
         </div>
       </div>
-      {runId && <ImportRun key={runId} runId={runId} go={go} />}
       <p className="helper">Earlier imports are in <a href="#/models?type=import">Models →</a></p>
     </div>
   )
 }
 
-function ImportRun({ runId, go }: { runId: string; go: (r: string) => void }) {
+/** The import's facts (what was loaded, from where, with which AutoGluon) above the run page, and its progress while it is checked. */
+export function ImportRun({ runId }: { runId: string }) {
   const live = useRunEvents(runId)
   const [run, setRun] = useState<FlowRun | null>(null)
   useEffect(() => { flows.run(runId).then(setRun).catch(() => {}) }, [runId, live.done])
@@ -88,13 +91,6 @@ function ImportRun({ runId, go }: { runId: string; go: (r: string) => void }) {
       </div>
       {!done && run.status !== 'failed' && <LiveModels live={live} metric="validation score as saved" />}
       {run.status === 'failed' && <div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {run.error}</div>}
-      {done && <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">Imported · scored on the holdout</h3><span className="helper" style={{ fontSize: 12 }}>{run.data?.holdout_rows as number} holdout rows</span></div>
-          <div className="row"><button className="btn" onClick={() => go(`explain?run=${run.id}`)} data-testid="imp-explain">Explain →</button><button className="btn" onClick={() => go(`quick-train?run=${run.id}`)}>Results →</button><button className="btn primary" onClick={() => go(`registry?register=${run.id}`)} data-testid="imp-register">Register…</button></div></div>
-        <div className="table-wrap"><table className="table"><thead><tr><th>#</th><th>model</th><th className="r">val (as saved)</th><th className="r">holdout</th><th className="r">stack level</th><th className="r">predict</th></tr></thead>
-          <tbody>{(run.leaderboard ?? []).map((r) => <tr key={r.model} className={r.model === run.best_model ? 'sel' : ''}><td className="table-cell">{r.rank}</td><td className="table-cell">{r.model}</td><td className="r table-cell">{fix(r.score_val_natural, 4)}</td><td className="r table-cell"><b>{fix(r.score_test_natural, 4)}</b></td><td className="r table-cell">{r.stack_level}</td><td className="r table-cell">{r.pred_time_test != null ? `${(Number(r.pred_time_test) * 1000).toFixed(0)} ms` : '—'}</td></tr>)}</tbody></table></div>
-        <p className="helper caption-pad" style={{ fontSize: 12 }}>{Object.entries(hm).slice(0, 6).map(([k, v]) => `${k} ${fix(v, 4)}`).join(' · ')}. Not refit: the models are the ones you saved. The holdout may overlap their training rows; if so, these scores are optimistic.</p>
-      </div>}
     </div>
   )
 }

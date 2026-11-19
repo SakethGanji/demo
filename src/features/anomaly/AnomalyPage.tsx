@@ -22,13 +22,12 @@ const val = (v: unknown) => (v == null ? '—' : typeof v === 'number' ? (Math.a
 /** Anomaly detection without labels: IsolationForest (and LOF) on a table, the isolation score's distribution and
  *  threshold, the most anomalous rows with their reasons, and a batch scorer. */
 export function AnomalyPage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
   return (
     <ApiOnly mock={(
     <div className="page"><div className="page-head"><div><h1 className="page-title">Anomaly Detection</h1></div></div>
       <div className="card card-body" data-testid="anomaly-mock"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span>; this page then fits IsolationForest on the card-transactions sample or your CSV.</p></div></div>
     )}>
-      {runId ? <AnomalyRun key={runId} runId={runId} go={go} /> : <AnomalySetup />}
+      <AnomalySetup />
     </ApiOnly>
   )
 }
@@ -83,7 +82,7 @@ function AnomalySetup() {
     try { const r = await flows.anomaly.create({ dataset_id: dsId, features: feats, contamination: c, n_estimators: trees, lof, lof_neighbors: k, source: 'anomaly-page',
       group_features: useGrp && !!grp.entity_column, entity_column: grp.entity_column, time_column: grp.time_column, relative_columns: grp.relative_columns,
       velocity_features: velOn, amount_column: velOn ? grp.amount_column ?? null : null, category_column: velOn ? grp.category_column ?? null : null,
-      velocity_in_forest: velOn ? velForest : null, max_samples: psiIn }); location.hash = `#/anomaly?run=${r.id}` }
+      velocity_in_forest: velOn ? velForest : null, max_samples: psiIn }); location.hash = `#/models?run=${r.id}` }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const sorted = [...datasets].sort((a, b) => Number(b.kind === 'transactions') - Number(a.kind === 'transactions'))
@@ -217,7 +216,7 @@ function VelocitySetup({ ds, grp, setGrp, on, setOn, canOn, forest, setForest }:
 
 // --------------------------------------------------------------------------- the run
 
-function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
+export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => void }) {
   const live = useRunEvents(runId)
   const [run, setRun] = useState<FlowRun | null>(null)
   const [scores, setScores] = useState<AnScores | null>(null)

@@ -8,13 +8,12 @@ import { Tabs } from '@/shared/primitives/Tabs'
 import { AuditTable } from './components/AuditTable'
 import { BatchDrift } from './components/BatchDrift'
 import { MonitoringPanel } from './components/MonitoringPanel'
-import { FairLendingPanel } from '@/features/explain/components/FairLendingPanel'
 import { CreditReport } from './components/CreditReport'
 import { Lineage } from './components/Lineage'
 import { ModelCardView } from './components/ModelCardView'
 import { RegisterPanel } from './components/RegisterPanel'
 import { KindResults, RESULTS, TryItFor } from '@/shared/components/KindResults'
-import { kindOf, runPage, type RunKind } from '@/shared/lib/runKinds'
+import { kindOf, type RunKind } from '@/shared/lib/runKinds'
 import { useTabParam } from '@/shared/hooks/useHashParam'
 import { ReasonCodes } from './components/ReasonCodes'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
@@ -207,7 +206,9 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
           {detail.status === 'ready' && tab === 'Reason Codes' && rowFlow(detail) && detail.result?.version?.problem_type === 'binary' && <ReasonCodes key={detail.id} v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && tab === 'Monitoring' && flowOf(detail) === 'tabular' && <MonitoringPanel key={detail.id} v={detail} actor={actor} versions={versions} onSelect={(id) => select(id, 'Overview')} onChanged={bump} />}
           {detail.status === 'ready' && tab === 'Credit Report' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <CreditReport key={detail.id} v={detail} actor={actor} />}
-          {detail.status === 'ready' && tab === 'Fair Lending' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <FairLendingPanel key={detail.id} runId={detail.run_id} />}
+          {detail.status === 'ready' && tab === 'Fair Lending' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && (
+            <div className="card card-body" data-testid="fl-link"><p className="helper">Fair lending (BISG proxy groups, adverse impact ratios, the four-fifths rule) is read from the version's run: it lives in Models → Explain → Fairness, next to the other fairness checks.{' '}
+              <button className="btn sm" onClick={() => go(`models?run=${detail.run_id}&tab=Explain&sub=Fairness`)}>Open fair lending →</button></p></div>)}
           {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} kind={flowOf(detail)} />}
           {detail.status !== 'ready' && tab !== 'Overview' && <div className="card card-body row"><ResonanceWave /> This version is {detail.status}; it is usable once ready.</div>}
         </div>
@@ -224,7 +225,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
 
 const flowOf = (v: ModelVersion) => ((v.result as unknown as { kind?: string } | null)?.kind ?? 'tabular')
 /** The page a version's run opens on (tabular: Explain). */
-const openRun = (v: ModelVersion) => (flowOf(v) === 'tabular' ? `explain?run=${v.run_id}` : runPage({ id: v.run_id, kind: flowOf(v) } as unknown as Run))
+const openRun = (v: ModelVersion) => `models?run=${v.run_id}${flowOf(v) === 'tabular' ? '&tab=Explain' : ''}`
 /** Versions that score one row with a TabularPredictor (G5: a routed version uses its row's segment model). */
 const rowFlow = (v: ModelVersion) => flowOf(v) === 'tabular' || flowOf(v) === 'segmented'
 

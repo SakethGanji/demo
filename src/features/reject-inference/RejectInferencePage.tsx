@@ -1,49 +1,15 @@
-import { useEffect, useState } from 'react'
-import { api } from '@/shared/api/client'
-import { flows, type RiCompare, type RiDetect, type RiMethod, type RiResult } from '@/shared/api/flows'
+import { flows, type RiCompare, type RiMethod, type RiResult } from '@/shared/api/flows'
 import { PlotFrame } from '@/shared/components/PlotFrame'
-import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { CiBar, KindFlow, NumField, type KindSpec } from '@/shared/components/KindFlow'
+import { HeroCell } from '@/shared/components/Status'
 import { XYPlot, niceTicks, type XYSeries } from '@/shared/components/XYPlot'
-import { useFetch } from '@/shared/hooks/useFetch'
-import { useHashParam } from '@/shared/hooks/useHashParam'
-import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { fix, pct } from '@/shared/lib/format'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import { CiBar } from '@/features/segmented/SegmentedPage'
-import '@/features/expected-loss/expected-loss.css'
-import '@/features/segmented/segmented.css'
 
 const ORDER: RiMethod[] = ['approved_only', 'reweighting', 'parcelling', 'fuzzy']
 const NAME: Record<RiMethod, string> = { approved_only: 'Approved only', reweighting: 'Reweighting', parcelling: 'Parcelling', fuzzy: 'Fuzzy augmentation' }
 const COLOR: Record<RiMethod, string> = { approved_only: 'var(--text-tertiary, #8a94a6)', reweighting: 'var(--viz-a)', parcelling: 'var(--viz-b)', fuzzy: 'var(--viz-c)' }
 const FITS = ['approved_only', 'acceptance', 'reweighting', 'parcelling', 'fuzzy']
 const sgn = (v: number | null | undefined, d = 4) => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`)
-
-/**
- * G7 · Reject inference, a choice inside Build. Without ?run: the setup, pre-filled from the G0 roles (the outcome, the
- * approve/decline decision, what to leave out, the split), one primary action. With ?run: approved-only training against
- * reweighting, parcelling and fuzzy augmentation, on a through-the-door holdout, with paired CIs and the assumption.
- */
-export function RejectInferencePage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
-  return (
-    <ApiOnly mock={(
-      <div className="page"><Head />
-        <div className="card card-body"><p className="helper">▲ mock mode: reject inference trains AutoGluon on the API, which is offline. Start it with <span className="mono">make dev</span>.</p></div></div>
-    )}>
-      {runId ? <RunView key={runId} runId={runId} /> : <Setup go={go} />}
-    </ApiOnly>
-  )
-}
-
-function Head({ right }: { right?: React.ReactNode }) {
-  return (
-    <div className="page-head">
-      <div><h1 className="page-title">Reject Inference</h1><p className="helper sub">Outcomes exist only for the applicants you approved. Add the declined back three standard ways and see which model holds up on everyone who applies.</p></div>
-      {right}
-    </div>
-  )
-}
 
 function Formula({ k }: { k: number }) {
   return (
@@ -66,105 +32,44 @@ function Assumption({ k, decision }: { k: number; decision: string | null }) {
   )
 }
 
-// ------------------------------------------------------------------------------------------------------------ setup
-
-function Setup({ go }: { go: (r: string) => void }) {
-  const dsId = useHashParam('dataset') ?? 'credit-rejects'
-  const det = useFetch(() => flows.ri.detect(dsId), [dsId])
-  const ds = useFetch(() => api.datasets.get(dsId), [dsId])
-  const fromBuild = (): Partial<RiDetect> => {
-    const q = new URLSearchParams(location.hash.split('?')[1] ?? '')
-    return { ...(q.get('label') ? { label: q.get('label') } : {}), ...(q.get('decision') ? { decision_column: q.get('decision') } : {}) }
-  }
-  const [pick, setPick] = useState<Partial<RiDetect>>(fromBuild)
-  const [k, setK] = useState(2)
-  const [limit, setLimit] = useState(20)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  useEffect(() => setPick(fromBuild()), [dsId]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (det.err || ds.err) return <div className="page"><Head /><ErrorCard err={det.err || ds.err} /></div>
-  if (!det.data || !ds.data) return <div className="page"><Head /><Loading>Reading the column roles…</Loading></div>
-  const d = { ...det.data, ...pick }
-  const two = ds.data.profile.columns.filter((c) => c.unique === 2)
-  const start = async () => {
-    setBusy(true); setErr('')
-    try {
-      const r = await flows.ri.create({ dataset_id: dsId, label: d.label!, ...(d.decision_column ? { decision_column: d.decision_column } : {}), k,
-        drop_columns: d.drop_columns.filter((c) => c !== d.label && c !== d.decision_column), time_limit: limit })
-      go(`reject-inference?run=${r.id}`)
-    } catch (e) { setErr((e as Error).message); setBusy(false) }
-  }
-  const why = (key: 'label' | 'decision_column') => (pick[key] && pick[key] !== det.data![key] ? 'set by you' : (det.data!.evidence[d[key] ?? ''] ?? []).join(', '))
-  return (
-    <div className="page" data-testid="ri-setup">
-      <Head />
-      <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">What we use</h3><span className="helper" style={{ fontSize: 12 }}>{ds.data.name} · {ds.data.rows.toLocaleString()} applicants{d.approval_rate != null ? ` · ${pct(d.approval_rate)} approved` : ''} · detected from the column roles; change any of them</span></div>
-          <button className="btn primary" disabled={!d.label || busy} onClick={start} data-testid="ri-start">{busy ? 'Starting…' : 'Compare 4 ways to train →'}</button></div>
-        <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
-          <Formula k={k} />
-          <div className="table-wrap"><table className="table compact" data-testid="ri-detected">
-            <thead><tr><th>input</th><th>column</th><th>why</th></tr></thead>
-            <tbody>
-              <tr><td>outcome y</td>
-                <td><select className="input mono" value={d.label ?? ''} onChange={(e) => setPick({ ...pick, label: e.target.value })} data-testid="ri-label">
-                  {!d.label && <option value="">—</option>}{two.map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal' }}>{d.label ? why('label') : 'nothing detected: pick the yes/no outcome'}</td></tr>
-              <tr><td>decision A</td>
-                <td><select className="input mono" value={d.decision_column ?? ''} onChange={(e) => setPick({ ...pick, decision_column: e.target.value || null })} data-testid="ri-decision">
-                  <option value="">(no column: no outcome = declined)</option>{two.filter((c) => c.name !== d.label).map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal' }}>{d.decision_column ? <>{why('decision_column')}{det.data.approved_value && !pick.decision_column ? <> · approved = <span className="mono">{det.data.approved_value}</span></> : null}</> : 'declined = rows with no outcome'}</td></tr>
-              <tr><td>left out</td><td className="mono" colSpan={2} style={{ whiteSpace: 'normal' }}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs, dates, leaks, protected · {d.split_why}</span></td></tr>
-              <tr><td>check</td><td colSpan={2} className={d.through_the_door ? 'el-ok' : 'helper'} style={{ fontSize: 12.5 }}>{d.through_the_door
-                ? '● Through the door: this sample keeps the outcomes the declined applicants would have had, aside, so every method is checked on everyone in the holdout.'
-                : 'Approved holdout only: nobody knows how the declined would have done, so the methods can be compared only where outcomes exist, which is the biased view.'}</td></tr>
-            </tbody>
-          </table></div>
-          <Assumption k={k} decision={d.decision_column} />
-          <details className="an-adv">
-            <summary className="micro-label">Advanced · k = {k} · {limit} s per model</summary>
-            <div className="row" style={{ gap: 8, padding: 'var(--space-8) 0', flexWrap: 'wrap' }}>
-              <label className="helper">k</label>
-              <input className="input mono" type="number" min={1} max={5} step={0.5} value={k} onChange={(e) => setK(Math.min(5, Math.max(1, Number(e.target.value) || 2)))} style={{ width: 70 }} data-testid="ri-k" />
-              <label className="helper">time per model (s)</label>
-              <input className="input mono" type="number" min={10} max={3600} value={limit} onChange={(e) => setLimit(Number(e.target.value) || 20)} style={{ width: 90 }} />
-              <span className="helper" style={{ fontSize: 12 }}>Five AutoGluon fits (medium_quality, log loss): approved-only, the decision model P̂(A | x), and the three methods.</span>
-            </div>
-          </details>
-          {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
-        </div>
-      </div>
-    </div>
-  )
+/**
+ * G7 · Reject inference, a choice inside Build: the setup, pre-filled from the G0 roles (the outcome, the approve/decline
+ * decision, what to leave out, the split). The run (Models): approved-only training against reweighting, parcelling and fuzzy
+ * augmentation, on a through-the-door holdout, with paired CIs and the assumption. A study, so it is not registrable.
+ */
+export const RI_SPEC: KindSpec = {
+  id: 'reject_inference', title: 'Reject Inference', testId: 'ri', defaultDataset: 'credit-rejects', mockWhat: 'reject inference trains AutoGluon',
+  sub: 'Outcomes exist only for the applicants you approved. Add the declined back three standard ways and see which model holds up on everyone who applies.',
+  detect: flows.ri.detect, create: (b) => flows.ri.create(b as never),
+  roles: [
+    { key: 'label', label: 'outcome y', urlParam: 'label', testId: 'ri-label', emptyHint: 'nothing detected: pick the yes/no outcome',
+      options: (ds) => ds.profile.columns.filter((c) => c.unique === 2).map((c) => c.name) },
+    { key: 'decision_column', label: 'decision A', urlParam: 'decision', testId: 'ri-decision', none: '(no column: no outcome = declined)', emptyHint: 'declined = rows with no outcome',
+      options: (ds, d) => ds.profile.columns.filter((c) => c.unique === 2 && c.name !== d.label).map((c) => c.name),
+      why: (d, det, pick) => (pick.decision_column && pick.decision_column !== det.decision_column ? 'set by you'
+        : <>{(det.evidence[d.decision_column] ?? []).join(', ')}{det.approved_value ? <> · approved = <span className="mono">{det.approved_value}</span></> : null}</>) },
+  ],
+  rows: ({ d }) => (
+    <tr><td>check</td><td colSpan={2} className={d.through_the_door ? 'el-ok' : 'helper'} style={{ fontSize: 12.5 }}>{d.through_the_door
+      ? '● Through the door: this sample keeps the outcomes the declined applicants would have had, aside, so every method is checked on everyone in the holdout.'
+      : 'Approved holdout only: nobody knows how the declined would have done, so the methods can be compared only where outcomes exist, which is the biased view.'}</td></tr>),
+  leftOut: ({ d }) => <>IDs, dates, leaks, protected · {d.split_why}</>,
+  Formula: ({ o }) => <Formula k={o.k} />,
+  note: ({ d, o }) => <Assumption k={o.k} decision={d.decision_column} />,
+  advanced: { initial: () => ({ k: 2, limit: 20 }), summary: (o) => `k = ${o.k} · ${o.limit} s per model`,
+    Body: ({ o, set }) => <><NumField label="k" value={o.k} set={(k) => set({ k })} min={1} max={5} step={0.5} width={70} testId="ri-k" /><NumField label="time per model (s)" value={o.limit} set={(limit) => set({ limit })} min={10} max={3600} />
+      <span className="helper" style={{ fontSize: 12 }}>Five AutoGluon fits (medium_quality, log loss): approved-only, the decision model P̂(A | x), and the three methods.</span></> },
+  rowsWord: (d) => `applicants${d.approval_rate != null ? ` · ${pct(d.approval_rate)} approved` : ''}`,
+  startLabel: () => 'Compare 4 ways to train →',
+  canStart: ({ d }) => !!d.label,
+  body: ({ d, o }) => ({ label: d.label, ...(d.decision_column ? { decision_column: d.decision_column } : {}), k: o.k,
+    drop_columns: d.drop_columns.filter((c: string) => c !== d.label && c !== d.decision_column), time_limit: o.limit }),
+  running: { events: 'ri', wide: true, line: (run) => `Five fits, ${run.config.time_limit ?? '—'} s each, then the through-the-door check`,
+    steps: () => FITS.map((m) => ({ key: m, label: <b>{m === 'acceptance' ? 'decision model P̂(A | x)' : NAME[m as RiMethod]}</b> })) },
+  meta: (run) => `y = ${run.config.label} · A = ${run.config.found.decision_column ?? 'has an outcome'} · k = ${run.config.k}`,
 }
 
-// --------------------------------------------------------------------------------------------------------- run page
-
-function RunView({ runId }: { runId: string }) {
-  const live = useRunEvents(runId)
-  const r = useFetch(() => flows.ri.get(runId), [runId, live.done], { pollMs: 4000, while: (d) => !!d && (d.status === 'queued' || d.status === 'running') })
-  if (r.err) return <div className="page"><Head /><ErrorCard err={r.err} /></div>
-  if (!r.data) return <div className="page"><Head /><Loading>Loading the run…</Loading></div>
-  const run = r.data
-  const on = new Set(live.events.filter((e) => e.type === 'ri_model_started').map((e) => e.model as string))
-  const done = new Set(live.events.filter((e) => e.type === 'ri_model_finished').map((e) => e.model as string))
-  return (
-    <div className="page" data-testid="ri-run" data-status={run.status}>
-      <Head />
-      <p className="helper mono" style={{ fontSize: 12, marginTop: -8 }}>{run.name} · {runId} · y = {run.config.label} · A = {run.config.found.decision_column ?? 'has an outcome'} · k = {run.config.k}</p>
-      {run.status === 'failed' && <ErrorCard err={run.error ?? 'The run failed.'} />}
-      {(run.status === 'queued' || run.status === 'running') && (
-        <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
-          <div className="row"><ResonanceWave /> <span>Five fits, {run.config.time_limit ?? '—'} s each, then the through-the-door check · {live.stage}</span></div>
-          <div className="el-steps seg-steps">{FITS.map((m) => (
-            <div key={m} className={`el-step ${done.has(m) ? 'done' : on.has(m) ? 'on' : ''}`}><b>{m === 'acceptance' ? 'decision model P̂(A | x)' : NAME[m as RiMethod]}</b><span className="mono">{done.has(m) ? '✓' : on.has(m) ? '…' : ''}</span></div>
-          ))}</div>
-        </div></div>
-      )}
-      {run.status === 'succeeded' && run.reject_inference && <RiResults r={run.reject_inference} decision={run.config.found.decision_column} />}
-    </div>
-  )
-}
+export const RejectInferencePage = ({ go }: { go: (r: string) => void }) => <KindFlow spec={RI_SPEC} go={go} />
 
 function Calibration({ r }: { r: RiResult }) {
   const t = r.ttd!

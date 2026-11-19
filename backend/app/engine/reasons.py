@@ -66,15 +66,25 @@ def _label(feature: str) -> str:
     return s[:1].upper() + s[1:]
 
 
+# Geography and protected characteristics (and close proxies for them): such a code can explain the model, but it is not a
+# reason a lender may give an applicant on an adverse-action notice (ECOA / Reg B in the US; fair-lending rules elsewhere).
+_NOT_FOR_NOTICE = re.compile(r"(^|[_\s.])(region|zip|zipcode|postcode|postal|state|county|city|country|geo\w*|location|address|"
+                             r"neighbou?rhood|surname|race|ethnicity|gender|sex|religion|marital\w*|nationality)($|[_\s.])", re.I)
+NOT_FOR_NOTICE_NOTE = "not for adverse-action notices: geography or a protected characteristic (or a proxy for one)"
+
+
 def default_mapping(features: list[str], kinds: dict[str, str], constraints: dict[str, int] | None) -> list[dict[str, Any]]:
-    """One row per feature: a code (R01…), the statements and, for a monotone-constrained column, its sign."""
+    """One row per feature: a code (R01…), the statements and, for a monotone-constrained column, its sign. `notice` is
+    False for geography and protected characteristics: they explain the model but may not be given as a reason."""
     constraints = constraints or {}
     out = []
     for i, f in enumerate(features):
         k = "number" if kinds.get(f, "number") == "number" else "category"
         lab = _label(f)
         row: dict[str, Any] = {"feature": f, "code": f"R{i + 1:02d}", "kind": k, "constraint": int(constraints.get(f, 0)),
-                               "missing": f"{lab} not provided"}
+                               "missing": f"{lab} not provided", "notice": not _NOT_FOR_NOTICE.search(f)}
+        if not row["notice"]:
+            row["notice_note"] = NOT_FOR_NOTICE_NOTE
         if k == "number":
             row["high"] = f"{lab} too high"
             row["low"] = f"{lab} too low"
@@ -404,7 +414,7 @@ class Reasoner:
                 v = None if v is None or (isinstance(v, float) and np.isnan(v)) else v
                 text, side = self.statement(feat, v)
                 codes.append({"rank": rank, "code": self.mapping[feat]["code"], "feature": feat, "statement": text,
-                              "side": side, "value": v if not isinstance(v, np.generic) else v.item(),
+                              "notice": self.mapping[feat].get("notice", True), "side": side, "value": v if not isinstance(v, np.generic) else v.item(),
                               "phi": float(phi[i, j]), "push": float(a[i, j])})
             out.append(codes)
         return out

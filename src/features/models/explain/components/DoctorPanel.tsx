@@ -5,13 +5,14 @@ import { MathText } from '@/shared/components/MathText'
 import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { runView } from '../../tabs'
 
 type Patch = NonNullable<DoctorAction['patch']>
 export type DoctorLinks = {
   go: (r: string) => void
   /** Apply a Gym patch (Vela's handler: opens the Gym with the change). */
   onApplyPatch?: (runId: string, patch: Patch) => void
-  /** Open another Explain tab in place (Explain passes it; elsewhere the doctor navigates to Explain). */
+  /** Open another view of the run page in place (the run page passes it; elsewhere the doctor navigates there). */
   openTab?: (tab: string, extra?: Record<string, string>) => void
 }
 
@@ -52,7 +53,7 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
   const [note, setNote] = useState<{ text: string; link?: [string, string] } | null>(null)
   const tab = (t: string, extra: Record<string, string> = {}) => {
     if (links.openTab) links.openTab(t, extra)
-    else links.go(`explain?run=${run.id}&tab=${encodeURIComponent(t)}${Object.entries(extra).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join('')}`)
+    else links.go(runView(run.id, t, extra))
   }
   const act = async (a: DoctorAction) => {
     setNote(null)
@@ -77,7 +78,7 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
       const out = await api.runs.doctorCall(a.endpoint, a.method ?? 'POST', a.body)
       if (a.kind === 'shift_weights' && out.patch && links.onApplyPatch) { links.onApplyPatch(run.id, out.patch as Patch); return }
       if (a.kind === 'split_twin') setNote({ text: `Started ${String(out.id)}: the same body with an out-of-time split. Diagnose again when it finishes.`, link: [`quick-train?run=${String(out.id)}`, 'Open the twin →'] })
-      else if (a.kind === 'run_check' && (a.check === 'learning_curve' || a.check === 'shift')) setNote({ text: `${a.title}: started in its own process. Diagnose again when it finishes.`, link: [`explain?run=${run.id}&tab=${encodeURIComponent(TAB_OF[a.check])}`, `Watch it in ${TAB_OF[a.check]} →`] })
+      else if (a.kind === 'run_check' && (a.check === 'learning_curve' || a.check === 'shift')) setNote({ text: `${a.title}: started in its own process. Diagnose again when it finishes.`, link: [runView(run.id, TAB_OF[a.check]), `Watch it in ${TAB_OF[a.check]} →`] })
       else reload()
     } catch (e) { setNote({ text: `✕ ${(e as Error).message}` }) } finally { setBusy(null) }
   }
@@ -129,7 +130,7 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
         </> : <p className="helper" style={{ fontSize: 12.5, margin: 0 }}>{d.headline}</p>}
         {offers.length > 0 && <p className="helper" style={{ fontSize: 12, margin: 0 }}>Not run yet: {offers.map((c) => c.title.toLowerCase()).join(', ')}.</p>}
         {noteEl}
-        <div className="row"><button className="btn sm" onClick={() => links.openTab ? links.openTab('Model Doctor') : links.go(`explain?run=${run.id}&tab=${encodeURIComponent('Model Doctor')}`)} data-testid="doctor-open">Open Model Doctor →</button></div>
+        <div className="row"><button className="btn sm" onClick={() => links.openTab ? links.openTab('Model Doctor') : links.go(runView(run.id, 'Model Doctor'))} data-testid="doctor-open">Open Model Doctor →</button></div>
       </div>
     </div>
   )
@@ -176,6 +177,14 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
           <StatusPill status={STATUS[c.status].pill}>{STATUS[c.status].label}</StatusPill><b style={{ minWidth: 200 }}>{c.title}</b>
           <span className="helper" style={{ fontSize: 12, flex: 1, minWidth: 240 }}>{c.reason} {c.offer!.why}</span>
           <ActBtn a={c.offer!} act={act} busy={busy} testId={`doctor-offer-${c.id}`} /></div>)}</div>
+      </div>}
+
+      {!!d.next?.length && <div className="card" data-testid="doctor-next">
+        <div className="card-head"><div className="left"><h3 className="card-title">Also Worth Checking</h3>
+          <span className="helper" style={{ fontSize: 12 }}>not limits of this model: other ways to look at the same table, from Smart Intake's roles</span></div></div>
+        <div className="card-body stack" style={{ gap: 8 }}>{d.next.map((n) => <div key={n.id} className="row" style={{ gap: 12, flexWrap: 'wrap' }} data-testid={`doctor-next-${n.id}`}>
+          <b style={{ minWidth: 200 }}>{n.title}</b><span className="helper" style={{ fontSize: 12, flex: 1, minWidth: 240 }}>{n.why}</span>
+          <button className="btn sm" onClick={() => links.go(n.link)}>Open →</button></div>)}</div>
       </div>}
 
       <div className="card" data-testid="doctor-checks">

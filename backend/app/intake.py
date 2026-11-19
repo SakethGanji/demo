@@ -53,6 +53,8 @@ EXCLUDED = ("id", "leak", "constant", "protected", "decision")
 # Never model inputs on a credit decision, but kept for the fair-lending check (G4: BISG reads surname × zip).
 NOT_INPUTS = ("surname", "zip")
 # Roles a column can carry beside its primary one (churned: the target and the survival event; ead_usd: EAD and money).
+# An explicit time to an event (the survival module's EXPLICIT): post-outcome for a yes/no model of that event.
+TIME_TO_EVENT = re.compile(r"(duration|time_to|survival|days_to|weeks_to|months_to|years_to|follow_?up|_time$|^time$|time_on_study)", re.I)
 SECONDARY = ("event", "money", "duration", "geography", "segment", "lgd", "ead")
 
 MONEY = re.compile(r"(usd|eur|gbp|amount|amt|income|salary|balance|price|revenue|mrr|arr|spend|payment|limit|fee|"
@@ -227,6 +229,12 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
                 found.append(_role("ead", 0.9, "name reads like exposure at default", f"non-negative, max {hi:,.0f}"))
             if DURATION.search(name) and lo >= 0:
                 found.append(_role("duration", 0.75, f"name '{col}' reads like a duration", f"non-negative, {lo:g} → {hi:g}"))
+                # G6/G11: an explicit time to an event, next to a yes/no target, runs up to that outcome. It is the time T of a
+                # survival model, but a yes/no model of the same target must not read it (it is known only afterwards).
+                if tcol and col != tcol and target[2] == "binary" and TIME_TO_EVENT.search(name):
+                    found.append(_role("duration", 0.9, f"'{col}' names a time to an event", f"non-negative, {lo:g} → {hi:g}"))
+                    found.append(_role("leak", 0.85, f"'{col}' is the time up to '{tcol}': known only after the outcome",
+                                       "kept as the time T of a survival model, left out of a yes/no model"))
             if MONEY.search(name) and lo >= 0 and not LGD.search(name) and not RATIO.search(name):
                 found.append(_role("money", 0.8, "name reads like a money amount", f"non-negative, median {float(nn.median()):,.2f}"))
         if col != tcol and k == 2 and _binary01(s) and EVENT.search(name):

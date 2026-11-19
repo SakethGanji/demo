@@ -15,7 +15,7 @@ import { COST_METRIC, costPayload, rangePayload, columnTypesPayload, defaultMetr
 
 const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
 
-function initialChoices(ds: Dataset): Choices {
+export function initialChoices(ds: Dataset): Choices {
   const label = ds.target || labelOptions(ds)[0]?.name || ''
   const task = inferTask(ds, label) ?? 'multiclass'
   return { label, problemType: null, types: {}, metric: defaultMetric(task, labelImbalance(ds, label)), preset: 'medium_quality', budget: 120, fitKwargs: '', threshold: defaultThreshold(ds, label, task) }
@@ -66,7 +66,8 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
 
   // Live mode picks data in Build. Arriving from it (?dataset=…) opens the Target step pre-filled; step 0 goes back.
   const prefilled = useRef(false)
-  const toBuild = () => { location.hash = `#/build${ds.id ? `?dataset=${ds.id}` : ''}` }
+  // replace, not push: Back from Build must not land here and bounce straight back
+  const toBuild = () => location.replace(`#/build${ds.id ? `?dataset=${ds.id}` : ''}`)
   useEffect(() => {
     if (!live || runFromHash() || fromGym) return
     const q = hashQuery()
@@ -157,6 +158,10 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
     setStep(3)
   }
 
+  // A finished live run has its page in Models (Results, Explain, Doctor); the wizard only trains and watches.
+  const runPageNow = live && step === 4 && runId != null && source.run == null
+  useEffect(() => { if (runPageNow) location.replace(`#/models?run=${runId}`) }, [runPageNow, runId])
+
   const again = () => { if (live) { toBuild(); return } setRunId(null); setHashRun(null); setStep(0) }
   const running = runId != null && (race.status === 'running' || race.status === 'queued' || race.status === 'connecting')
   const done = race.status === 'succeeded'
@@ -200,7 +205,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
             <RaceSide race={race} />
           </div>
         )}
-        {step === 4 && runId && <ResultsStep runId={runId} mockRun={source.run} ds={ds} live={live && source.run == null} go={go} onAgain={again} />}
+        {step === 4 && runId && source.run && <ResultsStep runId={runId} mockRun={source.run} ds={ds} live={false} go={go} onAgain={again} />}
       </div>
 
       {step < 4 && (

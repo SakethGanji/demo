@@ -22,18 +22,8 @@ export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quant
 /** Why a reject-inference run has no Register (the API refuses it with the same reason). */
 export const RI_NOT_REGISTRABLE = 'A reject-inference run compares methods; it is not one model to serve. Train the chosen method as a yes/no model and register that.'
 
-/** The page a run opens on. */
-export const runPage = (r: Run): string => {
-  const k = kindOf(r)
-  if (k === 'forecast') return `forecast?run=${r.id}`
-  if (k === 'anomaly') return `anomaly?run=${r.id}`
-  if (k === 'expected_loss') return `expected-loss?run=${r.id}`
-  if (k === 'segmented') return `segmented?run=${r.id}`
-  if (k === 'survival') return `survival?run=${r.id}`
-  if (k === 'reject_inference') return `reject-inference?run=${r.id}`
-  if (k === 'multilabel') return `multilabel?run=${r.id}`
-  return `quick-train?run=${r.id}`
-}
+/** The page a run opens on: its page in Models (G11; the per-kind ?run= routes redirect there). */
+export const runPage = (r: Pick<Run, 'id'>): string => `models?run=${r.id}`
 
 /** The run's headline number for a list: its own metric on held-out data, with the symbol and direction.
  *  Tabular and imported: AutoGluon's eval_metric on the fixed holdout. Forecast: the eval metric on the last H steps

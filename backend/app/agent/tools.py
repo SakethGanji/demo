@@ -438,7 +438,9 @@ async def explain_decision(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
             "p_adverse_class": _r(p_pos), "threshold": _r(rs.get("threshold")),
             "decision": "declined (adverse)" if adverse else "approved" if adverse is False else None,
             "reason_codes": [{"rank": c.get("rank"), "code": c.get("code"), "feature": c.get("feature"), "statement": c.get("statement"),
-                              "value": c.get("value"), "phi": _r(c.get("phi"))} for c in codes[:5]],
+                              "value": c.get("value"), "phi": _r(c.get("phi")),
+                              **({"for_notice": False, "why": "geography or a protected characteristic: not a reason to give on an "
+                                  "adverse-action notice"} if c.get("notice") is False else {})} for c in codes[:5]],
             "method": rs.get("method"), "note": rs.get("note")}
 
 
@@ -486,7 +488,8 @@ async def batch_score(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
             "drift": {"max_psi": _r(dr.get("max_psi")), "rule": "PSI < 0.1 stable · 0.1–0.25 moderate · > 0.25 major",
                       "top_features": [{"feature": f.get("feature"), "psi": _r(f["psi"])} for f in top],
                       "drifted": [f.get("feature") for f in top if f["psi"] > 0.25],
-                      "score_psi": _r((dr.get("score") or {}).get("psi") if isinstance(dr.get("score"), dict) else dr.get("score_psi"))}}
+                      # the drift of the version's own output (its scores or predicted classes), as the batch report keys it
+                      "prediction_psi": _r((dr.get("prediction") or {}).get("psi"))}}
 
 
 async def monitoring(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
@@ -546,7 +549,7 @@ VER = S("string", "registry version id, e.g. mv_1a2b3c4d")
 ROW = S("object", "one row: column → value (features only)")
 OPTS = S("object", "optional extra body fields of the route (defaults come from Smart Intake's detected roles)")
 
-_run_link = lambda a, r: f"#/explain?run={r.get('run_id') or a.get('run_id')}" if (r.get("run_id") or a.get("run_id")) else None  # noqa: E731
+_run_link = lambda a, r: f"#/models?run={r.get('run_id') or a.get('run_id')}" if (r.get("run_id") or a.get("run_id")) else None  # noqa: E731
 _ver_link = lambda a, r: f"#/registry?version={r.get('version_id') or a.get('version_id')}"  # noqa: E731
 
 TOOLS: list[Tool] = [
@@ -586,7 +589,7 @@ TOOLS: list[Tool] = [
          lambda a, r: f"#/models?compare={a['base_run_id']},{a['other_run_id']}", "train"),
     Tool("explain_run", "Explain a run: ROC AUC, confusion matrix, top features.", {"run_id": RUN}, ["run_id"], READ, explain_run, _run_link, "diagnose"),
     Tool("model_doctor", "F17 Model Doctor: the primary limiting factor and secondary ones, each with a prescription.",
-         {"run_id": RUN}, ["run_id"], READ, model_doctor, lambda a, r: f"#/explain?run={a['run_id']}&tab=doctor", "diagnose"),
+         {"run_id": RUN}, ["run_id"], READ, model_doctor, lambda a, r: f"#/models?run={a['run_id']}&tab=Doctor", "diagnose"),
     Tool("preview_gym_patch", "Show the Gym patch the doctor (or a Vela finding) prescribes and validate it, without training.",
          {"run_id": RUN, "finding_id": S("string")}, ["run_id"], READ, preview_gym_patch, group="diagnose"),
     Tool("apply_gym_patch", "Apply the doctor's (or a Vela finding's) Gym patch: retrain a child run with lineage to the parent.",
@@ -620,20 +623,20 @@ TOOLS: list[Tool] = [
     Tool("credit_report", "G2 credit model report: Gini/KS, score bands, PSI/CSI, vintages.",
          {"version_id": VER, "on": S("string", enum=["holdout", "batches"])}, ["version_id"], READ, credit_report, _ver_link, "registry"),
     Tool("expected_loss_run", "G3: train PD × LGD × EAD (columns detected from roles).", {"dataset_id": DS, "options": OPTS},
-         ["dataset_id"], WRITE, el_start, lambda a, r: f"#/expected-loss?run={r.get('run_id')}", "credit"),
+         ["dataset_id"], WRITE, el_start, lambda a, r: f"#/models?run={r.get('run_id')}", "credit"),
     Tool("expected_loss_stress", "G3: a stress scenario on an expected-loss run, e.g. shocks [{column: income_usd, op: pct, value: -10}].",
          {"run_id": RUN, "shocks": S("array", items=S("object")), "name": S("string")}, ["run_id", "shocks"], WRITE, el_stress,
-         lambda a, r: f"#/expected-loss?run={a['run_id']}", "credit"),
+         lambda a, r: f"#/models?run={a['run_id']}", "credit"),
     Tool("fair_lending", "G4: fair-lending check with BISG proxies on a binary run (adverse impact ratios with CIs).",
          {"run_id": RUN}, ["run_id"], READ, fair_lending, _run_link, "credit"),
     Tool("segmented_run", "G5: one model per segment vs the global model.", {"dataset_id": DS, "options": OPTS}, ["dataset_id"],
-         WRITE, _special_start("segmented"), lambda a, r: f"#/segmented?run={r.get('run_id')}", "credit"),
+         WRITE, _special_start("segmented"), lambda a, r: f"#/models?run={r.get('run_id')}", "credit"),
     Tool("survival_run", "G6: time-to-event model (Cox, random survival forest).", {"dataset_id": DS, "options": OPTS},
-         ["dataset_id"], WRITE, _special_start("survival"), lambda a, r: f"#/survival?run={r.get('run_id')}", "credit"),
+         ["dataset_id"], WRITE, _special_start("survival"), lambda a, r: f"#/models?run={r.get('run_id')}", "credit"),
     Tool("reject_inference_run", "G7: reject inference methods vs approved-only.", {"dataset_id": DS, "options": OPTS},
-         ["dataset_id"], WRITE, _special_start("reject_inference"), lambda a, r: f"#/reject-inference?run={r.get('run_id')}", "credit"),
+         ["dataset_id"], WRITE, _special_start("reject_inference"), lambda a, r: f"#/models?run={r.get('run_id')}", "credit"),
     Tool("multilabel_run", "G8: multi-label classifier, one model per label.", {"dataset_id": DS, "options": OPTS},
-         ["dataset_id"], WRITE, _special_start("multilabel"), lambda a, r: f"#/multilabel?run={r.get('run_id')}", "credit"),
+         ["dataset_id"], WRITE, _special_start("multilabel"), lambda a, r: f"#/models?run={r.get('run_id')}", "credit"),
     Tool("get_special_run", "Read an expected_loss, segmented, survival, reject_inference or multilabel run's results.",
          {"kind": S("string", enum=list(SPECIAL)), "run_id": RUN}, ["kind", "run_id"], READ, get_special, group="credit"),
     Tool("autopilot_start", "Run it end to end: start an Autopilot (baseline, label audit, Ground-Truth Inbox, retrain loop).",

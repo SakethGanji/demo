@@ -1,49 +1,16 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/shared/api/client'
-import { flows, type MlDetect, type MlResult, type MlTry } from '@/shared/api/flows'
+import { flows, type MlResult, type MlTry } from '@/shared/api/flows'
 import type { ModelVersion } from '@/shared/api/types'
-import { Register } from '@/shared/components/FlowParts'
+import { KindFlow, NumField, type KindSpec } from '@/shared/components/KindFlow'
 import { PlotFrame } from '@/shared/components/PlotFrame'
-import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 import { XYPlot, niceTicks, type XYSeries } from '@/shared/components/XYPlot'
 import { useFetch } from '@/shared/hooks/useFetch'
-import { useHashParam } from '@/shared/hooks/useHashParam'
-import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { fix, pct } from '@/shared/lib/format'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import '@/features/expected-loss/expected-loss.css'
-import '@/features/segmented/segmented.css'
 
 const COLORS = ['var(--viz-a)', 'var(--viz-b)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-e)', 'var(--status-danger)', 'var(--accent-primary)', 'var(--plot-axis)']
 const color = (i: number) => COLORS[i % COLORS.length]
 const ci = (c: [number, number] | undefined, d = 3) => (c ? `[${fix(c[0], d)}, ${fix(c[1], d)}]` : '')
-
-/**
- * G8 · Multi-label, a choice inside Build. Without ?run: the setup, pre-filled from the G0 roles (the label set, the text
- * columns, what to leave out, the split), one primary action. With ?run: one AutoGluon model per label on the same holdout:
- * F1 per label at its own threshold, micro/macro F1, Hamming loss, PR curves. Registry → Labels shows the same view; Try It
- * returns a label set.
- */
-export function MultilabelPage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
-  return (
-    <ApiOnly mock={(
-      <div className="page"><Head />
-        <div className="card card-body"><p className="helper">▲ mock mode: multi-label models train on the API, which is offline. Start it with <span className="mono">make dev</span>.</p></div></div>
-    )}>
-      {runId ? <RunView key={runId} runId={runId} go={go} /> : <Setup go={go} />}
-    </ApiOnly>
-  )
-}
-
-function Head({ right }: { right?: React.ReactNode }) {
-  return (
-    <div className="page-head">
-      <div><h1 className="page-title">Multi-Label Classifier</h1><p className="helper sub">Each row can carry several labels at once (complaint topics, say): one model per label, a label set per row.</p></div>
-      {right}
-    </div>
-  )
-}
 
 function Formula() {
   return (
@@ -55,96 +22,40 @@ function Formula() {
   )
 }
 
-// ------------------------------------------------------------------------------------------------------------ setup
-
-function Setup({ go }: { go: (r: string) => void }) {
-  const dsId = useHashParam('dataset') ?? 'complaint-topics'
-  const det = useFetch(() => flows.ml.detect(dsId), [dsId])
-  const ds = useFetch(() => api.datasets.get(dsId), [dsId])
-  const [col, setCol] = useState<string>('')
-  const [secs, setSecs] = useState(15)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  useEffect(() => { if (det.data) setCol(det.data.label_column ?? '') }, [det.data])
-  if (det.err || ds.err) return <div className="page"><Head /><ErrorCard err={det.err || ds.err} /></div>
-  if (!det.data || !ds.data) return <div className="page"><Head /><Loading>Reading the column roles…</Loading></div>
-  const d: MlDetect = det.data
-  const own = col && col !== d.label_column
-  const options = Array.from(new Set([...(d.candidates ?? []), ...ds.data.profile.columns.filter((c) => c.type !== 'number' && c.type !== 'id').map((c) => c.name)]))
-  const start = async () => {
-    setBusy(true); setErr('')
-    try {
-      const body = col.endsWith('_*') ? { dataset_id: dsId, label_columns: d.label_columns } : { dataset_id: dsId, label_column: col }
-      const r = await flows.ml.create({ ...body, drop_columns: d.drop_columns.filter((c) => c !== col), time_limit: secs })
-      go(`multilabel?run=${r.id}`)
-    } catch (e) { setErr((e as Error).message); setBusy(false) }
-  }
-  return (
-    <div className="page" data-testid="ml-setup">
-      <Head />
-      <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">What we use</h3><span className="helper" style={{ fontSize: 12 }}>{ds.data.name} · {ds.data.rows.toLocaleString()} rows · detected from the column roles; change any of them</span></div>
-          <button className="btn primary" disabled={!col || busy} onClick={start} data-testid="ml-start">{busy ? 'Starting…' : `Train ${own ? '' : `${d.labels.length} `}label models →`}</button></div>
-        <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
-          <Formula />
-          <div className="table-wrap"><table className="table compact" data-testid="ml-detected">
-            <thead><tr><th>input</th><th>column</th><th>why</th></tr></thead>
-            <tbody>
-              <tr><td>label set Y</td>
-                <td><select className="input mono" value={col} onChange={(e) => setCol(e.target.value)} data-testid="ml-label">
-                  {!col && <option value="">—</option>}{options.map((c) => <option key={c}>{c}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{own ? 'set by you: each value is split into labels on ; | or ,' : d.source ? d.evidence.join(' · ') : 'nothing detected: pick a column of label lists'}</td></tr>
-              {!own && d.counts && <tr><td>labels</td><td colSpan={2}><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                {d.counts.map((c) => <span key={c.label} className="chip" title={`${c.n} rows`}>{c.label} <span className="helper">{pct(c.share)}</span></span>)}</div>
-                <span className="helper" style={{ fontSize: 12 }}>{pct(d.multi_share ?? 0)} of rows carry two or more · {fix(d.mean_labels ?? 0, 2)} labels per row</span></td></tr>}
-              <tr><td>read as text</td><td className="mono" colSpan={2}>{d.text_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· declared text once, for every label's model (n-grams + TF-IDF models)</span></td></tr>
-              <tr><td>left out</td><td className="mono" colSpan={2}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs, dates, leaks · {d.split_why}</span></td></tr>
-            </tbody>
-          </table></div>
-          <details className="an-adv">
-            <summary className="micro-label">Advanced · {secs} s per label</summary>
-            <div className="row" style={{ gap: 8, padding: 'var(--space-8) 0' }}>
-              <label className="helper">seconds per label model</label>
-              <input className="input mono" type="number" min={5} max={600} value={secs} onChange={(e) => setSecs(Number(e.target.value) || 15)} style={{ width: 90 }} data-testid="ml-secs" />
-              <span className="helper" style={{ fontSize: 12 }}>AutoGluon medium_quality, log loss, the same config for every label.</span>
-            </div>
-          </details>
-          <p className="helper" style={{ fontSize: 12.5 }}>Each label gets its own AutoGluon yes/no model on the same rows and inputs, and its own threshold t<sub>l</sub>, the one with the best F1 on that model's validation rows. A row's prediction is every label whose p̂ clears its threshold, so it can be one label, several or none.</p>
-          {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
-        </div>
-      </div>
-    </div>
-  )
+/**
+ * G8 · Multi-label, a choice inside Build: the setup, pre-filled from the G0 roles (the label set, the text columns, what to
+ * leave out, the split). The run (Models): one AutoGluon model per label on the same holdout: F1 per label at its own
+ * threshold, micro/macro F1, Hamming loss, PR curves. Registry → Results shows the same view; Try It returns a label set.
+ */
+export const ML_SPEC: KindSpec = {
+  id: 'multilabel', title: 'Multi-Label Classifier', testId: 'ml', defaultDataset: 'complaint-topics', mockWhat: 'multi-label models train',
+  sub: 'Each row can carry several labels at once (complaint topics, say): one model per label, a label set per row.',
+  detect: flows.ml.detect, create: (b) => flows.ml.create(b as never),
+  roles: [{ key: 'label_column', label: 'label set Y', testId: 'ml-label', emptyHint: 'nothing detected: pick a column of label lists',
+    options: (ds, d) => Array.from(new Set([...(d.candidates ?? []), ...ds.profile.columns.filter((c) => c.type !== 'number' && c.type !== 'id').map((c) => c.name)])),
+    why: (d, det) => (d.label_column !== det.label_column ? 'set by you: each value is split into labels on ; | or ,' : det.evidence.join(' · ')) }],
+  rows: ({ d, det }) => <>
+    {d.label_column === det.label_column && det.counts && <tr><td>labels</td><td colSpan={2}><div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+      {det.counts.map((c: { label: string; n: number; share: number }) => <span key={c.label} className="chip" title={`${c.n} rows`}>{c.label} <span className="helper">{pct(c.share)}</span></span>)}</div>
+      <span className="helper" style={{ fontSize: 12 }}>{pct(det.multi_share ?? 0)} of rows carry two or more · {fix(det.mean_labels ?? 0, 2)} labels per row</span></td></tr>}
+    <tr><td>read as text</td><td className="mono" colSpan={2}>{d.text_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· declared text once, for every label's model (n-grams + TF-IDF models)</span></td></tr>
+  </>,
+  leftOut: ({ d }) => <>IDs, dates, leaks · {d.split_why}</>,
+  Formula: () => <Formula />,
+  advanced: { initial: () => ({ secs: 15 }), summary: (o) => `${o.secs} s per label`,
+    Body: ({ o, set }) => <><NumField label="seconds per label model" value={o.secs} set={(secs) => set({ secs })} min={5} max={600} testId="ml-secs" /><span className="helper" style={{ fontSize: 12 }}>AutoGluon medium_quality, log loss, the same config for every label.</span></> },
+  explain: () => <>Each label gets its own AutoGluon yes/no model on the same rows and inputs, and its own threshold t<sub>l</sub>, the one with the best F1 on that model's validation rows. A row's prediction is every label whose p̂ clears its threshold, so it can be one label, several or none.</>,
+  startLabel: ({ d, det }) => `Train ${d.label_column !== det.label_column ? '' : `${det.labels.length} `}label models →`,
+  canStart: ({ d }) => !!d.label_column,
+  body: ({ d, o }) => ({ ...(d.label_column.endsWith('_*') ? { label_columns: d.label_columns } : { label_column: d.label_column }), time_limit: o.secs,
+    drop_columns: d.drop_columns.filter((c: string) => c !== d.label_column) }),
+  running: { events: 'ml', field: 'label', line: () => 'Fitting one model per label, then the holdout checks',
+    steps: (run) => (run.config.labels_spec?.labels ?? []).map((l: string) => ({ key: l, label: <b>{l}</b> })) },
+  meta: (run) => `Y = ${run.config.label}`,
+  registerName: (run) => `${run.dataset_id}.multilabel`,
 }
 
-// --------------------------------------------------------------------------------------------------------- run page
-
-function RunView({ runId, go }: { runId: string; go: (r: string) => void }) {
-  const live = useRunEvents(runId)
-  const r = useFetch(() => flows.ml.get(runId), [runId, live.done], { pollMs: 3000, while: (d) => !!d && (d.status === 'queued' || d.status === 'running') })
-  if (r.err) return <div className="page"><Head /><ErrorCard err={r.err} /></div>
-  if (!r.data) return <div className="page"><Head /><Loading>Loading the run…</Loading></div>
-  const run = r.data
-  const labels = run.config.labels_spec?.labels ?? []
-  const done = new Set(live.events.filter((e) => e.type === 'ml_model_finished').map((e) => e.label as string))
-  const on = new Set(live.events.filter((e) => e.type === 'ml_model_started').map((e) => e.label as string))
-  return (
-    <div className="page" data-testid="ml-run" data-status={run.status}>
-      <Head right={run.status === 'succeeded' ? <Register runId={runId} go={go} name={`${run.dataset_id}.multilabel`} /> : undefined} />
-      <p className="helper mono" style={{ fontSize: 12, marginTop: -8 }}>{run.name} · {runId} · Y = {run.config.label}</p>
-      {run.status === 'failed' && <ErrorCard err={run.error ?? 'The run failed.'} />}
-      {(run.status === 'queued' || run.status === 'running') && (
-        <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
-          <div className="row"><ResonanceWave /> <span>Fitting one model per label, then the holdout checks · {live.stage}</span></div>
-          <div className="el-steps">{labels.map((l) => (
-            <div key={l} className={`el-step ${done.has(l) ? 'done' : on.has(l) ? 'on' : ''}`}><b>{l}</b><span className="mono">{done.has(l) ? '✓' : on.has(l) ? '…' : ''}</span></div>
-          ))}</div>
-        </div></div>
-      )}
-      {run.status === 'succeeded' && run.multilabel && <MlResults m={run.multilabel} />}
-    </div>
-  )
-}
+export const MultilabelPage = ({ go }: { go: (r: string) => void }) => <KindFlow spec={ML_SPEC} go={go} />
 
 // ---------------------------------------------------------------------------------------------- results (shared)
 

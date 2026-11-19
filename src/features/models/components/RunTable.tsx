@@ -16,7 +16,7 @@ export function RunTable({ runs, selected, onToggle }: { runs: Run[]; selected?:
         {runs.map((r) => (
           <tr key={r.id} className={selected?.has(r.id) ? 'sel' : ''} onClick={() => onToggle?.(r.id)} style={{ cursor: onToggle ? 'pointer' : undefined }}>
             {onToggle && <td><input type="checkbox" checked={selected?.has(r.id) ?? false} onChange={() => onToggle(r.id)} onClick={(e) => e.stopPropagation()} aria-label={`Select ${r.id}`} style={{ accentColor: 'var(--accent-primary)' }} /></td>}
-            <td className="table-cell">{r.id}</td>
+            <td className="table-cell"><a href={`#/models?run=${r.id}`} onClick={(e) => e.stopPropagation()}>{r.id}</a></td>
             <td>{r.pipeline}</td>
             <td className="table-cell muted">{r.params}</td>
             <td><StatusPill status={STATUS[r.status]}>{r.status}</StatusPill></td>

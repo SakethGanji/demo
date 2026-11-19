@@ -6,7 +6,7 @@ import { XYPlot, type XYSeries } from '@/shared/components/XYPlot'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { FAMILY_SHORT, fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import { RUN_COLORS, bestRow, presetsOf } from '../LiveExperiments'
+import { RUN_COLORS, bestRow, presetsOf } from '../RunList'
 
 const T01 = [0, 0.2, 0.4, 0.6, 0.8, 1]
 
@@ -83,7 +83,7 @@ export function CompareRuns({ runs, go }: { runs: Run[]; go: (r: string) => void
       </PlotFrame>}
 
       <FamilyDots runs={done} color={color} />
-      <div className="row" style={{ gap: 8 }}>{done.map((r) => <button key={r.id} className="chip-btn" onClick={() => go(`explain?run=${r.id}`)}><i className="run-dot" style={{ background: color(r.id) }} />Explain {r.id}</button>)}</div>
+      <div className="row" style={{ gap: 8 }}>{done.map((r) => <button key={r.id} className="chip-btn" onClick={() => go(`models?run=${r.id}&tab=Explain`)}><i className="run-dot" style={{ background: color(r.id) }} />Explain {r.id}</button>)}</div>
     </div>
   )
 }

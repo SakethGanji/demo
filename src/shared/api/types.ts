@@ -739,7 +739,7 @@ export type RegistryCounts = {
 }
 
 export type AuditEntry = {
-  id: number; ts: string; actor: string; action: 'registered' | 'stage_changed' | 'approved' | 'rejected' | 'card_edited' | 'batch_scored' | 'labels_attached' | 'monitoring_configured' | 'retrain_launched' | 'reason_codes_edited'
+  id: number; ts: string; actor: string; action: 'registered' | 'stage_changed' | 'approved' | 'rejected' | 'card_edited' | 'batch_scored' | 'labels_attached' | 'monitoring_configured' | 'retrain_launched' | 'reason_codes_edited' | 'dataset_loaded' | 'dataset_refreshed'
   model_name: string | null; version: number | null; version_id: string | null; run_id: string | null
   from_stage: string | null; to_stage: string | null; comment: string; model_hash: string | null; details: Record<string, unknown> | null
 }
@@ -783,8 +783,8 @@ export type TryResult = {
 
 /** F10: reason codes for adverse decisions. */
 export type SegCardCmp = { n: number; global: Record<string, number>; routed: Record<string, number>; delta: number | null; ci: [number, number] | null; verdict: string }
-export type ReasonCode = { rank: number; code: string; feature: string; statement: string; side: 'high' | 'low' | 'category' | 'missing'; value: unknown; phi: number; push: number }
-export type ReasonMapping = { feature: string; code: string; kind: 'number' | 'category'; constraint: number; high?: string; low?: string; category?: string; missing: string; edited?: boolean }
+export type ReasonCode = { rank: number; code: string; feature: string; statement: string; notice?: boolean; side: 'high' | 'low' | 'category' | 'missing'; value: unknown; phi: number; push: number }
+export type ReasonMapping = { notice?: boolean; notice_note?: string; feature: string; code: string; kind: 'number' | 'category'; constraint: number; high?: string; low?: string; category?: string; missing: string; edited?: boolean }
 export type ReasonAttribution = { method: 'tree' | 'kernel'; name: string; background: number; coalitions?: number; exact: boolean; why: string; d: number; evals_per_row: number | null; models?: string[]; seed?: number }
 export type ReasonMonotone = Record<string, { sign: number; rows_above_background: number; rows_below_background: number; violations: number; cited_side: 'high' | 'low' }>
 export type ReasonsBase = {
@@ -1281,6 +1281,8 @@ export type DoctorCheck = {
 export type Doctor = {
   schema: 'doctor/1'; procedure: string; run_id: string; computed_at: string; problem_type: string
   primary: DoctorCheck | null; secondary: DoctorCheck[]; checks: DoctorCheck[]; offers: DoctorAction[]; headline: string
+  /** G11: what else applies to this run (segmentation, reject inference, fair lending, recourse), with an in-app link. */
+  next?: { id: string; title: string; why: string; link: string }[]
   precedence: string[]; severity_order: DoctorSeverity[]; rules: Record<string, string>
   inputs: { latency_budget_ms: number | null; measured_errors: string[]; vela_errors: string[] }
 }

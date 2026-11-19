@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react'
-import { api } from '@/shared/api/client'
-import { flows, type ElDetect, type ElResult, type ElRun, type ElScenario, type ElShock } from '@/shared/api/flows'
-import type { DatasetDetail } from '@/shared/api/types'
-import { Register } from '@/shared/components/FlowParts'
-import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
-import { useFetch } from '@/shared/hooks/useFetch'
-import { useHashParam } from '@/shared/hooks/useHashParam'
-import { useRunEvents } from '@/shared/hooks/useRunEvents'
+import { flows, type ElResult, type ElRun, type ElScenario, type ElShock } from '@/shared/api/flows'
+import { KindFlow, NumField, type KindSpec } from '@/shared/components/KindFlow'
+import { HeroCell } from '@/shared/components/Status'
 import { fix, pct } from '@/shared/lib/format'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { Segmented } from '@/shared/primitives/Segmented'
-import './expected-loss.css'
 
 /** Money, compact: 3.37 M, 412 k, 950. */
 export const money = (v: number | null | undefined) => {
@@ -25,32 +18,6 @@ const MODELS = [
   { key: 'ead', name: 'EAD', what: 'amount owed at default', rows: 'defaulted loans', fit: 'regression · RMSE, ≥ 0' },
 ] as const
 
-/**
- * G3 · Expected loss, a choice inside Build. Without ?run: the setup, pre-filled from the G0 column roles (default flag,
- * LGD, EAD, segments, what to leave out), one primary action. With ?run: the run page, PD × LGD × EAD on the holdout
- * against the realised loss, the breakdown by segment and the stress scenarios. Registry shows the same results.
- */
-export function ExpectedLossPage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
-  return (
-    <ApiOnly mock={(
-      <div className="page"><Head />
-        <div className="card card-body"><p className="helper">▲ mock mode: expected loss trains three AutoGluon models on the API, which is offline. Start it with <span className="mono">make dev</span>.</p></div></div>
-    )}>
-      {runId ? <RunView key={runId} runId={runId} go={go} /> : <Setup go={go} />}
-    </ApiOnly>
-  )
-}
-
-function Head({ right }: { right?: React.ReactNode }) {
-  return (
-    <div className="page-head">
-      <div><h1 className="page-title">Expected Loss</h1><p className="helper sub">PD × LGD × EAD per loan: three AutoGluon models, checked against the realised loss, with stress scenarios.</p></div>
-      {right}
-    </div>
-  )
-}
-
 function Formula() {
   return (
     <div className="navy-well" style={{ padding: 'var(--space-12) var(--space-16)', minHeight: 0 }}>
@@ -59,115 +26,42 @@ function Formula() {
   )
 }
 
-// ------------------------------------------------------------------------------------------------------------ setup
-
-function Setup({ go }: { go: (r: string) => void }) {
-  const dsId = useHashParam('dataset') ?? 'loan-losses'
-  const det = useFetch(() => flows.el.detect(dsId), [dsId])
-  const ds = useFetch(() => api.datasets.get(dsId), [dsId])
-  // Build passes the roles it shows (with the user's edits) as ?pd=&lgd=&ead=&segments=; they override the detection.
-  const fromBuild = (): Partial<ElDetect> => {
-    const q = new URLSearchParams(location.hash.split('?')[1] ?? '')
-    const o: Partial<ElDetect> = {}
-    for (const [k, f] of [['pd', 'pd_column'], ['lgd', 'lgd_column'], ['ead', 'ead_column']] as const) if (q.get(k)) o[f] = q.get(k)!
-    if (q.get('segments') != null) o.segments = q.get('segments')!.split(',').filter(Boolean)
-    return o
-  }
-  const [pick, setPick] = useState<Partial<ElDetect>>(fromBuild)
-  const [limit, setLimit] = useState(60)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  useEffect(() => setPick(fromBuild()), [dsId]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (det.err || ds.err) return <div className="page"><Head /><ErrorCard err={det.err || ds.err} /></div>
-  if (!det.data || !ds.data) return <div className="page"><Head /><Loading>Reading the column roles…</Loading></div>
-  const d = { ...det.data, ...pick }
-  const ready = d.pd_column && d.lgd_column && d.ead_column
-  const start = async () => {
-    setBusy(true); setErr('')
-    try {
-      const r = await flows.el.create({ dataset_id: dsId, pd_column: d.pd_column!, lgd_column: d.lgd_column!, ead_column: d.ead_column!, segments: d.segments, drop_columns: d.drop_columns, time_limit: limit })
-      go(`expected-loss?run=${r.id}`)
-    } catch (e) { setErr((e as Error).message); setBusy(false) }
-  }
-  return (
-    <div className="page" data-testid="el-setup">
-      <Head />
-      <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">What we use</h3><span className="helper" style={{ fontSize: 12 }}>{ds.data.name} · {ds.data.rows.toLocaleString()} loans · detected from the column roles; change any of them</span></div>
-          <button className="btn primary" disabled={!ready || busy} onClick={start} data-testid="el-start">{busy ? 'Starting…' : 'Train PD, LGD and EAD →'}</button></div>
-        <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
-          <Formula />
-          <div className="table-wrap"><table className="table compact" data-testid="el-detected">
-            <thead><tr><th>input</th><th>column</th><th>why</th></tr></thead>
-            <tbody>
-              {([['pd_column', 'default flag y (PD target)'], ['lgd_column', 'loss given default, 0–1'], ['ead_column', 'exposure at default']] as const).map(([k, label]) => (
-                <tr key={k}><td>{label}</td>
-                  <td><ColumnSelect ds={ds.data!} value={d[k] ?? ''} onChange={(c) => setPick({ ...pick, [k]: c })} testId={`el-${k}`} /></td>
-                  <td className="helper" style={{ fontSize: 12 }}>{d[k] ? (pick[k] && pick[k] !== det.data![k] ? 'set by you' : (det.data!.evidence[d[k]!] ?? []).join(', ')) : 'nothing detected: pick a column'}</td></tr>
-              ))}
-              <tr><td>segments (breakdown)</td><td colSpan={2}>
-                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                  {ds.data.profile.columns.filter((c) => (c.type === 'category' && c.unique <= 20) || d.segments.includes(c.name)).map((c) => {
-                    const on = d.segments.includes(c.name)
-                    return <button key={c.name} className={`chip-btn ${on ? 'on' : ''}`} aria-pressed={on} title={(det.data!.evidence[c.name] ?? []).join(', ')}
-                      onClick={() => setPick({ ...pick, segments: on ? d.segments.filter((x) => x !== c.name) : [...d.segments, c.name] })}>{on ? '✓ ' : ''}{c.name}</button>
-                  })}
-                </div></td></tr>
-              <tr><td>left out</td><td className="mono" colSpan={2}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs and leaks; {d.split === 'random' ? 'random holdout' : `${d.split} holdout by ${d.time_column ?? d.group_column}`}</span></td></tr>
-            </tbody>
-          </table></div>
-          <details className="an-adv">
-            <summary className="micro-label">Advanced · {limit} s per model</summary>
-            <div className="row" style={{ gap: 8, padding: 'var(--space-8) 0' }}>
-              <label className="helper">time per model (s)</label>
-              <input className="input mono" type="number" min={10} max={3600} value={limit} onChange={(e) => setLimit(Number(e.target.value) || 60)} style={{ width: 90 }} data-testid="el-limit" />
-              <span className="helper" style={{ fontSize: 12 }}>AutoGluon medium_quality; each model gets this budget.</span>
-            </div>
-          </details>
-          <p className="helper" style={{ fontSize: 12.5 }}>PD learns from every loan; LGD and EAD only from loans that defaulted (that is where they are known), then predict for every loan "if it defaulted". All three share one holdout, so ΣEL is checked against the loss that actually happened on loans none of the models saw.</p>
-          {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
-        </div>
-      </div>
-    </div>
-  )
+/**
+ * G3 · Expected loss, a choice inside Build: the setup, pre-filled from the G0 column roles (default flag, LGD, EAD, segments,
+ * what to leave out). The run (Models): PD × LGD × EAD on the holdout against the realised loss, the breakdown by segment and the
+ * stress scenarios. Registry → Results shows the same view.
+ */
+export const EL_SPEC: KindSpec = {
+  id: 'expected_loss', title: 'Expected Loss', testId: 'el', defaultDataset: 'loan-losses', mockWhat: 'expected loss trains three AutoGluon models',
+  sub: 'PD × LGD × EAD per loan: three AutoGluon models, checked against the realised loss, with stress scenarios.',
+  detect: flows.el.detect, create: (b) => flows.el.create(b as never),
+  roles: ([['pd_column', 'default flag y (PD target)', 'pd'], ['lgd_column', 'loss given default, 0–1', 'lgd'], ['ead_column', 'exposure at default', 'ead']] as const).map(([key, label, urlParam]) => (
+    { key, label, urlParam, testId: `el-${key}`, options: (ds) => ds.profile.columns.map((c) => c.name), emptyHint: 'nothing detected: pick a column' })),
+  rows: ({ d, det, ds, pick, setPick }) => (
+    <tr><td>segments (breakdown)</td><td colSpan={2}>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {ds.profile.columns.filter((c) => (c.type === 'category' && c.unique <= 20) || d.segments.includes(c.name)).map((c) => {
+          const on = d.segments.includes(c.name)
+          return <button key={c.name} className={`chip-btn ${on ? 'on' : ''}`} aria-pressed={on} title={(det.evidence[c.name] ?? []).join(', ')}
+            onClick={() => setPick({ ...pick, segments: on ? d.segments.filter((x: string) => x !== c.name) : [...d.segments, c.name] })}>{on ? '✓ ' : ''}{c.name}</button>
+        })}
+      </div></td></tr>),
+  leftOut: ({ d }) => <>IDs and leaks; {d.split === 'random' ? 'random holdout' : `${d.split} holdout by ${d.time_column ?? d.group_column}`}</>,
+  Formula: () => <Formula />,
+  advanced: { initial: () => ({ limit: 60 }), summary: (o) => `${o.limit} s per model`,
+    Body: ({ o, set }) => <><NumField label="time per model (s)" value={o.limit} set={(limit) => set({ limit })} min={10} max={3600} testId="el-limit" /><span className="helper" style={{ fontSize: 12 }}>AutoGluon medium_quality; each model gets this budget.</span></> },
+  explain: () => <>PD learns from every loan; LGD and EAD only from loans that defaulted (that is where they are known), then predict for every loan "if it defaulted". All three share one holdout, so ΣEL is checked against the loss that actually happened on loans none of the models saw.</>,
+  rowsWord: () => 'loans',
+  startLabel: () => 'Train PD, LGD and EAD →',
+  canStart: ({ d }) => !!(d.pd_column && d.lgd_column && d.ead_column),
+  body: ({ d, o }) => ({ pd_column: d.pd_column, lgd_column: d.lgd_column, ead_column: d.ead_column, segments: d.segments, drop_columns: d.drop_columns, time_limit: o.limit }),
+  running: { events: 'el', line: (run) => `Training three models, ${run.config.time_limit ?? '—'} s each`,
+    steps: () => MODELS.map((m) => ({ key: m.key, label: <><b>{m.name}</b> {m.what}<span className="helper"> · {m.rows}</span></> })) },
+  meta: (run) => `PD target ${run.config.label}, LGD ${run.config.lgd_column}, EAD ${run.config.ead_column}`,
+  registerName: (run) => `${run.dataset_id}.expected-loss`,
 }
 
-function ColumnSelect({ ds, value, onChange, testId }: { ds: DatasetDetail; value: string; onChange: (c: string) => void; testId: string }) {
-  return (
-    <select className="input mono" value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
-      {!value && <option value="">—</option>}
-      {ds.profile.columns.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
-    </select>
-  )
-}
-
-// --------------------------------------------------------------------------------------------------------- run page
-
-function RunView({ runId, go }: { runId: string; go: (r: string) => void }) {
-  const live = useRunEvents(runId)
-  const r = useFetch(() => flows.el.get(runId), [runId, live.done], { pollMs: 4000, while: (d) => !!d && (d.status === 'queued' || d.status === 'running') })
-  if (r.err) return <div className="page"><Head /><ErrorCard err={r.err} /></div>
-  if (!r.data) return <div className="page"><Head /><Loading>Loading the run…</Loading></div>
-  const run = r.data
-  const done = new Set(live.events.filter((e) => e.type === 'el_model_finished').map((e) => e.model as string))
-  const cur = [...live.events].reverse().find((e) => e.type === 'el_model_started')?.model as string | undefined
-  return (
-    <div className="page" data-testid="el-run" data-status={run.status}>
-      <Head right={run.status === 'succeeded' ? <Register runId={runId} go={go} name={`${run.dataset_id}.expected-loss`} /> : undefined} />
-      <p className="helper mono" style={{ fontSize: 12, marginTop: -8 }}>{run.name} · {runId} · PD target {run.config.label}, LGD {run.config.lgd_column}, EAD {run.config.ead_column}</p>
-      {run.status === 'failed' && <ErrorCard err={run.error ?? 'The run failed.'} />}
-      {(run.status === 'queued' || run.status === 'running') && (
-        <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
-          <div className="row"><ResonanceWave /> <span>Training three models, {run.config.time_limit ?? '—'} s each · {live.stage}</span></div>
-          <div className="el-steps">{MODELS.map((m) => (
-            <div key={m.key} className={`el-step ${done.has(m.key) ? 'done' : cur === m.key ? 'on' : ''}`}><b>{m.name}</b> {m.what}<span className="helper"> · {m.rows}</span><span className="mono">{done.has(m.key) ? '✓' : cur === m.key ? '…' : ''}</span></div>
-          ))}</div>
-        </div></div>
-      )}
-      {run.status === 'succeeded' && run.expected_loss && <ElResults run={run} onChanged={r.reload} />}
-    </div>
-  )
-}
+export const ExpectedLossPage = ({ go }: { go: (r: string) => void }) => <KindFlow spec={EL_SPEC} go={go} />
 
 // ---------------------------------------------------------------------------------------------- results (shared)
 

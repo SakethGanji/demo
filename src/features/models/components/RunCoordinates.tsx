@@ -4,7 +4,7 @@ import { PlotFrame } from '@/shared/components/PlotFrame'
 import { StringPlot, type PCAxis } from '@/shared/components/StringPlot'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import { RUN_COLORS, bestRow, bestVal, mostCommon, presetsOf } from '../LiveExperiments'
+import { RUN_COLORS, bestRow, bestVal, mostCommon, presetsOf } from '../RunList'
 
 const RUNG: Record<string, number> = { medium_quality: 1, good_quality: 2, high_quality: 3, best_quality: 4, extreme_quality: 5 }
 const RUNG_NAME = ['other', 'medium', 'good', 'high', 'best', 'extreme']

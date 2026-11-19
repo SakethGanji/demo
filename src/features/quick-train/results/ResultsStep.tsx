@@ -6,10 +6,9 @@ import { fromServer, type Dataset } from '../datasets'
 import { StackEquation } from '../race/StackEquation'
 import { fmtScore, fmtSeconds, metricInfo, mmss } from '../wizard'
 import { CustomEnsemble } from './CustomEnsemble'
-import { ClassReport, Residuals, TopWords } from './Diagnostics'
+import { ClassReport, TopWords } from './Diagnostics'
 import { Leaderboard, ModelCard, ScoreScatter } from './Leaderboard'
 import { SplitCompare } from './SplitCompare'
-import { DoctorPanel } from '@/features/explain/components/DoctorPanel'
 import { CostCompare } from './CostCompare'
 import { MetricCards } from './MetricCards'
 import { QuantileResults } from './QuantileResults'
@@ -18,8 +17,8 @@ import { TryPrediction } from './TryPrediction'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 
 /** Step 5: what the run produced. Live: everything from GET /api/runs/{id}; mock: the simulated run. */
-export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
-  runId: string; mockRun: Run | null; ds: Dataset | null; live: boolean; go: (r: string) => void; onAgain: () => void
+export function ResultsStep({ runId, mockRun, ds, live, go, onAgain, embedded }: {
+  runId: string; mockRun: Run | null; ds: Dataset | null; live: boolean; go: (r: string) => void; onAgain: () => void; embedded?: boolean
 }) {
   const [run, setRun] = useState<Run | null>(mockRun)
   const [preds, setPreds] = useState<HoldoutPredictions | null>(null)
@@ -49,9 +48,9 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
     return () => { alive = false }
   }, [runId, mockRun])
 
-  if (err) return <ErrorCard err={err} />
-  if (!run) return <Loading>Loading the results…</Loading>
-  if (run.status !== 'succeeded') return <div className="page"><div className="card card-body" role="alert">This run {run.status}{run.error ? `: ${run.error}` : '.'}</div></div>
+  if (err) return <ErrorCard inline={embedded} err={err} />
+  if (!run) return <Loading inline={embedded}>Loading the results…</Loading>
+  if (run.status !== 'succeeded') return <ErrorCard inline={embedded} err={`This run ${run.status}${run.error ? `: ${run.error}` : '.'}`} />
 
   const reg = run.problem_type === 'regression' || run.problem_type === 'quantile'
   const metric = run.eval_metric?.name ?? ''
@@ -67,7 +66,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
   const perRow = best?.pred_time_test != null && run.holdout?.n_rows ? best.pred_time_test / run.holdout.n_rows : null
 
   return (
-    <div className="page results" data-testid="results" data-run={run.id}>
+    <div className={`${embedded ? 'stack' : 'page'} results`} data-testid="results" data-run={run.id}>
       <div className="card navy result-hero">
         <div className="card-head"><div className="left"><h3 className="card-title">Result · {run.name}</h3><span className="mono rh-id">{run.id}</span></div><StatusPill status="success">Completed</StatusPill></div>
         <div className="rh-body">
@@ -77,8 +76,7 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
             <span className="rh-sub">{run.problem_type}{run.quantile_levels ? ` τ = ${run.quantile_levels.join(' · ')}` : ''} · {run.holdout?.n_rows.toLocaleString()} holdout rows · {run.leaderboard?.length} models in {mmss(run.fit_seconds ?? 0)} · {fmtSeconds(perRow)} per row to predict</span>
             {run.threshold && <span className="rh-sub" data-testid="result-threshold">decision threshold t = <b className="mono">{run.threshold.value.toFixed(3)}</b>{run.threshold.source === 'default' ? ' (AutoGluon default)' : run.threshold.metric ? ` calibrated for ${run.threshold.metric} · holdout F₁ ${run.threshold.holdout_at_default.f1.toFixed(3)} at 0.5 → ${run.threshold.holdout_at_threshold.f1.toFixed(3)}, balanced accuracy ${run.threshold.holdout_at_default.balanced_accuracy.toFixed(3)} → ${run.threshold.holdout_at_threshold.balanced_accuracy.toFixed(3)}` : ''}</span>}
             <div className="row" style={{ flexWrap: 'wrap', gap: 'var(--space-8)', marginTop: 'var(--space-12)' }}>
-              <button className="btn primary" onClick={() => go(`explain?run=${run.id}`)} data-testid="results-explain">Explain this model →</button>
-              <button className="btn" onClick={() => go(live ? `registry?register=${run.id}` : 'registry')} data-testid="results-register">Register…</button>
+              <button className="btn primary" onClick={() => go(live ? `registry?register=${run.id}` : 'registry')} data-testid="results-register">Register…</button>
               {live && run.config.parent_run_id ? <button className="btn" onClick={() => go(`models?compare=${String(run.config.parent_run_id)},${run.id}`)} data-testid="results-compare-parent">Compare with {String(run.config.parent_run_id)} →</button> : null}
               <button className="btn" onClick={() => go(live ? `gym?from=${run.id}` : 'gym')} data-testid="results-gym">Advanced</button>
               {live && <a className="btn ghost" href={`/api/runs/${run.id}/export.py?download=true`} data-testid="results-export">Export .py</a>}
@@ -90,8 +88,6 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
       </div>
 
       <MetricCards run={run} preds={preds} />
-
-      {live && (!run.kind || run.kind === 'tabular') && <DoctorPanel run={run} links={{ go }} compact />}
 
       {run.problem_type === 'quantile' && <QuantileResults run={run} />}
 
@@ -106,12 +102,16 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain }: {
         <ModelCard row={selRow} family={fam} />
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: run.text_models && Object.keys(run.text_models).length ? 'minmax(0, 1fr) minmax(0, 1.1fr)' : 'minmax(0, 1fr)', alignItems: 'start' }}>
-        {reg ? <Residuals run={run} preds={preds} /> : <ClassReport run={run} />}
+      {/* live: the confusion matrix, residuals and top words are in Explain */}
+      {!live && <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.1fr)', alignItems: 'start' }}>
+        {!reg && <ClassReport run={run} />}
         <TopWords run={run} />
-      </div>
+      </div>}
 
-      <CustomEnsemble run={run} live={live} onDone={() => { api.runs.get(run.id).then(setRun).catch(() => {}) }} />
+      <details className="an-adv card" data-testid="custom-ensemble-fold">
+        <summary className="micro-label" style={{ padding: 'var(--space-12) var(--space-16)' }}>Advanced · custom ensemble</summary>
+        <CustomEnsemble run={run} live={live} onDone={() => { api.runs.get(run.id).then(setRun).catch(() => {}) }} />
+      </details>
 
       <TryPrediction key={formDs?.id ?? 'none'} run={run} ds={formDs} live={live} residualSd={sd} models={predictModels} />
     </div>

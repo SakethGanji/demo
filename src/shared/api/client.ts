@@ -2,6 +2,9 @@
 
 import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
 
+/** Who is acting (typed once in the Registry; there is no sign-in): recorded in the audit log. */
+const actor = () => { try { return localStorage.getItem('ensemble.actor') || undefined } catch { return undefined } }
+
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
   constructor(message: string, readonly status: number) { super(message) }
@@ -50,8 +53,8 @@ export const api = {
       demo: () => request<SqlDemo>('/sql/demo'),
       tables: (url: string, password?: string) => json<{ tables: SqlTable[] }>('/sql/tables', 'POST', { url, password }),
       preview: (q: SqlQuery) => json<SqlPreview>('/sql/preview', 'POST', q, 120_000),
-      create: (q: SqlQuery & { name?: string }) => json<DatasetDetail>('/sql/datasets', 'POST', q, 300_000),
-      refresh: (id: string, password?: string) => json<DatasetDetail & { refresh: { parent: string; version: number; diff: SqlLineage['diff']; unchanged: boolean } }>(`/sql/datasets/${encodeURIComponent(id)}/refresh`, 'POST', { password }, 300_000),
+      create: (q: SqlQuery & { name?: string }) => json<DatasetDetail>('/sql/datasets', 'POST', { ...q, created_by: actor() }, 300_000),
+      refresh: (id: string, password?: string) => json<DatasetDetail & { refresh: { parent: string; version: number; diff: SqlLineage['diff']; unchanged: boolean } }>(`/sql/datasets/${encodeURIComponent(id)}/refresh`, 'POST', { password, created_by: actor() }, 300_000),
       versions: (id: string) => request<SqlVersions>(`/sql/datasets/${encodeURIComponent(id)}/versions`),
     },
     /** F4: confirm the column to predict; the API re-profiles and draws (or reuses) that target's own holdout. */

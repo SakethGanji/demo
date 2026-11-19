@@ -5,7 +5,7 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { MathText } from '@/shared/components/MathText'
-import { DoctorPanel } from '@/features/explain/components/DoctorPanel'
+import { DoctorPanel } from '@/features/models/explain/components/DoctorPanel'
 
 const SOURCE: Record<string, string> = { 'anthropic-sdk': 'Anthropic SDK', 'claude-cli': 'Claude CLI', 'anthropic-api': 'Anthropic API', computed: 'computed text' }
 const SEV: Record<string, 'danger' | 'warning' | 'info'> = { critical: 'danger', warning: 'warning', info: 'info' }

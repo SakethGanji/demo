@@ -12,7 +12,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import type { DatasetSummary } from '@/shared/api/types'
 import { headline, kindOf, problemLine, runPage } from '@/shared/lib/runKinds'
 
-const ACTION: Record<AuditEntry['action'], string> = { registered: 'registered', stage_changed: 'moved', approved: 'approved', rejected: 'rejected', card_edited: 'edited the card of', batch_scored: 'scored a batch with', labels_attached: 'attached labels to', monitoring_configured: 'set monitoring for', retrain_launched: 'launched a retrain of', reason_codes_edited: 'edited the reason codes of' }
+const ACTION: Record<AuditEntry['action'], string> = { registered: 'registered', stage_changed: 'moved', approved: 'approved', rejected: 'rejected', card_edited: 'edited the card of', batch_scored: 'scored a batch with', labels_attached: 'attached labels to', monitoring_configured: 'set monitoring for', retrain_launched: 'launched a retrain of', reason_codes_edited: 'edited the reason codes of', dataset_loaded: 'loaded a SQL dataset', dataset_refreshed: 'refreshed a SQL dataset' }
 const ago = (iso: string | null) => {
   if (!iso) return ''
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
@@ -79,7 +79,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
       </div>
       {runs.length === 0 ? <p className="helper card card-body" style={{ margin: 0 }}>No runs yet: every run you start appears here as a string, taut when finished, waving while it fits.</p> : (
       <div className="card run-strings" data-testid="home-runs">
-        {runs.slice(0, 6).map((r) => <RunString key={r.id} run={runState(r, active, now)} onClick={() => go(r.status === 'succeeded' && kindOf(r) === 'tabular' ? `explain?run=${r.id}` : runPage(r))} />)}
+        {runs.slice(0, 6).map((r) => <RunString key={r.id} run={runState(r, active, now)} onClick={() => go(runPage(r))} />)}
       </div>)}
 
       <div className="grid two">
@@ -89,7 +89,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
             <div className="card-head"><div className="left"><h3 className="card-title">Best Scores</h3><span className="helper" style={{ fontSize: 12 }}>per dataset, label and metric · holdout</span></div></div>
             {best.length ? <table className="table compact best-table"><tbody>{best.slice(0, 6).map((r) => {
               const h = headline(r)
-              return <tr key={r.id} onClick={() => go(kindOf(r) === 'tabular' ? `explain?run=${r.id}` : runPage(r))} style={{ cursor: 'pointer' }} title={h.note}>
+              return <tr key={r.id} onClick={() => go(runPage(r))} style={{ cursor: 'pointer' }} title={h.note}>
                 <td className="bt-name" title={r.name}>{r.name}<small className="bt-kind">{problemLine(r)}</small></td><td className="mono muted bt-model" title={r.best_model ?? ''}>{r.best_model}</td>
                 <td className="r mono bt-score"><span className="muted">{kindOf(r) === 'anomaly' ? 'AUC' : metricInfo(h.label)?.name ?? h.label} {h.dir}</span> <b>{h.text}</b></td></tr>
             })}</tbody></table> : <p className="helper card-body">Nothing finished yet: the best holdout score per dataset and label appears here.</p>}
@@ -106,7 +106,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
             <div className="card-body home-audit">
               {reg?.audit.length ? reg.audit.slice(0, 5).map((a) => (
                 <div key={a.id} className="ha-row" data-testid="home-audit-row"><span className="mono muted ha-ago">{ago(a.ts)}</span>
-                  <span className="ha-what"><b>{a.actor}</b> {ACTION[a.action]} <a href={`#/registry?version=${a.version_id}`} className="ha-ver"><span className="mono">{a.model_name}</span> <span className="ha-v mono">v{a.version}</span></a>{a.to_stage && a.action === 'stage_changed' ? <> <span className="muted">→</span> <span className="ha-stage">{a.to_stage}</span></> : null}</span>
+                  <span className="ha-what"><b>{a.actor}</b> {ACTION[a.action]} {a.version_id ? <a href={`#/registry?version=${a.version_id}`} className="ha-ver"><span className="mono">{a.model_name}</span> <span className="ha-v mono">v{a.version}</span></a> : <span className="mono">{String((a.details as { dataset?: string } | null)?.dataset ?? '')}</span>}{a.to_stage && a.action === 'stage_changed' ? <> <span className="muted">→</span> <span className="ha-stage">{a.to_stage}</span></> : null}</span>
                   {a.model_hash ? <span className="ha-hash mono" title={`model SHA-256 ${a.model_hash}`}>#{a.model_hash.slice(0, 8)}</span> : <span />}</div>
               )) : <p className="helper">No registry activity yet. Register a finished run from the Registry or Models.</p>}
             </div>

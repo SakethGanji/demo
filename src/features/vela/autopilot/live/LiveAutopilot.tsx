@@ -159,7 +159,7 @@ function RunView({ a, go, refresh, onNew }: { a: Autopilot; go: (r: string) => v
               </div>
               <div className="card-body row" style={{ borderTop: '1px solid var(--border-default)', flexWrap: 'wrap' }}>
                 {a.verdict.best_run_id && <button className="btn primary" onClick={() => go(`models?compare=${[a.steps.find((s) => s.kind === 'baseline')?.run_id, a.verdict!.best_run_id].filter(Boolean).join(',')}`)}>Compare With Baseline</button>}
-                {a.verdict.best_run_id && <button className="btn" onClick={() => go(`explain?run=${a.verdict!.best_run_id}`)}>Explain</button>}
+                {a.verdict.best_run_id && <button className="btn" onClick={() => go(`models?run=${a.verdict!.best_run_id}&tab=Explain`)}>Explain</button>}
                 {a.verdict.best_run_id && <button className="btn" onClick={() => go(`gym?from=${a.verdict!.best_run_id}`)}>Advanced →</button>}
               </div>
             </div>

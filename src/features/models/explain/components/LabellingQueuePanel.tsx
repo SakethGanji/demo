@@ -89,7 +89,7 @@ export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: stri
             {sliceId && <p className="helper" style={{ fontSize: 12.5 }} data-testid="al-slice">
               <StatusPill status="info">weak slice</StatusPill>{' '}Pre-filtered to <span className="mono">{pool?.label ?? sliceId}</span> (Explain → Weak Slices):{' '}
               {pool ? <>{nfmt(pool.in_slice)} of the {nfmt(pool.train_rows)} training rows fall inside it, so about {nfmt(sliceAvail ?? 0)} hidden rows can be picked; b defaults to {sliceBudget} per round.</> : 'counting its training rows…'}
-              {' '}<a href={`#/explain?run=${run.id}&tab=Labelling%20Queue`}>Use the whole pool instead</a></p>}
+              {' '}<a href={`#/models?run=${run.id}&tab=Doctor&sub=Labels`}>Use the whole pool instead</a></p>}
             {(al.status === 'failed' || al.status === 'cancelled') && <p className="helper" role="alert">✕ The last queue {al.status === 'failed' ? `failed: ${al.error}` : 'was cancelled'}.</p>}
             <p className="helper" style={{ fontSize: 12.5 }}>
               {req.pool === 'missing'

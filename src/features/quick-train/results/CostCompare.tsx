@@ -109,7 +109,7 @@ export function CostCompare({ run, go }: { run: Run; go: (r: string) => void }) 
             <tbody>{rows.map((r) => (
               <tr key={r.run_id} className={r.this_run ? 'sel' : ''} data-testid={`cost-row-${r.trained_on_cost ? 'cost' : r.eval_metric}`}>
                 <td><span className="chip" style={{ fontSize: 11 }}>{label(r)}</span></td>
-                <td className="mono muted" style={{ fontSize: 12 }}>{r.this_run ? <>{r.run_id} ◂</> : <a href={`#/quick-train?run=${r.run_id}`} onClick={(e) => { e.preventDefault(); go(`quick-train?run=${r.run_id}`) }}>{r.run_id}</a>}</td>
+                <td className="mono muted" style={{ fontSize: 12 }}>{r.this_run ? <>{r.run_id} ◂</> : <a href={`#/models?run=${r.run_id}`} onClick={(e) => { e.preventDefault(); go(`models?run=${r.run_id}`) }}>{r.run_id}</a>}</td>
                 {bin && <td className="mono" style={{ fontSize: 12 }}>{r.threshold?.value.toFixed(3)}<span className="muted"> {r.threshold?.metric ? `(${r.threshold.metric === 'expected_cost' ? 'cost' : r.threshold.metric})` : r.threshold?.source === 'default' ? '(0.5)' : ''}</span></td>}
                 <td className="mono"><b>{f1(r.deployed.per_1000)}</b> <span className="muted">{ci(r.deployed.ci_per_1000)}</span></td>
                 <td className="mono">{r.delta ? <span title={`paired bootstrap, B = ${r.delta.B}`} style={{ color: r.delta.per_1000 > 0 ? 'var(--status-success)' : 'var(--status-warning)' }}>{sgn(r.delta.per_1000)} <span className="muted">{ci(r.delta.ci_per_1000)}</span></span> : '—'}</td>

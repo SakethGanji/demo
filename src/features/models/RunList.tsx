@@ -37,7 +37,7 @@ type Tab = 'Runs' | 'Compare' | 'Parameter Diff'
 type Filters = { dataset: string; type: string; status: string; q: string; min: string }
 
 /** Models: the API's real runs: filter, plot the runs across their parameters and metrics, compare, diff. */
-export function LiveExperiments({ go }: { go: (r: string) => void }) {
+export function RunList({ go }: { go: (r: string) => void }) {
   const { data: runs, err } = useFetch(() => api.runs.list(undefined, 'all'), [], { pollMs: 5000 })
   const [tab, setTab] = useState<Tab>('Runs')
   const [sel, setSel] = useState<string[]>([])
@@ -95,7 +95,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
           <p className="helper sub" data-testid="exp-summary">{runs.length} runs · {shown.length} shown · {sel.length} selected · {byStatus.succeeded ?? 0} succeeded{byStatus.running ? ` · ${byStatus.running} running` : ''}{byStatus.failed ? ` · ${byStatus.failed} failed` : ''}</p>
         </div>
         <div className="row">
-          <button className="btn" disabled={sel.length !== 1} onClick={() => go(`explain?run=${sel[0]}`)} title="Select exactly one run">Explain</button>
+          <button className="btn" disabled={sel.length !== 1} onClick={() => go(`models?run=${sel[0]}&tab=Explain`)} title="Select exactly one run">Explain</button>
           <button className="btn primary" onClick={() => go('build')}>Build</button>
         </div>
       </div>
@@ -146,7 +146,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
                     <td className="muted" style={{ whiteSpace: 'nowrap' }}>{ago(r.created_at)}</td>
                     <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                       {r.status === 'succeeded' ? <>
-                        {tab && <><button className="chip-btn" onClick={() => go(`explain?run=${r.id}`)} data-testid={`exp-explain-${r.id}`}>Explain</button>{' '}</>}
+                        {tab && <><button className="chip-btn" onClick={() => go(`models?run=${r.id}&tab=Explain`)} data-testid={`exp-explain-${r.id}`}>Explain</button>{' '}</>}
                         <button className="chip-btn" onClick={() => go(runPage(r))} data-testid={`exp-open-${r.id}`}>Open</button>{' '}
                         {k === 'reject_inference' ? <span className="muted" title={RI_NOT_REGISTRABLE}>not registrable</span>
                           : <button className="chip-btn" onClick={() => go(`registry?register=${r.id}`)} data-testid={`exp-register-${r.id}`}>Register…</button>}

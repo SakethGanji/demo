@@ -601,6 +601,43 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
             "inputs": {"latency_budget_ms": budget, "measured_errors": m.get("errors") or [], "vela_errors": ctx.get("vela_errors") or []}}
 
 
+def next_steps(rec: dict[str, Any], intake: dict[str, Any] | None, version: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """G11: what else applies to this run, beyond what limits it (never a finding, never the primary): segmented models,
+    reject inference, fair lending and recourse, from Smart Intake's roles and suggestions for the run's table. Each item
+    has a reason and the in-app link that opens it pre-filled."""
+    from urllib.parse import urlencode
+
+    res = rec.get("result") or {}
+    binary = res.get("problem_type") == "binary"
+    ds, label, rid = rec["dataset_id"], rec.get("label"), rec["id"]
+    sug = {x["id"]: x for x in (intake or {}).get("suggestions") or []}
+    roles = (intake or {}).get("roles") or {}
+    out: list[dict[str, Any]] = []
+    seg = sug.get("segmented")
+    if seg and (seg["prefill"].get("label") in (None, label)):
+        p = seg["prefill"]
+        out.append({"id": "segmented", "title": "Try one model per segment", "why": seg["reason"],
+                    "link": "segmented?" + urlencode({"dataset": ds, "label": p.get("label") or label or "", "segment": p.get("segment") or ""})})
+    ri = sug.get("reject_inference")
+    if binary and ri:
+        p = ri["prefill"]
+        out.append({"id": "reject_inference", "title": "Check reject inference", "why": ri["reason"],
+                    "link": "reject-inference?" + urlencode({"dataset": ds, "label": p.get("label") or label or "", "decision": p.get("decision") or ""})})
+    if binary and (roles.get("surname") or sug.get("fair_lending")):
+        sur = (roles.get("surname") or [None])[0]
+        zp = (roles.get("zip") or [None])[0]
+        out.append({"id": "fair_lending", "title": "Run the fair-lending check",
+                    "why": f"'{sur}'{f' and {zp!r}' if zp else ''} give each applicant's estimated group (BISG); the adverse impact ratio of "
+                           "this model's decisions by group, against the four-fifths rule." if sur else "The table has the inputs for BISG proxy groups.",
+                    "link": f"models?run={rid}&tab=Explain&sub=Fairness"})
+    if binary:
+        out.append({"id": "recourse", "title": "See what would change a decline",
+                    "why": "For a declined applicant: the reason codes and the smallest realistic changes that flip the decision, "
+                           "re-scored by the served model." + ("" if version else " It reads a registered version: register this run first."),
+                    "link": f"registry?version={version['id']}&tab=Try%20It" if version else f"registry?register={rid}"})
+    return out
+
+
 def _overfit_patch(ctx: dict[str, Any]) -> dict[str, Any]:
     from .findings import _with_params, _zoo, make_patch
 

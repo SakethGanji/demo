@@ -3,7 +3,7 @@ import { api } from '@/shared/api/client'
 import type { Run } from '@/shared/api/types'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import { RUN_COLORS } from '../LiveExperiments'
+import { RUN_COLORS } from '../RunList'
 
 type Row = { section: string; key: string; vals: string[] }
 

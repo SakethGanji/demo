@@ -10,7 +10,9 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { useApi } from '@/shared/api/mode'
 import { Loading } from '@/shared/components/Status'
-import { LiveExperiments } from './LiveExperiments'
+import { useHashParam } from '@/shared/hooks/useHashParam'
+import { RunList } from './RunList'
+import { RunPage, type ApplyPatch } from './RunPage'
 import { RunTable } from './components/RunTable'
 
 const COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-b)', 'var(--viz-e)']
@@ -27,10 +29,13 @@ const AXES: PCAxis[] = [
   { key: 'f1', label: 'F1', min: 0.86, max: 0.92, fmt: (v) => v.toFixed(3) },
 ]
 
-export function ExperimentsPage({ go }: { go: (r: string) => void }) {
+/** Models: the list of runs, and with ?run= one run's page (Results, Explain, Doctor). */
+export function ModelsPage({ go, onApplyPatch }: { go: (r: string) => void; onApplyPatch?: ApplyPatch }) {
   const { mode } = useApi()
+  const runId = useHashParam('run')
   if (mode === 'checking') return <Loading>Connecting…</Loading>
-  return mode === 'live' ? <LiveExperiments go={go} /> : <MockExperiments go={go} />
+  if (runId) return <RunPage key={runId} runId={runId} go={go} onApplyPatch={onApplyPatch} />
+  return mode === 'live' ? <RunList go={go} /> : <MockExperiments go={go} />
 }
 
 /** Mock mode (API offline): the simulated runs. */
@@ -107,46 +112,51 @@ function MockExperiments({ go }: { go: (r: string) => void }) {
         </div>
       )}
 
-      {tab === 'Confusion Matrix & Errors' && (
-        <div className="grid two">
-          <div className="card">
-            <div className="card-head">
-              <div className="left"><h3 className="card-title">Confusion Matrix</h3><span className="mono" style={{ fontSize: 12.5 }}>run_894a</span></div>
-              <div className="row"><ParamChip sym="n" value={CONFUSION.flat().reduce((a, b) => a + b, 0).toLocaleString()} /><ParamChip sym="fold" value="holdout" /></div>
-            </div>
-            <div className="card-body"><ConfusionMatrix labels={CLASSES} m={CONFUSION} /></div>
-            <div className="caption" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px 12px', borderTop: '1px solid var(--border-row)', fontSize: 12 }}>
-              <span>Share of actual row</span>
-              <span className="ramp">
-                {[1, 2, 3, 4, 5].map((i) => <i key={i} style={{ background: `var(--heat-${i})` }} />)}
-              </span>
-              <span className="mono" style={{ fontSize: 11 }}>&lt;1% · 1–3% · 3–10% · 10–50% · ≥50%</span>
-            </div>
-          </div>
-          <div className="card">
-            <div className="card-head"><h3 className="card-title">Per-Class Recall</h3><span className="micro-label">Mean {MEAN_RECALL.toFixed(2)}</span></div>
-            <table className="table">
-              <thead><tr><th>Class</th><th className="r">Recall</th><th className="r">Precision</th><th>Top Confusion</th></tr></thead>
-              <tbody>
-                {CLASSES.map((c, i) => {
-                  const row = CONFUSION[i]; const tot = row.reduce((a, b) => a + b, 0)
-                  const col = CONFUSION.reduce((a, r) => a + r[i], 0)
-                  const rec = row[i] / tot, prec = row[i] / col
-                  const worst = row.map((v, j) => (j === i ? -1 : v)).reduce((bi, v, j, arr) => (v > arr[bi] ? j : bi), 0)
-                  return (
-                    <tr key={c} className={rec < 0.9 ? 'sel' : ''}>
-                      <td>{c}</td>
-                      <td className="r table-cell">{rec.toFixed(3)}</td>
-                      <td className="r table-cell">{prec.toFixed(3)}</td>
-                      <td>{rec < 0.9 ? <StatusPill status="warning">{CLASSES[worst]}</StatusPill> : <span className="muted">{CLASSES[worst]}</span>}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+      {tab === 'Confusion Matrix & Errors' && <MockConfusion />}
+    </div>
+  )
+}
+
+/** Mock mode: the simulated run's confusion matrix and per-class recall (Models → Compare and the run page's Explain tab). */
+export function MockConfusion() {
+  return (
+    <div className="grid two">
+      <div className="card">
+        <div className="card-head">
+          <div className="left"><h3 className="card-title">Confusion Matrix</h3><span className="mono" style={{ fontSize: 12.5 }}>run_894a</span></div>
+          <div className="row"><ParamChip sym="n" value={CONFUSION.flat().reduce((a, b) => a + b, 0).toLocaleString()} /><ParamChip sym="fold" value="holdout" /></div>
         </div>
-      )}
+        <div className="card-body"><ConfusionMatrix labels={CLASSES} m={CONFUSION} /></div>
+        <div className="caption" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px 12px', borderTop: '1px solid var(--border-row)', fontSize: 12 }}>
+          <span>Share of actual row</span>
+          <span className="ramp">
+            {[1, 2, 3, 4, 5].map((i) => <i key={i} style={{ background: `var(--heat-${i})` }} />)}
+          </span>
+          <span className="mono" style={{ fontSize: 11 }}>&lt;1% · 1–3% · 3–10% · 10–50% · ≥50%</span>
+        </div>
+      </div>
+      <div className="card">
+        <div className="card-head"><h3 className="card-title">Per-Class Recall</h3><span className="micro-label">Mean {MEAN_RECALL.toFixed(2)}</span></div>
+        <table className="table">
+          <thead><tr><th>Class</th><th className="r">Recall</th><th className="r">Precision</th><th>Top Confusion</th></tr></thead>
+          <tbody>
+            {CLASSES.map((c, i) => {
+              const row = CONFUSION[i]; const tot = row.reduce((a, b) => a + b, 0)
+              const col = CONFUSION.reduce((a, r) => a + r[i], 0)
+              const rec = row[i] / tot, prec = row[i] / col
+              const worst = row.map((v, j) => (j === i ? -1 : v)).reduce((bi, v, j, arr) => (v > arr[bi] ? j : bi), 0)
+              return (
+                <tr key={c} className={rec < 0.9 ? 'sel' : ''}>
+                  <td>{c}</td>
+                  <td className="r table-cell">{rec.toFixed(3)}</td>
+                  <td className="r table-cell">{prec.toFixed(3)}</td>
+                  <td>{rec < 0.9 ? <StatusPill status="warning">{CLASSES[worst]}</StatusPill> : <span className="muted">{CLASSES[worst]}</span>}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

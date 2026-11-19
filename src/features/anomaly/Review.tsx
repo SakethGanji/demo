@@ -103,8 +103,8 @@ function SupervisedRun({ s, go }: { s: AnSupervised; go: (r: string) => void }) 
         <StatusPill status={s.status === 'succeeded' ? 'success' : s.status === 'failed' ? 'danger' : 'info'}>{s.status}</StatusPill>
         <span className="helper" style={{ fontSize: 12 }}>{s.confirmed} confirmed · {s.dismissed} dismissed · {s.unreviewed.toLocaleString()} unreviewed{s.negatives === 'unlabeled' ? ' (as 0)' : ' (left out)'} · by {s.by}{s.best_model ? ` · best ${s.best_model}` : ''}</span>
         <span className="spacer" />
-        {s.status === 'succeeded' && <button className="chip-btn" onClick={() => go(`explain?run=${s.run_id}`)}>Explain →</button>}
-        <button className="chip-btn" onClick={() => go(`quick-train?run=${s.run_id}`)}>Open run</button>
+        {s.status === 'succeeded' && <button className="chip-btn" onClick={() => go(`models?run=${s.run_id}&tab=Explain`)}>Explain →</button>}
+        <button className="chip-btn" onClick={() => go(`models?run=${s.run_id}`)}>Open run</button>
       </div>
       {s.error && <p className="helper" style={{ color: 'var(--status-danger)' }}>✕ {s.error}</p>}
       {s.status !== 'succeeded' && !s.error && <div className="row"><ResonanceWave /> AutoGluon is fitting…</div>}

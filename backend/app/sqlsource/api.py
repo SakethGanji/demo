@@ -41,10 +41,22 @@ class Query(Conn):
 class Save(Query):
     name: str | None = None
     target: str | None = None
+    created_by: str | None = Field(None, description="Who loads it (no sign-in; recorded in the audit log).")
 
 
 class Refresh(BaseModel):
     password: str | None = None
+    created_by: str | None = None
+
+
+def _audit(request: Request, actor: str | None, action: str, rec: dict[str, Any], comment: str, **details: Any) -> None:
+    """A SQL load or refresh in the registry's audit log: who ran which query, from where, into which dataset. The URL
+    is the redacted one; the password is never stored."""
+    lin = (rec.get("profile") or {}).get("lineage") or {}
+    request.app.state.registry.audit(actor=(actor or "").strip() or "unknown", action=action, comment=comment,
+                                     details={"dataset_id": rec["id"], "dataset": rec["name"], "url": lin.get("url"),
+                                              "query": lin.get("query"), "rows": lin.get("rows"), "version": lin.get("version"),
+                                              "data_sha": lin.get("data_sha"), **details})
 
 
 def _data_dir(request: Request):
@@ -114,6 +126,7 @@ async def create(body: Save, request: Request) -> dict[str, Any]:
                                                     parent=None, base_name=base))
     except (SqlError, DatasetError) as e:
         raise HTTPException(400, str(e)) from e
+    _audit(request, body.created_by, "dataset_loaded", rec, f"SQL load into {rec['name']}")
     return _detail(rec)
 
 
@@ -153,6 +166,8 @@ async def refresh(dataset_id: str, request: Request, body: Refresh | None = None
                                                     root=lin["root"], parent=dataset_id, base_name=base, diff=diff))
     except (SqlError, DatasetError) as e:
         raise HTTPException(400, str(e)) from e
+    _audit(request, body.created_by if body else None, "dataset_refreshed", out, f"SQL refresh of {dataset_id} → v{version}",
+           parent=dataset_id, diff=diff)
     return {**_detail(out), "refresh": {"parent": dataset_id, "version": version, "diff": diff,
                                         "unchanged": out["profile"]["lineage"]["data_sha"] == lin.get("data_sha")}}
 

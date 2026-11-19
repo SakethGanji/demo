@@ -181,8 +181,23 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
            "oot_se": oot_se, "split_options": opts, "shift_actions": shift_actions, "latency_budget_ms": budget, "latency": lat,
            "base": run_body(rec)}
     d = await run_in_threadpool(D.diagnose, ctx)
+    d["next"] = await run_in_threadpool(_next_steps, request, rec)
     store.merge_result(run_id, doctor=_doctor_summary(d))
     return d
+
+
+def _next_steps(request: Request, rec: dict[str, Any]) -> list[dict[str, Any]]:
+    """The doctor's "also worth checking" list (doctor.next_steps), from Smart Intake on the run's own table."""
+    from ..intake import intake
+    from . import doctor as D
+
+    try:
+        found = intake(request.app.state.datasets.load_frame(rec["dataset_id"]))
+    except Exception:  # noqa: BLE001 — a deleted or unreadable dataset: no suggestions rather than no diagnosis
+        found = None
+    reg = request.app.state.registry
+    ver = next((v for v in reg.list_versions() if v.get("run_id") == rec["id"] and v.get("status") == "ready"), None)
+    return D.next_steps(rec, found, ver)
 
 
 @router.get("/runs/{run_id}/doctor")

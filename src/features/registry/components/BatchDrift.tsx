@@ -214,7 +214,7 @@ function AdversarialCell({ bid }: { bid: string }) {
       <span className="micro-label">adversarial AUC</span>
       {done ? <>
         <b className="mono" data-testid="batch-adv-auc" style={{ color: c.result!.verdict.shift ? (c.result!.auc.value >= 0.7 ? BAND_COLOR.shift : BAND_COLOR.watch) : BAND_COLOR.stable }}>{c.result!.auc.value.toFixed(3)}</b>
-        <small className="math-s">[{c.result!.auc.ci[0].toFixed(3)}, {c.result!.auc.ci[1].toFixed(3)}] · {c.result!.verdict.label}{top ? ` · ${top.feature}` : ''} · <a href={`#/explain?run=${c.run_id}&tab=Shift`} data-testid="batch-adv-link">details</a></small>
+        <small className="math-s">[{c.result!.auc.ci[0].toFixed(3)}, {c.result!.auc.ci[1].toFixed(3)}] · {c.result!.verdict.label}{top ? ` · ${top.feature}` : ''} · <a href={`#/models?run=${c.run_id}&tab=Doctor&sub=Shift`} data-testid="batch-adv-link">details</a></small>
       </> : running ? <><b className="mono"><ResonanceWave /></b><small className="math-s">{(c as ShiftCheck).stage ?? 'running'}</small></>
         : <><button className="btn sm" onClick={start} data-testid="batch-adv-run">Run shift check</button><small className="math-s">{err ? `✕ ${err}` : c?.status === 'failed' ? `✕ ${(c as ShiftCheck).error}` : 'all columns at once; ≈ 0.5 = no shift'}</small></>}
     </div>

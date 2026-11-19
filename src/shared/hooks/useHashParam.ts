@@ -13,16 +13,16 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
 /** A `?tab=` value matched to one of `tabs`: exact, then case- and punctuation-insensitive (`doctor`, `batch-drift`),
  *  then an alias (old tab names, short slugs like `batch`), then a unique prefix. */
-export function matchTab<T extends string>(tabs: readonly T[], raw: string | null, aliases: Record<string, T> = {}): T | null {
+export function matchTab<T extends string>(tabs: readonly T[], raw: string | null, aliases: Record<string, string> = {}): T | null {
   if (!raw) return null
   const s = slug(raw)
-  return tabs.find((t) => t === raw) ?? tabs.find((t) => slug(t) === s)
-    ?? Object.entries(aliases).find(([k]) => slug(k) === s)?.[1]
-    ?? (s ? (tabs.filter((t) => slug(t).startsWith(s)).length === 1 ? tabs.find((t) => slug(t).startsWith(s))! : null) : null)
+  const alias = Object.entries(aliases).find(([k]) => slug(k) === s)?.[1] as T | undefined
+  const prefixed = s ? tabs.filter((t) => slug(t).startsWith(s)) : []
+  return tabs.find((t) => t === raw) ?? tabs.find((t) => slug(t) === s) ?? (alias && tabs.includes(alias) ? alias : null) ?? (prefixed.length === 1 ? prefixed[0] : null)
 }
 
 /** The `?tab=` of the hash route as one of `tabs` (agent deep links use slugs, links in docs use old names). */
-export function useTabParam<T extends string>(tabs: readonly T[], fallback: T, aliases: Record<string, T> = {}): [T, (t: T) => void] {
+export function useTabParam<T extends string>(tabs: readonly T[], fallback: T, aliases: Record<string, string> = {}): [T, (t: T) => void] {
   const [tab, setTab] = useState<T>(() => matchTab(tabs, read('tab'), aliases) ?? fallback)
   useEffect(() => {
     const f = () => { const t = matchTab(tabs, read('tab'), aliases); if (t) setTab(t) }

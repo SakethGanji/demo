@@ -1,11 +1,6 @@
-import { useState } from 'react'
 import { ConfusionMatrix } from '@/shared/components/ConfusionMatrix'
-import { PlotFrame } from '@/shared/components/PlotFrame'
-import { useWidth } from '@/shared/hooks/useWidth'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import type { HoldoutPredictions, Run } from '@/shared/api/types'
-import { fmtScore } from '../wizard'
-import { residuals } from './stats'
+import type { Run } from '@/shared/api/types'
 
 /** Classification: the holdout confusion matrix, with recall and precision per class read off it. */
 export function ClassReport({ run }: { run: Run }) {
@@ -39,59 +34,5 @@ export function ClassReport({ run }: { run: Run }) {
 }
 
 const Bar = ({ v }: { v: number }) => <i className="cr-bar"><i style={{ width: `${Math.max(0, Math.min(1, v)) * 100}%` }} /></i>
-
-/** Regression: residuals rᵢ = yᵢ − ŷᵢ on the holdout, their distribution, and predicted against actual. */
-export function Residuals({ run, preds }: { run: Run; preds: HoldoutPredictions | null }) {
-  const [ref, w] = useWidth<HTMLDivElement>()
-  const [view, setView] = useState<'hist' | 'scatter'>('hist')
-  if (!preds) return <div className="card card-body helper" data-testid="residuals">Loading the holdout predictions…</div>
-  const s = residuals(preds)
-  const H = 210, L = 56, B = 28, T = 8, R = 10
-  const nb = 30
-  const lo = Math.min(...s.r), hi = Math.max(...s.r)
-  const bw = (hi - lo) / nb || 1
-  const bins = new Array(nb).fill(0)
-  s.r.forEach((v) => { bins[Math.min(nb - 1, Math.floor((v - lo) / bw))]++ })
-  const maxB = Math.max(...bins)
-  const x = (v: number) => L + ((v - lo) / (hi - lo || 1)) * (w - L - R)
-  const yy = (c: number) => H - B - (c / maxB) * (H - T - B)
-  const all = [...s.y, ...s.p]
-  const amin = Math.min(...all), amax = Math.max(...all)
-  const ax = (v: number) => L + ((v - amin) / (amax - amin || 1)) * (w - L - R)
-  const ay = (v: number) => T + (1 - (v - amin) / (amax - amin || 1)) * (H - T - B)
-  const label = run.label
-  return (
-    <PlotFrame title="Residuals" right={<div className="seg" role="tablist">{(['hist', 'scatter'] as const).map((v) => <button key={v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{v === 'hist' ? 'distribution' : 'ŷ vs y'}</button>)}</div>}
-      chips={<><ParamChip sym="n" value={preds.n_rows.toLocaleString()} /><ParamChip sym="r̄" value={fmtScore(s.mean, 2)} /><ParamChip sym="σᵣ" value={fmtScore(s.sd, 2)} /></>}
-      caption={<span>rᵢ = yᵢ − ŷᵢ for the {preds.n_rows.toLocaleString()} holdout rows of <b className="mono">{label}</b> ({preds.model}). r̄ is the mean residual (bias; 0 is unbiased), σᵣ their standard deviation; q₀.₀₅ … q₀.₉₅ the 5th to 95th percentiles: 90% of misses fall in [{fmtScore(s.q05, 1)}, {fmtScore(s.q95, 1)}].</span>}>
-      <div ref={ref} data-testid="residuals">
-        <svg width={w} height={H}>
-          {view === 'hist' ? <>
-            {[0, 0.5, 1].map((f) => <g key={f}><line x1={L} x2={w - R} y1={yy(maxB * f)} y2={yy(maxB * f)} stroke="var(--plot-grid)" /><text x={L - 6} y={yy(maxB * f) + 4} textAnchor="end" className="tick-text">{Math.round(maxB * f)}</text></g>)}
-            <rect x={x(s.q05)} width={Math.max(1, x(s.q95) - x(s.q05))} y={T} height={H - T - B} fill="var(--bg-wave-tint)" />
-            {bins.map((c, i) => <rect key={i} x={x(lo + i * bw) + 0.5} width={Math.max(1, x(lo + (i + 1) * bw) - x(lo + i * bw) - 1)} y={yy(c)} height={H - B - yy(c)} fill="var(--viz-a)" opacity={0.85} rx={1} />)}
-            {lo <= 0 && hi >= 0 && <line x1={x(0)} x2={x(0)} y1={T} y2={H - B} stroke="var(--text-primary)" strokeDasharray="4 3" />}
-            <line x1={x(s.mean)} x2={x(s.mean)} y1={T} y2={H - B} stroke="var(--viz-b)" strokeWidth={2} />
-            {[s.q05, s.q50, s.q95].map((v) => <text key={v} x={x(v)} y={H - B + 14} textAnchor="middle" className="tick-text">{fmtScore(v, 1)}</text>)}
-            <text x={w - R} y={H - 2} textAnchor="end" className="axis-title">r = y − ŷ</text>
-          </> : <>
-            {[0, 0.5, 1].map((f) => { const v = amin + (amax - amin) * f; return <g key={f}><line x1={L} x2={w - R} y1={ay(v)} y2={ay(v)} stroke="var(--plot-grid)" /><text x={L - 6} y={ay(v) + 4} textAnchor="end" className="tick-text">{fmtScore(v, 1)}</text><text x={ax(v)} y={H - B + 14} textAnchor="middle" className="tick-text">{fmtScore(v, 1)}</text></g> })}
-            <line x1={ax(amin)} y1={ay(amin)} x2={ax(amax)} y2={ay(amax)} stroke="var(--plot-axis)" strokeDasharray="5 4" />
-            {s.y.slice(0, 1500).map((v, i) => <circle key={i} cx={ax(v)} cy={ay(s.p[i])} r={2} fill="var(--viz-a)" fillOpacity={0.45} />)}
-            <text x={w - R} y={H - 2} textAnchor="end" className="axis-title">y (actual)</text>
-            <text x={4} y={T + 8} className="axis-title">ŷ</text>
-          </>}
-        </svg>
-        <div className="resid-sum">
-          {([['q₀.₀₅', s.q05], ['q₀.₂₅', s.q25], ['median', s.q50], ['q₀.₇₅', s.q75], ['q₀.₉₅', s.q95], ['max |r|', s.maxAbs]] as [string, number][]).map(([k, v]) => <span key={k} className="chip"><span className="sym">{k}</span>={fmtScore(v, 1)}</span>)}
-        </div>
-        <div className="resid-worst">
-          <span className="micro-label">Largest misses</span>
-          {s.worst.map((r) => <span key={r.i} className="mono">row {r.row}: y = {fmtScore(r.y, 1)}, ŷ = {fmtScore(r.yhat, 1)}, r = {fmtScore(r.r, 1)}</span>)}
-        </div>
-      </div>
-    </PlotFrame>
-  )
-}
 
 export { TopWords } from '@/shared/components/TopWords'

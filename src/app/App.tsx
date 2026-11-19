@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { BuildPage } from '@/features/build/BuildPage'
 import { VelaPage } from '@/features/vela/VelaPage'
-import { ExperimentsPage } from '@/features/experiments/ExperimentsPage'
+import { ModelsPage } from '@/features/models/ModelsPage'
 import { AnomalyPage } from '@/features/anomaly/AnomalyPage'
-import { ExplainPage } from '@/features/explain/ExplainPage'
 import { ForecastPage } from '@/features/forecast/ForecastPage'
 import { ExpectedLossPage } from '@/features/expected-loss/ExpectedLossPage'
 import { SegmentedPage } from '@/features/segmented/SegmentedPage'
@@ -92,13 +91,12 @@ export default function App() {
           {route === 'quick-train' && <QuickTrainPage go={go} />}
           {route === 'vela' && <VelaPage go={go} />}
           {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('vela?mode=auto')} gym={gym} setGym={setGym} go={go} />}
-          {route === 'models' && <ExperimentsPage go={go} />}
-          {route === 'explain' && <ExplainPage go={go} onApplyPatch={(rid, p) => applyVela(rid, { patch: p } as unknown as VelaFinding)} />}
+          {route === 'models' && <ModelsPage go={go} onApplyPatch={(rid, p) => applyVela(rid, { patch: p } as unknown as VelaFinding)} />}
           {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
           {route === 'settings' && <SettingsPage />}
           {route === 'forecast' && <ForecastPage go={go} />}
           {route === 'anomaly' && <AnomalyPage go={go} />}
-          {route === 'import' && <ImportPage go={go} />}
+          {route === 'import' && <ImportPage />}
           {route === 'expected-loss' && <ExpectedLossPage go={go} />}
           {route === 'segmented' && <SegmentedPage go={go} />}
           {route === 'survival' && <SurvivalPage go={go} />}

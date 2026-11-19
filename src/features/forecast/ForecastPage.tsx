@@ -18,13 +18,12 @@ import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Statu
 /** New Forecast: AutoGluon's TimeSeriesPredictor on long-format data (item, time, target, covariates), live, with the
  *  leaderboard, the ensemble, backtest windows, per-series errors and the quantile fan. Every number is the API's. */
 export function ForecastPage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
   return (
     <ApiOnly mock={(
     <div className="page"><div className="page-head"><div><h1 className="page-title">New Forecast</h1><p className="helper sub">AutoGluon TimeSeriesPredictor on the API.</p></div></div>
       <div className="card card-body" data-testid="forecast-mock"><p className="helper">▲ mock mode: the API is offline, so nothing can be forecast. Start it with <span className="mono">make dev</span>; this page then fits TimeSeriesPredictor live on the transaction-volume sample or your CSV.</p></div></div>
     )}>
-      {runId ? <ForecastRun key={runId} runId={runId} go={go} /> : <ForecastSetup go={go} />}
+      <ForecastSetup go={go} />
     </ApiOnly>
   )
 }
@@ -84,7 +83,7 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
   const start = async () => {
     if (!body) return
     setBusy(true); setErr('')
-    try { const r = await flows.forecast.create(body); location.hash = `#/forecast?run=${r.id}` } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    try { const r = await flows.forecast.create(body); location.hash = `#/models?run=${r.id}` } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const tsDatasets = [...datasets].sort((a, b) => Number(b.kind === 'timeseries') - Number(a.kind === 'timeseries'))
 
@@ -218,7 +217,7 @@ function Sparks({ prev }: { prev: FcPreview }) {
 
 // --------------------------------------------------------------------------- the run
 
-function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) {
+export function ForecastRun({ runId, go }: { runId: string; go: (r: string) => void }) {
   const live = useRunEvents(runId)
   const [run, setRun] = useState<FlowRun | null>(null)
   const [chart, setChart] = useState<FcChart | null>(null)

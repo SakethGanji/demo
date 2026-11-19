@@ -1,44 +1,10 @@
-import { useEffect, useState } from 'react'
-import { api } from '@/shared/api/client'
-import { flows, type SegCompare, type SegDetect, type SegResult, type SegRun } from '@/shared/api/flows'
-import { Register } from '@/shared/components/FlowParts'
-import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
-import { useFetch } from '@/shared/hooks/useFetch'
-import { useHashParam } from '@/shared/hooks/useHashParam'
-import { useRunEvents } from '@/shared/hooks/useRunEvents'
+import { flows, type SegCompare, type SegResult, type SegRun } from '@/shared/api/flows'
+import { CiBar, KindFlow, NumField, type KindSpec } from '@/shared/components/KindFlow'
+import { HeroCell } from '@/shared/components/Status'
 import { fix, pct } from '@/shared/lib/format'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import '@/features/expected-loss/expected-loss.css'
-import './segmented.css'
 
 const GLOBAL = '__global__'
 const sgn = (v: number | null | undefined, d = 3) => (v == null || !Number.isFinite(v) ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`)
-
-/**
- * G5 · Segmented models, a choice inside Build. Without ?run: the setup, pre-filled from the G0 roles (target, segment
- * column, what to leave out, the split), one primary action. With ?run: one global model against one model per segment
- * on the same holdout, with paired CIs, and the routed version to register. Registry → Segments shows the same view.
- */
-export function SegmentedPage({ go }: { go: (r: string) => void }) {
-  const runId = useHashParam('run')
-  return (
-    <ApiOnly mock={(
-      <div className="page"><Head />
-        <div className="card card-body"><p className="helper">▲ mock mode: segmented models train AutoGluon on the API, which is offline. Start it with <span className="mono">make dev</span>.</p></div></div>
-    )}>
-      {runId ? <RunView key={runId} runId={runId} go={go} /> : <Setup go={go} />}
-    </ApiOnly>
-  )
-}
-
-function Head({ right }: { right?: React.ReactNode }) {
-  return (
-    <div className="page-head">
-      <div><h1 className="page-title">Segmented Models</h1><p className="helper sub">One AutoGluon model per segment against one global model, on the same holdout; the result is one routed version.</p></div>
-      {right}
-    </div>
-  )
-}
 
 function Formula({ seg, binary }: { seg: string; binary: boolean }) {
   return (
@@ -50,119 +16,39 @@ function Formula({ seg, binary }: { seg: string; binary: boolean }) {
   )
 }
 
-// ------------------------------------------------------------------------------------------------------------ setup
-
-function Setup({ go }: { go: (r: string) => void }) {
-  const dsId = useHashParam('dataset') ?? 'segmented-loans'
-  const det = useFetch(() => flows.seg.detect(dsId), [dsId])
-  const ds = useFetch(() => api.datasets.get(dsId), [dsId])
-  // Build passes its roles (with the user's edits) as ?label=&segment=; they override the detection.
-  const fromBuild = (): Partial<SegDetect> => {
-    const q = new URLSearchParams(location.hash.split('?')[1] ?? '')
-    return { ...(q.get('label') ? { label: q.get('label') } : {}), ...(q.get('segment') ? { segment_column: q.get('segment') } : {}) }
-  }
-  const [pick, setPick] = useState<Partial<SegDetect>>(fromBuild)
-  const [limit, setLimit] = useState(20)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  useEffect(() => setPick(fromBuild()), [dsId]) // eslint-disable-line react-hooks/exhaustive-deps
-  if (det.err || ds.err) return <div className="page"><Head /><ErrorCard err={det.err || ds.err} /></div>
-  if (!det.data || !ds.data) return <div className="page"><Head /><Loading>Reading the column roles…</Loading></div>
-  const d = { ...det.data, ...pick }
-  const segCol = ds.data.profile.columns.find((c) => c.name === d.segment_column)
-  const groups = segCol?.top ?? []
-  const segOptions = ds.data.profile.columns.filter((c) => c.type === 'category' && c.unique >= 2 && c.unique <= 12 && c.name !== d.label)
-  const h = det.data.heterogeneity
-  const start = async () => {
-    setBusy(true); setErr('')
-    try {
-      const r = await flows.seg.create({ dataset_id: dsId, label: d.label!, segment_column: d.segment_column!, drop_columns: d.drop_columns.filter((c) => c !== d.label && c !== d.segment_column), time_limit: limit })
-      go(`segmented?run=${r.id}`)
-    } catch (e) { setErr((e as Error).message); setBusy(false) }
-  }
-  const why = (k: 'label' | 'segment_column') => (pick[k] && pick[k] !== det.data![k] ? 'set by you' : (det.data!.evidence[d[k] ?? ''] ?? []).join(', '))
-  return (
-    <div className="page" data-testid="seg-setup">
-      <Head />
-      <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">What we use</h3><span className="helper" style={{ fontSize: 12 }}>{ds.data.name} · {ds.data.rows.toLocaleString()} rows · detected from the column roles; change any of them</span></div>
-          <button className="btn primary" disabled={!d.label || !d.segment_column || busy} onClick={start} data-testid="seg-start">{busy ? 'Starting…' : `Train global + ${groups.length || 'k'} segment models →`}</button></div>
-        <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
-          <Formula seg={d.segment_column ?? 's'} binary={d.problem_type !== 'regression'} />
-          <div className="table-wrap"><table className="table compact" data-testid="seg-detected">
-            <thead><tr><th>input</th><th>column</th><th>why</th></tr></thead>
-            <tbody>
-              <tr><td>target y</td>
-                <td><select className="input mono" value={d.label ?? ''} onChange={(e) => setPick({ ...pick, label: e.target.value })} data-testid="seg-label">
-                  {!d.label && <option value="">—</option>}{ds.data.profile.columns.map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{d.label ? why('label') : 'nothing detected: pick a column'}</td></tr>
-              <tr><td>segment s</td>
-                <td><select className="input mono" value={d.segment_column ?? ''} onChange={(e) => setPick({ ...pick, segment_column: e.target.value })} data-testid="seg-column">
-                  {!d.segment_column && <option value="">—</option>}{segOptions.map((c) => <option key={c.name}>{c.name}</option>)}</select></td>
-                <td className="helper" style={{ fontSize: 12 }}>{d.segment_column ? why('segment_column') : 'nothing detected: pick a category with 2–12 values'}</td></tr>
-              <tr><td>left out</td><td className="mono" colSpan={2}>{d.drop_columns.join(', ') || 'none'} <span className="helper" style={{ fontSize: 12 }}>· IDs, leaks, protected; {d.split === 'random' ? 'random holdout' : `${d.split} holdout by ${d.time_column ?? d.group_column}`}</span></td></tr>
-            </tbody>
-          </table></div>
-          {h && !pick.label && !pick.segment_column && <p className={`helper ${h.opposite ? 'el-ok' : ''}`} style={{ fontSize: 12.5 }} data-testid="seg-hetero">
-            {h.opposite ? '● ' : ''}A quick look before any fit: {h.words}. ρ is the rank correlation with {d.label} inside each segment.</p>}
-          <details className="an-adv">
-            <summary className="micro-label">Advanced · {limit} s per model</summary>
-            <div className="row" style={{ gap: 8, padding: 'var(--space-8) 0' }}>
-              <label className="helper">time per model (s)</label>
-              <input className="input mono" type="number" min={10} max={3600} value={limit} onChange={(e) => setLimit(Number(e.target.value) || 20)} style={{ width: 90 }} data-testid="seg-limit" />
-              <span className="helper" style={{ fontSize: 12 }}>AutoGluon medium_quality, the same config for the global model and every segment's.</span>
-            </div>
-          </details>
-          <p className="helper" style={{ fontSize: 12.5 }}>The global model sees every training row, {d.segment_column ?? 'the segment'} included; each segment's model sees only its own rows. A segment with fewer than 300 training rows (or 30 of the rarer class) keeps the global model. Where the split has a tuning slice, a segment is routed to its own model only if that model beat the global one there, so the holdout stays untouched until the comparison.</p>
-          {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
-        </div>
-      </div>
-    </div>
-  )
+/**
+ * G5 · Segmented models, a choice inside Build: the setup, pre-filled from the G0 roles (target, segment column, what to leave
+ * out, the split). The run (Models): one global model against one model per segment on the same holdout, with paired CIs, and
+ * the routed version to register. Registry → Results shows the same view.
+ */
+export const SEG_SPEC: KindSpec = {
+  id: 'segmented', title: 'Segmented Models', testId: 'seg', defaultDataset: 'segmented-loans', mockWhat: 'segmented models train AutoGluon',
+  sub: 'One AutoGluon model per segment against one global model, on the same holdout; the result is one routed version.',
+  detect: flows.seg.detect, create: (b) => flows.seg.create(b as never),
+  roles: [
+    { key: 'label', label: 'target y', urlParam: 'label', testId: 'seg-label', options: (ds) => ds.profile.columns.map((c) => c.name), emptyHint: 'nothing detected: pick a column' },
+    { key: 'segment_column', label: 'segment s', urlParam: 'segment', testId: 'seg-column', emptyHint: 'nothing detected: pick a category with 2–12 values',
+      options: (ds, d) => ds.profile.columns.filter((c) => c.type === 'category' && c.unique >= 2 && c.unique <= 12 && c.name !== d.label).map((c) => c.name) },
+  ],
+  leftOut: ({ d }) => <>IDs, leaks, protected; {d.split === 'random' ? 'random holdout' : `${d.split} holdout by ${d.time_column ?? d.group_column}`}</>,
+  Formula: ({ d }) => <Formula seg={d.segment_column ?? 's'} binary={d.problem_type !== 'regression'} />,
+  note: ({ d, det, pick }) => det.heterogeneity && !pick.label && !pick.segment_column && <p className={`helper ${det.heterogeneity.opposite ? 'el-ok' : ''}`} style={{ fontSize: 12.5 }} data-testid="seg-hetero">
+    {det.heterogeneity.opposite ? '● ' : ''}A quick look before any fit: {det.heterogeneity.words}. ρ is the rank correlation with {d.label} inside each segment.</p>,
+  advanced: { initial: () => ({ limit: 20 }), summary: (o) => `${o.limit} s per model`,
+    Body: ({ o, set }) => <><NumField label="time per model (s)" value={o.limit} set={(limit) => set({ limit })} min={10} max={3600} testId="seg-limit" /><span className="helper" style={{ fontSize: 12 }}>AutoGluon medium_quality, the same config for the global model and every segment's.</span></> },
+  explain: ({ d }) => <>The global model sees every training row, {d.segment_column ?? 'the segment'} included; each segment's model sees only its own rows. A segment with fewer than 300 training rows (or 30 of the rarer class) keeps the global model. Where the split has a tuning slice, a segment is routed to its own model only if that model beat the global one there, so the holdout stays untouched until the comparison.</>,
+  startLabel: ({ d, ds }) => `Train global + ${ds.profile.columns.find((c) => c.name === d.segment_column)?.top?.length || 'k'} segment models →`,
+  canStart: ({ d }) => !!(d.label && d.segment_column),
+  body: ({ d, o }) => ({ label: d.label, segment_column: d.segment_column, drop_columns: d.drop_columns.filter((c: string) => c !== d.label && c !== d.segment_column), time_limit: o.limit }),
+  running: { events: 'seg', wide: true, line: (run) => `Training the global model, then one per ${run.config.segment_column}, ${run.config.time_limit ?? '—'} s each`,
+    steps: (_, started) => started.map((e) => ({ key: e.model as string, label: <><b>{e.model === GLOBAL ? 'global' : String(e.model)}</b><span className="helper"> · {Number(e.rows).toLocaleString()} rows</span></> })) },
+  meta: (run) => `y = ${run.config.label} · s = ${run.config.segment_column}`,
+  registerName: (run) => `${run.dataset_id}.segmented`,
 }
 
-// --------------------------------------------------------------------------------------------------------- run page
-
-function RunView({ runId, go }: { runId: string; go: (r: string) => void }) {
-  const live = useRunEvents(runId)
-  const r = useFetch(() => flows.seg.get(runId), [runId, live.done], { pollMs: 4000, while: (d) => !!d && (d.status === 'queued' || d.status === 'running') })
-  if (r.err) return <div className="page"><Head /><ErrorCard err={r.err} /></div>
-  if (!r.data) return <div className="page"><Head /><Loading>Loading the run…</Loading></div>
-  const run = r.data
-  const started = live.events.filter((e) => e.type === 'seg_model_started').map((e) => ({ model: e.model as string, rows: e.rows as number }))
-  const done = new Set(live.events.filter((e) => e.type === 'seg_model_finished').map((e) => e.model as string))
-  return (
-    <div className="page" data-testid="seg-run" data-status={run.status}>
-      <Head right={run.status === 'succeeded' ? <Register runId={runId} go={go} name={`${run.dataset_id}.segmented`} /> : undefined} />
-      <p className="helper mono" style={{ fontSize: 12, marginTop: -8 }}>{run.name} · {runId} · y = {run.config.label} · s = {run.config.segment_column}</p>
-      {run.status === 'failed' && <ErrorCard err={run.error ?? 'The run failed.'} />}
-      {(run.status === 'queued' || run.status === 'running') && (
-        <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
-          <div className="row"><ResonanceWave /> <span>Training the global model, then one per {run.config.segment_column}, {run.config.time_limit ?? '—'} s each · {live.stage}</span></div>
-          <div className="el-steps seg-steps">{started.map((m) => (
-            <div key={m.model} className={`el-step ${done.has(m.model) ? 'done' : 'on'}`}><b>{m.model === GLOBAL ? 'global' : m.model}</b><span className="helper"> · {m.rows.toLocaleString()} rows</span><span className="mono">{done.has(m.model) ? '✓' : '…'}</span></div>
-          ))}</div>
-        </div></div>
-      )}
-      {run.status === 'succeeded' && run.segmented && <SegResults run={run} />}
-    </div>
-  )
-}
+export const SegmentedPage = ({ go }: { go: (r: string) => void }) => <KindFlow spec={SEG_SPEC} go={go} />
 
 // ---------------------------------------------------------------------------------------------- results (shared)
-
-/** A paired difference as a dot with its 95% CI on a symmetric axis around 0 (green when it favours the segment model). */
-export function CiBar({ d, span, better }: { d: { delta: number; ci: [number, number] } | null | undefined; span: number; better: 'up' | 'down' }) {
-  if (!d) return <span className="helper">—</span>
-  const x = (v: number) => `${50 + (Math.max(-span, Math.min(span, v)) / span) * 50}%`
-  const good = better === 'up' ? d.ci[0] > 0 : d.ci[1] < 0
-  const bad = better === 'up' ? d.ci[1] < 0 : d.ci[0] > 0
-  return (
-    <div className={`seg-ci ${good ? 'good' : bad ? 'bad' : ''}`} title={`${sgn(d.delta, 4)} [${sgn(d.ci[0], 4)}, ${sgn(d.ci[1], 4)}]`}>
-      <i className="zero" /><i className="bar" style={{ left: x(d.ci[0]), width: `calc(${x(d.ci[1])} - ${x(d.ci[0])})` }} /><i className="dot" style={{ left: x(d.delta) }} />
-    </div>
-  )
-}
 
 /** The comparison: used by the run page and by Registry → Segments. */
 export function SegResults({ run }: { run: SegRun }) {
