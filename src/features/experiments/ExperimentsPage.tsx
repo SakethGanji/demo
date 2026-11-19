@@ -9,6 +9,7 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { useApi } from '@/shared/api/mode'
+import { Loading } from '@/shared/components/Status'
 import { LiveExperiments } from './LiveExperiments'
 import { RunTable } from './components/RunTable'
 
@@ -28,6 +29,7 @@ const AXES: PCAxis[] = [
 
 export function ExperimentsPage({ go }: { go: (r: string) => void }) {
   const { mode } = useApi()
+  if (mode === 'checking') return <Loading>Connecting…</Loading>
   return mode === 'live' ? <LiveExperiments go={go} /> : <MockExperiments go={go} />
 }
 
@@ -47,12 +49,12 @@ function MockExperiments({ go }: { go: (r: string) => void }) {
     <div className="page">
       <div className="page-head">
         <div>
-          <h1 className="page-title">Experiments</h1>
+          <h1 className="page-title">Models</h1>
           <p className="helper sub"><span className="mono" data-testid="exp-simulated">▲ SIMULATED</span> · Enterprise Support Ticket Classifier · {onlyGood ? `${runs.length} of ${RUNS.length} runs shown` : `${RUNS.length} runs`} · {runs.filter((r) => sel.has(r.id)).length} selected</p>
         </div>
         <div className="row">
           <button className={`btn ${onlyGood ? 'vela on' : ''}`} onClick={() => setOnlyGood(!onlyGood)}><span className="math" style={{ fontSize: 14 }}>F1</span> ≥ 0.90</button>
-          <button className="btn primary" onClick={() => go('registry')}>Register Model Version</button>
+          <button className="btn primary" onClick={() => go('registry')}>Register…</button>
         </div>
       </div>
 

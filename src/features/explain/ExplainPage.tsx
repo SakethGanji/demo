@@ -23,6 +23,7 @@ import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 import { ErrorCard, Loading } from '@/shared/components/Status'
+import { useTabParam } from '@/shared/hooks/useHashParam'
 
 type Tab = 'Performance' | 'Model Doctor' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Weak Slices' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
 /** F19: the order a reviewer reads a model in. How good is it (and where to cut), why does it decide, what limits it
@@ -35,7 +36,7 @@ const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
 ]
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
-const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
+const ALL_TABS = TAB_GROUPS.flatMap((g) => g.tabs)
 const hashParam = (k: string) => new URLSearchParams(location.hash.split('?')[1] ?? '').get(k)
 
 /** Explain one run: how good, where it fails, why it predicts what it does, and for whom. Every number is the API's. */
@@ -47,13 +48,13 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
   const [ex, setEx] = useState<Explain | null>(null)
   const [preds, setPreds] = useState<HoldoutPredictions | null>(null)
   const [err, setErr] = useState('')
-  const [tab, setTab] = useState<Tab>((tabParam() as Tab) || 'Performance')
+  const [tab, setTab] = useTabParam<Tab>(ALL_TABS, 'Performance', { doctor: 'Model Doctor', shap: 'Features & SHAP', slices: 'Weak Slices', labels: 'Labelling Queue' })
   const [shapRow, setShapRow] = useState<number | null>(null)
   const [version, setVersion] = useState(0) // bumps when the threshold changes: re-read everything that depends on it
 
   // F19: a link to Explain while it is open (Vela, the Doctor's notices, a pasted URL) also selects its view
   useEffect(() => {
-    const f = () => { setRunId(runParam()); const t = tabParam() as Tab | null; if (t) setTab(t) }
+    const f = () => setRunId(runParam())
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f)
   }, [])
   useEffect(() => {
@@ -129,7 +130,7 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
             {(runs.some((r) => r.id === run.id) ? runs : [run, ...runs]).map((r) => <option key={r.id} value={r.id}>{r.id} · {r.name}</option>)}
           </select>
           <button className="btn" onClick={() => go(`quick-train?run=${run.id}`)}>Results →</button>
-          <button className="btn" onClick={() => go('experiments')}>Experiments</button>
+          <button className="btn" onClick={() => go('models')}>Models</button>
         </div>
       </div>
 

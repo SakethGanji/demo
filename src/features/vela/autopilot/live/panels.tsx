@@ -93,7 +93,7 @@ export function StepsTable({ a }: { a: Autopilot }) {
               return (
                 <tr key={s.id} className={s.status === 'dropped' ? 'muted' : ''}>
                   <td className="mono">{s.n}</td><td>{s.title}</td>
-                  <td><a className="mono" href={`#/experiments?run=${s.run_id}`}>{s.run_id}</a></td>
+                  <td><a className="mono" href={`#/models?run=${s.run_id}`}>{s.run_id}</a></td>
                   <td className="mono">v{s.dataset_version ?? 1}</td><td className="mono">{b?.presets}</td>
                   <td className="r mono">{b?.time_limit?.toFixed(0)}</td><td className="r mono">{s.seconds?.toFixed(0)}</td>
                   <td className="r mono">{s.score_own?.toFixed(4) ?? '—'}</td><td className="r mono"><b>{s.score?.toFixed(4) ?? '—'}</b></td>

@@ -53,7 +53,7 @@ JSON_RULES = """Reply with exactly one JSON object and nothing else:
 
 OFFERS = [  # the one-click UI flows offered when no model is available
     (("train", "model", "build", "fit"), "Open Build (Smart Intake)", "#/build"),
-    (("doctor", "diagnos", "why is", "explain"), "Open the run's Explain → Model Doctor", "#/explain"),
+    (("doctor", "diagnos", "why is", "explain"), "Open the run in Models → Doctor", "#/models"),
     (("declin", "reason", "counterfactual", "recourse", "applicant"), "Open Registry → Try It (reason codes, recourse)", "#/registry"),
     (("score", "batch", "drift", "monitor"), "Open Registry → Batch & Drift", "#/registry"),
     (("end to end", "autopilot", "for me"), "Run it end to end (Autopilot)", "#/vela?mode=auto"),

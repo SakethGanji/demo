@@ -6,7 +6,7 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { EmptyState } from '@/shared/components/EmptyState'
-import { TYPE_FILTERS, headline, kindOf, problemLine, runPage, typeOf } from '@/shared/lib/runKinds'
+import { RI_NOT_REGISTRABLE, TYPE_FILTERS, headline, kindOf, problemLine, runPage, typeOf } from '@/shared/lib/runKinds'
 import { CompareRuns } from './components/CompareRuns'
 import { ParamDiff } from './components/ParamDiff'
 import { RunCoordinates } from './components/RunCoordinates'
@@ -27,6 +27,7 @@ export const bestVal = (r: Run) => {
   return orig?.score_val_natural ?? null
 }
 export const presetsOf = (r: Run) => { const p = r.config.presets; return Array.isArray(p) ? p.join('+') : (p as string | null) ?? '—' }
+const typeParam = () => { const t = new URLSearchParams(location.hash.split('?')[1] ?? '').get('type'); return t === 'import' ? 'imported' : t && (TYPE_FILTERS as readonly string[]).includes(t) ? t : 'all' }
 const ago = (iso: string) => {
   const s = (Date.now() - new Date(iso).getTime()) / 1000
   return s < 60 ? `${Math.round(s)} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(iso).toLocaleDateString()
@@ -35,13 +36,14 @@ const ago = (iso: string) => {
 type Tab = 'Runs' | 'Compare' | 'Parameter Diff'
 type Filters = { dataset: string; type: string; status: string; q: string; min: string }
 
-/** Experiments on the API's real runs: filter, plot the runs across their parameters and metrics, compare, diff. */
+/** Models: the API's real runs: filter, plot the runs across their parameters and metrics, compare, diff. */
 export function LiveExperiments({ go }: { go: (r: string) => void }) {
   const { data: runs, err } = useFetch(() => api.runs.list(undefined, 'all'), [], { pollMs: 5000 })
   const [tab, setTab] = useState<Tab>('Runs')
   const [sel, setSel] = useState<string[]>([])
-  const [f, setF] = useState<Filters>({ dataset: 'all', type: 'all', status: 'all', q: '', min: '' })
-  // #/experiments?compare=a,b (from a Vela patch's retrain): select those runs and open Compare.
+  // ?type= (from a setup page's "earlier runs are in Models" link) preselects the problem filter.
+  const [f, setF] = useState<Filters>(() => ({ dataset: 'all', type: typeParam(), status: 'all', q: '', min: '' }))
+  // #/models?compare=a,b (from a Vela patch's retrain): select those runs and open Compare.
   const fromUrl = useRef(new URLSearchParams(location.hash.split('?')[1] ?? '').get('compare')).current
   useEffect(() => { if (fromUrl) { setSel(fromUrl.split(',').filter(Boolean)); setTab('Compare') } }, [fromUrl])
   // First visit: preselect the latest finished runs of the dataset with the most runs.
@@ -73,8 +75,8 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
   if (!runs) return <Loading>Reading the runs from the API: their scores, parameters and thresholds…</Loading>
   if (!runs.length) return (
     <div className="page experiments" data-testid="experiments-live">
-      <div className="page-head"><div><h1 className="page-title">Experiments</h1><p className="helper sub" data-testid="exp-summary">0 runs · every run you train, forecast, score for anomalies or import lands here</p></div></div>
-      <EmptyState testId="exp-empty" title="No experiments yet"
+      <div className="page-head"><div><h1 className="page-title">Models</h1><p className="helper sub" data-testid="exp-summary">0 runs · every run you train, forecast, score for anomalies or import lands here</p></div></div>
+      <EmptyState testId="exp-empty" title="No runs yet"
         actions={<button className="btn primary" onClick={() => go('build')}>Build →</button>}>
         <p>Each run becomes one row with its own metric s on held-out data, its parameters and its fit time; tabular runs on the same dataset and label are drawn as strings across parallel coordinates, compared side by side (ROC, PR, residuals, Δ on the same holdout) and diffed down to the exact <span className="mono">TabularPredictor(...).fit(...)</span> arguments.</p>
         <p>Six samples are ready: support tickets (text, 6 classes), account churn and credit default (binary, imbalanced), loan amount (regression), transaction volume (forecasting) and card transactions (anomalies).</p>
@@ -89,7 +91,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
     <div className="page experiments" data-testid="experiments-live">
       <div className="page-head">
         <div>
-          <h1 className="page-title">Experiments</h1>
+          <h1 className="page-title">Models</h1>
           <p className="helper sub" data-testid="exp-summary">{runs.length} runs · {shown.length} shown · {sel.length} selected · {byStatus.succeeded ?? 0} succeeded{byStatus.running ? ` · ${byStatus.running} running` : ''}{byStatus.failed ? ` · ${byStatus.failed} failed` : ''}</p>
         </div>
         <div className="row">
@@ -145,9 +147,10 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
                     <td onClick={(e) => e.stopPropagation()} style={{ whiteSpace: 'nowrap' }}>
                       {r.status === 'succeeded' ? <>
                         {tab && <><button className="chip-btn" onClick={() => go(`explain?run=${r.id}`)} data-testid={`exp-explain-${r.id}`}>Explain</button>{' '}</>}
-                        <button className="chip-btn" onClick={() => go(runPage(r))} data-testid={`exp-open-${r.id}`}>{tab ? 'Results' : 'Open'}</button>{' '}
-                        <button className="chip-btn" onClick={() => go(`registry?register=${r.id}`)} data-testid={`exp-register-${r.id}`}>Register</button>
-                      </> : r.status === 'running' || r.status === 'queued' ? <button className="chip-btn" onClick={() => go(runPage(r))}>Watch</button> : r.error ? <span className="muted" title={r.error}>error</span> : null}
+                        <button className="chip-btn" onClick={() => go(runPage(r))} data-testid={`exp-open-${r.id}`}>Open</button>{' '}
+                        {k === 'reject_inference' ? <span className="muted" title={RI_NOT_REGISTRABLE}>not registrable</span>
+                          : <button className="chip-btn" onClick={() => go(`registry?register=${r.id}`)} data-testid={`exp-register-${r.id}`}>Register…</button>}
+                      </> : r.status === 'running' || r.status === 'queued' ? <button className="chip-btn" onClick={() => go(runPage(r))}>Open</button> : r.error ? <span className="muted" title={r.error}>error</span> : null}
                     </td>
                   </tr>
                 )

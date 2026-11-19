@@ -26,9 +26,9 @@ function MockRegistry({ go, approved, onApprove }: { go: (r: string) => void; ap
   return (
     <div className="page">
       <div className="page-head">
-        <div><h1 className="page-title">Model Registry <span className="pill warning" data-testid="registry-simulated">SIMULATED</span></h1><p className="helper sub">mock mode · the API is offline, so these versions are scripted · Enterprise Support Ticket Classifier · 5 versions · {approved ? 'v3.0.0-rc1' : 'v2.4.1'} in Production</p></div>
+        <div><h1 className="page-title">Registry <span className="pill warning" data-testid="registry-simulated">SIMULATED</span></h1><p className="helper sub">mock mode · the API is offline, so these versions are scripted · Enterprise Support Ticket Classifier · 5 versions · {approved ? 'v3.0.0-rc1' : 'v2.4.1'} in Production</p></div>
         <div className="row">
-          <button className="btn" onClick={() => go('experiments')}>Compare Runs →</button>
+          <button className="btn" onClick={() => go('models')}>Models</button>
           {approved ? <StatusPill status="success">v3.0.0-rc1 Approved</StatusPill> : <button className="btn primary" onClick={onApprove}>Approve v3.0.0-rc1</button>}
         </div>
       </div>
@@ -42,10 +42,10 @@ function MockRegistry({ go, approved, onApprove }: { go: (r: string) => void; ap
         ))}
       </div>
       <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">Version Lineage</h3></div>
+        <div className="card-head"><div className="left"><h3 className="card-title">Lineage</h3></div>
           <div className="row">
             <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--accent-primary)" strokeWidth="2" /></svg>Approved</span>
-            <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--status-warning)" strokeWidth="2" strokeDasharray="4 3" /></svg>Awaiting Approval</span>
+            <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--status-warning)" strokeWidth="2" strokeDasharray="4 3" /></svg>Pending / Staging</span>
           </div>
         </div>
         <Graph width={1080} height={190} nodeW={176} nodeH={64}
@@ -58,13 +58,13 @@ function MockRegistry({ go, approved, onApprove }: { go: (r: string) => void; ap
             { id: 'v2', x: 460, y: 106, title: 'v3.0.0-rc1', sub: approved ? 'Approved · Maya Lin' : 'Awaiting approval', active: !approved },
             { id: 'p', x: 680, y: 20, title: approved ? 'Archived' : 'Production', sub: approved ? 'retired just now' : '48,210 req / 24h' },
             { id: 's', x: 680, y: 106, title: approved ? 'Production' : 'Staging', sub: approved ? '100% traffic' : 'shadow 10% traffic' },
-            { id: 'm', x: 884, y: 63, title: 'Drift Monitor', sub: 'PSI: 0.031' },
+            { id: 'm', x: 884, y: 63, title: 'Drift monitor', sub: 'PSI: 0.031' },
           ]}
           edges={[{ from: 'd1', to: 'r1' }, { from: 'd2', to: 'r2' }, { from: 'r1', to: 'v1' }, { from: 'r2', to: 'v2', kind: 'active' }, { from: 'v1', to: 'p' }, { from: 'v2', to: 's', kind: approved ? 'ok' : 'warn' }, { from: 'p', to: 'm' }, { from: 's', to: 'm' }]} />
       </div>
       <div className="card table-wrap">
         <table className="table">
-          <thead><tr><th>Version</th><th>Stage</th><th>Source Run</th><th className="r">Macro F1</th><th className="r">AUC</th><th>Approved By</th><th className="r">Registered</th></tr></thead>
+          <thead><tr><th>Version</th><th>Stage</th><th>Source run</th><th className="r">Macro F1</th><th className="r">AUC</th><th>Approved by</th><th className="r">Registered</th></tr></thead>
           <tbody>
             {versions.map(([v, st, word, run, f1, auc, by, at], i) => (
               <tr key={v} className={i === 0 ? 'sel' : ''}>

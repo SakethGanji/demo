@@ -133,7 +133,7 @@ export function LiveGym({ gym, setGym, guided, setGuided, go }: {
             <div className="patch-banner" data-testid="gym-patch-banner">
               <b>Vela patch applied to {gym.fromRun}:</b> {gym.patch.title}
               {gym.patch.changes.map((c) => <span key={c.path} className="diffline"><span className="mono">{c.path}</span> <span className="old">{JSON.stringify(c.from)}</span> → <span className="mono">{JSON.stringify(c.to)}</span></span>)}
-              <span className="helper">Start Training trains it as a child of {gym.fromRun}; Experiments compares the two.</span>
+              <span className="helper">Start Training trains it as a child of {gym.fromRun}; Models compares the two.</span>
             </div>
           )}
           <div className="grid gym-grid">

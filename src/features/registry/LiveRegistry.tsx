@@ -13,19 +13,28 @@ import { CreditReport } from './components/CreditReport'
 import { Lineage } from './components/Lineage'
 import { ModelCardView } from './components/ModelCardView'
 import { RegisterPanel } from './components/RegisterPanel'
-import { ElVersionTab } from '@/features/expected-loss/ExpectedLossPage'
-import { SegVersionTab } from '@/features/segmented/SegmentedPage'
-import { SurvTryIt, SurvVersionTab } from '@/features/survival/SurvivalPage'
-import { MlTryIt, MlVersionTab } from '@/features/multilabel/MultilabelPage'
-import { TryIt } from './components/TryIt'
+import { KindResults, RESULTS, TryItFor } from '@/shared/components/KindResults'
+import { kindOf, runPage, type RunKind } from '@/shared/lib/runKinds'
+import { useTabParam } from '@/shared/hooks/useHashParam'
 import { ReasonCodes } from './components/ReasonCodes'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
 import { ServingCard } from './components/ServingCard'
-import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
+import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, us, useActor, versionParam, when } from './lib'
 import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
-type Tab = 'Overview' | 'Expected Loss' | 'Segments' | 'Survival' | 'Labels' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending' | 'Audit'
-const TABS: Tab[] = ['Overview', 'Expected Loss', 'Segments', 'Survival', 'Labels', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Fair Lending', 'Audit']
+type Tab = 'Overview' | 'Results' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending'
+const TABS: Tab[] = ['Overview', 'Results', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Fair Lending']
+/** G11: the four per-kind result tabs became one Results tab; Audit is the card below, filtered to the version. */
+const TAB_ALIASES: Record<string, Tab> = { 'Expected Loss': 'Results', Segments: 'Results', Survival: 'Results', Labels: 'Results', batch: 'Batch & Drift', drift: 'Batch & Drift', Audit: 'Overview' }
+const binaryTabular = (v: ModelVersion) => flowOf(v) === 'tabular' && v.result?.version?.problem_type === 'binary'
+/** Which tabs a version has. */
+const APPLIES: Record<Tab, (v: ModelVersion) => boolean> = {
+  Overview: () => true, 'Model Card': () => true, 'Try It': () => true, 'Batch & Drift': () => true,
+  Results: (v) => !!RESULTS[flowOf(v) as RunKind],
+  'Reason Codes': (v) => rowFlow(v) && v.result?.version?.problem_type === 'binary',
+  Monitoring: (v) => flowOf(v) === 'tabular',
+  'Credit Report': binaryTabular, 'Fair Lending': binaryTabular,
+}
 
 /** The registry on the API's real data: versions built from runs, their stages and reviews, the audit log, lineage,
  *  and each version's card, Try It and batch scoring with drift. */
@@ -40,7 +49,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   const [loaded, setLoaded] = useState(false)
   const [err, setErr] = useState('')
   const [sel, setSel] = useState<string | null>(versionParam)
-  const [tab, setTab] = useState<Tab>((tabParam() as Tab) || 'Overview')
+  const [tab, setTab] = useTabParam<Tab>(TABS, 'Overview', TAB_ALIASES)
   const [registering, setRegistering] = useState<string | null>(runParamReg)
   const [detail, setDetail] = useState<ModelVersion | null>(null)
   const [ds, setDs] = useState<DatasetDetail | null>(null)
@@ -48,7 +57,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   const bump = useCallback(() => setTick((t) => t + 1), [])
 
   useEffect(() => {
-    const f = () => { setSel(versionParam()); const r = runParamReg(); if (r) setRegistering(r); const t = tabParam() as Tab; if (t) setTab(t) }
+    const f = () => { setSel(versionParam()); const r = runParamReg(); if (r) setRegistering(r) }
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f)
   }, [])
   useEffect(() => {
@@ -92,23 +101,24 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
     setSel(id); setTab(t)
     history.replaceState(null, '', id ? `#/registry?version=${id}&tab=${encodeURIComponent(t)}` : '#/registry')
   }
-  const okRuns = runs.filter((r) => r.status === 'succeeded')
+  const okRuns = runs.filter((r) => r.status === 'succeeded' && kindOf(r) !== 'reject_inference')
 
   if (err && !loaded) return <ErrorCard err={err} />
   if (!loaded || !counts) return <Loading>Reading the registry: registered models, versions, stages, the audit log and lineage…</Loading>
   const prod = versions.filter((v) => v.stage === 'Production')
+  const shownAudit = detail ? audit.filter((a) => a.version_id === detail.id) : audit
 
   return (
     <div className="page registry" data-testid="registry">
       <div className="page-head">
         <div>
-          <h1 className="page-title">Model Registry</h1>
+          <h1 className="page-title">Registry</h1>
           <p className="helper sub">{counts.models} registered model{counts.models === 1 ? '' : 's'} · {counts.versions} version{counts.versions === 1 ? '' : 's'} · {counts.stages.Production} in Production · MLflow registry mirrored on a local store</p>
         </div>
         <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8 }}>
           <label className="actor"><span className="micro-label">acting as</span><input className="input" data-testid="actor" placeholder="your name" value={actor} onChange={(e) => setActor(e.target.value)} /></label>
-          <button className="btn" onClick={() => go('experiments')}>Experiments</button>
-          <button className="btn primary" data-testid="open-register" disabled={!okRuns.length} onClick={() => setRegistering(okRuns[0]?.id ?? null)}>Register a run</button>
+          <button className="btn" onClick={() => go('models')}>Models</button>
+          <button className={`btn ${detail ? '' : 'primary'}`} data-testid="open-register" disabled={!okRuns.length} onClick={() => setRegistering(okRuns[0]?.id ?? null)}>Register…</button>
         </div>
       </div>
 
@@ -179,11 +189,9 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
             <StatusPill status={STAGE_STATUS[detail.stage]}>{detail.stage}</StatusPill><StatusPill status={APPROVAL_STATUS[detail.approval]}>{detail.approval}</StatusPill>
             <span className="helper mono" style={{ fontSize: 12 }}>from {detail.run_id} · registered by {detail.created_by}{detail.options.description ? ` · “${detail.options.description}”` : ''}</span>
             <span className="spacer" />
-            {flowOf(detail) === 'tabular'
-              ? <button className="btn sm" onClick={() => go(`explain?run=${detail.run_id}`)}>Explain run →</button>
-              : <button className="btn sm" onClick={() => go(`${flowRoute(detail)}?run=${detail.run_id}`)} data-testid="vd-open-flow">Open {flowOf(detail).replace('_', ' ')} run →</button>}
+            <button className="btn sm" onClick={() => go(openRun(detail))} data-testid="vd-open-flow">{flowOf(detail) === 'tabular' ? 'Explain run →' : `Open ${flowOf(detail).replace('_', ' ')} run →`}</button>
           </div>
-          <Tabs tabs={TABS.filter((t) => ((t !== 'Credit Report' && t !== 'Fair Lending') || (flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary')) && (t !== 'Reason Codes' || (rowFlow(detail) && detail.result?.version?.problem_type === 'binary')) && (t !== 'Monitoring' || flowOf(detail) === 'tabular') && (t !== 'Expected Loss' || flowOf(detail) === 'expected_loss') && (t !== 'Segments' || flowOf(detail) === 'segmented') && (t !== 'Survival' || flowOf(detail) === 'survival') && (t !== 'Labels' || flowOf(detail) === 'multilabel'))} value={tab} onChange={(t) => select(detail.id, t as Tab)} />
+          <Tabs tabs={TABS.filter((t) => APPLIES[t](detail))} value={APPLIES[tab](detail) ? tab : 'Overview'} onChange={(t) => select(detail.id, t as Tab)} />
           {tab === 'Overview' && (detail.status !== 'ready'
             ? <BuildSteps v={detail} />
             : <>
@@ -193,42 +201,30 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
                 ds && detail.result.version.features.length ? Object.fromEntries(detail.result.version.features.map((f) => [f, ds.profile.columns.find((c) => c.name === f)?.example ?? null])) : null} />}
               <BuildSteps v={detail} />
             </>)}
-          {detail.status === 'ready' && tab === 'Expected Loss' && flowOf(detail) === 'expected_loss' && <ElVersionTab runId={detail.run_id} />}
-          {detail.status === 'ready' && tab === 'Segments' && flowOf(detail) === 'segmented' && <SegVersionTab runId={detail.run_id} />}
-          {detail.status === 'ready' && tab === 'Survival' && flowOf(detail) === 'survival' && <SurvVersionTab runId={detail.run_id} />}
-          {detail.status === 'ready' && tab === 'Try It' && flowOf(detail) === 'survival' && <SurvTryIt key={detail.id} v={detail} />}
-          {detail.status === 'ready' && tab === 'Labels' && flowOf(detail) === 'multilabel' && <MlVersionTab runId={detail.run_id} />}
-          {detail.status === 'ready' && tab === 'Try It' && flowOf(detail) === 'multilabel' && <MlTryIt key={detail.id} v={detail} />}
+          {detail.status === 'ready' && tab === 'Results' && APPLIES.Results(detail) && <KindResults key={detail.id} kind={flowOf(detail) as RunKind} runId={detail.run_id} />}
+          {detail.status === 'ready' && tab === 'Try It' && <TryItFor v={detail} kind={flowOf(detail)} run={run} ds={ds} open={() => go(openRun(detail))} />}
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}
-          {detail.status === 'ready' && rowFlow(detail) && tab === 'Try It' && <TryIt v={detail} run={run} ds={ds} />}
           {detail.status === 'ready' && tab === 'Reason Codes' && rowFlow(detail) && detail.result?.version?.problem_type === 'binary' && <ReasonCodes key={detail.id} v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && tab === 'Monitoring' && flowOf(detail) === 'tabular' && <MonitoringPanel key={detail.id} v={detail} actor={actor} versions={versions} onSelect={(id) => select(id, 'Overview')} onChanged={bump} />}
           {detail.status === 'ready' && tab === 'Credit Report' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <CreditReport key={detail.id} v={detail} actor={actor} />}
           {detail.status === 'ready' && tab === 'Fair Lending' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <FairLendingPanel key={detail.id} runId={detail.run_id} />}
           {detail.status === 'ready' && tab === 'Batch & Drift' && <BatchDrift v={detail} actor={actor} onScored={bump} kind={flowOf(detail)} />}
-          {detail.status === 'ready' && !rowFlow(detail) && flowOf(detail) !== 'survival' && flowOf(detail) !== 'multilabel' && tab === 'Try It' && (
-            <div className="card card-body"><p className="helper">{flowOf(detail) === 'expected_loss'
-              ? <>An expected-loss version scores loans: PD̂, LGD̂, EAD̂ and EL per row. Score a file in Batch & Drift, or over HTTP: <span className="mono">POST /api/registry/versions/{detail.id}/score</span>. </>
-              : flowOf(detail) === 'forecast'
-              ? <>A forecasting version forecasts whole series: open the run to see its fan chart and upload new history to forecast from (no refit). </>
-              : <>An anomaly version scores rows: open the run to score a new batch with its threshold s* and get a reason per flag. Try It over HTTP: <span className="mono">POST /api/registry/versions/{detail.id}/predict</span>. </>}
-              <button className="btn sm" onClick={() => go(`${flowRoute(detail)}?run=${detail.run_id}`)}>Open {flowOf(detail).replace('_', ' ')} run →</button></p></div>)}
-          {tab === 'Audit' && <div className="card"><AuditTable entries={audit.filter((a) => a.version_id === detail.id)} testId="version-audit" /></div>}
-          {detail.status !== 'ready' && tab !== 'Overview' && tab !== 'Audit' && <div className="card card-body row"><ResonanceWave /> This version is {detail.status}; it is usable once ready.</div>}
+          {detail.status !== 'ready' && tab !== 'Overview' && <div className="card card-body row"><ResonanceWave /> This version is {detail.status}; it is usable once ready.</div>}
         </div>
       )}
 
       <div className="card" data-testid="audit-log">
-        <div className="card-head"><div className="left"><h3 className="card-title">Audit Log</h3><span className="helper" style={{ fontSize: 12 }}>append-only · who, what, when, and the model’s SHA-256 at that moment</span></div>
-          <span className="mono helper" style={{ fontSize: 12 }}>{audit.length} entr{audit.length === 1 ? 'y' : 'ies'}</span></div>
-        <AuditTable entries={audit} onVersion={(id) => select(id)} />
+        <div className="card-head"><div className="left"><h3 className="card-title">Audit Log</h3><span className="helper" style={{ fontSize: 12 }}>{detail ? <>{detail.model_name} v{detail.version} only · <button className="chip-btn" onClick={() => select(null)}>show all</button></> : 'append-only · who, what, when, and the model’s SHA-256 at that moment'}</span></div>
+          <span className="mono helper" style={{ fontSize: 12 }}>{shownAudit.length} entr{shownAudit.length === 1 ? 'y' : 'ies'}</span></div>
+        <AuditTable entries={shownAudit} onVersion={(id) => select(id)} testId={detail ? 'version-audit' : undefined} />
       </div>
     </div>
   )
 }
 
 const flowOf = (v: ModelVersion) => ((v.result as unknown as { kind?: string } | null)?.kind ?? 'tabular')
-const flowRoute = (v: ModelVersion) => (flowOf(v) === 'expected_loss' ? 'expected-loss' : flowOf(v))
+/** The page a version's run opens on (tabular: Explain). */
+const openRun = (v: ModelVersion) => (flowOf(v) === 'tabular' ? `explain?run=${v.run_id}` : runPage({ id: v.run_id, kind: flowOf(v) } as unknown as Run))
 /** Versions that score one row with a TabularPredictor (G5: a routed version uses its row's segment model). */
 const rowFlow = (v: ModelVersion) => flowOf(v) === 'tabular' || flowOf(v) === 'segmented'
 

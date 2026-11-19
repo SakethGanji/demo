@@ -61,7 +61,6 @@ test('registry and home in mock mode: the scripted data is labelled SIMULATED', 
   await open(page, 'home')
   await expect(page.getByTestId('home-simulated')).toHaveText('SIMULATED')
   await expect(page.getByTestId('home-live')).toHaveCount(0)
-  await expect(page.getByTestId('prototype-banner')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 

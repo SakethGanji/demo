@@ -314,11 +314,3 @@ function NewScenario({ run, onDone }: { run: ElRun; onDone: (name: string) => vo
     </div>
   )
 }
-
-/** Registry → Expected Loss: the version's run results (same view as the run page). */
-export function ElVersionTab({ runId }: { runId: string }) {
-  const r = useFetch(() => flows.el.get(runId), [runId])
-  if (r.err) return <ErrorCard err={r.err} />
-  if (!r.data?.expected_loss) return <Loading>Loading the expected-loss results…</Loading>
-  return <ElResults run={r.data} onChanged={r.reload} />
-}

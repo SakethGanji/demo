@@ -1,19 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { RUNS } from '@/shared/data/runs'
-import { useApi } from '@/shared/api/mode'
-import { TOOLS, liveMeta } from '@/shared/lib/tools'
 import { Icon } from '@/shared/primitives/Icon'
-import { TITLES, type Route } from '../routes'
+import { NAV, TITLES } from '../routes'
 
 export function CommandPalette({ onClose, go }: { onClose: () => void; go: (r: string) => void }) {
-  const { mode, status } = useApi()
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const items = useMemo(() => {
     const all: { group: string; label: string; hint: string; mono?: boolean; run: () => void }[] = [
-      ...(Object.keys(TITLES) as Route[]).map((r) => ({ group: 'Go To', label: TITLES[r], hint: 'Page', run: () => go(r) })),
-      ...TOOLS.map((t) => ({ group: 'Tools', label: `${t.verb} · ${t.name}`, hint: mode === 'live' ? liveMeta(t, status) : t.meta, run: () => go(t.route) })),
-      ...RUNS.map((r) => ({ group: 'Runs', label: r.id, hint: `${r.pipeline} · ${r.status}`, mono: true, run: () => go('experiments') })),
+      ...[...NAV, { id: 'settings' as const }].map((n) => ({ group: 'Go To', label: TITLES[n.id], hint: 'Page', run: () => go(n.id) })),
+      ...RUNS.map((r) => ({ group: 'Runs', label: r.id, hint: `${r.pipeline} · ${r.status}`, mono: true, run: () => go('models') })),
     ]
     return all.filter((i) => `${i.label} ${i.hint}`.toLowerCase().includes(q.toLowerCase()))
   }, [q])

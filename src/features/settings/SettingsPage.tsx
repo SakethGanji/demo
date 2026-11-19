@@ -1,17 +1,14 @@
 import { useState } from 'react'
 import { DEFAULT_PREFS, usePrefs } from '@/shared/lib/prefs'
-import { TOOLS } from '@/shared/lib/tools'
 import { PluckString } from '@/shared/primitives/PluckString'
-import { ToolGlyph } from '@/shared/primitives/ToolGlyph'
 import { SettingRow } from './components/SettingRow'
 import { LlmCard } from './components/LlmCard'
 import { useApi } from '@/shared/api/mode'
 
 export function SettingsPage() {
-  const { prefs, set } = usePrefs()
+  const { set } = usePrefs()
   const { mode } = useApi()
   const [pluck, setPluck] = useState(0)
-  const toggle = (id: string) => set({ pinned: prefs.pinned.includes(id) ? prefs.pinned.filter((p) => p !== id) : [...prefs.pinned, id] })
   return (
     <div className="page" style={{ maxWidth: 1080 }}>
       <div className="page-head">
@@ -32,21 +29,6 @@ export function SettingsPage() {
             <SettingRow k="density" name="Density" help="Row height and spacing in tables and panels." options={['Compact', 'Comfortable']} />
             <SettingRow k="mode" name="Default Mode" help="Which side of the Guided | Advanced switch configuration surfaces open on." options={['Guided', 'Advanced']} />
             <SettingRow k="velaOpen" name="Vela Sidecar" help="Whether Vela is open when the workbench loads." options={['Open', 'Closed']} />
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-head"><h2 className="card-title">Toolbelt</h2><span className="micro-label">{prefs.pinned.length} of {TOOLS.length} pinned</span></div>
-          <div>
-            {TOOLS.map((t) => {
-              const on = prefs.pinned.includes(t.id)
-              return (
-                <button key={t.id} className={`belt-row ${on ? 'on' : ''}`} aria-pressed={on} onClick={() => toggle(t.id)}>
-                  <span className="belt-glyph"><ToolGlyph id={t.id} /></span>
-                  <span className="belt-text"><b>{t.name}</b><span className="micro-label">{t.verb}</span></span>
-                  <span className="pin-state">{on ? '● On Belt' : '○ Pin'}</span>
-                </button>
-              )
-            })}
           </div>
         </div>
         {mode === 'live' && <LlmCard />}

@@ -109,8 +109,8 @@ function ScriptedAutopilot({ go }: { go: (r: string) => void }) {
                       <div className="mini"><span className="micro-label">Latency</span><span className="v">{m.lat.toFixed(1)} ms</span><span className="u">limit {brief.latency} ms</span></div>
                     </div>
                     <div className="card-body row" style={{ borderTop: '1px solid var(--border-default)', flexWrap: 'wrap' }}>
-                      {met ? <button className="btn primary" onClick={() => go('registry')}>Register Model Version</button> : <button className="btn primary" onClick={start}>Run Again</button>}
-                      <button className="btn" onClick={() => go('gym')}>Open In Gym →</button>
+                      {met ? <button className="btn primary" onClick={() => go('registry')}>Register…</button> : <button className="btn primary" onClick={start}>Run Again</button>}
+                      <button className="btn" onClick={() => go('gym')}>Advanced →</button>
                       <button className="btn ghost" onClick={() => setPhase('brief')}>Edit Brief</button>
                     </div>
                   </div>
@@ -126,7 +126,7 @@ function ScriptedAutopilot({ go }: { go: (r: string) => void }) {
           <div />
           <div className="valid"><span className="dot">●</span> {ds.name} · {brief.autonomy}</div>
           <div className="right">
-            {phase === 'plan' ? <><button className="btn" onClick={() => setPhase('brief')}>Edit Brief</button><button className="btn primary" onClick={start}>Start Autopilot</button></>
+            {phase === 'plan' ? <><button className="btn" onClick={() => setPhase('brief')}>Edit Brief</button><button className="btn primary" onClick={start}>Run it end to end</button></>
               : <button className="btn primary" disabled={phase === 'planning'} onClick={() => setPhase('planning')}>Draft Plan →</button>}
           </div>
         </div>

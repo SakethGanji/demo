@@ -5,15 +5,12 @@ import { PlotFrame } from '@/shared/components/PlotFrame'
 import { RunString, type RunState } from '@/shared/components/RunString'
 import { StringField } from '@/shared/components/StringField'
 import { LOG_LINES } from '@/shared/data/runs'
-import { usePrefs } from '@/shared/lib/prefs'
 import { curve } from '@/shared/lib/random'
-import { TOOLS, liveMeta, type Tool } from '@/shared/lib/tools'
 import { Icon } from '@/shared/primitives/Icon'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { useApi } from '@/shared/api/mode'
-import { ToolCard } from './components/ToolCard'
 import { FirstRunLive, LiveHeroRead, LiveHome } from './LiveHome'
 
 const TRAIN = curve(40, 1.2, 0.24, 0.12, 0.03, 7)
@@ -21,7 +18,6 @@ const TRAIN = curve(40, 1.2, 0.24, 0.12, 0.03, 7)
 const VAL = curve(40, 1.25, 0.29, 0.1, 0.04, 11)
 
 export function HomePage({ go, openPalette }: { go: (r: string) => void; openPalette: () => void }) {
-  const { prefs, set } = usePrefs()
   const { mode, status } = useApi()
   const live = mode === 'live'
   const [n, setN] = useState(14)
@@ -45,8 +41,6 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
     { id: 'run_88f7', label: 'Tokenize → DistilBERT', status: 'Failed', progress: 0.47, readout: 'CUDA OOM · fold 3' },
     { id: 'run_8b02', label: 'Counts → MultinomialNB', status: 'Queued', progress: 0, readout: 'position 1 · gym-default' },
   ]
-  const togglePin = (id: string) => set({ pinned: prefs.pinned.includes(id) ? prefs.pinned.filter((p) => p !== id) : [...prefs.pinned, id] })
-  const open = (t: Tool) => go(t.route)
 
   return (
     <div className="page">
@@ -64,12 +58,12 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
         <div className="hero-bottom">
           <div>
             <h1 className="hero-title">Many models, one framework.</h1>
-            <p className="hero-sub">A toolkit for training, comparing and shipping models. Pick up a tool, or tell the bench what you want to build.</p>
+            <p className="hero-sub">A toolkit for training, comparing and shipping models. Upload a table and Build shows what you can make from it.</p>
           </div>
           <div className="row" style={{ gap: 12 }}>
           <button className="btn primary" style={{ height: 40, padding: '0 16px' }} onClick={() => go('build')}>Build →</button>
           <button className="hero-cmd" onClick={openPalette}>
-            <Icon.search width={16} height={16} /><span>Find a tool, run or model</span><kbd>⌘K</kbd>
+            <Icon.search width={16} height={16} /><span>Find a page, run or model</span><kbd>⌘K</kbd>
           </button>
           </div>
         </div>
@@ -77,25 +71,15 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
 
       {live && status && status.runs === 0 && <FirstRunLive go={go} />}
 
-      <div className="bench-head">
-        <h2 className="bench-title">Toolkit</h2>
-        <span className="helper">{TOOLS.length} tools · {prefs.pinned.length} on your belt · pin a tool to keep it in the sidebar</span>
-        <span className="spacer" />
-        <button className="btn sm" onClick={() => go('settings')}>Customize Workbench</button>
-      </div>
-      <div className="tool-grid">
-        {TOOLS.map((t) => <ToolCard key={t.id} tool={live ? { ...t, meta: liveMeta(t, status) } : t} pinned={prefs.pinned.includes(t.id)} onPin={() => togglePin(t.id)} onOpen={() => open(t)} />)}
-      </div>
-
       {live ? <LiveHome go={go} /> : <>
       <div className="bench-head">
         <h2 className="bench-title">On the Strings</h2><span className="pill warning" data-testid="home-simulated">SIMULATED</span>
         <span className="helper">Each run is one string. Frets are folds, the node is progress, a wave means it is computing.</span>
         <span className="spacer" />
-        <button className="btn sm" onClick={() => go('experiments')}>Open String Plot →</button>
+        <button className="btn sm" onClick={() => go('models')}>Open String Plot →</button>
       </div>
       <div className="card run-strings">
-        {strings.map((r) => <RunString key={r.id} run={r} onClick={() => go('experiments')} />)}
+        {strings.map((r) => <RunString key={r.id} run={r} onClick={() => go('models')} />)}
       </div>
 
       <div className="grid two">

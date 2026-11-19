@@ -20,7 +20,6 @@
 .collapsed .nav-item { justify-content: center; padding: 0; }
 .collapsed .nav-item span, .collapsed .sidebar-footer .who, .collapsed .role-pill { display: none; }
 .collapsed .nav-item.active::after { left: 18px; right: 18px; }
-.vela-tag { margin-left: auto; width: 6px; height: 6px; border-radius: var(--radius-full); background: var(--accent-secondary-shell); }
 .sidebar-footer { border-top: 1px solid var(--border-shell); padding: var(--space-12) var(--space-16); display: flex; align-items: center; gap: var(--space-8); }
 .collapsed .sidebar-footer { flex-direction: column; padding: var(--space-12) 0; }
 .avatar { width: 28px; height: 28px; flex: none; border-radius: var(--radius-control); background: var(--bg-shell-hover); color: var(--text-on-shell); display: grid; place-items: center; font-size: 11px; font-weight: 600; border: 1px solid var(--border-shell); }
@@ -70,20 +69,6 @@
 .palette-item.on { background: var(--bg-wave-tint); }
 .palette-item.on::after { content: "↵"; color: var(--text-muted); font-family: var(--font-mono); margin-left: var(--space-8); }
 
-/* ---------- toolbelt (sidebar) ---------- */
-.belt-label { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--text-on-shell-muted); padding: var(--space-8) var(--space-20) var(--space-4); opacity: 0.8; }
-.collapsed .belt-label { display: none; }
-.belt-item { height: 40px; }
-.belt-item .belt-g { width: 22px; height: 22px; flex: none; display: grid; place-items: center; }
-.belt-item .belt-g svg { width: 22px; height: 22px; }
-.belt-item span:last-child { display: flex; flex-direction: column; line-height: 15px; color: var(--text-on-shell); font-weight: 500; }
-.belt-item small { font-size: 10.5px; color: var(--text-on-shell-muted); font-weight: 400; }
-.sidebar .belt-g svg [stroke="var(--accent-primary)"] { stroke: var(--accent-primary-shell); }
-.sidebar .belt-g svg [stroke="var(--accent-secondary)"] { stroke: var(--accent-secondary-shell); }
-.sidebar .belt-g svg [fill="var(--accent-primary)"] { fill: var(--accent-primary-shell); }
-.sidebar .belt-g svg [fill="var(--accent-secondary)"] { fill: var(--accent-secondary-shell); }
-.sidebar .belt-g svg [fill="var(--bg-surface)"] { fill: var(--bg-shell); }
-.sidebar .belt-g svg [stroke="var(--border-track)"] { stroke: #334155; }
 
 /* ---------- inset layout: the sidebar joins the navy frame, the workspace floats inside it ---------- */
 .layout-inset { background: var(--bg-shell); }
@@ -101,7 +86,5 @@
 .statusbar a.sb-run, .statusbar a.sb-reg { color: inherit; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
 .statusbar a.sb-run:hover, .statusbar a.sb-reg:hover { text-decoration: underline; }
 
-/* Small screens: the status bar keeps the run and registry state and drops machine details; short screens drop the
-   toolbelt (every tool on it is also in the navigation above). */
+/* Small screens: the status bar keeps the run and registry state and drops machine details. */
 @media (max-width: 1500px) { .statusbar .sb-wide { display: none; } }
-@media (max-height: 820px) { .nav-group.belt { display: none; } }

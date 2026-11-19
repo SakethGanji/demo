@@ -255,7 +255,6 @@ export const flows = {
     create: (body: AnCreate) => request<FlowRun>('/anomaly/runs', { ...J(body), timeoutMs: 30_000 }),
     top: (id: string, contamination?: number, limit = 100) => request<AnTop>(`/anomaly/runs/${encodeURIComponent(id)}/top?limit=${limit}${contamination ? `&contamination=${contamination}` : ''}`),
     scores: (id: string) => request<AnScores>(`/anomaly/runs/${encodeURIComponent(id)}/scores`),
-    labels: (id: string) => request<AnLabels>(`/anomaly/runs/${encodeURIComponent(id)}/labels`),
     review: (id: string, items: { row: number; label: 'fraud' | 'not_fraud' | null }[], by: string) =>
       request<AnLabels>(`/anomaly/runs/${encodeURIComponent(id)}/labels`, J({ items, by })),
     supervised: (id: string) => request<{ run_id: string; review: AnReviewSummary; runs: AnSupervised[] }>(`/anomaly/runs/${encodeURIComponent(id)}/supervised`, { timeoutMs: 120_000 }),

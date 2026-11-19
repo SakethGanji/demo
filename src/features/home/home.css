@@ -11,25 +11,8 @@
 .hero-cmd:hover { border-color: var(--accent-primary-shell); color: var(--text-on-shell); }
 .hero-cmd kbd { margin-left: auto; font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border-shell); border-radius: var(--radius-badge); padding: 0 5px; }
 
-/* ---------- toolkit ---------- */
 .bench-head { display: flex; align-items: baseline; gap: var(--space-12); margin-top: var(--space-8); }
 .bench-title { font-family: var(--font-display); font-size: 17px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; color: var(--text-primary); margin: 0; }
-.tool-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-16); }
-.tool { position: relative; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-card); display: flex; flex-direction: column; transition: border-color var(--duration-snap-min) var(--ease-pluck), background var(--duration-snap-min) var(--ease-pluck); }
-.tool:hover { border-color: var(--border-track); }
-.tool-main { display: flex; flex-direction: column; gap: var(--space-12); padding: var(--space-16) var(--space-16) var(--space-8); background: none; border: 0; text-align: left; flex: 1; border-radius: var(--radius-card); }
-.tool-glyph { width: 48px; height: 48px; display: grid; place-items: center; background: var(--bg-canvas); background-image: radial-gradient(var(--bg-grid-dot) 1px, transparent 1px); background-size: 8px 8px; background-position: 4px 4px; border: 1px solid var(--border-default); border-radius: var(--radius-control); transition: transform var(--duration-snap-max) var(--ease-pluck); }
-.tool:hover .tool-glyph { transform: translateY(-2px); }
-.tool-text { display: flex; flex-direction: column; gap: 2px; }
-.tool-text .helper { font-size: 12.5px; line-height: 18px; margin-top: 2px; }
-.pin { position: absolute; top: var(--space-12); right: var(--space-12); height: 22px; padding: 0 var(--space-8); border: 1px solid var(--border-default); border-radius: var(--radius-badge); background: var(--bg-surface); font-size: 11px; font-weight: 600; color: var(--text-body); opacity: 0; transition: opacity var(--duration-snap-min) var(--ease-pluck); white-space: nowrap; }
-.tool:hover .pin, .pin:focus-visible, .pin.on { opacity: 1; }
-.pin.on { color: var(--accent-primary-hover); border-color: transparent; background: var(--status-success-bg); }
-.tool-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); padding: 0 var(--space-16) var(--space-8); font-size: 11.5px; color: var(--text-body); white-space: nowrap; pointer-events: none; }
-.tool-foot .mono { overflow: hidden; text-overflow: ellipsis; }
-.tool-foot .open { font-weight: 600; color: var(--text-primary); opacity: 0; transition: opacity var(--duration-snap-min) var(--ease-pluck); }
-.tool:hover .open { opacity: 1; }
-.tool-string { padding: 0 var(--space-16) var(--space-8); pointer-events: none; }
 
 /* live Home (S5/S6): nothing clips at 1366–1920 px */
 .home-audit { display: flex; flex-direction: column; gap: 8px; }
@@ -60,4 +43,4 @@
 .first-run .fr-head { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
 .first-run .fr-title { font-size: 15px; font-weight: 600; }
 .first-run .fr-head .helper { margin: 4px 0 0; max-width: 72ch; font-size: 13px; }
-@media (max-width: 1000px) { .tool-grid, .fr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 1000px) { .fr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

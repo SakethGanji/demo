@@ -1,4 +1,4 @@
-// Metrics with their formulas, and number formatting, shared by New Model, Experiments and Explain.
+// Metrics with their formulas, and number formatting, shared by New Model, Models and Explain.
 
 import type { ProblemType } from '@/shared/api/types'
 

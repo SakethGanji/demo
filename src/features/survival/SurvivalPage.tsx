@@ -252,14 +252,6 @@ export function SurvResults({ run }: { run: SurvRun }) {
   )
 }
 
-/** Registry → Survival: the version's run results (same view as the run page). */
-export function SurvVersionTab({ runId }: { runId: string }) {
-  const r = useFetch(() => flows.surv.get(runId), [runId])
-  if (r.err) return <ErrorCard err={r.err} />
-  if (!r.data?.survival) return <Loading>Loading the survival checks…</Loading>
-  return <SurvResults run={r.data} />
-}
-
 // ----------------------------------------------------------------------------------------------- Registry · Try It
 
 /** Try It for a survival version: one subject's inputs → its survival curve against the average holdout subject's. */

@@ -461,16 +461,3 @@ def batch_csv(run_id: str, bid: str, request: Request):
     if not p.exists():
         raise HTTPException(404, "No such batch.")
     return FileResponse(p, media_type="text/csv", filename=f"{run_id}_{bid}_scored.csv")
-
-
-class OneRow(BaseModel):
-    row: dict[str, Any]
-
-
-@router.post("/runs/{run_id}/score-one")
-async def score_one(run_id: str, body: OneRow, request: Request) -> dict[str, Any]:
-    rec = _run(request, run_id)
-    try:
-        return await request.app.state.heavy.run(core.score_one, rec["config"]["predictor_path"], body.row)
-    except core.AnomalyError as e:
-        raise HTTPException(400, str(e)) from e

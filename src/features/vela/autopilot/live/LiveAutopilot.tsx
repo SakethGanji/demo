@@ -158,9 +158,9 @@ function RunView({ a, go, refresh, onNew }: { a: Autopilot; go: (r: string) => v
                 {a.verdict.checks.map((c) => <div key={c.metric} className="mini"><span className="micro-label">{c.name}</span><span className="v">{fmtMetric(c.metric, c.observed)}</span><span className="u">{c.op} {c.value} {c.ok ? '✓' : '✗'}</span></div>)}
               </div>
               <div className="card-body row" style={{ borderTop: '1px solid var(--border-default)', flexWrap: 'wrap' }}>
-                {a.verdict.best_run_id && <button className="btn primary" onClick={() => go(`experiments?compare=${[a.steps.find((s) => s.kind === 'baseline')?.run_id, a.verdict!.best_run_id].filter(Boolean).join(',')}`)}>Compare With Baseline</button>}
+                {a.verdict.best_run_id && <button className="btn primary" onClick={() => go(`models?compare=${[a.steps.find((s) => s.kind === 'baseline')?.run_id, a.verdict!.best_run_id].filter(Boolean).join(',')}`)}>Compare With Baseline</button>}
                 {a.verdict.best_run_id && <button className="btn" onClick={() => go(`explain?run=${a.verdict!.best_run_id}`)}>Explain</button>}
-                {a.verdict.best_run_id && <button className="btn" onClick={() => go(`gym?from=${a.verdict!.best_run_id}`)}>Open In Gym →</button>}
+                {a.verdict.best_run_id && <button className="btn" onClick={() => go(`gym?from=${a.verdict!.best_run_id}`)}>Advanced →</button>}
               </div>
             </div>
           )}

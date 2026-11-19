@@ -15,7 +15,6 @@
   .ds-pick { grid-template-columns: 1fr; }
   .param { grid-template-columns: 130px 1fr var(--size-numeric-input); }
   .check { grid-template-columns: 20px 120px 1fr; } .check .micro-label { display: none; }
-  .cls-row { grid-template-columns: 84px 1fr 96px; }
   .bench-head { flex-wrap: wrap; }
 }
 .cmd { white-space: nowrap; overflow: hidden; flex: 0 1 300px; min-width: 150px; }

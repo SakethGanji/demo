@@ -15,6 +15,17 @@ const psiFmt = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(
 
 /** Batch scoring of a CSV with the version (in a worker, with progress), then PSI drift of every feature and of the
  *  model's output against what the model was built on. */
+/** What a batch CSV holds and what each row gets back, per kind. */
+const BATCH_WHAT: Record<string, string> = {
+  tabular: 'a CSV with the model’s feature columns; extra columns are kept and passed through',
+  forecast: 'a CSV of new history in the run’s long format (same item id, timestamp, target and covariate columns): every series is forecast H steps past its end, no refit',
+  anomaly: 'a CSV with the forest’s feature columns: every row gets s, its percentile among the fitted rows and a flag at s*',
+  expected_loss: 'a CSV of loans with the model’s input columns: every row gets PD̂, LGD̂, EAD̂ and EL',
+  segmented: 'a CSV with the model’s feature columns and the segment column: each row is scored by its own segment’s model (unknown segments use the global one)',
+  survival: 'a CSV with the model’s input columns: every row gets its risk score, risk group, Ŝ(τ) at each horizon and median time',
+  multilabel: 'a CSV with the model’s input columns: every row gets its label set, n_labels and p̂ per label',
+}
+
 export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelVersion; actor: string; onScored?: () => void; kind?: string }) {
   const [list, setList] = useState<BatchListItem[]>([])
   const [sel, setSel] = useState<string | null>(null)
@@ -49,7 +60,7 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="batch">
       <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">{kind === 'forecast' ? 'Batch Forecast' : 'Batch Scoring'}</h3><span className="helper" style={{ fontSize: 12 }}>{kind === 'forecast' ? 'a CSV of new history in the run’s long format (same item id, timestamp, target and covariate columns): every series is forecast H steps past its end, no refit' : kind === 'anomaly' ? 'a CSV with the forest’s feature columns: every row gets s, its percentile among the fitted rows and a flag at s*' : 'a CSV with the model’s feature columns; extra columns are kept and passed through'}</span></div></div>
+        <div className="card-head"><div className="left"><h3 className="card-title">{kind === 'forecast' ? 'Batch Forecast' : 'Batch Scoring'}</h3><span className="helper" style={{ fontSize: 12 }}>{BATCH_WHAT[kind] ?? BATCH_WHAT.tabular}</span></div></div>
         <div className="card-body batch-up">
           <label className={`batch-drop ${file ? 'has' : ''}`} data-testid="batch-drop">
             <input ref={input} type="file" accept=".csv,text/csv" data-testid="batch-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ display: 'none' }} />

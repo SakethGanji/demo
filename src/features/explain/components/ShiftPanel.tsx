@@ -290,9 +290,9 @@ function Actions({ c, run, go, onApplyPatch, onChanged }: { c: ShiftCheck; run: 
               {a.kind === 'gym-patch' && a.patch ? <div className="mono helper" style={{ fontSize: 11 }}>{a.patch.changes.map((ch) => `${ch.path}: ${JSON.stringify(ch.from)} → ${JSON.stringify(ch.to)}`).join('; ')}</div> : null}</div>
             <p className="helper" style={{ fontSize: 12.5, flex: 1 }}>{a.why}{msg[a.id] ? <><br /><b>{msg[a.id]}</b></> : null}</p>
             {a.kind === 'split-twin' && <button className="btn sm" disabled={!a.available || busy === a.id} onClick={() => twin(a)} data-testid="shift-oot">{a.available ? 'Train out-of-time twin' : 'Already out of time'}</button>}
-            {a.kind === 'gym-patch' && a.patch && <button className="btn sm" disabled={!onApplyPatch} onClick={() => onApplyPatch?.(run.id, a.patch!)} data-testid={`shift-drop-${a.feature}`}>Open in Gym</button>}
+            {a.kind === 'gym-patch' && a.patch && <button className="btn sm" disabled={!onApplyPatch} onClick={() => onApplyPatch?.(run.id, a.patch!)} data-testid={`shift-drop-${a.feature}`}>Apply in Advanced</button>}
             {a.kind === 'weights-version' && (wv
-              ? <button className="btn sm primary" disabled={!onApplyPatch} onClick={() => onApplyPatch?.(run.id, wv.patch)} data-testid="shift-weights-gym">Open in Gym (sample_weight)</button>
+              ? <button className="btn sm primary" disabled={!onApplyPatch} onClick={() => onApplyPatch?.(run.id, wv.patch)} data-testid="shift-weights-gym">Apply in Advanced (sample_weight)</button>
               : <button className="btn sm" disabled={busy === 'weights'} onClick={weights} data-testid="shift-weights">Save weights as a dataset version</button>)}
           </div>
         ))}

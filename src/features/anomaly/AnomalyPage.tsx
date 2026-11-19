@@ -63,13 +63,12 @@ function AnomalySetup() {
   const [k, setK] = useState(20)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [past, setPast] = useState<FlowRun[]>([])
   const [grp, setGrp] = useState<AnGroup>({ entity_column: null, time_column: null, relative_columns: [], source: '' })
   const [useGrp, setUseGrp] = useState(true)
   const [useVel, setUseVel] = useState(true)
   const [velForest, setVelForest] = useState<string[]>([])
   const [psiIn, setPsiIn] = useState<number | null>(null)
-  useEffect(() => { api.datasets.list().then(setDatasets).catch((e) => setErr(e.message)); flows.runs('anomaly').then(setPast).catch(() => {}) }, [])
+  useEffect(() => { api.datasets.list().then(setDatasets).catch((e) => setErr(e.message)) }, [])
   useEffect(() => {
     flows.anomaly.mapping(dsId).then((g) => {
       setGrp(g); setUseGrp(!!g.entity_column); setUseVel(!!(g.entity_column && g.time_column)); setVelForest(g.velocity_in_forest ?? [])
@@ -137,13 +136,7 @@ function AnomalySetup() {
           </div>
         </div>
       </div>
-      {past.length > 0 && <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">Anomaly runs</h3></div></div>
-        <div className="table-wrap"><table className="table"><thead><tr><th>run</th><th>name</th><th>status</th><th className="r">flagged</th><th className="r">s*</th><th /></tr></thead>
-          <tbody>{past.slice(0, 10).map((r) => <tr key={r.id}><td className="table-cell">{r.id}</td><td>{r.name}</td><td><StatusPill status={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'info'}>{r.status}</StatusPill></td>
-            <td className="r table-cell">{r.anomaly?.n_flagged ?? '—'}</td><td className="r table-cell">{fix(r.anomaly?.threshold, 4)}</td>
-            <td><button className="chip-btn" onClick={() => { location.hash = `#/anomaly?run=${r.id}` }}>Open</button></td></tr>)}</tbody></table></div>
-      </div>}
+      <p className="helper">Earlier anomaly runs are in <a href="#/models?type=anomaly">Models →</a></p>
     </div>
   )
 }

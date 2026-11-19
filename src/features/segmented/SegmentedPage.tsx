@@ -236,11 +236,3 @@ export function SegResults({ run }: { run: SegRun }) {
     </div>
   )
 }
-
-/** Registry → Segments: the version's run results (same view as the run page). */
-export function SegVersionTab({ runId }: { runId: string }) {
-  const r = useFetch(() => flows.seg.get(runId), [runId])
-  if (r.err) return <ErrorCard err={r.err} />
-  if (!r.data?.segmented) return <Loading>Loading the segment comparison…</Loading>
-  return <SegResults run={r.data} />
-}

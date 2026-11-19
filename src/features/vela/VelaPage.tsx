@@ -6,7 +6,7 @@ import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { AgentChat } from './agent/AgentChat'
 import { EndToEnd } from './autopilot/EndToEnd'
 
-const MODES = ['Ask Vela', 'Run It End To End'] as const
+const MODES = ['Ask Vela', 'Run it end to end'] as const
 type Mode = (typeof MODES)[number]
 
 /** G10 · the Vela page: the agent chat, and Autopilot as its "run it end to end" mode (#/vela?mode=auto; the old
@@ -31,7 +31,7 @@ export function VelaPage({ go }: { go: (r: string) => void }) {
       </div>
       {auto ? <EndToEnd go={go} /> : (
         <ApiOnly mock={<div className="wizard-scroll"><div className="page"><EmptyState title="The agent needs the API" testId="agent-mock">
-          It calls the workbench's own routes, so it runs only against a live API (<span className="mono">make dev</span>). "Run It End To End" shows the scripted prototype.
+          It calls the workbench's own routes, so it runs only against a live API (<span className="mono">make dev</span>). "Run it end to end" shows the scripted prototype.
         </EmptyState></div></div>}>
           <AgentChat sid={sid} setSid={setSid} />
         </ApiOnly>

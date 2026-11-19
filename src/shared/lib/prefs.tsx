@@ -1,8 +1,4 @@
 import { createContext, useContext } from 'react'
-import { TOOLS } from './tools'
-
-const TOOL_IDS = TOOLS.map((t) => t.id)
-
 export type Prefs = {
   density: 'Compact' | 'Comfortable'
   motion: 'Live' | 'Still'
@@ -10,14 +6,13 @@ export type Prefs = {
   mode: 'Guided' | 'Advanced'
   velaOpen: 'Open' | 'Closed'
   layout: 'Inset' | 'Flush'
-  pinned: string[]
 }
-export const DEFAULT_PREFS: Prefs = { density: 'Compact', motion: 'Live', tension: 'Taut', mode: 'Guided', velaOpen: 'Open', layout: 'Inset', pinned: ['quick', 'autopilot', 'train'] }
+export const DEFAULT_PREFS: Prefs = { density: 'Compact', motion: 'Live', tension: 'Taut', mode: 'Guided', velaOpen: 'Open', layout: 'Inset' }
 
 export function loadPrefs(): Prefs {
   try {
-    const p: Prefs = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem('ensemble.prefs') ?? '{}') }
-    return { ...p, pinned: p.pinned.filter((id) => TOOL_IDS.includes(id)) }
+    const { pinned: _, ...p } = { ...DEFAULT_PREFS, ...JSON.parse(localStorage.getItem('ensemble.prefs') ?? '{}') } // pinned: the old toolbelt
+    return p as Prefs
   } catch { return DEFAULT_PREFS }
 }
 export function savePrefs(p: Prefs) { try { localStorage.setItem('ensemble.prefs', JSON.stringify(p)) } catch { /* private mode */ } }

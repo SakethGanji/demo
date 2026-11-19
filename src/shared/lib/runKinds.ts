@@ -19,6 +19,9 @@ export const typeOf = (r: Run): string => {
 
 export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quantile', 'forecast', 'anomaly', 'expected_loss', 'segmented', 'survival', 'reject_inference', 'multilabel', 'imported'] as const
 
+/** Why a reject-inference run has no Register (the API refuses it with the same reason). */
+export const RI_NOT_REGISTRABLE = 'A reject-inference run compares methods; it is not one model to serve. Train the chosen method as a yes/no model and register that.'
+
 /** The page a run opens on. */
 export const runPage = (r: Run): string => {
   const k = kindOf(r)

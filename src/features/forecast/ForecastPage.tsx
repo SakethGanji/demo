@@ -41,13 +41,11 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
   const [opts, setOpts] = useState<FcOptions | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
-  const [past, setPast] = useState<FlowRun[]>([])
   const [cfg, setCfg] = useState({ H: 28, metric: 'MASE', presets: 'medium_quality', tau: 300, quantiles: '0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9', windows: null as number | null, freq: '', fitKwargs: '{}', hp: '', ensemble: 'both' as FcEnsembleKind, conformal: true, scope: 'pooled' as 'pooled' | 'item' })
 
   useEffect(() => {
     api.datasets.list().then(setDatasets).catch((e) => setErr(e.message))
     flows.forecast.options().then((o) => setOpts(o)).catch(() => {})
-    flows.runs('forecast').then(setPast).catch(() => {})
   }, [])
   useEffect(() => {
     if (!dsId) return
@@ -198,13 +196,7 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
         </div>
       </div>
 
-      {past.length > 0 && <div className="card">
-        <div className="card-head"><div className="left"><h3 className="card-title">Forecast runs</h3></div></div>
-        <div className="table-wrap"><table className="table"><thead><tr><th>run</th><th>name</th><th>status</th><th className="r">holdout</th><th>best model</th><th /></tr></thead>
-          <tbody>{past.slice(0, 12).map((r) => <tr key={r.id}><td className="table-cell">{r.id}</td><td>{r.name}</td><td><StatusPill status={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'info'}>{r.status}</StatusPill></td>
-            <td className="r table-cell">{r.holdout ? `${r.holdout.eval_metric ?? r.eval_metric?.name} ${fix((r.holdout.metrics as Record<string, number>)[String(r.eval_metric?.name)] ?? r.leaderboard?.[0]?.score_test_natural)}` : '—'}</td>
-            <td className="mono" style={{ fontSize: 12 }}>{r.best_model ?? '—'}</td><td><button className="chip-btn" onClick={() => { location.hash = `#/forecast?run=${r.id}` }}>Open</button></td></tr>)}</tbody></table></div>
-      </div>}
+      <p className="helper">Earlier forecasts are in <a href="#/models?type=forecast">Models →</a></p>
     </div>
   )
 }

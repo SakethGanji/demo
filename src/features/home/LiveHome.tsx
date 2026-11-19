@@ -75,7 +75,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
         <h2 className="bench-title">On the Strings</h2>
         <span className="helper">Each run is one string: taut when finished (readout: its holdout score), a wave up to t / τ while AutoGluon fits.</span>
         <span className="spacer" />
-        <button className="btn sm" onClick={() => go('experiments')}>Open Experiments →</button>
+        <button className="btn sm" onClick={() => go('models')}>Open Models →</button>
       </div>
       {runs.length === 0 ? <p className="helper card card-body" style={{ margin: 0 }}>No runs yet: every run you start appears here as a string, taut when finished, waving while it fits.</p> : (
       <div className="card run-strings" data-testid="home-runs">
@@ -108,7 +108,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
                 <div key={a.id} className="ha-row" data-testid="home-audit-row"><span className="mono muted ha-ago">{ago(a.ts)}</span>
                   <span className="ha-what"><b>{a.actor}</b> {ACTION[a.action]} <a href={`#/registry?version=${a.version_id}`} className="ha-ver"><span className="mono">{a.model_name}</span> <span className="ha-v mono">v{a.version}</span></a>{a.to_stage && a.action === 'stage_changed' ? <> <span className="muted">→</span> <span className="ha-stage">{a.to_stage}</span></> : null}</span>
                   {a.model_hash ? <span className="ha-hash mono" title={`model SHA-256 ${a.model_hash}`}>#{a.model_hash.slice(0, 8)}</span> : <span />}</div>
-              )) : <p className="helper">No registry activity yet. Register a finished run from the Registry or Experiments.</p>}
+              )) : <p className="helper">No registry activity yet. Register a finished run from the Registry or Models.</p>}
             </div>
           </div>
         </div>
@@ -125,7 +125,7 @@ function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string
       <div className="fr-head">
         <div>
           <b className="fr-title">No runs yet. Start with a sample.</b>
-          <p className="helper">Every sample is generated with a fixed seed on this machine. Pick one: Build shows what each column is for and what you can build from it, pre-filled. The run then appears on these strings, in Experiments and in Vela.</p>
+          <p className="helper">Every sample is generated with a fixed seed on this machine. Pick one: Build shows what each column is for and what you can build from it, pre-filled. The run then appears on these strings, in Models and in Vela.</p>
         </div>
         <button className="btn primary" onClick={() => go('build')} data-testid="home-first-new-model">Build →</button>
       </div>

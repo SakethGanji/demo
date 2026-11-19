@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from .. import llm
 from . import metrics as M
-from .engine import ACTIONS, Manager, bulk_accept, new_autopilot
+from .engine import Manager, bulk_accept, new_autopilot
 from ..http import run_or_404, dataset_or_404
 
 router = APIRouter(prefix="/api")
@@ -84,12 +84,6 @@ def out(st: dict[str, Any], full: bool = True) -> dict[str, Any]:
             o.pop(k, None)
         o["steps"] = [{k: s.get(k) for k in ("id", "kind", "title", "status", "run_id", "score")} for s in st["steps"]]
     return o
-
-
-@router.get("/autopilot/menu")
-def menu() -> dict[str, Any]:
-    return {"actions": ACTIONS, "llm": llm.enabled(),
-            "metrics": {k: M.describe(k) for k in [*M.QUALITY, *M.LATENCY]}}
 
 
 @router.post("/autopilot", status_code=201)

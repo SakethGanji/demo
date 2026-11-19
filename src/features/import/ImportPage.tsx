@@ -6,7 +6,6 @@ import type { DatasetSummary } from '@/shared/api/types'
 import { LiveModels } from '@/shared/components/FlowParts'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fix } from '@/shared/lib/format'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { HeroCell } from '@/shared/components/Status'
@@ -24,9 +23,8 @@ export function ImportPage({ go }: { go: (r: string) => void }) {
   const [how, setHow] = useState<'zip' | 'path'>('zip')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const [past, setPast] = useState<FlowRun[]>([])
   const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => { if (mode === 'live') { api.datasets.list().then(setDatasets).catch(() => {}); flows.runs('tabular').then((rs) => setPast(rs.filter((r) => r.kind === 'import'))).catch(() => {}) } }, [mode, runId])
+  useEffect(() => { if (mode === 'live') { api.datasets.list().then(setDatasets).catch(() => {}) } }, [mode, runId])
   if (mode === 'mock') return <div className="page"><div className="page-head"><h1 className="page-title">Import Predictor</h1></div><div className="card card-body"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span> to import a predictor.</p></div></div>
   const submit = async () => {
     setBusy(true); setErr('')
@@ -64,11 +62,7 @@ export function ImportPage({ go }: { go: (r: string) => void }) {
         </div>
       </div>
       {runId && <ImportRun key={runId} runId={runId} go={go} />}
-      {past.length > 0 && <div className="card"><div className="card-head"><div className="left"><h3 className="card-title">Imported runs</h3></div></div>
-        <div className="table-wrap"><table className="table"><thead><tr><th>run</th><th>name</th><th>status</th><th>label</th><th className="r">holdout</th><th /></tr></thead>
-          <tbody>{past.map((r) => <tr key={r.id}><td className="table-cell">{r.id}</td><td>{r.name}</td><td><StatusPill status={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'danger' : 'info'}>{r.status}</StatusPill></td><td>{r.label}</td>
-            <td className="r table-cell">{r.eval_metric && r.holdout ? `${r.eval_metric.name} ${fix((r.holdout.metrics as Record<string, number>)[r.eval_metric.name], 4)}` : '—'}</td>
-            <td><button className="chip-btn" onClick={() => { location.hash = `#/import?run=${r.id}` }}>Open</button></td></tr>)}</tbody></table></div></div>}
+      <p className="helper">Earlier imports are in <a href="#/models?type=import">Models →</a></p>
     </div>
   )
 }
@@ -96,7 +90,7 @@ function ImportRun({ runId, go }: { runId: string; go: (r: string) => void }) {
       {run.status === 'failed' && <div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {run.error}</div>}
       {done && <div className="card">
         <div className="card-head"><div className="left"><h3 className="card-title">Imported · scored on the holdout</h3><span className="helper" style={{ fontSize: 12 }}>{run.data?.holdout_rows as number} holdout rows</span></div>
-          <div className="row"><button className="btn" onClick={() => go(`explain?run=${run.id}`)} data-testid="imp-explain">Explain →</button><button className="btn" onClick={() => go(`quick-train?run=${run.id}`)}>Results →</button><button className="btn primary" onClick={() => go(`registry?register=${run.id}`)} data-testid="imp-register">Register →</button></div></div>
+          <div className="row"><button className="btn" onClick={() => go(`explain?run=${run.id}`)} data-testid="imp-explain">Explain →</button><button className="btn" onClick={() => go(`quick-train?run=${run.id}`)}>Results →</button><button className="btn primary" onClick={() => go(`registry?register=${run.id}`)} data-testid="imp-register">Register…</button></div></div>
         <div className="table-wrap"><table className="table"><thead><tr><th>#</th><th>model</th><th className="r">val (as saved)</th><th className="r">holdout</th><th className="r">stack level</th><th className="r">predict</th></tr></thead>
           <tbody>{(run.leaderboard ?? []).map((r) => <tr key={r.model} className={r.model === run.best_model ? 'sel' : ''}><td className="table-cell">{r.rank}</td><td className="table-cell">{r.model}</td><td className="r table-cell">{fix(r.score_val_natural, 4)}</td><td className="r table-cell"><b>{fix(r.score_test_natural, 4)}</b></td><td className="r table-cell">{r.stack_level}</td><td className="r table-cell">{r.pred_time_test != null ? `${(Number(r.pred_time_test) * 1000).toFixed(0)} ms` : '—'}</td></tr>)}</tbody></table></div>
         <p className="helper caption-pad" style={{ fontSize: 12 }}>{Object.entries(hm).slice(0, 6).map(([k, v]) => `${k} ${fix(v, 4)}`).join(' · ')}. Not refit: the models are the ones you saved. The holdout may overlap their training rows; if so, these scores are optimistic.</p>

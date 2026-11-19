@@ -83,7 +83,7 @@ export function LiveBrief({ onStarted, onOpen }: { onStarted: (id: string) => vo
               </label>
             </div>
             {err && <p className="helper warn">{err}</p>}
-            <div className="row"><button className="btn primary" disabled={busy || !ds} onClick={start} data-testid="ap-start">{busy ? 'Starting…' : 'Start Autopilot'}</button></div>
+            <div className="row"><button className="btn primary" disabled={busy || !ds} onClick={start} data-testid="ap-start">{busy ? 'Starting…' : 'Run it end to end'}</button></div>
           </div>
         </div>
         <div className="stack">

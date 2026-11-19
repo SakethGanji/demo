@@ -116,7 +116,7 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
             {a.done ? (
               <div className="patch">
                 <div className="ph"><VelaCrest size={16} /><b className="card-title" style={{ fontSize: 13 }}>Finding</b></div>
-                <p>Your 5-fold spread is <b>± 0.006</b> on macro F1, so differences under <b>0.012</b> between runs are within noise. Compare <span className="mono">run_894a</span> and <span className="mono">run_8a10</span> with a paired test in Experiments?</p>
+                <p>Your 5-fold spread is <b>± 0.006</b> on macro F1, so differences under <b>0.012</b> between runs are within noise. Compare <span className="mono">run_894a</span> and <span className="mono">run_8a10</span> with a paired test in Models?</p>
               </div>
             ) : (
               <div className="thinking"><ResonanceWave width={84} height={18} fast /> Thinking</div>

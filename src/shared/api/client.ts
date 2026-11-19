@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -171,8 +171,6 @@ export const api = {
         method: 'POST', body: JSON.stringify({ models }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 600_000,
       }),
     holdoutPredictions: (id: string) => request<HoldoutPredictions>(`/runs/${encodeURIComponent(id)}/holdout-predictions`, { timeoutMs: 60_000 }),
-    featureImportance: (id: string) =>
-      request<{ run_id: string; features: FeatureImportance[] }>(`/runs/${encodeURIComponent(id)}/feature-importance`, { timeoutMs: 180_000 }),
     /** Permutation importance with 95% t-intervals; `shuffles` recomputes it with that many shuffle sets. */
     importance: (id: string, shuffles?: number) =>
       request<ImportanceResponse>(`/runs/${encodeURIComponent(id)}/feature-importance${shuffles ? `?shuffles=${shuffles}` : ''}`, { timeoutMs: 300_000 }),
@@ -202,11 +200,6 @@ export const api = {
     /** The body that starts a run again, and its lineage. */
     fromRun: (id: string) => request<{ run_id: string; name: string; status: string; body: RunCreate; parent_run_id: string | null; patch: RunCreate['patch'] }>(`/runs/${encodeURIComponent(id)}/gym`),
     exportUrl: (id: string, download = false) => `${BASE}/runs/${encodeURIComponent(id)}/export.py${download ? '?download=true' : ''}`,
-    exportText: async (id: string) => {
-      const r = await fetch(`${BASE}/runs/${encodeURIComponent(id)}/export.py`)
-      if (!r.ok) throw new ApiError(`Export failed (${r.status}).`, r.status)
-      return r.text()
-    },
   },
   vela: {
     findings: (runId: string) => request<VelaResponse>(`/runs/${encodeURIComponent(runId)}/vela`, { timeoutMs: 120_000 }),
@@ -268,12 +261,9 @@ export const api = {
       return request<{ entries: AuditEntry[] }>(`/registry/audit?${p}`).then((r) => r.entries)
     },
     card: (id: string) => request<ModelCard>(`/registry/versions/${encodeURIComponent(id)}/card`, { timeoutMs: 60_000 }),
-    /** F8: ICE / PD of the model the version serves (its own files) for the run's monotone constraints. */
-    monotone: (id: string) => request<MonotoneCheck>(`/registry/versions/${encodeURIComponent(id)}/monotone`, { timeoutMs: 120_000 }),
     cardUrl: (id: string, format: 'md' | 'html') => `${BASE}/registry/versions/${encodeURIComponent(id)}/card?format=${format}&download=true`,
     editCard: (id: string, actor: string, fields: Record<string, string>) =>
       json<{ card: Record<string, string>; changed: string[] }>(`/registry/versions/${encodeURIComponent(id)}/card`, 'PUT', { actor, fields }),
-    mlflow: (id: string) => request<Record<string, unknown>>(`/registry/versions/${encodeURIComponent(id)}/mlflow`, { timeoutMs: 60_000 }),
     /** F10: reason codes: the adverse class, the served threshold, the attribution method and the mapping table. */
     reasons: (id: string) => request<ReasonsConfig>(`/registry/versions/${encodeURIComponent(id)}/reasons`, { timeoutMs: 120_000 }),
     editReasons: (id: string, actor: string, body: { mapping?: Partial<ReasonMapping>[]; adverse_class?: string; reference?: 'approved' | 'population' }) =>

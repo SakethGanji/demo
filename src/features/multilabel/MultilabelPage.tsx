@@ -209,14 +209,6 @@ export function MlResults({ m }: { m: MlResult }) {
   )
 }
 
-/** Registry → Labels: the version's run results (same view as the run page). */
-export function MlVersionTab({ runId }: { runId: string }) {
-  const r = useFetch(() => flows.ml.get(runId), [runId])
-  if (r.err) return <ErrorCard err={r.err} />
-  if (!r.data?.multilabel) return <Loading>Loading the label checks…</Loading>
-  return <MlResults m={r.data.multilabel} />
-}
-
 // ----------------------------------------------------------------------------------------------- Registry · Try It
 
 /** Try It for a multi-label version: one row's inputs → p̂ per label against its threshold, and the label set. */
