@@ -3,7 +3,7 @@ import type { Icon } from '@/shared/primitives/Icon'
 export type Route = 'home' | 'quick-train' | 'autopilot' | 'gym' | 'experiments' | 'explain' | 'registry' | 'settings' | 'forecast' | 'anomaly' | 'import'
 
 export const NAV: { id: Route | 'vela'; label: string; icon: keyof typeof Icon }[][] = [
-  [{ id: 'home', label: 'Home', icon: 'home' }, { id: 'quick-train', label: 'New Model', icon: 'model' }, { id: 'autopilot', label: 'Vela Autopilot', icon: 'autopilot' }, { id: 'gym', label: 'Training Gym', icon: 'gym' }, { id: 'experiments', label: 'Experiments', icon: 'experiments' }],
+  [{ id: 'home', label: 'Home', icon: 'home' }, { id: 'quick-train', label: 'New Model', icon: 'model' }, { id: 'autopilot', label: 'Vela Autopilot', icon: 'autopilot' }, { id: 'gym', label: 'Training Gym', icon: 'gym' }, { id: 'experiments', label: 'Experiments', icon: 'experiments' }, { id: 'explain', label: 'Explain', icon: 'explain' }],
   [{ id: 'forecast', label: 'New Forecast', icon: 'forecast' }, { id: 'anomaly', label: 'Anomaly Detection', icon: 'anomaly' }],
   [{ id: 'registry', label: 'Model Registry', icon: 'registry' }, { id: 'import', label: 'Import Predictor', icon: 'importer' }],
   [{ id: 'vela', label: 'Vela AI Assistant', icon: 'vela' }, { id: 'settings', label: 'Settings', icon: 'settings' }],
