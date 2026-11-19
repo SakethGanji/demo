@@ -292,9 +292,11 @@ def run(cfg: dict[str, Any], run_dir: Path, emit, merge) -> dict[str, Any]:
                     "tp": tp, "fp": fp, "fn": fn, "pr": pr_curve(y.astype(int), P[:, j])})
     card_true, card_pred = Yt.sum(axis=1), Yh.sum(axis=1)
     hist = {str(k): [int((card_true == k).sum()), int((card_pred == k).sum())] for k in range(0, int(max(card_true.max(), card_pred.max())) + 1)}
-    # Try It examples: holdout rows, the clearest multi-label one first
-    order = np.argsort(-(card_true * 10 + (Yt == Yh).all(axis=1) * 5 + card_pred))
-    ex_idx = list(dict.fromkeys([int(i) for i in order[:3]] + [int(i) for i in np.flatnonzero(card_true == 1)[:3]]))
+    # Try It examples: holdout rows the models get exactly right, two- and three-label ones first, then single labels
+    exact = (Yt == Yh).all(axis=1)
+    two, three = np.flatnonzero(exact & (card_true == 2)), np.flatnonzero(exact & (card_true == 3))
+    one = np.flatnonzero(card_true == 1)
+    ex_idx = list(dict.fromkeys([int(i) for i in [*two[:1], *three[:1], *two[1:2], *one[:3]]] or [0]))
     examples = [{"row": {c: (None if pd.isna(v) else (v.item() if hasattr(v, "item") else v)) for c, v in hx.iloc[i].items()},
                  "true": [meta["labels"][j] for j in np.flatnonzero(Yt[i])]} for i in ex_idx]
     pd.DataFrame(P, columns=[f"p_{l}" for l in meta["labels"]]).assign(n_labels=card_pred).to_csv(run_dir / "ml_holdout.csv", index=False)

@@ -5,7 +5,7 @@ import type { ModelVersion } from '@/shared/api/types'
 import { Register } from '@/shared/components/FlowParts'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
-import { XYPlot, type XYSeries } from '@/shared/components/XYPlot'
+import { XYPlot, niceTicks, type XYSeries } from '@/shared/components/XYPlot'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
@@ -152,13 +152,17 @@ function RunView({ runId, go }: { runId: string; go: (r: string) => void }) {
 export function MlResults({ m }: { m: MlResult }) {
   const [sel, setSel] = useState<string | null>(null)
   const per = m.per_label
+  // zoom to where the curves bend: below the lowest recall any curve reaches with precision < 1, nothing moves
+  const lo = (v: number) => Math.max(0, Math.floor(v * 4) / 4)
+  const xMin = lo(Math.min(...per.flatMap((p) => p.pr.recall.filter((_, i) => p.pr.precision[i] < 0.999)), 0.75) - 0.05)
+  const yMin = lo(Math.min(...per.flatMap((p) => p.pr.precision)))
   const series: XYSeries[] = per.filter((p) => !sel || p.label === sel).map((p) => ({
     name: p.label, color: color(per.indexOf(p)), width: sel ? 2.5 : 1.6,
-    points: p.pr.recall.map((r, i) => [r, p.pr.precision[i]] as [number, number]),
+    points: p.pr.recall.map((r, i) => [Math.max(r, xMin), p.pr.precision[i]] as [number, number]),
     tip: (i: number) => `${p.label} · t = ${fix(p.pr.threshold[i], 3)} · precision ${fix(p.pr.precision[i], 3)} · recall ${fix(p.pr.recall[i], 3)}`,
   }))
   const marks = per.filter((p) => (!sel || p.label === sel) && p.precision != null && p.recall != null)
-    .map((p) => ({ x: p.recall as number, y: p.precision as number, label: `t = ${fix(p.threshold, 2)}`, color: color(per.indexOf(p)) }))
+    .map((p) => ({ x: p.recall as number, y: p.precision as number, label: sel ? `t = ${fix(p.threshold, 2)}` : '', color: color(per.indexOf(p)) }))
   const worst = per.reduce((a, b) => (b.f1 < a.f1 ? b : a), per[0])
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="ml-results">
@@ -184,13 +188,12 @@ export function MlResults({ m }: { m: MlResult }) {
       <div className="card" data-testid="ml-per-label">
         <div className="card-head"><div className="left"><h3 className="card-title">Per Label</h3><span className="helper" style={{ fontSize: 12 }}>F1 at the label's own threshold [95% CI] · AP: area under its precision–recall curve, at every threshold · click a row to see its curve</span></div></div>
         <div className="table-wrap"><table className="table compact">
-          <thead><tr><th>label</th><th className="r">support</th><th className="r">t<sub>l</sub></th><th className="r">precision</th><th className="r">recall</th><th className="r">F1 [95% CI]</th><th style={{ width: '16%' }}>F1</th><th className="r">AP</th><th className="r">F1 at 0.5</th></tr></thead>
+          <thead><tr><th>label</th><th className="r">support</th><th className="r">t<sub>l</sub></th><th className="r">precision</th><th className="r">recall</th><th className="r">F1 [95% CI]</th><th className="r">AP</th><th className="r">F1 at 0.5</th></tr></thead>
           <tbody>{per.map((p, i) => (
             <tr key={p.label} data-testid="ml-label-row" onClick={() => setSel(sel === p.label ? null : p.label)} style={{ cursor: 'pointer', background: sel === p.label ? 'var(--bg-subtle)' : undefined }}>
               <td><b style={{ color: color(i) }}>●</b> {p.label}</td><td className="r mono">{p.support} <span className="helper">{pct(p.prevalence)}</span></td>
               <td className="r mono">{fix(p.threshold, 3)}</td><td className="r mono">{fix(p.precision, 3)}</td><td className="r mono">{fix(p.recall, 3)}</td>
               <td className="r mono">{fix(p.f1, 3)} <span className="helper">{ci(p.f1_ci)}</span></td>
-              <td><div className="seg-ci"><i className="bar" style={{ left: `${p.f1_ci[0] * 100}%`, width: `${(p.f1_ci[1] - p.f1_ci[0]) * 100}%` }} /><i className="dot" style={{ left: `${p.f1 * 100}%` }} /></div></td>
               <td className="r mono">{fix(p.pr.ap, 3)}</td><td className="r mono">{fix(p.f1_at_05, 3)}</td></tr>))}
           </tbody>
         </table></div>
@@ -199,8 +202,8 @@ export function MlResults({ m }: { m: MlResult }) {
       <PlotFrame title="Precision–Recall per Label" caption={<>each label's precision against recall as its threshold moves; the dot is where t<sub>l</sub> puts it on the holdout{sel ? ` · ${sel} only (click the row again for all)` : ''}</>}
         legend={per.map((p, i) => ({ name: p.label, color: color(i), data: [] }))}>
         <XYPlot testId="ml-pr" height={260} series={series} marks={marks}
-          x={{ min: 0, max: 1, ticks: [0, 0.25, 0.5, 0.75, 1], title: 'recall', fmt: (v) => v.toFixed(2) }}
-          y={{ min: 0, max: 1, ticks: [0, 0.25, 0.5, 0.75, 1], title: 'precision', fmt: (v) => v.toFixed(2) }} />
+          x={{ min: xMin, max: 1, ticks: niceTicks(xMin, 1, 5), title: 'recall', fmt: (v) => v.toFixed(2) }}
+          y={{ min: yMin, max: 1, ticks: niceTicks(yMin, 1, 5), title: 'precision', fmt: (v) => v.toFixed(2) }} />
       </PlotFrame>
     </div>
   )
@@ -253,9 +256,13 @@ export function MlTryIt({ v }: { v: ModelVersion }) {
         </div>
         {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
         {out && <>
-          <div className="card navy explain-hero" style={{ margin: 0 }} data-testid="ml-try-hero">
-            <HeroCell label="predicted labels Ŷ" sub={truth ? `true: ${truth.join(', ') || 'none'}` : out.rule}>{out.labels.length ? out.labels.join(' · ') : 'none'}</HeroCell>
-            <HeroCell label="labels" sub={out.nearest_miss ? `closest: ${out.nearest_miss.label} ${fix(out.nearest_miss.p, 2)} < t ${fix(out.nearest_miss.t, 2)}` : `of ${out.scores.length}`}>{out.n_labels}</HeroCell>
+          <div className="navy-well" style={{ padding: 'var(--space-12) var(--space-16)', minHeight: 0 }} data-testid="ml-try-hero">
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="micro-label" style={{ color: 'inherit' }}>Ŷ = {out.n_labels} of {out.scores.length} labels</span>
+              {out.labels.map((l) => <span key={l} className="chip" data-testid="ml-try-label">{l}</span>)}
+              {!out.labels.length && <span className="chip">none{out.nearest_miss ? ` · closest ${out.nearest_miss.label} ${fix(out.nearest_miss.p, 2)} < t ${fix(out.nearest_miss.t, 2)}` : ''}</span>}
+              {truth && <span className="helper" style={{ fontSize: 12, color: 'inherit', opacity: 0.8 }}>true labels of this holdout row: {truth.join(', ') || 'none'}</span>}
+            </div>
           </div>
           <div className="table-wrap"><table className="table compact" data-testid="ml-try-scores">
             <thead><tr><th>label</th><th className="r">p̂</th><th className="r">t</th><th style={{ width: '40%' }}>p̂ against t</th><th>in Ŷ</th></tr></thead>
