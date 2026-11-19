@@ -20,6 +20,8 @@ from .forecast import api as forecast_api
 from .anomaly import api as anomaly_api
 from .gym import api as gym_api
 from .vela import api as vela_api
+from .agent import api as agent_api
+from .agent.loop import AgentManager
 from . import llm, llm_api
 from .engine.runner import JobRunner
 from .engine import active_learning_api, annotations_api, learning_curve_api, shift_api, slices_api
@@ -97,7 +99,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.heavy.start()  # SHAP, importance, predictions, version builds and batch scoring run here
         app.state.autopilot = AutopilotManager(app, settings.data_dir / "autopilot")
         app.state.autopilot.resume_all()  # autopilots cut off by a restart continue from their saved state
+        app.state.agent = AgentManager(app, settings.data_dir / "agent")  # G10: the Vela agent's conversations
         yield
+        app.state.agent.shutdown()
         app.state.runner.shutdown()
         for mod, _ in JOB_MODULES:
             mod.shutdown()
@@ -206,6 +210,24 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                                 "stage": v.get("stage"), "created_at": v.get("created_at")})
         return sorted(out, key=lambda v: v["created_at"] or "", reverse=True)
 
+    @app.get("/api/datasets/{dataset_id}/rows")
+    def dataset_rows(dataset_id: str, request: Request, value: str, column: str | None = None, limit: int = 3) -> dict[str, Any]:
+        """G10: rows where `column` equals `value` (as text), or where any text column does when no column is given. For
+        looking up one applicant or account by its id."""
+        dataset_or_404(request, dataset_id)
+        df = store(request).load_frame(dataset_id)
+        if column is not None and column not in df.columns:
+            raise HTTPException(400, f"No column '{column}' in {dataset_id}.")
+        cols = [column] if column else [c for c in df.columns if df[c].dtype == object]
+        hit = None
+        for c in cols:
+            m = df[c].astype(str) == value
+            if m.any():
+                hit, column = df[m], c
+                break
+        rows = [] if hit is None else hit.head(max(1, min(limit, 50))).astype(object).where(hit.head(max(1, min(limit, 50))).notna(), None).to_dict("records")
+        return {"dataset_id": dataset_id, "column": column, "value": value, "n": 0 if hit is None else int(len(hit)), "rows": rows}
+
     @app.post("/api/datasets/{dataset_id}/splits")
     def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """F6: draw (or reuse) the split for {target, strategy, group_column?, time_column?, cutoff?, tuning_share?}
@@ -268,6 +290,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(vela_api.router)
     app.include_router(autopilot_api.router)
     app.include_router(llm_api.router)
+    app.include_router(agent_api.router)
     return app
 
 
