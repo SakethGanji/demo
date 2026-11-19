@@ -144,6 +144,20 @@ def log_run(data_dir: Path, rec: dict[str, Any], run_dir: Path) -> dict[str, Any
                 "n_params": len(batch_p), "n_metrics": len(metrics)}
 
 
+def ensure_logged(data_dir: Path, runs: Any, run_id: str, run_dir: Path, cached: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The run's MLflow record: `cached` if the run already has one, else log it now and store it on the run."""
+    if cached:
+        return cached
+    mlr = log_run(data_dir, runs.get(run_id), run_dir)
+    runs.merge_result(run_id, mlflow=mlr)
+    return mlr
+
+
+def _mv_out(mv: Any, model_name: str) -> dict[str, Any]:
+    return {"name": model_name, "version": int(mv.version), "stage": mv.current_stage, "aliases": list(mv.aliases),
+            "tags": dict(mv.tags)}
+
+
 def register_version(data_dir: Path, model_name: str, mlflow_run_id: str, source: str, tags: dict[str, str],
                      description: str = "", engine: str = "autogluon.tabular") -> dict[str, Any]:
     with client(data_dir) as (c, _):
@@ -177,16 +191,14 @@ def sync_version(data_dir: Path, model_name: str, version: int, *, stage: str, t
             elif cur is not None and int(cur.version) == int(version):
                 c.delete_registered_model_alias(model_name, alias)
         mv = c.get_model_version(model_name, str(version))
-        return {"name": model_name, "version": int(mv.version), "stage": mv.current_stage, "aliases": list(mv.aliases),
-                "tags": dict(mv.tags)}
+        return _mv_out(mv, model_name)
 
 
 def read_version(data_dir: Path, model_name: str, version: int) -> dict[str, Any]:
     with client(data_dir) as (c, _):
         mv = c.get_model_version(model_name, str(version))
         run = c.get_run(mv.run_id) if mv.run_id else None
-        return {"name": model_name, "version": int(mv.version), "stage": mv.current_stage, "aliases": list(mv.aliases),
-                "tags": dict(mv.tags), "source": mv.source, "run_id": mv.run_id,
+        return {**_mv_out(mv, model_name), "source": mv.source, "run_id": mv.run_id,
                 "run": None if run is None else {"params": dict(run.data.params), "metrics": dict(run.data.metrics),
                                                   "tags": {k: v for k, v in run.data.tags.items() if not k.startswith("mlflow.")},
                                                   "artifact_uri": run.info.artifact_uri}}

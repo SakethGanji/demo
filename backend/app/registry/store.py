@@ -31,6 +31,26 @@ class RegistryStore:
                 d[c] = json.loads(d[c])
         return d
 
+    def _get(self, table: str, id_: str) -> dict[str, Any] | None:
+        with self.db.connect() as con:
+            r = con.execute(f"SELECT * FROM {table} WHERE id = ?", (id_,)).fetchone()
+        return self._row(table, r) if r else None
+
+    def _update(self, table: str, id_: str, fields: dict[str, Any]) -> None:
+        for c in JSON_COLS.get(table, ()):
+            if c in fields:
+                fields[c] = _dump(fields[c])
+        cols = ", ".join(f"{k} = :{k}" for k in fields)
+        with self.db.connect() as con:
+            con.execute(f"UPDATE {table} SET {cols} WHERE id = :_id", {**fields, "_id": id_})
+
+    def _merge(self, table: str, id_: str, parts: dict[str, Any]) -> None:
+        with self.db.connect() as con:
+            r = con.execute(f"SELECT result FROM {table} WHERE id = ?", (id_,)).fetchone()
+            res = json.loads(r["result"]) if r and r["result"] else {}
+            res.update(jsonable(parts))
+            con.execute(f"UPDATE {table} SET result = ? WHERE id = ?", (json.dumps(res), id_))
+
     # -- registered models ---------------------------------------------------
 
     def ensure_model(self, name: str, dataset_id: str, label: str, description: str = "") -> bool:
@@ -63,9 +83,7 @@ class RegistryStore:
         return self.get_version(rec["id"])
 
     def get_version(self, vid: str) -> dict[str, Any] | None:
-        with self.db.connect() as con:
-            r = con.execute("SELECT * FROM model_versions WHERE id = ?", (vid,)).fetchone()
-        return self._row("model_versions", r) if r else None
+        return self._get("model_versions", vid)
 
     def list_versions(self, model_name: str | None = None) -> list[dict[str, Any]]:
         q = "SELECT * FROM model_versions"
@@ -78,19 +96,10 @@ class RegistryStore:
         return [self._row("model_versions", r) for r in rows]
 
     def update_version(self, vid: str, **fields: Any) -> None:
-        for c in JSON_COLS["model_versions"]:
-            if c in fields:
-                fields[c] = _dump(fields[c])
-        cols = ", ".join(f"{k} = :{k}" for k in fields)
-        with self.db.connect() as con:
-            con.execute(f"UPDATE model_versions SET {cols} WHERE id = :_id", {**fields, "_id": vid})
+        self._update("model_versions", vid, fields)
 
     def merge_version_result(self, vid: str, **parts: Any) -> None:
-        with self.db.connect() as con:
-            r = con.execute("SELECT result FROM model_versions WHERE id = ?", (vid,)).fetchone()
-            res = json.loads(r["result"]) if r and r["result"] else {}
-            res.update(jsonable(parts))
-            con.execute("UPDATE model_versions SET result = ? WHERE id = ?", (json.dumps(res), vid))
+        self._merge("model_versions", vid, parts)
 
     def step(self, vid: str, name: str, status: str, **info: Any) -> None:
         """Record a build step (started / done / skipped / failed) for the UI's progress list."""
@@ -145,9 +154,7 @@ class RegistryStore:
                          rec.get("data_date")))
 
     def get_batch(self, bid: str) -> dict[str, Any] | None:
-        with self.db.connect() as con:
-            r = con.execute("SELECT * FROM batch_jobs WHERE id = ?", (bid,)).fetchone()
-        return self._row("batch_jobs", r) if r else None
+        return self._get("batch_jobs", bid)
 
     def list_batches(self, version_id: str | None = None) -> list[dict[str, Any]]:
         q, args = "SELECT * FROM batch_jobs", ()
@@ -157,19 +164,11 @@ class RegistryStore:
             return [self._row("batch_jobs", r) for r in con.execute(q + " ORDER BY created_at DESC, rowid DESC", args)]
 
     def update_batch(self, bid: str, **fields: Any) -> None:
-        if "result" in fields:
-            fields["result"] = _dump(fields["result"])
-        cols = ", ".join(f"{k} = :{k}" for k in fields)
-        with self.db.connect() as con:
-            con.execute(f"UPDATE batch_jobs SET {cols} WHERE id = :_id", {**fields, "_id": bid})
+        self._update("batch_jobs", bid, fields)
 
     def merge_batch_result(self, bid: str, **parts: Any) -> None:
         """F18: add parts (labels, shadow) to a finished batch's result without rewriting the rest."""
-        with self.db.connect() as con:
-            r = con.execute("SELECT result FROM batch_jobs WHERE id = ?", (bid,)).fetchone()
-            res = json.loads(r["result"]) if r and r["result"] else {}
-            res.update(jsonable(parts))
-            con.execute("UPDATE batch_jobs SET result = ? WHERE id = ?", (json.dumps(res), bid))
+        self._merge("batch_jobs", bid, parts)
 
     def recover(self) -> None:
         msg = "The API stopped while this was in progress."

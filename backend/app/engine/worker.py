@@ -708,8 +708,7 @@ def run(run_dir: Path) -> int:
         try:  # MLflow tracking: parameters, metrics and light artifacts (S5); never fails the run
             from ..registry import tracking
 
-            mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
-            store.merge_result(run_id, mlflow=mlr)
+            mlr = tracking.ensure_logged(Path(cfg["db_path"]).parent, store, run_id, run_dir)
             # The MLflow run id goes out as `mlflow_run_id`: `run_id` names the ENSEMBLE run in every event.
             emit("tracked", **{("mlflow_run_id" if k == "run_id" else k): v for k, v in mlr.items()})
         except Exception as e:  # noqa: BLE001
@@ -778,8 +777,7 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
         try:
             from ..registry import tracking
 
-            mlr = tracking.log_run(Path(cfg["db_path"]).parent, store.get(run_id), run_dir)
-            merge(mlflow=mlr)
+            mlr = tracking.ensure_logged(Path(cfg["db_path"]).parent, store, run_id, run_dir)
             emit("tracked", **{("mlflow_run_id" if k == "run_id" else k): v for k, v in mlr.items()})
         except Exception as e:  # noqa: BLE001
             emit("log", level="warning", logger="ensemble", message=f"MLflow logging failed: {e}")

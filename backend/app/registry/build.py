@@ -38,11 +38,18 @@ from ..db import Database
 from ..engine.jsonsafe import jsonable
 from ..engine.store import RunStore
 from . import fastpath
+from .fastpath import _pct
 from .store import RegistryStore
 
 
 def dir_size(path: Path) -> int:
     return sum(f.stat().st_size for f in Path(path).rglob("*") if f.is_file())
+
+
+def _feed(h, path: Path) -> None:
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
 
 
 def dir_hash(path: Path) -> str:
@@ -51,22 +58,14 @@ def dir_hash(path: Path) -> str:
     for f in sorted(p for p in root.rglob("*") if p.is_file()):
         h.update(str(f.relative_to(root)).encode())
         h.update(b"\0")
-        with open(f, "rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
+        _feed(h, f)
     return h.hexdigest()
 
 
 def file_hash(path: Path) -> str:
     h = hashlib.sha256()
-    with open(path, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 20), b""):
-            h.update(chunk)
+    _feed(h, path)
     return h.hexdigest()
-
-
-def _pct(xs: list[float], q: float) -> float | None:
-    return float(np.percentile(np.asarray(xs, dtype=float), q)) if len(xs) else None
 
 
 def measure_latency(predictor, X: pd.DataFrame, model: str | None = None, *, batch_rows: int = 1000, repeats: int = 7,
@@ -77,8 +76,7 @@ def measure_latency(predictor, X: pd.DataFrame, model: str | None = None, *, bat
         predictor.persist(models=model or "best", with_ancestors=True)
     except Exception:  # noqa: BLE001 — persisting is an optimisation
         pass
-    proba = predictor.problem_type in ("binary", "multiclass")
-    fn = (lambda d: predictor.predict_proba(d, model=model)) if proba else (lambda d: predictor.predict(d, model=model))
+    fn = fastpath.predict_fn(predictor, model)
     xb = X.iloc[:batch_rows]
     if len(xb) < batch_rows and len(xb) > 0:
         xb = pd.concat([xb] * int(np.ceil(batch_rows / len(xb))), ignore_index=True).iloc[:batch_rows]
@@ -176,12 +174,6 @@ def metrics_with_ci(hp: pd.DataFrame, problem_type: str, positive: Any, classes:
         lo, hi = (float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))) if boots else (None, None)
         out[name] = {"value": point, "ci_low": lo, "ci_high": hi, "formula": formula, "B": len(boots)}
     return {"metrics": out, "n": n, "B": B, "seed": seed, "method": "percentile bootstrap over holdout rows, 95%"}
-
-
-def holdout_predictions(predictor, holdout: pd.DataFrame, label: str) -> pd.DataFrame:
-    from ..engine.worker import holdout_prediction_frame
-
-    return holdout_prediction_frame(predictor, holdout, label)
 
 
 # --------------------------------------------------------------------------- the build
@@ -458,7 +450,9 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                    "batches": fastpath.batches(fastpath.predict_fn(final), X), "pipeline": prune_info,
                    "cpus": os.cpu_count(), "where": "the build's worker process, after load + persist + one warm-up call"}
         lat_ver["single_ms_p50"], lat_ver["single_ms_p95"], lat_ver["single_calls"] = served["ms_p50"], served["ms_p95"], served["calls"]
-        hp = holdout_predictions(final, holdout, cfg["label"])
+        from ..engine.worker import holdout_prediction_frame
+
+        hp = holdout_prediction_frame(final, holdout, cfg["label"])
         hp.to_csv(vdir / "holdout_predictions.csv", index=False)
         res_run = run.get("result") or {}
         ci = metrics_with_ci(hp, final.problem_type, final.positive_class if final.problem_type == "binary" else None,
@@ -531,10 +525,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         try:
             from . import tracking
 
-            mlr = res_run.get("mlflow")
-            if not mlr:
-                mlr = tracking.log_run(data_dir, runs.get(run["id"]), Path(cfg["run_dir"]))
-                runs.merge_result(run["id"], mlflow=mlr)
+            mlr = tracking.ensure_logged(data_dir, runs, run["id"], Path(cfg["run_dir"]), res_run.get("mlflow"))
             mv = tracking.register_version(data_dir, v["model_name"], mlr["run_id"], str(dest), {
                 "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
                 "data_sha256": data_hash, "best_model": final.model_best, "refit_full": opts.get("refit_full"),
@@ -662,10 +653,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         try:
             from . import tracking
 
-            mlr = res.get("mlflow")
-            if not mlr:
-                mlr = tracking.log_run(data_dir, runs.get(run["id"]), Path(cfg["run_dir"]))
-                runs.merge_result(run["id"], mlflow=mlr)
+            mlr = tracking.ensure_logged(data_dir, runs, run["id"], Path(cfg["run_dir"]), res.get("mlflow"))
             mv = tracking.register_version(data_dir, v["model_name"], mlr["run_id"], str(dest), {
                 "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
                 "data_sha256": data_hash, "best_model": best, "kind": kind, "approval": "pending",

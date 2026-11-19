@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from .. import config
 from ..engine import explain
-from ..http import run_or_404
+from ..http import batch_or_404, run_or_404, version_or_404
 from . import build, card, scoring, tracking
 from .store import RegistryStore
 
@@ -232,17 +232,7 @@ def registry_summary(request: Request) -> dict[str, Any]:
 
 
 def _version(request: Request, vid: str) -> dict[str, Any]:
-    v = _reg(request).get_version(vid)
-    if not v:
-        raise HTTPException(404, f"No model version with id '{vid}'.")
-    return v
-
-
-def _batch(request: Request, bid: str) -> dict[str, Any]:
-    b = _reg(request).get_batch(bid)
-    if not b:
-        raise HTTPException(404, f"No batch with id '{bid}'.")
-    return b
+    return version_or_404(request, vid, "model version")
 
 
 def _ready_version(request: Request, vid: str) -> dict[str, Any]:
@@ -707,12 +697,12 @@ def list_batches(vid: str, request: Request) -> dict[str, Any]:
 
 @router.get("/registry/batches/{bid}")
 def get_batch(bid: str, request: Request) -> dict[str, Any]:
-    return _batch(request, bid)
+    return batch_or_404(request, bid)
 
 
 @router.get("/registry/batches/{bid}/download")
 def download_batch(bid: str, request: Request):
-    b = _batch(request, bid)
+    b = batch_or_404(request, bid)
     if b["status"] != "succeeded":
         raise HTTPException(409, f"Batch {bid} is {b['status']}.")
     path = _dir(request) / "batches" / bid / "scored.csv"
