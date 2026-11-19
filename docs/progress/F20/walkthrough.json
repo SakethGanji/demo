@@ -1,16 +1,18 @@
 {
  "ids": {
-  "champRun": "run_0a55da64",
-  "challRun": "run_db9245c3",
-  "champ": "mv_05028f76",
-  "chall": "mv_e1a814f9",
-  "A": "run_f5a71f12"
+  "champRun": "run_a49a7f92",
+  "challRun": "run_cc9ff681",
+  "champ": "mv_91538cff",
+  "chall": "mv_747bab8f",
+  "A": "run_81c89352",
+  "B": "run_6a85053f",
+  "vB": "mv_66b9df81"
  },
  "steps": [
   {
    "name": "prep: loan-stream champion + challenger, registered, approved, staged",
    "ok": true,
-   "s": 66
+   "s": 65
   },
   {
    "name": "1 out-of-time vs random",
@@ -19,33 +21,30 @@
   },
   {
    "name": "2-3 Gym: cost + monotone, cost per 1,000, twin, monotonicity",
-   "ok": false,
-   "s": 36,
-   "error": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('gym-start')\u001b[22m\n"
+   "ok": true,
+   "s": 93
   },
   {
    "name": "4 register, reason codes, Try It, batch, model card",
-   "ok": false,
-   "s": 11,
-   "error": "page.waitForFunction: Target page, context or browser has been closed"
+   "ok": true,
+   "s": 38
   },
   {
    "name": "5 scorecard",
-   "ok": false,
-   "s": 0,
-   "error": "page.goto: Target page, context or browser has been closed"
+   "ok": true,
+   "s": 4
   },
   {
    "name": "6-7 learning curve, Model Doctor",
    "ok": false,
-   "s": 0,
-   "error": "page.goto: Target page, context or browser has been closed"
+   "s": 902,
+   "error": "locator.waitFor: Timeout 900000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('lc-verdict') to be visible\u001b[22m\n"
   },
   {
    "name": "8 monitoring: challenger, stream, alerts, retrain",
    "ok": false,
-   "s": 0,
-   "error": "page.goto: Target page, context or browser has been closed"
+   "s": 684,
+   "error": "locator.waitFor: Target page, context or browser has been closed\nCall log:\n\u001b[2m  - waiting for getByTestId('mon-feed-one').filter({ hasText: 'All 12 months fed' }) to be visible\u001b[22m\n"
   }
  ],
  "checks": [
@@ -144,10 +143,131 @@
   },
   {
    "step": "3",
-   "what": "monotone families: LightGBM, XGBoost, CatBoost",
-   "want": "/LightGBM.*XGBoost.*CatBoost|GBM_MONO.*XGB_MONO.*CAT_MONO/",
+   "what": "monotone family GBM_MONO",
+   "want": "/GBM_MONO/",
+   "ok": true,
+   "seen": "GBM_MONO"
+  },
+  {
+   "step": "3",
+   "what": "monotone family XGB_MONO",
+   "want": "/XGB_MONO/",
+   "ok": true,
+   "seen": "XGB_MONO"
+  },
+  {
+   "step": "3",
+   "what": "monotone family CAT_MONO",
+   "want": "/CAT_MONO/",
+   "ok": true,
+   "seen": "CAT_MONO"
+  },
+  {
+   "step": "2",
+   "what": "cost per 1,000 (cost run)",
+   "want": 702.5,
+   "tol": 15,
    "ok": false,
-   "seen": "Honour it: CatBoost (CAT_MONO), LightGBM (GBM_MONO), Scorecard (monotone binning), XGBoost (XGB_MONO)"
+   "seen": "860.8"
+  },
+  {
+   "step": "2",
+   "what": "cost-calibrated threshold t",
+   "want": 0.061,
+   "tol": 0.004,
+   "ok": false,
+   "seen": "1000 1 10 860.8 95 757.1 980 1000 1054.2 894.6 33.7 1000"
+  },
+  {
+   "step": "2",
+   "what": "ROC AUC twin per 1,000",
+   "want": 857.1,
+   "tol": 15,
+   "ok": true,
+   "seen": 860.8
+  },
+  {
+   "step": "2",
+   "what": "Δ per 1,000",
+   "want": 154.6,
+   "tol": 15,
+   "ok": false,
+   "seen": "857.1 860.8 -3.8 1000 95 -44.2 35.8 2400 0.124 1 1000 0"
+  },
+  {
+   "step": "3",
+   "what": "0 of 200 ICE curves violate",
+   "want": "/^0 \\/ 200$/",
+   "ok": true,
+   "seen": "0 / 200"
+  },
+  {
+   "step": "4",
+   "what": "Try It p̂ of the first adverse row",
+   "want": 0.093,
+   "tol": 0.004,
+   "ok": false,
+   "seen": "0.14 4 0 0.1403 11 2 2 3 0.0606 9 0.621 0.0397"
+  },
+  {
+   "step": "4",
+   "what": "four reasons R09 · R12 · R03 · R10",
+   "want": "/R09.*debt_to_income.*R12.*months_employed.*R03.*income_usd.*R10.*utilization/",
+   "ok": false,
+   "seen": "Reason Codes adverse ⟺ ŷ = Yes ⟺ p̂ ≥ t = 0.1400 · top 4 features with s·φⱼ > 0 ● adverse (p̂ = 0.1403) R11 Delinquencies in the last 2 years too high (delinque"
+  },
+  {
+   "step": "4",
+   "what": "adverse rows of 400 in the batch",
+   "want": 126,
+   "tol": 3,
+   "ok": false,
+   "seen": "43 4 0 219.6 8 84 11 72 10 65"
+  },
+  {
+   "step": "4",
+   "what": "model card diagnostics: out-of-time split",
+   "want": "/out-of-time/",
+   "ok": true,
+   "seen": "out-of-time"
+  },
+  {
+   "step": "4",
+   "what": "model card diagnostics: cost c_FN = 10",
+   "want": "/10/",
+   "ok": true,
+   "seen": "10"
+  },
+  {
+   "step": "5",
+   "what": "ΔAUC served − scorecard",
+   "want": 0.001,
+   "tol": 0.002,
+   "ok": true,
+   "seen": 0.001
+  },
+  {
+   "step": "5",
+   "what": "scorecard AUC",
+   "want": 0.6977,
+   "tol": 0.003,
+   "ok": true,
+   "seen": 0.6977
+  },
+  {
+   "step": "5",
+   "what": "served AUC",
+   "want": 0.6987,
+   "tol": 0.003,
+   "ok": true,
+   "seen": 0.6977
+  },
+  {
+   "step": "5",
+   "what": "9-feature scorecard table",
+   "want": "/\\S/",
+   "ok": true,
+   "seen": "S"
   }
  ],
  "errors": []
