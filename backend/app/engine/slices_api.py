@@ -31,6 +31,7 @@ from . import explain, heavy
 from . import slices as sl
 from .jsonsafe import jsonable
 from .store import now
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -52,9 +53,7 @@ class ShapRequest(BaseModel):
 
 
 def _rec(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; it needs to finish first.")
     cfg = rec["config"]

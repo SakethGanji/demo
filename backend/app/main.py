@@ -29,9 +29,18 @@ from .registry import monitoring_api
 from .registry.store import RegistryStore
 from .engine.serving import PredictorCache
 from .engine.store import RunStore
+from .http import dataset_or_404
 from .samples import SAMPLES
 from .splits import summarize as summarize_split
 from .schemas import Dataset, DatasetList, Health
+
+# The background-job modules: shut down with the API, block an admin reset while busy (409 message), and own a router.
+JOB_MODULES = (
+    (learning_curve_api, "A learning curve is running; cancel it first."),
+    (active_learning_api, "A labelling queue is working; cancel it first."),
+    (annotations_api, "Annotator class probabilities are being computed; wait for them."),
+    (shift_api, "A shift check is running; cancel it first."),
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -45,6 +54,10 @@ def _summary(rec: dict[str, Any]) -> dict[str, Any]:
         "target": rec["target"], "n_classes": p["n_classes"],
         "flows": {"timeseries": ["forecast"], "transactions": ["anomaly"]}.get(rec["kind"], ["tabular", "anomaly"]),
     }
+
+
+def _detail(rec: dict[str, Any]) -> dict[str, Any]:
+    return {**_summary(rec), "profile": rec["profile"]}
 
 
 def create_app(settings: config.Settings | None = None) -> FastAPI:
@@ -72,10 +85,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.autopilot.resume_all()  # autopilots cut off by a restart continue from their saved state
         yield
         app.state.runner.shutdown()
-        learning_curve_api.shutdown()
-        active_learning_api.shutdown()
-        annotations_api.shutdown()
-        shift_api.shutdown()
+        for mod, _ in JOB_MODULES:
+            mod.shutdown()
         app.state.heavy.shutdown()
 
     app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan)
@@ -99,10 +110,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     @app.get("/api/datasets/{dataset_id}", response_model=Dataset)
     def get_dataset(dataset_id: str, request: Request) -> dict[str, Any]:
-        rec = request.app.state.db.get_dataset(dataset_id)
-        if not rec:
-            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
-        return {**_summary(rec), "profile": rec["profile"]}
+        rec = dataset_or_404(request, dataset_id)
+        return _detail(rec)
 
     @app.post("/api/datasets", response_model=Dataset, status_code=201)
     async def upload_dataset(request: Request, file: UploadFile = File(...), target: str | None = Form(None)) -> dict[str, Any]:
@@ -113,7 +122,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             rec = await run_in_threadpool(store(request).create_from_upload, file.filename or "", content, target or None)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
-        return {**_summary(rec), "profile": rec["profile"]}
+        return _detail(rec)
 
     @app.patch("/api/datasets/{dataset_id}", response_model=Dataset)
     def confirm_target(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
@@ -122,20 +131,17 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         target = (body or {}).get("target")
         if not isinstance(target, str) or not target:
             raise HTTPException(400, 'Send {"target": "<column to predict>"}.')
-        if not request.app.state.db.get_dataset(dataset_id):
-            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        dataset_or_404(request, dataset_id)
         try:
             rec = store(request).set_target(dataset_id, target)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
-        return {**_summary(rec), "profile": rec["profile"]}
+        return _detail(rec)
 
     @app.get("/api/datasets/{dataset_id}/splits")
     def dataset_splits(dataset_id: str, request: Request) -> dict[str, Any]:
         """Every split stored for the dataset, one per (target, strategy) used so far, and the current target's key."""
-        rec = request.app.state.db.get_dataset(dataset_id)
-        if not rec:
-            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        rec = dataset_or_404(request, dataset_id)
         cur = rec["profile"].get("splits") or {}
         return {"dataset_id": dataset_id, "target": rec["target"], "current": cur.get("key"),
                 "splits": store(request).list_splits(dataset_id)}
@@ -144,9 +150,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     def split_options(dataset_id: str, request: Request, target: str | None = None) -> dict[str, Any]:
         """F6: the split strategies (random, group, time, time + group), the date and entity columns found, the
         suggested strategy, and warnings for a random split on data with a date or entity column."""
-        rec = request.app.state.db.get_dataset(dataset_id)
-        if not rec:
-            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        rec = dataset_or_404(request, dataset_id)
         return {"dataset_id": dataset_id, "target": target or rec["target"],
                 **store(request).split_options(dataset_id, target or rec["target"])}
 
@@ -157,9 +161,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         per period for time splits. Runs that name the same split (POST /api/runs, `split_spec`) reuse it."""
         from .splits import RANDOM_STRATIFIED
 
-        rec = request.app.state.db.get_dataset(dataset_id)
-        if not rec:
-            raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+        rec = dataset_or_404(request, dataset_id)
         body = body or {}
         target = body.get("target") or rec["target"]
         strategy = body.get("strategy") or RANDOM_STRATIFIED
@@ -181,14 +183,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         st = request.app.state
         if st.runs.list_active():
             raise HTTPException(409, "A run is queued or running; cancel it first.")
-        if learning_curve_api.active():
-            raise HTTPException(409, "A learning curve is running; cancel it first.")
-        if active_learning_api.active():
-            raise HTTPException(409, "A labelling queue is working; cancel it first.")
-        if annotations_api.active():
-            raise HTTPException(409, "Annotator class probabilities are being computed; wait for them.")
-        if shift_api.active():
-            raise HTTPException(409, "A shift check is running; cancel it first.")
+        for mod, busy in JOB_MODULES:
+            if mod.active():
+                raise HTTPException(409, busy)
         if any(getattr(a, "is_alive", lambda: False)() for a in getattr(st.autopilot, "threads", {}).values()):
             raise HTTPException(409, "An autopilot is running; cancel it first.")
         st.predictors = PredictorCache()
@@ -200,10 +197,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     app.include_router(import_api.router)
     app.include_router(engine_api.router)
-    app.include_router(learning_curve_api.router)
-    app.include_router(active_learning_api.router)
-    app.include_router(annotations_api.router)
-    app.include_router(shift_api.router)
+    for mod, _ in JOB_MODULES:
+        app.include_router(mod.router)
     app.include_router(slices_api.router)
     app.include_router(forecast_api.router)
     app.include_router(anomaly_api.router)

@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
 
+from ..http import run_or_404
+
 router = APIRouter(prefix="/api")
 
 # The RunCreate fields a run's config keeps, so the Gym (and a Vela patch) can start from it.
@@ -90,9 +92,7 @@ def run_body(rec: dict[str, Any]) -> dict[str, Any]:
 @router.get("/runs/{run_id}/gym")
 def run_gym_config(run_id: str, request: Request) -> dict[str, Any]:
     """The run's request as the Gym edits it (the body that would start it again), plus its lineage."""
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     body = run_body(rec)
     return {"run_id": run_id, "name": rec["name"], "status": rec["status"], "body": body,
@@ -106,9 +106,7 @@ async def export_py(run_id: str, request: Request, download: bool = False):
     from .. import config
     from . import export
 
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; export a run that finished.")
     pl = rec["config"].get("pseudolabel") or {}

@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 from ..gym.api import run_body
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -40,9 +41,7 @@ def _key(findings: list[dict[str, Any]]) -> str:
 
 async def compute_findings(request: Request, run_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     store = request.app.state.runs
-    rec = store.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; Vela reads finished runs.")
     events = await run_in_threadpool(store.events, run_id, 0, 100_000)
@@ -117,9 +116,7 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
     from . import doctor as D
 
     store = request.app.state.runs
-    rec = store.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; the doctor reads finished runs.")

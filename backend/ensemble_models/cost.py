@@ -74,18 +74,19 @@ def multiclass_expected_cost_argmax(y_true, y_pred_proba, *, matrix: Sequence[Se
     return float(m[np.asarray(y_true).astype(int), p.argmax(axis=1)].mean())
 
 
-def binary_cost_scorer(c_fp: float, c_fn: float, g_tp: float = 0.0):
+def _binary_scorer(name: str, score_fn, c_fp: float, c_fn: float, g_tp: float, **kind):
     from autogluon.core.metrics import make_scorer
 
-    return make_scorer(METRIC_NAME, binary_expected_cost_bayes, optimum=-float(g_tp), greater_is_better=False,
-                       needs_proba=True, c_fp=float(c_fp), c_fn=float(c_fn), g_tp=float(g_tp))
+    return make_scorer(name, score_fn, optimum=-float(g_tp), greater_is_better=False, **kind,
+                       c_fp=float(c_fp), c_fn=float(c_fn), g_tp=float(g_tp))
+
+
+def binary_cost_scorer(c_fp: float, c_fn: float, g_tp: float = 0.0):
+    return _binary_scorer(METRIC_NAME, binary_expected_cost_bayes, c_fp, c_fn, g_tp, needs_proba=True)
 
 
 def binary_cost_class_scorer(c_fp: float, c_fn: float, g_tp: float = 0.0):
-    from autogluon.core.metrics import make_scorer
-
-    return make_scorer(CLASS_METRIC_NAME, binary_expected_cost_labels, optimum=-float(g_tp), greater_is_better=False,
-                       needs_class=True, c_fp=float(c_fp), c_fn=float(c_fn), g_tp=float(g_tp))
+    return _binary_scorer(CLASS_METRIC_NAME, binary_expected_cost_labels, c_fp, c_fn, g_tp, needs_class=True)
 
 
 def multiclass_cost_scorer(matrix: Sequence[Sequence[float]]):

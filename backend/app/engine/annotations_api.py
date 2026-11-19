@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from .. import config
 from . import annotations as an
 from .store import now
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -50,13 +51,6 @@ class Answers(BaseModel):
 
 class SimAdj(BaseModel):
     n: int = Field(50, ge=1, le=10000, description="Adjudicate the n lowest-quality queue rows from the hidden truth.")
-
-
-def _run(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
-    return rec
 
 
 def _check(rec: dict[str, Any]) -> None:
@@ -170,7 +164,7 @@ def get_annotations(run_id: str, request: Request, offset: int = 0, limit: int =
                     include: Literal["queue", "all"] = "queue") -> dict[str, Any]:
     """F14: annotators' agreement and quality, the CROWDLAB consensus, and the disagreement queue (lowest consensus
     quality first). `summary` (schema annotations/1) is also on the run payload as `annotations.summary` for F17."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     run_dir = Path(cfg["run_dir"])
     st = _status(rec)
@@ -232,7 +226,7 @@ def load_sample(run_id: str, body: SampleRequest, request: Request) -> dict[str,
     """The support-tickets sample's SIMULATED annotators (5, of different quality, one systematically biased): each of
     n_rows training rows labelled by per_row of them, every label drawn from the sample's hidden truth. Replaces the
     run's annotations."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     _check(rec)
     got = an.sample_truth(request.app.state.datasets, rec["dataset_id"])
     if got is None:
@@ -255,7 +249,7 @@ async def upload(run_id: str, request: Request, file: UploadFile = File(...),
                  mode: Literal["replace", "append"] = Form("replace")) -> dict[str, Any]:
     """A long-format annotations file: one line per (row, annotator, label). Rows by `row` (the dataset's row number,
     from 0) or by a unique ID column of the dataset. Holdout rows are refused: the holdout is never relabelled."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     _check(rec)
     cfg = rec["config"]
     content = await file.read()
@@ -298,7 +292,7 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
     """The disagreement queue: `vote` adds the reviewer's label for the row as one more annotation (the inbox under
     another name); `adjudicate` sets the row's final label, over the consensus; `clear` removes the reviewer's vote and
     any adjudication of the row."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     _check(rec)
     cfg = rec["config"]
     run_dir = Path(cfg["run_dir"])
@@ -338,7 +332,7 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
 def simulate_adjudication(run_id: str, body: SimAdj, request: Request) -> dict[str, Any]:
     """Adjudicate the n lowest-quality queue rows from the sample's hidden truth, as 'simulated-adjudicator' (a stand-in
     for a person; the sample only)."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     run_dir = Path(rec["config"]["run_dir"])
     truth = an.read_truth(run_dir)
     if not truth:
@@ -366,7 +360,7 @@ def make_version(run_id: str, request: Request) -> dict[str, Any]:
     one change per relabelled row."""
     from ..splits import save_splits
 
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     _check(rec)
     cfg = rec["config"]
     st = _status(rec)

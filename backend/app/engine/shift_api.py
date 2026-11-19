@@ -33,6 +33,7 @@ from ..splits import holdout_mask
 from . import shift as sh
 from .runner import dev_reload
 from .store import now
+from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -59,13 +60,6 @@ class ShiftRequest(BaseModel):
     time_limit: float | None = Field(None, gt=0, description="Seconds per fit (none: no limit).")
     fit_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to fit() unchanged (overrides "
                                                                          "num_bag_folds = 5, hyperparameters = {'GBM': {}}, …).")
-
-
-def _run(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
-    return rec
 
 
 def _check_run(rec: dict[str, Any]) -> None:
@@ -309,7 +303,7 @@ def actions(request: Request, rec: dict[str, Any], st: dict[str, Any]) -> list[d
 @router.get("/runs/{run_id}/shift")
 def list_shift(run_id: str, request: Request) -> dict[str, Any]:
     """F15: this run's shift checks (one per source: holdout, a time cut, a batch) and what a new one can compare."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     store = request.app.state.runs
     root = sh.shift_root(Path(rec["config"]["run_dir"]))
     checks = []
@@ -341,7 +335,7 @@ def list_shift(run_id: str, request: Request) -> dict[str, Any]:
 def get_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
     """F15: one shift check: status while it runs; then the AUC with its DeLong CI, the permutation and refit nulls,
     the verdict, the shifting features (importance with CI, PSI), the excluded columns, the weights and the actions."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     if not re.fullmatch(r"[a-z0-9_-]+", key):
         raise HTTPException(400, "Bad key.")
     st = _state(rec, key, request.app.state.runs)
@@ -354,7 +348,7 @@ def get_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
 def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: int = 100000) -> dict[str, Any]:
     """Per row: its set, origin o, row number (in the dataset, or in the batch file) and the out-of-fold P(o = 1 | x);
     reference rows also carry their weight w. Paged."""
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     if not re.fullmatch(r"[a-z0-9_-]+", key):
         raise HTTPException(400, "Bad key.")
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
@@ -424,12 +418,12 @@ def start(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str
 def start_shift(run_id: str, body: ShiftRequest, request: Request) -> dict[str, Any]:
     """F15: start a shift check: an AutoGluon classifier (bagged, scored out of fold) tells the reference rows from the
     new rows. Poll GET …/shift/{key}. A new check of the same source replaces the old one."""
-    return start(request, _run(request, run_id), body)
+    return start(request, run_or_404(request, run_id), body)
 
 
 @router.post("/runs/{run_id}/shift/{key}/cancel")
 def cancel_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
     with _LOCK:
         item = _PROCS.get(str(d))
@@ -455,7 +449,7 @@ def weights_version(run_id: str, key: str, request: Request) -> dict[str, Any]:
     from ..splits import save_splits
     from ..vela.findings import make_patch
 
-    rec = _run(request, run_id)
+    rec = run_or_404(request, run_id)
     cfg = rec["config"]
     d = sh.job_dir(Path(cfg["run_dir"]), key)
     st = _state(rec, key, request.app.state.runs)
@@ -518,7 +512,7 @@ def start_batch_shift(bid: str, request: Request, body: ShiftRequest | None = No
     if b.get("status") != "succeeded":
         raise HTTPException(409, f"Batch {bid} is {b.get('status')}.")
     v = reg.get_version(b["version_id"]) or {}
-    rec = _run(request, v.get("run_id") or "")
+    rec = run_or_404(request, v.get("run_id") or "")
     body = (body or ShiftRequest()).model_copy(update={"source": "batch", "batch_id": bid})
     return start(request, rec, body)
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .. import llm
 from . import metrics as M
 from .engine import ACTIONS, Manager, bulk_accept, new_autopilot
+from ..http import run_or_404, dataset_or_404
 
 router = APIRouter(prefix="/api")
 
@@ -93,9 +94,7 @@ def menu() -> dict[str, Any]:
 
 @router.post("/autopilot", status_code=201)
 def start(body: Brief, request: Request) -> dict[str, Any]:
-    ds = request.app.state.db.get_dataset(body.dataset_id)
-    if not ds:
-        raise HTTPException(404, f"No dataset with id '{body.dataset_id}'.")
+    ds = dataset_or_404(request, body.dataset_id)
     label = body.label or ds["target"]
     if not label:
         raise HTTPException(400, "Say which column to predict (label).")
@@ -239,9 +238,7 @@ Return only JSON: {{"answer": "<your answer>"}}"""
 
 
 def _run_facts(request: Request, run_id: str) -> dict[str, Any]:
-    rec = request.app.state.runs.get(run_id)
-    if not rec:
-        raise HTTPException(404, f"No run with id '{run_id}'.")
+    rec = run_or_404(request, run_id)
     res = rec.get("result") or {}
     lb = [{k: r.get(k) for k in ("model", "score_test", "score_val", "fit_time", "pred_time_test", "stack_level")}
           for r in (res.get("leaderboard") or [])[:12]]

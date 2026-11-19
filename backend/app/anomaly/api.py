@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 from .. import config
 from ..engine.store import now
 from . import core, group, labels as review, velocity
+from ..http import dataset_or_404
 
 router = APIRouter(prefix="/api/anomaly")
 
@@ -54,13 +55,6 @@ class AnomalyCreate(BaseModel):
     source: str | None = None
 
 
-def _ds(request: Request, dataset_id: str) -> dict[str, Any]:
-    ds = request.app.state.db.get_dataset(dataset_id)
-    if not ds:
-        raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
-    return ds
-
-
 @router.post("/runs", status_code=201)
 async def create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     return await run_in_threadpool(_create, body, request)
@@ -70,7 +64,7 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     from ..engine.api import run_out
 
     app = request.app
-    ds = _ds(request, body.dataset_id)
+    ds = dataset_or_404(request, body.dataset_id)
     cols = {c["name"]: c for c in ds["profile"]["columns"]}
     for c in (body.features or []) + (body.drop_columns or []):
         if c not in cols:
@@ -135,7 +129,7 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
 def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
     """Suggested entity, time and relative columns for group-relative features: the sample's spec, else names and
     types (a repeated ID-like column, a datetime column, amount-like numbers)."""
-    ds = _ds(request, dataset_id)
+    ds = dataset_or_404(request, dataset_id)
     spec = request.app.state.datasets.sidecar(dataset_id, "anomaly_truth.json")
     df = pd.read_csv(request.app.state.datasets.csv_path(dataset_id), nrows=20000)
     types = {c["name"]: c["type"] for c in ds["profile"]["columns"]}
@@ -302,7 +296,7 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
     if body.negatives == "dismissed_only":
         df.loc[~reviewed, label] = np.nan  # rows without a label are left out of training (the engine drops them)
     splits = make_splits(pd.Series(y, name=label), n, 42, 0.2, 5)
-    ds = _ds(request, rec["dataset_id"])
+    ds = dataset_or_404(request, rec["dataset_id"])
     note = (f"{summ['confirmed']} confirmed, {summ['dismissed']} dismissed, {n - summ['reviewed']} unreviewed "
             f"({'positive-unlabeled: unreviewed = 0' if body.negatives == 'unlabeled' else 'reviewed rows only'})")
     new = app.state.datasets.create_version(

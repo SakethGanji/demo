@@ -478,10 +478,3 @@ def reasons(shortfall: pd.DataFrame, k: int = 4) -> list[list[dict[str, Any]]]:
         order = [i for i in np.argsort(-r, kind="stable") if r[i] > 1e-9][:k]
         out.append([{"feature": cols[i], "points_lost": float(r[i])} for i in order])
     return out
-
-
-def register() -> None:
-    from autogluon.tabular.registry import ag_model_registry
-
-    if not ag_model_registry.exists(ScorecardModel) and ScorecardModel.ag_key not in ag_model_registry.keys:
-        ag_model_registry.add(ScorecardModel)
