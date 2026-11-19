@@ -1,0 +1,401 @@
+applicant_id,customer_id,application_date,age,employment,income_usd,home_ownership,loan_purpose,region,loan_amount_usd,credit_score,debt_to_income,utilization,delinquencies_2y,months_employed
+C-509600,CU-100275,2024-06-20,35,salaried,35700.0,mortgage,other,west,3700.0,768,0.372,0.302,0,61.0
+C-509601,CU-100989,2024-06-20,63,retired,22600.0,mortgage,car,west,4700.0,738,0.657,0.233,0,0.0
+C-509602,CU-103640,2024-06-20,40,unemployed,17100.0,own,other,north,6300.0,787,0.245,0.297,0,0.0
+C-509603,CU-104195,2024-06-20,46,salaried,54900.0,other,car,west,7400.0,698,0.461,0.181,0,32.0
+C-509604,CU-105840,2024-06-20,29,salaried,28400.0,mortgage,education,west,2400.0,722,0.119,0.191,0,29.0
+C-509605,CU-105982,2024-06-20,63,salaried,50300.0,own,debt consolidation,west,25000.0,762,0.127,0.217,0,120.0
+C-509606,CU-106345,2024-06-20,53,salaried,53700.0,rent,debt consolidation,central,23500.0,647,0.23,0.484,0,31.0
+C-509607,CU-106618,2024-06-20,54,salaried,32600.0,own,medical,east,8200.0,702,0.41,0.373,1,174.0
+C-509608,CU-106874,2024-06-20,39,self-employed,55000.0,mortgage,car,central,24300.0,682,0.198,0.5,0,33.0
+C-509609,CU-107017,2024-06-20,22,salaried,124100.0,mortgage,home improvement,south,18300.0,673,0.248,0.2,0,43.0
+C-509610,CU-107488,2024-06-20,46,retired,45400.0,rent,debt consolidation,south,19000.0,785,0.227,0.331,0,0.0
+C-509611,CU-100008,2024-06-21,40,contract,63100.0,mortgage,home improvement,east,29900.0,666,0.175,0.692,0,37.0
+C-509612,CU-101604,2024-06-21,55,salaried,54200.0,mortgage,other,west,15900.0,612,0.127,0.314,0,37.0
+C-509613,CU-102223,2024-06-21,52,self-employed,117000.0,own,debt consolidation,central,29700.0,714,0.433,0.196,1,278.0
+C-509614,CU-103319,2024-06-21,42,salaried,55400.0,other,other,east,16900.0,633,0.159,0.134,0,4.0
+C-509615,CU-103381,2024-06-21,30,self-employed,42700.0,mortgage,other,west,22800.0,649,0.346,0.459,0,45.0
+C-509616,CU-105321,2024-06-21,43,retired,41900.0,rent,debt consolidation,east,24800.0,821,0.352,0.162,0,0.0
+C-509617,CU-105529,2024-06-21,49,salaried,35900.0,mortgage,debt consolidation,north,4100.0,665,0.188,0.321,3,1.0
+C-509618,CU-105792,2024-06-21,26,contract,45000.0,mortgage,car,central,3500.0,697,0.319,0.272,1,112.0
+C-509619,CU-105967,2024-06-21,42,self-employed,25700.0,mortgage,car,east,12100.0,750,0.287,0.639,0,21.0
+C-509620,CU-106044,2024-06-21,42,salaried,36800.0,mortgage,medical,south,3300.0,579,0.121,0.741,0,11.0
+C-509621,CU-107065,2024-06-21,25,salaried,28300.0,rent,car,central,12700.0,672,0.127,0.212,0,28.0
+C-509622,CU-107716,2024-06-21,41,contract,42500.0,mortgage,car,south,24500.0,620,0.052,0.505,1,45.0
+C-509623,CU-101657,2024-06-22,39,salaried,72900.0,rent,debt consolidation,central,33400.0,718,0.286,0.387,0,33.0
+C-509624,CU-101950,2024-06-22,44,salaried,31700.0,mortgage,debt consolidation,west,7400.0,725,0.367,0.584,0,80.0
+C-509625,CU-101979,2024-06-22,53,salaried,24900.0,own,other,west,11200.0,712,0.215,0.378,2,39.0
+C-509626,CU-103508,2024-06-22,46,salaried,51800.0,mortgage,small business,central,11200.0,769,0.062,0.27,0,35.0
+C-509627,CU-104069,2024-06-22,60,salaried,108700.0,rent,debt consolidation,south,30700.0,671,0.132,0.148,1,22.0
+C-509628,CU-104536,2024-06-22,64,retired,39400.0,own,debt consolidation,north,19700.0,722,0.268,0.482,0,0.0
+C-509629,CU-104773,2024-06-22,54,salaried,83300.0,rent,other,central,5000.0,718,0.332,0.452,0,79.0
+C-509630,CU-105684,2024-06-22,35,self-employed,18000.0,mortgage,car,central,10400.0,764,0.257,0.476,1,118.0
+C-509631,CU-105728,2024-06-22,54,self-employed,89700.0,mortgage,education,central,14000.0,767,0.202,0.507,1,181.0
+C-509632,CU-106064,2024-06-22,52,salaried,41100.0,mortgage,education,north,5300.0,783,0.41,0.124,0,38.0
+C-509633,CU-106220,2024-06-22,63,salaried,59300.0,rent,other,south,16100.0,660,0.21,0.49,0,74.0
+C-509634,CU-106281,2024-06-22,52,contract,43600.0,rent,debt consolidation,south,18900.0,692,0.3,0.142,2,43.0
+C-509635,CU-106296,2024-06-22,35,salaried,69800.0,mortgage,home improvement,west,27800.0,655,0.214,0.02,0,68.0
+C-509636,CU-106301,2024-06-22,54,contract,110400.0,mortgage,small business,south,21400.0,651,0.118,0.51,0,91.0
+C-509637,CU-106672,2024-06-22,34,salaried,53300.0,rent,car,south,23800.0,689,0.601,0.223,0,5.0
+C-509638,CU-106996,2024-06-22,27,salaried,49100.0,mortgage,debt consolidation,central,9200.0,696,0.171,0.368,0,103.0
+C-509639,CU-107480,2024-06-22,26,salaried,33300.0,rent,education,,15400.0,644,0.313,0.521,0,34.0
+C-509640,CU-107574,2024-06-22,30,retired,36600.0,mortgage,education,west,18700.0,612,0.221,0.57,0,0.0
+C-509641,CU-102068,2024-06-23,45,salaried,72700.0,mortgage,debt consolidation,south,16300.0,701,0.474,0.473,0,88.0
+C-509642,CU-102921,2024-06-23,41,salaried,43900.0,rent,debt consolidation,north,12100.0,802,0.621,0.559,3,9.0
+C-509643,CU-102949,2024-06-23,59,salaried,30600.0,mortgage,debt consolidation,central,2800.0,656,0.229,0.45,0,149.0
+C-509644,CU-103224,2024-06-23,34,salaried,57100.0,mortgage,small business,south,11400.0,735,0.237,0.312,0,64.0
+C-509645,CU-103264,2024-06-23,25,salaried,44200.0,mortgage,other,south,14700.0,605,0.503,0.367,0,18.0
+C-509646,CU-103606,2024-06-23,20,salaried,37900.0,own,car,east,6200.0,634,0.637,0.48,0,153.0
+C-509647,CU-104584,2024-06-23,45,self-employed,35000.0,rent,debt consolidation,south,10500.0,649,0.138,0.775,0,30.0
+C-509648,CU-104649,2024-06-23,47,salaried,28900.0,mortgage,car,south,3400.0,578,0.21,0.366,3,34.0
+C-509649,CU-105952,2024-06-23,34,contract,24500.0,rent,debt consolidation,north,3800.0,728,0.222,0.055,1,43.0
+C-509650,CU-106212,2024-06-23,51,unemployed,15800.0,mortgage,debt consolidation,east,2000.0,674,0.142,0.371,0,0.0
+C-509651,CU-106474,2024-06-23,42,salaried,36500.0,mortgage,medical,north,21400.0,665,0.208,0.122,1,22.0
+C-509652,CU-107479,2024-06-23,24,salaried,59300.0,mortgage,debt consolidation,south,19600.0,717,0.249,0.127,0,130.0
+C-509653,CU-107736,2024-06-23,70,salaried,23400.0,other,debt consolidation,north,1400.0,691,0.478,0.304,0,64.0
+C-509654,CU-107895,2024-06-23,67,salaried,78300.0,rent,debt consolidation,south,38300.0,619,0.134,0.578,2,32.0
+C-509655,CU-100179,2024-06-24,36,contract,35200.0,mortgage,debt consolidation,south,16200.0,724,0.111,0.227,0,49.0
+C-509656,CU-101504,2024-06-24,30,unemployed,7400.0,own,debt consolidation,north,1000.0,669,0.227,0.475,1,0.0
+C-509657,CU-102893,2024-06-24,19,salaried,23500.0,rent,other,north,1700.0,687,0.014,0.402,0,70.0
+C-509658,CU-104012,2024-06-24,43,contract,55000.0,rent,debt consolidation,north,29500.0,667,0.387,0.467,0,49.0
+C-509659,CU-105914,2024-06-24,35,salaried,81000.0,rent,medical,south,7700.0,606,0.381,0.69,3,73.0
+C-509660,CU-106568,2024-06-24,55,salaried,30300.0,mortgage,debt consolidation,south,6300.0,709,0.343,0.469,1,16.0
+C-509661,CU-106890,2024-06-24,42,salaried,225400.0,rent,small business,east,106800.0,638,0.117,0.395,0,112.0
+C-509662,CU-107169,2024-06-24,39,self-employed,48100.0,rent,home improvement,west,25900.0,643,0.324,0.142,0,49.0
+C-509663,CU-107498,2024-06-24,26,salaried,72700.0,own,debt consolidation,west,21400.0,643,0.432,0.643,0,35.0
+C-509664,CU-107966,2024-06-24,44,salaried,40600.0,mortgage,debt consolidation,west,6300.0,767,0.165,0.633,0,29.0
+C-509665,CU-100626,2024-06-25,29,retired,28200.0,rent,home improvement,central,11000.0,748,0.359,0.501,0,
+C-509666,CU-101449,2024-06-25,50,retired,22600.0,rent,car,south,7900.0,667,0.135,0.495,1,0.0
+C-509667,CU-101907,2024-06-25,21,salaried,73600.0,rent,small business,south,43300.0,569,0.132,0.179,1,49.0
+C-509668,CU-102054,2024-06-25,42,salaried,74500.0,mortgage,debt consolidation,east,21700.0,744,0.348,0.137,0,74.0
+C-509669,CU-103982,2024-06-25,60,salaried,45200.0,mortgage,debt consolidation,west,9500.0,685,0.205,0.113,1,56.0
+C-509670,CU-104762,2024-06-25,34,salaried,33700.0,rent,debt consolidation,east,4800.0,742,0.111,0.191,1,71.0
+C-509671,CU-107107,2024-06-25,40,salaried,66500.0,own,car,west,18200.0,748,0.27,0.528,0,136.0
+C-509672,CU-107860,2024-06-25,47,salaried,58400.0,mortgage,medical,north,20000.0,632,0.111,0.131,0,133.0
+C-509673,CU-100803,2024-06-26,54,salaried,60900.0,rent,debt consolidation,west,15500.0,648,0.112,0.099,1,28.0
+C-509674,CU-101191,2024-06-26,36,contract,38600.0,mortgage,debt consolidation,south,13300.0,701,0.191,0.446,0,142.0
+C-509675,CU-102252,2024-06-26,28,self-employed,36200.0,mortgage,other,north,12400.0,692,0.226,0.178,0,90.0
+C-509676,CU-102370,2024-06-26,51,salaried,48000.0,mortgage,car,north,26900.0,765,0.197,0.644,0,15.0
+C-509677,CU-103667,2024-06-26,41,retired,30400.0,own,home improvement,west,3000.0,585,0.476,0.687,0,0.0
+C-509678,CU-103795,2024-06-26,53,retired,34300.0,rent,other,central,14100.0,762,0.063,0.602,0,0.0
+C-509679,CU-103873,2024-06-26,46,contract,118900.0,rent,other,central,41100.0,664,0.187,0.503,0,64.0
+C-509680,CU-105356,2024-06-26,40,self-employed,48300.0,mortgage,debt consolidation,east,3000.0,684,0.449,0.537,0,74.0
+C-509681,CU-105377,2024-06-26,43,contract,21700.0,rent,education,,7100.0,777,0.115,0.614,0,79.0
+C-509682,CU-105419,2024-06-26,48,retired,85300.0,own,debt consolidation,south,6600.0,724,0.142,0.653,0,0.0
+C-509683,CU-105937,2024-06-26,47,salaried,38300.0,mortgage,medical,north,18000.0,707,0.265,0.435,1,24.0
+C-509684,CU-106704,2024-06-26,56,self-employed,87600.0,mortgage,debt consolidation,north,12700.0,599,0.375,0.416,0,289.0
+C-509685,CU-106751,2024-06-26,31,salaried,31200.0,own,debt consolidation,north,12800.0,647,0.189,0.3,0,36.0
+C-509686,CU-107048,2024-06-26,63,contract,95700.0,rent,car,central,37100.0,633,0.179,0.215,3,13.0
+C-509687,CU-107185,2024-06-26,43,unemployed,13300.0,own,car,central,6100.0,598,0.286,0.72,3,0.0
+C-509688,CU-107777,2024-06-26,36,contract,28300.0,other,home improvement,central,9400.0,841,0.287,0.029,0,61.0
+C-509689,CU-107801,2024-06-26,78,salaried,52000.0,rent,small business,central,9100.0,687,0.097,0.148,0,24.0
+C-509690,CU-100368,2024-06-27,43,self-employed,97200.0,rent,other,west,18700.0,645,0.681,0.347,0,55.0
+C-509691,CU-101084,2024-06-27,36,retired,16900.0,rent,debt consolidation,central,9700.0,630,0.127,0.285,3,0.0
+C-509692,CU-101553,2024-06-27,36,salaried,54400.0,mortgage,debt consolidation,,32500.0,772,0.162,0.276,1,29.0
+C-509693,CU-101799,2024-06-27,25,retired,32300.0,own,home improvement,south,11700.0,648,0.149,0.804,0,0.0
+C-509694,CU-102297,2024-06-27,36,retired,,rent,small business,west,11200.0,707,0.54,0.55,0,0.0
+C-509695,CU-102433,2024-06-27,44,contract,73000.0,own,debt consolidation,north,16800.0,756,0.476,0.727,0,33.0
+C-509696,CU-102633,2024-06-27,44,self-employed,37800.0,mortgage,other,north,5900.0,749,0.319,0.508,0,101.0
+C-509697,CU-103599,2024-06-27,42,salaried,37100.0,other,debt consolidation,east,6800.0,688,0.299,0.19,1,121.0
+C-509698,CU-103762,2024-06-27,46,salaried,69300.0,rent,debt consolidation,central,29200.0,649,0.094,0.707,0,45.0
+C-509699,CU-105637,2024-06-27,50,retired,25600.0,own,debt consolidation,south,4000.0,586,0.202,0.567,3,0.0
+C-509700,CU-106623,2024-06-27,33,salaried,55200.0,own,education,south,28400.0,699,0.268,0.78,0,70.0
+C-509701,CU-107617,2024-06-27,21,salaried,55400.0,rent,home improvement,south,15000.0,709,0.026,0.164,0,64.0
+C-509702,CU-101698,2024-06-28,33,self-employed,75900.0,mortgage,home improvement,east,17500.0,618,0.338,0.341,0,46.0
+C-509703,CU-102103,2024-06-28,34,salaried,31000.0,rent,car,east,14600.0,697,0.1,0.21,1,104.0
+C-509704,CU-102651,2024-06-28,61,salaried,19200.0,rent,other,east,9200.0,742,0.664,0.484,1,50.0
+C-509705,CU-104990,2024-06-28,33,salaried,28100.0,rent,debt consolidation,north,15500.0,676,0.382,0.385,0,97.0
+C-509706,CU-105799,2024-06-28,19,contract,30700.0,mortgage,debt consolidation,north,17700.0,754,0.304,0.396,1,16.0
+C-509707,CU-105961,2024-06-28,32,salaried,69600.0,mortgage,debt consolidation,east,20700.0,611,0.134,0.73,1,46.0
+C-509708,CU-106009,2024-06-28,47,retired,131100.0,rent,debt consolidation,west,30200.0,696,0.132,0.222,0,0.0
+C-509709,CU-106450,2024-06-28,45,salaried,53000.0,mortgage,home improvement,west,29500.0,793,0.586,0.663,1,24.0
+C-509710,CU-107839,2024-06-28,47,salaried,,rent,debt consolidation,north,11700.0,767,0.375,0.063,1,41.0
+C-509711,CU-100170,2024-06-29,46,salaried,,rent,other,east,36300.0,741,0.282,0.145,2,112.0
+C-509712,CU-100188,2024-06-29,47,contract,31500.0,rent,debt consolidation,central,6000.0,613,0.19,0.766,0,22.0
+C-509713,CU-101857,2024-06-29,32,salaried,24700.0,rent,debt consolidation,west,5600.0,740,0.063,0.59,0,24.0
+C-509714,CU-101946,2024-06-29,34,contract,63100.0,mortgage,debt consolidation,west,28500.0,668,0.206,0.448,0,41.0
+C-509715,CU-102362,2024-06-29,38,retired,32500.0,mortgage,education,east,18500.0,616,0.091,0.874,1,0.0
+C-509716,CU-102830,2024-06-29,36,self-employed,54400.0,rent,debt consolidation,central,13000.0,746,0.306,0.461,1,77.0
+C-509717,CU-103390,2024-06-29,31,salaried,33400.0,rent,debt consolidation,north,18900.0,784,0.203,0.217,0,69.0
+C-509718,CU-104244,2024-06-29,19,salaried,44000.0,rent,debt consolidation,south,10800.0,716,0.442,0.499,0,47.0
+C-509719,CU-105338,2024-06-29,78,salaried,78400.0,mortgage,debt consolidation,south,32100.0,619,0.111,0.502,1,64.0
+C-509720,CU-105699,2024-06-29,42,contract,61600.0,mortgage,other,central,31900.0,666,0.151,0.702,1,99.0
+C-509721,CU-107739,2024-06-29,31,contract,94900.0,own,medical,central,42600.0,703,0.491,0.275,0,127.0
+C-509722,CU-107760,2024-06-29,37,self-employed,42500.0,own,other,south,13300.0,663,0.346,0.333,0,61.0
+C-509723,CU-101056,2024-06-30,35,salaried,46600.0,mortgage,home improvement,south,15800.0,716,0.59,0.593,1,34.0
+C-509724,CU-102065,2024-06-30,40,salaried,56700.0,mortgage,small business,south,11300.0,759,0.403,0.647,0,56.0
+C-509725,CU-103226,2024-06-30,27,salaried,79300.0,mortgage,education,central,43000.0,756,0.119,0.204,0,101.0
+C-509726,CU-103648,2024-06-30,40,salaried,40200.0,rent,small business,east,4200.0,631,0.239,0.49,2,45.0
+C-509727,CU-104094,2024-06-30,35,salaried,74900.0,rent,debt consolidation,west,17600.0,583,0.176,0.789,3,50.0
+C-509728,CU-105240,2024-06-30,60,salaried,38900.0,rent,other,west,22400.0,729,0.135,0.354,0,51.0
+C-509729,CU-105621,2024-06-30,41,salaried,50100.0,rent,home improvement,south,29100.0,719,0.125,0.125,0,50.0
+C-509730,CU-106116,2024-06-30,53,self-employed,40800.0,mortgage,debt consolidation,east,14300.0,590,0.343,0.31,1,100.0
+C-509731,CU-106458,2024-06-30,46,self-employed,39700.0,mortgage,home improvement,south,12600.0,720,0.259,0.265,0,47.0
+C-509732,CU-106631,2024-06-30,41,retired,47300.0,mortgage,car,east,19500.0,748,0.202,0.299,0,0.0
+C-509733,CU-106732,2024-06-30,38,contract,40500.0,other,education,south,19100.0,637,0.508,0.069,0,104.0
+C-509734,CU-106888,2024-06-30,20,salaried,64500.0,mortgage,small business,east,9300.0,636,0.189,0.167,0,87.0
+C-509735,CU-107298,2024-06-30,40,retired,38500.0,rent,debt consolidation,west,18700.0,693,0.27,0.239,0,0.0
+C-509736,CU-107415,2024-06-30,43,salaried,74700.0,own,education,south,7800.0,721,0.167,0.576,0,17.0
+C-509737,CU-100137,2024-07-01,28,salaried,94700.0,own,debt consolidation,east,49200.0,634,0.272,0.23,2,51.0
+C-509738,CU-100555,2024-07-01,64,salaried,70900.0,rent,home improvement,south,26400.0,614,0.143,0.666,2,31.0
+C-509739,CU-100656,2024-07-01,51,salaried,52500.0,mortgage,education,east,28600.0,750,0.108,0.425,0,129.0
+C-509740,CU-101590,2024-07-01,27,salaried,22200.0,mortgage,debt consolidation,south,4600.0,697,0.24,0.054,0,66.0
+C-509741,CU-101624,2024-07-01,33,salaried,54100.0,own,debt consolidation,south,31900.0,719,0.161,0.339,0,36.0
+C-509742,CU-102908,2024-07-01,31,retired,39700.0,rent,other,,10200.0,698,0.419,0.236,0,0.0
+C-509743,CU-103284,2024-07-01,60,salaried,40400.0,mortgage,car,south,19900.0,716,0.266,0.472,1,70.0
+C-509744,CU-103654,2024-07-01,43,salaried,25300.0,mortgage,education,south,1900.0,658,0.325,0.47,0,1.0
+C-509745,CU-103784,2024-07-01,47,contract,,mortgage,debt consolidation,north,2000.0,729,0.469,0.349,0,206.0
+C-509746,CU-103824,2024-07-01,57,retired,22600.0,mortgage,debt consolidation,central,5600.0,634,0.262,0.23,1,0.0
+C-509747,CU-103839,2024-07-01,37,self-employed,,rent,car,west,28000.0,733,0.285,0.301,1,32.0
+C-509748,CU-104254,2024-07-01,49,salaried,28700.0,own,car,east,16600.0,829,0.294,0.686,0,86.0
+C-509749,CU-104688,2024-07-01,44,salaried,34300.0,mortgage,other,central,7400.0,710,0.137,0.461,0,117.0
+C-509750,CU-105788,2024-07-01,61,contract,26000.0,own,car,central,1500.0,706,0.11,0.49,0,53.0
+C-509751,CU-105875,2024-07-01,30,self-employed,65700.0,mortgage,car,east,8900.0,723,0.45,0.416,0,107.0
+C-509752,CU-106523,2024-07-01,44,salaried,35700.0,rent,other,south,6900.0,621,0.332,0.687,1,30.0
+C-509753,CU-107113,2024-07-01,48,salaried,104300.0,mortgage,home improvement,east,14000.0,732,0.243,0.525,0,53.0
+C-509754,CU-100865,2024-07-02,38,salaried,,rent,car,west,24700.0,724,0.096,0.028,1,108.0
+C-509755,CU-101216,2024-07-02,30,salaried,31700.0,mortgage,car,east,2500.0,593,0.111,0.799,0,32.0
+C-509756,CU-102464,2024-07-02,52,salaried,116000.0,own,other,west,31000.0,647,0.431,0.114,0,8.0
+C-509757,CU-102575,2024-07-02,19,salaried,25700.0,mortgage,other,,8400.0,713,0.377,0.325,0,101.0
+C-509758,CU-102823,2024-07-02,19,salaried,62700.0,mortgage,debt consolidation,south,12600.0,634,0.169,0.036,1,
+C-509759,CU-105647,2024-07-02,46,salaried,49700.0,mortgage,car,south,26700.0,735,0.186,0.17,0,51.0
+C-509760,CU-105859,2024-07-02,35,salaried,35800.0,own,education,east,3200.0,768,0.31,0.477,0,
+C-509761,CU-106079,2024-07-02,55,salaried,40200.0,rent,debt consolidation,south,17600.0,695,0.208,0.435,0,61.0
+C-509762,CU-106914,2024-07-02,47,salaried,52400.0,mortgage,small business,north,19400.0,734,0.096,0.178,0,86.0
+C-509763,CU-107438,2024-07-02,27,salaried,92200.0,own,car,east,22500.0,611,0.171,0.85,2,2.0
+C-509764,CU-107724,2024-07-02,34,salaried,22000.0,mortgage,debt consolidation,south,9600.0,727,0.435,0.82,1,32.0
+C-509765,CU-100942,2024-07-03,61,salaried,72600.0,mortgage,car,east,20800.0,719,0.197,0.763,0,
+C-509766,CU-100958,2024-07-03,22,contract,18400.0,mortgage,car,south,2800.0,665,0.436,0.315,0,47.0
+C-509767,CU-101034,2024-07-03,52,salaried,48900.0,other,debt consolidation,west,5500.0,649,0.237,0.399,1,83.0
+C-509768,CU-101565,2024-07-03,59,salaried,48300.0,rent,education,east,6900.0,708,0.508,0.662,0,95.0
+C-509769,CU-102167,2024-07-03,73,contract,42100.0,mortgage,debt consolidation,west,9000.0,762,0.325,0.242,0,108.0
+C-509770,CU-102420,2024-07-03,51,salaried,26100.0,mortgage,medical,south,8000.0,719,0.206,0.142,0,147.0
+C-509771,CU-102552,2024-07-03,36,salaried,43300.0,rent,car,west,18800.0,684,0.367,0.305,0,63.0
+C-509772,CU-102743,2024-07-03,35,contract,93700.0,rent,other,south,45900.0,695,0.194,0.154,1,242.0
+C-509773,CU-103614,2024-07-03,32,retired,64800.0,rent,other,west,17600.0,660,0.304,0.449,0,0.0
+C-509774,CU-105031,2024-07-03,28,self-employed,54900.0,rent,other,north,25300.0,701,0.393,0.257,1,38.0
+C-509775,CU-105458,2024-07-03,26,salaried,58500.0,mortgage,car,east,34100.0,653,0.121,0.398,0,3.0
+C-509776,CU-105791,2024-07-03,30,contract,50400.0,own,debt consolidation,south,23900.0,696,0.187,0.393,0,64.0
+C-509777,CU-105974,2024-07-03,24,contract,37400.0,rent,small business,north,3100.0,722,0.324,0.602,0,43.0
+C-509778,CU-106816,2024-07-03,32,unemployed,24400.0,own,debt consolidation,east,11200.0,635,0.159,0.687,1,0.0
+C-509779,CU-107243,2024-07-03,51,salaried,26900.0,rent,home improvement,north,11000.0,694,0.215,0.226,0,23.0
+C-509780,CU-100301,2024-07-04,35,retired,50400.0,mortgage,education,west,5700.0,665,0.163,0.35,0,0.0
+C-509781,CU-101466,2024-07-04,49,contract,53200.0,mortgage,other,central,21100.0,729,0.302,0.575,0,55.0
+C-509782,CU-101972,2024-07-04,47,salaried,102700.0,own,home improvement,south,51400.0,681,0.417,0.526,1,19.0
+C-509783,CU-102569,2024-07-04,22,salaried,65900.0,mortgage,debt consolidation,south,29000.0,727,0.113,0.438,0,21.0
+C-509784,CU-102888,2024-07-04,38,salaried,108000.0,own,car,west,22700.0,623,0.585,0.427,2,44.0
+C-509785,CU-102972,2024-07-04,41,self-employed,28600.0,rent,small business,south,16200.0,673,0.262,0.389,0,98.0
+C-509786,CU-104029,2024-07-04,49,salaried,99700.0,rent,car,west,43300.0,729,0.499,0.424,0,32.0
+C-509787,CU-104085,2024-07-04,43,retired,21000.0,mortgage,car,west,4500.0,738,0.231,0.581,0,0.0
+C-509788,CU-104707,2024-07-04,53,salaried,26700.0,rent,medical,east,2600.0,696,0.348,0.156,0,48.0
+C-509789,CU-106857,2024-07-04,39,unemployed,17900.0,rent,car,west,10000.0,655,0.474,0.18,1,0.0
+C-509790,CU-106867,2024-07-04,42,self-employed,95000.0,rent,small business,north,18200.0,654,0.203,0.109,0,116.0
+C-509791,CU-107702,2024-07-04,69,contract,42700.0,own,education,north,3900.0,718,0.358,0.536,1,100.0
+C-509792,CU-108066,2024-07-04,40,salaried,24800.0,own,home improvement,north,8700.0,715,0.37,0.111,0,21.0
+C-509793,CU-100139,2024-07-05,63,salaried,36900.0,other,education,central,4900.0,733,0.348,0.199,1,68.0
+C-509794,CU-100861,2024-07-05,47,unemployed,35400.0,mortgage,medical,central,15200.0,696,0.029,0.224,0,0.0
+C-509795,CU-101097,2024-07-05,54,retired,31500.0,rent,debt consolidation,east,4000.0,677,0.19,0.295,0,0.0
+C-509796,CU-101110,2024-07-05,51,salaried,87000.0,own,home improvement,south,27500.0,690,0.141,0.159,0,77.0
+C-509797,CU-102202,2024-07-05,35,self-employed,37900.0,rent,small business,west,3400.0,746,0.314,0.657,1,28.0
+C-509798,CU-103710,2024-07-05,24,retired,46900.0,mortgage,home improvement,west,20200.0,776,0.237,0.434,0,0.0
+C-509799,CU-104116,2024-07-05,54,salaried,91800.0,rent,home improvement,south,28300.0,692,0.362,0.924,0,45.0
+C-509800,CU-104270,2024-07-05,30,self-employed,67500.0,mortgage,medical,central,19100.0,768,0.355,0.37,0,30.0
+C-509801,CU-105656,2024-07-05,23,salaried,108000.0,own,other,south,8200.0,707,0.243,0.197,0,134.0
+C-509802,CU-107416,2024-07-05,51,contract,58400.0,mortgage,debt consolidation,south,6100.0,616,0.229,0.663,1,54.0
+C-509803,CU-107476,2024-07-05,48,self-employed,54000.0,mortgage,debt consolidation,,13300.0,598,0.105,0.712,0,22.0
+C-509804,CU-101033,2024-07-06,54,self-employed,,rent,home improvement,west,7700.0,745,0.184,0.234,0,33.0
+C-509805,CU-102655,2024-07-06,50,retired,18800.0,mortgage,debt consolidation,west,5800.0,606,0.589,0.542,1,0.0
+C-509806,CU-103908,2024-07-06,33,salaried,100300.0,mortgage,debt consolidation,east,24700.0,707,0.088,0.345,0,
+C-509807,CU-104230,2024-07-06,52,salaried,92500.0,mortgage,debt consolidation,central,53100.0,634,0.366,0.33,1,70.0
+C-509808,CU-105363,2024-07-06,35,salaried,53500.0,mortgage,debt consolidation,central,16800.0,590,0.374,0.341,2,14.0
+C-509809,CU-106866,2024-07-06,33,unemployed,13100.0,mortgage,car,south,6500.0,666,0.072,0.191,0,0.0
+C-509810,CU-106894,2024-07-06,33,salaried,44400.0,rent,car,east,15300.0,671,0.358,0.244,1,53.0
+C-509811,CU-107153,2024-07-06,50,salaried,51800.0,mortgage,home improvement,south,7900.0,626,0.383,0.23,2,96.0
+C-509812,CU-107571,2024-07-06,23,salaried,57100.0,rent,small business,south,29200.0,780,0.089,0.665,0,7.0
+C-509813,CU-100542,2024-07-07,37,salaried,48300.0,rent,small business,east,15400.0,716,0.045,0.376,0,18.0
+C-509814,CU-100645,2024-07-07,28,salaried,55100.0,mortgage,home improvement,east,31400.0,751,0.105,0.444,0,107.0
+C-509815,CU-100967,2024-07-07,30,self-employed,72800.0,mortgage,debt consolidation,east,12300.0,721,0.092,0.188,0,97.0
+C-509816,CU-101028,2024-07-07,29,retired,27100.0,rent,other,east,10800.0,811,0.309,0.338,1,0.0
+C-509817,CU-101699,2024-07-07,30,contract,33200.0,mortgage,home improvement,west,1800.0,698,0.369,0.212,0,92.0
+C-509818,CU-102673,2024-07-07,37,salaried,85700.0,rent,small business,north,34800.0,617,0.235,0.5,1,126.0
+C-509819,CU-102727,2024-07-07,33,self-employed,34800.0,rent,small business,north,19800.0,695,0.084,0.42,0,54.0
+C-509820,CU-103075,2024-07-07,42,self-employed,55600.0,mortgage,other,north,25700.0,627,0.234,0.555,0,65.0
+C-509821,CU-104824,2024-07-07,25,self-employed,48000.0,rent,car,north,11200.0,662,0.236,0.286,0,99.0
+C-509822,CU-104918,2024-07-07,28,contract,33600.0,rent,car,east,4400.0,666,0.449,0.636,0,53.0
+C-509823,CU-105215,2024-07-07,52,salaried,46500.0,mortgage,home improvement,north,25200.0,683,0.493,0.434,3,
+C-509824,CU-107784,2024-07-07,63,self-employed,34500.0,own,debt consolidation,west,13500.0,592,0.151,0.238,1,37.0
+C-509825,CU-107856,2024-07-07,38,self-employed,70900.0,mortgage,debt consolidation,east,6400.0,731,0.198,0.335,0,20.0
+C-509826,CU-100394,2024-07-08,32,salaried,65700.0,rent,car,north,22200.0,633,0.106,0.564,1,139.0
+C-509827,CU-100590,2024-07-08,59,self-employed,65900.0,rent,debt consolidation,east,10900.0,696,0.075,0.209,0,9.0
+C-509828,CU-101570,2024-07-08,28,salaried,44200.0,mortgage,debt consolidation,north,4500.0,674,0.608,0.573,0,69.0
+C-509829,CU-102269,2024-07-08,61,retired,32700.0,rent,debt consolidation,north,14100.0,654,0.081,0.385,0,0.0
+C-509830,CU-104141,2024-07-08,50,contract,65100.0,mortgage,home improvement,central,21100.0,836,0.177,0.315,0,73.0
+C-509831,CU-104359,2024-07-08,71,retired,73800.0,mortgage,home improvement,south,17600.0,710,0.502,0.343,1,0.0
+C-509832,CU-106916,2024-07-08,49,contract,,rent,car,south,21200.0,695,0.273,0.241,0,56.0
+C-509833,CU-107380,2024-07-08,48,salaried,64800.0,rent,debt consolidation,central,9500.0,792,0.188,0.411,0,17.0
+C-509834,CU-101219,2024-07-09,46,salaried,43800.0,mortgage,debt consolidation,east,18100.0,614,0.506,0.672,3,37.0
+C-509835,CU-101560,2024-07-09,40,salaried,41400.0,mortgage,debt consolidation,south,4900.0,760,0.353,0.223,0,54.0
+C-509836,CU-101842,2024-07-09,41,salaried,42600.0,rent,debt consolidation,west,19500.0,711,0.243,0.358,0,17.0
+C-509837,CU-102133,2024-07-09,22,salaried,75800.0,mortgage,medical,north,9000.0,687,0.304,0.58,0,16.0
+C-509838,CU-102351,2024-07-09,49,salaried,65200.0,own,debt consolidation,central,17400.0,583,0.379,0.765,0,11.0
+C-509839,CU-102776,2024-07-09,32,salaried,54100.0,mortgage,car,west,5500.0,689,0.429,0.132,0,9.0
+C-509840,CU-103150,2024-07-09,28,salaried,49200.0,rent,small business,west,6600.0,840,0.138,0.221,0,35.0
+C-509841,CU-103680,2024-07-09,41,retired,22200.0,rent,debt consolidation,south,12300.0,705,0.082,0.226,0,0.0
+C-509842,CU-103755,2024-07-09,24,unemployed,29100.0,own,education,south,8700.0,678,0.084,0.224,0,0.0
+C-509843,CU-103822,2024-07-09,71,salaried,66700.0,own,home improvement,north,28400.0,639,0.325,0.522,1,43.0
+C-509844,CU-103924,2024-07-09,27,salaried,100500.0,own,car,north,9300.0,668,0.256,0.274,0,41.0
+C-509845,CU-104274,2024-07-09,42,self-employed,27500.0,rent,medical,north,1500.0,646,0.267,0.311,0,10.0
+C-509846,CU-105452,2024-07-09,58,salaried,82000.0,mortgage,home improvement,west,10000.0,666,0.344,0.259,1,36.0
+C-509847,CU-105514,2024-07-09,31,contract,72000.0,rent,other,west,34200.0,640,0.568,0.616,0,56.0
+C-509848,CU-106814,2024-07-09,30,contract,34400.0,rent,debt consolidation,south,6400.0,601,0.442,0.534,0,41.0
+C-509849,CU-106838,2024-07-09,66,self-employed,66600.0,own,debt consolidation,east,24200.0,750,0.201,0.726,0,48.0
+C-509850,CU-101583,2024-07-10,50,salaried,69300.0,mortgage,other,central,35500.0,646,0.207,0.29,0,31.0
+C-509851,CU-102479,2024-07-10,45,salaried,31200.0,mortgage,debt consolidation,north,12600.0,728,0.147,0.347,0,107.0
+C-509852,CU-102497,2024-07-10,49,salaried,22200.0,mortgage,education,west,1200.0,654,0.631,0.645,0,21.0
+C-509853,CU-105947,2024-07-10,41,contract,37700.0,rent,other,east,5100.0,689,0.248,0.377,0,31.0
+C-509854,CU-106010,2024-07-10,30,salaried,25600.0,rent,car,west,7100.0,617,0.257,0.66,0,74.0
+C-509855,CU-106037,2024-07-10,44,salaried,48100.0,rent,home improvement,west,27900.0,745,0.285,0.442,0,73.0
+C-509856,CU-106079,2024-07-10,55,salaried,40200.0,rent,education,south,17100.0,657,0.471,0.483,1,62.0
+C-509857,CU-106752,2024-07-10,43,salaried,85100.0,own,debt consolidation,north,25600.0,663,0.236,0.175,0,89.0
+C-509858,CU-107484,2024-07-10,53,salaried,60100.0,rent,debt consolidation,,33000.0,700,0.62,0.163,0,186.0
+C-509859,CU-100893,2024-07-11,43,salaried,47400.0,mortgage,debt consolidation,central,17100.0,653,0.269,0.452,0,147.0
+C-509860,CU-102306,2024-07-11,60,salaried,69900.0,rent,other,west,4400.0,683,0.147,0.173,0,89.0
+C-509861,CU-104112,2024-07-11,46,salaried,21200.0,rent,other,south,10000.0,719,0.417,0.162,0,22.0
+C-509862,CU-105170,2024-07-11,39,salaried,96700.0,own,other,south,29100.0,770,0.139,0.263,0,48.0
+C-509863,CU-105187,2024-07-11,63,contract,78000.0,mortgage,other,west,24000.0,696,0.221,0.171,0,46.0
+C-509864,CU-105609,2024-07-11,40,self-employed,112800.0,rent,car,central,40200.0,707,0.42,0.672,0,2.0
+C-509865,CU-106096,2024-07-11,53,salaried,19200.0,mortgage,home improvement,north,1100.0,636,0.151,0.299,0,103.0
+C-509866,CU-106107,2024-07-11,53,self-employed,56600.0,own,debt consolidation,south,23100.0,665,0.106,0.696,0,87.0
+C-509867,CU-107093,2024-07-11,48,self-employed,164200.0,mortgage,debt consolidation,north,90700.0,728,0.212,0.482,0,44.0
+C-509868,CU-100781,2024-07-12,53,self-employed,41300.0,own,other,west,2800.0,614,0.351,0.49,1,103.0
+C-509869,CU-100926,2024-07-12,36,contract,45800.0,rent,other,west,14600.0,682,0.087,0.067,0,7.0
+C-509870,CU-102515,2024-07-12,47,salaried,121600.0,own,other,central,48600.0,716,0.139,0.542,0,69.0
+C-509871,CU-103944,2024-07-12,75,retired,70900.0,rent,debt consolidation,south,34600.0,697,0.046,0.366,0,0.0
+C-509872,CU-105387,2024-07-12,35,salaried,37700.0,mortgage,small business,west,18200.0,627,0.319,0.773,2,137.0
+C-509873,CU-106451,2024-07-12,39,contract,,mortgage,medical,central,20000.0,661,0.296,0.158,1,116.0
+C-509874,CU-106552,2024-07-12,27,self-employed,42800.0,own,debt consolidation,south,7200.0,616,0.201,0.727,0,96.0
+C-509875,CU-107403,2024-07-12,29,retired,15200.0,own,debt consolidation,east,1100.0,848,0.269,0.237,0,0.0
+C-509876,CU-101904,2024-07-13,42,salaried,25800.0,mortgage,home improvement,west,2900.0,611,0.542,0.723,4,136.0
+C-509877,CU-102213,2024-07-13,42,salaried,34000.0,mortgage,education,south,5000.0,647,0.19,0.291,1,13.0
+C-509878,CU-102327,2024-07-13,33,salaried,19400.0,own,debt consolidation,east,8900.0,759,0.114,0.625,1,23.0
+C-509879,CU-102538,2024-07-13,19,salaried,37500.0,mortgage,debt consolidation,west,8100.0,679,0.261,0.442,1,107.0
+C-509880,CU-104522,2024-07-13,38,salaried,52800.0,mortgage,debt consolidation,south,11100.0,677,0.279,0.251,0,44.0
+C-509881,CU-104676,2024-07-13,71,salaried,85400.0,mortgage,debt consolidation,west,6000.0,768,0.21,0.2,1,8.0
+C-509882,CU-104757,2024-07-13,40,contract,66800.0,rent,car,north,35700.0,762,0.376,0.315,0,64.0
+C-509883,CU-105717,2024-07-13,36,salaried,132100.0,rent,other,north,44900.0,670,0.393,0.306,0,39.0
+C-509884,CU-105776,2024-07-13,59,salaried,145900.0,own,car,west,67000.0,604,0.159,0.174,2,52.0
+C-509885,CU-106164,2024-07-13,53,salaried,33200.0,own,debt consolidation,north,4100.0,772,0.104,0.209,0,16.0
+C-509886,CU-106767,2024-07-13,39,salaried,29900.0,rent,other,south,3200.0,704,0.138,0.358,0,53.0
+C-509887,CU-106900,2024-07-13,40,self-employed,27700.0,mortgage,debt consolidation,north,9400.0,710,0.345,0.823,2,136.0
+C-509888,CU-107141,2024-07-13,47,self-employed,64100.0,rent,other,central,17900.0,667,0.306,0.215,0,18.0
+C-509889,CU-107542,2024-07-13,37,retired,123200.0,mortgage,debt consolidation,east,60500.0,556,0.432,0.578,2,0.0
+C-509890,CU-107794,2024-07-13,66,unemployed,11600.0,rent,home improvement,west,6000.0,820,0.34,0.061,0,0.0
+C-509891,CU-100060,2024-07-14,50,retired,15400.0,rent,home improvement,east,8600.0,578,0.112,0.207,1,0.0
+C-509892,CU-100425,2024-07-14,46,salaried,53600.0,mortgage,debt consolidation,north,20900.0,786,0.22,0.51,0,64.0
+C-509893,CU-100598,2024-07-14,35,retired,31200.0,other,home improvement,west,8000.0,656,0.184,0.345,0,0.0
+C-509894,CU-100828,2024-07-14,70,self-employed,71800.0,rent,home improvement,west,8700.0,681,0.207,0.146,0,41.0
+C-509895,CU-100928,2024-07-14,36,salaried,48000.0,rent,education,central,19300.0,602,0.35,0.56,0,34.0
+C-509896,CU-101742,2024-07-14,36,unemployed,34600.0,rent,other,west,3200.0,779,0.175,0.264,1,0.0
+C-509897,CU-102126,2024-07-14,25,retired,77600.0,rent,education,east,23400.0,679,0.549,0.219,1,0.0
+C-509898,CU-102152,2024-07-14,38,salaried,89500.0,rent,debt consolidation,north,33800.0,702,0.16,0.461,0,60.0
+C-509899,CU-103868,2024-07-14,43,salaried,78500.0,mortgage,car,central,30500.0,634,0.331,0.643,1,95.0
+C-509900,CU-104383,2024-07-14,39,contract,49400.0,rent,home improvement,central,23000.0,546,0.569,0.244,1,7.0
+C-509901,CU-105167,2024-07-14,37,salaried,70200.0,mortgage,debt consolidation,east,26800.0,647,0.167,0.448,0,5.0
+C-509902,CU-106159,2024-07-14,30,contract,36400.0,own,medical,east,12900.0,584,0.441,0.62,2,81.0
+C-509903,CU-107419,2024-07-14,47,salaried,55900.0,rent,car,south,23500.0,605,0.182,0.476,1,59.0
+C-509904,CU-100437,2024-07-15,39,unemployed,17500.0,rent,debt consolidation,south,6700.0,673,0.244,0.668,0,
+C-509905,CU-101395,2024-07-15,49,contract,37800.0,mortgage,debt consolidation,south,5300.0,611,0.101,0.567,1,25.0
+C-509906,CU-101420,2024-07-15,22,salaried,21500.0,mortgage,small business,east,11000.0,675,0.078,0.445,0,72.0
+C-509907,CU-103009,2024-07-15,38,salaried,39700.0,own,debt consolidation,south,10500.0,710,0.137,0.242,0,248.0
+C-509908,CU-103803,2024-07-15,38,salaried,50400.0,rent,other,west,11800.0,682,0.428,0.421,0,37.0
+C-509909,CU-103892,2024-07-15,29,self-employed,107200.0,rent,debt consolidation,east,42000.0,657,0.218,0.582,2,113.0
+C-509910,CU-104328,2024-07-15,51,contract,183800.0,own,home improvement,central,32600.0,789,0.15,0.134,0,47.0
+C-509911,CU-104983,2024-07-15,37,retired,59300.0,rent,debt consolidation,west,4700.0,728,0.534,0.393,0,0.0
+C-509912,CU-104994,2024-07-15,37,salaried,31200.0,mortgage,education,west,6600.0,731,0.537,0.625,1,38.0
+C-509913,CU-105024,2024-07-15,34,salaried,57700.0,own,home improvement,east,4800.0,602,0.149,0.442,3,27.0
+C-509914,CU-105212,2024-07-15,48,unemployed,13900.0,mortgage,debt consolidation,east,3800.0,681,0.433,0.347,0,0.0
+C-509915,CU-105486,2024-07-15,40,salaried,65700.0,mortgage,debt consolidation,west,30700.0,712,0.291,0.548,0,46.0
+C-509916,CU-106112,2024-07-15,55,salaried,84600.0,own,small business,south,17300.0,643,0.452,0.169,1,20.0
+C-509917,CU-107026,2024-07-15,44,salaried,169400.0,own,medical,north,82600.0,583,0.171,0.328,2,53.0
+C-509918,CU-102086,2024-07-16,48,salaried,43000.0,rent,debt consolidation,south,9100.0,741,0.121,0.188,0,36.0
+C-509919,CU-102110,2024-07-16,49,contract,28200.0,own,home improvement,central,11400.0,681,0.405,0.11,0,38.0
+C-509920,CU-102436,2024-07-16,39,salaried,75200.0,rent,other,west,7300.0,717,0.304,0.144,1,9.0
+C-509921,CU-102647,2024-07-16,19,contract,21500.0,own,home improvement,south,1700.0,707,0.431,0.04,0,8.0
+C-509922,CU-103412,2024-07-16,47,salaried,57600.0,mortgage,home improvement,north,7500.0,620,0.257,0.719,0,116.0
+C-509923,CU-103848,2024-07-16,39,salaried,60300.0,own,home improvement,east,32200.0,654,0.607,0.255,0,50.0
+C-509924,CU-103922,2024-07-16,58,salaried,65600.0,other,debt consolidation,east,19800.0,632,0.263,0.371,1,48.0
+C-509925,CU-108004,2024-07-16,34,unemployed,4600.0,mortgage,debt consolidation,west,2000.0,677,0.265,0.607,0,0.0
+C-509926,CU-108021,2024-07-16,26,unemployed,19200.0,mortgage,education,west,2600.0,680,0.37,0.084,0,0.0
+C-509927,CU-100025,2024-07-17,46,self-employed,65500.0,mortgage,home improvement,east,34100.0,714,0.315,0.46,0,48.0
+C-509928,CU-100506,2024-07-17,61,retired,30000.0,mortgage,debt consolidation,central,15100.0,560,0.185,0.543,0,0.0
+C-509929,CU-100596,2024-07-17,42,unemployed,28400.0,rent,home improvement,north,11900.0,572,0.21,0.36,3,0.0
+C-509930,CU-100797,2024-07-17,54,retired,47900.0,other,car,north,22200.0,628,0.34,0.482,2,0.0
+C-509931,CU-102704,2024-07-17,40,salaried,55000.0,own,car,central,23400.0,678,0.351,0.442,1,98.0
+C-509932,CU-102940,2024-07-17,39,salaried,51900.0,rent,car,west,6200.0,675,0.412,0.44,0,20.0
+C-509933,CU-104856,2024-07-17,22,salaried,44900.0,mortgage,medical,north,7100.0,707,0.502,0.13,0,49.0
+C-509934,CU-106048,2024-07-17,67,self-employed,92200.0,own,education,central,18300.0,767,0.15,0.538,1,76.0
+C-509935,CU-106149,2024-07-17,34,salaried,96400.0,mortgage,other,east,43800.0,698,0.144,0.569,0,102.0
+C-509936,CU-107550,2024-07-17,32,self-employed,60000.0,rent,debt consolidation,central,17100.0,580,0.301,0.272,0,55.0
+C-509937,CU-100409,2024-07-18,37,salaried,29200.0,rent,small business,central,17300.0,752,0.296,0.29,0,43.0
+C-509938,CU-100510,2024-07-18,38,retired,41800.0,rent,car,south,25000.0,547,0.131,0.541,1,0.0
+C-509939,CU-100836,2024-07-18,71,retired,,other,small business,north,4600.0,780,0.077,0.39,0,0.0
+C-509940,CU-100890,2024-07-18,55,salaried,71300.0,rent,other,east,5900.0,631,0.099,0.103,2,65.0
+C-509941,CU-102026,2024-07-18,51,salaried,125600.0,rent,debt consolidation,east,17400.0,688,0.077,0.348,1,56.0
+C-509942,CU-102346,2024-07-18,27,unemployed,9400.0,rent,home improvement,south,1000.0,802,0.157,0.403,0,0.0
+C-509943,CU-102435,2024-07-18,43,salaried,73500.0,mortgage,debt consolidation,east,14600.0,658,0.174,0.64,0,60.0
+C-509944,CU-102708,2024-07-18,40,salaried,38200.0,other,home improvement,central,17500.0,712,0.343,0.144,0,55.0
+C-509945,CU-103655,2024-07-18,28,contract,51100.0,rent,debt consolidation,east,22000.0,743,0.39,0.452,0,21.0
+C-509946,CU-104859,2024-07-18,55,salaried,99900.0,rent,other,west,28400.0,778,0.297,0.574,0,34.0
+C-509947,CU-104886,2024-07-18,29,contract,51300.0,mortgage,home improvement,central,17700.0,812,0.255,0.093,1,48.0
+C-509948,CU-105336,2024-07-18,50,contract,41000.0,mortgage,other,north,21600.0,631,0.099,0.044,1,209.0
+C-509949,CU-105679,2024-07-18,21,salaried,54000.0,own,debt consolidation,south,24400.0,725,0.123,0.339,0,127.0
+C-509950,CU-106547,2024-07-18,42,salaried,84400.0,mortgage,home improvement,north,29200.0,699,0.157,0.373,0,5.0
+C-509951,CU-106864,2024-07-18,24,salaried,72400.0,mortgage,home improvement,south,16300.0,633,0.152,0.639,0,16.0
+C-509952,CU-107718,2024-07-18,52,contract,23800.0,own,small business,east,9200.0,710,0.316,0.267,0,51.0
+C-509953,CU-101313,2024-07-19,48,salaried,27900.0,rent,debt consolidation,east,8400.0,588,0.212,0.229,1,98.0
+C-509954,CU-101374,2024-07-19,39,salaried,80300.0,rent,other,west,44800.0,732,0.251,0.374,0,12.0
+C-509955,CU-101516,2024-07-19,36,salaried,58200.0,mortgage,debt consolidation,south,12200.0,645,0.136,0.285,0,44.0
+C-509956,CU-102237,2024-07-19,45,salaried,26400.0,rent,small business,central,5700.0,813,0.154,0.345,1,29.0
+C-509957,CU-103019,2024-07-19,42,salaried,48200.0,rent,car,north,5700.0,645,0.146,0.332,0,57.0
+C-509958,CU-103384,2024-07-19,62,salaried,124600.0,rent,home improvement,south,50900.0,690,0.278,0.445,0,82.0
+C-509959,CU-104040,2024-07-19,34,contract,22800.0,mortgage,debt consolidation,east,8200.0,639,0.402,0.569,3,41.0
+C-509960,CU-104955,2024-07-19,33,salaried,,own,education,north,23000.0,687,0.197,0.449,1,33.0
+C-509961,CU-105014,2024-07-19,65,salaried,44700.0,rent,debt consolidation,,6500.0,727,0.139,0.671,0,82.0
+C-509962,CU-105063,2024-07-19,46,self-employed,40900.0,mortgage,debt consolidation,south,21800.0,666,0.253,0.541,0,36.0
+C-509963,CU-106144,2024-07-19,34,salaried,71400.0,own,education,west,15600.0,564,0.377,0.752,0,23.0
+C-509964,CU-106674,2024-07-19,52,self-employed,45500.0,other,other,north,9800.0,682,0.105,0.576,0,15.0
+C-509965,CU-106952,2024-07-19,42,salaried,33600.0,rent,car,north,5500.0,698,0.141,0.268,0,131.0
+C-509966,CU-107100,2024-07-19,28,salaried,71600.0,mortgage,car,west,4900.0,752,0.139,0.296,0,48.0
+C-509967,CU-107269,2024-07-19,34,salaried,194700.0,mortgage,car,south,85600.0,765,0.132,0.469,0,36.0
+C-509968,CU-107537,2024-07-19,55,retired,,mortgage,education,south,7100.0,612,0.245,0.34,3,0.0
+C-509969,CU-107998,2024-07-19,47,salaried,46000.0,own,medical,central,9100.0,765,0.15,0.805,0,29.0
+C-509970,CU-100444,2024-07-20,37,salaried,48900.0,rent,home improvement,east,28500.0,793,0.098,0.368,0,55.0
+C-509971,CU-100672,2024-07-20,47,self-employed,139000.0,own,education,central,63400.0,836,0.341,0.114,1,95.0
+C-509972,CU-100820,2024-07-20,32,retired,32900.0,rent,other,south,15400.0,576,0.132,0.549,1,0.0
+C-509973,CU-102114,2024-07-20,19,retired,25800.0,mortgage,debt consolidation,east,14000.0,659,0.148,0.403,2,0.0
+C-509974,CU-103055,2024-07-20,69,unemployed,23700.0,other,other,central,14000.0,705,0.253,0.09,0,0.0
+C-509975,CU-103675,2024-07-20,35,salaried,30800.0,mortgage,debt consolidation,east,2900.0,744,0.162,0.563,0,45.0
+C-509976,CU-104305,2024-07-20,52,self-employed,44000.0,mortgage,debt consolidation,central,15200.0,657,0.215,0.036,0,14.0
+C-509977,CU-106556,2024-07-20,56,salaried,81400.0,rent,debt consolidation,south,39700.0,706,0.528,0.103,1,72.0
+C-509978,CU-107672,2024-07-20,49,salaried,57200.0,mortgage,education,central,10600.0,737,0.6,0.352,1,67.0
+C-509979,CU-101325,2024-07-21,50,salaried,53000.0,own,debt consolidation,south,6600.0,717,0.257,0.247,0,49.0
+C-509980,CU-101862,2024-07-21,37,salaried,44400.0,mortgage,home improvement,central,17000.0,696,0.45,0.256,1,79.0
+C-509981,CU-102350,2024-07-21,37,self-employed,20100.0,own,car,west,9800.0,747,0.04,0.306,0,36.0
+C-509982,CU-103403,2024-07-21,37,self-employed,53100.0,mortgage,education,north,24300.0,722,0.166,0.302,0,63.0
+C-509983,CU-103918,2024-07-21,49,salaried,105100.0,mortgage,home improvement,east,50100.0,612,0.068,0.891,2,112.0
+C-509984,CU-105513,2024-07-21,44,salaried,55900.0,mortgage,small business,south,32200.0,642,0.155,0.194,1,71.0
+C-509985,CU-105528,2024-07-21,43,salaried,96000.0,rent,home improvement,central,41800.0,760,0.187,0.437,0,18.0
+C-509986,CU-105900,2024-07-21,58,salaried,,mortgage,debt consolidation,east,19800.0,703,0.42,0.223,0,38.0
+C-509987,CU-106195,2024-07-21,44,salaried,,rent,debt consolidation,west,13000.0,682,0.189,0.43,1,
+C-509988,CU-106334,2024-07-21,32,salaried,59900.0,mortgage,debt consolidation,central,27200.0,693,0.105,0.065,0,186.0
+C-509989,CU-106358,2024-07-21,36,salaried,23900.0,mortgage,medical,central,13000.0,668,0.057,0.335,0,97.0
+C-509990,CU-107069,2024-07-21,40,salaried,63800.0,rent,home improvement,east,10100.0,645,0.09,0.192,0,91.0
+C-509991,CU-107850,2024-07-21,19,self-employed,66100.0,rent,car,north,12400.0,645,0.309,0.37,0,129.0
+C-509992,CU-100608,2024-07-22,63,contract,53100.0,mortgage,debt consolidation,west,26400.0,630,0.171,0.226,2,98.0
+C-509993,CU-100643,2024-07-22,40,salaried,46500.0,mortgage,debt consolidation,south,23600.0,670,0.261,0.255,0,36.0
+C-509994,CU-103333,2024-07-22,45,salaried,70900.0,rent,debt consolidation,north,32200.0,551,0.16,0.478,3,8.0
+C-509995,CU-103592,2024-07-22,32,contract,39300.0,mortgage,other,central,20500.0,709,0.237,0.533,0,14.0
+C-509996,CU-103933,2024-07-22,43,contract,108000.0,own,car,central,42900.0,731,0.591,0.597,1,47.0
+C-509997,CU-104163,2024-07-22,57,salaried,80600.0,mortgage,debt consolidation,east,46200.0,642,0.529,0.504,1,20.0
+C-509998,CU-104300,2024-07-22,45,salaried,36200.0,mortgage,debt consolidation,east,20200.0,673,0.18,0.414,0,92.0
+C-509999,CU-106740,2024-07-22,68,salaried,46500.0,own,small business,south,12200.0,696,0.069,0.248,0,107.0

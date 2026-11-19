@@ -55,7 +55,7 @@ export function SplitCostCards({ body, setBody, pt }: { body: Body; setBody: (b:
             <div className="gym-row"><div className="label"><b>Optimise expected cost</b><small>model selection, ensemble weights and the threshold t minimise cost per decision</small></div>
               <div className="ctl"><div className="seg" role="radiogroup" aria-label="Business cost" data-testid="gym-cost-on">
                 <button role="radio" aria-checked={!cost} className={!cost ? 'on' : ''} onClick={() => setBody({ ...body, cost: null })}>off</button>
-                <button role="radio" aria-checked={!!cost} className={cost ? 'on' : ''} onClick={() => setBody({ ...body, eval_metric: null, cost: cost ?? { c_fp: 1, c_fn: 10, g_tp: 0 } })}>on</button>
+                <button role="radio" aria-checked={!!cost} className={cost ? 'on' : ''} onClick={() => setBody({ ...body, eval_metric: null, calibrate_threshold: 'auto', cost: cost ?? { c_fp: 1, c_fn: 10, g_tp: 0 } })}>on</button>
               </div></div>
             </div>
             {cost && <div className="row" style={{ gap: 'var(--space-16)', flexWrap: 'wrap' }}>

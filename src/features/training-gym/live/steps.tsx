@@ -164,7 +164,7 @@ export function GoalStep({ body, set, setBody, schema, v }: StepProps) {
       {pt === 'binary' && (
         <div className="card"><div className="card-head"><h3 className="card-title">Decision threshold</h3><span className="helper" style={{ fontSize: 12 }}>predict positive when <span className="math">p̂ &gt; t</span>; calibrated on validation data after the fit</span></div>
           <div className="card-body">
-            <Row label={<>Calibrate <span className="math">t</span> for</>} sub="auto = F₁ when the minority class is under 20% of rows" testid="gym-threshold">
+            <Row label={<>Calibrate <span className="math">t</span> for</>} sub={body.cost ? 'auto = expected_cost under a business cost (the cost-optimal t); another metric overrides it' : 'auto = F₁ when the minority class is under 20% of rows'} testid="gym-threshold">
               <Seg value={(body.calibrate_threshold ?? null) as string | null} onChange={(x) => set('calibrate_threshold', x)}
                 options={[{ v: null, label: 'off (t = 0.5)' }, { v: 'auto', label: 'auto' }, ...schema.calibration_metrics.slice(0, 3).map((m) => ({ v: m, label: m }))]} />
             </Row>
