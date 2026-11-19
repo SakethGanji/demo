@@ -69,7 +69,16 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
     api.registry.version(sel).then((v) => alive && setDetail(v)).catch((e) => alive && setErr((e as Error).message))
     return () => { alive = false }
   }, [sel, tick])
-  const run = detail ? runs.find((r) => r.id === detail.run_id) ?? null : null
+  // G5: the list holds tabular runs; a routed (segmented) version's run is fetched by id for Try It's form.
+  const [otherRun, setOtherRun] = useState<Run | null>(null)
+  const listed = detail ? runs.find((r) => r.id === detail.run_id) ?? null : null
+  useEffect(() => {
+    if (!detail || listed || !loaded) return
+    let alive = true
+    api.runs.get(detail.run_id).then((r) => alive && setOtherRun(r)).catch(() => {})
+    return () => { alive = false }
+  }, [detail?.run_id, listed, loaded]) // eslint-disable-line react-hooks/exhaustive-deps
+  const run = listed ?? (otherRun && detail && otherRun.id === detail.run_id ? otherRun : null)
   useEffect(() => {
     if (!run) return
     let alive = true

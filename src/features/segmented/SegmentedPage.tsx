@@ -203,7 +203,7 @@ export function SegResults({ run }: { run: SegRun }) {
       <div className="card" data-testid="seg-table">
         <div className="card-head"><div className="left"><h3 className="card-title">Per Segment</h3><span className="helper" style={{ fontSize: 12 }}>each segment's own model against the global model on that segment's holdout rows</span></div></div>
         <div className="table-wrap"><table className="table compact">
-          <thead><tr><th>{s.segment_column}</th><th className="r">train rows</th><th className="r">holdout</th><th className="r">global {H}</th><th className="r">own {H}</th><th className="r">{bin ? 'ΔAUC' : 'ΔMSE'} [95% CI]</th><th style={{ width: '16%' }}>0-centred</th><th>verdict</th><th>scored by</th></tr></thead>
+          <thead><tr><th>{s.segment_column}</th><th className="r">train rows</th><th className="r">holdout</th><th className="r">global {H}</th><th className="r">own {H}</th><th className="r">{bin ? 'ΔAUC' : 'ΔMSE'} [95% CI]</th><th style={{ width: '16%' }}>0-centred</th><th>verdict</th><th title="Which model serves the segment; the number is its tuning-slice loss, own vs global">scored by</th></tr></thead>
           <tbody>
             {s.segments.map((r) => (
               <tr key={r.value} data-testid="seg-row">
@@ -212,12 +212,12 @@ export function SegResults({ run }: { run: SegRun }) {
                 <td className="r mono">{r.own ? fmtD(r.own[dk] as SegCompare['delta_auc']) : '—'}</td>
                 <td><CiBar d={r.own?.[dk] as SegCompare['delta_auc']} span={span} better={bin ? 'up' : 'down'} /></td>
                 <td className={verdictCls(r.own?.verdict)}>{r.own?.verdict ?? 'no own model'}</td>
-                <td title={r.route_why}><b>{r.routed ? 'its own model' : 'global'}</b><div className="helper" style={{ fontSize: 11 }}>{r.route_why}</div></td>
+                <td title={r.route_why} className="nowrap"><b>{r.routed ? 'own model' : 'global'}</b></td>
               </tr>))}
             <tr className="seg-total"><td><b>overall · routed</b></td><td className="r mono">{s.global.rows.toLocaleString()}</td><td className="r mono">{o.n.toLocaleString()}</td><td className="r mono">{fix(o.global[key] ?? null, 4)}</td><td className="r mono">{fix(o.routed[key] ?? null, 4)}</td>
-              <td className="r mono">{fmtD(od)}</td><td><CiBar d={od} span={span} better={bin ? 'up' : 'down'} /></td><td className={verdictCls(o.verdict)}>{o.verdict}</td><td className="helper">{s.routes.length} segment models + global</td></tr>
+              <td className="r mono">{fmtD(od)}</td><td><CiBar d={od} span={span} better={bin ? 'up' : 'down'} /></td><td className={verdictCls(o.verdict)}>{o.verdict}</td><td className="helper nowrap">{s.routes.length} own + global</td></tr>
             <tr className="seg-total"><td>overall · every segment model</td><td /><td className="r mono">{s.overall_all_segment_models.n.toLocaleString()}</td><td className="r mono">{fix(s.overall_all_segment_models.global[key] ?? null, 4)}</td><td className="r mono">{fix(s.overall_all_segment_models.routed[key] ?? null, 4)}</td>
-              <td className="r mono">{fmtD(s.overall_all_segment_models[dk] as SegCompare['delta_auc'])}</td><td><CiBar d={s.overall_all_segment_models[dk] as SegCompare['delta_auc']} span={span} better={bin ? 'up' : 'down'} /></td><td className={verdictCls(s.overall_all_segment_models.verdict)}>{s.overall_all_segment_models.verdict}</td><td className="helper">not routed: shown for honesty</td></tr>
+              <td className="r mono">{fmtD(s.overall_all_segment_models[dk] as SegCompare['delta_auc'])}</td><td><CiBar d={s.overall_all_segment_models[dk] as SegCompare['delta_auc']} span={span} better={bin ? 'up' : 'down'} /></td><td className={verdictCls(s.overall_all_segment_models.verdict)}>{s.overall_all_segment_models.verdict}</td><td className="helper nowrap" title="Every segment on its own model, whatever the tuning slice said: shown so the routing choice can be judged">not routed</td></tr>
           </tbody>
         </table></div>
         <div className="card-body"><details className="an-adv" data-testid="seg-models">
