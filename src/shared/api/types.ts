@@ -841,6 +841,16 @@ export type ModelCard = {
     stability: ReasonStability | null; method: ReasonAttribution | null; rule: string; monotone_note: string
     last_batch: Pick<BatchReasons, 'n_adverse' | 'rows_per_s' | 'methods' | 'additivity_max' | 'signs_consistent' | 'codes_per_row' | 'top_codes' | 'monotone'> | null
   } | null
+  /** F19: what the source run's later checks found (F6 split, F7 cost, F12, F14, F15, F16, F17), as summaries. */
+  diagnostics?: {
+    split: { strategy: string; key: string | null; group_column: string | null; time_column: string | null; cutoff: string | null }
+    cost: { kind: string; c_fp: number; c_fn: number; g_tp: number | null } | null
+    learning_curve: { verdict: string; reason: string; metric: string; slope: number | null; slope_ci: [number, number] | null; x2_score: number | null; x2_ci: [number, number] | null } | null
+    shift: { reference: string; new: string; auc: number; ci: [number, number] | null; verdict: string; top: string | null } | null
+    slices: { loss: string; n_tested: number; n_weak: number; alpha: number; top: { label: string; n: number; delta: number; ci: [number, number]; q: number }[] } | null
+    annotators: { worst: string | null; fleiss_kappa: number | null; changed_vs_given: number | null; mean_quality: number | null } | null
+    doctor: { headline: string; computed_at: string; primary: { id: string; title: string; severity: string; reason: string } | null; secondary: string[]; missing: string[] } | null
+  } | null
   /** F11: the scorecard benchmark of the source run. */
   scorecard?: { model: string; served: ScorecardAuc & { model: string }; scorecard: ScorecardAuc; delta_auc: DeltaAuc; n_features: number
     scaling: { pdo: number; base_score: number; base_odds: number }; iv: { feature: string; iv: number; in_model: boolean }[]

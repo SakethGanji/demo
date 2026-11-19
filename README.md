@@ -41,6 +41,38 @@ simulation, labelled SIMULATED, so a demo always opens.
 | **Registry, model card, approvals** | MLflow-backed registry; register with `refit_full`, `infer_limit` (per row in batches, or **per one-row call with `infer_limit_batch_size = 1`**), **serve the fastest model**, **distillation** into a single student, or a model picked on the **score · latency frontier** (one-row p95 τ₉₅ **as served**: AutoGluon's feature pipeline pruned to what the model reads, models persisted; F3). The deployed copy's pipeline is pruned when its holdout predictions are unchanged, versions are persisted and **warmed on load** (on build and on promotion), and `POST /registry/versions/{id}/score` is the online path (support tickets: p95 4.4 ms one row, 6.9 ms over HTTP); an SR 11-7-style model card (JSON, Markdown, HTML); four-eyes review; stages None → Staging → Production → Archived; Try It with SHAP reasons; batch scoring with PSI drift for every kind of version; an append-only audit log with the model's SHA-256. |
 | **Vela, the AI companion, and Autopilot** | Findings computed from a run (overfitting gap, weak class or segment, imbalance, leakage, budget, drift), each with one patch that applies in the Gym; a question box. Autopilot chains real runs against requirements you set (F̄₁ ≥ 0.92, τ₉₅ ≤ 50 ms, a budget B): baseline → cleanlab inbox → a new dataset version → retrain → rebalance, calibrate, refit for latency, escalate → Met or Not Met. Claude (Anthropic SDK when `ANTHROPIC_API_KEY` is set, else the CLI) chooses steps when available; a fixed strategy otherwise, and the UI says which. Every answer shows its decider, latency, route and number guard; Settings → Language Model shows τ₉₅ per decider, the cache and the timeouts (F5). |
 
+### Round 2 at a glance (F1–F18)
+
+Each fix, where it shows up, the smoke section that checks it (`make smoke` runs every section), and its headline
+number on the seeded samples. The detail is in the rows above and in `docs/progress/F<n>.md`.
+
+| Fix | Where in the UI | Smoke | Headline (seeded samples) |
+| --- | --- | --- | --- |
+| F1 forecast intervals | New Forecast → results, Interval Calibration | `forecast` | 90 % interval covers 168/168 → 152/168 = 90.5 % after conformal scaling; MASE +1.2 % |
+| F2 anomaly velocity + supervised | Anomaly Detection → results, Review → supervised | `anomaly` | bursts found 2 → 13/18; P@90 0.71 → 0.80 |
+| F3 one-row latency | Register (frontier, budget, serve fastest / a model, distil), Gym → Deploy | `latency` | support-tickets one row τ₉₅ ≈ 4.4 ms (pruned TF-IDF model), 3 accuracy points below the ensemble |
+| F4 target confirmation | New Model → Target (Confirm The Target) | `targets` | API and browser holdouts identical (RMSE 2,434.33 both) |
+| F5 LLM layer | Vela, Settings → Language Model | `llm` | `/api/health` under 48 asks: 5,088 ms → < 80 ms; timeouts fall back within budget |
+| F6 out-of-time / group splits | New Model → How The Holdout Is Drawn, Results → Random vs Out-Of-Time, **Gym → Goal** | `splits` | credit-default ROC AUC 0.7720 random vs 0.7144 out-of-time; 0 shared customers |
+| F7 business cost | New Model → Goal, Results → Business Cost, Explain → Threshold, **Gym → Goal** | `cost` | FN = 10 × FP: 553.8 → 478.3 per 1,000 decisions (Δ +75.4 [+12.1, +139.6]) |
+| F8 monotone constraints | Gym → Models (Advanced), Explain → Monotonicity, model card | `monotone` | debt_to_income ↑: 0/200 ICE curves violate (195/200 without) |
+| F9 quantile regression | New Model → Target ("a range"), Results, Try It, model card | `quantile` | loan-amount [q0.1, q0.9] holdout coverage ≈ 0.80 |
+| F10 reason codes | Registry → Reason Codes, Try It, batch columns, model card | `reasons` | 517 adverse rows, 515 with 4 codes (2 with 3), all agree with the SHAP signs |
+| F11 scorecard challenger | Explain → Scorecard, Gym → Models, model card | `scorecard` | ΔAUC (ensemble − scorecard) +0.0248 [+0.0058, +0.0414] |
+| F12 learning curves | Explain → Learning Curve | `learning` | 4 points + 2N / 4N extrapolation; both samples *noisy* with 3 seeds |
+| F13 active learning | Explain → Labelling Queue | `active` | active above random after 2 rounds, inside the noise (3 seeds) |
+| F14 annotators | Explain → Annotators | `annotators` | worst annotator found; consensus beats majority vote against the truth |
+| F15 shift check | Explain → Shift, Registry → Batch & Drift | `shift` | shifted batch AUC > 0.7 with debt_to_income first; unshifted ≈ 0.5 |
+| F16 weak slices | Explain → Weak Slices | `slices` | planted slice found at rank 2 (Jaccard 0.89) |
+| F17 Model Doctor | Explain → Model Doctor, Results, Vela, Autopilot, **model card** | `doctor` | 6 / 6 crafted scenarios diagnosed correctly |
+| F18 monitoring | Registry → Monitoring | `monitor` | drift alert first on 2025-07, never before; retrain proposal launches a run |
+
+**F19 integration.** Explain's twelve-plus views are grouped (Evaluate · Explain · Diagnose · Labels) so the tab bar
+fits at 1366 px. The Gym's Goal step has the F6 split and the F7 cost (the same body keys as New Model). The model
+card's Validation section lists the source run's diagnostics (split, cost, learning curve, shift, weak slices,
+annotators, Model Doctor) or "not run". The Model Doctor's latency prescription opens Register with its model
+preselected (`#/registry?register=<run>&serve=<model>`).
+
 ## Quickstart
 
 ```
@@ -48,7 +80,8 @@ make setup       # Python venv (backend/.venv) with the pinned deps (AutoGluon t
                  # fairlearn, MLflow), the Python client, and npm install
 make dev         # API on :8000 and the UI on http://localhost:5190; Ctrl+C stops both
 make smoke       # scripts/smoke.py: the UI's real calls end to end against the API (started if not running);
-                 # ✓ / ✗ per step, exit 1 on any failure. SMOKE_ONLY=core,…,scorecard,learning,active,annotators,shift,slices,llm,reset
+                 # ✓ / ✗ per step, exit 1 on any failure. The default runs every section (F19); pick some with
+                 # SMOKE_ONLY=core,…,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset
 make reset       # delete every run, version, batch, autopilot, MLflow record and upload; regenerate the samples
 ```
 

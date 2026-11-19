@@ -196,6 +196,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "quantile": _quantile_section(cfg, res, vres),
         "reasons": _reasons_section(reasons, batches),
         "scorecard": _scorecard_section(res),
+        "diagnostics": _diagnostics_section(cfg, res),
     }
 
 
@@ -481,6 +482,7 @@ def to_markdown(c: dict[str, Any]) -> str:
             L += ["", f"Expected cost per 1,000 decisions (c_FP = {cc['c_fp']:g}, c_FN = {cc['c_fn']:g}): served "
                       f"{_fmt(cc['served_per_1000'])}, scorecard {_fmt(cc['scorecard_per_1000'])}."]
         L.append("")
+    L += _diagnostics_md(c.get("diagnostics"))
     L += ["## 6. Feature importance", "", "| Feature | Importance | 95% CI | p |", "| --- | ---: | --- | ---: |"]
     for f in c["importance"]["features"][:15]:
         L.append(f"| {f['feature']} | {_fmt(f.get('importance'))} | [{_fmt(f.get('ci_low'))}, {_fmt(f.get('ci_high'))}] | {_fmt(f.get('p_value'))} |")
@@ -621,3 +623,72 @@ def to_html(c: dict[str, Any]) -> str:
         i += 1
     out.append("</body></html>")
     return "\n".join(out)
+
+
+def _diagnostics_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any] | None:
+    """F19: what the source run's later checks found, as the run payload holds their summaries (F6 split, F7 cost,
+    F12 learning curve, F15 shift, F16 weak slices, F14 annotators, F17 Model Doctor). Each item is None when the check
+    has not been run; the card says where to run it. Nothing is recomputed here."""
+    if cfg.get("kind") not in (None, "tabular"):
+        return None
+    sp = cfg.get("split") or {}
+    cost = cfg.get("cost")
+    lc = res.get("learning_curve") or {}
+    v = lc.get("verdict") or {}
+    sh = res.get("shift") or {}
+    sl = res.get("slices") or {}
+    an = (res.get("annotations") or {}).get("summary") or {}
+    doc = res.get("doctor") or {}
+    x2 = ((v.get("extrapolation") or {}).get("x2") or {})
+    out = {
+        "split": {"strategy": sp.get("strategy") or "random-stratified", "key": sp.get("key"),
+                  "group_column": sp.get("group_column"), "time_column": sp.get("time_column"), "cutoff": sp.get("cutoff")},
+        "cost": ({"kind": cost.get("kind"), "c_fp": cost.get("c_fp"), "c_fn": cost.get("c_fn"), "g_tp": cost.get("g_tp")}
+                 if isinstance(cost, dict) else None),
+        "learning_curve": ({"verdict": v.get("label"), "reason": v.get("reason"), "metric": v.get("metric"),
+                            "slope": (v.get("slope_per_doubling") or {}).get("value"),
+                            "slope_ci": (v.get("slope_per_doubling") or {}).get("ci"),
+                            "x2_score": x2.get("score"), "x2_ci": x2.get("ci")} if v else None),
+        "shift": ({"reference": sh.get("reference"), "new": sh.get("new"), "auc": sh.get("auc"), "ci": sh.get("ci"),
+                   "verdict": sh.get("verdict"), "top": (sh.get("top_features") or [{}])[0].get("feature")}
+                  if sh.get("status") == "succeeded" and sh.get("auc") is not None else None),
+        "slices": ({"loss": sl.get("loss"), "n_tested": sl.get("n_tested"), "n_weak": sl.get("n_weak"), "alpha": sl.get("alpha"),
+                    "top": [{"label": t["label"], "n": t["n"], "delta": t["delta"], "ci": t["ci"], "q": t["q"]}
+                            for t in (sl.get("top") or [])[:3]]} if sl else None),
+        "annotators": ({"worst": (an.get("worst_annotator") or {}).get("name"),
+                        "fleiss_kappa": ((an.get("agreement") or {}).get("fleiss_kappa") or {}).get("value"),
+                        "changed_vs_given": (an.get("consensus") or {}).get("changed_vs_given"),
+                        "mean_quality": (an.get("consensus") or {}).get("mean_quality")} if an else None),
+        "doctor": ({"headline": doc.get("headline"), "computed_at": doc.get("computed_at"),
+                    "primary": doc.get("primary"), "secondary": [c.get("title") for c in doc.get("secondary") or []],
+                    "missing": doc.get("missing")} if doc else None),
+    }
+    return out
+
+
+def _diagnostics_md(d: dict[str, Any] | None) -> list[str]:
+    """F19: the diagnostics block of section 5 in the exported card."""
+    if not d:
+        return []
+    sp = d["split"]
+    L = ["### Diagnostics", "", "| Check | Result |", "| --- | --- |"]
+    where = ", ".join(x for x in (sp.get("group_column") and f"group `{sp['group_column']}`",
+                                  sp.get("time_column") and f"time `{sp['time_column']}`") if x)
+    L.append(f"| Split (F6) | {sp['strategy']}{f' ({where})' if where else ''} |")
+    if d.get("cost"):
+        c = d["cost"]
+        L.append(f"| Business cost (F7) | c_FP = {c.get('c_fp')}, c_FN = {c.get('c_fn')}, g_TP = {c.get('g_tp') or 0}; eval_metric expected_cost |")
+    lc = d.get("learning_curve")
+    L.append(f"| Learning curve (F12) | {lc['verdict']}: {lc['reason']} |" if lc else "| Learning curve (F12) | not run |")
+    sh = d.get("shift")
+    L.append(f"| Shift (F15) | {sh['reference']} vs {sh['new']}: AUC {_fmt(sh['auc'], 3)} ({sh['verdict']}), top `{sh['top']}` |" if sh else "| Shift (F15) | not run |")
+    sl = d.get("slices")
+    L.append(f"| Weak slices (F16) | {sl['n_weak']} of {sl['n_tested']} tested ({sl['loss']}, α = {sl['alpha']})"
+             + (f"; first: {sl['top'][0]['label']} (n = {sl['top'][0]['n']}, Δ = {_fmt(sl['top'][0]['delta'], 3)})" if sl["top"] else "") + " |"
+             if sl else "| Weak slices (F16) | not run |")
+    an = d.get("annotators")
+    if an:
+        L.append(f"| Annotators (F14) | least reliable {an.get('worst')}; Fleiss κ {_fmt(an.get('fleiss_kappa'), 3)}; consensus changes {an.get('changed_vs_given')} labels |")
+    doc = d.get("doctor")
+    L.append(f"| Model Doctor (F17) | {doc['headline']} |" if doc else "| Model Doctor (F17) | not run (Explain → Model Doctor) |")
+    return L + [""]

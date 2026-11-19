@@ -578,8 +578,12 @@ async def run_events(run_id: str, request: Request, start: int = Query(0, alias=
                 # Asked to start past the terminal event: nothing more will come.
                 if idle % 8 == 1 and await run_in_threadpool(store.has_terminal_event, run_id):
                     rec = await run_in_threadpool(store.get, run_id)
-                    if rec and rec["status"] not in ("queued", "running"):
+                    # F19: the terminal event may have been written after this loop's read; deliver it (and anything
+                    # before it) instead of ending the stream one event short.
+                    if rec and rec["status"] not in ("queued", "running") \
+                            and not await run_in_threadpool(store.events, run_id, cursor, 1):
                         return
+                    continue
                 await asyncio.sleep(0.25)
             else:
                 idle = 0

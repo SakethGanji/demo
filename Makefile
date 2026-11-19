@@ -42,7 +42,7 @@ ui:
 
 ## The smoke chain (scripts/smoke.py) against the API on :$(API_PORT); starts the API itself if nothing answers there
 ## (and stops it afterwards). SMOKE_ONLY=core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset picks sections.
-SMOKE_ONLY ?= core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,llm,reset
+SMOKE_ONLY ?= core,samples,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset
 smoke:
 	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
 		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY); \

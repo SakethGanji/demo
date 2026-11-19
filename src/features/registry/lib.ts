@@ -38,6 +38,8 @@ export function useActor(): [string, (s: string) => void] {
 export const versionParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('version')
 export const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
 export const runParamReg = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('register')
+/** F19: a model to preselect as serve_model in Register (the Model Doctor's latency prescription). */
+export const serveParamReg = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('serve')
 
 /** PSI bands used across the bank: < 0.10 stable, 0.10–0.25 watch, > 0.25 shift. */
 export const BAND_STATUS: Record<string, Status> = { stable: 'success', watch: 'warning', shift: 'danger', missing: 'neutral' }

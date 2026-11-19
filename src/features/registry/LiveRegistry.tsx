@@ -15,7 +15,7 @@ import { TryIt } from './components/TryIt'
 import { ReasonCodes } from './components/ReasonCodes'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
 import { ServingCard } from './components/ServingCard'
-import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
+import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, tabParam, us, useActor, versionParam, when } from './lib'
 
 type Tab = 'Overview' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Audit'
 const TABS: Tab[] = ['Overview', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Audit']
@@ -97,7 +97,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
       </div>
 
       {registering != null && okRuns.length > 0 && (
-        <RegisterPanel runs={okRuns} initialRun={registering} actor={actor} onCancel={() => { setRegistering(null); if (runParamReg()) history.replaceState(null, '', '#/registry') }}
+        <RegisterPanel runs={okRuns} initialRun={registering} initialServe={serveParamReg()} actor={actor} onCancel={() => { setRegistering(null); if (runParamReg()) history.replaceState(null, '', '#/registry') }}
           onRegistered={(v) => { setRegistering(null); bump(); select(v.id, 'Overview') }} />
       )}
 

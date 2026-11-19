@@ -8,6 +8,7 @@ import { sup } from '@/shared/lib/format'
 import { MathText } from '@/shared/components/MathText'
 import { type Body, effectiveHp, fmtNum, getPath, setHp, toggleFamily, variants } from './body'
 import { FamilyFormula } from './panels'
+import { SplitCostCards } from './splitcost'
 
 export type StepProps = {
   body: Body
@@ -126,7 +127,7 @@ export function TargetStep({ body, set, ds, v, guided }: StepProps) {
 
 // -- 03 Goal ------------------------------------------------------------------------------------------------------
 
-export function GoalStep({ body, set, schema, v }: StepProps) {
+export function GoalStep({ body, set, setBody, schema, v }: StepProps) {
   const pt = v?.problem_type ?? 'binary'
   const metrics = schema.metrics[pt] ?? []
   const preset = (Array.isArray(body.presets) ? body.presets[0] : body.presets) ?? 'medium_quality'
@@ -168,6 +169,7 @@ export function GoalStep({ body, set, schema, v }: StepProps) {
           </div>
         </div>
       )}
+      <SplitCostCards body={body} setBody={setBody} pt={pt} />
     </div>
   )
 }

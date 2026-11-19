@@ -123,8 +123,10 @@ def test_latency_profile(client, reg_run):
         assert m["us_per_row"] > 0 and m["size_bytes"] > 0 and m["n_models"] >= 1
     ens = next(m for m in lp["models"] if m["model"] == run["best_model"])
     assert ens["n_models"] == 3 and ens["best"]
-    # The ensemble needs its base models: it is at least as large as any one of them.
-    assert ens["size_bytes"] >= max(m["size_bytes"] for m in lp["models"] if m["model"] != ens["model"])
+    # The ensemble needs its base models: it is at least as large as any one of them (F11's Scorecard trains beside
+    # them but is not one of the ensemble's members here).
+    members = set((run.get("ensemble") or {}).get("weights") or {})
+    assert members and ens["size_bytes"] >= max(m["size_bytes"] for m in lp["models"] if m["model"] in members)
     assert client.get(f"/api/runs/{run['id']}/latency").json()["cached"] is True
 
 
@@ -133,7 +135,8 @@ def test_version_built(client, reg_run, version, data_dir):
 
     _, run = reg_run
     steps = {s["name"]: s for s in version["progress"]["steps"]}
-    assert [s["name"] for s in version["progress"]["steps"]] == ["clone", "refit_full", "infer_limit", "deploy_copy",
+    # F3 added the distillation step (skipped unless asked) before infer_limit
+    assert [s["name"] for s in version["progress"]["steps"]] == ["clone", "refit_full", "distill", "infer_limit", "deploy_copy",
                                                                  "measure", "hash", "mlflow"]
     assert steps["refit_full"]["status"] == "done"
     assert steps["infer_limit"]["status"] == "done"
@@ -342,7 +345,10 @@ def test_batch_scoring_and_drift(client, reg_run, version, data_dir):
     d = client.get(f"/api/registry/batches/{b['id']}/download")
     assert d.status_code == 200 and "attachment" in d.headers["content-disposition"]
     out = pd.read_csv(io.StringIO(d.text))
-    assert list(out.columns) == list(batch.columns) + ["prediction", "p_No", "p_Yes"]
+    # F10: a binary version adds `adverse` and the reason-code columns after the probabilities
+    n0 = len(batch.columns) + 3
+    assert list(out.columns)[:n0] == list(batch.columns) + ["prediction", "p_No", "p_Yes"]
+    assert list(out.columns)[n0] == "adverse"
     p = TabularPredictor.load(version["path"], verbosity=0)
     proba = p.predict_proba(batch)
     assert np.allclose(out["p_Yes"], proba["Yes"], atol=2e-6)

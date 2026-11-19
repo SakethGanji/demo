@@ -121,6 +121,8 @@ def test_api_answers_while_a_batch_scores(api_server, client, heavy_run):
     assert bb["n_rows"] == 60_000
     assert max(lat) < 0.5, f"/api/health took {max(lat):.3f}s during batch scoring"
     # progress moved through intermediate values on the way to 1
+    # (rounded: the stage fractions are sums of floats, so 0.85 can arrive as 0.8500000000000001 and then 0.85)
+    progress = [round(p, 9) for p in progress]
     assert progress == sorted(progress) and progress[-1] == 1.0 and any(0 < p < 1 for p in progress)
     assert np.isfinite(bb["result"]["drift"]["max_psi"]) and bb["result"]["drift"]["max_psi"] < 0.1  # same distribution
 

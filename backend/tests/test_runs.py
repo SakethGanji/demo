@@ -107,6 +107,10 @@ RUN_FIELDS = {
     "predictor_path", "n_events", "problem_type", "eval_metric", "classes", "positive_class", "best_model",
     "fit_seconds", "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
     "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
+    # added by later sessions: the run's kind and split (F4/F6), forecast / anomaly / import (S5–S7), F8 monotone,
+    # F9 quantile, F11 scorecard, F12–F17 summaries
+    "kind", "split", "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels",
+    "scorecard", "learning_curve", "active_learning", "annotations", "shift", "slices", "doctor",
 }
 
 
@@ -129,9 +133,9 @@ def test_tiny_fit_result(client, tiny_dataset, tiny_run, data_dir):
     assert run["data"]["features"] == ["x1", "x2", "grp"]
     # Leaderboard: the two models and the weighted ensemble, with extra info and holdout scores.
     lb = run["leaderboard"]
-    assert {r["model"] for r in lb} == {"LightGBM", "LinearModel", "WeightedEnsemble_L2"}
-    assert {r["family"] for r in lb} == {"GBM", "LR", "ENS_WEIGHTED"}
-    assert [r["rank"] for r in lb] == [1, 2, 3]
+    assert {r["model"] for r in lb} == {"Scorecard", "LightGBM", "LinearModel", "WeightedEnsemble_L2"}  # F11: + the scorecard
+    assert {r["family"] for r in lb} == {"SCORECARD", "GBM", "LR", "ENS_WEIGHTED"}
+    assert [r["rank"] for r in lb] == [1, 2, 3, 4]
     for r in lb:
         for k in ("score_val", "score_test", "fit_time", "pred_time_val", "pred_time_test", "stack_level",
                   "num_features", "hyperparameters", "model_type"):
@@ -141,7 +145,7 @@ def test_tiny_fit_result(client, tiny_dataset, tiny_run, data_dir):
     ens = run["ensemble"]
     assert ens["model"] == "WeightedEnsemble_L2" and ens["best"] is (run["best_model"] == "WeightedEnsemble_L2")
     assert math.isclose(sum(ens["weights"].values()), 1, abs_tol=1e-9)
-    assert set(ens["weights"]) <= {"LightGBM", "LinearModel"}
+    assert set(ens["weights"]) <= {"LightGBM", "LinearModel", "Scorecard"}
     # Holdout metrics, with the confusion matrix in class order.
     h = run["holdout"]
     assert h["n_rows"] == 60 and h["eval_metric"] == "accuracy" and h["model"] == run["best_model"]
@@ -149,7 +153,9 @@ def test_tiny_fit_result(client, tiny_dataset, tiny_run, data_dir):
     assert sum(map(sum, h["confusion_matrix"])) == 60 and h["classes"] == run["classes"]
     assert run["oof"]["available"] is False and run["feature_importance"] is None
     # The exact call, so the run can be reproduced in plain AutoGluon.
-    assert run["resolved"]["fit_kwargs"] == {"presets": "medium_quality", "time_limit": 60, "hyperparameters": TINY_HP}
+    fk = run["resolved"]["fit_kwargs"]  # F11: the default SCORECARD challenger joins the families asked for
+    assert {**fk, "hyperparameters": {k: x for k, x in fk["hyperparameters"].items() if k != "SCORECARD"}} == \
+        {"presets": "medium_quality", "time_limit": 60, "hyperparameters": TINY_HP} and "SCORECARD" in fk["hyperparameters"]
     assert run["resolved"]["predictor_kwargs"] == {"label": "outcome", "problem_type": None, "eval_metric": None}
     # A plain AutoGluon predictor directory on disk, plus the holdout predictions.
     p = Path(run["predictor_path"])
@@ -171,10 +177,11 @@ def test_sse_order(tiny_run):
     assert order.index("fit_finished") < order.index("leaderboard") < order.index("evaluation") < order.index("run_succeeded")
     started = [e["data"]["model"] for e in events if e["event"] == "model_started"]
     finished = [e["data"] for e in events if e["event"] == "model_finished"]
-    assert started == [f["model"] for f in finished] == ["LightGBM", "LinearModel", "WeightedEnsemble_L2"]
+    # F11: a binary label trains the SCORECARD challenger beside the requested families, by default
+    assert started == [f["model"] for f in finished] == ["Scorecard", "LightGBM", "LinearModel", "WeightedEnsemble_L2"]
     for f in finished:  # each finished event carries the numbers the live race needs
         assert f["val_score"] is not None and f["fit_time"] > 0 and f["predict_time"] >= 0 and f["stack_level"] in (1, 2)
-        assert f["family"] in ("GBM", "LR", "ENS_WEIGHTED")
+        assert f["family"] in ("SCORECARD", "GBM", "LR", "ENS_WEIGHTED")
         assert types.index("model_started") < types.index("model_finished")
     ens = [e["data"] for e in events if e["event"] == "ensemble"]
     assert len(ens) == 1 and math.isclose(sum(ens[0]["weights"].values()), 1, abs_tol=1e-9)

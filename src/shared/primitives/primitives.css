@@ -60,3 +60,9 @@
 .wave-path { animation: wave-shift var(--duration-wave) linear infinite; }
 @keyframes wave-shift { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 .wave-path.fast { animation-duration: 1.6s; }
+/* F19: grouped tabs (Explain): a group switch, then the group's tabs on the same line */
+.tabs.grouped { align-items: center; gap: var(--space-16); flex-wrap: wrap; }
+.tabs.grouped .tab-groups { flex: none; }
+.tabs.grouped .tab-row { display: flex; gap: var(--space-20); min-width: 0; flex-wrap: wrap; }
+.tabs.grouped .tab { white-space: nowrap; }
+.tab-groups .tab-count { margin-left: 6px; font-family: var(--font-mono); font-size: 11px; font-weight: 500; color: var(--text-muted, var(--text-body)); }

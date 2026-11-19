@@ -8,7 +8,7 @@ import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { Tabs } from '@/shared/primitives/Tabs'
+import { GroupedTabs } from '@/shared/primitives/Tabs'
 import { Curves, PerClass } from './components/Curves'
 import { Errors } from './components/Errors'
 import { FairnessPanel } from './components/FairnessPanel'
@@ -25,6 +25,14 @@ import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
 
 type Tab = 'Performance' | 'Model Doctor' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Weak Slices' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
+/** F19: the order a reviewer reads a model in. How good is it (and where to cut), why does it decide, what limits it
+ * and what to do next, and how good are the labels it learned from. */
+const TAB_GROUPS: { label: string; tabs: Tab[] }[] = [
+  { label: 'Evaluate', tabs: ['Performance', 'Threshold', 'Errors', 'Fairness'] },
+  { label: 'Explain', tabs: ['Features & SHAP', 'Text', 'Monotonicity', 'Scorecard'] },
+  { label: 'Diagnose', tabs: ['Model Doctor', 'Learning Curve', 'Weak Slices', 'Shift'] },
+  { label: 'Labels', tabs: ['Labelling Queue', 'Annotators'] },
+]
 
 export const runParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
 const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')
@@ -145,7 +153,8 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
         </>}
       </div>
 
-      <Tabs tabs={tabs} value={tabs.includes(tab) ? tab : 'Performance'} onChange={pickTab} />
+      <GroupedTabs value={tabs.includes(tab) ? tab : 'Performance'} onChange={pickTab}
+        groups={TAB_GROUPS.map((g) => ({ label: g.label, tabs: g.tabs.filter((t) => tabs.includes(t)) }))} />
 
       {(tab === 'Performance' || !tabs.includes(tab)) && (ex.kind === 'classification' ? <>
         <Curves ex={ex} run={run} />

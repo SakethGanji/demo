@@ -102,7 +102,9 @@ def test_validate_resolves_the_call_and_autogluons_choices(client, tiny):
     assert v["ok"], v["errors"]
     fk = v["resolved"]["fit_kwargs"]
     assert fk["presets"] == "best_quality" and fk["time_limit"] == 90 and fk["num_bag_folds"] == 4
-    assert fk["hyperparameters"] == {"GBM": {"learning_rate": 0.03}, "CAT": {"depth": 4}}
+    # F11: a binary label adds the SCORECARD challenger (on by default) to the families asked for
+    assert "SCORECARD" in fk["hyperparameters"]
+    assert {k: x for k, x in fk["hyperparameters"].items() if k != "SCORECARD"} == {"GBM": {"learning_rate": 0.03}, "CAT": {"depth": 4}}
     assert v["resolved"]["post_fit"] == [{"call": "distill", "kwargs": {"time_limit": 20}}]
     assert "predictor.fit(\n    train_data,\n    presets=\"best_quality\"" in v["call"]
     assert "predictor.distill(time_limit=20)" in v["call"]
@@ -115,7 +117,9 @@ def test_validate_resolves_the_call_and_autogluons_choices(client, tiny):
     assert eff["source"].startswith("autogluon") and eff["num_bag_folds"] == 4 and eff["num_stack_levels"] >= 1
     est = v["estimate"]
     assert est["k"] == 4 and est["L"] == eff["num_stack_levels"] and est["n"] == v["data"]["train_rows"]
-    assert {f["family"] for f in est["families"]} == {"GBM", "CAT"} and all(f["trials"] == 3 for f in est["families"])
+    # F11: the default SCORECARD challenger is estimated too (one fit: it is not tuned)
+    tuned = [f for f in est["families"] if f["family"] != "SCORECARD"]
+    assert {f["family"] for f in est["families"]} == {"GBM", "CAT", "SCORECARD"} and all(f["trials"] == 3 for f in tuned)
     assert est["seconds"] <= 90
     # a smaller budget binds and says so
     small = _v(client, dataset_id=tiny["id"], presets="best_quality", time_limit=1)
@@ -134,7 +138,8 @@ def test_run_config_round_trip(client, tiny, tiny_run):
     assert body["dataset_id"] == tiny["id"] and body["fit_kwargs"] == {"hyperparameters": TINY_HP}
     assert body["calibrate_threshold"] == "f1" and body["drop_columns"] == ["row_id"]
     v = _v(client, **body)
-    assert v["ok"] and v["resolved"]["fit_kwargs"]["hyperparameters"] == TINY_HP
+    hp = v["resolved"]["fit_kwargs"]["hyperparameters"]  # F11: plus the default SCORECARD challenger (binary)
+    assert v["ok"] and {k: x for k, x in hp.items() if k != "SCORECARD"} == TINY_HP and "SCORECARD" in hp
 
 
 def test_completed_run_logs_to_mlflow_without_warning(client, tiny_run):

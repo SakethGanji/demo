@@ -64,7 +64,11 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
     if (a.kind === 'labelling_queue') return tab('Labelling Queue', a.slice_id ? { slice: a.slice_id } : {})
     if (a.kind === 'open_slice') return tab('Weak Slices', a.slice_id ? { slice: a.slice_id } : {})
     if (a.kind === 'inbox') return tab('Annotators')
-    if (a.kind === 'register') return links.go(`registry?register=${run.id}`)
+    // F19: the latency prescription opens Register with its model preselected (serve_model from the API's body)
+    if (a.kind === 'register') {
+      const sm = (a.body as { serve_model?: string } | undefined)?.serve_model
+      return links.go(`registry?register=${run.id}${sm ? `&serve=${encodeURIComponent(sm)}` : ''}`)
+    }
     // F18: the retrain proposal lives on the version's monitoring page; it launches there, on a click
     if (a.kind === 'retrain' && a.version_id) return links.go(`registry?version=${a.version_id}&tab=Monitoring`)
     if (!a.endpoint) return

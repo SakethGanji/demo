@@ -10,7 +10,8 @@ import pytest
 
 from app.samples import TICKET_CLASSES, generate_churn, generate_tickets
 
-SUMMARY_FIELDS = {"id", "name", "filename", "source", "sample", "note", "created_at", "size_bytes", "rows", "n_cols", "kind", "target", "n_classes"}
+SUMMARY_FIELDS = {"id", "name", "filename", "source", "sample", "note", "created_at", "size_bytes", "rows", "n_cols", "kind", "target", "n_classes",
+                  "flows"}  # the flows a dataset can feed (tabular / forecast / anomaly), added after S8
 
 
 def _col(profile, name):

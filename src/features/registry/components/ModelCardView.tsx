@@ -133,6 +133,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             : 'Stability: not run yet (Reason Codes tab).'}
             {c.reasons.last_batch ? ` Latest batch: ${c.reasons.last_batch.n_adverse} adverse rows at ${c.reasons.last_batch.rows_per_s?.toFixed(1)} rows/s, codes consistent with the SHAP signs: ${c.reasons.last_batch.signs_consistent ? 'yes' : 'no'}.` : ''} {c.reasons.monotone_note}</p>
         </div>}
+        {c.diagnostics && <DiagnosticsBlock d={c.diagnostics} />}
       </section>}
 
       <section className="mc-sec"><h3><i>6</i> Feature importance <small>{c.importance.method}</small></h3>
@@ -230,6 +231,26 @@ function QuantileCardSection({ q }: { q: NonNullable<ModelCard['quantile']> }) {
           <td className="r mono">{fmtScore(r.coverage, 4)}</td><td className="r mono">[{fmtScore(r.coverage_ci[0], 3)}, {fmtScore(r.coverage_ci[1], 3)}]</td>
           <td className="r mono">{fmtScore(raw.get(key(r))?.coverage, 4)}</td><td className="r mono">{fmtScore(cal.get(key(r))?.coverage, 4)}</td><td className="r mono">{fmtScore(r.mean_width, 0)}</td></tr>)}</tbody></table>
       <p className="helper" style={{ fontSize: 12 }}>Served by <span className="mono">{q.served_model}</span> with the {q.served} quantiles (conformal offsets {q.conformal.applied ? 'applied' : 'not applied'}{q.conformal.offsets ? `: ${Object.entries(q.conformal.offsets).map(([t, c]) => `c${t} = ${fmtScore(c, 1)}`).join(', ')}` : ''}). Holdout pinball loss {fmtScore(q.pinball, 1)}; quantile crossing on {q.crossing_share == null ? '—' : `${(q.crossing_share * 100).toFixed(2)}%`} of rows. Method: {q.method}.</p>
+    </div>
+  )
+}
+
+/** F19: the source run's diagnostics on the card: one line per check, "not run" where it has not been. */
+function DiagnosticsBlock({ d }: { d: NonNullable<ModelCard['diagnostics']> }) {
+  const sp = d.split
+  const rows: [string, React.ReactNode][] = [
+    ['Split (F6)', <>{sp.strategy}{sp.group_column ? <> · group <span className="mono">{sp.group_column}</span></> : null}{sp.time_column ? <> · time <span className="mono">{sp.time_column}</span></> : null}</>],
+    ...(d.cost ? [['Business cost (F7)', <>c<sub>FP</sub> = {d.cost.c_fp}, c<sub>FN</sub> = {d.cost.c_fn}{d.cost.g_tp ? <>, g<sub>TP</sub> = {d.cost.g_tp}</> : null} · eval_metric <span className="mono">expected_cost</span></>] as [string, React.ReactNode]] : []),
+    ['Learning curve (F12)', d.learning_curve ? <><b>{d.learning_curve.verdict}</b>{d.learning_curve.slope != null ? <> · gain per doubling <span className="mono">{fmtScore(d.learning_curve.slope, 4)}</span>{d.learning_curve.slope_ci ? <> [{fmtScore(d.learning_curve.slope_ci[0], 4)}, {fmtScore(d.learning_curve.slope_ci[1], 4)}]</> : null}</> : null}</> : 'not run'],
+    ['Shift (F15)', d.shift ? <>{d.shift.reference} vs {d.shift.new}: AUC <span className="mono">{fmtScore(d.shift.auc, 3)}</span> · <b>{d.shift.verdict}</b>{d.shift.top ? <> · top <span className="mono">{d.shift.top}</span></> : null}</> : 'not run'],
+    ['Weak slices (F16)', d.slices ? <>{d.slices.n_weak} weak of {d.slices.n_tested?.toLocaleString()} tested ({d.slices.loss}, α = {d.slices.alpha}){d.slices.top[0] ? <> · first <span className="mono">{d.slices.top[0].label}</span> (n = {d.slices.top[0].n}, Δ = {fmtScore(d.slices.top[0].delta, 3)})</> : null}</> : 'not run'],
+    ...(d.annotators ? [['Annotators (F14)', <>least reliable <b>{d.annotators.worst ?? '—'}</b> · Fleiss κ <span className="mono">{fmtScore(d.annotators.fleiss_kappa, 3)}</span> · consensus changes {d.annotators.changed_vs_given ?? '—'} labels</>] as [string, React.ReactNode]] : []),
+    ['Model Doctor (F17)', d.doctor ? <>{d.doctor.primary ? <b>{d.doctor.primary.title} ({d.doctor.primary.severity})</b> : <b>no limiting factor found</b>}{d.doctor.headline ? <> · {d.doctor.headline}</> : null}</> : 'not run (Explain → Model Doctor)'],
+  ]
+  return (
+    <div data-testid="card-diagnostics" style={{ marginTop: 8 }}>
+      <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Diagnostics of the source run</h4>
+      <table className="table compact"><tbody>{rows.map(([k, v]) => <tr key={k}><td style={{ width: 180 }}>{k}</td><td>{v}</td></tr>)}</tbody></table>
     </div>
   )
 }

@@ -11,8 +11,8 @@ import { bytes, us } from '../lib'
 const sanitize = (s: string) => s.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
 
 /** Register a finished run: pick the deployment options and see what they trade, measured on this run's models. */
-export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel }: {
-  runs: Run[]; initialRun: string | null; actor: string; onRegistered: (v: ModelVersion) => void; onCancel: () => void
+export function RegisterPanel({ runs, initialRun, initialServe = null, actor, onRegistered, onCancel }: {
+  runs: Run[]; initialRun: string | null; initialServe?: string | null; actor: string; onRegistered: (v: ModelVersion) => void; onCancel: () => void
 }) {
   const [runId, setRunId] = useState(initialRun && runs.some((r) => r.id === initialRun) ? initialRun : runs[0]?.id ?? '')
   const run = runs.find((r) => r.id === runId) ?? null
@@ -44,6 +44,8 @@ export function RegisterPanel({ runs, initialRun, actor, onRegistered, onCancel 
     api.registry.latency(runId).then((p) => {
       if (!alive) return
       setLp(p)
+      // F19: preselect the prescribed model (only for the run it was prescribed for, and only if this run has it)
+      if (initialServe && runId === initialRun && p.models.some((m) => m.model === initialServe)) setServe(initialServe)
       const best = p.models.find((m) => m.best)
       if (best) setLimitUs(Math.max(1, Math.round(best.us_per_row * 0.6)))
     }).catch((e) => alive && setLpErr((e as Error).message))
