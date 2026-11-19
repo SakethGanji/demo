@@ -133,6 +133,13 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             : 'Stability: not run yet (Reason Codes tab).'}
             {c.reasons.last_batch ? ` Latest batch: ${c.reasons.last_batch.n_adverse} adverse rows at ${c.reasons.last_batch.rows_per_s?.toFixed(1)} rows/s, codes consistent with the SHAP signs: ${c.reasons.last_batch.signs_consistent ? 'yes' : 'no'}.` : ''} {c.reasons.monotone_note}</p>
         </div>}
+        {c.recourse && <div data-testid="card-recourse" style={{ marginTop: 8 }}>
+          <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Counterfactuals (recourse)</h4>
+          <p className="helper" style={{ fontSize: 12 }}>{c.recourse.check
+            ? `${c.recourse.check.with_valid} of ${c.recourse.check.adverse} adverse holdout rows (${((c.recourse.check.share_valid ?? 0) * 100).toFixed(1)}%) get a change that flips the served decision at t = ${c.recourse.check.threshold.toFixed(4)} when re-scored; median ${c.recourse.check.median_changes} changes; fixed features moved: ${c.recourse.check.fixed_changed}. Fixed: ${Object.entries(c.recourse.check.actions).filter(([, a]) => a === 'fixed').map(([f]) => f).join(', ') || 'none'}.`
+            : 'Check: not run yet (Reason Codes tab → Recourse).'}
+            {Object.keys(c.recourse.overrides).length ? ` Set by ${c.recourse.updated_by ?? 'a user'}: ${Object.entries(c.recourse.overrides).map(([f, a]) => `${f} → ${a}`).join(', ')}.` : ''} Method: {c.recourse.method}.</p>
+        </div>}
         {c.diagnostics && <DiagnosticsBlock d={c.diagnostics} />}
       </section>}
 

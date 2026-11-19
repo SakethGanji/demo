@@ -6,6 +6,7 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { pct } from '@/shared/lib/format'
 import { HeroCell } from '@/shared/components/Status'
+import { RecoursePanel } from './Recourse'
 
 
 /** F10 · reason codes for adverse decisions: the rule at the version's threshold, how φ is computed for the served
@@ -81,6 +82,8 @@ export function ReasonCodes({ v, actor, onEdited }: { v: ModelVersion; actor: st
           </p>}
         </div>
       </div>
+
+      <RecoursePanel v={v} actor={actor} onEdited={onEdited} />
 
       <div className="card">
         <div className="card-head">

@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -257,6 +257,14 @@ export const api = {
       json<ReasonsConfig>(`/registry/versions/${encodeURIComponent(id)}/reasons`, 'PUT', { actor, ...body }, 120_000),
     reasonStability: (id: string, body: { rows?: number; noise?: number; repeats?: number } = {}) =>
       json<ReasonStability & { version_id: string }>(`/registry/versions/${encodeURIComponent(id)}/reasons/stability`, 'POST', body, 600_000),
+    /** G1: what a counterfactual may change, the acceptance check, and counterfactuals for posted rows. */
+    recourse: (id: string) => request<RecourseConfig>(`/registry/versions/${encodeURIComponent(id)}/recourse`, { timeoutMs: 120_000 }),
+    editRecourse: (id: string, actor: string, actions: Record<string, RecourseAction>) =>
+      json<RecourseConfig>(`/registry/versions/${encodeURIComponent(id)}/recourse`, 'PUT', { actor, actions }, 120_000),
+    recourseRows: (id: string, rows: Record<string, unknown>[]) =>
+      json<RecourseRows>(`/registry/versions/${encodeURIComponent(id)}/recourse`, 'POST', { rows }, 300_000),
+    recourseCheck: (id: string, rows = 120) =>
+      json<RecourseCheck & { version_id: string }>(`/registry/versions/${encodeURIComponent(id)}/recourse/check`, 'POST', { rows }, 900_000),
     /** Try It: the prediction, probabilities and Kernel SHAP reasons for one row (computed in a worker). */
     tryIt: (id: string, row: Record<string, unknown>, target?: string) =>
       json<TryResult>(`/registry/versions/${encodeURIComponent(id)}/predict`, 'POST', { row, explain: true, target }, 180_000),

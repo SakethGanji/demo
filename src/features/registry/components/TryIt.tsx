@@ -7,6 +7,7 @@ import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { ReasonList } from './ReasonCodes'
+import { TryRecourse } from './Recourse'
 
 type Field = { name: string; kind: 'number' | 'category' | 'text'; options: string[]; example: string; stats?: { min: number; max: number; mean: number } }
 
@@ -29,6 +30,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
   const [out, setOut] = useState<TryResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [sentRow, setSentRow] = useState<Record<string, unknown>>({})
 
   const go = async () => {
     setBusy(true); setErr('')
@@ -38,6 +40,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
       if (x === undefined || x === '') continue
       row[f.name] = f.kind === 'number' ? Number(x) : x
     }
+    setSentRow(row)
     try { setOut(await api.registry.tryIt(v.id, row)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const probs = out?.probabilities ? Object.entries(out.probabilities).sort((a, b) => b[1] - a[1]) : []
@@ -131,6 +134,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
               <ReasonList codes={r.codes} adverse={r.adverse} adverseClass={r.adverse_class} testId="try-reason-list" />
               <p className="helper" style={{ fontSize: 12 }}>The codes a notice, /score and batch scoring give for this applicant: {r.attribution.name}, B = {r.attribution.background} {r.reference === 'approved' ? 'approved' : ''} reference applicants (φ₀ = {r.base_value?.toFixed(4)}){r.attribution.coalitions ? `, M = ${r.attribution.coalitions} coalitions` : ''}; {r.reasons_ms.toFixed(0)} ms. They can differ from the Top Reasons below, which rank |φᵢ| against all training rows with 2,048 coalitions. Statements are edited in the Reason Codes tab.</p>
             </div>
+            <TryRecourse v={v} row={sentRow} adverse={r.adverse} />
           </div>
         )
       })()}

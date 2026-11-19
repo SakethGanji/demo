@@ -23,6 +23,7 @@ function href(s: IntakeSuggestion, dsId: string): string {
     if (p.metric) q.set('metric', p.metric)
     return `quick-train?${q}`
   }
+  if (s.route === 'registry') return `registry?${new URLSearchParams({ version: String(s.prefill.version ?? ''), tab: String(s.prefill.tab ?? 'Overview') })}`
   return s.route === 'import' ? 'import' : `${s.route}?dataset=${encodeURIComponent(dsId)}`
 }
 

@@ -793,11 +793,32 @@ export type ReasonStability = {
   vs_reference?: { coalitions: number; exact: boolean; same_set: number; mean_overlap: number; cited_positive: number | null; what: string }
   method: ReasonAttribution
 }
+/** G1: counterfactuals ("what would change the decision"). */
+export type RecourseAction = 'fixed' | 'any' | 'increase' | 'decrease'
+export type RecourseChange = { feature: string; from: unknown; to: unknown; cost: number; kind: 'number' | 'category'; delta: number | null }
+export type RecourseOption = { changes: RecourseChange[]; n_changes: number; distance: number; plausibility: number | null; p: number; valid: boolean; text: string }
+export type RecourseResult = { adverse: boolean; p: number; options: RecourseOption[] }
+export type RecourseCheck = {
+  rows: number; adverse: number; with_valid: number; share_valid: number | null; options: number; valid_options: number; mean_options: number | null
+  median_distance: number | null; median_changes: number | null; median_plausibility: number | null; fixed_changed: number; out_of_range: number
+  wrong_direction: number; features_used: Record<string, number>; seconds: number; actions: Record<string, RecourseAction>
+  holdout_rows: number; holdout_adverse: number; threshold: number; adverse_class: string; computed_at: string; examples: RecourseResult[]
+}
+export type RecourseFeature = { feature: string; action: RecourseAction; detected: RecourseAction; effective: RecourseAction; why: string; source: 'detected' | 'you'; monotone?: string; kind: 'number' | 'category'; range: { min: number; max: number; scale: number } | null }
+export type RecourseConfig = {
+  version_id: string; model_name: string; options: number; max_changes: number; grid: number; features: RecourseFeature[]; actionable: string[]
+  categories: Record<string, string[]>; ranges: Record<string, { min: number; max: number; scale: number }>; reference_rows: number
+  threshold: number; adverse_class: string; positive_class: string; s: number; updated_by?: string; updated_at?: string; check: RecourseCheck | null
+}
+export type RecourseRows = { version_id: string; results: RecourseResult[]; seconds: number; threshold: number; adverse_class: string; positive_class: string; s: number }
+export type BatchRecourse = { k: number; rows_searched: number; with_valid: number; seconds: number; rows: { row: number; p: number; options: RecourseOption[] }[] } | { error: string }
+
 export type ReasonsConfig = ReasonsBase & { version_id: string; model_name: string; mapping: ReasonMapping[]; features: string[]; classes: string[]; saved: boolean; updated_by?: string; updated_at?: string; stability: ReasonStability | null }
 export type BatchReasons = ReasonsBase & {
   n_adverse: number; adverse_share: number; n_explained: number; seconds: number; setup_seconds: number; rows_per_s: number | null; methods: string[]; notes: string[]
   additivity_max: number; codes_per_row: Record<string, number>; signs_consistent: boolean; monotone: ReasonMonotone; rows_fewer_than_k: number
   top_codes: { code: string; feature: string | null; rows: number; share: number }[]; columns: string[]
+  recourse?: BatchRecourse
 }
 
 export type PsiBin = { label: string; expected_count: number; actual_count: number; expected: number; actual: number; term: number }
@@ -854,6 +875,8 @@ export type ModelCard = {
     stability: ReasonStability | null; method: ReasonAttribution | null; rule: string; monotone_note: string
     last_batch: Pick<BatchReasons, 'n_adverse' | 'rows_per_s' | 'methods' | 'additivity_max' | 'signs_consistent' | 'codes_per_row' | 'top_codes' | 'monotone'> | null
   } | null
+  /** G1: counterfactuals: the user's overrides and the stored acceptance check. */
+  recourse?: { method: string; overrides: Record<string, RecourseAction>; updated_by?: string | null; check: RecourseCheck | null } | null
   /** F19: what the source run's later checks found (F6 split, F7 cost, F12, F14, F15, F16, F17), as summaries. */
   diagnostics?: {
     split: { strategy: string; key: string | null; group_column: string | null; time_column: string | null; cutoff: string | null }

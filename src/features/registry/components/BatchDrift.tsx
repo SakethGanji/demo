@@ -103,6 +103,7 @@ function BatchResult({ job }: { job: BatchJob }) {
         <div className="eh-cell"><span className="micro-label">time per row</span><b className="mono">{us(s.us_per_row)} µs</b><small className="math-s">T / n, T = {s.score_seconds.toFixed(2)} s</small></div>
         {s.mean_p != null && <div className="eh-cell"><span className="micro-label">mean p̂({s.positive_class})</span><b className="mono">{s.mean_p.toFixed(4)}</b><small className="math-s">reference {s.mean_p_reference?.toFixed(4)}</small></div>}
         {s.reasons && <div className="eh-cell" data-testid="batch-reasons"><span className="micro-label">reason codes</span><b className="mono">{s.reasons.n_adverse.toLocaleString()} adverse</b><small className="math-s">top {s.reasons.top_k} with s·φⱼ &gt; 0 · {s.reasons.methods.join(', ')} · {s.reasons.rows_per_s?.toFixed(1)} rows/s · most cited {s.reasons.top_codes.slice(0, 3).map((c) => `${c.code} ${(c.share * 100).toFixed(0)}%`).join(', ')}</small></div>}
+        {s.reasons?.recourse && !('error' in s.reasons.recourse) && <div className="eh-cell" data-testid="batch-recourse"><span className="micro-label">recourse</span><b className="mono">{s.reasons.recourse.with_valid} / {s.reasons.recourse.rows_searched}</b><small className="math-s">first {s.reasons.recourse.rows_searched} adverse rows with a valid change · column “recourse”</small></div>}
         {s.flagged_share != null && <div className="eh-cell"><span className="micro-label">flagged</span><b className="mono">{pct(s.flagged_share)}</b><small className="math-s">{s.flag_rule ?? <>share with p̂ &gt; t = {s.threshold?.toFixed(3)}</>}{s.expected_share != null ? ` · c = ${pct(s.expected_share)}` : ''}</small></div>}
         {s.items != null && <div className="eh-cell"><span className="micro-label">series forecast</span><b className="mono">{s.items}</b><small className="math-s">{s.forecast_rows?.toLocaleString()} rows · covariates: {s.known_covariates_source}</small></div>}
         {s.mean_prediction != null && <div className="eh-cell"><span className="micro-label">mean {s.prediction_symbol ?? 'ŷ'}</span><b className="mono">{fmtScore(s.mean_prediction, 2)}</b><small className="math-s">σ = {fmtScore(s.std_prediction, 2)}</small></div>}
@@ -110,6 +111,20 @@ function BatchResult({ job }: { job: BatchJob }) {
         <div className="eh-cell"><span className="micro-label">PSI(output)</span><b className="mono" data-testid="batch-pred-psi" style={{ color: BAND_COLOR[p.band] }}>{psiFmt(p.psi)}</b><small className="math-s">{p.ks ? `KS D = ${p.ks.statistic.toFixed(3)}` : p.band}</small></div>
         {s.problem_type !== 'forecast' && s.problem_type !== 'anomaly' && <AdversarialCell bid={job.id} />}
       </div>
+
+      {s.reasons?.recourse && !('error' in s.reasons.recourse) && s.reasons.recourse.rows.length > 0 && (() => {
+        const rr = s.reasons.recourse
+        return (
+          <details className="an-adv card" data-testid="batch-recourse-rows">
+            <summary className="micro-label" style={{ padding: 'var(--space-12) var(--space-16)' }}>Recourse · the nearest valid change for the first {rr.rows_searched} adverse rows ({rr.seconds.toFixed(1)} s)</summary>
+            <div className="table-wrap"><table className="table compact">
+              <thead><tr><th>row</th><th>p̂</th><th>nearest change that flips the decision</th><th>d</th><th>π</th></tr></thead>
+              <tbody>{rr.rows.map((r) => { const o = r.options.find((x) => x.valid); return (
+                <tr key={r.row}><td className="mono">{r.row + 1}</td><td className="mono">{r.p.toFixed(4)}</td><td>{o ? o.changes.map((c) => `${c.feature} ${String(c.from ?? 'missing')} → ${String(c.to)}`).join(' and ') : <span className="helper">none found</span>}</td><td className="mono">{o?.distance.toFixed(2) ?? '—'}</td><td className="mono">{o?.plausibility?.toFixed(2) ?? '—'}</td></tr>) })}</tbody>
+            </table></div>
+          </details>
+        )
+      })()}
 
       <div className="card" data-testid="psi-table">
           <div className="card-head">
