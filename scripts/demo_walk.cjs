@@ -233,7 +233,7 @@ async function main() {
     await page.getByTestId('reason-codes').waitFor({ timeout: 60_000 })
     await shot('09-reason-codes')
     // the first adverse holdout row (the presenter's prepared applicant), and the first 400 holdout rows as a CSV
-    const rowsJson = path.join(OUT, '.holdout.json')
+    const rowsJson = path.join(require('os').tmpdir(), 'demo_walk_holdout.json')
     execFileSync(PY, ['-c', `
 import json, sys, urllib.request
 import numpy as np
