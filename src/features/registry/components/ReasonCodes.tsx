@@ -22,7 +22,7 @@ export function ReasonCodes({ v, actor, onEdited }: { v: ModelVersion; actor: st
     return () => { live = false }
   }, [v.id])
   if (err && !c) return <div className="card card-body"><p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p></div>
-  if (!c) return <div className="card card-body row"><ResonanceWave /> Setting up the attribution for {v.result?.version.best_model}…</div>
+  if (!c) return <div className="card card-body row"><ResonanceWave /> Setting up the attribution for {v.result?.version?.best_model}…</div>
   const a = c.attribution
   const dirty = JSON.stringify(rows) !== JSON.stringify(c.mapping)
   const set = (i: number, k: keyof ReasonMapping, val: string) => setRows(rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)))
@@ -48,7 +48,7 @@ export function ReasonCodes({ v, actor, onEdited }: { v: ModelVersion; actor: st
       <div className="card">
         <div className="card-head">
           <div className="left"><h3 className="card-title">Reason Codes (Adverse Action)</h3><span className="helper" style={{ fontSize: 12 }}>the top {c.top_k} factors behind each adverse decision of {v.model_name} v{v.version}</span></div>
-          <span className="mono helper" style={{ fontSize: 12 }}>{v.result?.version.best_model}</span>
+          <span className="mono helper" style={{ fontSize: 12 }}>{v.result?.version?.best_model}</span>
         </div>
         <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
           <div className="navy-well" style={{ padding: 'var(--space-12) var(--space-16)', minHeight: 0 }} data-testid="reason-rule">

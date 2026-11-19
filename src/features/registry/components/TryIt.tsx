@@ -16,7 +16,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
   const fields: Field[] = useMemo(() => {
     const cols = new Map<string, ColumnProfile>((ds?.profile.columns ?? []).map((c) => [c.name, c]))
     const types = (run?.config?.column_types ?? {}) as Record<string, string>
-    return (v.result?.version.features ?? []).map((name) => {
+    return (v.result?.version?.features ?? []).map((name) => {
       const c = cols.get(name)
       const t = types[name] ?? c?.type
       const kind: Field['kind'] = t === 'text' ? 'text' : t === 'number' ? 'number' : 'category'
@@ -48,7 +48,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
       <div className="card">
         <div className="card-head">
           <div className="left"><h3 className="card-title">Try It</h3><span className="helper" style={{ fontSize: 12 }}>x = one applicant, every feature of {v.model_name} v{v.version}; an empty field is sent as missing</span></div>
-          <span className="mono helper" style={{ fontSize: 12 }}>{v.result?.version.best_model}</span>
+          <span className="mono helper" style={{ fontSize: 12 }}>{v.result?.version?.best_model}</span>
         </div>
         <div className="card-body tp-body">
           <div className="tp-form">
