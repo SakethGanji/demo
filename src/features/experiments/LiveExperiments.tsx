@@ -3,7 +3,6 @@ import { api } from '@/shared/api/client'
 import type { Run } from '@/shared/api/types'
 import { fmtScore, fmtSeconds, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { EmptyState } from '@/shared/components/EmptyState'
@@ -11,6 +10,7 @@ import { TYPE_FILTERS, headline, kindOf, problemLine, runPage, typeOf } from '@/
 import { CompareRuns } from './components/CompareRuns'
 import { ParamDiff } from './components/ParamDiff'
 import { RunCoordinates } from './components/RunCoordinates'
+import { ErrorCard, Loading } from '@/shared/components/Status'
 
 export const STATUS_PILL: Record<string, Status> = { succeeded: 'success', running: 'info', queued: 'neutral', failed: 'danger', cancelled: 'warning' }
 export const RUN_COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-b)', 'var(--viz-e)', '#0F766E']
@@ -71,8 +71,8 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
   const selRuns = (runs ?? []).filter((r) => sel.includes(r.id) && tabularLike(r))
   const selOther = (runs ?? []).filter((r) => sel.includes(r.id) && !tabularLike(r)).length
 
-  if (err && !runs) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!runs) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading the runs from the API: their scores, parameters and thresholds…</div></div>
+  if (err && !runs) return <ErrorCard err={err} />
+  if (!runs) return <Loading>Reading the runs from the API: their scores, parameters and thresholds…</Loading>
   if (!runs.length) return (
     <div className="page experiments" data-testid="experiments-live">
       <div className="page-head"><div><h1 className="page-title">Experiments</h1><p className="helper sub" data-testid="exp-summary">0 runs · every run you train, forecast, score for anomalies or import lands here</p></div></div>

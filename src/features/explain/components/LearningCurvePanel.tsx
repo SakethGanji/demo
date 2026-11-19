@@ -8,9 +8,9 @@ import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { pctTrim } from '@/shared/lib/format'
 
 const sgn = (v: number, d = 4) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`
-const pct = (f: number) => `${+(f * 100).toFixed(1)}%`
 const nfmt = (n: number) => Math.round(n).toLocaleString()
 const VERDICT = {
   'data-limited': { pill: 'warning', head: 'Data-limited', say: 'More rows of the same kind are expected to help.' },
@@ -74,7 +74,7 @@ export function LearningCurvePanel({ run }: { run: Run }) {
         <div className="card card-body row" data-testid="lc-progress" style={{ gap: 'var(--space-12)', flexWrap: 'wrap' }}>
           <ResonanceWave />
           <span>Fitting <b className="mono">{lc.fits_done ?? 0} / {lc.fits_total}</b> subsamples
-            {lc.current ? <> · now {pct(lc.current.fraction)} of the rows, seed {lc.current.seed}</> : null}
+            {lc.current ? <> · now {pctTrim(lc.current.fraction)} of the rows, seed {lc.current.seed}</> : null}
             {' '}· the run's own fit is the 100% point</span>
           <button className="btn" onClick={cancel} data-testid="lc-cancel">Cancel</button>
         </div>
@@ -136,7 +136,7 @@ function Verdict({ lc }: { lc: LearningCurve }) {
     </div>
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="lc-reason">
       <StatusPill status={meta.pill}>{v.label}</StatusPill>{' '}Because {v.reason}.
-      {ev.observed_last_step && <> Measured directly, going from {pct(ev.observed_last_step.from_fraction)} to 100% of the rows gained {sgn(ev.observed_last_step.gain)} in {v.metric} ({v.greater_is_better ? 'higher' : 'lower'} is better; + = better; 95% CI [{sgn(ev.observed_last_step.ci[0])}, {sgn(ev.observed_last_step.ci[1])}]).</>}
+      {ev.observed_last_step && <> Measured directly, going from {pctTrim(ev.observed_last_step.from_fraction)} to 100% of the rows gained {sgn(ev.observed_last_step.gain)} in {v.metric} ({v.greater_is_better ? 'higher' : 'lower'} is better; + = better; 95% CI [{sgn(ev.observed_last_step.ci[0])}, {sgn(ev.observed_last_step.ci[1])}]).</>}
     </p>
   </>
 }
@@ -214,7 +214,7 @@ function Formula({ lc, metric }: { lc: LearningCurve; metric: string }) {
       <div className="card" data-testid="lc-split">
         <div className="card-head"><div className="left"><h3 className="card-title">How the Subsamples Were Drawn</h3></div></div>
         <div className="card-body stack" style={{ gap: 6 }}>
-          <p className="helper" style={{ fontSize: 12.5 }}>Inside the run's own {lc.split?.strategy} split <span className="mono">{lc.split?.key}</span>: {lc.split?.subsample}. For each seed the sets are nested ({pct(lc.summary?.[0]?.fraction ?? 0)} ⊂ … ⊂ 100%){lc.nested ? ' ✓' : ' ✕'}{lc.groups_whole != null ? <>; every {lc.split?.group_column} is either wholly in or wholly out {lc.groups_whole ? '✓' : '✕'}</> : null}.
+          <p className="helper" style={{ fontSize: 12.5 }}>Inside the run's own {lc.split?.strategy} split <span className="mono">{lc.split?.key}</span>: {lc.split?.subsample}. For each seed the sets are nested ({pctTrim(lc.summary?.[0]?.fraction ?? 0)} ⊂ … ⊂ 100%){lc.nested ? ' ✓' : ' ✕'}{lc.groups_whole != null ? <>; every {lc.split?.group_column} is either wholly in or wholly out {lc.groups_whole ? '✓' : '✕'}</> : null}.
             {lc.tuning_rows ? <> The split's tuning slice ({lc.tuning_rows.toLocaleString()} rows) is kept whole in every fit.</> : null} Every fit is scored on the same {lc.holdout_rows?.toLocaleString()} holdout rows (<span className="mono">{lc.holdout_sha}</span>).</p>
           <details className="an-adv"><summary className="micro-label">The fit call ({lc.fit_call?.notes.length ?? 0} notes)</summary>
             <ul className="helper" style={{ fontSize: 12, paddingLeft: 16 }}>{lc.fit_call?.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
@@ -233,7 +233,7 @@ function PointsTable({ lc, metric }: { lc: LearningCurve; metric: string }) {
       <div className="card-body" style={{ overflowX: 'auto' }}>
         <table className="table compact"><thead><tr><th>share</th><th className="r">n</th><th className="r">k</th><th className="r">mean {metric}</th><th className="r">sd s</th><th className="r">95% t-interval</th><th>each fit</th></tr></thead>
           <tbody>{lc.summary?.map((s) => <tr key={s.fraction}>
-            <td className="mono">{pct(s.fraction)}</td><td className="r mono">{nfmt(s.n)}</td><td className="r mono">{s.k}</td>
+            <td className="mono">{pctTrim(s.fraction)}</td><td className="r mono">{nfmt(s.n)}</td><td className="r mono">{s.k}</td>
             <td className="r mono"><b>{fmtScore(s.mean)}</b></td><td className="r mono">{s.sd == null ? '—' : s.sd.toFixed(4)}</td>
             <td className="r mono">{s.ci ? `[${fmtScore(s.ci[0])}, ${fmtScore(s.ci[1])}]` : 'the run itself'}</td>
             <td className="mono" style={{ fontSize: 12 }}>{s.scores.map((v) => fmtScore(v)).join(' · ')}</td>

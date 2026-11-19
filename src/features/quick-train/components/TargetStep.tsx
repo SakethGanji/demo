@@ -8,6 +8,7 @@ import { SplitCard } from './SplitCard'
 import { RangeCard } from './RangeCard'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { effectiveType, inferTask, labelClasses, labelOptions, type Choices, type ColType, type Task } from '../wizard'
+import { sig4 } from '@/shared/lib/format'
 
 const TYPE_LABEL: Record<ColType, string> = { number: 'number', category: 'category', text: 'text', id: 'ignore' }
 const AG_RAW: Record<ColType, string> = { number: 'float', category: 'object', text: 'object', id: '—' }
@@ -96,8 +97,8 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
                 stats ? <div className="stack" style={{ gap: 6 }}>
                   <div className="micro-label">Distribution of <span className="mono" style={{ textTransform: 'none' }}>{ch.label}</span></div>
                   <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-                    <ParamChip sym="ȳ" value={fmt(stats.mean)} /><ParamChip sym="σ_y" value={fmt(stats.std)} />
-                    <ParamChip sym="median" value={fmt(stats.median)} /><ParamChip sym="y ∈" value={`[${fmt(stats.min)}, ${fmt(stats.max)}]`} />
+                    <ParamChip sym="ȳ" value={sig4(stats.mean)} /><ParamChip sym="σ_y" value={sig4(stats.std)} />
+                    <ParamChip sym="median" value={sig4(stats.median)} /><ParamChip sym="y ∈" value={`[${sig4(stats.min)}, ${sig4(stats.max)}]`} />
                   </div>
                   <RangeBar min={stats.min} max={stats.max} mean={stats.mean} std={stats.std} median={stats.median} />
                 </div> : <span className="helper">A numeric label: AutoGluon fits regression.</span>
@@ -246,7 +247,6 @@ function ConfirmTarget({ ds, label, onConfirmed }: { ds: Dataset; label: string;
   )
 }
 
-const fmt = (v: number) => (Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : Number(v.toPrecision(4)).toString())
 
 /** The label's range with its mean ± σ and median marked, as a string from min to max. */
 function RangeBar({ min, max, mean, std, median }: { min: number; max: number; mean: number; std: number; median: number }) {
@@ -260,7 +260,7 @@ function RangeBar({ min, max, mean, std, median }: { min: number; max: number; m
         <line x1={x(median)} x2={x(median)} y1="5" y2="23" stroke="var(--accent-primary)" strokeWidth="2" />
         <circle cx={x(mean)} cy="14" r="4" fill="var(--accent-secondary)" />
         <circle cx={4} cy="14" r="3" fill="var(--accent-primary)" /><circle cx={w - 4} cy="14" r="3" fill="var(--accent-primary)" />
-        <text x={0} y="34" className="tick-text">{fmt(min)}</text><text x={w} y="34" textAnchor="end" className="tick-text">{fmt(max)}</text>
+        <text x={0} y="34" className="tick-text">{sig4(min)}</text><text x={w} y="34" textAnchor="end" className="tick-text">{sig4(max)}</text>
         <text x={x(mean)} y="34" textAnchor="middle" className="tick-text">ȳ ± σ · | median</text>
       </svg>
     </div>

@@ -13,7 +13,7 @@ export const bytes = (n: number | null | undefined) => {
 /** Microseconds with a sensible number of digits: 7.15 µs, 88.7 µs, 1,204 µs. */
 export const us = (v: number | null | undefined) => (v == null ? '—' : v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : Math.round(v).toLocaleString())
 export const ms = (v: number | null | undefined) => (v == null ? '—' : v < 10 ? v.toFixed(2) : v.toFixed(1))
-export const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
+export { pct } from '@/shared/lib/format'
 export const short = (h: string | null | undefined, n = 12) => (h ? h.slice(0, n) : '—')
 export const when = (ts: string | null | undefined) => (ts ? ts.replace('T', ' ').replace(/\+00:00$/, 'Z').slice(0, 20) : '—')
 

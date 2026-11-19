@@ -8,9 +8,9 @@ import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { pctTrim } from '@/shared/lib/format'
 
 const sgn = (v: number, d = 4) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`
-const pct = (f: number) => `${+(f * 100).toFixed(1)}%`
 const nfmt = (n: number) => Math.round(n).toLocaleString()
 const PAGE = 40
 const VERDICT = {
@@ -106,7 +106,7 @@ export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: stri
             <p className="helper" style={{ fontSize: 12.5 }}>
               {req.pool === 'missing'
                 ? <>The pool is the {nfmt(d?.missing_labels ?? 0)} training rows whose label is empty.</>
-                : <>Hides the labels of {pct(req.hide_share ?? 0.9)} of the {nfmt(d?.n_train ?? 0)} training rows (stratified); {nfmt((1 - (req.hide_share ?? 0.9)) * (d?.n_train ?? 0))} stay as seed labels.</>}
+                : <>Hides the labels of {pctTrim(req.hide_share ?? 0.9)} of the {nfmt(d?.n_train ?? 0)} training rows (stratified); {nfmt((1 - (req.hide_share ?? 0.9)) * (d?.n_train ?? 0))} stay as seed labels.</>}
               {' '}Each of {req.rounds} rounds picks <b className="mono">b = {req.budget}</b> rows by {req.strategy} uncertainty among the {req.candidates_factor}·b most uncertain, spread by {req.diversity === 'cluster' ? 'k-means clusters' : req.diversity === 'kcenter' ? 'k-center' : 'nothing'}; you label them here.
               {req.pool !== 'missing' && req.compare_random ? <> The hidden labels also drive a <b>simulated</b> comparison, active vs random at equal budgets over {req.seeds} seeds.</> : null}
               {d ? <> About <b className="mono">{d.fits} fits</b>{d.estimate_seconds ? <>, {Math.max(1, Math.round(d.estimate_seconds / 60))} min here</> : null}.</> : null}
@@ -233,7 +233,7 @@ function Formula({ al, metric }: { al: ActiveLearning; metric: string }) {
         <div className="eq"><i>d̄</i> ± <i>t</i><sub>{fin.gap.n_seeds - 1}</sub> · <i>s</i><sub>d</sub> ⁄ √{fin.gap.n_seeds} = {sgn(fin.gap.mean)} ± {fin.gap.ci ? ((fin.gap.ci[1] - fin.gap.ci[0]) / 2).toFixed(4) : '—'} → <b className="mono">{fin.gap.ci ? `[${sgn(fin.gap.ci[0])}, ${sgn(fin.gap.ci[1])}]` : '—'}</b></div>
         <dl className="where">
           <dt>m</dt><dd>the holdout {metric} after round {fin.round}, at n = {nfmt(fin.n[0])} labels in both arms ({s.greater_is_better ? 'greater is better' : 'lower is better, so the sign is flipped: + = active better'})</dd>
-          <dt>s</dt><dd>a seed: its own seed labels L₀(s) ({pct(1 - (al.pool?.hide_share ?? 0))} stratified), shared by both arms, and its own random draws</dd>
+          <dt>s</dt><dd>a seed: its own seed labels L₀(s) ({pctTrim(1 - (al.pool?.hide_share ?? 0))} stratified), shared by both arms, and its own random draws</dd>
           <dt>s<sub>d</sub></dt><dd>the sd of the {fin.gap.n_seeds} paired gaps, {fin.gap.sd?.toFixed(4) ?? '—'}; t: Student's 97.5% quantile</dd>
           <dt>oracle</dt><dd>both arms are labelled with the sample's own hidden labels, a stand-in for a person</dd>
         </dl>
@@ -357,7 +357,7 @@ function Rounds({ al, metric }: { al: ActiveLearning; metric: string }) {
           <table className="table compact"><thead><tr><th>round</th><th className="r">labels n</th><th className="r">added</th><th>by</th><th className="r">{metric}</th><th>version</th></tr></thead>
             <tbody>{q.points.map((p) => { const h = hist.find((x) => x.round === p.round); return <tr key={p.round}>
               <td className="mono">{p.round}</td><td className="r mono">{nfmt(p.n)}</td><td className="r mono">{p.round ? p.added : '—'}{h?.skipped ? <span className="muted"> ({h.skipped} skipped)</span> : null}</td>
-              <td style={{ fontSize: 12 }}>{p.round ? Object.entries(p.answered_by ?? {}).map(([k, v]) => `${k} ${v}`).join(', ') : 'seed labels'}{p.agreement_with_hidden != null ? <span className="muted"> · {pct(p.agreement_with_hidden)} agree with hidden</span> : null}</td>
+              <td style={{ fontSize: 12 }}>{p.round ? Object.entries(p.answered_by ?? {}).map(([k, v]) => `${k} ${v}`).join(', ') : 'seed labels'}{p.agreement_with_hidden != null ? <span className="muted"> · {pctTrim(p.agreement_with_hidden)} agree with hidden</span> : null}</td>
               <td className="r mono"><b>{fmtScore(p.score)}</b></td><td className="mono" style={{ fontSize: 12 }}>{p.dataset_id ? <a href={`#/data?dataset=${p.dataset_id}`}>{p.dataset_id}</a> : '—'}</td>
             </tr> })}</tbody></table>
         </div>

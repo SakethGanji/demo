@@ -9,11 +9,10 @@ import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { Segmented } from '@/shared/primitives/Segmented'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { fix, pct } from '@/shared/lib/format'
+import { HeroCell } from '@/shared/components/Status'
 
 type Patch = NonNullable<ShiftAction['patch']>
-const f3 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(3))
-const f4 = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(4))
-const pct = (v: number | null | undefined) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
 const pfmt = (p: number) => (p < 0.001 ? p.toExponential(1) : p.toFixed(3))
 const SOURCES: Record<string, ShiftSource> = { 'Train vs Holdout': 'holdout', 'Two Periods': 'time', 'Registry Batch': 'batch' }
 const VERDICT = {
@@ -167,8 +166,8 @@ function Hero({ c }: { c: ShiftCheck }) {
       <div className="eh-cell"><span className="micro-label">verdict</span><b data-testid="shift-verdict">{v.label}</b><small>{meta.say}</small></div>
       <div className="eh-cell"><span className="micro-label">permutation null</span><b className="mono">p {r.null.permutation.p_value <= 1 / (r.null.permutation.B + 1) + 1e-12 ? '≤' : '='} {pfmt(r.null.permutation.p_value)}</b><small>AUC₀ 95% range [{r.null.permutation.q025.toFixed(3)}, {r.null.permutation.q975.toFixed(3)}], B = {r.null.permutation.B.toLocaleString()}</small></div>
       {r.null.refit && <div className="eh-cell"><span className="micro-label">refit null (R = {r.null.refit.R})</span><b className="mono">max {r.null.refit.max.toFixed(3)}</b><small>{r.null.refit.aucs.map((a) => a.toFixed(3)).join(' · ')}: the same fit on shuffled origin labels</small></div>}
-      <div className="eh-cell"><span className="micro-label">shifts most</span><b className="mono" style={{ fontSize: top && top.feature.length > 10 ? 18 : undefined, overflowWrap: 'anywhere' }}>{top ? top.feature : '—'}</b><small>{top ? <>ΔAUC {f4(top.importance)}{top.psi != null ? ` · PSI ${f3(top.psi)}` : ''}</> : 'no column, without a shift'}</small></div>
-      {c.sets.new.max_psi != null && <div className="eh-cell"><span className="micro-label">max PSI (batch)</span><b className="mono">{f3(c.sets.new.max_psi)}</b><small>the univariate view, next to the AUC</small></div>}
+      <div className="eh-cell"><span className="micro-label">shifts most</span><b className="mono" style={{ fontSize: top && top.feature.length > 10 ? 18 : undefined, overflowWrap: 'anywhere' }}>{top ? top.feature : '—'}</b><small>{top ? <>ΔAUC {fix(top.importance, 4)}{top.psi != null ? ` · PSI ${fix(top.psi)}` : ''}</> : 'no column, without a shift'}</small></div>
+      {c.sets.new.max_psi != null && <HeroCell label="max PSI (batch)" sub="the univariate view, next to the AUC">{fix(c.sets.new.max_psi)}</HeroCell>}
     </div>
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="shift-reason"><StatusPill status={meta.pill}>{v.label}</StatusPill>{' '}{v.reason} <span className="muted">Rule: {v.rule}.</span></p>
   </>
@@ -242,14 +241,14 @@ function Features({ c }: { c: ShiftCheck }) {
           <tbody>{r.features.map((f) => (
             <tr key={f.feature} data-testid={`shift-feature-${f.feature}`} data-rank={f.rank}>
               <td className="r mono">{f.rank}</td><td className="mono">{f.feature}</td><td className="muted">{f.kind}{f.model_features > 1 ? ` (${f.model_features} model features)` : ''}</td>
-              <td className="r mono"><b>{f4(f.importance)}</b></td>
+              <td className="r mono"><b>{fix(f.importance, 4)}</b></td>
               <td><svg width={200} height={14} aria-label={`interval of ${f.feature}`}>
                 <line x1={0} x2={200} y1={7} y2={7} stroke="var(--border-subtle)" />
                 <line x1={X(0)} x2={X(0)} y1={1} y2={13} stroke="var(--text-muted)" strokeDasharray="2 2" />
                 <line x1={X(f.ci?.[0] ?? f.importance)} x2={X(f.ci?.[1] ?? f.importance)} y1={7} y2={7} stroke={f.significant ? 'var(--viz-a)' : 'var(--text-muted)'} strokeWidth={3} />
                 <circle cx={X(f.importance)} cy={7} r={3} fill={f.significant ? 'var(--viz-a)' : 'var(--text-muted)'} />
-              </svg><span className="mono" style={{ fontSize: 11 }}>{f.ci ? `[${f4(f.ci[0])}, ${f4(f.ci[1])}]` : ''}</span></td>
-              <td className="r mono" style={{ color: f.psi_band ? PSI_COLOR[f.psi_band] : undefined }}>{f3(f.psi)}</td>
+              </svg><span className="mono" style={{ fontSize: 11 }}>{f.ci ? `[${fix(f.ci[0], 4)}, ${fix(f.ci[1], 4)}]` : ''}</span></td>
+              <td className="r mono" style={{ color: f.psi_band ? PSI_COLOR[f.psi_band] : undefined }}>{fix(f.psi)}</td>
               <td className="r mono" style={{ fontSize: 12 }}>{f.mean_expected != null && f.mean_actual != null ? `${fmtScore(f.mean_expected, 3)} → ${fmtScore(f.mean_actual, 3)}` : '—'}</td>
               <td>{f.significant ? <StatusPill status="warning">shifts</StatusPill> : null}</td>
             </tr>))}</tbody></table>

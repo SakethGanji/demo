@@ -2,6 +2,7 @@ import type { FcConformal } from '@/shared/api/flows'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { XYPlot } from '@/shared/components/XYPlot'
 import { ParamChip } from '@/shared/primitives/ParamChip'
+import { pct } from '@/shared/lib/format'
 
 type Interval = { lo: number; hi: number; nominal: number; empirical: number; inside: number; n: number; ci: [number, number]; p_all_inside: number | null; width_rel: number }
 export type FcModelCoverage = { model: string; family?: string; lo: number; hi: number; nominal: number; inside: number; n: number; empirical: number | null; ci: [number, number]; backtest: number | null; error?: string }
@@ -14,7 +15,6 @@ export type FcCalibration = {
   verdict: 'calibrated' | 'too_wide' | 'too_narrow'
 }
 
-const pct = (v: number | null | undefined, d = 1) => (v == null ? '—' : `${(v * 100).toFixed(d)}%`)
 const sci = (p: number) => (p >= 0.001 ? p.toFixed(3) : p.toExponential(1).replace('e', '×10^').replace('^-', '⁻').replace(/\^(\d+)/, (_, x) => x))
 const off = (x: Interval) => x.nominal < x.ci[0] || x.nominal > x.ci[1]
 

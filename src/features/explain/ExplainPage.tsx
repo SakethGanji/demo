@@ -6,7 +6,6 @@ import type { Explain, HoldoutPredictions, Run } from '@/shared/api/types'
 import { TopWords } from '@/shared/components/TopWords'
 import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { GroupedTabs } from '@/shared/primitives/Tabs'
 import { Curves, PerClass } from './components/Curves'
@@ -23,6 +22,7 @@ import { DoctorPanel } from './components/DoctorPanel'
 import { Importance } from './components/Importance'
 import { ShapPanel } from './components/ShapPanel'
 import { ThresholdPanel } from './components/ThresholdPanel'
+import { ErrorCard, Loading } from '@/shared/components/Status'
 
 type Tab = 'Performance' | 'Model Doctor' | 'Threshold' | 'Features & SHAP' | 'Errors' | 'Fairness' | 'Monotonicity' | 'Scorecard' | 'Learning Curve' | 'Weak Slices' | 'Labelling Queue' | 'Annotators' | 'Shift' | 'Text'
 /** F19: the order a reviewer reads a model in. How good is it (and where to cut), why does it decide, what limits it
@@ -101,7 +101,7 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
       <div className="card card-body" data-testid="explain-mock"><p className="helper">▲ mock mode: the API is offline, so there is no trained model to explain. Start it with <span className="mono">make dev</span>; this page then explains real runs (threshold, ROC and PR curves, calibration, permutation importance, SHAP, errors and fairness).</p></div>
     </div>
   )
-  if (mode === 'checking') return <div className="page"><div className="card card-body row"><ResonanceWave /> Connecting…</div></div>
+  if (mode === 'checking') return <Loading>Connecting…</Loading>
   if (!runId && !runs.length) return (
     <div className="page explain"><div className="page-head"><div><h1 className="page-title">Explain</h1></div></div>
       <EmptyState testId="explain-empty" title="Nothing to explain yet"
@@ -110,8 +110,8 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
         <p>Train a model on one of the samples (about a minute on medium_quality) and it appears here.</p>
       </EmptyState></div>
   )
-  if (err) return <div className="page"><div className="card card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div></div>
-  if (!run || !ex) return <div className="page"><div className="card card-body row"><ResonanceWave /> Reading run {runId}: curves, calibration and errors from the holdout…</div></div>
+  if (err) return <ErrorCard err={err} />
+  if (!run || !ex) return <Loading>Reading run {runId}: curves, calibration and errors from the holdout…</Loading>
 
   const metric = run.eval_metric?.name ?? ''
   const info = metricInfo(metric)

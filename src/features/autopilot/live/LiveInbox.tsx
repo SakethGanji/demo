@@ -3,10 +3,10 @@ import { api } from '@/shared/api/client'
 import type { ApInbox, ApInboxItem, Autopilot } from '@/shared/api/types'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { MathText } from '@/shared/components/MathText'
+import { pct } from '@/shared/lib/format'
 
 const KINDS: { id: string; label: string }[] = [{ id: 'all', label: 'All' }, { id: 'label', label: 'Label issues' }, { id: 'conflict', label: 'Conflicts' }, { id: 'duplicate', label: 'Duplicates' }, { id: 'outlier', label: 'Outliers' }]
 const PAGE = 40
-const pct = (v: number) => `${(v * 100).toFixed(1)}%`
 
 /** The Ground-Truth Inbox: the rows cleanlab doubts, ranked; you say what is true. */
 export function LiveInbox({ a, onChange }: { a: Autopilot; onChange: () => void }) {

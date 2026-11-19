@@ -6,9 +6,9 @@ import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { pct } from '@/shared/lib/format'
 
 const f3 = (v: number | null | undefined) => (v == null ? '—' : fmtScore(v, 3))
-const pct = (v: number) => `${(v * 100).toFixed(1)}%`
 const pfmt = (p: number) => (p < 0.001 ? p.toExponential(1) : p.toFixed(3))
 const LOSSES: Record<string, string> = { auto: 'the run’s metric (auto)', error: '0/1 error', log_loss: 'log loss', absolute_error: 'absolute error', squared_error: 'squared error', cost: 'business cost (F7)', pinball: 'pinball (F9)' }
 
