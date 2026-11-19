@@ -35,7 +35,9 @@ from .samples import SAMPLES
 from .samples_g3 import SAMPLES_G3
 from .samples_g4 import SAMPLES_G4
 from .samples_g5 import SAMPLES_G5
+from .samples_g6 import SAMPLES_G6
 from .segmented import api as segmented_api
+from .survival import api as survival_api
 from .el import api as el_api
 from .fairlending import api as fairlending_api
 from .splits import summarize as summarize_split
@@ -110,7 +112,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.get("/api/datasets", response_model=DatasetList)
     def list_datasets(request: Request) -> dict[str, Any]:
         # Samples first, in a fixed order; then uploads, oldest first.
-        order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5]
+        order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5, *SAMPLES_G6]
         recs = sorted(request.app.state.db.list_datasets(),
                       key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
         return {"datasets": [_summary(r) for r in recs]}
@@ -253,6 +255,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(el_api.router)
     app.include_router(fairlending_api.router)
     app.include_router(segmented_api.router)
+    app.include_router(survival_api.router)
     app.include_router(gym_api.router)
     app.include_router(vela_api.router)
     app.include_router(autopilot_api.router)

@@ -88,7 +88,7 @@ def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Reque
     cfg = rec["config"]
     if rec["status"] != "succeeded":
         raise HTTPException(400, f"Run {run_id} is {rec['status']}; a learning curve needs a finished run.")
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented") or cfg.get("import"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or cfg.get("import"):
         raise HTTPException(400, "Learning curves refit the run's own config: only trained tabular runs have one "
                                  "(not forecast, anomaly or imported runs).")
     fr = sorted(set(float(f) for f in body.fractions))

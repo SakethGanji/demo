@@ -422,7 +422,33 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
         train = pd.read_csv(cfg["csv_path"])
         out_path = out_dir_p / "scored.csv"
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.2)
-        if kind == "segmented":  # G5: each row through its segment's model; reason codes for the first adverse rows
+        if kind == "survival":  # G6: risk score, risk group and Ŝ(τ) per row; PSI of the inputs and of the risk score
+            from ..survival import core as svc
+
+            t0 = time.time()
+            out, summ = svc.score_batch(version_path, df)
+            score_s = time.time() - t0
+            out.to_csv(out_path, index=False)
+            meta = svc.load(version_path)["meta"]
+            feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns]
+            kinds = {c: ("number" if c in meta["numeric"] else "category") for c in feats}
+            ref_f = Path(cfg["run_dir"]) / "surv_holdout.csv"
+            ref = pd.read_csv(ref_f)["risk"].to_numpy(dtype=float) if ref_f.exists() else out["risk_score"].to_numpy(dtype=float)
+            reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
+            rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=pd.DataFrame({"y_pred": ref}),
+                                     cur_pred=pd.DataFrame({"y_pred": out["risk_score"].to_numpy(dtype=float)}), positive=None)
+            rep["prediction"]["output"] = f"risk score r̂ ({'Cox βᵀz' if meta['served'] == 'cox' else 'forest cumulative hazard'})"
+            rep["prediction_reference"] = "the served model on the run's holdout rows"
+            rep["reference"] = "the rows the models were trained on"
+            h0 = meta["horizons"][0] if meta["horizons"] else None
+            summary = {"n_rows": int(len(df)), "seconds": time.time() - t_start, "score_seconds": score_s,
+                       "us_per_row": score_s / len(df) * 1e6, "model": "Cox PH" if meta["served"] == "cox" else "random survival forest",
+                       "problem_type": "survival", "missing_columns": [c for c in meta["inputs"] if c not in df.columns],
+                       "extra_columns": [c for c in df.columns if c not in meta["inputs"]],
+                       "mean_prediction": float(out["risk_score"].mean()), "std_prediction": float(out["risk_score"].std()),
+                       "prediction_symbol": "r̂", "surv_groups": summ["groups"], "surv_mean_survival": summ["mean_survival"],
+                       "surv_unit": meta.get("unit"), "surv_first_horizon": h0}
+        elif kind == "segmented":  # G5: each row through its segment's model; reason codes for the first adverse rows
             from ..segmented import core as sgc
 
             t0 = time.time()

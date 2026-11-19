@@ -124,7 +124,7 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
         # Warm the new version in every predict worker, so its first Try It or /score call is not a cold one.
         try:
             got = reg.get_version(vid)
-            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss", "segmented")):
+            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss", "segmented", "survival")):
                 heavy.warm_path(got["path"])
                 if _inproc_ok(got, 1):  # its own thread: this callback runs in the pool's management thread
                     import threading
@@ -495,6 +495,14 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
+    if kind == "survival":  # G6: one subject → its survival curve, Ŝ(τ) at the horizons, and (Cox) what moves its hazard
+        from ..survival import core as svc
+
+        try:
+            out = await run_in_threadpool(svc.try_row, v["path"], body.row)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
     if kind == "segmented":  # G5: the row's own segment model (or the global one), with its reason codes
         from ..segmented import core as sgc
 
@@ -585,7 +593,7 @@ def _inproc_ok(v: dict[str, Any], n_rows: int) -> bool:
 
 def warm_version(request: Request, v: dict[str, Any]) -> None:
     """Warm a tabular version in every predict worker and, when it qualifies, in the API process (in a thread)."""
-    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
+    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
         return
     request.app.state.heavy.warm_path(v["path"])
     if _inproc_ok(v, 1):
@@ -619,6 +627,15 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
 
         try:
             out = await run_in_threadpool(elc.score_rows, v["path"], body.rows)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
+                "server_ms": (_t.perf_counter() - t0) * 1e3}
+    if kind == "survival":  # G6: risk score, risk group, Ŝ(τ) and P(event by τ) per row
+        from ..survival import core as svc
+
+        try:
+            out = await run_in_threadpool(svc.score_rows, v["path"], body.rows)
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
@@ -681,7 +698,7 @@ async def benchmark(vid: str, request: Request) -> dict[str, Any]:
     1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
+    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
         raise HTTPException(400, "The serving benchmark measures tabular versions (one row per call).")
     out = await request.app.state.heavy.run(scoring.benchmark_version, v["path"], run["config"])
     _reg(request).merge_version_result(vid, serving_benchmark=out)
@@ -728,7 +745,7 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
     data_date = monitoring_api.resolve_data_date(request, run, csv_path, data_date)
     reg = _reg(request)
     reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who, "data_date": data_date})
-    if kind in ("forecast", "anomaly", "expected_loss", "segmented"):
+    if kind in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
         # forecast: the file is new history (same mapping); anomaly: rows to score. Same batch record and drift format.
         fut = request.app.state.heavy.submit(scoring.score_flow_batch, str(request.app.state.settings.db_path), bid, kind,
                                              v["path"], run["config"], str(csv_path), str(bdir), {"id": vid},

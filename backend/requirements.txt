@@ -20,6 +20,8 @@ autogluon.timeseries==1.6.3
 cleanlab==2.9.0
 shap==0.54.1
 fairlearn==0.15.0
+# G6: time-to-event (Cox PH, random survival forest, C-index, time-dependent AUC); AutoGluon has no survival models
+scikit-survival==0.28.0
 # F5: the language-model layer (app/llm.py) calls the Messages API through the SDK when ANTHROPIC_API_KEY is set
 anthropic==2.10.0
 # Tests

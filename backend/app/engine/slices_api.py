@@ -57,7 +57,7 @@ def _rec(request: Request, run_id: str) -> dict[str, Any]:
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; it needs to finish first.")
     cfg = rec["config"]
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
         raise HTTPException(400, "Weak slices are searched on a tabular run's holdout; this is a "
                                  f"{cfg.get('kind')} run.")
     return rec

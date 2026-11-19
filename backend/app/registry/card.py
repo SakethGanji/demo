@@ -195,6 +195,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "anomaly_detection": _anomaly_section(cfg, res) if cfg.get("kind") == "anomaly" else None,
         "expected_loss": _el_section(run),
         "segmented": _seg_section(run),
+        "survival": _surv_section(run),
         "imported": res.get("imported"),
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
@@ -372,6 +373,13 @@ def _fair_lending_md(fl: dict[str, Any] | None) -> list[str]:
 def _seg_section(run: dict[str, Any]) -> dict[str, Any] | None:
     """G5: a routed version's segments, which model scores each, and the paired comparison with the global model."""
     from ..segmented.api import card_section
+
+    return card_section(run)
+
+
+def _surv_section(run: dict[str, Any]) -> dict[str, Any] | None:
+    """G6: a time-to-event version's discrimination, calibration against Kaplan–Meier and Cox hazard ratios."""
+    from ..survival.api import card_section
 
     return card_section(run)
 
@@ -571,6 +579,25 @@ def to_markdown(c: dict[str, Any]) -> str:
             L.append(_row(f"{r['value']} ({r.get('holdout_rows')} holdout rows)", r.get("own"),
                           "its own model" if r.get("routed") else "the global model"))
         L.append(_row("**Overall, routed**", sg.get("overall"), f"{len(sg.get('routes') or [])} segment models"))
+        L.append("")
+    sv = c.get("survival")
+    if sv:
+        ci = sv.get("c_index_ci") or [None, None]
+        cal = sv.get("calibration") or {}
+        name = {"cox": "Cox PH", "rsf": "random survival forest"}
+        L += ["**Time to event (survival)**", "",
+              f"S(t | x) = P(T > t | x) for T = time to {sv.get('event_column')} = 1, measured by {sv.get('duration_column')}; rows "
+              f"with {sv.get('event_column')} = 0 are censored. Served: {name.get(sv.get('served'), sv.get('served'))} (chosen on "
+              f"{sv.get('chosen_on')}); the other model, {name.get(sv['other']['model'])}, has holdout C {_fmt(sv['other'].get('c_index'))}.", "",
+              f"Holdout ({sv.get('holdout_rows')} rows, {(sv.get('events') or {}).get('holdout')} events): Harrell's C "
+              f"{_fmt(sv.get('c_index'))} [{_fmt(ci[0])}, {_fmt(ci[1])}]. Calibration against Kaplan–Meier by risk quartile: "
+              f"max |Ŝ − Ŝ_KM| = {_fmt(cal.get('max_abs_diff'))}, {cal.get('in_ci')} of {cal.get('cells')} inside the KM 95% CI "
+              f"({'calibrated' if cal.get('ok') else 'not calibrated'}).", "",
+              "| τ | AUC(τ) | Brier(τ) | mean Ŝ(τ) |", "| ---: | ---: | ---: | ---: |"]
+        L += [f"| {_fmt(a['t'], 0)} | {_fmt(a['auc'])} | {_fmt(a['brier'])} | {_fmt(a['mean_S'])} |" for a in sv.get("at") or []]
+        L += ["", "| Cox term | HR per unit [95% CI] | p |", "| --- | --- | ---: |"]
+        L += [f"| {h['term']} | {_fmt(h['hr'])} [{_fmt(h['hr_ci'][0])}, {_fmt(h['hr_ci'][1])}] | {_fmt(h.get('p_value'))} |"
+              for h in sv.get("hazard_ratios") or []]
         L.append("")
     cr = c.get("credit_report")
     if cr:

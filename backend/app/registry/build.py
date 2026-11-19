@@ -220,7 +220,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
     work, dest = vdir / "work", vdir / "predictor"
     data_dir = Path(db_path).parent
     step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival"):
         return build_other(db_path, version_id, registry_dir)
     try:
         from autogluon.tabular import TabularPredictor
@@ -638,6 +638,29 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                        "pd_auc": ((el.get("components") or {}).get("pd") or {}).get("auc")}
             problem = "expected_loss"
             metric = "ΣEL / Σ realised loss"
+        elif kind == "survival":  # G6: the design, Cox PH and the forest (joblib) and meta.json; the chosen one serves
+            from ..survival import core as svc
+
+            df = pd.read_csv(cfg["csv_path"])
+            svc.score_rows(str(dest), df.head(50))  # warm-up
+            ts, single = [], []
+            for _ in range(3):
+                t1 = time.perf_counter()
+                svc.score_rows(str(dest), df.head(2000))
+                ts.append((time.perf_counter() - t1) / min(len(df), 2000) * 1e6)
+            for i in range(10):
+                t1 = time.perf_counter()
+                svc.score_rows(str(dest), [df.iloc[i].to_dict()])
+                single.append((time.perf_counter() - t1) * 1e3)
+            lat = {"us_per_row_p50": _pct(ts, 50), "single_ms_p50": _pct(single, 50), "single_ms_p95": _pct(single, 95),
+                   "batch_rows": min(len(df), 2000)}
+            sv = res.get("survival") or {}
+            m = (sv.get("models") or {}).get(sv.get("served")) or {}
+            best = res.get("best_model") or "survival"
+            holdout = {"c_index": m.get("c_index"), **{f"auc_{a['t']:g}": a["auc"] for a in m.get("at") or []},
+                       "calibration_max_diff": (sv.get("calibration") or {}).get("max_abs_diff")}
+            problem = "survival"
+            metric = "c_index"
         elif kind == "segmented":  # G5: the global and segment predictors and meta.json, routed per row
             from ..segmented import core as sgc
 
@@ -704,6 +727,10 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": Path(cfg["csv_path"]).name},
             "path": str(dest),
         }
+        if kind == "survival":  # G6: what Try It and the card read
+            sv = res.get("survival") or {}
+            result["version"].update(duration_column=sv.get("duration_column"), event_column=sv.get("event_column"),
+                                     horizons=sv.get("horizons"), served=sv.get("served"), unit=sv.get("unit"))
         if kind == "segmented":  # G5: what the reason-code card section and Try It read for a binary version
             sg = res.get("segmented") or {}
             result["version"].update(positive_class=sg.get("positive_class"), decision_threshold=sg.get("threshold"),
@@ -718,7 +745,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                 "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
                 "data_sha256": data_hash, "best_model": best, "kind": kind, "approval": "pending",
                 "registered_by": v["created_by"]}, description=v["options"].get("description") or "",
-                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind in ("expected_loss", "segmented") else "scikit-learn")
+                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind in ("expected_loss", "segmented", "survival") else "scikit-learn")
             reg.merge_version_result(version_id, mlflow={**mv, "experiment_id": mlr["experiment_id"]})
             step("mlflow", "done", version=mv["version"])
         except Exception as e:  # noqa: BLE001

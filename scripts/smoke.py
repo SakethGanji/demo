@@ -712,6 +712,10 @@ INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
                                       "income": M, "credit_score": F, "debt_to_income": F, "utilization": F,
                                       "months_employed": F, "num_accounts": F, "loan_amount": M, "recent_inquiries": F,
                                       "defaulted": "target"}),
+    "account-attrition": ("survival", {"account_id": "id", "open_date": "date", "product": "segment", "region": "geography",
+                                       "age": F, "num_products": F, "digital_logins_30d": F, "complaints_12m": F,
+                                       "rate_vs_market_pp": F, "has_salary_mandate": F, "avg_balance_gbp": M,
+                                       "churned": "target", "duration_months": "duration"}),
 }
 KEY_ROLES = ("target", "date", "id", "entity", "segment")
 
@@ -4858,6 +4862,84 @@ def segmented(st: dict[str, Any]) -> None:
     step("seg: routed version: Try It, /score, reason codes, batch, card", registry)
 
 
+def survival(st: dict[str, Any]) -> None:
+    """G6: time to event on the account-attrition sample, zero-config. Intake's top suggestion is "Time to churned
+    (survival)" (an explicit duration name and a 0/1 event); the run is started with nothing but the dataset (Cox PH and a
+    random survival forest; the served one has the lower integrated Brier score on training fold 0). Asserts the
+    acceptance: holdout Harrell's C > 0.7, and the served model's mean Ŝ(τ) by risk quartile is calibrated against
+    Kaplan–Meier (|Ŝ − Ŝ_KM| ≤ 0.05 at 12/24/36 months, or inside the KM 95 % CI). Then the version: Try It gives a
+    survival curve per applicant, /score and a batch give Ŝ(τ) per row, and the card has the section."""
+    ds = "account-attrition"
+    s: dict[str, Any] = {}
+
+    def suggest():
+        it = get(f"/api/datasets/{ds}/intake")
+        s0 = it["suggestions"][0]
+        check(s0["id"] == "survival" and s0["route"] == "survival", f"top {s0['id']}")
+        check(s0["prefill"]["duration"] == "duration_months" and s0["prefill"]["event"] == "churned", s0["prefill"])
+        d = get("/api/survival/detect", dataset_id=ds)
+        check(d["strong"] and d["horizons"] == [12, 24, 36] and d["split"] == "random", d)
+        check(sorted(d["drop_columns"]) == ["account_id", "open_date"], d["drop_columns"])
+        # G0's caveat: a tenure-like duration (account-churn's tenure_months) never makes survival the top suggestion
+        ac = get("/api/datasets/account-churn/intake")["suggestions"]
+        check(ac[0]["id"] != "survival", ac[0]["id"])
+        return f"top {s0['id']} ({s0['score']:g}) · τ = {d['horizons']} · {d['split']} split · account-churn top {ac[0]['id']}"
+    step("surv: Build suggests time to event, columns detected", suggest)
+
+    def train():
+        rec = post("/api/survival/runs", {"dataset_id": ds})  # zero-config
+        check(rec["kind"] == "survival", rec.get("kind"))
+        t0 = time.time()
+        done = wait_run(rec["id"])
+        check(done["status"] == "succeeded", done.get("error"))
+        r = get(f"/api/survival/runs/{rec['id']}")["survival"]
+        m = r["models"][r["served"]]
+        check(m["c_index"] > 0.7, m["c_index"])  # acceptance 1
+        check(r["calibration"]["ok"] and r["calibration"]["cells"] == 12, r["calibration"])  # acceptance 2
+        check(len(r["groups"]) == 4 and all(g["km"]["s"][0] == 1.0 for g in r["groups"]), "risk groups")
+        hr = {h["term"]: h for h in r["hazard_ratios"]}
+        check(hr["complaints_12m"]["hr_ci"][0] > 1 and hr["rate_vs_market_pp"]["hr_ci"][1] < 1, "hazard ratio directions")
+        s.update(run=rec["id"], r=r)
+        o = r["models"]["rsf" if r["served"] == "cox" else "cox"]
+        st["surv"] = {"served": r["served"], "c_index": m["c_index"], "ci": m["c_index_ci"], "calibration": r["calibration"]}
+        return (f"{rec['id']} in {time.time() - t0:.0f} s · served {r['served']} · C {m['c_index']:.4f} "
+                f"[{m['c_index_ci'][0]:.4f}, {m['c_index_ci'][1]:.4f}] (other {o['c_index']:.4f}) · "
+                + " · ".join(f"AUC({a['t']:g}) {a['auc']:.3f}" for a in m["at"])
+                + f" · calibration max |Ŝ − KM| {r['calibration']['max_abs_diff']:.3f}, {r['calibration']['in_ci']}/12 in KM CI"
+                + f" · HR complaints {hr['complaints_12m']['hr']:.2f}, rate {hr['rate_vs_market_pp']['hr']:.2f}")
+    if not step("surv: zero-config run, C-index and calibration against KM (acceptance)", train):
+        return
+    run, r = s["run"], s["r"]
+
+    def registry():
+        v = post(f"/api/runs/{run}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.survival"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+        check(v["status"] == "ready" and v["result"]["kind"] == "survival" and v["result"]["version"]["problem_type"] == "survival", v.get("error"))
+        vid = v["id"]
+        lo, hi = r["examples"][0], r["examples"][-1]
+        tl = post(f"/api/registry/versions/{vid}/predict", {"row": lo})
+        th = post(f"/api/registry/versions/{vid}/predict", {"row": hi})
+        c = th["curve"]
+        check(len(c) == len(th["grid"]) and all(a >= b - 1e-9 for a, b in zip(c, c[1:])), "curve not monotone")
+        check(tl["at"][0]["survival"] > th["at"][0]["survival"] and th["risk_group"] == "high", (tl["at"], th["at"], th["risk_group"]))
+        if r["served"] == "cox":
+            import math
+            check(abs(math.exp(sum(x["log_hr"] for x in th["contributions"])) - th["hr_vs_average"]) < 1e-6 * th["hr_vs_average"], "contributions")
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": [lo, hi]})["results"]
+        check(len(sc) == 2 and abs(sc[1]["at"][0]["survival"] - th["at"][0]["survival"]) < 1e-9, sc)
+        rows = pd.DataFrame(r["examples"] * 20)
+        b = j(C.post(f"/api/registry/versions/{vid}/batches", files={"file": ("accounts.csv", rows.to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+        check(b["status"] == "succeeded", b.get("error"))
+        check({"risk_score", "risk_group", "S_12", "S_24", "S_36", "median_time"} <= set(b["result"]["columns"]), b["result"]["columns"])
+        card = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Time to event (survival)" in card and "Harrell's C" in card, "card section")
+        return (f"{vid} ready · Try It: low-risk Ŝ(12) {tl['at'][0]['survival']:.3f}, high-risk Ŝ(12) {th['at'][0]['survival']:.3f} "
+                f"(HR vs average {th.get('hr_vs_average', float('nan')):.2f}) · /score 2 rows · batch {b['result']['summary']['n_rows']} rows · card section")
+    step("surv: version: Try It curve, /score, batch, card", registry)
+
+
 def fair_lending(st: dict[str, Any]) -> None:
     """G4: the fair-lending check without protected attributes (BISG) on the fair-lending sample, zero-config. Intake
     finds surname, zip and the hidden true group (protected: left out of the model with the IDs); the binary pre-fill
@@ -5002,7 +5084,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

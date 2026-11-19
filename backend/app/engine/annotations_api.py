@@ -55,7 +55,7 @@ def _check(rec: dict[str, Any]) -> None:
     cfg, res = rec["config"], rec.get("result") or {}
     if rec["status"] != "succeeded":
         raise HTTPException(400, f"Run {rec['id']} is {rec['status']}; annotator agreement needs a finished run.")
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented") or cfg.get("import"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or cfg.get("import"):
         raise HTTPException(400, "Annotator agreement uses the run's out-of-fold class probabilities: only trained "
                                  "tabular runs have them.")
     if res.get("problem_type") not in ("binary", "multiclass"):

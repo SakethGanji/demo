@@ -63,7 +63,7 @@ def _check_run(rec: dict[str, Any]) -> None:
     cfg = rec["config"]
     if rec["status"] != "succeeded":
         raise HTTPException(400, f"Run {rec['id']} is {rec['status']}; a shift check needs a finished run.")
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented") or cfg.get("import"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival") or cfg.get("import"):
         raise HTTPException(400, "Shift checks compare the rows of a trained tabular run (not forecast, anomaly or imported runs).")
 
 

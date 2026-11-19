@@ -553,6 +553,27 @@ def _segmented(ctx: Ctx):
              "title": f"Segmented models by {seg}"})
 
 
+def _survival(ctx: Ctx):
+    """G6: a duration and an event flag → time-to-event models. The duration role is broad (G0: tenure_months matches), so
+    the suggestion comes first only for an explicit time-to-event name (duration, time_to_…, months_to_…); a tenure-like
+    name may be time so far at a snapshot, not time to the event, and is offered lower, with that caveat."""
+    from .survival.core import pairs
+
+    p = pairs(ctx.df, ctx.columns, ctx.target)
+    if not p["durations"] or not p["events"]:
+        return None
+    d, e = p["durations"][0], p["events"][0]
+    reason = (f"'{d['column']}' is the time each row was followed and '{e['column']}' whether the event happened "
+              f"({e['rate'] * 100:.0f}%; the rest are censored). Cox PH and a random survival forest give each row's survival "
+              f"curve and Ŝ(τ) at chosen horizons, with Harrell's C, AUC(τ), hazard ratios and a Kaplan–Meier calibration check.")
+    if not d["strong"]:
+        reason += (f" Check first: '{d['column']}' may be time so far at a snapshot rather than time up to "
+                   f"'{e['column']}'; only then is this time-to-event data.")
+    return (97 if d["strong"] else 45, reason,
+            {"dataset_only": True, "duration": d["column"], "event": e["column"],
+             "title": f"Time to {e['column']} (survival)"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -568,6 +589,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("expected_loss", "Expected loss (PD × LGD × EAD)", "expected-loss", _expected_loss),  # G3
     Suggestion("fair_lending", "Fair-lending check (BISG)", "registry", _fair_lending),  # G4
     Suggestion("segmented", "Segmented models", "segmented", _segmented),  # G5
+    Suggestion("survival", "Time to event (survival)", "survival", _survival),  # G6
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 
