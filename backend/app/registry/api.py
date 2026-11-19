@@ -366,7 +366,19 @@ def _card(request: Request, vid: str) -> dict[str, Any]:
     run = request.app.state.runs.get(v["run_id"])
     ds = request.app.state.db.get_dataset(run["dataset_id"])
     return card.build_card(v, run, ds, list(reversed(reg.audit_log(version_id=vid))), reg.list_batches(vid),
-                           reasons=_reasons_for_card(request, v, run))
+                           reasons=_reasons_for_card(request, v, run), recourse=_recourse_for_card(request, v, run))
+
+
+def _recourse_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
+    """G1: the card's counterfactual section: the user's overrides and the stored acceptance check (no worker call)."""
+    if _reason_args(request, v, run) is None:
+        return None
+    from ..engine import recourse as rcs
+
+    saved = _recourse_saved(request, v)
+    cp = _recourse_check_path(v)
+    return {"method": rcs.METHOD, "overrides": saved.get("actions") or {}, "updated_by": saved.get("updated_by"),
+            "check": json.loads(cp.read_text()) if cp.exists() else None}
 
 
 def _reasons_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
@@ -678,7 +690,8 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
     rc_args = _reason_args(request, v, run)
     fut = request.app.state.heavy.submit(scoring.score_batch, str(request.app.state.settings.db_path), bid, v["path"],
                                          run["config"], str(csv_path), str(bdir), _kinds(request, run), {"id": vid},
-                                         rc_args[0] if rc_args else None, monitoring_api.shadow_for(request, v))
+                                         rc_args[0] if rc_args else None, monitoring_api.shadow_for(request, v),
+                                         _recourse_saved(request, v) if rc_args else None)
     request.app.state.jobs[bid] = fut
     return reg.get_batch(bid)
 
@@ -840,5 +853,113 @@ async def reasons_stability(vid: str, body: StabilityBody, request: Request) -> 
         out = await request.app.state.heavy.run(scoring.reasons_stability, v["path"], run["config"], *args, body.rows,
                                                 body.noise, body.repeats, str(_stability_path(v)))
     except rc.ReasonError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"version_id": vid, **out}
+
+
+# --------------------------------------------------------------------------- counterfactuals / recourse (G1)
+
+
+def _recourse_path(request: Request, model_name: str) -> Path:
+    return _dir(request) / "recourse" / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', model_name)}.json"
+
+
+def _recourse_saved(request: Request, v: dict[str, Any]) -> dict[str, Any]:
+    path = _recourse_path(request, v["model_name"])
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def _recourse_check_path(v: dict[str, Any]) -> Path:
+    return Path(v["path"]).parent / "recourse_check.json"
+
+
+@router.get("/registry/versions/{vid}/recourse")
+async def recourse_config(vid: str, request: Request) -> dict[str, Any]:
+    """G1: what a counterfactual may change for this binary version: feature → fixed / any / increase / decrease,
+    detected from G0's column roles (age, dates, IDs, geography fixed; history only down; time only up) and narrowed
+    by F8 monotone constraints; the training ranges and categories it stays inside; the last acceptance check."""
+    v = _ready_version(request, vid)
+    run = request.app.state.runs.get(v["run_id"])
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Counterfactuals are for binary classification versions (a decision that can be adverse).")
+    saved = _recourse_saved(request, v)
+    try:
+        info = await request.app.state.heavy.run(scoring.recourse_info, v["path"], run["config"], *args, saved)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    cp = _recourse_check_path(v)
+    return {"version_id": vid, "model_name": v["model_name"], **info, "updated_by": saved.get("updated_by"),
+            "updated_at": saved.get("updated_at"), "check": json.loads(cp.read_text()) if cp.exists() else None}
+
+
+class RecourseEdit(BaseModel):
+    actor: str
+    actions: dict[str, Literal["fixed", "any", "increase", "decrease"]]
+
+
+@router.put("/registry/versions/{vid}/recourse")
+async def edit_recourse(vid: str, body: RecourseEdit, request: Request) -> dict[str, Any]:
+    """Override what may change, per registry model (every version uses it); audited."""
+    from ..engine.store import now
+
+    v = _ready_version(request, vid)
+    run = request.app.state.runs.get(v["run_id"])
+    if _reason_args(request, v, run) is None:
+        raise HTTPException(400, "Counterfactuals are for binary classification versions.")
+    who = _name_ok(body.actor, "actor")
+    features = ((v.get("result") or {}).get("version") or {}).get("features") or []
+    unknown = [f for f in body.actions if f not in features]
+    if unknown:
+        raise HTTPException(400, f"No feature {unknown[0]!r} in this model; its features are {', '.join(features)}.")
+    cur = _recourse_saved(request, v)
+    acts = {**(cur.get("actions") or {}), **body.actions}
+    cur.update({"actions": acts, "updated_by": who, "updated_at": now()})
+    path = _recourse_path(request, v["model_name"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(cur, indent=1))
+    _reg(request).audit(actor=who, action="recourse_edited", version=v,
+                        comment=", ".join(f"{f}: {a}" for f, a in body.actions.items()) or "no change")
+    return await recourse_config(vid, request)
+
+
+class RecourseRequest(BaseModel):
+    rows: list[dict[str, Any]] = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/registry/versions/{vid}/recourse")
+async def recourse(vid: str, body: RecourseRequest, request: Request) -> dict[str, Any]:
+    """Counterfactuals for posted rows: for each adverse one, up to 3 diverse sets of changes that flip the served
+    decision at the version's threshold, each re-scored by the served model, with its distance and plausibility."""
+    v = _ready_version(request, vid)
+    run = request.app.state.runs.get(v["run_id"])
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Counterfactuals are for binary classification versions.")
+    try:
+        out = await request.app.state.heavy.run(scoring.recourse_rows, v["path"], run["config"], *args,
+                                                _recourse_saved(request, v), body.rows)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {"version_id": vid, **out}
+
+
+class RecourseCheck(BaseModel):
+    rows: int = Field(120, ge=10, le=1000, description="adverse holdout rows to test")
+
+
+@router.post("/registry/versions/{vid}/recourse/check")
+async def recourse_check(vid: str, body: RecourseCheck, request: Request) -> dict[str, Any]:
+    """The acceptance check on the first `rows` adverse holdout rows: the share with ≥ 1 valid counterfactual, and
+    0 fixed features moved, 0 values outside training, 0 direction breaks. Stored; the model card shows it."""
+    v = _ready_version(request, vid)
+    run = request.app.state.runs.get(v["run_id"])
+    args = _reason_args(request, v, run)
+    if args is None:
+        raise HTTPException(400, "Counterfactuals are for binary classification versions.")
+    try:
+        out = await request.app.state.heavy.run(scoring.recourse_check, v["path"], run["config"], *args,
+                                                _recourse_saved(request, v), body.rows, str(_recourse_check_path(v)))
+    except ValueError as e:
         raise HTTPException(400, str(e)) from e
     return {"version_id": vid, **out}

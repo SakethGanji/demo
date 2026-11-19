@@ -81,7 +81,8 @@ def fit_call(resolved: dict[str, Any], cls: str = "TabularPredictor") -> str:
 
 
 def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, Any] | None,
-               audit: list[dict[str, Any]], batches: list[dict[str, Any]], reasons: dict[str, Any] | None = None) -> dict[str, Any]:
+               audit: list[dict[str, Any]], batches: list[dict[str, Any]], reasons: dict[str, Any] | None = None,
+               recourse: dict[str, Any] | None = None) -> dict[str, Any]:
     res = run.get("result") or {}
     cfg = run["config"]
     vres = version.get("result") or {}
@@ -196,6 +197,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
         "reasons": _reasons_section(reasons, batches),
+        "recourse": recourse,
         "scorecard": _scorecard_section(res),
         "diagnostics": _diagnostics_section(cfg, res),
     }
@@ -466,6 +468,27 @@ def to_markdown(c: dict[str, Any]) -> str:
             L += ["", f"Latest batch: {lb.get('n_adverse')} adverse rows explained at {_fmt(lb.get('rows_per_s'))} rows/s; "
                       f"codes consistent with the SHAP signs: {'yes' if lb.get('signs_consistent') else 'no'}."]
         L += ["", rc["monotone_note"], ""]
+    rr = c.get("recourse")
+    if rr:
+        ck = rr.get("check") or {}
+        acts = ck.get("actions") or {}
+        L += ["**Counterfactuals (recourse)**", "", f"Method: {rr['method']}.", ""]
+        if acts:
+            for a, words in (("fixed", "Never changed"), ("decrease", "Only lowered"), ("increase", "Only raised"), ("any", "Either way")):
+                fs = [f for f, x in acts.items() if x == a]
+                if fs:
+                    L.append(f"- {words}: {', '.join(fs)}")
+            L.append("")
+        if rr.get("overrides"):
+            L += [f"Set by {rr.get('updated_by') or 'a user'}: " + ", ".join(f"{f} → {a}" for f, a in rr["overrides"].items()) + ".", ""]
+        if ck:
+            L += [f"Check: {ck['with_valid']} of {ck['adverse']} adverse holdout rows ({_fmt(ck.get('share_valid'))}) get at least one "
+                  f"counterfactual that flips the served decision at t = {_fmt(ck.get('threshold'))} when re-scored; median "
+                  f"{_fmt(ck.get('median_changes'))} changes, distance {_fmt(ck.get('median_distance'))}, plausibility "
+                  f"{_fmt(ck.get('median_plausibility'))}; fixed features moved: {ck['fixed_changed']}; values outside training: "
+                  f"{ck['out_of_range']}; direction breaks: {ck['wrong_direction']}.", ""]
+        else:
+            L += ["Check: not run yet (Registry → version → Reason codes → Recourse → Run the check).", ""]
     scd = c.get("scorecard")
     if scd:
         d = scd["delta_auc"]

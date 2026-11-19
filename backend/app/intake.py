@@ -14,7 +14,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 import numpy as np
@@ -324,6 +324,7 @@ class Ctx:
     columns: list[dict[str, Any]]
     roles: dict[str, list[str]]
     series: dict[str, Any] | None
+    versions: list[dict[str, Any]] = field(default_factory=list)  # ready binary registry versions of this table
 
     def first(self, role: str) -> str | None:
         return (self.roles.get(role) or [None])[0]
@@ -443,6 +444,28 @@ def _anomaly(ctx: Ctx):
             {"dataset_only": True})
 
 
+def _recourse(ctx: Ctx):
+    """G1: what would change a declined decision. Needs a yes/no target and something the applicant can change."""
+    if _task_of(ctx) != "binary":
+        return None
+    feats = [c["name"] for c in ctx.columns if c["role"] not in EXCLUDED and c["role"] not in ("target", "entity", "date")]
+    acts = actionability(ctx.df[feats], feats, ctx.columns)
+    can = [f for f, a in acts.items() if a["action"] != "fixed"]
+    fixed = [f for f, a in acts.items() if a["action"] == "fixed"]
+    if len(can) < 2:
+        return None
+    risk = re.search(r"default|churn|fraud|delinq|attrit|lapse|arrear", ctx.target, re.I)
+    why = (f"For each declined applicant, the smallest realistic changes that flip the decision: {len(can)} columns can "
+           f"change ({', '.join(can[:4])}{'…' if len(can) > 4 else ''}); {', '.join(fixed) or 'none'} stay fixed.")
+    # Shown once a yes/no model of this table is registered (before that, the yes/no suggestion trains one).
+    match = [v for v in ctx.versions if v.get("label") in (None, ctx.target)]
+    if not match:
+        return None
+    v = match[0]
+    return (70 if risk else 55, f"{why} Opens {v['model_name']} v{v['version']}, Reason codes tab.",
+            {"version": v["id"], "tab": "Reason Codes"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -453,6 +476,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("regression", "Predict a number", "quick-train", _regression),
     Suggestion("forecast", "Forecast", "forecast", _forecast),
     Suggestion("anomaly", "Find unusual rows", "anomaly", _anomaly),
+    Suggestion("recourse", "What would change the decision", "registry", _recourse),  # G1
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 
@@ -471,11 +495,53 @@ def suggest(ctx: Ctx) -> list[dict[str, Any]]:
     return out
 
 
-def intake(df: pd.DataFrame, overrides: dict[str, str] | None = None) -> dict[str, Any]:
+def intake(df: pd.DataFrame, overrides: dict[str, str] | None = None,
+           versions: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     found = apply_overrides(detect(df), overrides)
     cols = found["columns"]
     roles = summary(cols)
     series = _series(df, cols) if overrides else found["series"]  # edited roles: recompute the series
-    ctx = Ctx(df, cols, roles, series)
+    ctx = Ctx(df, cols, roles, series, versions or [])
     return {"rows": int(len(df)), "columns": cols, "roles": roles, "target_candidates": found["target_candidates"],
             "series": series, "suggestions": suggest(ctx), "role_names": ROLES}
+
+
+# ------------------------------------------------------------------------------------------- G1: what can change
+
+# What a counterfactual ("what would change the decision") may change, from the roles plus a few name rules. Each column
+# gets an action and the evidence for it; the user edits it per model (Registry → Reason codes → Recourse).
+#   fixed     the applicant cannot change it (age, dates, IDs, where they live, protected attributes)
+#   any       it can move either way within the observed range
+#   increase  it can only grow (time passes: months employed, account age)
+#   decrease  it can only shrink (history ages out: delinquencies, prior defaults, open debt)
+ACTIONS = ("fixed", "any", "increase", "decrease")
+IMMUTABLE_ROLES = {"id": "a row ID", "entity": "a customer/entity ID", "date": "a date", "surname": "a surname",
+                   "zip": "a zip/postal code", "geography": "where the applicant lives", "target": "the outcome",
+                   "leak": "known only after the outcome", "constant": "constant"}
+IMMUTABLE_NAME = re.compile(r"(^|_)(age|birth\w*|dob|gender|sex|race|ethnic\w*|marital\w*|nationality|religion|"
+                            r"citizenship|disab\w*)($|_)", re.I)
+ONLY_UP = re.compile(r"(months_employed|years_employed|employment_length|emp_length|tenure|account_age|"
+                     r"years_at|months_at|time_at|history_length|credit_history)", re.I)
+ONLY_DOWN = re.compile(r"(delinq\w*|prior_default\w*|defaults_|bankrupt\w*|late_payment\w*|missed_payment\w*|"
+                       r"collections?|judgement\w*|inquir\w*)", re.I)
+
+
+def actionability(df: pd.DataFrame, features: list[str], columns: list[dict[str, Any]] | None = None) -> dict[str, dict[str, str]]:
+    """Feature → {"action", "why"} from the detected roles (`columns`, else detected on df) and the name rules above."""
+    cols = {c["name"]: c for c in (columns if columns is not None else detect(df)["columns"] if len(df) else [])}
+    out: dict[str, dict[str, str]] = {}
+    for f in features:
+        c = cols.get(f, {"role": "feature", "also": []})
+        roles = [c["role"]] + [a["role"] for a in c.get("also", [])]
+        hit = next((r for r in roles if r in IMMUTABLE_ROLES), None)
+        if hit:
+            out[f] = {"action": "fixed", "why": f"detected as {IMMUTABLE_ROLES[hit]}"}
+        elif IMMUTABLE_NAME.search(f):
+            out[f] = {"action": "fixed", "why": f"'{f}' reads like a personal attribute the applicant cannot change"}
+        elif ONLY_UP.search(f):
+            out[f] = {"action": "increase", "why": f"'{f}' only grows as time passes"}
+        elif ONLY_DOWN.search(f):
+            out[f] = {"action": "decrease", "why": f"'{f}' is history: it can age out, not be added to"}
+        else:
+            out[f] = {"action": "any", "why": "the applicant can change it"}
+    return out

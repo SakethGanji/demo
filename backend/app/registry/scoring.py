@@ -90,8 +90,9 @@ def _train_frame(cfg: dict[str, Any], features: list[str]) -> pd.DataFrame:
 
 def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str, Any], csv_path: str, out_dir: str,
                 kinds: dict[str, str], version: dict[str, Any], rconf: dict[str, Any] | None = None,
-                shadow: dict[str, Any] | None = None) -> dict[str, Any]:
-    """`shadow` (F18): {version_id, path, model_name, version}: a Staging challenger that scores the same rows; its
+                shadow: dict[str, Any] | None = None, recourse_conf: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`recourse_conf` (G1): the model's saved recourse actions; the first RECOURSE_BATCH_K adverse rows get
+    counterfactuals (a `recourse` column with the nearest valid option). `shadow` (F18): {version_id, path, model_name, version}: a Staging challenger that scores the same rows; its
     p̂ goes to shadow.csv and the comparison to result.shadow. It never changes the batch's own output."""
     reg = RegistryStore(Database(Path(db_path)))
     out_dir_p = Path(out_dir)
@@ -151,6 +152,12 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         reasons_summary = None
         if p.problem_type == "binary" and rconf is not None and rconf.get("enabled", True):
             reasons_summary = _batch_reasons(reg, batch_id, predictor_path, cfg, rconf, kinds, X, out, pred)
+            if recourse_conf is not None:
+                reg.update_batch(batch_id, stage=f"recourse for the first {RECOURSE_BATCH_K} adverse rows", progress=0.84)
+                try:
+                    reasons_summary["recourse"] = _batch_recourse(predictor_path, cfg, rconf, kinds, recourse_conf, X, out)
+                except Exception as e:  # noqa: BLE001 — the batch stands; the summary says why recourse is missing
+                    reasons_summary["recourse"] = {"error": f"{type(e).__name__}: {e}"}
         out_path = out_dir_p / "scored.csv"
         out.to_csv(out_path, index=False)
 
@@ -633,3 +640,105 @@ def reasons_stability(predictor_path: str, cfg: dict[str, Any], rconf: dict[str,
     if out_path:
         Path(out_path).write_text(json.dumps(out))
     return out
+
+
+# --------------------------------------------------------------------------- counterfactuals / recourse (G1)
+
+RECOURSE_BATCH_K = 20
+_RECOURSE: dict[tuple, Any] = {}
+
+
+def recourse_actions(cfg: dict[str, Any], features: list[str], saved: dict[str, Any] | None) -> tuple[dict[str, str], list[dict[str, Any]]]:
+    """Feature → action: the user's saved choice, else G0's detection (roles + name rules) on the training table."""
+    from ..intake import actionability
+
+    df = pd.read_csv(cfg["csv_path"], nrows=20_000)
+    det = actionability(df, features)  # the label stays in, so detection sees the real target
+    mine = (saved or {}).get("actions") or {}
+    acts, rows = {}, []
+    for f in features:
+        d = det.get(f, {"action": "any", "why": "the applicant can change it"})
+        a = mine.get(f, d["action"])
+        acts[f] = a
+        rows.append({"feature": f, "action": a, "detected": d["action"], "why": "set by you" if f in mine and mine[f] != d["action"] else d["why"],
+                     "source": "you" if f in mine and mine[f] != d["action"] else "detected"})
+    return acts, rows
+
+
+def recourse_engine(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                    saved: dict[str, Any] | None):
+    from ..engine import recourse as rcs
+    from ..engine.pool import _signature
+
+    rs = reasoner(predictor_path, cfg, rconf, kinds)
+    acts, rows = recourse_actions(cfg, rs.features, saved)
+    key = (str(predictor_path), _signature(predictor_path), json.dumps(rconf, sort_keys=True, default=str), json.dumps(acts, sort_keys=True))
+    if key not in _RECOURSE:
+        for k in [k for k in _RECOURSE if k[0] == str(predictor_path)]:
+            _RECOURSE.pop(k, None)
+        _RECOURSE[key] = rcs.Recourse(rs, _train_frame(cfg, rs.features), acts)
+    return _RECOURSE[key], acts, rows
+
+
+def recourse_info(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                  saved: dict[str, Any] | None) -> dict[str, Any]:
+    rc_, acts, rows = recourse_engine(predictor_path, cfg, rconf, kinds, saved)
+    inf = rc_.info()
+    for r in rows:
+        r["effective"] = inf["allowed"][r["feature"]]
+        if r["feature"] in inf["why_monotone"]:
+            r["monotone"] = inf["why_monotone"][r["feature"]]
+        r["kind"] = "number" if r["feature"] in inf["ranges"] else "category"
+        r["range"] = inf["ranges"].get(r["feature"])
+    return jsonable({**inf, "features": rows})
+
+
+def recourse_rows(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                  saved: dict[str, Any] | None, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    rc_, _, _ = recourse_engine(predictor_path, cfg, rconf, kinds, saved)
+    X = pd.DataFrame([{c: r.get(c, np.nan) for c in rc_.features} for r in rows], columns=rc_.features)
+    res = rc_.search(X)
+    return jsonable({"results": res, "seconds": rc_.last_seconds, "threshold": rc_.rs.threshold,
+                     "adverse_class": rc_.rs.adverse, "positive_class": rc_.rs.positive, "s": rc_.rs.s})
+
+
+def recourse_check(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                   saved: dict[str, Any] | None, n_adverse: int = 120, out_path: str | None = None) -> dict[str, Any]:
+    """The acceptance check: the first `n_adverse` adverse holdout rows (in holdout order), their counterfactuals
+    re-scored by the served model at t. Stored beside the version; the model card shows it."""
+    from ..engine import recourse as rcs
+    from ..engine import serving
+    from ..splits import load_splits
+
+    rc_, acts, _ = recourse_engine(predictor_path, cfg, rconf, kinds, saved)
+    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    X = h.reindex(columns=rc_.features)
+    adverse, _ = rc_.rs.decide(X)
+    idx = np.flatnonzero(adverse)[:n_adverse]
+    out = rcs.check(rc_, X.iloc[idx].reset_index(drop=True), acts)
+    out.update({"holdout_rows": int(len(X)), "holdout_adverse": int(adverse.sum()), "threshold": rc_.rs.threshold,
+                "adverse_class": rc_.rs.adverse, "computed_at": now()})
+    out = jsonable(out)
+    if out_path:
+        Path(out_path).write_text(json.dumps(out))
+    return out
+
+
+def _batch_recourse(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], kinds: dict[str, str],
+                    saved: dict[str, Any], X: pd.DataFrame, out: pd.DataFrame) -> dict[str, Any]:
+    """G1: counterfactuals for the first RECOURSE_BATCH_K adverse rows, as a `recourse` column (the nearest valid
+    option, in words) and a summary."""
+    rc_, _, _ = recourse_engine(predictor_path, cfg, rconf, kinds, saved)
+    adv = np.asarray(out["adverse"], dtype=bool)
+    idx = np.flatnonzero(adv)[:RECOURSE_BATCH_K]
+    res = rc_.search(X.reset_index(drop=True).iloc[idx].reset_index(drop=True)) if len(idx) else []
+    col: list[Any] = [None] * len(out)
+    rows = []
+    for i, r in zip(idx, res):
+        valid = [o for o in r["options"] if o["valid"]]
+        col[i] = valid[0]["text"] if valid else "no valid change found"
+        rows.append({"row": int(i), "p": r["p"], "options": r["options"]})
+    out["recourse"] = col
+    n_ok = sum(any(o["valid"] for o in r["options"]) for r in res)
+    return jsonable({"k": RECOURSE_BATCH_K, "rows_searched": int(len(idx)), "with_valid": int(n_ok),
+                     "seconds": rc_.last_seconds if len(idx) else 0.0, "rows": rows})

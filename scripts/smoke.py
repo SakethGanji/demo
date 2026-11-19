@@ -31,6 +31,10 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
   monotone   F8: credit-default with debt_to_income ↑: refused requests, Gym exclude / warn, a bagged + stacked run of
              the monotone subclasses (every model checked by ICE), the unconstrained twin (before), the registered
              version's served model checked on a grid through its own /score, and the constraint on the model card
+  recourse   G1: counterfactuals on credit-default from the intake pre-fill (time-group split, F7 cost, F8 monotone):
+             what may change (detected from roles, editable, audited), the stored acceptance check (≥ 90 % of ≥ 100
+             adverse holdout rows flip; 0 fixed moved), options rebuilt and re-scored through /score, Build suggestion,
+             batch recourse column
   scorecard  F11: the SCORECARD challenger on credit-default (bagged, stacked): refusals, Gym, table / IV / ΔAUC with a
              bootstrap CI, CSV export re-scores the holdout, points → score → P, reason codes; with F7 cost + F8 monotone;
              registry card; switched off
@@ -2725,6 +2729,152 @@ def reasons(st: dict[str, Any]) -> None:
     step("reasons: exact TreeSHAP for a LightGBM version", tree)
 
 
+def recourse(st: dict[str, Any]) -> None:
+    """G1: counterfactuals ("what would change the decision"). credit-default, zero-config: the G0 intake suggestion's
+    pre-fill (target, out-of-time + group split, dropped IDs, F7 cost) plus debt_to_income ↑ (F8), a quick GBM + XGBoost
+    run, registered. Checks: what may change is detected from the roles (age and region fixed, history only down, time
+    in employment only up, the monotone feature only down) and editable (audited, refusals); the stored acceptance
+    check on ≥ 100 adverse holdout rows; the same rows here, their options rebuilt from the changes and re-scored
+    through /score (≥ 90 % flip, no fixed feature moved, every value inside training); the recourse suggestion on the
+    Build page; batch scoring's `recourse` column for the first 20 adverse rows."""
+    ds, label, col = "credit-default", "defaulted", "debt_to_income"
+    s: dict[str, Any] = {}
+
+    def train_register():
+        it = get(f"/api/datasets/{ds}/intake")
+        pf = next(x for x in it["suggestions"] if x["id"] == "binary")["prefill"]
+        check(pf["target"] == label and pf["split"] == "time-group", pf)
+        body = {"dataset_id": ds, "label": label, "problem_type": "binary", "presets": "medium_quality", "time_limit": 240,
+                "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 200}, "XGB": {"n_estimators": 200}}},
+                "drop_columns": pf.get("drop", []) + [pf["time"]], "feature_importance": False,
+                "split_spec": {"strategy": "time-group", "time_column": pf["time"], "group_column": pf["group"]},
+                "cost": {"c_fp": 1, "c_fn": 10}, "calibrate_threshold": "auto",
+                "monotone": {"constraints": {col: "increasing"}}, "source": "smoke-recourse"}
+        rec = wait_run(post("/api/runs", body)["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        v = post(f"/api/runs/{rec['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.credit.recourse"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready", v.get("error"))
+        s.update(run=rec, vid=v["id"], v=v)
+        return (f"intake pre-fill (drop {', '.join(body['drop_columns'])}, split time-group) → {rec['id']} → {v['id']} · "
+                f"{v['result']['version']['best_model']} · t = {v['result']['version']['decision_threshold']:.4f}")
+
+    if not step("recourse: zero-config run from the intake pre-fill, registered", train_register):
+        return
+    vid = s["vid"]
+
+    def config():
+        c = get(f"/api/registry/versions/{vid}/recourse")
+        eff = {r["feature"]: r["effective"] for r in c["features"]}
+        want = {"age": "fixed", "region": "fixed", "delinquencies_2y": "decrease", "months_employed": "increase",
+                col: "decrease", "credit_score": "any", "loan_amount_usd": "any"}
+        check(all(eff.get(f) == a for f, a in want.items()), {f: eff.get(f) for f in want})
+        check(all(r["why"] for r in c["features"]), "a detected action came without its reason")
+        bad = C.put(f"/api/registry/versions/{vid}/recourse", json={"actor": "Smoke Analyst", "actions": {"nope": "fixed"}})
+        check(bad.status_code == 400 and "No feature" in bad.text, bad.text[:200])
+        bad2 = C.put(f"/api/registry/versions/{vid}/recourse", json={"actor": "Smoke Analyst", "actions": {"age": "wizard"}})
+        check(bad2.status_code == 422, bad2.status_code)
+        e = j(C.put(f"/api/registry/versions/{vid}/recourse", json={"actor": "Smoke Analyst", "actions": {"home_ownership": "fixed"}}))
+        er = {r["feature"]: r for r in e["features"]}
+        check(er["home_ownership"]["effective"] == "fixed" and er["home_ownership"]["source"] == "you", er["home_ownership"])
+        aud = get("/api/registry/audit", version_id=vid)
+        entries = aud.get("entries", aud.get("audit", aud if isinstance(aud, list) else []))
+        check(any(a["action"] == "recourse_edited" for a in entries), "audit")
+        s["fixed"] = {f for f, r in er.items() if r["effective"] == "fixed"}
+        s["allowed"] = {f: r["effective"] for f, r in er.items()}
+        s["ranges"] = e["ranges"]
+        s["cats"] = e["categories"]
+        return (f"fixed: {', '.join(sorted(s['fixed']))} · only down: {', '.join(f for f, a in s['allowed'].items() if a == 'decrease')} · "
+                f"only up: {', '.join(f for f, a in s['allowed'].items() if a == 'increase')} · edit home_ownership → fixed (audited) · 2 bad edits refused")
+
+    step("recourse: what may change (detected, editable)", config)
+
+    def acceptance():
+        r = post(f"/api/registry/versions/{vid}/recourse/check", {"rows": 120})
+        check(r["adverse"] >= 100, f"only {r['adverse']} adverse holdout rows")
+        check(r["share_valid"] >= 0.9, f"{r['with_valid']}/{r['adverse']} with a valid counterfactual")
+        check(r["fixed_changed"] == 0 and r["out_of_range"] == 0 and r["wrong_direction"] == 0, r)
+        c = get(f"/api/registry/versions/{vid}/recourse")
+        check(c["check"] and c["check"]["with_valid"] == r["with_valid"], "check not stored")
+        card = get(f"/api/registry/versions/{vid}/card")
+        check((card.get("recourse") or {}).get("check", {}).get("with_valid") == r["with_valid"], "model card has no recourse section")
+        st["recourse_check"] = r
+        return (f"{r['with_valid']}/{r['adverse']} adverse holdout rows ({r['share_valid'] * 100:.1f}%) get ≥ 1 valid option · "
+                f"{r['valid_options']}/{r['options']} options valid · median {r['median_changes']:g} changes, d = {r['median_distance']:.2f}, "
+                f"π = {r['median_plausibility']:.2f} · fixed moved {r['fixed_changed']}, out of range {r['out_of_range']}, "
+                f"wrong way {r['wrong_direction']} · {r['seconds']:.1f} s ({r['adverse'] / r['seconds']:.1f} rows/s) · in the card")
+
+    step("recourse: acceptance check (stored, in the model card)", acceptance)
+
+    def rescore():
+        data_dir = get("/api/health")["data_dir"]
+        df = pd.read_csv(os.path.join(data_dir, "datasets", ds, "data.csv"))
+        hp_ = get(f"/api/runs/{s['run']['id']}/holdout-predictions")
+        feats = s["v"]["result"]["version"]["features"]
+        X = df.iloc[np.asarray(hp_["rows"], dtype=int)][feats]
+        rows = json.loads(X.head(1200).to_json(orient="records"))
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": rows})
+        adv = [i for i, y in enumerate(sc["predictions"]) if str(y) == "Yes"][:110]
+        check(len(adv) >= 100, f"{len(adv)} adverse rows")
+        A = [rows[i] for i in adv]
+        res = []
+        for k in range(0, len(A), 55):
+            res += post(f"/api/registry/versions/{vid}/recourse", {"rows": A[k:k + 55]})["results"]
+        cf, owner, moved_fixed, outside = [], [], 0, 0
+        for i, r in enumerate(res):
+            check(r["adverse"], "a row /score declines is not adverse for recourse")
+            for o in r["options"]:
+                x = dict(A[i])
+                for ch in o["changes"]:
+                    f = ch["feature"]
+                    check(ch["from"] == x[f] or (ch["from"] is None and x[f] is None) or abs(float(ch["from"]) - float(x[f])) < 1e-9, (f, ch, x[f]))
+                    x[f] = ch["to"]
+                    moved_fixed += f in s["fixed"]
+                    if f in s["ranges"]:
+                        outside += not (s["ranges"][f]["min"] - 1e-9 <= float(ch["to"]) <= s["ranges"][f]["max"] + 1e-9)
+                        a = s["allowed"][f]
+                        if ch["from"] is not None:
+                            outside += (a == "increase" and ch["to"] < ch["from"]) or (a == "decrease" and ch["to"] > ch["from"])
+                    else:
+                        outside += str(ch["to"]) not in s["cats"][f]
+                cf.append(x)
+                owner.append(i)
+        rs = post(f"/api/registry/versions/{vid}/score", {"rows": cf})
+        flips = np.asarray([str(y) != "Yes" for y in rs["predictions"]])
+        rows_ok = len({owner[k] for k in np.flatnonzero(flips)})
+        claimed = sum(o["valid"] for r in res for o in r["options"])
+        check(claimed == int(flips.sum()), f"claimed valid {claimed} ≠ re-scored {int(flips.sum())}")
+        check(rows_ok / len(A) >= 0.9, f"{rows_ok}/{len(A)} rows flip on re-scoring")
+        check(moved_fixed == 0 and outside == 0, f"fixed moved {moved_fixed}, outside / wrong way {outside}")
+        n_opt = [len(r["options"]) for r in res]
+        st["recourse_rescore"] = {"rows": len(A), "rows_ok": rows_ok, "options": len(cf), "flips": int(flips.sum())}
+        return (f"{len(A)} adverse holdout rows (via /score) → {len(cf)} options (mean {np.mean(n_opt):.1f}/row), rebuilt and "
+                f"re-scored through /score: {int(flips.sum())}/{len(cf)} flip · {rows_ok}/{len(A)} rows "
+                f"({rows_ok / len(A) * 100:.1f}%) have ≥ 1 · fixed moved 0 · outside range / wrong way 0")
+
+    step("recourse: options re-scored through /score (n ≥ 100)", rescore)
+
+    def build_and_batch():
+        it = get(f"/api/datasets/{ds}/intake")
+        sg = next((x for x in it["suggestions"] if x["id"] == "recourse"), None)
+        check(sg is not None and sg["route"] == "registry" and sg["prefill"].get("version"), [x["id"] for x in it["suggestions"]])
+        data_dir = get("/api/health")["data_dir"]
+        df = pd.read_csv(os.path.join(data_dir, "datasets", ds, "data.csv")).tail(400).drop(columns=[label])
+        b = j(C.post(f"/api/registry/versions/{vid}/batches", files={"file": ("tail.csv", df.to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 900)
+        check(b["status"] == "succeeded", b.get("error"))
+        rc_ = b["result"]["summary"]["reasons"]["recourse"]
+        check("error" not in rc_ and rc_["rows_searched"] == min(20, b["result"]["summary"]["reasons"]["n_adverse"]), rc_)
+        out = pd.read_csv(io.BytesIO(C.get(f"/api/registry/batches/{b['id']}/download").content))
+        check("recourse" in out.columns and out["recourse"].notna().sum() == rc_["rows_searched"], "recourse column")
+        return (f"Build suggests '{sg['title']}' → {sg['route']}?version={sg['prefill']['version']} ({sg['score']:g}) · "
+                f"batch of 400: {rc_['with_valid']}/{rc_['rows_searched']} of the first adverse rows get a valid change "
+                f"({rc_['seconds']:.1f} s) · e.g. “{out['recourse'].dropna().iloc[0]}”")
+
+    step("recourse: Build suggestion and batch column", build_and_batch)
+
+
 def scorecard(st: dict[str, Any]) -> None:
     """F11: the scorecard challenger. Refusals; the Gym resolves SCORECARD into a binary run's hyperparameters (and
     leaves it out when switched off or for other problem types). credit-default, bagged (k = 3) and stacked (L = 1):
@@ -4439,7 +4589,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

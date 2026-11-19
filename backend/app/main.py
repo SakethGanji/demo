@@ -173,9 +173,24 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
         dataset_or_404(request, dataset_id)
         try:
-            return {"dataset_id": dataset_id, **intake(store(request).load_frame(dataset_id), roles)}
+            return {"dataset_id": dataset_id, **intake(store(request).load_frame(dataset_id), roles,
+                                                       versions=_binary_versions(request, dataset_id))}
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
+
+    def _binary_versions(request: Request, dataset_id: str) -> list[dict[str, Any]]:
+        """Ready binary registry versions trained on this dataset, newest first (G1's recourse suggestion opens one)."""
+        reg = request.app.state.registry
+        out = []
+        for m in reg.list_models():
+            if m.get("dataset_id") != dataset_id:
+                continue
+            for v in reg.list_versions(m["name"]):
+                ver = (v.get("result") or {}).get("version") or {}
+                if v["status"] == "ready" and ver.get("problem_type") == "binary":
+                    out.append({"id": v["id"], "model_name": v["model_name"], "version": v["version"], "label": m.get("label"),
+                                "stage": v.get("stage"), "created_at": v.get("created_at")})
+        return sorted(out, key=lambda v: v["created_at"] or "", reverse=True)
 
     @app.post("/api/datasets/{dataset_id}/splits")
     def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
