@@ -10,14 +10,16 @@ const MOCK = process.argv[3] || 'http://localhost:5191'
 const j = async (p) => (await fetch(API + p)).json()
 
 async function main() {
-  const runs = (await j('/api/runs?kind=all')).filter((r) => r.status === 'succeeded')
+  const runs = (await j('/api/runs?kind=all')).runs.filter((r) => r.status === 'succeeded')
   const reg = await j('/api/registry')
   const kind = (r) => r.kind || 'tabular'
   const run = (k, f = () => true) => runs.find((r) => kind(r) === k && f(r))
-  const ver = (k) => reg.versions.find((v) => v.status === 'ready' && ((v.result && v.result.kind) || 'tabular') === k)
+  // the registry list carries no result: a version's kind is its run's
+  const runOf = (v) => runs.find((r) => r.id === v.run_id)
+  const ver = (k, f = () => true) => reg.versions.find((v) => v.status === 'ready' && runOf(v) && kind(runOf(v)) === k && f(runOf(v)))
   const binary = run('tabular', (r) => r.problem_type === 'binary' && r.dataset_id === 'credit-default') ?? run('tabular', (r) => r.problem_type === 'binary')
   const regression = run('tabular', (r) => r.problem_type === 'regression')
-  const vBin = reg.versions.find((v) => v.status === 'ready' && !(v.result && v.result.kind) && v.result?.version?.problem_type === 'binary')
+  const vBin = ver('tabular', (r) => r.problem_type === 'binary' && r.dataset_id === 'credit-default') ?? ver('tabular', (r) => r.problem_type === 'binary')
   const ag = ((await j('/api/agent/sessions')).sessions || []).find((s) => s.status === 'idle')
   const id = (x) => (x ? x.id : 'missing')
 
@@ -67,6 +69,8 @@ async function main() {
     await page.goto(`${base}/${hash}`)
     if (wait) await page.getByTestId(wait).waitFor({ timeout: 180_000 }).catch(() => {})
     await page.waitForTimeout(hash.includes('Explain') || hash.includes('Doctor') ? 9000 : 5000)
+    // a selected version sits below the lineage and the versions table: show it
+    if (hash.includes('version=')) await page.evaluate(() => document.querySelector('[data-testid=version-detail]')?.scrollIntoView())
     await page.screenshot({ path: `${OUT}/${name}.png` })
     console.log('saved', name, '→', page.url().split('#')[1])
   }
@@ -75,7 +79,8 @@ async function main() {
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${OUT}/00-sidebar-collapsed.png` })
   await page.locator('[aria-label="Expand sidebar"]').click()
-  for (const [name, hash, wait] of shots) await take(UI, name, hash, wait)
+  const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null
+  for (const [name, hash, wait] of shots) if (!only || only.test(name)) await take(UI, name, hash, wait)
   // mock mode: the same app with the API offline
   for (const [name, hash] of [['50-mock-models', '#/models'], ['51-mock-run', '#/models?run=run_894a'], ['52-mock-run-explain', '#/models?run=run_894a&tab=Explain'], ['53-mock-build', '#/build']]) {
     try { await take(MOCK, name, hash) } catch (e) { console.log('mock skipped', name, String(e).slice(0, 80)) }
