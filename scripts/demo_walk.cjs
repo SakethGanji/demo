@@ -294,15 +294,15 @@ open(sys.argv[3], 'w').write(rows.to_json(orient='records'))
     await shot('13-explain-scorecard')
     const hero = await text('scorecard-hero')
     expectNum('5', 'ΔAUC served − scorecard', await text('scorecard-delta'), 0.0010, 0.002)
-    expectNum('5', 'scorecard AUC', hero, 0.6977, 0.003)
-    expectNum('5', 'served AUC', hero, 0.6987, 0.003)
+    expectNum('5', 'scorecard AUC', hero, 0.6977, 0.0005)
+    expectNum('5', 'served AUC', hero, 0.6987, 0.0005)
     expectText('5', '9-feature scorecard table', await text('scorecard-table'), /\S/)
   })
 
   // ── 6. Learning curve · 7. Model Doctor
   await step('6-7 learning curve, Model Doctor', async () => {
     await explainTab(S.B, 'Diagnose', 'Learning Curve')
-    await page.getByTestId('lc-start').click()
+    await page.getByTestId('lc-run').click()
     await page.getByTestId('lc-verdict').waitFor({ timeout: 900_000 })
     await page.waitForTimeout(1500)
     await shot('14-explain-learning-curve')

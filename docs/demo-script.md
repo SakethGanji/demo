@@ -93,7 +93,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
 
 ## 9:00 – 11:00 · 6. Do we need more data? · 7. What limits this model?
 
-1. **Explain → Diagnose group → Learning Curve → Start** (9 fits, ≈ 40 s).
+1. **Explain → Diagnose group → Learning Curve → Run the learning curve** (9 fits, ≈ 40–60 s).
    - **Expect:** points at n = 768 / 1,919 / 3,838 / 7,675 and the power-law fit with 2N and 4N extrapolations. Verdict
      **noisy**: the gain per doubling is +0.02 with a 95 % CI from 0 to 0.04 (expected cost per decision, lower is
      better). "The seeds disagree too much to promise that more data helps; 5 seeds in Advanced would tell."
