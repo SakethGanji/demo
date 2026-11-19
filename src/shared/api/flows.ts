@@ -131,8 +131,34 @@ export type SegRun = { run_id: string; name: string; status: string; error: stri
   config: { label: string; problem_type: string; segment_column: string; drop_columns: string[]; presets: string | null; time_limit: number | null }
   segmented: SegResult | null }
 
+// G6 · Time to event (backend/app/survival): Cox PH and a random survival forest (scikit-survival), calibrated against KM.
+export type SurvDetect = { dataset_id: string; duration_column: string | null; event_column: string | null; strong: boolean
+  duration_candidates: string[]; event_candidates: string[]; evidence: Record<string, string[]>; horizons: number[]; unit: string | null
+  duration_range: [number, number] | null; event_rate: number | null; drop_columns: string[]; split: string; group_column: string | null; split_why: string }
+export type SurvCreate = { dataset_id: string; duration_column?: string; event_column?: string; horizons?: number[]; drop_columns?: string[]; n_estimators?: number; min_samples_leaf?: number }
+export type SurvCal = { max_abs_diff: number; in_ci: number; cells: number; ok: boolean; rule: string }
+export type SurvAt = { t: number; auc: number; brier: number; mean_S: number }
+export type SurvModel = { c_index: number; c_index_ci: [number, number]; val_c_index: number; val_ibs: number; at: SurvAt[]; mean_auc?: number; calibration: SurvCal }
+export type SurvKM = { s: number[]; lo: number[]; hi: number[] }
+export type SurvGroup = { group: string; n: number; events: number; risk_from: number; risk_to: number; pred: number[]; km: SurvKM
+  at: { t: number; pred: number; km: number; lo: number; hi: number; diff: number; in_ci: boolean }[] }
+export type SurvHR = { term: string; feature: string; kind: 'number' | 'category'; level: string | null; beta: number; se: number; z: number | null; p_value: number | null
+  sd: number | null; hr_sd: number | null; hr: number; hr_ci: [number, number] }
+export type SurvResult = { duration_column: string; event_column: string; unit: string | null; served: 'cox' | 'rsf'; val_from: string; chosen_by: string
+  horizons: number[]; grid: number[]; models: Record<'cox' | 'rsf', SurvModel>; fit_seconds: Record<'cox' | 'rsf', number>; n_trees: number; ridge: number
+  groups: SurvGroup[]; km_all: SurvKM; calibration: SurvCal; hazard_ratios: SurvHR[]; ref_levels: Record<string, string>; inputs: string[]; numeric: string[]
+  dropped_categories: string[]; train_rows: number; val_rows: number; holdout_rows: number; events: { train: number; holdout: number }
+  examples: Record<string, unknown>[]; detected: Partial<SurvDetect> }
+export type SurvRun = { run_id: string; name: string; status: string; error: string | null; dataset_id: string; split: { strategy?: string } & Record<string, unknown>
+  config: { duration_column: string; event_column: string; horizons: number[]; drop_columns: string[]; n_estimators: number; min_samples_leaf: number }
+  survival: SurvResult | null }
+export type SurvTry = { served: 'cox' | 'rsf'; unit: string | null; horizons: number[]; duration_column: string; event_column: string
+  risk: number; risk_group: string; at: { t: number; survival: number; event_by: number }[]; median_time: number | null; curve: number[]; grid: number[]
+  baseline_curve: number[]; km_all: number[]; features: string[]; missing_columns: string[]
+  contributions?: { feature: string; value: unknown; log_hr: number; hr: number }[]; hr_vs_average?: number; predict_ms: number }
+
 export const flows = {
-  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
+  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'survival' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
   run: (id: string) => request<FlowRun>(`/runs/${encodeURIComponent(id)}`),
   forecast: {
     options: () => request<FcOptions>('/forecast/options'),
@@ -158,6 +184,12 @@ export const flows = {
     detect: (ds: string) => request<SegDetect>(`/segmented/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
     create: (body: SegCreate) => request<FlowRun>('/segmented/runs', { ...J(body), timeoutMs: 60_000 }),
     get: (id: string) => request<SegRun>(`/segmented/runs/${encodeURIComponent(id)}`),
+  },
+  surv: {
+    detect: (ds: string) => request<SurvDetect>(`/survival/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
+    create: (body: SurvCreate) => request<FlowRun>('/survival/runs', { ...J(body), timeoutMs: 60_000 }),
+    get: (id: string) => request<SurvRun>(`/survival/runs/${encodeURIComponent(id)}`),
+    tryIt: (vid: string, row: Record<string, unknown>) => request<SurvTry>(`/registry/versions/${encodeURIComponent(vid)}/predict`, { ...J({ row }), timeoutMs: 60_000 }),
   },
   anomaly: {
     mapping: (ds: string) => request<AnGroup>(`/anomaly/mapping/${encodeURIComponent(ds)}`),

@@ -10,7 +10,7 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { BAND_COLOR, BAND_STATUS, pct, us, when } from '../lib'
 
-const HL = (c: string) => c === 'prediction' || c === 'routed_model' || c === 'decision' || c.startsWith('p_') || c === 'anomaly_score' || c === 'flagged' || c === 'mean' || c === 'percentile'
+const HL = (c: string) => c === 'prediction' || c === 'risk_group' || /^S_\d/.test(c) || c === 'routed_model' || c === 'decision' || c.startsWith('p_') || c === 'anomaly_score' || c === 'flagged' || c === 'mean' || c === 'percentile'
 const psiFmt = (v: number | null | undefined) => (v == null ? '—' : v.toFixed(4))
 
 /** Batch scoring of a CSV with the version (in a worker, with progress), then PSI drift of every feature and of the
@@ -106,11 +106,13 @@ function BatchResult({ job }: { job: BatchJob }) {
         {s.reasons?.recourse && !('error' in s.reasons.recourse) && <div className="eh-cell" data-testid="batch-recourse"><span className="micro-label">recourse</span><b className="mono">{s.reasons.recourse.with_valid} / {s.reasons.recourse.rows_searched}</b><small className="math-s">first {s.reasons.recourse.rows_searched} adverse rows with a valid change · column “recourse”</small></div>}
         {s.flagged_share != null && <div className="eh-cell"><span className="micro-label">flagged</span><b className="mono">{pct(s.flagged_share)}</b><small className="math-s">{s.flag_rule ?? <>share with p̂ &gt; t = {s.threshold?.toFixed(3)}</>}{s.expected_share != null ? ` · c = ${pct(s.expected_share)}` : ''}</small></div>}
         {s.seg_segments && <div className="eh-cell" data-testid="batch-routed"><span className="micro-label">routed</span><b className="mono">{(s.n_rows - (s.seg_global_rows ?? 0)).toLocaleString()} / {s.n_rows.toLocaleString()}</b><small className="math-s">rows scored by their segment's model · {s.seg_segments.map((g) => `${g.value} ${g.n}${g.model === 'global' ? ' (global)' : ''}`).join(', ')}{s.reasons_rows ? ` · reason codes for the first ${s.reasons_rows} adverse` : ''}</small></div>}
+        {s.surv_groups && <div className="eh-cell" data-testid="batch-surv"><span className="micro-label">risk groups</span><b className="mono">{s.surv_groups.high ?? 0} high</b><small className="math-s">{Object.entries(s.surv_groups).map(([g, n]) => `${g} ${n}`).join(' · ')} · cut at the holdout's quartiles of r̂</small></div>}
+        {s.surv_mean_survival && Object.entries(s.surv_mean_survival).slice(0, 1).map(([t, v]) => <div key={t} className="eh-cell"><span className="micro-label">mean Ŝ({t})</span><b className="mono">{pct(v)}</b><small className="math-s">{Object.entries(s.surv_mean_survival!).map(([h, x]) => `Ŝ(${h}) ${pct(x)}`).join(' · ')} {s.surv_unit ? `(${s.surv_unit}s)` : ''}</small></div>)}
         {s.items != null && <div className="eh-cell"><span className="micro-label">series forecast</span><b className="mono">{s.items}</b><small className="math-s">{s.forecast_rows?.toLocaleString()} rows · covariates: {s.known_covariates_source}</small></div>}
         {s.mean_prediction != null && <div className="eh-cell"><span className="micro-label">mean {s.prediction_symbol ?? 'ŷ'}</span><b className="mono">{fmtScore(s.mean_prediction, 2)}</b><small className="math-s">σ = {fmtScore(s.std_prediction, 2)}</small></div>}
         <div className="eh-cell"><span className="micro-label">max PSI (features)</span><b className="mono" data-testid="batch-max-psi" style={{ color: worst ? BAND_COLOR[worst.band] : undefined }}>{psiFmt(d.max_psi)}</b><small className="math-s">{worst ? `${worst.feature} · ${worst.band}` : ''}</small></div>
         <div className="eh-cell"><span className="micro-label">PSI(output)</span><b className="mono" data-testid="batch-pred-psi" style={{ color: BAND_COLOR[p.band] }}>{psiFmt(p.psi)}</b><small className="math-s">{p.ks ? `KS D = ${p.ks.statistic.toFixed(3)}` : p.band}</small></div>
-        {s.problem_type !== 'forecast' && s.problem_type !== 'anomaly' && !s.seg_segments && <AdversarialCell bid={job.id} />}
+        {s.problem_type !== 'forecast' && s.problem_type !== 'anomaly' && s.problem_type !== 'survival' && !s.seg_segments && <AdversarialCell bid={job.id} />}
       </div>
 
       {s.reasons?.recourse && !('error' in s.reasons.recourse) && s.reasons.recourse.rows.length > 0 && (() => {

@@ -509,7 +509,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished' | 'seg_model_started' | 'seg_model_finished'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished' | 'seg_model_started' | 'seg_model_finished' | 'surv_model_started' | 'surv_model_finished'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */
@@ -842,12 +842,12 @@ export type BatchJob = {
   result: {
     summary: {
       n_rows: number; seconds: number; score_seconds: number; us_per_row: number; missing_columns: string[]; extra_columns: string[]; model: string
-      problem_type: ProblemType | 'anomaly' | 'forecast'; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
+      problem_type: ProblemType | 'anomaly' | 'forecast' | 'survival'; predicted?: Record<string, number>; classes?: string[]; positive_class?: string; mean_p?: number
       mean_p_reference?: number | null; flagged_share?: number; threshold?: number; mean_prediction?: number; std_prediction?: number
       histogram?: { edges: number[]; actual: number[]; expected: number[] }
       /** Forecast and anomaly versions. */
       quantile_levels?: number[]; prediction_is?: string; interval?: { lo: number; hi: number; nominal: number; mean_width: number; median_width: number; mean_width_reference?: number }
-      flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; seg_segments?: { value: string; n: number; model: string; mean_prediction: number; adverse_share?: number }[]; seg_global_rows?: number; reasons_rows?: number; forecast_rows?: number; known_covariates_source?: string
+      flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; seg_segments?: { value: string; n: number; model: string; mean_prediction: number; adverse_share?: number }[]; surv_groups?: Record<string, number>; surv_mean_survival?: Record<string, number>; surv_unit?: string | null; seg_global_rows?: number; reasons_rows?: number; forecast_rows?: number; known_covariates_source?: string
       /** F10: reason codes for the adverse decisions. */
       reasons?: BatchReasons
     }
@@ -886,6 +886,11 @@ export type ModelCard = {
   /** G5: a routed version's segments and the paired comparison with the global model. */
   segmented?: { segment_column: string; problem_type: string; headline: string; threshold: number | null; routing_rule: string; routes: string[]
     overall: SegCardCmp | null; segments: { value: string; train_rows: number; holdout_rows: number; routed: boolean; why: string; own: SegCardCmp | null }[] } | null
+  /** G6: a time-to-event version: discrimination, calibration against Kaplan–Meier, Cox hazard ratios. */
+  survival?: { duration_column: string; event_column: string; unit: string | null; served: 'cox' | 'rsf'; chosen_on: string; c_index: number; c_index_ci: [number, number]
+    other: { model: string; c_index: number | null }; at: { t: number; auc: number; brier: number; mean_S: number }[]
+    calibration: { max_abs_diff: number; in_ci: number; cells: number; ok: boolean }; holdout_rows: number; events: { holdout: number }
+    hazard_ratios: { term: string; hr: number; hr_ci: [number, number]; p_value: number | null }[] } | null
   /** G3: an expected-loss version's holdout check and stress scenarios. */
   expected_loss?: { columns: { pd: string; lgd: string; ead: string }; portfolio: { el: number; realised: number; ratio: number | null; ratio_ci: [number, number]; n: number; defaults: number; within_10pct: boolean }; scenarios: { name: string; delta: number; delta_pct: number | null; as_expected: boolean | null }[] } | null
   /** F19: what the source run's later checks found (F6 split, F7 cost, F12, F14, F15, F16, F17), as summaries. */

@@ -147,6 +147,13 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             : 'Not opened yet (Credit Report tab). '}
             <a href={api.registry.creditReportUrl(v.id, 'html')} download data-testid="card-credit-html">Model Performance Report (.html)</a> · <a href={api.registry.creditReportUrl(v.id, 'md')} download>.md</a></p>
         </div>}
+        {c.survival && (() => {
+          const g = c.survival
+          return <div data-testid="card-surv" style={{ marginTop: 8 }}>
+            <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Time to event (survival)</h4>
+            <p className="helper" style={{ fontSize: 12 }}>{`T = ${g.duration_column}, event ${g.event_column} = 1 (0 = censored). Serving ${g.served === 'cox' ? 'Cox PH' : 'a random survival forest'}, chosen on ${g.chosen_on}. Holdout (${g.holdout_rows} rows, ${g.events.holdout} events): Harrell's C ${g.c_index.toFixed(4)} [${g.c_index_ci[0].toFixed(3)}, ${g.c_index_ci[1].toFixed(3)}] (the other model ${g.other.c_index?.toFixed(4) ?? '—'}); ${g.at.map((a) => `AUC(${a.t}) ${a.auc.toFixed(3)}`).join(', ')}. Calibration against Kaplan–Meier by risk quartile: max |Ŝ − Ŝ_KM| ${g.calibration.max_abs_diff.toFixed(3)}, ${g.calibration.in_ci}/${g.calibration.cells} inside the KM 95% CI (${g.calibration.ok ? 'calibrated' : 'not calibrated'}). Cox hazard ratios per unit: ${g.hazard_ratios.slice(0, 5).map((h) => `${h.term} ${h.hr.toFixed(2)} [${h.hr_ci[0].toFixed(2)}, ${h.hr_ci[1].toFixed(2)}]`).join('; ')}.`}</p>
+          </div>
+        })()}
         {c.segmented && (() => {
           const g = c.segmented
           const k = g.headline.toLowerCase()

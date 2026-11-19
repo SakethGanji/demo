@@ -152,7 +152,7 @@ function RunView({ runId, go }: { runId: string; go: (r: string) => void }) {
 // ---------------------------------------------------------------------------------------------- results (shared)
 
 /** A paired difference as a dot with its 95% CI on a symmetric axis around 0 (green when it favours the segment model). */
-function CiBar({ d, span, better }: { d: { delta: number; ci: [number, number] } | null | undefined; span: number; better: 'up' | 'down' }) {
+export function CiBar({ d, span, better }: { d: { delta: number; ci: [number, number] } | null | undefined; span: number; better: 'up' | 'down' }) {
   if (!d) return <span className="helper">—</span>
   const x = (v: number) => `${50 + (Math.max(-span, Math.min(span, v)) / span) * 50}%`
   const good = better === 'up' ? d.ci[0] > 0 : d.ci[1] < 0

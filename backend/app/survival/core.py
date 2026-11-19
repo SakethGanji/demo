@@ -146,11 +146,12 @@ def cox_se(Z: np.ndarray, t: np.ndarray, e: np.ndarray, beta: np.ndarray, alpha:
 
 
 def _surv_at(fns, times: np.ndarray) -> np.ndarray:
-    """Step functions from predict_survival_function → an (n, len(times)) array, holding the last value past the domain."""
+    """Step functions from predict_survival_function → an (n, len(times)) array: Ŝ = 1 before the first event time,
+    the last value held past the domain."""
     out = np.empty((len(fns), len(times)))
     for i, f in enumerate(fns):
         lo, hi = f.domain
-        out[i] = f(np.clip(times, lo, hi))
+        out[i] = np.where(times < lo, 1.0, f(np.clip(times, lo, hi)))
     return out
 
 
