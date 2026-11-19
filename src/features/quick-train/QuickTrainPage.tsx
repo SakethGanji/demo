@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, api } from '@/shared/api/client'
 import { useApi } from '@/shared/api/mode'
-import type { Run } from '@/shared/api/types'
+import type { Run, SplitSpec } from '@/shared/api/types'
 import { DatasetStep } from './components/DatasetStep'
 import { GoalStep } from './components/GoalStep'
 import { TargetStep, targetConfirmed } from './components/TargetStep'
@@ -21,7 +21,18 @@ function initialChoices(ds: Dataset): Choices {
   return { label, problemType: null, types: {}, metric: defaultMetric(task, labelImbalance(ds, label)), preset: 'medium_quality', budget: 120, fitKwargs: '', threshold: defaultThreshold(ds, label, task) }
 }
 
-const runFromHash = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('run')
+const hashQuery = () => new URLSearchParams(location.hash.split('?')[1] ?? '')
+const runFromHash = () => hashQuery().get('run')
+
+/** G0: Build opens New Model with ?dataset=&target=&split=&time=&group=&drop=&metric= (the suggestion's pre-fill). */
+function prefillChoices(d: Dataset, q: URLSearchParams): Choices {
+  const label = q.get('target') || d.target
+  const strategy = q.get('split') as SplitSpec['strategy'] | null
+  const split: SplitSpec | null = strategy ? { strategy, tuning_share: 0.2, group_column: q.get('group') ?? undefined, time_column: q.get('time') ?? undefined, cutoff: null } : null
+  const drop = (q.get('drop') ?? '').split(',').filter((c) => c && c !== label && d.cols.some((x) => x.name === c))
+  const metric = q.get('metric')
+  return { ...initialChoices(d), label, split, types: Object.fromEntries(drop.map((c) => [c, 'id' as const])), ...(metric ? { metric } : {}) }
+}
 const setHashRun = (id: string | null) => history.replaceState(null, '', `#/quick-train${id ? `?run=${id}` : ''}`)
 
 /**
@@ -52,6 +63,24 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   // Only the dataset step picks datasets: a late answer from it (e.g. its first-load default) must not replace the
   // dataset of a run resumed from the URL.
   const pick = (d: Dataset) => { if (resumed.current && stepRef.current !== 0) return; setDs(d); setCh(initialChoices(d)) }
+
+  // Live mode picks data in Build. Arriving from it (?dataset=…) opens the Target step pre-filled; step 0 goes back.
+  const prefilled = useRef(false)
+  const toBuild = () => { location.hash = `#/build${ds.id ? `?dataset=${ds.id}` : ''}` }
+  useEffect(() => {
+    if (!live || runFromHash() || fromGym) return
+    const q = hashQuery()
+    const id = q.get('dataset')
+    if (!id) { toBuild(); return }
+    if (prefilled.current) return
+    prefilled.current = true
+    api.datasets.get(id).then((raw) => {
+      const d = fromServer(raw)
+      const c = prefillChoices(d, q)
+      lastLabel.current = c.label
+      setDs(d); setCh(c); setStep(1)
+    }).catch((e) => setErr((e as Error).message))
+  }, [live]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const inferred = inferTask(ds, ch.label)
   const task: Task | null = ch.problemType ?? inferred
@@ -128,7 +157,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
     setStep(3)
   }
 
-  const again = () => { setRunId(null); setHashRun(null); setStep(0) }
+  const again = () => { if (live) { toBuild(); return } setRunId(null); setHashRun(null); setStep(0) }
   const running = runId != null && (race.status === 'running' || race.status === 'queued' || race.status === 'connecting')
   const done = race.status === 'succeeded'
   const maxStep = runId ? (done ? 4 : 3) : 2
@@ -153,7 +182,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
         <div className="stepper" role="list" style={{ gridTemplateColumns: `repeat(${STEPS.length}, 1fr)`, maxWidth: 820 }}>
           {STEPS.map((s, i) => (
             <button key={s} role="listitem" data-testid={`step-${s.toLowerCase()}`} disabled={i > maxStep || (running && i < 3)}
-              className={`step ${i < step || (i === 4 && done && step === 4) ? 'done' : i === step ? 'current' : ''}`} onClick={() => setStep(i)}>
+              className={`step ${i < step || (i === 4 && done && step === 4) ? 'done' : i === step ? 'current' : ''}`} onClick={() => (live && i === 0 ? toBuild() : setStep(i))}>
               <span className="node" /><span className="idx">{String(i + 1).padStart(2, '0')}</span><span>{s}</span>
             </button>
           ))}
@@ -161,7 +190,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
       </div>
 
       <div className="wizard-scroll" ref={scroller}>
-        {step === 0 && <DatasetStep ds={ds} onPick={pick} />}
+        {step === 0 && (live ? <div className="page"><p className="helper">Opening Build…</p></div> : <DatasetStep ds={ds} onPick={pick} />)}
         {step === 1 && <TargetStep ds={ds} ch={ch} set={set} onConfirmed={setDs} />}
         {step === 2 && task && <GoalStep ds={ds} ch={ch} set={set} task={task} />}
         {step === 3 && runId && (
@@ -176,7 +205,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
 
       {step < 4 && (
         <div className="wizard-footer">
-          <div>{step > 0 && step < 3 && <button className="btn ghost" onClick={() => setStep(step - 1)}>← Back</button>}
+          <div>{step > 0 && step < 3 && <button className="btn ghost" onClick={() => (live && step === 1 ? toBuild() : setStep(step - 1))}>← Back</button>}
             {step === 3 && !running && <button className="btn ghost" onClick={again}>← New Model</button>}</div>
           <div className="valid" data-testid="wizard-status">
             {err ? <span style={{ color: 'var(--status-danger)' }} role="alert">✕ {err}</span>

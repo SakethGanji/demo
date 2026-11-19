@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { BuildPage } from '@/features/build/BuildPage'
 import { AutopilotPage } from '@/features/autopilot/AutopilotPage'
 import { ExperimentsPage } from '@/features/experiments/ExperimentsPage'
 import { AnomalyPage } from '@/features/anomaly/AnomalyPage'
@@ -84,6 +85,7 @@ export default function App() {
         <PrototypeBanner route={route} />
         <main className="workspace" style={FULL_HEIGHT.includes(route) ? { overflow: 'hidden' } : undefined}>
           {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
+          {route === 'build' && <BuildPage go={go} />}
           {route === 'quick-train' && <QuickTrainPage go={go} />}
           {route === 'autopilot' && <AutopilotPage go={go} />}
           {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} gym={gym} setGym={setGym} go={go} />}

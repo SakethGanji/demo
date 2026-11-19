@@ -115,7 +115,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
       {versions.length === 0 ? (
         <div className="card card-body" data-testid="registry-empty">
           <p className="helper">No versions yet. Register a finished run: it is cloned into its own predictor folder (optionally refit, cut to a latency budget and stripped for deployment), measured, hashed and logged to MLflow, then reviewed here.</p>
-          {!okRuns.length && <button className="btn" onClick={() => go('quick-train')}>Train a model first →</button>}
+          {!okRuns.length && <button className="btn" onClick={() => go('build')}>Train a model first →</button>}
         </div>
       ) : <>
         <div className="card">

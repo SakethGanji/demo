@@ -75,7 +75,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
     <div className="page experiments" data-testid="experiments-live">
       <div className="page-head"><div><h1 className="page-title">Experiments</h1><p className="helper sub" data-testid="exp-summary">0 runs · every run you train, forecast, score for anomalies or import lands here</p></div></div>
       <EmptyState testId="exp-empty" title="No experiments yet"
-        actions={<><button className="btn primary" onClick={() => go('quick-train')}>New Model →</button><button className="btn" onClick={() => go('forecast')}>New Forecast</button><button className="btn" onClick={() => go('anomaly')}>Anomaly Detection</button><button className="btn" onClick={() => go('import')}>Import a predictor</button></>}>
+        actions={<button className="btn primary" onClick={() => go('build')}>Build →</button>}>
         <p>Each run becomes one row with its own metric s on held-out data, its parameters and its fit time; tabular runs on the same dataset and label are drawn as strings across parallel coordinates, compared side by side (ROC, PR, residuals, Δ on the same holdout) and diffed down to the exact <span className="mono">TabularPredictor(...).fit(...)</span> arguments.</p>
         <p>Six samples are ready: support tickets (text, 6 classes), account churn and credit default (binary, imbalanced), loan amount (regression), transaction volume (forecasting) and card transactions (anomalies).</p>
       </EmptyState>
@@ -94,7 +94,7 @@ export function LiveExperiments({ go }: { go: (r: string) => void }) {
         </div>
         <div className="row">
           <button className="btn" disabled={sel.length !== 1} onClick={() => go(`explain?run=${sel[0]}`)} title="Select exactly one run">Explain</button>
-          <button className="btn primary" onClick={() => go('quick-train')}>New Model</button>
+          <button className="btn primary" onClick={() => go('build')}>Build</button>
         </div>
       </div>
 

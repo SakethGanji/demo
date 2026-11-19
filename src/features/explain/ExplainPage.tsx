@@ -105,7 +105,7 @@ export function ExplainPage({ go, onApplyPatch }: { go: (r: string) => void; onA
   if (!runId && !runs.length) return (
     <div className="page explain"><div className="page-head"><div><h1 className="page-title">Explain</h1></div></div>
       <EmptyState testId="explain-empty" title="Nothing to explain yet"
-        actions={<><button className="btn primary" onClick={() => go('quick-train')}>New Model →</button><button className="btn" onClick={() => go('import')}>Import a predictor</button></>}>
+        actions={<button className="btn primary" onClick={() => go('build')}>Build →</button>}>
         <p>Explain reads a finished tabular run: ROC and PR on the fixed holdout, the reliability diagram with Brier and ECE, the decision threshold t with its cost C(t), permutation importance with 95% intervals, Kernel SHAP f(x) = φ₀ + Σφᵢ for any row, the worst errors and fairness by group.</p>
         <p>Train a model on one of the samples (about a minute on medium_quality) and it appears here.</p>
       </EmptyState></div>

@@ -1,6 +1,6 @@
 import { test as base, expect, type ConsoleMessage, type Page } from '@playwright/test'
 
-export const ROUTES = ['home', 'quick-train', 'autopilot', 'gym', 'experiments', 'explain', 'registry', 'settings'] as const
+export const ROUTES = ['home', 'build', 'quick-train', 'autopilot', 'gym', 'experiments', 'explain', 'registry', 'settings'] as const
 
 /**
  * Every test page: external requests (web fonts) are answered locally so the suite is offline and deterministic,

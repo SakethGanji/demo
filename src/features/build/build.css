@@ -1,0 +1,20 @@
+/* G0 Build: Smart Intake */
+.build .build-top { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
+.build .build-hero { margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
+.build .build-hero .eh-cell { min-width: 0; }
+.build .build-hero b { font-size: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.build .build-hero small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.build .role-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-chip { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px; border: 1px solid var(--border-default); border-radius: var(--radius-badge); background: var(--bg-surface); font-size: 12px; }
+.role-chip select { border: 0; background: var(--bg-subtle); border-radius: 3px; font-size: 11.5px; height: 20px; color: var(--text-body); cursor: pointer; max-width: 150px; }
+.role-chip small { color: var(--text-muted); font-size: 10.5px; }
+.role-chip.r-target { border-color: var(--accent-primary); background: var(--bg-wave-tint); }
+.role-chip.r-date, .role-chip.r-entity { border-color: var(--status-info); }
+.role-chip.r-id, .role-chip.r-leak, .role-chip.r-constant { opacity: .65; }
+.role-chip.r-id .mono, .role-chip.r-leak .mono, .role-chip.r-constant .mono { text-decoration: line-through; }
+.role-chip.edited { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-secondary) 30%, transparent); }
+.build .build-why { border-top: 1px solid var(--border-default); }
+.build .build-why summary { padding: 10px 16px; }
+.build .build-top-sugg { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.build .build-top-sugg .helper { max-width: 90ch; }
+@media (max-width: 1100px) { .build .build-top { grid-template-columns: 1fr; } .build .fr-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

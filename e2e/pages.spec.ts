@@ -2,7 +2,7 @@
 import { ROUTES, apiMode, expect, open, test } from './fixtures'
 
 const TITLES: Record<string, string> = {
-  home: 'Home', 'quick-train': 'New Model', autopilot: 'Vela Autopilot', gym: 'Training Gym',
+  home: 'Home', build: 'Build', 'quick-train': 'New Model', autopilot: 'Vela Autopilot', gym: 'Training Gym',
   experiments: 'Experiments', explain: 'Explain', registry: 'Model Registry', settings: 'Settings',
 }
 

@@ -1,6 +1,4 @@
 /* ---------- new model wizard (route #/quick-train) ---------- */
-.drop { border: 1px dashed var(--border-track); border-radius: var(--radius-card); background: var(--bg-surface); padding: var(--space-32) var(--space-20); display: flex; flex-direction: column; align-items: center; gap: var(--space-8); text-align: center; cursor: pointer; transition: border-color var(--duration-snap-min) var(--ease-pluck), background var(--duration-snap-min) var(--ease-pluck); }
-.drop:hover, .drop.over { border-color: var(--accent-secondary); background: var(--bg-wave-tint); }
 
 .new-model .field { display: flex; flex-direction: column; gap: 6px; }
 .new-model .select, .new-model .input { height: 32px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface); padding: 0 var(--space-8); color: var(--text-primary); font-size: 13px; min-width: 0; }

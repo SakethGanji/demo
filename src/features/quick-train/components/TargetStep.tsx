@@ -72,12 +72,6 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
                     {inferred ? <>inferred: <b className="mono">{inferred}</b>{ch.problemType && ch.problemType !== inferred ? ' · overridden' : ''}</> : <span style={{ color: 'var(--status-warning)' }}>▲ this column has fewer than two values</span>}
                   </span>
                 </div>
-                <div className="row" style={{ flexWrap: 'wrap', gap: 'var(--space-8)', marginTop: 6 }} data-testid="other-problem-types">
-                  <span className="helper" style={{ fontSize: 12 }}>or</span>
-                  <button className="chip-btn" onClick={() => { location.hash = '#/forecast' }} data-testid="pt-forecast">◷ Forecast over time →</button>
-                  <button className="chip-btn" onClick={() => { location.hash = '#/anomaly' }} data-testid="pt-anomaly">◎ Find anomalies (no label) →</button>
-                  <button className="chip-btn" onClick={() => { location.hash = '#/import' }}>⤓ Import a trained predictor →</button>
-                </div>
               </div>
               {task === 'regression' && <RangeCard ch={ch} set={set} label={ch.label} />}
               {!(task === 'regression' && ch.range) && <div className="formula target-math">

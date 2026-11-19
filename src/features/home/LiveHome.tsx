@@ -117,12 +117,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
   )
 }
 
-/** First run: no runs yet. The samples on this API, each with the flow it suits, so the first click trains. */
-const FLOW: Record<string, { label: string; route: (id: string) => string }> = {
-  tabular: { label: 'New Model', route: (id) => `quick-train?dataset=${id}` },
-  forecast: { label: 'New Forecast', route: () => 'forecast' },
-  anomaly: { label: 'Find anomalies', route: () => 'anomaly' },
-}
+/** First run: no runs yet. The samples on this API; each opens in Build, which finds what it suits (G0 Smart Intake). */
 function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string) => void }) {
   const samples = datasets.filter((d) => d.sample)
   return (
@@ -130,22 +125,19 @@ function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string
       <div className="fr-head">
         <div>
           <b className="fr-title">No runs yet. Start with a sample.</b>
-          <p className="helper">Every sample is generated with a fixed seed on this machine. Pick one and AutoGluon trains on it here; the run then appears on these strings, in Experiments and in Vela.</p>
+          <p className="helper">Every sample is generated with a fixed seed on this machine. Pick one: Build shows what each column is for and what you can build from it, pre-filled. The run then appears on these strings, in Experiments and in Vela.</p>
         </div>
-        <button className="btn primary" onClick={() => go('quick-train')} data-testid="home-first-new-model">New Model →</button>
+        <button className="btn primary" onClick={() => go('build')} data-testid="home-first-new-model">Build →</button>
       </div>
       <div className="fr-grid">
-        {samples.map((d) => {
-          const flow = (d.flows ?? ['tabular']).find((f) => f in FLOW) ?? 'tabular'
-          return (
-            <button key={d.id} className="fr-card" onClick={() => go(FLOW[flow].route(d.id))} data-testid={`home-sample-${d.id}`}>
-              <span className="fr-name">{d.name}</span>
-              <span className="fr-meta mono">{d.rows.toLocaleString()} rows × {d.n_cols} cols{flow === 'tabular' && d.target ? ` · y = ${d.target}` : flow === 'anomaly' ? ' · no label' : flow === 'forecast' ? ' · long format' : ''}</span>
-              <span className="fr-note">{d.note}</span>
-              <span className="fr-go">{FLOW[flow].label} →</span>
-            </button>
-          )
-        })}
+        {samples.map((d) => (
+          <button key={d.id} className="fr-card" onClick={() => go(`build?dataset=${d.id}`)} data-testid={`home-sample-${d.id}`}>
+            <span className="fr-name">{d.name}</span>
+            <span className="fr-meta mono">{d.rows.toLocaleString()} rows × {d.n_cols} cols</span>
+            <span className="fr-note">{d.note}</span>
+            <span className="fr-go">Open in Build →</span>
+          </button>
+        ))}
         {!samples.length && <p className="helper">Reading the samples…</p>}
       </div>
     </div>

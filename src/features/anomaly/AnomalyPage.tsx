@@ -54,7 +54,7 @@ function IsolationFormula({ psi, extra, psiRule }: { psi: number; extra?: React.
 
 function AnomalySetup() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [dsId, setDsId] = useState('card-transactions')
+  const [dsId, setDsId] = useState(useHashParam('dataset') ?? 'card-transactions')  // G0: Build opens ?dataset=
   const [ds, setDs] = useState<DatasetDetail | null>(null)
   const [feats, setFeats] = useState<string[]>([])
   const [c, setC] = useState(0.015)
@@ -69,7 +69,6 @@ function AnomalySetup() {
   const [useVel, setUseVel] = useState(true)
   const [velForest, setVelForest] = useState<string[]>([])
   const [psiIn, setPsiIn] = useState<number | null>(null)
-  const ref = useRef<HTMLInputElement>(null)
   useEffect(() => { api.datasets.list().then(setDatasets).catch((e) => setErr(e.message)); flows.runs('anomaly').then(setPast).catch(() => {}) }, [])
   useEffect(() => {
     flows.anomaly.mapping(dsId).then((g) => {
@@ -88,7 +87,6 @@ function AnomalySetup() {
       velocity_in_forest: velOn ? velForest : null, max_samples: psiIn }); location.hash = `#/anomaly?run=${r.id}` }
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const upload = async (f: File) => { try { const d = await api.datasets.upload(f); setDatasets(await api.datasets.list()); setDsId(d.id) } catch (e) { setErr((e as Error).message) } }
   const sorted = [...datasets].sort((a, b) => Number(b.kind === 'transactions') - Number(a.kind === 'transactions'))
   return (
     <div className="page anomaly" data-testid="anomaly-setup">
@@ -103,8 +101,7 @@ function AnomalySetup() {
               <select className="select" value={dsId} onChange={(e) => setDsId(e.target.value)} aria-label="Dataset" data-testid="an-dataset" style={{ minWidth: 260 }}>
                 {sorted.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} rows</option>)}
               </select>
-              <input ref={ref} type="file" accept=".csv,.tsv" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-              <button className="btn" onClick={() => ref.current?.click()}>Upload CSV…</button>
+              <a className="btn ghost" href="#/build">New data in Build →</a>
             </div>
             <div><span className="micro-label">features x ({feats.length})</span>
               <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginTop: 4 }}>{(ds?.profile.columns ?? []).map((col) => {

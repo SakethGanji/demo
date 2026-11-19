@@ -4,7 +4,7 @@ import { usePrefs } from '@/shared/lib/prefs'
 import { TOOLS } from '@/shared/lib/tools'
 import { Icon } from '@/shared/primitives/Icon'
 import { ToolGlyph } from '@/shared/primitives/ToolGlyph'
-import { NAV, type Route } from '../routes'
+import { NAV, NAV_PARENT, type Route } from '../routes'
 
 export function Sidebar({ route, collapsed, velaOpen, go, onToggle }: { route: Route; collapsed: boolean; velaOpen: boolean; go: (r: string) => void; onToggle: () => void }) {
   const { prefs } = usePrefs()
@@ -21,7 +21,7 @@ export function Sidebar({ route, collapsed, velaOpen, go, onToggle }: { route: R
           <div key={gi} className="nav-group">
             {g.map((n) => {
               const I = Icon[n.icon]
-              const active = n.id === 'vela' ? false : route === n.id
+              const active = n.id === 'vela' ? false : (NAV_PARENT[route] ?? route) === n.id
               return (
                 <button key={n.id} className={`nav-item ${active ? 'active' : ''}`} title={n.label} aria-current={active ? 'page' : undefined}
                   onClick={() => go(n.id)}>

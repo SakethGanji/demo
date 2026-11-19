@@ -127,6 +127,19 @@ export type DatasetSummary = {
 
 export type DatasetDetail = DatasetSummary & { profile: Profile }
 
+/** G0 Smart Intake: a column's role, how sure the detector is, and why. `also`: other roles the column could have. */
+export type IntakeRole = { role: string; confidence: number; evidence: string[] }
+export type IntakeColumn = IntakeRole & { name: string; type: string; unique: number; also: IntakeRole[]; overridden?: boolean }
+/** One thing the table can build, with the reason and the pre-fill its flow (`route`) opens with. */
+export type IntakeSuggestion = {
+  id: string; title: string; route: string; score: number; reason: string
+  prefill: { target?: string; drop?: string[]; split?: 'time' | 'group' | 'time-group'; time?: string; group?: string; metric?: string } & Record<string, unknown>
+}
+export type Intake = {
+  dataset_id: string; rows: number; columns: IntakeColumn[]; roles: Record<string, string[]>
+  suggestions: IntakeSuggestion[]; role_names: Record<string, string>
+}
+
 // ---------------------------------------------------------------------------
 // Engine (S2): model catalogue, runs, events, predictions. Mirrors backend/app/engine/*.
 // Scores: `score_*` are AutoGluon's higher-is-better values (errors are negated); `*_natural` are in the

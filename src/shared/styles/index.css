@@ -6,6 +6,7 @@
 @import '../../app/shell/shell.css';
 @import '../../features/vela/vela.css';
 @import '../../features/home/home.css';
+@import '../../features/build/build.css';
 @import '../../features/quick-train/quick-train.css';
 @import '../../features/explain/explain.css';
 @import '../../features/experiments/experiments.css';

@@ -33,7 +33,7 @@ export function ForecastPage({ go }: { go: (r: string) => void }) {
 
 function ForecastSetup({ go }: { go: (r: string) => void }) {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [dsId, setDsId] = useState('transaction-volume')
+  const [dsId, setDsId] = useState(useHashParam('dataset') ?? 'transaction-volume')  // G0: Build opens ?dataset=
   const [ds, setDs] = useState<DatasetDetail | null>(null)
   const [map, setMap] = useState<FcMapping | null>(null)
   const [mapSrc, setMapSrc] = useState('')
@@ -43,7 +43,6 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
   const [busy, setBusy] = useState(false)
   const [past, setPast] = useState<FlowRun[]>([])
   const [cfg, setCfg] = useState({ H: 28, metric: 'MASE', presets: 'medium_quality', tau: 300, quantiles: '0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9', windows: null as number | null, freq: '', fitKwargs: '{}', hp: '', ensemble: 'both' as FcEnsembleKind, conformal: true, scope: 'pooled' as 'pooled' | 'item' })
-  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     api.datasets.list().then(setDatasets).catch((e) => setErr(e.message))
@@ -89,10 +88,6 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
     setBusy(true); setErr('')
     try { const r = await flows.forecast.create(body); location.hash = `#/forecast?run=${r.id}` } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const upload = async (f: File) => {
-    setErr('')
-    try { const d = await api.datasets.upload(f); setDatasets(await api.datasets.list()); setDsId(d.id) } catch (e) { setErr((e as Error).message) }
-  }
   const tsDatasets = [...datasets].sort((a, b) => Number(b.kind === 'timeseries') - Number(a.kind === 'timeseries'))
 
   return (
@@ -102,7 +97,6 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
           <h1 className="page-title">New Forecast</h1>
           <p className="helper sub">Forecast many series at once with AutoGluon’s TimeSeriesPredictor: statistical, tabular, deep and foundation models (Chronos), backtested and ensembled.</p>
         </div>
-        <div className="row"><button className="btn" onClick={() => go('quick-train')}>New Model (tabular)</button><button className="btn" onClick={() => go('anomaly')}>Find anomalies</button></div>
       </div>
 
       <div className="card navy explain-hero fc-eq">
@@ -124,8 +118,7 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
               <select className="select" value={dsId} onChange={(e) => setDsId(e.target.value)} aria-label="Dataset" data-testid="fc-dataset" style={{ minWidth: 260 }}>
                 {tsDatasets.map((d) => <option key={d.id} value={d.id}>{d.kind === 'timeseries' ? '◷ ' : ''}{d.name} · {d.rows.toLocaleString()} rows</option>)}
               </select>
-              <input ref={fileRef} type="file" accept=".csv,.tsv" hidden onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-              <button className="btn" onClick={() => fileRef.current?.click()} data-testid="fc-upload">Upload CSV…</button>
+              <a className="btn ghost" href="#/build">New data in Build →</a>
               {mapSrc && <span className="helper" style={{ fontSize: 12 }}>mapping: {mapSrc}</span>}
             </div>
             {map && <div className="fc-map">
