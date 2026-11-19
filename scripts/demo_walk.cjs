@@ -129,7 +129,7 @@ async function main() {
     const fit2 = { hyperparameters: { XGB: { n_estimators: 200 } } }
     const a = await newModel({ ds: 'loan-stream', label: 'defaulted', split: 'time', metric: 'roc_auc', fit: fit1, tag: 'prep' })
     S.champRun = a.runId
-    expectNum('prep', 'champion holdout ROC AUC', await text('results-primary'), 0.7765, 0.003)
+    expectNum('prep', 'champion holdout ROC AUC', await text('result-primary'), 0.7765, 0.003)
     const b = await newModel({ ds: 'loan-stream', label: 'defaulted', split: 'time', metric: 'roc_auc', fit: fit2, tag: 'prep' })
     S.challRun = b.runId
     S.champ = await register(S.champRun, 'loan-stream')
@@ -158,7 +158,7 @@ async function main() {
     expectNum('1', 'tuning rows', a.splitText, 1925, 0)
     expectNum('1', 'holdout rows', a.splitText, 2400, 0)
     await shot('02-results-oot')
-    expectNum('1', 'holdout ROC AUC (out-of-time)', await text('results-primary'), 0.7150, 0.003)
+    expectNum('1', 'holdout ROC AUC (out-of-time)', await text('result-primary'), 0.7150, 0.003)
     await page.getByTestId('split-compare').scrollIntoViewIfNeeded()
     await page.getByTestId('split-twin-random-stratified').click()
     await page.getByTestId('split-compare-random-stratified').waitFor({ timeout: 600_000 })
