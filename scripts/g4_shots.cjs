@@ -11,8 +11,8 @@ async function main() {
   const v = vs.filter((x) => x.status === 'ready' && x.model_name === 'smoke.fair-lending').sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0]
   const pages = [
     ['1-build-fair-lending', '#/build?dataset=fair-lending', null],
-    ['2-registry-fair-lending', `#/registry?version=${v.id}&tab=Fair%20Lending`, '[data-testid=fl-table]'],
-    ['3-explain-fairness-bisg', `#/explain?run=${v.run_id}&tab=Fairness`, '[data-testid=fl-air-plot]'],
+    ['2-registry-fair-lending', `#/registry?version=${v.id}&tab=Fair%20Lending`, '[data-testid=fl-link]'],
+    ['3-explain-fairness-bisg', `#/models?run=${v.run_id}&tab=Explain&sub=Fairness`, '[data-testid=fl-air-plot]'],
   ]
   const browser = await chromium.launch()
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 })
