@@ -3,12 +3,12 @@ import type { Run } from '@/shared/api/types'
 /** Every run in the `runs` table has a kind: a tabular fit, an imported TabularPredictor, a TimeSeriesPredictor
  *  forecast or an IsolationForest anomaly run. Pages that list runs use this to show each with the metric that
  *  suits it and to open it on the right page. */
-export type RunKind = 'tabular' | 'import' | 'forecast' | 'anomaly'
+export type RunKind = 'tabular' | 'import' | 'forecast' | 'anomaly' | 'expected_loss'
 export type KindedRun = Run & { kind?: string; anomaly?: { n_flagged?: number; threshold?: number; contamination?: number; truth?: { roc_auc: number | null; precision_at_k: { k: number; precision: number }[]; planted: number } | null } | null }
 
 export const kindOf = (r: Run): RunKind => {
   const k = (r as KindedRun).kind
-  return k === 'forecast' || k === 'anomaly' || k === 'import' ? k : 'tabular'
+  return k === 'forecast' || k === 'anomaly' || k === 'import' || k === 'expected_loss' ? k : 'tabular'
 }
 
 /** The type filter's value for a run: the tabular problem type, or the kind for the others. */
@@ -17,13 +17,14 @@ export const typeOf = (r: Run): string => {
   return k === 'tabular' ? r.problem_type ?? 'pending' : k === 'import' ? 'imported' : k
 }
 
-export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quantile', 'forecast', 'anomaly', 'imported'] as const
+export const TYPE_FILTERS = ['all', 'binary', 'multiclass', 'regression', 'quantile', 'forecast', 'anomaly', 'expected_loss', 'imported'] as const
 
 /** The page a run opens on. */
 export const runPage = (r: Run): string => {
   const k = kindOf(r)
   if (k === 'forecast') return `forecast?run=${r.id}`
   if (k === 'anomaly') return `anomaly?run=${r.id}`
+  if (k === 'expected_loss') return `expected-loss?run=${r.id}`
   return `quick-train?run=${r.id}`
 }
 
@@ -53,6 +54,7 @@ export function problemLine(r: Run): string {
     return `forecast${h ? ` · H = ${h}` : ''}`
   }
   if (k === 'anomaly') return `anomaly · IsolationForest${r.config.lof ? ' + LOF' : ''}`
+  if (k === 'expected_loss') return 'expected loss · PD × LGD × EAD'
   const lv = (r as Run & { quantile_levels?: number[] | null }).quantile_levels
   const cov = (r as Run & { quantile?: { coverage?: number | null } | null }).quantile?.coverage
   const base = r.problem_type === 'quantile' && lv ? `quantile · τ = ${lv.join(', ')}${cov != null ? ` · cov ${cov.toFixed(3)}` : ''}` : r.problem_type ?? '—'

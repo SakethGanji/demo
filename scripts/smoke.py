@@ -701,6 +701,10 @@ INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
     "loan-stream": ("binary", {"application_id": "id", "application_date": "date", "age": F, "income_usd": M,
                                "credit_score": F, "debt_to_income": F, "utilization": F, "channel": CAT, "employment": CAT,
                                "term_months": F, "loan_amount_usd": M, "prior_defaults": F, "defaulted": "target"}),
+    "loan-losses": ("expected_loss", {"loan_id": "id", "application_date": "date", "product": "segment", "region": "geography",
+                                      "income": M, "credit_score": F, "debt_to_income": F, "utilization": F, "credit_limit": M,
+                                      "current_balance": M, "collateral_value": M, "term_months": F, "defaulted": "target",
+                                      "lgd": "lgd", "ead": "ead"}),
 }
 KEY_ROLES = ("target", "date", "id", "entity", "segment")
 
@@ -4669,6 +4673,96 @@ def credit(st: dict[str, Any]) -> None:
     step("credit: tape upload (roles → columns), then removed", tape)
 
 
+def expected_loss(st: dict[str, Any]) -> None:
+    """G3: expected loss, PD × LGD × EAD, on the loan-losses sample, zero-config. Intake's top suggestion is expected
+    loss with the detected default flag, LGD, EAD and segments; the run is started with nothing but the dataset (the
+    API fills every input from the same roles; AutoGluon medium_quality, 60 s per model). Asserts the acceptance: holdout ΣEL within ±10 %
+    of the realised loss, and every zero-config stress scenario moves EL in the expected direction by a reported
+    amount. Also: a custom scenario and its mirror move EL in opposite directions, the segment totals add up, bad
+    shocks are refused, and the registered version scores loans (EL = PD·LGD·EAD per row), scores a batch, and has the
+    model card section."""
+    ds = "loan-losses"
+    s: dict[str, Any] = {}
+
+    def suggest():
+        it = get(f"/api/datasets/{ds}/intake")
+        s0 = it["suggestions"][0]
+        check(s0["id"] == "expected_loss" and s0["route"] == "expected-loss", f"top {s0['id']}")
+        p = s0["prefill"]
+        check((p["pd"], p["lgd"], p["ead"]) == ("defaulted", "lgd", "ead") and p["segments"] == ["product", "region"], p)
+        d = get("/api/expected-loss/detect", dataset_id=ds)
+        check(d["drop_columns"] == ["loan_id"] and d["split"] == "time" and d["evidence"]["lgd"], d)
+        return f"top {s0['id']} ({s0['score']:g}) · y = defaulted, LGD = lgd, EAD = ead · by product, region · drop loan_id · time split"
+    step("el: Build suggests expected loss, inputs detected", suggest)
+
+    def train():
+        rec = post("/api/expected-loss/runs", {"dataset_id": ds})  # zero-config: medium_quality, 60 s per model
+        check(rec["kind"] == "expected_loss", rec.get("kind"))
+        t0 = time.time()
+        done = wait_run(rec["id"])
+        check(done["status"] == "succeeded", done.get("error"))
+        r = get(f"/api/expected-loss/runs/{rec['id']}")
+        el = r["expected_loss"]
+        p = el["portfolio"]
+        check(p["within_10pct"] and abs(p["el"] / p["realised"] - 1) <= 0.10, f"ΣEL {p['el']:.0f} vs realised {p['realised']:.0f}")
+        check(p["ratio_ci"][0] < p["ratio"] < p["ratio_ci"][1], p["ratio_ci"])
+        for col, rows in el["segments"].items():
+            check(abs(sum(x["el"] for x in rows) - p["el"]) < 1e-6 * p["el"] and abs(sum(x["realised"] for x in rows) - p["realised"]) < 1e-3, col)
+        sc = el["scenarios"]
+        check(len(sc) >= 3 and all(x["as_expected"] for x in sc) and all(x["delta"] > 0 for x in sc), [(x["name"], x["delta"]) for x in sc])
+        for x in sc:
+            check(abs(sum(g["delta"] for g in x["segments"]["product"]) - x["delta"]) < 1e-6 * abs(x["base"]), x["name"])
+        s.update(run=rec["id"], el=el)
+        st["el"] = {"ratio": p["ratio"], "ci": p["ratio_ci"], "scenarios": {x["name"]: x["delta_pct"] for x in sc}}
+        return (f"{rec['id']} in {time.time() - t0:.0f} s · holdout {p['n']} loans: ΣEL {p['el']:,.0f} vs realised "
+                f"{p['realised']:,.0f} → {p['ratio']:.3f} [{p['ratio_ci'][0]:.3f}, {p['ratio_ci'][1]:.3f}] · PD AUC "
+                f"{el['components']['pd']['auc']:.3f} · " + ", ".join(f"{x['name']} {x['delta_pct']:+.1f}%" for x in sc))
+    if not step("el: zero-config run, ΣEL vs realised (acceptance), default scenarios", train):
+        return
+    run = s["run"]
+
+    def custom():
+        down = post(f"/api/expected-loss/runs/{run}/stress", {"shocks": [{"column": "income", "op": "pct", "value": -10}], "expect": "up"})
+        up = post(f"/api/expected-loss/runs/{run}/stress", {"shocks": [{"column": "income", "op": "pct", "value": 10}], "expect": "down"})
+        check(down["delta"] > 0 and up["delta"] < 0 and down["as_expected"] and up["as_expected"], (down["delta"], up["delta"]))
+        check(down["components"]["pd"]["stressed"] > down["components"]["pd"]["base"], "PD did not rise")
+        prod = post(f"/api/expected-loss/runs/{run}/stress", {"name": "all loans become cards", "shocks": [{"column": "product", "op": "set", "value": "card"}]})
+        check(prod["shocks"][0]["changed"] > 0, prod["shocks"])
+        b1 = C.post(f"/api/expected-loss/runs/{run}/stress", json={"shocks": [{"column": "nope", "op": "pct", "value": 1}]})
+        b2 = C.post(f"/api/expected-loss/runs/{run}/stress", json={"shocks": [{"column": "product", "op": "pct", "value": 1}]})
+        check(b1.status_code == 400 and b2.status_code == 400, (b1.status_code, b2.status_code))
+        saved = get(f"/api/expected-loss/runs/{run}")["custom_scenarios"]
+        check(len(saved) >= 3, len(saved))
+        return (f"income −10% → ΔEL {down['delta']:+,.0f} ({down['delta_pct']:+.1f}%), +10% → {up['delta']:+,.0f} "
+                f"({up['delta_pct']:+.1f}%) · all cards {prod['delta_pct']:+.1f}% · unknown column / % on a category → 400")
+    step("el: custom stress scenarios", custom)
+
+    def registry():
+        v = post(f"/api/runs/{run}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.expected-loss"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready" and v["result"]["kind"] == "expected_loss", v.get("error"))
+        rows = [{"product": "card", "region": "north", "income": 40000, "credit_score": 600, "debt_to_income": 0.5, "utilization": 0.9,
+                 "credit_limit": 10000, "current_balance": 9000, "collateral_value": 0, "term_months": 0, "application_date": "2024-12-01"},
+                {"product": "auto", "region": "west", "income": 90000, "credit_score": 760, "debt_to_income": 0.15, "utilization": 0.5,
+                 "credit_limit": 30000, "current_balance": 15000, "collateral_value": 25000, "term_months": 60, "application_date": "2024-12-01"}]
+        sc = post(f"/api/registry/versions/{v['id']}/score", {"rows": rows})
+        res = sc["results"]
+        check(all(abs(r["el"] - r["pd"] * r["lgd"] * r["ead"]) < 1e-3 * max(r["el"], 1) for r in res), res)
+        check(res[0]["pd"] > res[1]["pd"] and res[0]["lgd"] > res[1]["lgd"], res)
+        batch = pd.DataFrame(rows * 50)
+        b = j(C.post(f"/api/registry/versions/{v['id']}/batches", files={"file": ("loans.csv", batch.to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+        check(b["status"] == "succeeded", b.get("error"))
+        summ = b["result"]["summary"]
+        check(abs(summ["total_el"] - 50 * (res[0]["el"] + res[1]["el"])) < 1e-3 * summ["total_el"], summ["total_el"])
+        card = C.get(f"/api/registry/versions/{v['id']}/card", params={"format": "md"}).text
+        check("Expected loss (PD × LGD × EAD)" in card and "Stress scenario" in card, "card section")
+        return (f"{v['id']} ready · /score: a risky card EL {res[0]['el']:,.0f} (PD {res[0]['pd']:.3f}, LGD {res[0]['lgd']:.2f}, "
+                f"EAD {res[0]['ead']:,.0f}) vs a secured auto loan {res[1]['el']:,.0f} · batch of 100 ΣEL {summ['total_el']:,.0f} · card section")
+    step("el: registered; scores loans and a batch; model card", registry)
+
+
 def _dr_evidence(kind: str, ev: dict[str, Any]) -> str:
     if kind == "leakage":
         su = ev["suspects"][0]
@@ -4729,7 +4823,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

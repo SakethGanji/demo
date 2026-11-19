@@ -509,7 +509,7 @@ export type HoldoutPredictions = {
 export type RunEventType =
   | 'run_queued' | 'run_started' | 'data_ready' | 'config_resolved' | 'fit_started'
   | 'model_started' | 'model_finished' | 'model_failed' | 'ensemble' | 'fit_finished'
-  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing'
+  | 'leaderboard' | 'evaluation' | 'text_models' | 'explaining' | 'feature_importance' | 'log' | 'calibrating' | 'threshold' | 'tracked' | 'post_fit' | 'forecast_ready' | 'importing' | 'el_model_started' | 'el_model_finished'
   | 'run_succeeded' | 'run_failed' | 'run_cancelled'
 
 /** One event. `phase` is "main" or "dystack" (AutoGluon's dynamic-stacking sub-fit) on fit events. */
@@ -878,6 +878,8 @@ export type ModelCard = {
   /** G1: counterfactuals: the user's overrides and the stored acceptance check. */
   recourse?: { method: string; overrides: Record<string, RecourseAction>; updated_by?: string | null; check: RecourseCheck | null } | null
   credit_report?: { last: { headline: CreditReport['headline']; on: string; computed_at: string } | null; links: { html: string; md: string } } | null
+  /** G3: an expected-loss version's holdout check and stress scenarios. */
+  expected_loss?: { columns: { pd: string; lgd: string; ead: string }; portfolio: { el: number; realised: number; ratio: number | null; ratio_ci: [number, number]; n: number; defaults: number; within_10pct: boolean }; scenarios: { name: string; delta: number; delta_pct: number | null; as_expected: boolean | null }[] } | null
   /** F19: what the source run's later checks found (F6 split, F7 cost, F12, F14, F15, F16, F17), as summaries. */
   diagnostics?: {
     split: { strategy: string; key: string | null; group_column: string | null; time_column: string | null; cutoff: string | null }

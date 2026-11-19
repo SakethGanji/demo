@@ -332,7 +332,7 @@ export function followRun(id: string, onEvent: (e: RunEvent) => void,
   const terminal = new Set(['run_succeeded', 'run_failed', 'run_cancelled'])
   const types = ['run_queued', 'run_started', 'data_ready', 'config_resolved', 'fit_started', 'model_started', 'model_finished',
     'model_failed', 'ensemble', 'fit_finished', 'leaderboard', 'evaluation', 'text_models', 'explaining', 'feature_importance',
-    'log', 'calibrating', 'threshold', 'tracked', 'post_fit', 'forecast_ready', 'importing', 'run_succeeded', 'run_failed', 'run_cancelled']
+    'log', 'calibrating', 'threshold', 'tracked', 'post_fit', 'forecast_ready', 'importing', 'el_model_started', 'el_model_finished', 'run_succeeded', 'run_failed', 'run_cancelled']
   let next = opts.from ?? 0
   let ended = false
   let es: EventSource | null = null

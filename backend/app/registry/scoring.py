@@ -422,7 +422,33 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
         train = pd.read_csv(cfg["csv_path"])
         out_path = out_dir_p / "scored.csv"
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.2)
-        if kind == "anomaly":
+        if kind == "expected_loss":  # G3: PD · LGD · EAD per loan, PSI of the inputs and of EL against the run's holdout
+            from ..el import core as elc
+
+            t0 = time.time()
+            out, summ = elc.score_batch(version_path, df)
+            score_s = time.time() - t0
+            out.to_csv(out_path, index=False)
+            meta = elc.load(version_path)["meta"]
+            feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns]
+            kinds = {c: ("number" if meta["ranges"][c].get("numeric") else "category") for c in feats}
+            ref_f = Path(cfg["run_dir"]) / "el_holdout.csv"
+            ref_pred = pd.DataFrame({"y_pred": pd.read_csv(ref_f)["el"].to_numpy(dtype=float)}) if ref_f.exists() \
+                else pd.DataFrame({"y_pred": out["expected_loss"].to_numpy(dtype=float)})
+            cur_pred = pd.DataFrame({"y_pred": out["expected_loss"].to_numpy(dtype=float)})
+            reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
+            rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=ref_pred, cur_pred=cur_pred, positive=None)
+            rep["prediction"]["output"] = "expected loss EL = PD · LGD · EAD per loan"
+            rep["prediction_reference"] = "EL of the run's holdout loans"
+            rep["reference"] = "the loans the three models were trained on"
+            summary = {"n_rows": int(len(df)), "seconds": time.time() - t_start, "score_seconds": score_s,
+                       "us_per_row": score_s / len(df) * 1e6, "model": "PD · LGD · EAD", "problem_type": "expected_loss",
+                       "missing_columns": [c for c in meta["inputs"] if c not in df.columns],
+                       "extra_columns": [c for c in df.columns if c not in meta["inputs"]],
+                       "mean_prediction": float(out["expected_loss"].mean()), "std_prediction": float(out["expected_loss"].std()),
+                       "prediction_symbol": "EL", "total_el": summ["total_el"], "ead_total": summ["ead_total"],
+                       "mean_pd": summ["mean_pd"], "el_segments": summ["segments"]}
+        elif kind == "anomaly":
             import joblib
 
             from ..anomaly import core as an

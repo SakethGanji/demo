@@ -92,8 +92,28 @@ export type FlowRun = Omit<Run, 'holdout' | 'data' | 'ensembles'> & FcRunExtra &
 
 const J = (body: unknown) => ({ method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } })
 
+
+// G3 · Expected loss: PD × LGD × EAD (backend/app/el). One run trains three TabularPredictors.
+export type ElDetect = { dataset_id: string; pd_column: string | null; lgd_column: string | null; ead_column: string | null; segments: string[]; drop_columns: string[]; split: string; time_column: string | null; group_column: string | null; evidence: Record<string, string[]> }
+export type ElCreate = { dataset_id: string; pd_column?: string; lgd_column?: string; ead_column?: string; segments?: string[]; drop_columns?: string[]; time_limit?: number; presets?: string; fit_kwargs?: Record<string, unknown> }
+export type ElPortfolio = { n: number; defaults: number; default_rate: number; mean_pd: number; el: number; realised: number; ratio: number | null; error_pct: number | null; ratio_ci: [number, number]; ead_total: number; el_rate: number | null; within_10pct: boolean }
+export type ElComponent = { label: string; problem_type: string; eval_metric: string; best_model: string; train_rows: number; fit_seconds: number; n_models: number
+  auc?: number; log_loss?: number; brier?: number; mean_pd?: number; default_rate?: number; n?: number; mae?: number; rmse?: number; r2?: number | null; mean_pred?: number; mean_true?: number; sum_pred?: number; sum_true?: number }
+export type ElSegment = { value: string; n: number; el: number; share: number; mean_pd: number; mean_lgd: number; ead: number; el_rate: number | null; realised?: number; ratio?: number | null; defaults?: number }
+export type ElShock = { column: string; op: 'pct' | 'pp' | 'add' | 'set'; value: number | string }
+export type ElScenario = { name: string; shocks: (ElShock & { words: string; changed: number; clipped: number })[]; expect: 'up' | 'down' | null; why?: string | null; direction: 'up' | 'down' | 'flat'; as_expected: boolean | null
+  base: number; stressed: number; delta: number; delta_pct: number | null; components: Record<'pd' | 'lgd' | 'ead', { base: number; stressed: number }>
+  segments: Record<string, { value: string; n: number; base: number; stressed: number; delta: number; delta_pct: number | null }[]>; n: number; seconds: number }
+export type ElRange = { numeric: true; min: number; max: number; median: number; share: boolean } | { numeric: false; values: string[] }
+export type ElResult = { portfolio: ElPortfolio; components: Record<'pd' | 'lgd' | 'ead', ElComponent>; segments: Record<string, ElSegment[]>; scenarios: ElScenario[]; segment_columns: string[]
+  columns: { pd: string; lgd: string; ead: string; positive_class: string | number }; inputs: string[]; ranges: Record<string, ElRange>; holdout_rows: number
+  detected: { pd_column?: string; lgd_column?: string; ead_column?: string; segments?: string[]; drop_columns?: string[]; split?: string; evidence?: Record<string, string[]> } }
+export type ElRun = { run_id: string; name: string; status: string; error: string | null; dataset_id: string; split: { strategy?: string; params?: Record<string, unknown> } & Record<string, unknown>
+  config: { label: string; lgd_column: string; ead_column: string; segments: string[]; drop_columns: string[]; presets: string | null; time_limit: number | null }
+  expected_loss: ElResult | null; custom_scenarios: ElScenario[] }
+
 export const flows = {
-  runs: (kind: 'forecast' | 'anomaly' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
+  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
   run: (id: string) => request<FlowRun>(`/runs/${encodeURIComponent(id)}`),
   forecast: {
     options: () => request<FcOptions>('/forecast/options'),
@@ -107,6 +127,13 @@ export const flows = {
       return request<{ id: string; items: number; rows: number; seconds: number; known_covariates_source: string; chart: Omit<FcChart, 'run_id'>; model: string; download: string; recalibrated?: boolean }>(
         `/forecast/runs/${encodeURIComponent(id)}/predict`, { method: 'POST', body: f, timeoutMs: 300_000 })
     },
+  },
+  el: {
+    detect: (ds: string) => request<ElDetect>(`/expected-loss/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
+    create: (body: ElCreate) => request<FlowRun>('/expected-loss/runs', { ...J(body), timeoutMs: 60_000 }),
+    get: (id: string) => request<ElRun>(`/expected-loss/runs/${encodeURIComponent(id)}`),
+    stress: (id: string, body: { name?: string; shocks: ElShock[]; expect?: 'up' | 'down' }) =>
+      request<ElScenario>(`/expected-loss/runs/${encodeURIComponent(id)}/stress`, { ...J(body), timeoutMs: 120_000 }),
   },
   anomaly: {
     mapping: (ds: string) => request<AnGroup>(`/anomaly/mapping/${encodeURIComponent(ds)}`),

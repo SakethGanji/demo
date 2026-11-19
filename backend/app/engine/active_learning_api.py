@@ -179,7 +179,7 @@ def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dic
     res = rec.get("result") or {}
     if rec["status"] != "succeeded":
         raise HTTPException(400, f"Run {run_id} is {rec['status']}; a labelling queue needs a finished run.")
-    if cfg.get("kind") in ("forecast", "anomaly") or cfg.get("import"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss") or cfg.get("import"):
         raise HTTPException(400, "A labelling queue refits the run's own config: only trained tabular runs have one.")
     if res.get("problem_type") not in ("binary", "multiclass"):
         raise HTTPException(400, f"Active learning picks rows by class-probability uncertainty: it needs a classification "

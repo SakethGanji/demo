@@ -124,7 +124,7 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
         # Warm the new version in every predict worker, so its first Try It or /score call is not a cold one.
         try:
             got = reg.get_version(vid)
-            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly")):
+            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss")):
                 heavy.warm_path(got["path"])
                 if _inproc_ok(got, 1):  # its own thread: this callback runs in the pool's management thread
                     import threading
@@ -487,6 +487,14 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
     kind = run["config"].get("kind")
     if kind == "forecast":
         raise HTTPException(400, "A forecasting version forecasts series, not rows: use POST /api/forecast/runs/{run}/predict.")
+    if kind == "expected_loss":  # G3: one loan → PD̂, LGD̂, EAD̂ and EL
+        from ..el import core as elc
+
+        try:
+            out = await run_in_threadpool(elc.score_rows, v["path"], [body.row])
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
     if kind == "anomaly":
         from ..anomaly import core as an
 
@@ -569,7 +577,7 @@ def _inproc_ok(v: dict[str, Any], n_rows: int) -> bool:
 
 def warm_version(request: Request, v: dict[str, Any]) -> None:
     """Warm a tabular version in every predict worker and, when it qualifies, in the API process (in a thread)."""
-    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly"):
+    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss"):
         return
     request.app.state.heavy.warm_path(v["path"])
     if _inproc_ok(v, 1):
@@ -598,6 +606,15 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
     kind = meta["kind"]
     if kind == "forecast":
         raise HTTPException(400, "A forecasting version forecasts series, not rows: use POST /api/forecast/runs/{run}/predict.")
+    if kind == "expected_loss":
+        from ..el import core as elc
+
+        try:
+            out = await run_in_threadpool(elc.score_rows, v["path"], body.rows)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
+                "server_ms": (_t.perf_counter() - t0) * 1e3}
     if kind == "anomaly":
         from ..anomaly import core as an
 
@@ -644,7 +661,7 @@ async def benchmark(vid: str, request: Request) -> dict[str, Any]:
     1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    if run["config"].get("kind") in ("forecast", "anomaly"):
+    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss"):
         raise HTTPException(400, "The serving benchmark measures tabular versions (one row per call).")
     out = await request.app.state.heavy.run(scoring.benchmark_version, v["path"], run["config"])
     _reg(request).merge_version_result(vid, serving_benchmark=out)
@@ -691,7 +708,7 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
     data_date = monitoring_api.resolve_data_date(request, run, csv_path, data_date)
     reg = _reg(request)
     reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who, "data_date": data_date})
-    if kind in ("forecast", "anomaly"):
+    if kind in ("forecast", "anomaly", "expected_loss"):
         # forecast: the file is new history (same mapping); anomaly: rows to score. Same batch record and drift format.
         fut = request.app.state.heavy.submit(scoring.score_flow_batch, str(request.app.state.settings.db_path), bid, kind,
                                              v["path"], run["config"], str(csv_path), str(bdir), {"id": vid})
@@ -741,7 +758,7 @@ def _reasons_path(request: Request, model_name: str) -> Path:
 
 
 def _is_binary(v: dict[str, Any], run: dict[str, Any] | None) -> bool:
-    if not run or run["config"].get("kind") in ("forecast", "anomaly"):
+    if not run or run["config"].get("kind") in ("forecast", "anomaly", "expected_loss"):
         return False
     pt = ((v.get("result") or {}).get("version") or {}).get("problem_type")
     return pt == "binary"

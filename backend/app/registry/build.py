@@ -220,7 +220,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
     work, dest = vdir / "work", vdir / "predictor"
     data_dir = Path(db_path).parent
     step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
-    if cfg.get("kind") in ("forecast", "anomaly"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss"):
         return build_other(db_path, version_id, registry_dir)
     try:
         from autogluon.tabular import TabularPredictor
@@ -607,6 +607,29 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
             holdout = (res.get("holdout") or {}).get("metrics")
             problem = "forecast"
             metric = (res.get("eval_metric") or {}).get("name")
+        elif kind == "expected_loss":  # G3: the three predictors and meta.json, scored together
+            from ..el import core as elc
+
+            df = pd.read_csv(cfg["csv_path"])
+            elc.score_rows(str(dest), df.head(50).to_dict(orient="records"))  # warm-up
+            ts, single = [], []
+            for _ in range(3):
+                t1 = time.perf_counter()
+                elc.score_batch(str(dest), df.head(2000))
+                ts.append((time.perf_counter() - t1) / min(len(df), 2000) * 1e6)
+            for i in range(10):
+                t1 = time.perf_counter()
+                elc.score_rows(str(dest), [df.iloc[i].to_dict()])
+                single.append((time.perf_counter() - t1) * 1e3)
+            lat = {"us_per_row_p50": _pct(ts, 50), "single_ms_p50": _pct(single, 50), "single_ms_p95": _pct(single, 95),
+                   "batch_rows": min(len(df), 2000)}
+            el = res.get("expected_loss") or {}
+            best = res.get("best_model") or "PD · LGD · EAD"
+            port = el.get("portfolio") or {}
+            holdout = {"el_ratio": port.get("ratio"), "el": port.get("el"), "realised": port.get("realised"),
+                       "pd_auc": ((el.get("components") or {}).get("pd") or {}).get("auc")}
+            problem = "expected_loss"
+            metric = "ΣEL / Σ realised loss"
         else:
             from ..anomaly import core as an
 
@@ -658,7 +681,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                 "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
                 "data_sha256": data_hash, "best_model": best, "kind": kind, "approval": "pending",
                 "registered_by": v["created_by"]}, description=v["options"].get("description") or "",
-                engine="autogluon.timeseries" if kind == "forecast" else "scikit-learn")
+                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind == "expected_loss" else "scikit-learn")
             reg.merge_version_result(version_id, mlflow={**mv, "experiment_id": mlr["experiment_id"]})
             step("mlflow", "done", version=mv["version"])
         except Exception as e:  # noqa: BLE001

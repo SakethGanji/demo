@@ -570,7 +570,7 @@ def run(run_dir: Path) -> int:
         return store.emit(run_id, type_, **data)
 
     started = time.time()
-    if cfg.get("kind") in ("forecast", "anomaly"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss"):
         return run_other(cfg, run_dir, store, emit, started)
     try:
         emit("run_started", pid=os.getpid())
@@ -760,7 +760,7 @@ def import_predictor(cfg: dict[str, Any], emit, store: RunStore, run_id: str):
 
 
 def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started: float) -> int:
-    """Forecast and anomaly runs: the same process, events and terminal states as a tabular fit."""
+    """Forecast, anomaly and expected-loss runs: the same process, events and terminal states as a tabular fit."""
     run_id = cfg["run_id"]
 
     def merge(**parts: Any) -> None:
@@ -770,6 +770,8 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
         emit("run_started", pid=os.getpid(), kind=cfg["kind"])
         if cfg["kind"] == "forecast":
             from ..forecast import core
+        elif cfg["kind"] == "expected_loss":  # G3: PD, LGD and EAD TabularPredictors chained
+            from ..el import core
         else:
             from ..anomaly import core
         out = core.run(cfg, run_dir, emit, merge)

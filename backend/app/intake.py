@@ -190,7 +190,7 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
             if LGD.search(name) and lo >= 0 and hi <= 1:
                 found.append(_role("lgd", 0.9, "name reads like loss given default", f"values in [{lo:g}, {hi:g}]"))
             if EAD.search(name) and lo >= 0:
-                found.append(_role("ead", 0.85, "name reads like exposure at default", f"non-negative, max {hi:,.0f}"))
+                found.append(_role("ead", 0.9, "name reads like exposure at default", f"non-negative, max {hi:,.0f}"))
             if DURATION.search(name) and lo >= 0:
                 found.append(_role("duration", 0.75, f"name '{col}' reads like a duration", f"non-negative, {lo:g} → {hi:g}"))
             if MONEY.search(name) and lo >= 0 and not LGD.search(name) and not RATIO.search(name):
@@ -483,6 +483,26 @@ def _credit_report(ctx: Ctx):
             {"version": v["id"], "tab": "Credit Report"})
 
 
+def _expected_loss(ctx: Ctx):
+    """G3: a default flag plus loss given default and exposure at default → PD × LGD × EAD, with stress scenarios.
+    LGD and EAD are often leaks of the default flag (filled in only for defaulters), so their role may be secondary."""
+    if _task_of(ctx) != "binary":
+        return None
+
+    def having(role: str) -> str | None:
+        return next((c["name"] for c in ctx.columns if c["role"] == role), None) or \
+            next((c["name"] for c in ctx.columns if any(a["role"] == role for a in c["also"])), None)
+
+    lgd, ead = having("lgd"), having("ead")
+    if not lgd or not ead:
+        return None
+    segs = [c for c in (ctx.roles.get("segment") or []) + (ctx.roles.get("geography") or [])][:3]
+    return (97, f"'{ctx.target}' says which loans defaulted, '{lgd}' how much of the exposure was lost and '{ead}' how much "
+                f"was owed: three AutoGluon models give EL = PD · LGD · EAD per loan"
+                f"{f', broken down by {', '.join(segs)}' if segs else ''}, checked against the realised loss, with stress "
+                f"scenarios.", {"dataset_only": True, "pd": ctx.target, "lgd": lgd, "ead": ead, "segments": segs})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -495,6 +515,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("anomaly", "Find unusual rows", "anomaly", _anomaly),
     Suggestion("recourse", "What would change the decision", "registry", _recourse),  # G1
     Suggestion("credit_report", "Credit model report", "registry", _credit_report),  # G2
+    Suggestion("expected_loss", "Expected loss (PD × LGD × EAD)", "expected-loss", _expected_loss),  # G3
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 

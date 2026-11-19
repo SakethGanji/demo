@@ -1,0 +1,14 @@
+/* G3 · Expected loss: only what the shared card, table and hero styles do not cover. */
+.el-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-8); }
+.el-step { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-8) var(--space-12); display: flex; gap: 6px; align-items: baseline; font-size: 13px; }
+.el-step .mono { margin-left: auto; }
+.el-step.on { border-color: var(--accent-primary); background: var(--bg-wave-tint); }
+.el-step.done { border-color: var(--status-success); }
+.el-bar { display: inline-block; width: 70%; height: 8px; background: var(--bg-wave-tint); border-radius: 4px; vertical-align: middle; margin-right: 6px; overflow: hidden; }
+.el-bar span { display: block; height: 100%; background: var(--viz-a); }
+.el-ok { color: var(--status-success); }
+.el-bad { color: var(--status-danger); }
+.el-new { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-top: 1px solid var(--border-default); padding-top: var(--space-12); }
+.el-new .micro-label { flex-basis: 100%; }
+[data-testid='el-scenarios'] tr.clickable { cursor: pointer; }
+[data-testid='el-scenarios'] tr.selected td { background: var(--bg-wave-tint); }

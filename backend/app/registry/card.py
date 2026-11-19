@@ -193,6 +193,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "kind": cfg.get("kind") or "tabular",
         "forecasting": _forecast_section(cfg, res) if cfg.get("kind") == "forecast" else None,
         "anomaly_detection": _anomaly_section(cfg, res) if cfg.get("kind") == "anomaly" else None,
+        "expected_loss": _el_section(run),
         "imported": res.get("imported"),
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
@@ -345,6 +346,13 @@ def _anomaly_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]
 # --------------------------------------------------------------------------- Markdown
 
 
+def _el_section(run: dict[str, Any]) -> dict[str, Any] | None:
+    """G3: an expected-loss version's three models, its holdout check and its stress scenarios."""
+    from ..el.api import card_section
+
+    return card_section(run)
+
+
 def _ci(m: dict[str, Any]) -> str:
     if m.get("ci_low") is None:
         return _fmt(m.get("value"))
@@ -490,6 +498,27 @@ def to_markdown(c: dict[str, Any]) -> str:
                   f"{ck['out_of_range']}; direction breaks: {ck['wrong_direction']}.", ""]
         else:
             L += ["Check: not run yet (Registry → version → Reason codes → Recourse → Run the check).", ""]
+    el = c.get("expected_loss")
+    if el:
+        p, cols = el.get("portfolio") or {}, el.get("columns") or {}
+        ci = p.get("ratio_ci") or [None, None]
+        L += ["**Expected loss (PD × LGD × EAD)**", "",
+              f"EL_i = PD_i · LGD_i · EAD_i: three AutoGluon TabularPredictors. PD on '{cols.get('pd')}' (binary, log loss, every "
+              f"loan); LGD on '{cols.get('lgd')}' and EAD on '{cols.get('ead')}' (regression, RMSE, defaulted loans only; LGD "
+              f"clipped to [0, 1], EAD ≥ 0).", "",
+              "| Model | Target | Rows | Best model | Holdout |", "| --- | --- | ---: | --- | --- |"]
+        for k, m in (el.get("models") or {}).items():
+            chk = f"AUC {_fmt(m.get('auc'))}, mean PD {_fmt(m.get('mean_pd'))} vs rate {_fmt(m.get('default_rate'))}" if k == "pd" \
+                else f"MAE {_fmt(m.get('mae'))}, R² {_fmt(m.get('r2'))}"
+            L.append(f"| {k.upper()} | {m.get('label')} | {m.get('train_rows')} | {m.get('best_model')} | {chk} |")
+        L += ["", f"Holdout: ΣEL {_fmt(p.get('el'), 0)} vs realised loss {_fmt(p.get('realised'), 0)} on {p.get('n')} loans "
+                  f"({p.get('defaults')} defaults): ratio {_fmt(p.get('ratio'))} (95% bootstrap CI {_fmt(ci[0])}–{_fmt(ci[1])}), "
+                  f"{'within' if p.get('within_10pct') else 'outside'} ±10%.", ""]
+        if el.get("scenarios"):
+            L += ["| Stress scenario | ΔEL | Δ% | Expected direction met |", "| --- | ---: | ---: | --- |"]
+            L += [f"| {s['name']} | {_fmt(s.get('delta'), 0)} | {_fmt(s.get('delta_pct'), 1)} | "
+                  f"{'—' if s.get('as_expected') is None else 'yes' if s['as_expected'] else 'no'} |" for s in el["scenarios"]]
+            L.append("")
     cr = c.get("credit_report")
     if cr:
         h = ((cr.get("last") or {}).get("headline")) or {}

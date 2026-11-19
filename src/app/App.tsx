@@ -5,6 +5,7 @@ import { ExperimentsPage } from '@/features/experiments/ExperimentsPage'
 import { AnomalyPage } from '@/features/anomaly/AnomalyPage'
 import { ExplainPage } from '@/features/explain/ExplainPage'
 import { ForecastPage } from '@/features/forecast/ForecastPage'
+import { ExpectedLossPage } from '@/features/expected-loss/ExpectedLossPage'
 import { ImportPage } from '@/features/import/ImportPage'
 import { HomePage } from '@/features/home/HomePage'
 import { QuickTrainPage } from '@/features/quick-train/QuickTrainPage'
@@ -96,6 +97,7 @@ export default function App() {
           {route === 'forecast' && <ForecastPage go={go} />}
           {route === 'anomaly' && <AnomalyPage go={go} />}
           {route === 'import' && <ImportPage go={go} />}
+          {route === 'expected-loss' && <ExpectedLossPage go={go} />}
         </main>
       </div>
 
