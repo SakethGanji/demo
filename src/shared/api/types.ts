@@ -286,7 +286,7 @@ export type MonotoneCheck = {
 
 // -- Business cost (F7) ------------------------------------------------------------------------------------------
 
-export type CostRequest = { c_fp: number; c_fn: number; g_tp?: number } | { classes: string[]; matrix: number[][] }
+export type CostRequest = { c_fp: number; c_fn: number; g_tp?: number; positive_class?: string } | { classes: string[]; matrix: number[][] }
 /** The cost as the run stored it (normalised by the API). */
 export type RunCost =
   | { kind: 'binary'; c_fp: number; c_fn: number; g_tp: number; classes: string[]; positive_class: string; bayes_threshold: number }

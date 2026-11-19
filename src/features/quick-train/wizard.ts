@@ -84,9 +84,17 @@ export const costMatrix = (c: CostChoice, k: number) =>
 export function costPayload(ds: Dataset, ch: Choices, task: Task | null) {
   if (ch.metric !== COST_METRIC || !task) return null
   const c = ch.cost ?? DEFAULT_COST
-  if (task === 'binary') return { c_fp: c.c_fp, c_fn: c.c_fn, g_tp: c.g_tp }
+  if (task === 'binary') return { c_fp: c.c_fp, c_fn: c.c_fn, g_tp: c.g_tp, positive_class: costPositive(ds, ch.label) }
   const classes = labelClasses(ds, ch.label).map((x) => x.name)
   return { classes, matrix: costMatrix(c, classes.length) }
+}
+
+/** The class whose miss costs c_FN: the rarer one (bad of good/bad), as the API picks it; the last by name on a tie. */
+export function costPositive(ds: Dataset, label: string): string | undefined {
+  const cls = labelClasses(ds, label)
+  if (cls.length !== 2) return undefined
+  const [a, b] = [...cls].sort((x, y) => (x.name < y.name ? -1 : 1))
+  return a.share < b.share ? a.name : b.name
 }
 
 /** Share of the rarest class of the label (1 when unknown). */

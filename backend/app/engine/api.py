@@ -430,8 +430,18 @@ def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: 
     if pt == "auto":
         pt = "binary" if len(classes) == 2 else \
             "regression" if cols[label]["type"] == "number" and cols[label]["unique"] > 50 else "multiclass"
+    cost = dict(body.cost or {})
+    if pt == "binary" and len(classes) == 2:
+        # The positive class of a cost is the one whose miss costs c_FN: the given one, else AutoGluon's, else the rarer
+        # class (bad of good/bad, as Smart Intake describes it), not the alphabetically last one AutoGluon would pick.
+        if cost.get("positive_class") is None:
+            vc = y.astype(str).value_counts()
+            cost["positive_class"] = body.predictor_kwargs.get("positive_class") or (
+                vc.idxmin() if vc.iloc[0] != vc.iloc[-1] else str(classes[1]))
+        body.predictor_kwargs.setdefault("positive_class", next((c for c in classes if str(c) == str(cost["positive_class"])),
+                                                                 cost["positive_class"]))
     try:
-        return costs.normalise(body.cost or {}, pt, classes)
+        return costs.normalise(cost, pt, classes)
     except ValueError as e:
         raise HTTPException(400, f"cost: {e}") from e
 
@@ -911,7 +921,8 @@ def _cost_for(rec: dict[str, Any], c_fp: float | None, c_fn: float | None, g_tp:
         if c_fp is None or c_fn is None:
             raise HTTPException(400, "Give both c_fp and c_fn.")
         try:
-            return costs.normalise({"c_fp": c_fp, "c_fn": c_fn, "g_tp": g_tp or 0}, "binary", res.get("classes") or [])
+            return costs.normalise({"c_fp": c_fp, "c_fn": c_fn, "g_tp": g_tp or 0, "positive_class": res.get("positive_class")},
+                                   "binary", res.get("classes") or [])
         except ValueError as e:
             raise HTTPException(400, f"cost: {e}") from e
     cost = rec["config"].get("cost")

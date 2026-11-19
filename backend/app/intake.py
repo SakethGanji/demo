@@ -156,7 +156,8 @@ def _target_candidates(df: pd.DataFrame, types: dict[str, str], skip: set[str] |
         named = bool(TARGET_NAME.search(str(col)))
         if named:
             score += 10; ev.append(f"name '{col}' reads like a label")
-        if 2 <= k <= MAX_CLASSES and (t == "category" or k <= 10):
+        many = named and t == "category" and MAX_CLASSES < k <= 500 and len(s) / k >= 20  # e.g. 77 banking intents
+        if (2 <= k <= MAX_CLASSES or many) and (t == "category" or k <= 10):
             task = "binary" if k == 2 else "multiclass"
             score += 2 if t == "category" else 1
             ev.append(f"{k} distinct values")
@@ -419,7 +420,7 @@ def _task_of(ctx: Ctx) -> str | None:
     k = int(ctx.df[t].nunique(dropna=True))
     if pd.api.types.is_numeric_dtype(ctx.df[t]) and k > MAX_CLASSES:
         return "regression"
-    return "binary" if k == 2 else "multiclass" if 2 < k <= MAX_CLASSES else None
+    return "binary" if k == 2 else "multiclass" if 2 < k <= MAX_CLASSES or (k <= 500 and len(ctx.df) / k >= 20) else None
 
 
 def _tabular_prefill(ctx: Ctx, **extra: Any) -> dict[str, Any]:

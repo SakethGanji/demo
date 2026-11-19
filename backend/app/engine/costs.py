@@ -56,8 +56,11 @@ def normalise(cost: dict[str, Any], problem_type: str, classes: Sequence[Any]) -
             raise ValueError("c_fp, c_fn and g_tp are amounts ≥ 0 (g_tp is a gain, entered as a positive number).")
         if c_fp + c_fn + g_tp <= 0:
             raise ValueError("at least one of c_fp, c_fn, g_tp must be above 0.")
+        pos = _as_str(cost["positive_class"]) if cost.get("positive_class") is not None else names[1]
+        if pos not in names:
+            raise ValueError(f"positive_class '{pos}' is not a class of the label ({', '.join(names)}).")
         return {"kind": "binary", "c_fp": c_fp, "c_fn": c_fn, "g_tp": g_tp, "classes": names,
-                "positive_class": names[1], "bayes_threshold": bayes_threshold(c_fp, c_fn, g_tp)}
+                "positive_class": pos, "bayes_threshold": bayes_threshold(c_fp, c_fn, g_tp)}
     if problem_type == "multiclass":
         given = [_as_str(c) for c in cost.get("classes") or []]
         m = cost.get("matrix")

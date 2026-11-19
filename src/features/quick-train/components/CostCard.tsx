@@ -1,5 +1,5 @@
 import type { Dataset } from '../datasets'
-import { DEFAULT_COST, bayesThreshold, costMatrix, labelClasses, type Choices, type CostChoice, type Task } from '../wizard'
+import { DEFAULT_COST, bayesThreshold, costMatrix, costPositive, labelClasses, type Choices, type CostChoice, type Task } from '../wizard'
 
 /**
  * F7: what one decision costs. Binary: c_FP, c_FN and an optional gain g_TP per decision, shown as the 2 × 2 cost
@@ -12,8 +12,8 @@ export function CostCard({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
   const classes = labelClasses(ds, ch.label)
   if (task === 'binary') {
     const names = classes.map((x) => x.name)
-    const pos = names.length === 2 ? [...names].sort()[1] : 'positive'
-    const neg = names.length === 2 ? [...names].sort()[0] : 'negative'
+    const pos = costPositive(ds, ch.label) ?? 'positive'
+    const neg = names.length === 2 ? names.find((n) => n !== pos) ?? 'negative' : 'negative'
     const prev = classes.find((x) => x.name === pos)?.share ?? null
     const t = bayesThreshold(c)
     const none = prev != null ? 1000 * c.c_fn * prev : null
