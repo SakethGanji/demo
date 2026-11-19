@@ -454,7 +454,7 @@ def _binary(ctx: Ctx):
     what = f"{risk.group(0).capitalize()} risk model" if risk else "Yes/no classifier"
     return (95 if TARGET_NAME.search(t) else 80,
             f"'{t}' has two values ({rare} is {vc.iloc[-1] / vc.sum() * 100:.1f}% of rows), so it is a yes/no outcome. "
-            f"Pre-filled with {_split_words(p)} and a business cost (a missed {rare} costs 10× a false alarm; edit it in Goal)."
+            f"Pre-filled with {_split_words(p)} and a business cost (a missed {rare} costs 5× a false alarm: check that ratio in Goal)."
             + (f" {', '.join(repr(c) for c in fl)} {'is' if len(fl) == 1 else 'are'} left out of the model and kept for the "
                f"fair-lending check (Registry → Fair Lending)." if (fl := [c for r in ("surname", "zip", "protected") for c in ctx.roles.get(r) or []]) else "")
             + (f" Only the approved applicants have an outcome, so this model learns from them alone: see Reject inference."

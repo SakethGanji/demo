@@ -25,7 +25,7 @@ export function SplitCostCards({ body, setBody, pt }: { body: Body; setBody: (b:
   const strategy: SplitStrategy = spec?.strategy ?? 'random-stratified'
   const strategies = opts?.strategies ?? ['random-stratified']
   const cost = (body.cost ?? null) as { c_fp: number; c_fn: number; g_tp?: number } | null
-  const putCost = (k: 'c_fp' | 'c_fn' | 'g_tp', x: number) => setBody({ ...body, eval_metric: null, cost: { c_fp: 1, c_fn: 10, g_tp: 0, ...(cost ?? {}), [k]: x } })
+  const putCost = (k: 'c_fp' | 'c_fn' | 'g_tp', x: number) => setBody({ ...body, eval_metric: null, cost: { c_fp: 1, c_fn: 5, g_tp: 0, ...(cost ?? {}), [k]: x } })
   const tStar = cost ? (cost.c_fp) / (cost.c_fp + cost.c_fn + (cost.g_tp ?? 0)) : null
   return (
     <>
@@ -55,7 +55,7 @@ export function SplitCostCards({ body, setBody, pt }: { body: Body; setBody: (b:
             <div className="gym-row"><div className="label"><b>Optimise expected cost</b><small>model selection, ensemble weights and the threshold t minimise cost per decision</small></div>
               <div className="ctl"><div className="seg" role="radiogroup" aria-label="Business cost" data-testid="gym-cost-on">
                 <button role="radio" aria-checked={!cost} className={!cost ? 'on' : ''} onClick={() => setBody({ ...body, cost: null })}>off</button>
-                <button role="radio" aria-checked={!!cost} className={cost ? 'on' : ''} onClick={() => setBody({ ...body, eval_metric: null, calibrate_threshold: 'auto', cost: cost ?? { c_fp: 1, c_fn: 10, g_tp: 0 } })}>on</button>
+                <button role="radio" aria-checked={!!cost} className={cost ? 'on' : ''} onClick={() => setBody({ ...body, eval_metric: null, calibrate_threshold: 'auto', cost: cost ?? { c_fp: 1, c_fn: 5, g_tp: 0 } })}>on</button>
               </div></div>
             </div>
             {cost && <div className="row" style={{ gap: 'var(--space-16)', flexWrap: 'wrap' }}>

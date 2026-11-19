@@ -18,7 +18,7 @@ export function CostCard({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
     const t = bayesThreshold(c)
     const none = prev != null ? 1000 * c.c_fn * prev : null
     const all = prev != null ? 1000 * (c.c_fp * (1 - prev) - c.g_tp * prev) : null
-    const ratios: [string, Partial<CostChoice>][] = [['FN = 10 × FP', { c_fp: 1, c_fn: 10, g_tp: 0 }], ['FN = 5 × FP', { c_fp: 1, c_fn: 5, g_tp: 0 }], ['FN = FP', { c_fp: 1, c_fn: 1, g_tp: 0 }]]
+    const ratios: [string, Partial<CostChoice>][] = [['FN = 5 × FP', { c_fp: 1, c_fn: 5, g_tp: 0 }], ['FN = 10 × FP', { c_fp: 1, c_fn: 10, g_tp: 0 }], ['FN = FP', { c_fp: 1, c_fn: 1, g_tp: 0 }]]
     return (
       <div className="card" data-testid="cost-card">
         <div className="card-head"><h3 className="card-title">Business Cost</h3><span className="micro-label nocase">per decision, in your own unit (£, hours, …)</span></div>
@@ -28,6 +28,7 @@ export function CostCard({ ds, ch, set, task }: { ds: Dataset; ch: Choices; set:
             <Num sym="c_FN" label={`miss a ${pos} row (false negative)`} value={c.c_fn} onChange={(v) => put({ c_fn: v })} testId="cost-fn" />
             <Num sym="g_TP" label={`catch a ${pos} row (gain, optional)`} value={c.g_tp} onChange={(v) => put({ g_tp: v })} testId="cost-tp" />
           </div>
+          <p className="helper" data-testid="cost-check">Check this ratio: it sets t* and so how many rows get flagged. Use your own numbers (e.g. the loss on a missed {pos} vs the margin lost on a wrongly flagged {neg}).</p>
           <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
             {ratios.map(([k, v]) => <button key={k} className={`btn sm ${c.c_fp === v.c_fp && c.c_fn === v.c_fn && c.g_tp === 0 ? 'primary' : ''}`} onClick={() => put(v)}>{k}</button>)}
           </div>

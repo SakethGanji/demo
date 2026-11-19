@@ -70,7 +70,8 @@ export function rangePayload(ch: Choices, task: Task | null) {
 
 /** F7: binary costs per decision (c_FP, c_FN, gain g_TP) and, for multiclass, the K × K matrix (rows: truth). */
 export type CostChoice = { c_fp: number; c_fn: number; g_tp: number; matrix: number[][] | null }
-export const DEFAULT_COST: CostChoice = { c_fp: 1, c_fn: 10, g_tp: 0, matrix: null }
+/** 5 : 1 is a common credit default (German credit's published matrix); 10 : 1 flagged ~70% of real card holders. */
+export const DEFAULT_COST: CostChoice = { c_fp: 1, c_fn: 5, g_tp: 0, matrix: null }
 export const COST_METRIC = 'expected_cost'
 
 /** The Bayes threshold of a binary cost: predict positive when p̂ > t* = c_FP / (c_FP + c_FN + g_TP). */
