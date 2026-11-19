@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..splits import holdout_mask
 from . import active_learning as al
 from .runner import dev_reload
 from .store import now
@@ -82,12 +83,6 @@ def _kill(pid: int, sig: int = signal.SIGTERM) -> None:
         os.killpg(os.getpgid(pid), sig)
     except (ProcessLookupError, PermissionError):
         pass
-
-
-def _running(run_id: str) -> bool:
-    with _LOCK:
-        p = _PROCS.get(run_id)
-    return p is not None and p.poll() is None
 
 
 def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
@@ -285,8 +280,7 @@ def _slice_filter(request: Request, rec: dict[str, Any], sid: str) -> dict[str, 
     cols = {c["column"] for c in s["conditions"]} | {rec["label"]}
     data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
     splits = json.loads(Path(cfg["splits_path"]).read_text())
-    is_h = np.zeros(len(data), dtype=bool)
-    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    is_h = holdout_mask(splits, len(data))
     m = sl.slice_mask(data, s["conditions"]) & ~is_h
     lab = data[rec["label"]].notna().to_numpy()
     return {"id": sid, "label": s["label"], "conditions": s["conditions"], "train_in_slice": int((m & lab).sum()),

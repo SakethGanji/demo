@@ -208,7 +208,6 @@ def engine_info() -> dict[str, Any]:
 async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     from ..gym.api import check_run_body
 
-    app = request.app
     await check_run_body(request, body.model_dump())
     return await run_in_threadpool(_create_run, body, request)
 

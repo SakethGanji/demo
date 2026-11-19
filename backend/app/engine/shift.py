@@ -41,6 +41,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.stats import rankdata
+
+from ..stats import delong
 
 SCHEMA = "shift/1"
 ORIGIN = "__shift_origin"
@@ -115,48 +118,10 @@ def summary(state: dict[str, Any] | None) -> dict[str, Any] | None:
 # --------------------------------------------------------------------------- statistics
 
 
-def _midrank(x: np.ndarray) -> np.ndarray:
-    order = np.argsort(x, kind="mergesort")
-    xs = x[order]
-    n = len(x)
-    t = np.zeros(n, dtype=float)
-    i = 0
-    while i < n:
-        j = i
-        while j < n and xs[j] == xs[i]:
-            j += 1
-        t[i:j] = 0.5 * (i + j - 1) + 1
-        i = j
-    out = np.empty(n, dtype=float)
-    out[order] = t
-    return out
-
-
-def delong(y: np.ndarray, s: np.ndarray, level: float = LEVEL) -> dict[str, Any]:
-    """AUC with DeLong's variance: V10ᵢ (each new row: share of reference rows it outranks), V01ⱼ (each reference
-    row: share of new rows that outrank it); Var = S10/m + S01/n."""
-    from scipy.stats import norm
-
-    y = np.asarray(y).astype(int)
-    s = np.asarray(s, dtype=float)
-    pos, neg = s[y == 1], s[y == 0]
-    m, n = len(pos), len(neg)
-    tx, ty, tz = _midrank(pos), _midrank(neg), _midrank(np.concatenate([pos, neg]))
-    auc = float((tz[:m].sum() - m * (m + 1) / 2) / (m * n))
-    v10 = (tz[:m] - tx) / n
-    v01 = 1.0 - (tz[m:] - ty) / m
-    s10, s01 = float(np.var(v10, ddof=1)), float(np.var(v01, ddof=1))
-    var = s10 / m + s01 / n
-    se = float(np.sqrt(max(var, 0.0)))
-    z = float(norm.ppf(0.5 + level / 2))
-    return {"value": auc, "se": se, "ci": [max(0.0, auc - z * se), min(1.0, auc + z * se)], "level": level, "z": z,
-            "m": m, "n": n, "s10": s10, "s01": s01, "method": "DeLong (midranks)"}
-
-
 def permutation_null(y: np.ndarray, s: np.ndarray, B: int, seed: int = 15) -> dict[str, Any]:
     """AUC of the fixed out-of-fold scores against B shuffles of the origin labels. AUC = (Σ ranks of o = 1 − m(m+1)/2)/(m·n)."""
     y = np.asarray(y).astype(int)
-    r = _midrank(np.asarray(s, dtype=float))
+    r = rankdata(np.asarray(s, dtype=float))
     m, n = int(y.sum()), int(len(y) - y.sum())
     obs = float((r[y == 1].sum() - m * (m + 1) / 2) / (m * n))
     rng = np.random.default_rng(seed)
@@ -250,7 +215,6 @@ def _cast(df: pd.DataFrame, kinds: dict[str, str]) -> pd.DataFrame:
 
 
 def load_sets(req: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    feats = req["features"]
     a = pd.read_csv(req["reference"]["csv"])
     if req["reference"].get("rows") is not None:
         a = a.iloc[np.asarray(req["reference"]["rows"], dtype=int)]

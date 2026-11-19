@@ -29,6 +29,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import config
+from ..splits import holdout_mask
 from . import shift as sh
 from .runner import dev_reload
 from .store import now
@@ -102,8 +103,7 @@ def _kinds(request: Request, rec: dict[str, Any]) -> dict[str, str]:
 def _split_rows(cfg: dict[str, Any], df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """(reference rows, holdout rows): every non-holdout row with a label (the drift reference), the labelled holdout."""
     sp = json.loads(Path(cfg["splits_path"]).read_text())
-    is_h = np.zeros(len(df), dtype=bool)
-    is_h[np.asarray(sp["holdout"], dtype=int)] = True
+    is_h = holdout_mask(sp, len(df))
     lab = df[cfg["label"]].notna().to_numpy()
     return np.flatnonzero(~is_h & lab), np.flatnonzero(is_h & lab)
 
@@ -257,15 +257,10 @@ def _state(rec: dict[str, Any], key: str, store: Any) -> dict[str, Any] | None:
     return st
 
 
-def _base_body(rec: dict[str, Any]) -> dict[str, Any]:
-    from ..gym.api import run_body
-
-    return run_body(rec)
-
-
 def actions(request: Request, rec: dict[str, Any], st: dict[str, Any]) -> list[dict[str, Any]]:
     """The remedies, each a concrete request: an out-of-time twin (F6), a Gym patch dropping a shifting column, or
     importance weights as a dataset column (`shift_weight`) passed as sample_weight."""
+    from ..gym.api import run_body
     from ..vela.findings import make_patch
 
     res = st.get("result") or {}
@@ -287,7 +282,7 @@ def actions(request: Request, rec: dict[str, Any], st: dict[str, Any]) -> list[d
                             f"Validate on rows after a cut-off on {tcol} (F6): the holdout then looks like the future, so the "
                             "score shows what the shift costs. POST /api/runs/{id}/split-twin with this split_spec."),
                     "endpoint": f"/api/runs/{rec['id']}/split-twin"})
-    base = _base_body(rec)
+    base = run_body(rec)
     drop0 = list(base.get("drop_columns") or [])
     for f in (res.get("features") or [])[:3]:
         if not f.get("significant") or not (res.get("verdict") or {}).get("shift"):
@@ -456,6 +451,7 @@ def weights_version(run_id: str, key: str, request: Request) -> dict[str, Any]:
     """Importance weighting: the run's dataset with a `shift_weight` column (w(x) for each reference row, 1 for every
     other row) as a dataset version with the same split (holdout untouched), plus the Gym patch that trains on it with
     predictor_kwargs.sample_weight = 'shift_weight'."""
+    from ..gym.api import run_body
     from ..splits import save_splits
     from ..vela.findings import make_patch
 
@@ -497,7 +493,7 @@ def weights_version(run_id: str, key: str, request: Request) -> dict[str, Any]:
         p = ds.split_path(new_rec["id"], cfg["label"], split["strategy"], split.get("params"))
         p.parent.mkdir(parents=True, exist_ok=True)
         save_splits(p, {**sp, "derived_from": src})
-    base = _base_body(rec)
+    base = run_body(rec)
     pk = dict(base.get("predictor_kwargs") or {})
     prev = pk.get("sample_weight")
     patch = make_patch(base, f"shift-weights-{key}", "Importance Weighting", [

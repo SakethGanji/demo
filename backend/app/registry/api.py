@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from .. import config
 from ..engine import explain
 from . import build, card, scoring, tracking
-from .store import STAGES, RegistryStore
+from .store import RegistryStore
 
 router = APIRouter(prefix="/api")
 

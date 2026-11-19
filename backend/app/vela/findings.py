@@ -24,6 +24,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..splits import holdout_mask
+
 ID_NAME = re.compile(r"(^id$|_id$|^id_|uuid|^key$|_key$|^row$|^index$)", re.I)
 
 
@@ -58,10 +60,6 @@ def make_patch(base: dict[str, Any], pid: str, title: str, changes: list[tuple[s
         _set_path(body, path, to)
         out.append({"path": path, "from": frm, "to": to, "label": label})
     return {"id": pid, "title": title, "changes": out, "body": body}
-
-
-def _fmt(v: Any) -> str:
-    return json.dumps(v, ensure_ascii=False) if not isinstance(v, str) else repr(v)
 
 
 def _metric(res: dict[str, Any]):
@@ -374,12 +372,11 @@ def f_leakage(rec, base, data, out):
     imp = {r["feature"]: float(r.get("importance") or 0) for r in fi if r.get("feature")}
     pos_total = sum(v for v in imp.values() if v > 0) or 0.0
     splits = json.loads(Path(rec["config"]["splits_path"]).read_text())
-    is_h = np.zeros(len(data), dtype=bool)
-    is_h[np.asarray(splits["holdout"], dtype=int)] = True
+    is_h = holdout_mask(splits, len(data))
     rows_tr, rows_ho = np.flatnonzero(~is_h), np.flatnonzero(is_h)
     pt = res.get("problem_type")
     suspects = []
-    ranked = sorted(imp.items(), key=lambda kv: -kv[1])[:3] if imp else [(f, 0.0) for f in feats[:0]]
+    ranked = sorted(imp.items(), key=lambda kv: -kv[1])[:3] if imp else []
     for f, v in ranked:
         share = v / pos_total if pos_total > 0 else 0.0
         if share < 0.5 or f not in data.columns:

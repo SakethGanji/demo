@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import copy
 import difflib
-import json
-import math
 from statistics import median
 from typing import Any
 
@@ -570,12 +568,4 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
     }
 
 
-def json_ok(v: Any) -> bool:
-    try:
-        json.dumps(v)
-        return True
-    except (TypeError, ValueError):
-        return False
-
-
-__all__ = ["validate", "infer_problem_type", "estimate", "rates_from_history", "math"]
+__all__ = ["validate", "infer_problem_type", "estimate", "rates_from_history"]

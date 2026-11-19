@@ -99,16 +99,6 @@ def multiclass_cost_scorer(matrix: Sequence[Sequence[float]]):
                        needs_proba=True, matrix=m)
 
 
-def scorer_for(cost: dict, problem_type: str, classes: Sequence | None = None):
-    """The eval_metric of a cost run. `cost` is the run's request: {c_fp, c_fn, g_tp} (binary) or
-    {classes, matrix} (multiclass; reordered here to `classes`, AutoGluon's internal order)."""
-    if problem_type == "binary":
-        return binary_cost_scorer(cost["c_fp"], cost["c_fn"], cost.get("g_tp") or 0.0)
-    if problem_type == "multiclass":
-        return multiclass_cost_scorer(reorder_matrix(cost, classes))
-    raise ValueError(f"A cost metric applies to binary or multiclass labels, not {problem_type}.")
-
-
 def reorder_matrix(cost: dict, classes: Sequence | None) -> list[list[float]]:
     names = [str(c) for c in cost["classes"]]
     if classes is None:

@@ -394,6 +394,13 @@ def load_splits(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text())
 
 
+def holdout_mask(splits: dict[str, Any], n: int) -> np.ndarray:
+    """Boolean mask over the n rows of data.csv: True on the fixed holdout rows."""
+    m = np.zeros(n, dtype=bool)
+    m[np.asarray(splits["holdout"], dtype=int)] = True
+    return m
+
+
 def fold_indices(splits: dict[str, Any], k: int) -> tuple[np.ndarray, np.ndarray]:
     """Row positions (train, validation) for fold k. Holdout rows are in neither."""
     fold = np.asarray(splits["fold"])

@@ -27,6 +27,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..stats import wilson
+
 DEFAULT_LEVELS = [0.1, 0.5, 0.9]
 
 
@@ -117,16 +119,6 @@ def pinball(y: np.ndarray, q: np.ndarray, t: float) -> np.ndarray:
     return np.maximum(t * e, (t - 1) * e)
 
 
-def wilson(k: int, n: int, z: float = 1.959964) -> tuple[float | None, float | None]:
-    if n == 0:
-        return None, None
-    p = k / n
-    d = 1 + z * z / n
-    c = (p + z * z / (2 * n)) / d
-    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
-    return max(0.0, c - h), min(1.0, c + h)
-
-
 def evaluate(y: np.ndarray, Q: np.ndarray, levels: list[float]) -> dict[str, Any]:
     """Pinball loss and calibration per level, coverage and width per interval, and crossing, on (y, Q)."""
     y = np.asarray(y, dtype=float)
@@ -135,14 +127,14 @@ def evaluate(y: np.ndarray, Q: np.ndarray, levels: list[float]) -> dict[str, Any
     per = []
     for j, t in enumerate(levels):
         below = int((y <= Q[:, j]).sum())
-        lo, hi = wilson(below, n)
+        lo, hi = wilson(below, n, empty=(None, None))
         per.append({"tau": t, "pinball": float(pinball(y, Q[:, j], t).mean()) if n else None,
                     "below": below / n if n else None, "below_ci": [lo, hi], "gap": (below / n - t) if n else None})
     ivs = []
     for iv in intervals(levels):
         a, b = Q[:, levels.index(iv["lo"])], Q[:, levels.index(iv["hi"])]
         inside = int(((y >= a) & (y <= b)).sum())
-        lo, hi = wilson(inside, n)
+        lo, hi = wilson(inside, n, empty=(None, None))
         w = b - a
         ivs.append({**iv, "coverage": inside / n if n else None, "coverage_ci": [lo, hi], "inside": inside, "n": n,
                     "below_lo": float((y < a).mean()) if n else None, "above_hi": float((y > b).mean()) if n else None,

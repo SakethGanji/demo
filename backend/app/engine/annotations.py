@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 import os
 import shutil
 import sys
@@ -30,6 +29,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from ..splits import holdout_mask
+from ..stats import wilson
 
 log = logging.getLogger("ensemble.annotations")
 
@@ -127,8 +129,7 @@ def split_rows(cfg: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     fold = np.asarray(sp["fold"], dtype=int)
     hold = np.asarray(sp["holdout"], dtype=int)
-    is_hold = np.zeros(len(fold), dtype=bool)
-    is_hold[hold] = True
+    is_hold = holdout_mask(sp, len(fold))
     structured = bool(sp.get("params"))
     bad = is_hold | ((fold == -2) | (fold == -3) if structured else np.zeros(len(fold), dtype=bool))
     return np.flatnonzero(~bad), np.sort(hold)
@@ -331,16 +332,6 @@ def fleiss_kappa(counts: np.ndarray) -> float:
     p = counts.sum(0) / n.sum()
     Pe = float((p ** 2).sum())
     return float((Pi.mean() - Pe) / (1 - Pe)) if Pe < 1 else float("nan")
-
-
-def wilson(k: int, n: int, z: float = 1.959964) -> list[float] | None:
-    if n == 0:
-        return None
-    ph = k / n
-    den = 1 + z * z / n
-    c = (ph + z * z / (2 * n)) / den
-    h = z * math.sqrt(ph * (1 - ph) / n + z * z / (4 * n * n)) / den
-    return [max(0.0, c - h), min(1.0, c + h)]
 
 
 def mcnemar_exact(b: int, c: int) -> float:

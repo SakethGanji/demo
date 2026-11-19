@@ -25,7 +25,6 @@ import secrets
 import threading
 import time
 import traceback
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from .. import llm
+from ..engine.store import now
 from . import audit as audit_mod
 from . import metrics as M
 
@@ -57,10 +57,6 @@ DOCTOR_ACTIONS = {"latency": ["reduce_latency"], "imbalance": ["calibrate_thresh
 PRESETS = ["medium_quality", "good_quality", "high_quality"]
 MIN_STEP_SECONDS = 45
 OVERRUN = 1.4  # a step's wall time / its time_limit, measured: refit_full, holdout scoring and latency come on top
-
-
-def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class Stop(Exception):
@@ -376,11 +372,6 @@ class Pilot:
         self.finish(s, status="done" if s["kept"] else "dropped")
         self.note(self.step_text(s, prev), layer=(decision or {}).get("layer", "layer-1"), step=s["id"])
         return s
-
-    def _closes_more(self, s: dict[str, Any], prev: dict[str, Any]) -> bool:
-        a = sum(c["ok"] for c in s.get("checks") or [])
-        b = sum(c["ok"] for c in prev.get("checks") or [])
-        return a > b
 
     def step_text(self, s: dict[str, Any], prev: dict[str, Any] | None) -> str:
         prim = self.st["primary"]

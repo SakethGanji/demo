@@ -118,8 +118,7 @@ async def export_py(run_id: str, request: Request, download: bool = False):
     except metadata.PackageNotFoundError:
         ag = None
     try:
-        text = await run_in_threadpool(export.build_script, rec, backend_dir=config.BACKEND_DIR if hasattr(config, "BACKEND_DIR")
-                                       else __import__("pathlib").Path(__file__).resolve().parents[2],
+        text = await run_in_threadpool(export.build_script, rec, backend_dir=config.BACKEND_DIR,
                                        unlabeled_csv=unlabeled, ag_version=ag)
     except ValueError as e:
         raise HTTPException(409, str(e)) from e

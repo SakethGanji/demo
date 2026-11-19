@@ -71,11 +71,6 @@ def ping() -> dict[str, Any]:
     return {"pid": os.getpid()}
 
 
-def sleep_job(seconds: float) -> int:  # used by tests
-    time.sleep(seconds)
-    return os.getpid()
-
-
 # --------------------------------------------------------------------------- predictor cache (inside workers)
 
 _CACHE: OrderedDict[tuple[str, float], Any] = OrderedDict()

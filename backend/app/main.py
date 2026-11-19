@@ -31,7 +31,7 @@ from .engine.serving import PredictorCache
 from .engine.store import RunStore
 from .samples import SAMPLES
 from .splits import summarize as summarize_split
-from .schemas import Dataset, DatasetList, DatasetSummary, Health
+from .schemas import Dataset, DatasetList, Health
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -164,7 +164,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         target = body.get("target") or rec["target"]
         strategy = body.get("strategy") or RANDOM_STRATIFIED
         try:
-            path, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
+            _, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
             df = store(request).load_frame(dataset_id)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
@@ -192,8 +192,6 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         if any(getattr(a, "is_alive", lambda: False)() for a in getattr(st.autopilot, "threads", {}).values()):
             raise HTTPException(409, "An autopilot is running; cancel it first.")
         st.predictors = PredictorCache()
-        from .registry import api as registry_api
-
         registry_api.clear_serving_caches()
         out = reset_mod.reset(settings)
         st.autopilot.store.root.mkdir(parents=True, exist_ok=True)

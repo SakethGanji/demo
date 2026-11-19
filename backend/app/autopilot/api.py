@@ -6,7 +6,6 @@ import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import llm

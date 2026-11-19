@@ -26,8 +26,9 @@ import numpy as np
 import pandas as pd
 
 from ..db import Database
+from ..splits import holdout_mask
 from .jsonsafe import jsonable
-from .store import RunStore, now
+from .store import RunStore
 
 log = logging.getLogger("ensemble.worker")
 
@@ -50,9 +51,7 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     label = cfg["label"]
     fold = np.asarray(splits["fold"], dtype=int)
-    holdout_rows = np.asarray(splits["holdout"], dtype=int)
-    is_holdout = np.zeros(len(df), dtype=bool)
-    is_holdout[holdout_rows] = True
+    is_holdout = holdout_mask(splits, len(df))
     structured = bool(splits.get("params"))
     is_tuning = (fold == -3) if structured else np.zeros(len(df), dtype=bool)
     is_excluded = (fold == -2) if structured else np.zeros(len(df), dtype=bool)
