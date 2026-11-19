@@ -1,0 +1,10 @@
+/* G5 · Segmented models: only what the shared card/table/hero styles and G3's step tiles do not cover. */
+.seg-steps { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.seg-ci { position: relative; height: 14px; }
+.seg-ci i { position: absolute; top: 50%; }
+.seg-ci .zero { left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border-default); }
+.seg-ci .bar { height: 3px; margin-top: -1.5px; background: var(--text-tertiary, #8a94a6); border-radius: 2px; }
+.seg-ci .dot { width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--text-secondary, #5b6475); }
+.seg-ci.good .bar, .seg-ci.good .dot { background: var(--status-success); }
+.seg-ci.bad .bar, .seg-ci.bad .dot { background: var(--status-danger); }
+.seg-total td { border-top: 1px solid var(--border-default); }

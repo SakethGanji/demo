@@ -570,7 +570,7 @@ def run(run_dir: Path) -> int:
         return store.emit(run_id, type_, **data)
 
     started = time.time()
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
         return run_other(cfg, run_dir, store, emit, started)
     try:
         emit("run_started", pid=os.getpid())
@@ -772,6 +772,8 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
             from ..forecast import core
         elif cfg["kind"] == "expected_loss":  # G3: PD, LGD and EAD TabularPredictors chained
             from ..el import core
+        elif cfg["kind"] == "segmented":  # G5: a global TabularPredictor and one per segment, routed
+            from ..segmented import core
         else:
             from ..anomaly import core
         out = core.run(cfg, run_dir, emit, merge)

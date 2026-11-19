@@ -147,6 +147,15 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
             : 'Not opened yet (Credit Report tab). '}
             <a href={api.registry.creditReportUrl(v.id, 'html')} download data-testid="card-credit-html">Model Performance Report (.html)</a> · <a href={api.registry.creditReportUrl(v.id, 'md')} download>.md</a></p>
         </div>}
+        {c.segmented && (() => {
+          const g = c.segmented
+          const k = g.headline.toLowerCase()
+          const d = (x: { delta: number | null; ci: [number, number] | null } | null) => (x?.delta == null ? '—' : `${x.delta >= 0 ? '+' : '−'}${Math.abs(x.delta).toFixed(4)}${x.ci ? ` [${x.ci[0].toFixed(4)}, ${x.ci[1].toFixed(4)}]` : ''}`)
+          return <div data-testid="card-seg" style={{ marginTop: 8 }}>
+            <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Segmented models (routed by {g.segment_column})</h4>
+            <p className="helper" style={{ fontSize: 12 }}>{`One AutoGluon model per ${g.segment_column}, the global model's config; routing: ${g.routing_rule}. ${g.routes.length} of ${g.segments.length} segments use their own model, the rest and unknown values the global one${g.threshold != null ? `; one threshold t = ${g.threshold.toFixed(4)}` : ''}. Holdout ${g.headline}: global ${g.overall?.global[k]?.toFixed(4) ?? '—'} → routed ${g.overall?.routed[k]?.toFixed(4) ?? '—'}, Δ ${d(g.overall)} (${g.overall?.verdict ?? '—'}). Per segment (own vs global): ${g.segments.map((r) => `${r.value} ${d(r.own)}${r.routed ? '' : ' (global)'}`).join('; ')}.`}</p>
+          </div>
+        })()}
         {c.expected_loss && <div data-testid="card-el" style={{ marginTop: 8 }}>
           <h4 className="micro-label" style={{ margin: '8px 0 4px' }}>Expected loss (PD × LGD × EAD)</h4>
           <p className="helper" style={{ fontSize: 12 }}>{`PD on ${c.expected_loss.columns.pd}, LGD on ${c.expected_loss.columns.lgd}, EAD on ${c.expected_loss.columns.ead}. Holdout: ΣEL ${Math.round(c.expected_loss.portfolio.el).toLocaleString()} vs realised ${Math.round(c.expected_loss.portfolio.realised).toLocaleString()} on ${c.expected_loss.portfolio.n} loans, ratio ${c.expected_loss.portfolio.ratio?.toFixed(3) ?? '—'} (95% CI ${c.expected_loss.portfolio.ratio_ci.map((x) => x.toFixed(3)).join('–')}). Stress: ${c.expected_loss.scenarios.map((s) => `${s.name} ${s.delta_pct != null ? `${s.delta_pct >= 0 ? '+' : ''}${s.delta_pct.toFixed(1)}%` : '—'}`).join('; ')}.`}</p>

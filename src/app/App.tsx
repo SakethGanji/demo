@@ -6,6 +6,7 @@ import { AnomalyPage } from '@/features/anomaly/AnomalyPage'
 import { ExplainPage } from '@/features/explain/ExplainPage'
 import { ForecastPage } from '@/features/forecast/ForecastPage'
 import { ExpectedLossPage } from '@/features/expected-loss/ExpectedLossPage'
+import { SegmentedPage } from '@/features/segmented/SegmentedPage'
 import { ImportPage } from '@/features/import/ImportPage'
 import { HomePage } from '@/features/home/HomePage'
 import { QuickTrainPage } from '@/features/quick-train/QuickTrainPage'
@@ -98,6 +99,7 @@ export default function App() {
           {route === 'anomaly' && <AnomalyPage go={go} />}
           {route === 'import' && <ImportPage go={go} />}
           {route === 'expected-loss' && <ExpectedLossPage go={go} />}
+          {route === 'segmented' && <SegmentedPage go={go} />}
         </main>
       </div>
 

@@ -120,7 +120,7 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
     cfg = rec["config"]
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; the doctor reads finished runs.")
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss") or cfg.get("import"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented") or cfg.get("import"):
         raise HTTPException(400, "The Model Doctor reads trained tabular runs (not forecast, anomaly or imported runs).")
     rec, vela = await compute_findings(request, run_id)
     res = rec.get("result") or {}

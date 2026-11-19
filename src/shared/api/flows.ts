@@ -112,8 +112,27 @@ export type ElRun = { run_id: string; name: string; status: string; error: strin
   config: { label: string; lgd_column: string; ead_column: string; segments: string[]; drop_columns: string[]; presets: string | null; time_limit: number | null }
   expected_loss: ElResult | null; custom_scenarios: ElScenario[] }
 
+// G5 · Segmented models (backend/app/segmented): one AutoGluon model per segment against a global one, routed.
+export type SegDetect = { dataset_id: string; label: string | null; problem_type: 'binary' | 'regression' | null; segment_column: string | null; candidates: string[]
+  drop_columns: string[]; split: string; time_column: string | null; group_column: string | null; evidence: Record<string, string[]>
+  heterogeneity: { feature: string; spread: number; high: [string, number]; low: [string, number]; opposite: boolean; differs: boolean; words: string } | null }
+export type SegCreate = { dataset_id: string; label?: string; segment_column?: string; drop_columns?: string[]; time_limit?: number; cost?: { c_fp: number; c_fn: number } }
+export type SegSide = { auc?: number; log_loss?: number; brier?: number; mean_p?: number; rmse?: number; mae?: number; mean_pred?: number }
+export type SegDelta = { delta: number; ci: [number, number]; se: number; p_value?: number | null }
+export type SegCompare = { n: number; positives?: number; rate?: number | null; mean_true?: number; global: SegSide; routed: SegSide
+  delta_auc?: SegDelta | null; delta_log_loss?: SegDelta; delta_mse?: SegDelta; delta_rmse?: number; verdict: 'routed better' | 'global better' | 'no clear difference' }
+export type SegRow = { value: string; train_rows: number; holdout_rows: number; model: string | null; why?: string; best_model?: string; fit_seconds?: number; n_models?: number
+  routed: boolean; route_why: string; tuning?: { rows: number; global: number; segment: number; loss: string }; own?: SegCompare | null; routed_cmp?: SegCompare }
+export type SegResult = { segment_column: string; problem_type: 'binary' | 'regression'; label: string; positive_class: string | number | null; threshold: number | null
+  eval_metric: string; headline: 'AUC' | 'RMSE'; segments: SegRow[]; overall: SegCompare; overall_all_segment_models: SegCompare; routes: string[]; unseen_in_training: string[]
+  global: { rows: number; best_model: string; fit_seconds: number; n_models: number; features: number }; holdout_rows: number; tuning_rows: number; wins: string[]; losses: string[]
+  routing_rule: string; min_rows: number; min_class: number; detected: Partial<SegDetect> }
+export type SegRun = { run_id: string; name: string; status: string; error: string | null; dataset_id: string; split: { strategy?: string } & Record<string, unknown>
+  config: { label: string; problem_type: string; segment_column: string; drop_columns: string[]; presets: string | null; time_limit: number | null }
+  segmented: SegResult | null }
+
 export const flows = {
-  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
+  runs: (kind: 'forecast' | 'anomaly' | 'expected_loss' | 'segmented' | 'tabular' | 'all') => request<{ runs: FlowRun[] }>(`/runs?kind=${kind}`).then((r) => r.runs),
   run: (id: string) => request<FlowRun>(`/runs/${encodeURIComponent(id)}`),
   forecast: {
     options: () => request<FcOptions>('/forecast/options'),
@@ -134,6 +153,11 @@ export const flows = {
     get: (id: string) => request<ElRun>(`/expected-loss/runs/${encodeURIComponent(id)}`),
     stress: (id: string, body: { name?: string; shocks: ElShock[]; expect?: 'up' | 'down' }) =>
       request<ElScenario>(`/expected-loss/runs/${encodeURIComponent(id)}/stress`, { ...J(body), timeoutMs: 120_000 }),
+  },
+  seg: {
+    detect: (ds: string) => request<SegDetect>(`/segmented/detect?dataset_id=${encodeURIComponent(ds)}`, { timeoutMs: 60_000 }),
+    create: (body: SegCreate) => request<FlowRun>('/segmented/runs', { ...J(body), timeoutMs: 60_000 }),
+    get: (id: string) => request<SegRun>(`/segmented/runs/${encodeURIComponent(id)}`),
   },
   anomaly: {
     mapping: (ds: string) => request<AnGroup>(`/anomaly/mapping/${encodeURIComponent(ds)}`),

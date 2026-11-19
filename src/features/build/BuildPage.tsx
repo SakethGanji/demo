@@ -24,6 +24,10 @@ function href(s: IntakeSuggestion, dsId: string): string {
     return `quick-train?${q}`
   }
   if (s.route === 'registry') return `registry?${new URLSearchParams({ version: String(s.prefill.version ?? ''), tab: String(s.prefill.tab ?? 'Overview') })}`
+  if (s.route === 'segmented') {  // G5: the target and segment as Build shows them (edits included)
+    const p = s.prefill as { label?: string; segment?: string }
+    return `segmented?${new URLSearchParams({ dataset: dsId, label: p.label ?? '', segment: p.segment ?? '' })}`
+  }
   if (s.route === 'expected-loss') {  // G3: the roles as Build shows them (edits included) pre-fill the setup
     const p = s.prefill as { pd?: string; lgd?: string; ead?: string; segments?: string[] }
     return `expected-loss?${new URLSearchParams({ dataset: dsId, pd: p.pd ?? '', lgd: p.lgd ?? '', ead: p.ead ?? '', segments: (p.segments ?? []).join(',') })}`
@@ -35,6 +39,7 @@ function href(s: IntakeSuggestion, dsId: string): string {
 function prefillLine(s: IntakeSuggestion): string {
   const p = s.prefill
   if (s.route === 'forecast') return `t = ${p.timestamp}${p.item_id ? ` · series = ${p.item_id}` : ''} · y = ${p.value}`
+  if (s.route === 'segmented') return `y = ${p.label} · one model per ${p.segment} vs one global`
   if (s.route === 'expected-loss') return `y = ${p.pd} · LGD = ${p.lgd} · EAD = ${p.ead}${(p.segments as string[] | undefined)?.length ? ` · by ${(p.segments as string[]).join(', ')}` : ''}`
   if (s.route !== 'quick-train') return ''
   return [`y = ${p.target}`, p.split ? `${SPLIT_NAME[p.split]} split` : 'random split', p.drop?.length ? `drop ${p.drop.join(', ')}` : '',

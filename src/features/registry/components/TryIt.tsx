@@ -70,7 +70,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
             ))}
             <div className="row" style={{ gap: 'var(--space-8)', gridColumn: '1 / -1' }}>
               <button className="btn primary" data-testid="try-predict" disabled={busy || v.status !== 'ready'} onClick={go}>Predict and explain</button>
-              {busy && <span className="row helper" style={{ fontSize: 12 }}><ResonanceWave width={60} height={14} /> f(x), then Kernel SHAP over 2,048 coalitions in a worker…</span>}
+              {busy && <span className="row helper" style={{ fontSize: 12 }}><ResonanceWave width={60} height={14} /> {(v.result as unknown as { kind?: string } | null)?.kind === 'segmented' ? 'routing x to its segment’s model, then its reason codes…' : 'f(x), then Kernel SHAP over 2,048 coalitions in a worker…'}</span>}
             </div>
             {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)', gridColumn: '1 / -1' }}>✕ {err}</p>}
           </div>
@@ -79,6 +79,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
             {out && out.probabilities && (
               <>
                 <span className="micro-label">{out.model} · predicted class</span>
+                {out.segment && <span className="helper" style={{ fontSize: 12 }} data-testid="try-routed">scored by the {out.segment.model === 'segment' ? <b>{out.segment.column} = {out.segment.value}</b> : <b>global</b>} model{out.segment.model === 'global' ? ` (${out.segment.column} = ${out.segment.value} has no routed model)` : ''}</span>}
                 <div className="tp-class" data-testid="try-class">{String(out.prediction)}</div>
                 <div className="tp-eq">{isBin
                   ? <>ŷ = {String(out.positive_class)} ⟺ p̂ &gt; t, &nbsp;p̂ = <b data-testid="try-p">{out.probabilities[String(out.positive_class)].toFixed(4)}</b>, t = {out.threshold?.toFixed(3)}</>
@@ -134,7 +135,7 @@ export function TryIt({ v, run, ds }: { v: ModelVersion; run: Run | null; ds: Da
               <ReasonList codes={r.codes} adverse={r.adverse} adverseClass={r.adverse_class} testId="try-reason-list" />
               <p className="helper" style={{ fontSize: 12 }}>The codes a notice, /score and batch scoring give for this applicant: {r.attribution.name}, B = {r.attribution.background} {r.reference === 'approved' ? 'approved' : ''} reference applicants (φ₀ = {r.base_value?.toFixed(4)}){r.attribution.coalitions ? `, M = ${r.attribution.coalitions} coalitions` : ''}; {r.reasons_ms.toFixed(0)} ms. They can differ from the Top Reasons below, which rank |φᵢ| against all training rows with 2,048 coalitions. Statements are edited in the Reason Codes tab.</p>
             </div>
-            <TryRecourse v={v} row={sentRow} adverse={r.adverse} />
+            {!out.segment && <TryRecourse v={v} row={sentRow} adverse={r.adverse} />}
           </div>
         )
       })()}

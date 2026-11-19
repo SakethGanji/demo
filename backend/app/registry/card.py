@@ -194,6 +194,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "forecasting": _forecast_section(cfg, res) if cfg.get("kind") == "forecast" else None,
         "anomaly_detection": _anomaly_section(cfg, res) if cfg.get("kind") == "anomaly" else None,
         "expected_loss": _el_section(run),
+        "segmented": _seg_section(run),
         "imported": res.get("imported"),
         "constraints": _monotone_section(cfg, res, vres),
         "quantile": _quantile_section(cfg, res, vres),
@@ -366,6 +367,13 @@ def _fair_lending_md(fl: dict[str, Any] | None) -> list[str]:
     L += [f"The proxy is an estimate: {pe}"
           + (f"; largest |AIR − true AIR| {_fmt(fl.get('max_abs_delta_vs_truth'))}." if fl.get("max_abs_delta_vs_truth") is not None else ".")]
     return L
+
+
+def _seg_section(run: dict[str, Any]) -> dict[str, Any] | None:
+    """G5: a routed version's segments, which model scores each, and the paired comparison with the global model."""
+    from ..segmented.api import card_section
+
+    return card_section(run)
 
 
 def _el_section(run: dict[str, Any]) -> dict[str, Any] | None:
@@ -541,6 +549,29 @@ def to_markdown(c: dict[str, Any]) -> str:
             L += [f"| {s['name']} | {_fmt(s.get('delta'), 0)} | {_fmt(s.get('delta_pct'), 1)} | "
                   f"{'—' if s.get('as_expected') is None else 'yes' if s['as_expected'] else 'no'} |" for s in el["scenarios"]]
             L.append("")
+    sg = c.get("segmented")
+    if sg:
+        h = sg.get("headline") or "AUC"
+        dn = "ΔAUC (DeLong paired 95% CI)" if h == "AUC" else "ΔMSE (paired bootstrap 95% CI)"
+
+        def _row(name: str, x: dict[str, Any] | None, extra: str) -> str:
+            if not x:
+                return f"| {name} | — | — | — | {extra} |"
+            k = h.lower()
+            ci = x.get("ci") or [None, None]
+            return (f"| {name} | {_fmt((x.get('global') or {}).get(k))} | {_fmt((x.get('routed') or {}).get(k))} | "
+                    f"{_fmt(x.get('delta'))} [{_fmt(ci[0])}, {_fmt(ci[1])}] {x.get('verdict') or ''} | {extra} |")
+        L += ["**Segmented models (routed)**", "",
+              f"One AutoGluon model per value of '{sg.get('segment_column')}', the same config as the global model; each row is "
+              f"scored by its segment's model when that segment is routed, else by the global model (unknown segments too). "
+              f"Routing: {sg.get('routing_rule')}."
+              + (f" One threshold t = {_fmt(sg.get('threshold'))} for every model." if sg.get("threshold") is not None else ""), "",
+              f"| Segment | global {h} | own model {h} | {dn} | Routed to |", "| --- | ---: | ---: | --- | --- |"]
+        for r in sg.get("segments") or []:
+            L.append(_row(f"{r['value']} ({r.get('holdout_rows')} holdout rows)", r.get("own"),
+                          "its own model" if r.get("routed") else "the global model"))
+        L.append(_row("**Overall, routed**", sg.get("overall"), f"{len(sg.get('routes') or [])} segment models"))
+        L.append("")
     cr = c.get("credit_report")
     if cr:
         h = ((cr.get("last") or {}).get("headline")) or {}

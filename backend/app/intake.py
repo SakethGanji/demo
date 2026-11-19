@@ -528,6 +528,31 @@ def _fair_lending(ctx: Ctx):
                 f"Opens {v['model_name']} v{v['version']}, Fair Lending tab.", {"version": v["id"], "tab": "Fair Lending"})
 
 
+def _segmented(ctx: Ctx):
+    """G5: one model per segment against one global model. Offered for a yes/no or numeric target with a segment column
+    (2–12 groups); it comes first only when a quick look already shows an input acting in opposite directions across the
+    segments (rank correlation with the target, inside each segment)."""
+    from .segmented.core import SEGMENT_MAX, heterogeneity
+
+    task = _task_of(ctx)
+    if task not in ("binary", "regression"):
+        return None
+    segs = [c["name"] for c in ctx.columns if c["name"] != ctx.target and 2 <= c["unique"] <= SEGMENT_MAX
+            and (c["role"] == "segment" or any(a["role"] == "segment" for a in c["also"]))]
+    if not segs:
+        return None
+    seg = segs[0]
+    h = heterogeneity(ctx.df, ctx.target, seg)
+    strong = bool(h and h["opposite"] and min(abs(h["high"][1]), abs(h["low"][1])) >= 0.08)
+    k = int(ctx.df[seg].nunique())
+    return (96 if strong else 55,
+            f"'{seg}' splits the rows into {k} segments. One AutoGluon model per segment is compared with one global model on "
+            f"the same holdout, per segment, with paired CIs; the set is registered as one routed version."
+            + (f" {h['words']}, so the segments may need their own models." if strong and h else ""),
+            {"dataset_only": True, "label": ctx.target, "segment": seg, "candidates": segs,
+             "title": f"Segmented models by {seg}"})
+
+
 def _import(ctx: Ctx):
     return (5, "Already have a trained AutoGluon TabularPredictor for this table? Import it to register, explain and serve it.", {})
 
@@ -542,6 +567,7 @@ SUGGESTIONS: list[Suggestion] = [
     Suggestion("credit_report", "Credit model report", "registry", _credit_report),  # G2
     Suggestion("expected_loss", "Expected loss (PD × LGD × EAD)", "expected-loss", _expected_loss),  # G3
     Suggestion("fair_lending", "Fair-lending check (BISG)", "registry", _fair_lending),  # G4
+    Suggestion("segmented", "Segmented models", "segmented", _segmented),  # G5
     Suggestion("import", "Import a predictor", "import", _import),
 ]
 

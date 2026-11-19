@@ -45,7 +45,7 @@ def _ctx(request: Request, vid: str) -> tuple[dict[str, Any], dict[str, Any], di
         raise HTTPException(409, f"Version {v['model_name']} v{v['version']} is {v['status']}.")
     run = request.app.state.runs.get(v["run_id"]) or {}
     ver = (v.get("result") or {}).get("version") or {}
-    if (run.get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss") or ver.get("problem_type") != "binary":
+    if (run.get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented") or ver.get("problem_type") != "binary":
         raise HTTPException(400, "The credit report is for binary scoring versions (p̂ = P(bad | x)).")
     return v, run, ver
 

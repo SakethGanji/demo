@@ -124,7 +124,7 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
         # Warm the new version in every predict worker, so its first Try It or /score call is not a cold one.
         try:
             got = reg.get_version(vid)
-            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss")):
+            if got and got["status"] == "ready" and got.get("path") and (rec["config"].get("kind") not in ("forecast", "anomaly", "expected_loss", "segmented")):
                 heavy.warm_path(got["path"])
                 if _inproc_ok(got, 1):  # its own thread: this callback runs in the pool's management thread
                     import threading
@@ -381,7 +381,7 @@ def _credit_for_card(v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] |
 
 def _recourse_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
     """G1: the card's counterfactual section: the user's overrides and the stored acceptance check (no worker call)."""
-    if _reason_args(request, v, run) is None:
+    if _reason_args(request, v, run) is None or run["config"].get("kind") == "segmented":
         return None
     from ..engine import recourse as rcs
 
@@ -495,6 +495,14 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
+    if kind == "segmented":  # G5: the row's own segment model (or the global one), with its reason codes
+        from ..segmented import core as sgc
+
+        try:
+            out = await request.app.state.heavy.run(sgc.try_row, v["path"], body.row, *(_reason_args(request, v, run) or (None, None)))
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
     if kind == "anomaly":
         from ..anomaly import core as an
 
@@ -577,7 +585,7 @@ def _inproc_ok(v: dict[str, Any], n_rows: int) -> bool:
 
 def warm_version(request: Request, v: dict[str, Any]) -> None:
     """Warm a tabular version in every predict worker and, when it qualifies, in the API process (in a thread)."""
-    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss"):
+    if ((request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
         return
     request.app.state.heavy.warm_path(v["path"])
     if _inproc_ok(v, 1):
@@ -611,6 +619,18 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
 
         try:
             out = await run_in_threadpool(elc.score_rows, v["path"], body.rows)
+        except (ValueError, KeyError) as e:
+            raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
+                "server_ms": (_t.perf_counter() - t0) * 1e3}
+    if kind == "segmented":  # G5: each row through its segment's model; reasons=true adds codes for adverse rows
+        from ..segmented import core as sgc
+
+        full = _version(request, vid)
+        run = request.app.state.runs.get(full["run_id"])
+        rc_args = _reason_args(request, full, run) if body.reasons else None
+        try:
+            out = await request.app.state.heavy.run(sgc.score_rows, v["path"], body.rows, *(rc_args or (None, None)))
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
@@ -661,7 +681,7 @@ async def benchmark(vid: str, request: Request) -> dict[str, Any]:
     1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
-    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss"):
+    if run["config"].get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
         raise HTTPException(400, "The serving benchmark measures tabular versions (one row per call).")
     out = await request.app.state.heavy.run(scoring.benchmark_version, v["path"], run["config"])
     _reg(request).merge_version_result(vid, serving_benchmark=out)
@@ -708,10 +728,11 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
     data_date = monitoring_api.resolve_data_date(request, run, csv_path, data_date)
     reg = _reg(request)
     reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who, "data_date": data_date})
-    if kind in ("forecast", "anomaly", "expected_loss"):
+    if kind in ("forecast", "anomaly", "expected_loss", "segmented"):
         # forecast: the file is new history (same mapping); anomaly: rows to score. Same batch record and drift format.
         fut = request.app.state.heavy.submit(scoring.score_flow_batch, str(request.app.state.settings.db_path), bid, kind,
-                                             v["path"], run["config"], str(csv_path), str(bdir), {"id": vid})
+                                             v["path"], run["config"], str(csv_path), str(bdir), {"id": vid},
+                                             _reason_args(request, v, run) if kind == "segmented" else None)
         request.app.state.jobs[bid] = fut
         return reg.get_batch(bid)
     rc_args = _reason_args(request, v, run)
@@ -771,6 +792,13 @@ def _reason_args(request: Request, v: dict[str, Any], run: dict[str, Any] | None
     from ..engine import reasons as rc
 
     return rc.load_config(_reasons_path(request, v["model_name"])), _kinds(request, run)
+
+
+def _no_routed_recourse(run: dict[str, Any] | None) -> None:
+    """G1's counterfactual search runs one predictor; a routed (G5) version has several, so it is not offered there yet."""
+    if run and run["config"].get("kind") == "segmented":
+        raise HTTPException(400, "Counterfactuals are not available for a routed (segmented) version yet: each row's model "
+                                 "differs. Reason codes are.")
 
 
 def _reason_args_or_400(request: Request, v: dict[str, Any], run: dict[str, Any] | None):
@@ -907,6 +935,7 @@ async def recourse_config(vid: str, request: Request) -> dict[str, Any]:
     by F8 monotone constraints; the training ranges and categories it stays inside; the last acceptance check."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
+    _no_routed_recourse(run)
     args = _reason_args(request, v, run)
     if args is None:
         raise HTTPException(400, "Counterfactuals are for binary classification versions (a decision that can be adverse).")
@@ -932,6 +961,7 @@ async def edit_recourse(vid: str, body: RecourseEdit, request: Request) -> dict[
 
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
+    _no_routed_recourse(run)
     if _reason_args(request, v, run) is None:
         raise HTTPException(400, "Counterfactuals are for binary classification versions.")
     who = _name_ok(body.actor, "actor")
@@ -960,6 +990,7 @@ async def recourse(vid: str, body: RecourseRequest, request: Request) -> dict[st
     decision at the version's threshold, each re-scored by the served model, with its distance and plausibility."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
+    _no_routed_recourse(run)
     args = _reason_args(request, v, run)
     if args is None:
         raise HTTPException(400, "Counterfactuals are for binary classification versions.")
@@ -981,6 +1012,7 @@ async def recourse_check(vid: str, body: RecourseCheck, request: Request) -> dic
     0 fixed features moved, 0 values outside training, 0 direction breaks. Stored; the model card shows it."""
     v = _ready_version(request, vid)
     run = request.app.state.runs.get(v["run_id"])
+    _no_routed_recourse(run)
     args = _reason_args(request, v, run)
     if args is None:
         raise HTTPException(400, "Counterfactuals are for binary classification versions.")

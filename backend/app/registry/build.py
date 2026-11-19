@@ -220,7 +220,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
     work, dest = vdir / "work", vdir / "predictor"
     data_dir = Path(db_path).parent
     step = lambda name, status, **kw: reg.step(version_id, name, status, **kw)  # noqa: E731
-    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss"):
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented"):
         return build_other(db_path, version_id, registry_dir)
     try:
         from autogluon.tabular import TabularPredictor
@@ -575,8 +575,16 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         vdir.mkdir(parents=True, exist_ok=True)
         if dest.exists():
             shutil.rmtree(dest)
-        shutil.copytree(cfg["predictor_path"], dest)
-        step("clone", "done", seconds=time.time() - t0, how="copy of the run's model folder")
+        if kind == "segmented":  # G5: the global model and the routed segment models only
+            import json as _json
+
+            sm = _json.loads((Path(cfg["predictor_path"]) / "meta.json").read_text())
+            unrouted = {d for v, d in sm["models"].items() if v not in sm["routes"]}
+            shutil.copytree(cfg["predictor_path"], dest, ignore=lambda src, names: [n for n in names if src == cfg["predictor_path"] and n in unrouted])
+        else:
+            shutil.copytree(cfg["predictor_path"], dest)
+        step("clone", "done", seconds=time.time() - t0, how="copy of the run's model folder"
+             + (" (the global model and the routed segment models)" if kind == "segmented" else ""))
         step("refit_full", "skipped", reason=f"not used for {kind} models")
         step("infer_limit", "skipped", reason=f"not used for {kind} models")
         step("deploy_copy", "done", how="the copied folder is the deployable model")
@@ -630,6 +638,31 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                        "pd_auc": ((el.get("components") or {}).get("pd") or {}).get("auc")}
             problem = "expected_loss"
             metric = "ΣEL / Σ realised loss"
+        elif kind == "segmented":  # G5: the global and segment predictors and meta.json, routed per row
+            from ..segmented import core as sgc
+
+            df = pd.read_csv(cfg["csv_path"])
+            sgc.score_rows(str(dest), df.head(50).to_dict(orient="records"))  # warm-up
+            ts, single = [], []
+            for _ in range(3):
+                t1 = time.perf_counter()
+                sgc.score_rows(str(dest), df.head(2000))
+                ts.append((time.perf_counter() - t1) / min(len(df), 2000) * 1e6)
+            for i in range(10):
+                t1 = time.perf_counter()
+                sgc.score_rows(str(dest), [df.iloc[i].to_dict()])
+                single.append((time.perf_counter() - t1) * 1e3)
+            lat = {"us_per_row_p50": _pct(ts, 50), "single_ms_p50": _pct(single, 50), "single_ms_p95": _pct(single, 95),
+                   "batch_rows": min(len(df), 2000)}
+            sg = res.get("segmented") or {}
+            best = res.get("best_model") or "routed"
+            ov = sg.get("overall") or {}
+            head = "auc" if sg.get("problem_type") == "binary" else "rmse"
+            dk = "delta_auc" if head == "auc" else "delta_mse"
+            holdout = {head: (ov.get("routed") or {}).get(head), f"global_{head}": (ov.get("global") or {}).get(head),
+                       dk: (ov.get(dk) or {}).get("delta"), "routed_segments": len(sg.get("routes") or [])}
+            problem = sg.get("problem_type") or "binary"
+            metric = head
         else:
             from ..anomaly import core as an
 
@@ -671,6 +704,10 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": Path(cfg["csv_path"]).name},
             "path": str(dest),
         }
+        if kind == "segmented":  # G5: what the reason-code card section and Try It read for a binary version
+            sg = res.get("segmented") or {}
+            result["version"].update(positive_class=sg.get("positive_class"), decision_threshold=sg.get("threshold"),
+                                     segment_column=sg.get("segment_column"), routes=sg.get("routes"))
         reg.update_version(version_id, result=result, path=str(dest), model_hash=model_hash)
         step("mlflow", "running")
         try:
@@ -681,7 +718,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                 "ensemble.version_id": version_id, "ensemble.run_id": run["id"], "model_sha256": model_hash,
                 "data_sha256": data_hash, "best_model": best, "kind": kind, "approval": "pending",
                 "registered_by": v["created_by"]}, description=v["options"].get("description") or "",
-                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind == "expected_loss" else "scikit-learn")
+                engine="autogluon.timeseries" if kind == "forecast" else "autogluon.tabular" if kind in ("expected_loss", "segmented") else "scikit-learn")
             reg.merge_version_result(version_id, mlflow={**mv, "experiment_id": mlr["experiment_id"]})
             step("mlflow", "done", version=mv["version"])
         except Exception as e:  # noqa: BLE001

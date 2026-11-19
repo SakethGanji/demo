@@ -708,6 +708,10 @@ INTAKE_TRUTH: dict[str, tuple[str, dict[str, str]]] = {
     "fair-lending": ("binary", {"application_id": "id", "application_date": "date", "surname": "surname", "zip": "zip",
                                 "income": M, "credit_score": F, "debt_to_income": F, "loan_amount": M, "employment_years": F,
                                 "home_ownership": CAT, "race_ethnicity_true": "protected", "defaulted": "target"}),
+    "segmented-loans": ("segmented", {"application_id": "id", "application_date": "date", "customer_type": "segment",
+                                      "income": M, "credit_score": F, "debt_to_income": F, "utilization": F,
+                                      "months_employed": F, "num_accounts": F, "loan_amount": M, "recent_inquiries": F,
+                                      "defaulted": "target"}),
 }
 KEY_ROLES = ("target", "date", "id", "entity", "segment")
 
@@ -4766,6 +4770,94 @@ def expected_loss(st: dict[str, Any]) -> None:
     step("el: registered; scores loans and a batch; model card", registry)
 
 
+def segmented(st: dict[str, Any]) -> None:
+    """G5: segmented models on the segmented-loans sample, zero-config. Intake's top suggestion is "Segmented models by
+    customer_type" (an input moves the default rate in opposite directions across customer types); the run is started
+    with nothing but the dataset (global + one model per customer type, medium_quality, 20 s each; the out-of-time
+    split's tuning slice only chooses the routes). Asserts the acceptance: the routed model beats the global one on at
+    least one segment with a DeLong paired 95 % CI above 0, and the overall comparison is reported with its CI. Then the
+    routed version: Try It and /score route each row (unknown segment → global), reason codes come from the row's own
+    model with one code book, a batch carries routed_model / decision / reason codes, the card has the section, and
+    counterfactuals are refused for a routed version."""
+    ds = "segmented-loans"
+    s: dict[str, Any] = {}
+
+    def suggest():
+        it = get(f"/api/datasets/{ds}/intake")
+        s0 = it["suggestions"][0]
+        check(s0["id"] == "segmented" and s0["route"] == "segmented", f"top {s0['id']}")
+        check(s0["prefill"]["segment"] == "customer_type" and s0["prefill"]["label"] == "defaulted", s0["prefill"])
+        d = get("/api/segmented/detect", dataset_id=ds)
+        check(d["segment_column"] == "customer_type" and d["problem_type"] == "binary" and d["split"] == "time", d)
+        check(d["drop_columns"] == ["application_id"] and d["heterogeneity"]["opposite"], d)
+        return f"top {s0['id']} ({s0['score']:g}) · {d['heterogeneity']['words']}"
+    step("seg: Build suggests segmented models, inputs detected", suggest)
+
+    def train():
+        rec = post("/api/segmented/runs", {"dataset_id": ds})  # zero-config
+        check(rec["kind"] == "segmented", rec.get("kind"))
+        t0 = time.time()
+        done = wait_run(rec["id"])
+        check(done["status"] == "succeeded", done.get("error"))
+        r = get(f"/api/segmented/runs/{rec['id']}")["segmented"]
+        segs = r["segments"]
+        check(len(segs) == 4 and sum(x["holdout_rows"] for x in segs) == r["holdout_rows"], [x["value"] for x in segs])
+        check(set(r["routes"]) <= {x["value"] for x in segs} and all(x["route_why"] for x in segs), r["routes"])
+        won = [x for x in segs if x["routed"] and (x.get("own") or {}).get("verdict") == "routed better"
+               and x["own"]["delta_auc"]["ci"][0] > 0]
+        check(won, [(x["value"], x["routed"], (x.get("own") or {}).get("delta_auc")) for x in segs])  # acceptance
+        o = r["overall"]
+        check(o["delta_auc"] and o["delta_auc"]["ci"][0] <= o["delta_auc"]["delta"] <= o["delta_auc"]["ci"][1], o)
+        s.update(run=rec["id"], r=r)
+        st["seg"] = {"wins": [x["value"] for x in won], "overall": o["delta_auc"],
+                     "segments": {x["value"]: (x.get("own") or {}).get("delta_auc") for x in segs}}
+        f = lambda d: f"{d['delta']:+.4f} [{d['ci'][0]:+.4f}, {d['ci'][1]:+.4f}]"  # noqa: E731
+        return (f"{rec['id']} in {time.time() - t0:.0f} s · routes {', '.join(r['routes'])} · "
+                + " · ".join(f"{x['value']} ΔAUC {f(x['own']['delta_auc'])}" for x in segs if x.get("own"))
+                + f" · overall routed AUC {o['global']['auc']:.4f} → {o['routed']['auc']:.4f}, Δ {f(o['delta_auc'])} ({o['verdict']})")
+    if not step("seg: zero-config run, routed vs global per segment with paired CIs (acceptance)", train):
+        return
+    run, r = s["run"], s["r"]
+
+    def registry():
+        v = post(f"/api/runs/{run}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.segmented"})
+        v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+        check(v["status"] == "ready" and v["result"]["kind"] == "segmented" and v["result"]["version"]["problem_type"] == "binary", v.get("error"))
+        vid = v["id"]
+        base = {"income": 60000, "credit_score": 600, "debt_to_income": 0.55, "utilization": 0.85, "months_employed": 8,
+                "num_accounts": 6, "loan_amount": 90000, "recent_inquiries": 4}
+        rows = [{**base, "customer_type": c} for c in ["small_business", "salaried", "self_employed", "student", "pensioner"]]
+        t = post(f"/api/registry/versions/{vid}/predict", {"row": rows[0]})
+        routed = r["routes"]
+        check(t["segment"]["model"] == ("segment" if "small_business" in routed else "global") and t["threshold"] == r["threshold"], t["segment"])
+        check(t.get("reasons") and "codes" in t["reasons"], t.get("reasons"))
+        sc = post(f"/api/registry/versions/{vid}/score", {"rows": rows, "reasons": True})["results"]
+        check(all(x["model"] == ("segment" if x["segment"] in routed else "global") for x in sc), [(x["segment"], x["model"]) for x in sc])
+        check(sc[-1]["model"] == "global" and "no routed model" in sc[-1]["routed_to"], sc[-1])
+        book: dict[str, str] = {}
+        for x in sc:
+            for c in x.get("codes") or []:
+                check(book.setdefault(c["code"], c["feature"]) == c["feature"], (c["code"], c["feature"], book))
+        check(any(x.get("codes") for x in sc), "no adverse row got codes")
+        b = j(C.post(f"/api/registry/versions/{vid}/batches", files={"file": ("apps.csv", pd.DataFrame(rows * 20).to_csv(index=False).encode(), "text/csv")},
+                     data={"created_by": "Smoke Analyst"}))
+        b = poll(f"/api/registry/batches/{b['id']}", lambda x: x["status"] in ("succeeded", "failed"), 600)
+        check(b["status"] == "succeeded", b.get("error"))
+        summ = b["result"]["summary"]
+        check(summ["n_rows"] == 100 and summ["seg_global_rows"] == 20 * sum(1 for x in sc if x["model"] == "global"), summ.get("seg_segments"))
+        check({"routed_model", "decision", "reason_codes"} <= set(b["result"]["columns"]), b["result"]["columns"])
+        rc = get(f"/api/registry/versions/{vid}/reasons")
+        check(rc["threshold"] == r["threshold"], rc.get("threshold"))
+        cf = C.post(f"/api/registry/versions/{vid}/recourse", json={"rows": [rows[0]]})
+        check(cf.status_code == 400, cf.status_code)
+        card = C.get(f"/api/registry/versions/{vid}/card", params={"format": "md"}).text
+        check("Segmented models (routed)" in card and "Overall, routed" in card, "card section")
+        return (f"{vid} ready ({v['result']['version']['size_bytes'] / 1e6:.0f} MB) · Try It small_business → {t['segment']['routed_to']}, "
+                f"p̂ {t['probabilities'][str(t['positive_class'])]:.3f} · /score routes {', '.join(f'{x['segment']}→{x['model']}' for x in sc)} · "
+                f"one code book · batch of 100: {100 - summ['seg_global_rows']} rows by segment models · recourse → 400 · card section")
+    step("seg: routed version: Try It, /score, reason codes, batch, card", registry)
+
+
 def fair_lending(st: dict[str, Any]) -> None:
     """G4: the fair-lending check without protected attributes (BISG) on the fair-lending sample, zero-config. Intake
     finds surname, zip and the hidden true group (protected: left out of the model with the IDs); the binary pre-fill
@@ -4910,7 +5002,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

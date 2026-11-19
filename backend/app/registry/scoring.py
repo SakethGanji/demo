@@ -401,7 +401,7 @@ def _batch_reasons(reg: RegistryStore, batch_id: str, predictor_path: str, cfg: 
 
 
 def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, cfg: dict[str, Any], csv_path: str,
-                     out_dir: str, version: dict[str, Any]) -> dict[str, Any]:
+                     out_dir: str, version: dict[str, Any], reason_args: tuple | None = None) -> dict[str, Any]:
     """(In a worker.) Batch scoring and drift for forecast and anomaly versions, in the registry's batch format.
 
     Anomaly: every row scored with the version's IsolationForest (s, E[h], percentile among the fitted rows, the flag
@@ -422,7 +422,35 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
         train = pd.read_csv(cfg["csv_path"])
         out_path = out_dir_p / "scored.csv"
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.2)
-        if kind == "expected_loss":  # G3: PD · LGD · EAD per loan, PSI of the inputs and of EL against the run's holdout
+        if kind == "segmented":  # G5: each row through its segment's model; reason codes for the first adverse rows
+            from ..segmented import core as sgc
+
+            t0 = time.time()
+            out, summ = sgc.score_batch(version_path, df, *(reason_args or (None, None)))
+            score_s = time.time() - t0
+            out.to_csv(out_path, index=False)
+            meta = sgc.load(version_path)["meta"]
+            feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns]
+            kinds = {c: ("number" if c in meta["numeric"] else "category") for c in feats}
+            binary = meta["problem_type"] == "binary"
+            col = ("p_" + str(meta["positive_class"])) if binary else "prediction"
+            ref_f = Path(cfg["run_dir"]) / "seg_holdout.csv"
+            ref = pd.read_csv(ref_f)["routed"].to_numpy(dtype=float) if ref_f.exists() else out[col].to_numpy(dtype=float)
+            reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
+            rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=pd.DataFrame({"y_pred": ref}),
+                                     cur_pred=pd.DataFrame({"y_pred": out[col].to_numpy(dtype=float)}), positive=None)
+            rep["prediction"]["output"] = f"routed {'p̂' if binary else 'ŷ'} (each row's segment model, else the global one)"
+            rep["prediction_reference"] = "the routed model on the run's holdout rows"
+            rep["reference"] = "the rows the models were trained on"
+            summary = {"n_rows": int(len(df)), "seconds": time.time() - t_start, "score_seconds": score_s,
+                       "us_per_row": score_s / len(df) * 1e6, "model": "routed by " + meta["segment_column"],
+                       "problem_type": meta["problem_type"], "missing_columns": [c for c in meta["inputs"] if c not in df.columns],
+                       "extra_columns": [c for c in df.columns if c not in meta["inputs"]],
+                       "mean_prediction": float(out[col].mean()), "std_prediction": float(out[col].std()),
+                       "prediction_symbol": "p̂" if binary else "ŷ", "seg_segments": summ["segments"],
+                       "seg_global_rows": summ["global_rows"], "reasons_rows": summ["reasons_rows"],
+                       **({"flagged_share": float((out["decision"] == "adverse").mean()), "threshold": meta["threshold"]} if binary else {})}
+        elif kind == "expected_loss":  # G3: PD · LGD · EAD per loan, PSI of the inputs and of EL against the run's holdout
             from ..el import core as elc
 
             t0 = time.time()
@@ -600,6 +628,8 @@ def reasoner(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any], ki
     from ..engine import reasons as rc
     from ..engine.pool import _signature
 
+    if (Path(predictor_path) / "global").is_dir() and (Path(predictor_path) / "meta.json").exists():
+        predictor_path = str(Path(predictor_path) / "global")  # G5: a routed version's tab set-up reads its global model
     p = load_predictor(predictor_path)
     key = (str(predictor_path), _signature(predictor_path), json.dumps(rconf, sort_keys=True, default=str))
     if key in _REASONERS:
