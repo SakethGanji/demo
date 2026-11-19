@@ -58,6 +58,10 @@ async function main() {
   // New Model, as the script clicks it: sample → target → confirm → (ignore columns) → split → goal → advanced → start
   const newModel = async ({ ds, label, ignore = [], split, metric, fit, tag, shots = false }) => {
     await go('quick-train')
+    // the wizard remembers the last run: "Train Another", then back to the Dataset step
+    const again = page.getByRole('button', { name: 'Train Another' })
+    if (await again.count()) await again.click()
+    if (!(await page.getByTestId(`dataset-${ds}`).count())) await page.getByTestId('step-dataset').click().catch(() => {})
     await page.getByTestId(`dataset-${ds}`).click()
     await page.getByTestId('dataset-profile').waitFor({ timeout: 60_000 })
     await page.getByRole('button', { name: 'Continue →' }).click()
