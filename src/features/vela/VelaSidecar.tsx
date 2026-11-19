@@ -9,6 +9,7 @@ import type { VelaFinding } from '@/shared/api/types'
 import { PatchCard, type Patch } from './components/PatchCard'
 import { LiveVela } from './LiveVela'
 import { DECIDER, DeciderTrail } from './components/DeciderTrail'
+import { AgentChat } from './agent/AgentChat'
 
 /** Stays mounted while closed so applied patches and your questions survive reopening it. */
 export function VelaSidecar({ open, context, patches, onClose, preferredRun, appliedKey, onApplyLive }: {
@@ -25,11 +26,13 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
   const [liveRun, setLiveRun] = useState<string | null>(null)
   const [liveQs, setLiveQs] = useState<{ q: string; ctx: string; a?: VelaAnswer; err?: string; t0: number }[]>([])
   const [route, setRoute] = useState<string[] | null>(null)
+  const [tab, setTab] = useState<'ask' | 'agent'>('ask')
+  const [agentSid, setAgentSid] = useState<string | null>(null)
   const [, setTick] = useState(0)
   const pending = liveQs.some((x) => !x.a && !x.err)
   useEffect(() => { if (open && mode === 'live') api.llm.status().then((s) => setRoute(s.route)).catch(() => setRoute(null)) }, [open, mode])
   useEffect(() => { if (!pending) return; const t = setInterval(() => setTick((n) => n + 1), 100); return () => clearInterval(t) }, [pending])
-  const apCtx = () => (location.hash.startsWith('#/autopilot') ? new URLSearchParams(location.hash.split('?')[1] ?? '').get('ap') : null)
+  const apCtx = () => (location.hash.startsWith('#/vela') ? new URLSearchParams(location.hash.split('?')[1] ?? '').get('ap') : null)
   const askLive = () => {
     const question = q.trim()
     if (!question) return
@@ -57,12 +60,15 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
       <div className="sidecar-head">
         <VelaCrest size={20} />
         <b className="card-title">Vela</b>
-        <span className="micro-label" style={{ marginLeft: 4 }}>AI Assistant</span>
+        {mode === 'live' ? <div className="seg" style={{ marginLeft: 6 }}>
+          <button className={tab === 'ask' ? 'on' : ''} onClick={() => setTab('ask')}>Ask</button>
+          <button className={tab === 'agent' ? 'on' : ''} onClick={() => setTab('agent')} data-testid="sidecar-agent-tab">Agent</button>
+        </div> : <span className="micro-label" style={{ marginLeft: 4 }}>AI Assistant</span>}
         <span className="spacer" />
         <button className="icon-btn" aria-label="Close Vela" onClick={onClose}><Icon.close width={16} height={16} /></button>
       </div>
       <div className="sidecar-body">
-        {mode === 'live' ? (
+        {mode === 'live' && tab === 'agent' ? <AgentChat compact sid={agentSid} setSid={setAgentSid} /> : mode === 'live' ? (
           <>
           <LiveVela open={open} preferredRun={preferredRun} appliedKey={appliedKey} onApply={onApplyLive} onRun={setLiveRun} />
           {liveQs.map((x, i) => (
@@ -119,7 +125,7 @@ export function VelaSidecar({ open, context, patches, onClose, preferredRun, app
         ))}
         </>}
       </div>
-      <div className="sidecar-input">
+      <div className="sidecar-input" hidden={mode === 'live' && tab === 'agent'}>
         <div className="box">
           <input placeholder={mode === 'live' ? (apCtx() ? 'Ask Vela about this autopilot…' : 'Ask Vela about this run…') : 'Ask Vela about this run…'} value={q} data-testid="vela-ask"
             onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && (mode === 'live' ? askLive() : ask())} />

@@ -1414,3 +1414,25 @@ export type SqlDemo = { url: string; query: string; tables: SqlTable[]; limit: n
 export type SqlPreview = { columns: { name: string; dtype: string; missing: number }[]; rows: Record<string, unknown>[]; n_rows: number; truncated: boolean; limit: number; seconds: number; url: string; dialect: string }
 export type SqlVersions = { dataset_id: string; root?: string; query?: string; url?: string
   versions: { id: string; name: string; rows: number; created_at: string; version: number; parent: string | null; data_sha: string; diff: SqlLineage['diff']; truncated: boolean; fetched_at: string }[] }
+
+/** G10 · Vela agent */
+export type AgentDecider = { source: string | null; decider: string | null; model: string | null; seconds: number | null; attempts?: { source: string; ok: boolean; error?: string; seconds?: number; skipped?: boolean }[] }
+export type AgentStep = {
+  type: 'step'; id: string; n: number; tool: string; args: Record<string, unknown>; why: string; kind: 'read' | 'write'; http?: string
+  status: 'running' | 'awaiting' | 'done' | 'error' | 'invalid' | 'declined' | 'stopped'; result?: Record<string, unknown>; error?: string
+  link?: string | null; seconds?: number; progress?: string; at: string; decider?: AgentDecider
+}
+export type AgentGuard = { ok: boolean; unsupported: string[]; numbers: number; rewritten: boolean; rule: string }
+export type AgentItem =
+  | { type: 'user'; text: string; at: string }
+  | AgentStep
+  | { type: 'answer'; text: string; at: string; decider?: AgentDecider; guard: AgentGuard }
+  | { type: 'note'; text: string; at: string; error?: boolean }
+  | { type: 'offer'; text: string; at: string; links: { label: string; href: string }[] }
+export type AgentSession = {
+  id: string; user: string; status: 'thinking' | 'calling' | 'awaiting_confirmation' | 'idle' | 'stopped' | 'failed' | 'no_model' | 'done'
+  decider: string; budget: { max_steps: number; steps: number; max_seconds: number; seconds: number }; timeline: AgentItem[]
+  pending: string | null; rev: number; created_at: string; updated_at?: string; turn_seconds?: number; unchanged?: boolean
+}
+export type AgentStatus = { route: string[]; default: string; sdk: { available: boolean; why: string }; cli: { path: string | null }; tools: number; write_tools: string[]; budget: { max_steps: number; max_seconds: number } }
+export type AgentSessionSummary = { id: string; user: string; status: AgentSession['status']; decider: string; created_at: string; title: string; steps: number }

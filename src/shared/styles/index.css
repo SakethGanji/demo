@@ -10,7 +10,7 @@
 @import '../../features/quick-train/quick-train.css';
 @import '../../features/explain/explain.css';
 @import '../../features/experiments/experiments.css';
-@import '../../features/autopilot/autopilot.css';
+@import '../../features/vela/autopilot/autopilot.css';
 @import '../../features/training-gym/training-gym.css';
 @import '../../features/registry/registry.css';
 @import '../../features/settings/settings.css';

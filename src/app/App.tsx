@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BuildPage } from '@/features/build/BuildPage'
-import { AutopilotPage } from '@/features/autopilot/AutopilotPage'
+import { VelaPage } from '@/features/vela/VelaPage'
 import { ExperimentsPage } from '@/features/experiments/ExperimentsPage'
 import { AnomalyPage } from '@/features/anomaly/AnomalyPage'
 import { ExplainPage } from '@/features/explain/ExplainPage'
@@ -61,7 +61,7 @@ export default function App() {
     }
     addEventListener('keydown', k); return () => removeEventListener('keydown', k)
   }, [])
-  const go = (r: string) => { if (r === 'vela') setVela(true); else location.hash = `#/${r}` }
+  const go = (r: string) => { location.hash = `#/${r}` }
 
   const patches: Patch[] = [
     {
@@ -83,7 +83,7 @@ export default function App() {
     <PrefsContext.Provider value={{ prefs, set: setPref }}>
     <div className={`frame layout-${prefs.layout.toLowerCase()} density-${prefs.density.toLowerCase()} ${prefs.motion === 'Still' ? 'still' : ''}`}>
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
-      <Sidebar route={route} collapsed={collapsed} velaOpen={vela} go={go} onToggle={() => setCollapsed(!collapsed)} />
+      <Sidebar route={route} collapsed={collapsed} go={go} onToggle={() => setCollapsed(!collapsed)} />
 
       <div className="main">
         <ContextBar route={route} velaOpen={vela} onPalette={() => setPalette(true)} onVela={() => setVela(!vela)} />
@@ -92,8 +92,8 @@ export default function App() {
           {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
           {route === 'build' && <BuildPage go={go} />}
           {route === 'quick-train' && <QuickTrainPage go={go} />}
-          {route === 'autopilot' && <AutopilotPage go={go} />}
-          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('autopilot')} gym={gym} setGym={setGym} go={go} />}
+          {route === 'vela' && <VelaPage go={go} />}
+          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('vela?mode=auto')} gym={gym} setGym={setGym} go={go} />}
           {route === 'experiments' && <ExperimentsPage go={go} />}
           {route === 'explain' && <ExplainPage go={go} onApplyPatch={(rid, p) => applyVela(rid, { patch: p } as unknown as VelaFinding)} />}
           {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}

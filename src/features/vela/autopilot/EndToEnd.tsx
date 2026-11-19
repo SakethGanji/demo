@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useApi } from '@/shared/api/mode'
 import { LiveAutopilot } from './live/LiveAutopilot'
 import type { Dataset } from '@/features/quick-train/datasets'
-import { Segmented } from '@/shared/primitives/Segmented'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { BriefStep } from './components/BriefStep'
 import { DataChanges } from './components/DataChanges'
 import { DecisionLog } from './components/DecisionLog'
@@ -13,13 +11,14 @@ import { IterationString } from './components/IterationString'
 import { Gauge } from './components/RequirementGauge'
 import { TEXT_SAMPLES, buildRun, type Brief, type Diff, type Metrics } from './run'
 
-export function AutopilotPage({ go }: { go: (r: string) => void }) {
+/** Vela's "run it end to end" mode (was the Autopilot page): live, real runs chained by Autopilot; mock, the scripted
+ *  prototype labelled SIMULATED. The Vela page owns the header and the mode switch. */
+export function EndToEnd({ go }: { go: (r: string) => void }) {
   const { mode } = useApi()
   if (mode === 'live') return <LiveAutopilot go={go} />
   return <ScriptedAutopilot go={go} />
 }
 
-/** Mock mode: the scripted prototype, labelled SIMULATED. */
 function ScriptedAutopilot({ go }: { go: (r: string) => void }) {
   const [ds, setDs] = useState<Dataset>(TEXT_SAMPLES[0])
   const [goal, setGoal] = useState('Route each support ticket to the right team. Security tickets must not be missed. It has to answer fast enough to run on every incoming ticket.')
@@ -58,18 +57,8 @@ function ScriptedAutopilot({ go }: { go: (r: string) => void }) {
   const inbox = <GroundTruthInbox step={last} blocked={blocked} finished={finished} asked={asked} onAnswer={(id, option) => setAnswers({ ...answers, [id]: option })} />
 
   return (
-    <div className="wizard">
-      <div className="stepper-bar" style={{ paddingBottom: 16 }}>
-        <div className="stepper-title" style={{ marginBottom: 0 }}>
-          <VelaCrest size={26} />
-          <h1 className="page-title">Vela Autopilot</h1>
-          <span className="helper">It trains, tunes and fixes the data, and only stops to ask you what is true.</span>
-          <span className="pill warning" data-testid="autopilot-simulated">SIMULATED</span>
-          <span className="spacer" />
-          <Segmented options={['Manual', 'Autopilot']} value="Autopilot" onChange={(v) => v === 'Manual' && go('gym')} />
-        </div>
-      </div>
-
+    <>
+      <span className="pill warning e2e-sim" data-testid="autopilot-simulated">SIMULATED</span>
       <div className="wizard-scroll">
         {phase !== 'run' ? (
           <BriefStep ds={ds} setDs={setDs} goal={goal} setGoal={setGoal} brief={brief} setBrief={setBrief} phase={phase} onEdit={() => setPhase('brief')} />
@@ -142,6 +131,6 @@ function ScriptedAutopilot({ go }: { go: (r: string) => void }) {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 }

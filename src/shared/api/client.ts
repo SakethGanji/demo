@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, FeatureImportance, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
@@ -220,6 +220,16 @@ export const api = {
     status: () => request<LlmStatus>('/llm', { timeoutMs: 5_000 }),
     update: (patch: Partial<Record<keyof LlmSettings, number | boolean | string | null>>) => json<LlmStatus>('/llm/settings', 'PUT', patch),
     clearCache: () => json<{ cleared: number }>('/llm/cache/clear', 'POST', {}),
+  },
+  /** G10: the Vela agent. Conversations run on the server; the page follows them with `get(id, rev)`. */
+  agent: {
+    status: () => request<AgentStatus>('/agent/status', { timeoutMs: 5_000 }),
+    list: () => request<{ sessions: AgentSessionSummary[] }>('/agent/sessions').then((r) => r.sessions),
+    start: (message: string, user: string) => json<AgentSession>('/agent/sessions', 'POST', { message, user }),
+    get: (id: string, since?: number) => request<AgentSession>(`/agent/sessions/${encodeURIComponent(id)}${since != null ? `?since=${since}` : ''}`),
+    say: (id: string, message: string) => json<AgentSession>(`/agent/sessions/${encodeURIComponent(id)}/messages`, 'POST', { message }),
+    confirm: (id: string, step_id: string, approve: boolean) => json<AgentSession>(`/agent/sessions/${encodeURIComponent(id)}/confirm`, 'POST', { step_id, approve }),
+    stop: (id: string) => json<AgentSession>(`/agent/sessions/${encodeURIComponent(id)}/stop`, 'POST', {}),
   },
   autopilot: {
     start: (b: { dataset_id: string; label?: string; goal?: string; requirements: ApRequirement[]; budget_seconds: number; autonomy: 'ask' | 'auto'; auto_confidence?: number; decider: 'auto' | 'layer1'; allow_synthetic?: boolean }) =>

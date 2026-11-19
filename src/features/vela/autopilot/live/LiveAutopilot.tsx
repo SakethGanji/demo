@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { ApCheck, ApStep, Autopilot } from '@/shared/api/types'
-import { Segmented } from '@/shared/primitives/Segmented'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { DataChanges } from '../components/DataChanges'
 import { IterationString } from '../components/IterationString'
 import { Gauge } from '../components/RequirementGauge'
@@ -78,30 +76,18 @@ export function LiveAutopilot({ go }: { go: (r: string) => void }) {
     return () => { alive = false; clearTimeout(t) }
   }, [apId])
 
-  const open = (id: string | null) => { location.hash = id ? `#/autopilot?ap=${id}` : '#/autopilot'; setApId(id) }
+  const open = (id: string | null) => { location.hash = id ? `#/vela?mode=auto&ap=${id}` : '#/vela?mode=auto'; setApId(id) }
 
   return (
-    <div className="wizard">
-      <div className="stepper-bar" style={{ paddingBottom: 16 }}>
-        <div className="stepper-title" style={{ marginBottom: 0 }}>
-          <VelaCrest size={26} />
-          <h1 className="page-title">Vela Autopilot</h1>
-          <span className="helper">Real runs, chained. It audits the labels with cleanlab and only stops to ask you what is true.</span>
-          <span className="spacer" />
-          {a && <button className="btn sm ghost" onClick={() => open(null)} data-testid="ap-new">New Brief</button>}
-          <Segmented options={['Manual', 'Autopilot']} value="Autopilot" onChange={(v) => v === 'Manual' && go('gym')} />
-        </div>
-      </div>
-      <div className="wizard-scroll">
-        {!apId ? <LiveBrief onStarted={(id) => open(id)} onOpen={open} />
-          : !a ? <div className="page"><p className="helper">{err || 'Loading the autopilot…'}</p></div>
-          : <RunView a={a} go={go} refresh={() => api.autopilot.get(a.id).then(setA)} />}
-      </div>
+    <div className="wizard-scroll">
+      {!apId ? <LiveBrief onStarted={(id) => open(id)} onOpen={open} />
+        : !a ? <div className="page"><p className="helper">{err || 'Loading the autopilot…'}</p></div>
+        : <RunView a={a} go={go} refresh={() => api.autopilot.get(a.id).then(setA)} onNew={() => open(null)} />}
     </div>
   )
 }
 
-function RunView({ a, go, refresh }: { a: Autopilot; go: (r: string) => void; refresh: () => void }) {
+function RunView({ a, go, refresh, onNew }: { a: Autopilot; go: (r: string) => void; refresh: () => void; onNew: () => void }) {
   const { steps, total } = useMemo(() => toString(a), [a])
   const awaiting = a.status === 'awaiting_inbox'
   const finished = a.status === 'finished'
@@ -144,7 +130,8 @@ function RunView({ a, go, refresh }: { a: Autopilot; go: (r: string) => void; re
         </div>
         <div className="stage-foot">
           <div className="stage-prog"><i style={{ width: `${Math.min(100, (a.budget.spent / a.budget.total) * 100)}%` }} /></div>
-          {running || awaiting ? <button className="btn sm" onClick={() => api.autopilot.cancel(a.id).then(refresh)}>Stop</button> : null}
+          {running || awaiting ? <button className="btn sm" onClick={() => api.autopilot.cancel(a.id).then(refresh)}>Stop</button>
+            : <button className="btn sm ghost" onClick={onNew} data-testid="ap-new">New Brief</button>}
           <span className="mono" style={{ fontSize: 11.5, color: 'var(--text-on-shell-muted)' }}>Σ tᵢ = {Math.round(a.budget.spent)} s ≤ B = {Math.round(a.budget.total)} s</span>
         </div>
       </section>

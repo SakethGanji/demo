@@ -2,7 +2,7 @@ import type { LlmAttempt } from '@/shared/api/types'
 
 /** F5: names of the language-model router's deciders (app/llm.py). */
 export const DECIDER: Record<string, string> = {
-  'anthropic-sdk': 'Anthropic SDK', 'claude-cli': 'Claude CLI', 'anthropic-api': 'Anthropic API', computed: 'computed text',
+  'anthropic-sdk': 'Anthropic SDK', 'claude-cli': 'Claude CLI', 'anthropic-api': 'Anthropic API', computed: 'computed text', stub: 'stub planner', none: 'no model',
 }
 
 const sec = (s: number) => (s < 0.01 ? `${(s * 1000).toFixed(s < 0.001 ? 2 : 1)} ms` : `${s.toFixed(s < 10 ? 2 : 1)} s`)
