@@ -61,6 +61,7 @@ MONEY = re.compile(r"(usd|eur|gbp|amount|amt|income|salary|balance|price|revenue
                    r"principal|exposure|loss|value|cost|(^|_)loan(_|$))", re.I)
 DURATION = re.compile(r"(tenure|duration|time_to|months_on_book|survival|days_to|weeks_to|months_to|_time$|^time$|"
                       r"days_active|lifetime)", re.I)
+EXPLICIT_TTE = re.compile(r"(time_to|days_to|weeks_to|months_to|years_to|follow_?up|time_on_study|survival)", re.I)
 EVENT = re.compile(r"(event|churn\w*|default\w*|died|death|censor\w*|observed|prepaid|prepay\w*|closed|attrit\w*|lapsed)", re.I)
 LGD = re.compile(r"(^lgd|_lgd|loss_given|recovery_rate|loss_rate|loss_frac|loss_share|loss_pct)", re.I)
 EAD = re.compile(r"(^ead|_ead|exposure|balance_at_default|outstanding)", re.I)
@@ -232,9 +233,15 @@ def detect(df: pd.DataFrame, series_value: str | None = None) -> dict[str, Any]:
                 # G6/G11: an explicit time to an event, next to a yes/no target, runs up to that outcome. It is the time T of a
                 # survival model, but a yes/no model of the same target must not read it (it is known only afterwards).
                 if tcol and col != tcol and target[2] == "binary" and TIME_TO_EVENT.search(name):
-                    found.append(_role("duration", 0.9, f"'{col}' names a time to an event", f"non-negative, {lo:g} → {hi:g}"))
-                    found.append(_role("leak", 0.85, f"'{col}' is the time up to '{tcol}': known only after the outcome",
-                                       "kept as the time T of a survival model, left out of a yes/no model"))
+                    # Only confident when the target reads like an event (churned, defaulted…) or the name says "time to":
+                    # a bare 'duration' next to 'class' is as often a loan term (German credit) as a call length.
+                    if EVENT.search(tcol) or EXPLICIT_TTE.search(name):
+                        found.append(_role("duration", 0.9, f"'{col}' names a time to an event", f"non-negative, {lo:g} → {hi:g}"))
+                        found.append(_role("leak", 0.85, f"'{col}' is the time up to '{tcol}': known only after the outcome",
+                                           "kept as the time T of a survival model, left out of a yes/no model"))
+                    else:
+                        found.append(_role("leak", 0.6, f"'{col}' may be measured up to or after '{tcol}' (a call's length, "
+                                           "a time to the event): kept; leave it out if it is not known when you decide"))
             if MONEY.search(name) and lo >= 0 and not LGD.search(name) and not RATIO.search(name):
                 found.append(_role("money", 0.8, "name reads like a money amount", f"non-negative, median {float(nn.median()):,.2f}"))
         if col != tcol and k == 2 and _binary01(s) and EVENT.search(name):
