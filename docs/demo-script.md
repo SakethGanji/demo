@@ -19,7 +19,7 @@ fits are deterministic for these configs; the threshold, the learning curve and 
    - Again with `{"hyperparameters": {"XGB": {"n_estimators": 200}}}`: the challenger.
    - Model Registry → Register both (model name `loan-stream`). As **Riley Review**: approve the first → **Production**,
      the second → **Staging**. Back as Dana.
-   - **Expect:** champion holdout AUC **0.7765 [0.7495, 0.8034]**.
+   - **Expect:** champion holdout AUC **0.7826 [0.7556, 0.8091]** (the smoke drops `application_date` as a feature and gets 0.7765).
 3. Close Vela for now.
 
 ## 0:00 – 1:00 · The question

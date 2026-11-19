@@ -129,7 +129,7 @@ async function main() {
     const fit2 = { hyperparameters: { XGB: { n_estimators: 200 } } }
     const a = await newModel({ ds: 'loan-stream', label: 'defaulted', split: 'time', metric: 'roc_auc', fit: fit1, tag: 'prep' })
     S.champRun = a.runId
-    expectNum('prep', 'champion holdout ROC AUC', await text('result-primary'), 0.7765, 0.003)
+    expectNum('prep', 'champion holdout ROC AUC', await text('result-primary'), 0.7826, 0.003)
     const b = await newModel({ ds: 'loan-stream', label: 'defaulted', split: 'time', metric: 'roc_auc', fit: fit2, tag: 'prep' })
     S.challRun = b.runId
     S.champ = await register(S.champRun, 'loan-stream')
