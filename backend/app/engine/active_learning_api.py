@@ -6,10 +6,8 @@ see active_learning.py), one queue at a time across the workbench."""
 from __future__ import annotations
 
 import json
-import os
 import signal
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -19,10 +17,9 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import config
 from ..splits import holdout_mask
 from . import active_learning as al
-from .runner import dev_reload
+from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
 from .store import now
 from ..http import run_or_404
 
@@ -62,30 +59,13 @@ class Answers(BaseModel):
     reviewer: str = Field("you", min_length=1, max_length=60)
 
 
-def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-    except OSError:
-        return False
-    return "app.engine.active_learning" in cmd
-
-
-def _kill(pid: int, sig: int = signal.SIGTERM) -> None:
-    try:
-        os.killpg(os.getpgid(pid), sig)
-    except (ProcessLookupError, PermissionError):
-        pass
-
-
 def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
     run_dir = Path(rec["config"]["run_dir"])
     st = al.read_state(run_dir)
     if st and st.get("status") in ("queued", "running"):
         with _LOCK:
             p = _PROCS.get(rec["id"])
-        if (p is None or p.poll() is not None) and not _alive(st.get("pid")):
+        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.active_learning"):
             if p is not None and p.poll() is not None:
                 return al.read_state(run_dir)
             st.update(status="failed", error="The labelling queue's process stopped (the API restarted).", finished_at=now())
@@ -155,18 +135,13 @@ def _spawn(request: Request, rec: dict[str, Any]) -> None:
     run_dir = Path(rec["config"]["run_dir"])
     store = request.app.state.runs
     d = al.al_dir(run_dir)
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
-           "PYTHONPATH": os.pathsep.join(x for x in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if x)}
-    watch = str(os.getppid()) if dev_reload() else str(os.getpid())
-    with open(d / "active_learning.log", "ab") as out:
-        p = subprocess.Popen([sys.executable, "-m", "app.engine.active_learning", str(run_dir), watch],
-                             cwd=config.BACKEND_DIR, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    p = spawn("app.engine.active_learning", [str(run_dir), watch_arg()], d / "active_learning.log")
     _PROCS[run_id] = p
     _CANCELLED.discard(run_id)
 
     def wait():
         code = p.wait()
-        _kill(p.pid, signal.SIGKILL)
+        kill_group(p.pid, signal.SIGKILL)
         with _LOCK:
             st = al.read_state(run_dir) or {}
             superseded = _PROCS.get(run_id) is not p  # a submit already started the next process
@@ -420,8 +395,8 @@ def submit(run_id: str, request: Request) -> dict[str, Any]:
         ans.setdefault("submitted", {})[str(qr)] = {"at": now(), "dataset_id": ver["id"]}
         al.write_answers(run_dir, ans)
         p = _PROCS.get(run_id)
-        alive = (p is not None and p.poll() is None) or _alive(st.get("pid"))
-        if not alive:
+        running = (p is not None and p.poll() is None) or alive(st.get("pid"), "app.engine.active_learning")
+        if not running:
             st["status"] = "queued"
             al.write_state(run_dir, st)
             _spawn(request, rec)
@@ -436,9 +411,9 @@ def cancel(run_id: str, request: Request) -> dict[str, Any]:
         p = _PROCS.get(run_id)
         st = al.read_state(run_dir)
         if p is None or p.poll() is not None:
-            if st and _alive(st.get("pid")):
+            if st and alive(st.get("pid"), "app.engine.active_learning"):
                 _CANCELLED.add(run_id)
-                _kill(st["pid"])
+                kill_group(st["pid"])
             elif st and st.get("status") == "awaiting_labels":
                 st.update(status="cancelled", finished_at=now(), error="Cancelled.")
                 al.write_state(run_dir, st)
@@ -447,7 +422,7 @@ def cancel(run_id: str, request: Request) -> dict[str, Any]:
                 raise HTTPException(400, "No labelling queue is working or open for this run.")
         else:
             _CANCELLED.add(run_id)
-            _kill(p.pid)
+            kill_group(p.pid)
     return {"run_id": run_id, "cancelled": True}
 
 
@@ -458,7 +433,7 @@ def shutdown() -> None:
         procs = list(_PROCS.values())
     for p in procs:
         if p.poll() is None:
-            _kill(p.pid)
+            kill_group(p.pid)
 
 
 def active() -> list[str]:

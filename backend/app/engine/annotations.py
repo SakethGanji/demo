@@ -32,6 +32,7 @@ import pandas as pd
 
 from ..splits import holdout_mask
 from ..stats import wilson
+from .jsonsafe import read_json, write_json
 
 log = logging.getLogger("ensemble.annotations")
 
@@ -59,28 +60,12 @@ def ann_dir(run_dir: Path | str) -> Path:
     return Path(run_dir) / "annotations"
 
 
-def _read(p: Path) -> Any:
-    try:
-        return json.loads(p.read_text())
-    except (OSError, ValueError):
-        return None
-
-
-def _write(p: Path, obj: Any) -> None:
-    from .jsonsafe import jsonable
-
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(jsonable(obj), indent=1))
-    os.replace(tmp, p)
-
-
 def read_state(run_dir: Path) -> dict[str, Any] | None:
-    return _read(ann_dir(run_dir) / "state.json")
+    return read_json(ann_dir(run_dir) / "state.json")
 
 
 def write_state(run_dir: Path, st: dict[str, Any]) -> None:
-    _write(ann_dir(run_dir) / "state.json", st)
+    write_json(ann_dir(run_dir) / "state.json", st)
 
 
 def read_long(run_dir: Path) -> pd.DataFrame:
@@ -99,20 +84,20 @@ def write_long(run_dir: Path, df: pd.DataFrame) -> None:
 
 
 def read_adjudications(run_dir: Path) -> dict[str, Any]:
-    return _read(ann_dir(run_dir) / "adjudications.json") or {}
+    return read_json(ann_dir(run_dir) / "adjudications.json") or {}
 
 
 def write_adjudications(run_dir: Path, adj: dict[str, Any]) -> None:
-    _write(ann_dir(run_dir) / "adjudications.json", adj)
+    write_json(ann_dir(run_dir) / "adjudications.json", adj)
 
 
 def read_truth(run_dir: Path) -> dict[str, Any] | None:
-    return _read(ann_dir(run_dir) / "truth.json")
+    return read_json(ann_dir(run_dir) / "truth.json")
 
 
 def read_probs(run_dir: Path) -> tuple[dict[str, Any], np.ndarray] | None:
     d = ann_dir(run_dir)
-    meta = _read(d / "probs.json")
+    meta = read_json(d / "probs.json")
     if not meta or not (d / "probs.npz").exists():
         return None
     with np.load(d / "probs.npz") as z:
@@ -302,7 +287,7 @@ def compute_probs(run_dir: Path) -> dict[str, Any]:
             "n_predicted": len(missing), "seconds": round(time.time() - t0, 1)}
     d.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(d / "probs.npz", P=P.to_numpy(dtype=float))
-    _write(d / "probs.json", meta)
+    write_json(d / "probs.json", meta)
     return meta
 
 

@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import signal
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -28,10 +26,9 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import config
 from ..splits import holdout_mask
 from . import shift as sh
-from .runner import dev_reload
+from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
 from .store import now
 from ..http import run_or_404
 
@@ -68,23 +65,6 @@ def _check_run(rec: dict[str, Any]) -> None:
         raise HTTPException(400, f"Run {rec['id']} is {rec['status']}; a shift check needs a finished run.")
     if cfg.get("kind") in ("forecast", "anomaly") or cfg.get("import"):
         raise HTTPException(400, "Shift checks compare the rows of a trained tabular run (not forecast, anomaly or imported runs).")
-
-
-def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-    except OSError:
-        return False
-    return "app.engine.shift" in cmd
-
-
-def _kill(pid: int, sig: int = signal.SIGTERM) -> None:
-    try:
-        os.killpg(os.getpgid(pid), sig)
-    except (ProcessLookupError, PermissionError):
-        pass
 
 
 def _kinds(request: Request, rec: dict[str, Any]) -> dict[str, str]:
@@ -242,7 +222,7 @@ def _state(rec: dict[str, Any], key: str, store: Any) -> dict[str, Any] | None:
         with _LOCK:
             item = _PROCS.get(str(d))
         p = item[1] if item else None
-        if (p is None or p.poll() is not None) and not _alive(st.get("pid")):
+        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.shift"):
             if p is not None and p.poll() is not None:
                 return sh.read_state(d)
             st.update(status="failed", error="The shift check's process stopped (the API restarted).", finished_at=now())
@@ -388,18 +368,13 @@ def start(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str
         sh.write_state(d, {"schema": sh.SCHEMA, "key": p["key"], "source": p["source"], "status": "queued",
                            "created_at": now(), "request": p["request"], "sets": sets, "features": p["features"],
                            "kinds": p["kinds"], "excluded": p["excluded"], "extra": p["extra"], "stage": "queued"})
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
-               "PYTHONPATH": os.pathsep.join(x for x in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if x)}
-        watch = str(os.getppid()) if dev_reload() else str(os.getpid())
-        with open(d / "shift.log", "ab") as out:
-            proc = subprocess.Popen([sys.executable, "-m", "app.engine.shift", str(d), watch], cwd=config.BACKEND_DIR,
-                                    env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        proc = spawn("app.engine.shift", [str(d), watch_arg()], d / "shift.log")
         _PROCS[str(d)] = (rec["id"], proc)
         _CANCELLED.discard(str(d))
 
     def wait():
         code = proc.wait()
-        _kill(proc.pid, signal.SIGKILL)
+        kill_group(proc.pid, signal.SIGKILL)
         st = sh.read_state(d) or {}
         with _LOCK:
             cancelled = str(d) in _CANCELLED
@@ -429,14 +404,14 @@ def cancel_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
         item = _PROCS.get(str(d))
         if item is None or item[1].poll() is not None:
             st = sh.read_state(d)
-            if st and _alive(st.get("pid")):
+            if st and alive(st.get("pid"), "app.engine.shift"):
                 _CANCELLED.add(str(d))
-                _kill(st["pid"])
+                kill_group(st["pid"])
             else:
                 raise HTTPException(400, "No shift check is running here.")
         else:
             _CANCELLED.add(str(d))
-            _kill(item[1].pid)
+            kill_group(item[1].pid)
     return {"run_id": run_id, "key": key, "cancelled": True}
 
 
@@ -541,7 +516,7 @@ def shutdown() -> None:
         procs = [p for _, p in _PROCS.values()]
     for p in procs:
         if p.poll() is None:
-            _kill(p.pid)
+            kill_group(p.pid)
 
 
 def active() -> list[str]:

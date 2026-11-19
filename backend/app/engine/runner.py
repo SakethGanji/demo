@@ -23,12 +23,12 @@ import os
 import queue
 import signal
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
 
 from .. import config
+from .jobs import alive, dev_reload, kill_group, spawn
 from .store import RunStore
 
 log = logging.getLogger("ensemble.runner")
@@ -37,18 +37,7 @@ STOPPED_MSG = "The API stopped while this run was in progress."
 
 
 def _is_our_worker(pid: int) -> bool:
-    try:
-        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-    except OSError:
-        return False
-    return "app.engine.worker" in cmd
-
-
-def _kill_group(pid: int, sig: int = signal.SIGTERM) -> None:
-    try:
-        os.killpg(os.getpgid(pid), sig)
-    except (ProcessLookupError, PermissionError):
-        pass
+    return alive(pid, "app.engine.worker")
 
 
 def _alive(pid: int) -> bool:
@@ -59,10 +48,6 @@ def _alive(pid: int) -> bool:
     except PermissionError:
         return True
     return _is_our_worker(pid)
-
-
-def dev_reload() -> bool:
-    return os.environ.get("ENSEMBLE_DEV_RELOAD", "") not in ("", "0", "false")
 
 
 class JobRunner:
@@ -103,7 +88,7 @@ class JobRunner:
                     continue
             if pid and _is_our_worker(pid):
                 log.warning("killing worker %s left over from a previous API process (run %s)", pid, rec["id"])
-                _kill_group(pid, signal.SIGKILL)
+                kill_group(pid, signal.SIGKILL)
             if self.store.finish(rec["id"], "failed", error=STOPPED_MSG):
                 self.store.emit(rec["id"], "run_failed", error=STOPPED_MSG, recovered=True)
                 failed.append(rec["id"])
@@ -118,7 +103,7 @@ class JobRunner:
         def watch():
             while _alive(pid):
                 time.sleep(0.5)
-            _kill_group(pid, signal.SIGKILL)
+            kill_group(pid, signal.SIGKILL)
             with self._lock:
                 self._adopted.pop(run_id, None)
                 cancelled = run_id in self._cancelled
@@ -144,12 +129,12 @@ class JobRunner:
         with self._lock:
             procs = dict(self._procs)
         for run_id, p in procs.items():
-            _kill_group(p.pid)
+            kill_group(p.pid)
         for run_id, p in procs.items():
             try:
                 p.wait(10)
             except subprocess.TimeoutExpired:
-                _kill_group(p.pid, signal.SIGKILL)
+                kill_group(p.pid, signal.SIGKILL)
         for _ in self._threads:
             self._q.put(None)
         # Queued and running runs are failed by recover() on the next start; doing it here too keeps the
@@ -175,9 +160,9 @@ class JobRunner:
             p = self._procs.get(run_id)
             adopted = self._adopted.get(run_id)
         if p is not None:
-            _kill_group(p.pid)
+            kill_group(p.pid)
         elif adopted is not None:
-            _kill_group(adopted)
+            kill_group(adopted)
         elif self.store.finish(run_id, "cancelled", error="Cancelled before it started."):
             self.store.emit(run_id, "run_cancelled", reason="cancelled while queued")
         return True
@@ -199,16 +184,11 @@ class JobRunner:
         if not rec or rec["status"] != "queued":
             return
         d = self.run_dir(run_id)
-        env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
-               "ENSEMBLE_DATA_DIR": str(self.settings.data_dir),
-               # Ray workers (parallel folds, dynamic stacking) must import app.* and ensemble_models too.
-               "PYTHONPATH": os.pathsep.join(p for p in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if p)}
-        with open(d / "worker.log", "ab") as out:
-            # The worker stops if the process it watches dies: the API, or under dev reload the reloader above it.
-            anchor = [str(os.getppid()), "anchor"] if self.dev_reload else [str(os.getpid())]
-            p = subprocess.Popen([sys.executable, "-m", "app.engine.worker", str(d), *anchor],
-                                 cwd=config.BACKEND_DIR, env=env, stdout=out, stderr=subprocess.STDOUT,
-                                 start_new_session=True)
+        # The worker stops if the process it watches dies: the API, or under dev reload the reloader above it.
+        anchor = [str(os.getppid()), "anchor"] if self.dev_reload else [str(os.getpid())]
+        # PYTHONPATH: Ray workers (parallel folds, dynamic stacking) must import app.* and ensemble_models too.
+        p = spawn("app.engine.worker", [str(d), *anchor], d / "worker.log",
+                  {"ENSEMBLE_DATA_DIR": str(self.settings.data_dir)})
         with self._lock:
             self._procs[run_id] = p
         self.store.mark_running(run_id, p.pid)
@@ -217,7 +197,7 @@ class JobRunner:
             self._procs.pop(run_id, None)
             cancelled = run_id in self._cancelled
             self._cancelled.discard(run_id)
-        _kill_group(p.pid, signal.SIGKILL)  # anything the worker left behind (Ray)
+        kill_group(p.pid, signal.SIGKILL)  # anything the worker left behind (Ray)
         if self._stopping:
             if self.store.finish(run_id, "failed", error=STOPPED_MSG):
                 self.store.emit(run_id, "run_failed", error=STOPPED_MSG)

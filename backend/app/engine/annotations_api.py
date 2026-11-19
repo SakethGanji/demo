@@ -7,10 +7,7 @@ from __future__ import annotations
 
 import io
 import json
-import os
-import signal
 import subprocess
-import sys
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -20,8 +17,9 @@ import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from .. import config
 from . import annotations as an
+from .jobs import alive, kill_group, spawn
+from .jsonsafe import write_json
 from .store import now
 from ..http import run_or_404
 
@@ -69,16 +67,6 @@ def _classes(rec: dict[str, Any]) -> list[str]:
     return [str(c) for c in (rec.get("result") or {}).get("classes") or []]
 
 
-def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        cmd = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-    except OSError:
-        return False
-    return "app.engine.annotations" in cmd
-
-
 def _spawn(request: Request, rec: dict[str, Any]) -> None:
     """p̂ in its own process (the run's OOF, or a quick bagged fit). One per run."""
     run_id = rec["id"]
@@ -88,14 +76,10 @@ def _spawn(request: Request, rec: dict[str, Any]) -> None:
         return
     d = an.ann_dir(run_dir)
     d.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, "PYTHONUNBUFFERED": "1", "MLFLOW_DISABLE_AGENT_HINT": "1",
-           "PYTHONPATH": os.pathsep.join(x for x in (str(config.BACKEND_DIR), os.environ.get("PYTHONPATH", "")) if x)}
     st = an.read_state(run_dir) or {}
     st.update(status="computing", error=None, started_at=now())
     an.write_state(run_dir, st)
-    with open(d / "probs.log", "ab") as out:
-        p = subprocess.Popen([sys.executable, "-m", "app.engine.annotations", str(run_dir)], cwd=config.BACKEND_DIR,
-                             env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+    p = spawn("app.engine.annotations", [str(run_dir)], d / "probs.log")
     _PROCS[run_id] = p
     st["pid"] = p.pid
     an.write_state(run_dir, st)
@@ -117,7 +101,7 @@ def _status(rec: dict[str, Any]) -> dict[str, Any] | None:
     st = an.read_state(run_dir)
     if st and st.get("status") == "computing":
         p = _PROCS.get(rec["id"])
-        if (p is None or p.poll() is not None) and not _alive(st.get("pid")):
+        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.annotations"):
             st = an.read_state(run_dir) or st
             if st.get("status") == "computing":
                 st.update(status="failed", error="The p̂ process stopped (the API restarted). Load the annotations again.")
@@ -206,7 +190,7 @@ def _replace(request: Request, rec: dict[str, Any], long: pd.DataFrame, source: 
         an.write_adjudications(run_dir, {})
         tp = d / "truth.json"
         if truth:
-            an._write(tp, truth)
+            write_json(tp, truth)
         elif tp.exists():
             tp.unlink()
         st = an.read_state(run_dir) or {}
@@ -422,10 +406,7 @@ def make_version(run_id: str, request: Request) -> dict[str, Any]:
 def shutdown() -> None:
     for p in list(_PROCS.values()):
         if p.poll() is None:
-            try:
-                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(p.pid)
 
 
 def active() -> list[str]:
