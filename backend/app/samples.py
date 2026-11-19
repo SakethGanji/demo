@@ -503,6 +503,7 @@ def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int =
 
 from .samples_s8 import generate_card_transactions, generate_transaction_volume  # noqa: E402
 from .samples_f16 import generate_personal_loans  # noqa: E402
+from .samples_f18 import generate_loan_stream  # noqa: E402
 
 SAMPLES = {
     "support-tickets": {
@@ -555,5 +556,12 @@ SAMPLES = {
         "note": "Generated sample · tabular, 2 classes, a planted weak slice (F16)",
         "generate": generate_personal_loans,
         "sidecar": "slice_truth.json",
+    },
+    "loan-stream": {
+        "name": "Loan stream (sample)",
+        "filename": "loan_stream_sample.csv",
+        "note": "Generated sample · 9,000 dated loan applications (2024) + a 12-month stream of new ones (2025) with drift from month 7 (F18)",
+        "generate": generate_loan_stream,
+        "sidecar": "stream_truth.json",
     },
 }

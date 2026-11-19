@@ -117,6 +117,10 @@ class Database:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as con:
             con.executescript(SCHEMA)
+            # F18: a scored batch carries the date of its data (monitoring over time). Added to older databases in place.
+            cols = {r[1] for r in con.execute("PRAGMA table_info(batch_jobs)")}
+            if "data_date" not in cols:
+                con.execute("ALTER TABLE batch_jobs ADD COLUMN data_date TEXT")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

@@ -89,7 +89,10 @@ def _train_frame(cfg: dict[str, Any], features: list[str]) -> pd.DataFrame:
 
 
 def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str, Any], csv_path: str, out_dir: str,
-                kinds: dict[str, str], version: dict[str, Any], rconf: dict[str, Any] | None = None) -> dict[str, Any]:
+                kinds: dict[str, str], version: dict[str, Any], rconf: dict[str, Any] | None = None,
+                shadow: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`shadow` (F18): {version_id, path, model_name, version}: a Staging challenger that scores the same rows; its
+    p̂ goes to shadow.csv and the comparison to result.shadow. It never changes the batch's own output."""
     reg = RegistryStore(Database(Path(db_path)))
     out_dir_p = Path(out_dir)
     try:
@@ -178,6 +181,9 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
                 summary["mean_p_reference"] = float(ref_pred[f"p_{pos}"].mean()) if f"p_{pos}" in ref_pred else None
                 summary["flagged_share"] = float((pred.astype(str) == pos).mean())
                 summary["threshold"] = float(p.decision_threshold)
+                from .monitoring import score_quantiles
+
+                summary["score_quantiles"] = score_quantiles(cur_pred[f"p_{pos}"].to_numpy())
         else:
             summary["mean_prediction"] = float(pred.mean())
             summary["std_prediction"] = float(pred.std())
@@ -206,6 +212,13 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         preview = jsonable(out.head(50).to_dict(orient="records"))
         result = {"summary": summary, "drift": rep, "preview": preview, "columns": list(out.columns),
                   "output_file": out_path.name}
+        if shadow and p.problem_type == "binary":  # F18: the challenger scores the same rows in the shadow
+            reg.update_batch(batch_id, stage=f"shadow scoring with {shadow.get('label') or shadow['version_id']}", progress=0.93)
+            try:
+                result["shadow"] = _shadow(shadow, df, train, out_dir_p, cur_pred[f"p_{pos}"].to_numpy(),
+                                           float(p.decision_threshold), pos)
+            except Exception as e:  # noqa: BLE001 — the batch itself stands; the comparison says why it is missing
+                result["shadow"] = {"version_id": shadow["version_id"], "error": f"{type(e).__name__}: {e}"}
         (out_dir_p / "drift.json").write_text(json.dumps(jsonable(rep)))
         reg.update_batch(batch_id, status="succeeded", stage="done", progress=1.0, result=result, finished_at=now())
         v = reg.get_version(version["id"])
@@ -219,6 +232,88 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         (out_dir_p / "error.txt").write_text(traceback.format_exc())
         reg.update_batch(batch_id, status="failed", stage="failed", error=f"{type(e).__name__}: {e}", finished_at=now())
         return {"ok": False, "error": str(e)}
+
+
+def _shadow(shadow: dict[str, Any], df: pd.DataFrame, train: pd.DataFrame, out_dir: Path, p_champ: np.ndarray,
+            t_champ: float, pos: str) -> dict[str, Any]:
+    from .monitoring import shadow_compare
+
+    t0 = time.time()
+    q = load_predictor(shadow["path"])
+    if q.problem_type != "binary" or str(q.positive_class) != pos:
+        raise ValueError(f"The challenger is not a binary model of the same positive class ({pos}).")
+    feats = list(q.original_features)
+    Xq = _coerce(df.reindex(columns=feats), train.reindex(columns=[c for c in feats if c in train.columns]))
+    pq = q.predict_proba(Xq)[q.positive_class].to_numpy()
+    t_q = float(q.decision_threshold)
+    pd.DataFrame({"row": np.arange(len(df)), "p_champion": p_champ, "p_challenger": pq}).to_csv(out_dir / "shadow.csv", index=False)
+    cmp = shadow_compare(p_champ, pq, t_champ, t_q)
+    return {"version_id": shadow["version_id"], "label": shadow.get("label"), "model": q.model_best,
+            "missing_columns": [c for c in feats if c not in df.columns], "seconds": time.time() - t0, **cmp}
+
+
+def attach_labels(db_path: str, batch_id: str, batch_dir: str, labels_path: str, id_column: str, label_column: str,
+                  label_date: str | None, info: dict[str, Any]) -> dict[str, Any]:
+    """F18: join a later label file to a scored batch on `id_column` and measure performance on the joined rows (and the
+    paired champion / challenger comparison when the batch was shadow-scored). `info`: problem_type, positive_class,
+    threshold, cost, data_date, actor."""
+    from . import monitoring as M
+
+    reg = RegistryStore(Database(Path(db_path)))
+    bdir = Path(batch_dir)
+    scored = pd.read_csv(bdir / "scored.csv")
+    lab = pd.read_csv(labels_path)
+    for c, what in ((id_column, "id"), (label_column, "label")):
+        if c not in lab.columns:
+            raise ValueError(f"The label file has no {what} column '{c}' (it has {', '.join(map(str, lab.columns))}).")
+    if id_column not in scored.columns:
+        raise ValueError(f"The batch has no column '{id_column}' to join on.")
+    dates = None
+    if "label_date" in lab.columns:
+        dates = pd.to_datetime(lab["label_date"], errors="coerce")
+    lab = lab.dropna(subset=[label_column])
+    dup = int(lab[id_column].duplicated().sum())
+    lab = lab.drop_duplicates(subset=[id_column], keep="last")
+    sc = scored.reset_index().rename(columns={"index": "_row"})
+    sc[id_column] = sc[id_column].astype(str)
+    lab = lab.assign(**{id_column: lab[id_column].astype(str)})
+    j = sc.merge(lab[[id_column, label_column] + (["label_date"] if "label_date" in lab.columns else [])]
+                 .rename(columns={label_column: "_y"}), on=id_column, how="inner")
+    if not len(j):
+        raise ValueError(f"No id in the label file matches the batch's {id_column}.")
+    ldate = label_date
+    if not ldate and dates is not None and dates.notna().any():
+        ldate = str(dates.max().date())
+    ldate = ldate or now()[:10]
+    pt = info["problem_type"]
+    out: dict[str, Any] = {"n_batch": int(len(scored)), "n_labels": int(len(lab)), "n_joined": int(len(j)),
+                           "coverage": float(len(j) / len(scored)), "unmatched": int(len(lab) - len(j)), "duplicates": dup,
+                           "id_column": id_column, "label_column": label_column, "label_date": ldate,
+                           "data_date": info.get("data_date"), "lag_days": M.days_between(info.get("data_date"), ldate),
+                           "uploaded_at": now(), "uploaded_by": info.get("actor") or ""}
+    if pt == "binary":
+        pos = str(info["positive_class"])
+        y = (j["_y"].astype(str) == pos).astype(int).to_numpy()
+        if not set(j["_y"].astype(str)) <= set(map(str, info.get("classes") or [])) | {pos}:
+            out["unknown_labels"] = sorted(set(j["_y"].astype(str)) - set(map(str, info.get("classes") or [])))[:10]
+        p = j[f"p_{pos}"].to_numpy(dtype=float)
+        out["performance"] = M.perf_binary(y, p, float(info["threshold"]), info.get("cost"))
+        sp = bdir / "shadow.csv"
+        if sp.exists():
+            sh = pd.read_csv(sp).set_index("row")
+            rows = j["_row"].to_numpy()
+            out["paired"] = M.paired_with_labels(y, sh.loc[rows, "p_champion"].to_numpy(), sh.loc[rows, "p_challenger"].to_numpy())
+            out["paired"]["challenger_performance"] = M.perf_binary(y, sh.loc[rows, "p_challenger"].to_numpy(),
+                                                                    float(info.get("challenger_threshold") or 0.5))
+    else:
+        proba = None
+        if pt == "multiclass":
+            pc = [c for c in j.columns if c.startswith("p_")]
+            proba = j[pc].rename(columns=lambda c: c[2:]) if pc else None
+        out["performance"] = M.perf_other(pt, j["_y"], j["prediction"], proba)
+    pd.DataFrame({"row": j["_row"], id_column: j[id_column], "y": j["_y"]}).to_csv(bdir / "labels.csv", index=False)
+    reg.merge_batch_result(batch_id, labels=out)
+    return jsonable(out)
 
 
 def _batch_reasons(reg: RegistryStore, batch_id: str, predictor_path: str, cfg: dict[str, Any], rconf: dict[str, Any],

@@ -651,27 +651,39 @@ def _kinds(request: Request, run: dict[str, Any]) -> dict[str, str]:
 
 
 @router.post("/registry/versions/{vid}/batches", status_code=202)
-async def create_batch(vid: str, request: Request, file: UploadFile = File(...), created_by: str = Form("")) -> dict[str, Any]:
+async def create_batch(vid: str, request: Request, file: UploadFile = File(...), created_by: str = Form(""),
+                       data_date: str | None = Form(None)) -> dict[str, Any]:
     """Score a CSV with the version, in a worker process: progress on GET /registry/batches/{id}, then a preview,
-    the scored CSV (predictions and probabilities) and PSI drift of every feature and of the predictions."""
+    the scored CSV (predictions and probabilities) and PSI drift of every feature and of the predictions. F18:
+    `data_date` (YYYY-MM-DD) is the date of the data in the batch (default: the latest date in the run's time column
+    when the file has it, else the upload day); a Production version whose model has a challenger also shadow-scores
+    the batch with it."""
     v = _version(request, vid)
     _ready(v)
     who = _name_ok(created_by, "created_by")
-    kind = (request.app.state.runs.get(v["run_id"]) or {}).get("config", {}).get("kind")
     content = await file.read(config.MAX_UPLOAD_BYTES + 1)
     if len(content) > config.MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
     if not content.strip():
         raise HTTPException(400, "The file is empty.")
+    return submit_batch(request, v, content, Path(file.filename or "batch.csv").name, who, data_date)
+
+
+def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str, who: str,
+                 data_date: str | None = None) -> dict[str, Any]:
+    from . import monitoring_api
+
+    vid = v["id"]
+    kind = (request.app.state.runs.get(v["run_id"]) or {}).get("config", {}).get("kind")
     bid = "batch_" + secrets.token_hex(4)
     bdir = _dir(request) / "batches" / bid
     bdir.mkdir(parents=True)
-    name = Path(file.filename or "batch.csv").name
     csv_path = bdir / "input.csv"
     csv_path.write_bytes(content)
-    reg = _reg(request)
-    reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who})
     run = request.app.state.runs.get(v["run_id"])
+    data_date = monitoring_api.resolve_data_date(request, run, csv_path, data_date)
+    reg = _reg(request)
+    reg.create_batch({"id": bid, "version_id": vid, "filename": name, "created_by": who, "data_date": data_date})
     if kind in ("forecast", "anomaly"):
         # forecast: the file is new history (same mapping); anomaly: rows to score. Same batch record and drift format.
         fut = request.app.state.heavy.submit(scoring.score_flow_batch, str(request.app.state.settings.db_path), bid, kind,
@@ -681,7 +693,7 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
     rc_args = _reason_args(request, v, run)
     fut = request.app.state.heavy.submit(scoring.score_batch, str(request.app.state.settings.db_path), bid, v["path"],
                                          run["config"], str(csv_path), str(bdir), _kinds(request, run), {"id": vid},
-                                         rc_args[0] if rc_args else None)
+                                         rc_args[0] if rc_args else None, monitoring_api.shadow_for(request, v))
     request.app.state.jobs[bid] = fut
     return reg.get_batch(bid)
 

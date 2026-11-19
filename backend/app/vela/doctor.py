@@ -62,7 +62,9 @@ RULES = {
                "major: an identifier used as a feature (Vela's leakage check)",
     "shift": "prescription: importance weights when their ESS ≥ 20 % of the rows, else drop the top shifting column, else an out-of-time twin; "
              "critical: out-of-time optimism z ≥ 3 and Δ ≥ 0.02, or adversarial verdict strong; major: z ≥ 2, or verdict moderate; "
-             "minor: verdict slight, or a batch PSI > 0.25",
+             "minor: verdict slight, or a batch PSI > 0.25; F18 monitoring of a registered version: a performance alert on the latest "
+             "labelled batch → critical, a drift alert (PSI / adversarial AUC / score PSI) on the latest batch → major, and the "
+             "prescription is then the retrain proposal",
     "label_noise": "classification: error floor (top-20 % confidence) Wilson lower bound ≥ 0.06, not overconfident, cleanlab rate ≥ 0.05 → "
                    "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major",
     "overfit": "z = (train − holdout)/SE ≥ 3 and, for classification, overconfident (floor − expected ≥ 0.05 and expected < floor/3) → "
@@ -330,6 +332,32 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
         ev["batch_psi"] = {"feature": drift["numbers"]["feature"], "psi": drift["numbers"]["psi"]}
         sev_s.append("minor")
         why.append(drift["text"])
+    # F18: production monitoring. A drift alert on the latest batch (PSI / adversarial AUC / score PSI) is covariate shift
+    # seen in production (major); a performance alert on the latest labelled batch is the model failing on new data
+    # (critical: p(y | x) may have changed, which no covariate check sees). Either prescribes the retrain proposal.
+    mon_rx = None
+    mons = ctx.get("monitoring") or []
+    for mv in mons:
+        cov = [a for a in mv.get("active") or [] if a["kind"] in ("covariate", "score")]
+        perf = [a for a in mv.get("active") or [] if a["kind"] == "performance"]
+        if not (cov or perf):
+            continue
+        ev.setdefault("monitoring", []).append({"version_id": mv["version_id"], "label": mv["label"], "stage": mv["stage"],
+                                                "alerts": [{k: a.get(k) for k in ("signal", "kind", "value", "threshold", "text", "period", "features", "lag_days")}
+                                                           for a in cov + perf],
+                                                "first_covariate": mv.get("first_covariate"), "first_performance": mv.get("first_performance")})
+        if perf:
+            sev_s.append("critical")
+            why.append(f"Monitoring of {mv['label']} ({mv['stage']}): {perf[0]['text']} on {perf[0].get('period')}'s labelled rows"
+                       " (F18; performance on new data, so p(y | x) may have changed too).")
+        if cov:
+            sev_s.append("major")
+            why.append(f"Monitoring of {mv['label']}: {cov[0]['text']} on the {cov[0].get('period')} batch (F18, covariate drift in production).")
+        if mon_rx is None:
+            mon_rx = {"kind": "retrain", "title": "Retrain On Recent Data", "endpoint": mv["retrain_endpoint"],
+                      "version_id": mv["version_id"],
+                      "why": f"{mv['label']} has drifted in production: the retrain proposal trains the champion's config on the "
+                             "latest labelled window; it launches on a click, and the new model goes through review."}
     has_dates = bool((ctx.get("split_options") or {}).get("date_columns"))
     offer_twin = None
     if not oot and has_dates and (run["config"].get("split") or {}).get("strategy", "random-stratified") == "random-stratified":
@@ -363,10 +391,14 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
                 f" (Importance weights would keep an effective {w.get('ess_share', 0):.1%} of the rows, too few.)" if w and not w_ok else "")}
         elif not rx and w:
             rx = {"kind": "shift_weights", "title": "Importance-Weight Training", "endpoint": w["endpoint"], "why": w["why"]}
+        if mon_rx:  # drift seen in production: retraining on the recent window answers it more directly than a split twin
+            rx = mon_rx
         checks.append(_check("shift", "finding", " ".join(x for x in why if x), ev, sev, rx, offer=offer_shift or None,
-                             formula="z = (s_random − s_oot) / √(SE²_random + SE²_oot);  AUC_adv = P(ŝ(x_new) > ŝ(x_ref))", source="F6 + F15"))
-    elif oot or sh:
-        checks.append(_check("shift", "clear", " ".join(x for x in why if x) or "No shift detected.", ev, offer=offer_twin or offer_shift, source="F6 + F15"))
+                             formula="z = (s_random − s_oot) / √(SE²_random + SE²_oot);  AUC_adv = P(ŝ(x_new) > ŝ(x_ref))", source="F6 + F15" + (" + F18" if mons else "")))
+    elif oot or sh or mons:
+        if mons and not why:
+            why.append("Monitoring: " + "; ".join(f"{m['label']} {m['batches']} batches to {m['latest']}, no active alert" for m in mons) + " (F18).")
+        checks.append(_check("shift", "clear", " ".join(x for x in why if x) or "No shift detected.", ev, offer=offer_twin or offer_shift, source="F6 + F15 + F18"))
     else:
         checks.append(_check("shift", "missing", "Neither an out-of-time twin (F6) nor a shift check (F15) exists for this run.",
                              ev, offer=offer_twin or offer_shift, source="F6 + F15"))

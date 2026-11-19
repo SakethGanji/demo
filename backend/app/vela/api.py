@@ -174,7 +174,13 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
             lat = {"models": [{"model": res.get("best_model"), "best": True, "served_ms_p95": float(served_p95_ms),
                                "score_rank": None, "score_val_natural": None}], "natural_greater_is_better": True,
                    "source": "caller"}
-    ctx = {"run": rec, "vela": vela["findings"], "vela_errors": vela["errors"], "measured": measured, "split_comparison": sc,
+    from ..registry import monitoring_api
+
+    try:
+        mon = await run_in_threadpool(monitoring_api.doctor_context, request, run_id)
+    except Exception:  # noqa: BLE001 — the doctor diagnoses without monitoring rather than fail
+        mon = []
+    ctx = {"run": rec, "monitoring": mon, "vela": vela["findings"], "vela_errors": vela["errors"], "measured": measured, "split_comparison": sc,
            "oot_se": oot_se, "split_options": opts, "shift_actions": shift_actions, "latency_budget_ms": budget, "latency": lat,
            "base": run_body(rec)}
     d = await run_in_threadpool(D.diagnose, ctx)

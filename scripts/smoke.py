@@ -61,6 +61,12 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              offers (learning curve → more seeds when noisy, out-of-time twin, shift check, latency profile), the primary
              diagnosis asserted; the ranking rule recomputed, determinism, the run payload's doctor/1, the overfit
              prescription applied (before → after), the latency prescription's model within budget
+  monitor    F18: monitoring over time on loan-stream: a champion (Production, four-eyes) and a Staging challenger; the
+             12-month 2025 stream fed month by month (batches dated, shadow-scored; labels joined 3 months later on
+             application_id); the PSI alert first on 2025-07 and never before; F15's adversarial AUC on months 6 and 7;
+             the concept change seen only in labelled performance (z of observed vs predicted), visible 2025-10-31;
+             paired ΔAUC champion vs challenger with DeLong's CI; no automatic promotion; the Model Doctor's shift check
+             reads the alert and prescribes the retrain proposal; the proposal launches a run on the labelled window
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -4036,6 +4042,236 @@ def doctor(st: dict[str, Any]) -> None:
     step("doctor: determinism + acceptance", determinism)
 
 
+
+# --------------------------------------------------------------------------- F18: monitoring over time
+
+
+def _mo_batch(bid: str) -> dict[str, Any]:
+    return poll(f"/api/registry/batches/{bid}", lambda x: x["status"] in ("succeeded", "failed"), 600, 1)
+
+
+def monitor(st: dict[str, Any]) -> None:
+    """F18: monitoring over time on the loan-stream sample. A champion (time split on application_date, 2024 data) goes
+    to Production after a four-eyes review; a challenger (another model family on the same data) goes to Staging and
+    is named the challenger. The simulated 2025 stream is fed month by month: each month is scored as a batch dated
+    the month's last day and shadow-scored by the challenger; each month's labels arrive 3 months later and are joined
+    on application_id. Drift starts in month 7: covariate (debt_to_income ↑, credit_score ↓) and a concept change
+    (online applications default more for the same x). Asserts: the PSI drift alert first fires on the 2025-07 batch
+    and on no earlier one; F15's adversarial AUC on months 6 and 7; the concept change shows only in performance, first
+    on 2025-07's labels which arrive on 2025-10-31 (the lag is shown); months 10–12 have no performance point; the
+    challenger comparison (agreement, score PSI, paired ΔAUC with a CI); nothing is promoted automatically; the Model
+    Doctor's shift check reads the monitoring alert and prescribes the retrain proposal; the proposal launches a run
+    with the champion's config on the recent labelled window (lineage to the batches) and it finishes."""
+    ds, label = "loan-stream", "defaulted"
+    s: dict[str, Any] = {}
+    spec = get("/api/monitoring/stream")
+    drift_m = spec["drift_month"]
+    period = {m["month"]: m["label"] for m in spec["months"]}
+
+    def train_register():
+        base = {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": "roc_auc", "presets": "medium_quality",
+                "time_limit": 120, "drop_columns": ["application_id", "application_date"], "feature_importance": False,
+                "split_spec": {"strategy": "time", "time_column": "application_date"}, "source": "smoke-monitor"}
+        champ = post("/api/runs", {**base, "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 200}, "LR": {}}}})
+        chall = post("/api/runs", {**base, "fit_kwargs": {"hyperparameters": {"XGB": {"n_estimators": 200}}}})
+        rc, rh = wait_run(champ["id"]), wait_run(chall["id"])
+        check(rc["status"] == "succeeded" and rh["status"] == "succeeded", (rc.get("error"), rh.get("error")))
+        vs = {}
+        for k, r in (("champion", rc), ("challenger", rh)):
+            v = post(f"/api/runs/{r['id']}/register", {"created_by": "Smoke Analyst", "model_name": "smoke.loan-stream"})
+            vs[k] = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 900)
+            check(vs[k]["status"] == "ready", vs[k].get("error"))
+        c, h = vs["champion"], vs["challenger"]
+        post(f"/api/registry/versions/{c['id']}/review", {"decision": "approve", "reviewer": "Smoke Validator"})
+        post(f"/api/registry/versions/{c['id']}/transition", {"stage": "Production", "actor": "Smoke Validator"})
+        # the challenger must be in Staging before it can shadow-score
+        r = C.put("/api/registry/models/smoke.loan-stream/monitoring", json={"actor": "Smoke Validator", "challenger_version_id": h["id"]})
+        check(r.status_code == 409 and "Staging" in r.text, f"{r.status_code} {r.text[:200]}")
+        post(f"/api/registry/versions/{h['id']}/transition", {"stage": "Staging", "actor": "Smoke Analyst"})
+        r = C.put("/api/registry/models/smoke.loan-stream/monitoring", json={"actor": "Smoke Validator", "challenger_version_id": h["id"],
+                                                                           "id_column": "application_id"})
+        cfg = j(r)["config"]
+        check(cfg["challenger_version_id"] == h["id"] and cfg["thresholds"]["feature_psi"] == 0.25, cfg)
+        check(C.put("/api/registry/models/smoke.loan-stream/monitoring", json={"actor": "x", "thresholds": {"nope": 1}}).status_code == 400, "bad threshold")
+        s.update(champ=rc, chall=rh, cv=c["id"], hv=h["id"])
+        m = get(f"/api/registry/versions/{c['id']}/monitoring")
+        b = m["baseline"]
+        s["baseline"] = b
+        return (f"champion {rc['id']} → {c['id']} (Production, GBM+LR, holdout AUC {b['auc']:.4f} [{b['auc_ci'][0]:.4f}, {b['auc_ci'][1]:.4f}]) · "
+                f"challenger {rh['id']} → {h['id']} (Staging, XGB) · challenger refused before Staging (409) · thresholds {cfg['thresholds']['feature_psi']} PSI")
+
+    if not step("monitor: champion in Production, challenger in Staging", train_register, fatal=False):
+        return
+    cv, hv = s["cv"], s["hv"]
+
+    def feed():
+        t0 = time.time()
+        fed = []
+        for m in range(1, 13):
+            r = post(f"/api/registry/versions/{cv}/monitoring/stream", {"month": m, "actor": "Smoke Ops"})
+            b = _mo_batch(r["batch"]["id"])
+            check(b["status"] == "succeeded", b.get("error"))
+            check(b["data_date"] == r["data_date"], (b["data_date"], r["data_date"]))
+            fed.append((m, r["batch"]["id"], [d["month"] for d in r["labels_delivered"]], r["labels_pending"]))
+            check(not r["labels_pending"], r["labels_pending"])
+            if m <= 3:
+                check(not r["labels_delivered"], f"labels before they were due in month {m}")
+            else:
+                check([d["month"] for d in r["labels_delivered"]] == [m - 3], f"month {m}: delivered {r['labels_delivered']}")
+        s["fed"] = fed
+        r = C.post(f"/api/registry/versions/{cv}/monitoring/stream", json={"month": 3, "actor": "Smoke Ops"})
+        check(r.status_code == 409, f"re-feed: {r.status_code}")
+        return (f"12 months scored + shadow-scored in {time.time() - t0:.0f} s · labels delivered with the 3-month lag: "
+                + ", ".join(f"{period[m]}←{period[d[0]]}" for m, _, d, _ in fed if d) + " · re-feeding a month → 409")
+
+    if not step("monitor: feed the 12-month stream", feed):
+        return
+
+    def adversarial():
+        out = []
+        for m in (drift_m - 1, drift_m):
+            bid = s["fed"][m - 1][1]
+            r = C.post(f"/api/registry/batches/{bid}/shift", json={"null_refits": 0})
+            check(r.status_code == 202, r.text[:200])
+            g = poll(f"/api/registry/batches/{bid}/shift", lambda x: x.get("status") in ("succeeded", "failed"), 900, 2)
+            check(g["status"] == "succeeded", g.get("error"))
+            sm = g["summary"]
+            out.append((m, sm["auc"], sm["ci"], sm["verdict"], [f["feature"] for f in sm["top_features"] if f.get("significant")][:2]))
+        s["adv"] = out
+        a6, a7 = out[0][1], out[1][1]
+        check(a7 > a6 and a7 > 0.6, f"adversarial AUC month {drift_m - 1} {a6:.3f}, month {drift_m} {a7:.3f}")
+        return " · ".join(f"{period[m]} AUC {a:.3f} [{ci[0]:.3f}, {ci[1]:.3f}] {v} (top {', '.join(f)})" for m, a, ci, v, f in out)
+
+    step("monitor: F15 adversarial AUC per batch (months 6, 7)", adversarial)
+
+    def series():
+        m = get(f"/api/registry/versions/{cv}/monitoring")
+        check(m["schema"] == "monitoring/1" and len(m["points"]) == 12, (m.get("schema"), len(m.get("points", []))))
+        pts = {p["period"]: p for p in m["points"]}
+        th = m["config"]["thresholds"]["feature_psi"]
+        rows = []
+        for k in range(1, 13):
+            p = pts[period[k]]
+            psi = {f["feature"]: f["psi"] for f in p["features"]}
+            cov = [a for a in p["alerts"] if a["kind"] == "covariate"]
+            rows.append((k, psi["debt_to_income"], psi["credit_score"], psi["channel"], p["mean_p"], cov, p))
+            if k < drift_m:
+                check(not cov, f"{period[k]}: a drift alert before month {drift_m}: {cov}")
+            else:
+                check(any(a["signal"] == "feature_psi" for a in cov) and "debt_to_income" in next(a for a in cov if a["signal"] == "feature_psi")["features"],
+                      f"{period[k]}: no PSI alert on debt_to_income ({psi['debt_to_income']:.3f})")
+            check(psi["channel"] < 0.1, f"{period[k]}: channel PSI {psi['channel']:.3f} (the concept change must not move p(x))")
+            if k <= 9:
+                check(p["performance"] and p["label_lag_days"] and 85 <= p["label_lag_days"] <= 95, (period[k], p.get("label_lag_days")))
+            else:
+                check(p["performance"] is None, f"{period[k]} has performance before its labels arrived")
+        fc = m["alerts"]["first_covariate"]
+        check(fc and fc["period"] == period[drift_m], fc)
+        fp = m["alerts"]["first_performance"]
+        check(fp and fp["period"] == period[drift_m] and fp["visible_on"] == spec["months"][drift_m - 1]["labels_arrive"], fp)
+        s["m"] = m
+        perf = lambda k: pts[period[k]]["performance"]  # noqa: E731
+        auc_pre = np.mean([perf(k)["auc"] for k in range(1, drift_m)])
+        auc_post = np.mean([perf(k)["auc"] for k in range(drift_m, 10)])
+        s["auc_pre"], s["auc_post"] = auc_pre, auc_post
+        tab = " | ".join(f"{period[k][2:]} dti {d:.2f} cs {c:.2f} ch {h:.3f}" + (" ⚑" if cov else "") for k, d, c, h, _, cov, _ in rows)
+        return (f"PSI per month: {tab} · first drift alert {fc['period']} ({fc['text']}), none before · channel PSI < 0.1 every month · "
+                f"performance: AUC months 1–{drift_m - 1} mean {auc_pre:.3f} → months {drift_m}–9 {auc_post:.3f}; first performance alert on "
+                f"{fp['period']}'s labels, visible {fp['visible_on']} ({fp['text']}) · lag {pts[period[1]]['label_lag_days']} days · 2025-10…12 unlabelled")
+
+    step("monitor: drift alert from month 7, performance with the lag", series)
+
+    def which_signal():
+        m = s["m"]
+        pts = {p["period"]: p for p in m["points"]}
+        k7 = pts[period[drift_m]]
+        perf = k7["performance"]
+        # concept change: observed default rate above the predicted one, which PSI cannot explain
+        check(perf["observed_rate"] > perf["mean_p"] and (perf["calibration_z"] or 0) > m["config"]["thresholds"]["calibration_z"],
+              (perf["observed_rate"], perf["mean_p"], perf["calibration_z"]))
+        pre = pts[period[drift_m - 1]]["performance"]
+        check(abs(pre["calibration_z"]) < m["config"]["thresholds"]["calibration_z"], f"month {drift_m - 1} z {pre['calibration_z']:.2f}")
+        return (f"{period[drift_m - 1]}: observed {pre['observed_rate']:.3f} vs p̂ {pre['mean_p']:.3f} (z {pre['calibration_z']:+.1f}) · "
+                f"{period[drift_m]}: observed {perf['observed_rate']:.3f} [{perf['observed_ci'][0]:.3f}, {perf['observed_ci'][1]:.3f}] vs p̂ "
+                f"{perf['mean_p']:.3f} (z {perf['calibration_z']:+.1f}), AUC {perf['auc']:.3f} vs baseline {s['baseline']['auc']:.3f} · "
+                "covariate drift: PSI + adversarial AUC at scoring time; concept change: only labelled performance, 3 months later")
+
+    step("monitor: which signal catches which", which_signal)
+
+    def challenger():
+        m = s["m"]
+        ch = m["challenger"]
+        check(ch and ch["version_id"] == hv and ch["batches"] == 12, ch and ch.get("batches"))
+        pts = m["points"]
+        check(all(p["shadow"] and 0 <= p["shadow"]["agreement"] <= 1 and p["shadow"]["spearman"] > 0.5 for p in pts), "shadow on every batch")
+        pool = ch["pooled"]
+        check(pool and pool["n"] == 9 * spec["rows_per_month"] and pool["auc"]["ci"][0] <= pool["auc"]["delta"] <= pool["auc"]["ci"][1], pool and pool.get("n"))
+        # recompute the pooled ΔAUC from the per-batch paired results is not possible; check one batch against its own perf
+        p1 = pts[0]
+        check(abs(p1["paired"]["auc"]["auc_champion"] - p1["performance"]["auc"]) < 1e-9, "paired champion AUC ≠ batch AUC")
+        v = get(f"/api/registry/versions/{hv}")
+        check(v["stage"] == "Staging", f"challenger moved to {v['stage']} by itself")
+        r = C.post(f"/api/registry/versions/{hv}/transition", json={"stage": "Production", "actor": "Smoke Ops"})
+        check(r.status_code == 409, f"unreviewed challenger → Production: {r.status_code}")
+        a = pool["auc"]
+        return (f"12 batches shadow-scored · agreement {ch['agreement_mean']:.3f}, score PSI {ch['psi_mean']:.3f}, ρ {ch['spearman_mean']:.3f} · "
+                f"pooled on {pool['n']:,} labelled rows: AUC champion {a['auc_champion']:.4f} vs challenger {a['auc_challenger']:.4f}, "
+                f"Δ {a['delta']:+.4f} [{a['ci'][0]:+.4f}, {a['ci'][1]:+.4f}] (p {a['p_value']:.3f}), Δ log loss {pool['log_loss']['delta']:+.4f} "
+                f"[{pool['log_loss']['ci'][0]:+.4f}, {pool['log_loss']['ci'][1]:+.4f}] · still Staging; → Production without review 409")
+
+    step("monitor: champion / challenger", challenger)
+
+    def labels_api():
+        bid = s["fed"][11][1]
+        bad = C.post(f"/api/registry/batches/{bid}/labels", files={"file": ("l.csv", b"nope,defaulted\n1,0\n", "text/csv")},
+                     data={"created_by": "Smoke Ops", "id_column": "nope"})
+        check(bad.status_code == 400 and "nope" in bad.text, f"{bad.status_code} {bad.text[:200]}")
+        check(C.post(f"/api/registry/batches/{bid}/labels", files={"file": ("l.csv", b"a,b\n", "text/csv")}, data={}).status_code == 400, "no actor")
+        return "a label file without the id column → 400 · without an actor → 400"
+
+    step("monitor: label upload refusals", labels_api)
+
+    def doctor():
+        d = get(f"/api/runs/{s['champ']['id']}/doctor")
+        c = next(c for c in d["checks"] if c["id"] == "shift")
+        check(c["status"] == "finding" and c["evidence"].get("monitoring"), (c["status"], c["reason"][:200]))
+        check(c["prescription"]["kind"] == "retrain" and c["prescription"]["endpoint"].endswith("/monitoring/retrain"), c["prescription"])
+        return f"shift {c['severity']} · {c['reason'][:220]} · rx {c['prescription']['kind']}: {c['prescription']['title']}"
+
+    step("monitor: the Model Doctor reads the drift alert", doctor)
+
+    def retrain():
+        p = get(f"/api/registry/versions/{cv}/monitoring/retrain")
+        check(p["ready"] and p["window"]["end"] == spec["months"][8]["end"] and len(p["batches"]) == 6, (p["window"], len(p["batches"])))
+        check(p["body"]["split_spec"]["strategy"] == "time" and p["body"]["fit_kwargs"] == s["champ"]["config"]["fit_kwargs"], p["body"])
+        r = post(f"/api/registry/versions/{cv}/monitoring/retrain", {"actor": "Smoke Validator"})
+        rec = wait_run(r["run"]["id"])
+        check(rec["status"] == "succeeded", rec.get("error"))
+        check(rec["config"].get("parent_run_id") == s["champ"]["id"], rec["config"].get("parent_run_id"))
+        lin = get(f"/api/datasets/{r['dataset']['id']}")["profile"]["lineage"]
+        check(lin["kind"] == "monitoring-window" and lin["champion_version_id"] == cv and len(lin["batches"]) == 6, lin)
+        aud = get("/api/registry/audit", version_id=cv)
+        entries = aud.get("entries", aud.get("audit", aud if isinstance(aud, list) else []))
+        check(any(a["action"] == "retrain_launched" for a in entries) and any(a["action"] == "labels_attached" for a in entries), "audit")
+        m_new, s_new = primary(rec)
+        # before → after on the retrained run's holdout (the newest rows of the window): the champion scores the same rows
+        hp = get(f"/api/runs/{rec['id']}/holdout-predictions")
+        data_dir = get("/api/health")["data_dir"]
+        win = pd.read_csv(os.path.join(data_dir, "datasets", r["dataset"]["id"], "data.csv"))
+        rows = win.iloc[np.asarray(hp["rows"], dtype=int)]
+        sc = post(f"/api/registry/versions/{cv}/score", {"rows": json.loads(rows.drop(columns=[label]).to_json(orient="records"))})
+        from sklearn.metrics import roc_auc_score
+
+        y = rows[label].astype(int).to_numpy()
+        pc = np.array([float(pr.get("1", pr.get(1, 0))) for pr in sc["probabilities"]])
+        auc_champ = roc_auc_score(y, pc)
+        s["retrain"] = (auc_champ, s_new)
+        return (f"window {p['window']['start']} … {p['window']['end']} ({p['rows']:,} labelled rows, {len(p['batches'])} batches) · "
+                f"{p['split_note']} · launched {rec['id']} (parent {s['champ']['id']}) on {r['dataset']['id']} · on its holdout "
+                f"({len(rows):,} newest rows): champion AUC {auc_champ:.4f} → retrained {m_new} {s_new:.4f}")
+
+    step("monitor: the retrain proposal launches a run", retrain)
+
 def _dr_evidence(kind: str, ev: dict[str, Any]) -> str:
     if kind == "leakage":
         su = ev["suspects"][0]
@@ -4096,7 +4332,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "reset": reset, "llm": llm}
+                "import": importer, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "reset": reset, "llm": llm}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

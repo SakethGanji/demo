@@ -139,9 +139,10 @@ class RegistryStore:
 
     def create_batch(self, rec: dict[str, Any]) -> None:
         with self.db.connect() as con:
-            con.execute("INSERT INTO batch_jobs (id, version_id, status, created_at, created_by, filename, n_rows)"
-                        " VALUES (?, ?, 'queued', ?, ?, ?, ?)",
-                        (rec["id"], rec["version_id"], now(), rec.get("created_by") or "", rec["filename"], rec.get("n_rows")))
+            con.execute("INSERT INTO batch_jobs (id, version_id, status, created_at, created_by, filename, n_rows, data_date)"
+                        " VALUES (?, ?, 'queued', ?, ?, ?, ?, ?)",
+                        (rec["id"], rec["version_id"], now(), rec.get("created_by") or "", rec["filename"], rec.get("n_rows"),
+                         rec.get("data_date")))
 
     def get_batch(self, bid: str) -> dict[str, Any] | None:
         with self.db.connect() as con:
@@ -161,6 +162,14 @@ class RegistryStore:
         cols = ", ".join(f"{k} = :{k}" for k in fields)
         with self.db.connect() as con:
             con.execute(f"UPDATE batch_jobs SET {cols} WHERE id = :_id", {**fields, "_id": bid})
+
+    def merge_batch_result(self, bid: str, **parts: Any) -> None:
+        """F18: add parts (labels, shadow) to a finished batch's result without rewriting the rest."""
+        with self.db.connect() as con:
+            r = con.execute("SELECT result FROM batch_jobs WHERE id = ?", (bid,)).fetchone()
+            res = json.loads(r["result"]) if r and r["result"] else {}
+            res.update(jsonable(parts))
+            con.execute("UPDATE batch_jobs SET result = ? WHERE id = ?", (json.dumps(res), bid))
 
     def recover(self) -> None:
         msg = "The API stopped while this was in progress."
