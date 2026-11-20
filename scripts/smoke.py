@@ -86,6 +86,13 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              holdout (baseline, the run's SCORECARD, its best single GBM, AutoGluon's best), paired-bootstrap gaps,
              latency and size; an additive world → a simpler rung, served through register(serve_model); a stack-only
              world → the stack and a distillation offer; small data → the 99 % interval; refusals
+  doctor2    D3: the Model Doctor 2 on crafted tables (scripts/doctor2_data.py): a dominant leak with a Data Doctor hint →
+             leakage and the one-click ablation (a child run on the same holdout; with / without / Δ CI checked against
+             both runs), a cost run → the cost trade-off (3:1 / 5:1 / 10:1) instead of weak class and imbalance and a ladder
+             ranked by expected cost, a flat ceiling → at the data's limit, the Holdout Errors view, determinism, refusals
+  missing    D3: What's missing: planted twins (Bayes error 0.15 inside the R_NN interval), a hidden variable for one
+             segment (the segment named, missingness inside its errors, a positive oracle), two overlapping labels
+             (symmetric confusion); the ranking rule and the typed slot for D4's suggestions
   featurelab D2: Feature Lab: a planted debt / income ratio kept (training folds only) and confirmed on the holdout,
              applied as a dataset version; a leaky paid / billed ratio rejected; a column answered 'not known' never
              read; every DSL op equal to pandas; free-form code refused
@@ -5738,7 +5745,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,intake,datadoctor,ladder,featurelab,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
+    ap.add_argument("--only", default="core,samples,intake,datadoctor,ladder,featurelab,doctor2,missing,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -5988,6 +5995,262 @@ def agent(st: dict[str, Any]) -> None:
     step("agent: skip a write, stop a conversation", stop_decline)
 
 
+# --------------------------------------------------------------------------- D3: Model Doctor 2 and What's missing
+
+
+def _d3_train(names: list[str]) -> dict[str, dict[str, Any]]:
+    """Upload and train the crafted D3 tables (scripts/doctor2_data.py) in parallel; {name: run record}."""
+    import doctor2_data as D3
+
+    spec = {
+        "leak_hinted": (D3.leak_hinted, "subscribed", {"GBM": {}, "LR": {}}, None, ["contact_id"]),
+        "cost_run": (D3.cost_run, "defaulted", {"GBM": {}, "LR": {}}, {"c_fp": 1, "c_fn": 5}, ["loan_id"]),
+        "flat_ceiling": (D3.flat_ceiling, "defaulted", {"GBM": {}, "LR": {}}, None, ["app_id"]),
+        "twins": (D3.twins, "defaulted", {"GBM": {}}, None, ["app_id"]),
+        "hidden_segment": (D3.hidden_segment, "defaulted", {"GBM": {}}, None, ["app_id"]),
+        "label_overlap": (D3.label_overlap, "topic", {"GBM": {}}, None, ["ticket_id"]),
+    }
+    ids = {}
+    for n in names:
+        gen, lab, hp, cost, drop = spec[n]
+        ds = _dd_upload(gen(), f"d3_{n}.csv", lab)
+        body = {"dataset_id": ds, "label": lab, "presets": "medium_quality", "time_limit": 90, "drop_columns": drop,
+                "fit_kwargs": {"hyperparameters": hp}, "source": "smoke-doctor2"}
+        if cost:
+            body["cost"] = cost
+        ids[n] = post("/api/runs", body)["id"]
+    out = {}
+    for n, rid in ids.items():
+        rec = wait_run(rid)
+        check(rec["status"] == "succeeded", (n, rec.get("error")))
+        out[n] = rec
+    return out
+
+
+def _d3_check(d: dict[str, Any], cid: str) -> dict[str, Any]:
+    return next(c for c in d["checks"] if c["id"] == cid)
+
+
+def _d3_ranked(items: list[dict[str, Any]], key: str) -> None:
+    """The ranking rule: a must-do first, then measured gains > 0 (largest first), then unmeasured, then measured ≤ 0."""
+    def k(x):
+        dv = x[key]["delta"] if key and x.get(key) else x.get("delta") if not key else None
+        if x.get("must"):
+            return (0, 0.0)
+        if dv is not None and dv > 0:
+            return (1, -dv)
+        if dv is None:
+            return (2.0 if x.get("suggested") else 2.5, 0.0)
+        return (3, -dv)
+    got = [k(x) for x in items]
+    check(got == sorted(got), f"not ranked: {got}")
+    check([x["rank"] for x in items] == list(range(1, len(items) + 1)), "ranks are not 1..n")
+
+
+def doctor2(st: dict[str, Any]) -> None:
+    """D3 Model Doctor 2 on crafted tables (scripts/doctor2_data.py): a dominant leak with a Data Doctor hint → leakage
+    and a one-click ablation (a child run, same holdout) whose Δ the card then shows; a cost run → the cost trade-off
+    replaces weak class and imbalance, and the ladder ranks rungs by expected cost; a flat ceiling → "at the data's
+    limit"; the Holdout Errors view; determinism; typed-experiment refusals."""
+    s: dict[str, Any] = {}
+
+    def train():
+        s.update(_d3_train(["leak_hinted", "cost_run", "flat_ceiling"]))
+        return " · ".join(f"{n} {r['id']} {primary(r)[0]} {primary(r)[1]:.3f}" for n, r in s.items())
+
+    if not step("doctor2: train leak, cost, flat", train, fatal=False):
+        return
+
+    def leak():
+        rec = s["leak_hinted"]
+        rid = rec["id"]
+        d = get(f"/api/runs/{rid}/doctor")
+        _dr_check_shape(d)
+        p = d["primary"]
+        check(p["id"] == "leakage" and p["severity"] == "critical", d["headline"][:300])
+        sus = p["evidence"]["suspects"][0]
+        check(sus["feature"] == "call_duration" and sus["reason"] == "dominant + hint", sus)
+        check(sus["share"] >= 0.5 and (sus["ratio"] is None or sus["ratio"] >= 3), sus)
+        check(sus.get("single_auc") is not None and sus["single_auc"] < 0.97, f"AUC alone {sus.get('single_auc')}: the dominance path must be what fired")
+        rx = p["prescription"]
+        check(rx["kind"] == "experiment" and rx["body"] == {"kind": "ablate", "columns": ["call_duration"]}, rx)
+        ex = post(rx["endpoint"], rx["body"])
+        child = wait_run(ex["id"])
+        check(child["status"] == "succeeded", child.get("error"))
+        cfg = child["config"]
+        check(cfg.get("parent_run_id") == rid and cfg.get("source") == "doctor-experiment"
+              and cfg["patch"]["experiment"] == {"kind": "ablate", "columns": ["call_duration"]}, cfg.get("patch"))
+        check("call_duration" in cfg["drop_columns"] and "call_duration" not in child["features"], cfg["drop_columns"])
+        d2 = get(f"/api/runs/{rid}/doctor")
+        _dr_check_shape(d2)
+        ab = d2["primary"]["evidence"]["ablation"]
+        check(abs(ab["with"] - rec["holdout"]["metrics"]["roc_auc"]) < 1e-6, (ab["with"], rec["holdout"]["metrics"]["roc_auc"]))
+        check(abs(ab["without"] - child["holdout"]["metrics"]["roc_auc"]) < 1e-6, ab)
+        check(ab["delta"] < 0 and ab["ci"][1] < 0 and ab["ci"][0] <= ab["delta"] <= ab["ci"][1], ab)
+        check(d2["primary"]["prescription"]["kind"] == "open_run" and d2["primary"]["prescription"]["run_id"] == ex["id"], d2["primary"]["prescription"])
+        lv = d2["improve"]
+        check(lv[0]["id"] == "drop_leak" and abs(lv[0]["delta"] - ab["delta"]) < 1e-12, lv[0])
+        _d3_ranked(lv, "")
+        exl = get(f"/api/runs/{rid}/experiments")["experiments"]
+        check(exl and exl[0]["run_id"] == ex["id"] and exl[0]["result"]["same_rows"], exl[:1])
+        s["leak_d"] = d2
+        return (f"{rid}: leakage critical, call_duration {sus['share']:.0%} of importance ({sus['ratio']:.1f}× next), AUC alone {sus['single_auc']:.3f} "
+                f"+ D1 hint · ablation {ex['id']} → AUC {ab['with']:.4f} → {ab['without']:.4f}, Δ {ab['delta']:+.4f} [{ab['ci'][0]:+.4f}, {ab['ci'][1]:+.4f}] "
+                f"on {ab['rows']} shared rows · lever #1 drop_leak")
+
+    step("doctor2: dominant + hinted leak → ablation Δ", leak)
+
+    def cost_tradeoff():
+        rec = s["cost_run"]
+        d = get(f"/api/runs/{rec['id']}/doctor")
+        _dr_check_shape(d)
+        p = d["primary"]
+        check(p["id"] == "cost_tradeoff" and p["severity"] == "major", d["headline"][:300])
+        for cid in ("weak_class", "imbalance"):
+            c = _d3_check(d, cid)
+            check(c["status"] == "n/a", (cid, c["status"], c["reason"]))
+        rows = {r["name"]: r for r in p["evidence"]["rows"]}
+        check(set(rows) == {"served", "3:1", "5:1", "10:1"}, list(rows))
+        for r_, k in ((3, "3:1"), (5, "5:1"), (10, "10:1")):
+            check(abs(rows[k]["t"] - 1 / (1 + r_)) < 1e-12, rows[k])
+        dec = [rows[k]["decline_rate"] for k in ("3:1", "5:1", "10:1")]
+        cat = [rows[k]["catch_rate"] for k in ("3:1", "5:1", "10:1")]
+        check(dec == sorted(dec) and cat == sorted(cat), (dec, cat))
+        sv = rows["served"]
+        check(abs(sv["t"] - rec["threshold"]["value"]) < 1e-9, (sv["t"], rec["threshold"]))
+        n = p["evidence"]["n"]
+        check(abs(sv["cost_per_1000"] - 1000 * (sv["fp"] * 1 + sv["fn"] * 5) / n) < 1e-6, sv)
+        check(p["prescription"]["kind"] == "open_view" and p["prescription"]["view"] == "Threshold", p["prescription"])
+        lad = get(f"/api/runs/{rec['id']}/ladder", refresh="true")
+        check(lad["metric"] == "expected_cost" and lad["greater_is_better"] is False and lad["cost"]["t"] == 1 / 6, (lad["metric"], lad.get("cost")))
+        r3 = next(r for r in lad["rungs"] if r["rung"] == 3)
+        r0 = next(r for r in lad["rungs"] if r["rung"] == 0)
+        check(r3["score"] < r0["score"], f"the stack {r3['score']} costs less than the baseline {r0['score']}")
+        return (f"{rec['id']}: cost trade-off major; weak class, imbalance n/a · served t {sv['t']:.3f}: decline {sv['decline_rate']:.1%}, "
+                f"catch {sv['catch_rate']:.1%}, {sv['cost_per_1000']:.0f}/1,000 · 3:1/5:1/10:1 decline {', '.join(f'{x:.1%}' for x in dec)} · "
+                f"ladder by expected cost: stack {r3['score']:.0f} vs baseline {r0['score']:.0f} per 1,000, serve {lad['recommended']['name']}")
+
+    step("doctor2: cost run → trade-off, not weak class", cost_tradeoff)
+
+    def flat():
+        rec = s["flat_ceiling"]
+        d = get(f"/api/runs/{rec['id']}/doctor")
+        _dr_check_shape(d)
+        p = d["primary"]
+        check(p and p["id"] == "ceiling" and p["severity"] == "minor", d["headline"][:300])
+        conds = p["evidence"]["conditions"]
+        check(all(c["ok"] for c in conds.values()) and set(conds) == {"flat", "agree", "gap_noise", "not_concentrated"}, conds)
+        check(not any(c["severity"] in ("major", "critical") for c in d["secondary"]), d["secondary"])
+        f = conds["flat"]
+        return (f"{rec['id']}: at the data's limit · next doubling {f['next_doubling']:+.4f} [{f['ci'][0]:+.4f}, {f['ci'][1]:+.4f}] < ε {f['eps']} · "
+                f"single ≈ best ({conds['agree']['single']}) · z {conds['gap_noise']['z']:.1f} · rx {p['prescription']['title']}")
+
+    step("doctor2: flat ceiling → at the data's limit", flat)
+
+    def errors_view():
+        out = []
+        for n in ("leak_hinted", "cost_run"):
+            d = get(f"/api/runs/{s[n]['id']}/doctor")
+            e = d["errors_view"]
+            rows = e["top"]["rows"]
+            check(rows and all(r["y_true"] != r["y_pred"] for r in rows), "an error row that is right")
+            conf = [r["confidence"] for r in rows]
+            check(conf == sorted(conf, reverse=True), "not ranked by confidence")
+            check(all(r.get("reasons") for r in rows[:5]), "no SHAP reasons")
+            check(e["served"]["errors"] >= len(rows) and 0 < e["served"]["rate"] < 1, e["served"])
+            cl = e["top"].get("cleanlab")
+            check(cl and cl["errors"] == e["served"]["errors"], cl)
+            out.append(f"{n}: {e['served']['errors']} errors, top conf {conf[0]:.3f} ({', '.join(x['feature'] for x in rows[0]['reasons'])}), "
+                       f"{len(e['slices'] or [])} slices, cleanlab {cl['share_of_errors']:.0%} of errors vs {cl['share_of_correct']:.0%} of correct")
+        return " · ".join(out)
+
+    step("doctor2: Holdout Errors view", errors_view)
+
+    def determinism_refusals():
+        rid = s["cost_run"]["id"]
+        a, b = get(f"/api/runs/{rid}/doctor"), get(f"/api/runs/{rid}/doctor")
+        strip = lambda d: json.dumps([(c["id"], c["status"], c["severity"], c["reason"]) for c in d["checks"]] + [d["missing_info"]["gaps"], d["improve"]])  # noqa: E731
+        check(strip(a) == strip(b), "two calls disagree")
+        lid = s["leak_hinted"]["id"]
+        for body, code in (({"kind": "python", "code": "x"}, 400), ({"kind": "ablate", "columns": ["nope"]}, 400),
+                           ({"kind": "ablate"}, 400), ({"kind": "ablate", "columns": s["leak_hinted"]["features"]}, 400)):
+            r = C.post(f"/api/runs/{lid}/experiments", json=body)
+            check(r.status_code == code, (body, r.status_code, r.text[:200]))
+        check(C.post("/api/runs/run_nothing/experiments", json={"kind": "budget"}).status_code == 404, "unknown run")
+        return "same checks, gaps and levers on a second call · free-form kind, unknown column, no columns, every feature → 400 · unknown run → 404"
+
+    step("doctor2: determinism + refusals", determinism_refusals)
+
+
+def missing(st: dict[str, Any]) -> None:
+    """D3 What's missing on crafted tables with a known information gap (scripts/doctor2_data.py): planted twins (Bayes
+    error exactly 0.15) → the irreducible-error estimate's CI holds the truth; a hidden variable for one segment → the
+    card names that segment and the missingness inside its errors, and the oracle there is clearly positive; two labels
+    defined the same way → symmetric confusion. The ranking rule and the typed D4 slot."""
+    import doctor2_data as D3
+
+    s: dict[str, Any] = {}
+
+    def train():
+        s.update(_d3_train(["twins", "hidden_segment", "label_overlap"]))
+        return " · ".join(f"{n} {r['id']} {primary(r)[0]} {primary(r)[1]:.3f}" for n, r in s.items())
+
+    if not step("missing: train twins, hidden segment, label overlap", train, fatal=False):
+        return
+
+    def card(n: str) -> dict[str, Any]:
+        d = get(f"/api/runs/{s[n]['id']}/doctor")
+        _dr_check_shape(d)
+        m = d["missing_info"]
+        check(m["schema"] == "missing/1" and not m["errors"], m.get("errors"))
+        _d3_ranked(m["gaps"], "gain")
+        dg = m["domain_gaps"]
+        check(dg["source"] == "llm" and dg["status"] == "pending" and dg["items"] == [] and "suggestion" in dg["label"].lower(), dg)
+        return m
+
+    def twins():
+        m = card("twins")
+        ir = m["irreducible"]
+        t = D3.TRUTH["twins"]
+        check(ir["r_nn_ci"][0] <= t <= ir["r_nn_ci"][1], f"truth {t} outside the R_NN CI {ir['r_nn_ci']}")
+        check(ir["lower"] <= t <= ir["model_error"] + 0.02, (ir["lower"], ir["model_error"]))
+        g = next(x for x in m["gaps"] if x["kind"] == "twins")
+        check(g["gain"] and g["gain"]["simulated"] and g["gain"]["ci"][0] > 0, g["gain"])
+        return (f"truth 0.150 ∈ R_NN {ir['r_nn']:.3f} [{ir['r_nn_ci'][0]:.3f}, {ir['r_nn_ci'][1]:.3f}] (Cover–Hart lower {ir['lower']:.3f}, "
+                f"model error {ir['model_error']:.3f}) · twins oracle {g['gain']['delta']:+.4f} [{g['gain']['ci'][0]:+.4f}, {g['gain']['ci'][1]:+.4f}] · "
+                f"top gap: {m['gaps'][0]['title']}")
+
+    step("missing: planted twins → irreducible error within CI", twins)
+
+    def hidden():
+        m = card("hidden_segment")
+        segs = [x for x in m["gaps"] if x["kind"] == "concentration"]
+        check(segs, "no concentration gap")
+        top = segs[0]
+        ev = top["evidence"]
+        check(ev["column"] == "employment" and ev["value"] == "self_employed", f"top segment {top['title']}")
+        check(top["gain"] and top["gain"]["ci"][0] > 0, top["gain"])
+        mi = {x["column"]: x for x in ev["missing_inside"]}
+        check("income" in mi and mi["income"]["missing_in_errors"] >= 0.25 and mi["income"]["missing_elsewhere"] <= 0.1, ev["missing_inside"])
+        check("self_employed" in top["finding"] and "income" in top["request"], (top["finding"], top["request"]))
+        return (f"{top['title']} (rank {top['rank']}): {ev['rate']:.3f} vs {m['served']['rate']:.3f}, ×{ev['lift']:.2f} · income missing "
+                f"{mi['income']['missing_in_errors']:.0%} in its errors vs {mi['income']['missing_elsewhere']:.0%} elsewhere · oracle "
+                f"{top['gain']['delta']:+.4f} [{top['gain']['ci'][0]:+.4f}, {top['gain']['ci'][1]:+.4f}] · request: {top['request']}")
+
+    step("missing: hidden segment → names the segment", hidden)
+
+    def overlap():
+        m = card("label_overlap")
+        lo = [x for x in m["gaps"] if x["kind"] == "label_overlap"]
+        check(lo, "no label-overlap gap")
+        p = lo[0]["evidence"]
+        check({p["a"], p["b"]} == {"card_lost", "card_stolen"} and min(p["a_as_b"], p["b_as_a"]) >= 20, p)
+        check(lo[0]["gain"]["metric"] == "accuracy" and abs(lo[0]["gain"]["delta"] - p["n"] / m["served"]["n"]) < 1e-12, lo[0]["gain"])
+        return (f"{lo[0]['title']}: {p['a_as_b']} / {p['b_as_a']} both ways, up to +{lo[0]['gain']['delta']:.3f} accuracy if merged · "
+                f"request: {lo[0]['request']}")
+
+    step("missing: label overlap → symmetric confusion", overlap)
+
 def _main(args) -> int:
     global C, ONLY
     ONLY = {x.strip() for x in args.only.split(",")}
@@ -5995,7 +6258,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm, "datadoctor": datadoctor, "ladder": ladder, "featurelab": featurelab}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm, "datadoctor": datadoctor, "ladder": ladder, "featurelab": featurelab, "doctor2": doctor2, "missing": missing}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { Doctor, DoctorAction, DoctorCheck, Run } from '@/shared/api/types'
+import type { Doctor, DoctorAction, DoctorCheck, Lever, MissingInfo, Run } from '@/shared/api/types'
 import { MathText } from '@/shared/components/MathText'
 import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
@@ -72,12 +72,17 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
     }
     // F18: the retrain proposal lives on the version's monitoring page; it launches there, on a click
     if (a.kind === 'retrain' && a.version_id) return links.go(`registry?version=${a.version_id}&tab=Monitoring`)
+    // D3: open another run (an experiment), a view of this run, or a page
+    if (a.kind === 'open_run' && a.run_id) return links.go(`models?run=${a.run_id}`)
+    if (a.kind === 'open_view' && a.view) return tab(a.view)
+    if (a.kind === 'link' && a.link) return links.go(a.link)
     if (!a.endpoint) return
     setBusy(a.title)
     try {
       const out = await api.runs.doctorCall(a.endpoint, a.method ?? 'POST', a.body)
       if (a.kind === 'shift_weights' && out.patch && links.onApplyPatch) { links.onApplyPatch(run.id, out.patch as Patch); return }
-      if (a.kind === 'split_twin') setNote({ text: `Started ${String(out.id)}: the same body with an out-of-time split. Diagnose again when it finishes.`, link: [`quick-train?run=${String(out.id)}`, 'Open the twin →'] })
+      if (a.kind === 'experiment') setNote({ text: `Started ${String(out.id)}: ${String(out.title ?? a.title)}, same holdout. Diagnose again when it finishes: the card then shows Δ with its CI.`, link: [`quick-train?run=${String(out.id)}`, 'Watch it →'] })
+      else if (a.kind === 'split_twin') setNote({ text: `Started ${String(out.id)}: the same body with an out-of-time split. Diagnose again when it finishes.`, link: [`quick-train?run=${String(out.id)}`, 'Open the twin →'] })
       else if (a.kind === 'run_check' && (a.check === 'learning_curve' || a.check === 'shift')) setNote({ text: `${a.title}: started in its own process. Diagnose again when it finishes.`, link: [runView(run.id, TAB_OF[a.check]), `Watch it in ${TAB_OF[a.check]} →`] })
       else reload()
     } catch (e) { setNote({ text: `✕ ${(e as Error).message}` }) } finally { setBusy(null) }
@@ -85,10 +90,10 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
   return { act, busy, note }
 }
 
-function ActBtn({ a, act, busy, primary, testId }: { a: DoctorAction; act: (a: DoctorAction) => void; busy: string | null; primary?: boolean; testId?: string }) {
+export function ActBtn({ a, act, busy, primary, testId }: { a: DoctorAction; act: (a: DoctorAction) => void; busy: string | null; primary?: boolean; testId?: string }) {
   if (a.kind === 'info') return <span className="helper" style={{ fontSize: 12 }}>{a.title}</span>
   return <button className={`btn sm ${primary ? 'primary' : ''}`} style={{ whiteSpace: 'normal', maxWidth: '100%', textAlign: 'left', height: 'auto', minHeight: 28 }} onClick={() => act(a)} disabled={busy != null} title={a.why ?? ''} data-testid={testId}>
-    {busy === a.title ? 'Working…' : `${a.title}${a.kind === 'gym_patch' ? ' → Gym' : ''}`}</button>
+    {busy === a.title ? 'Working…' : `${a.title}${a.kind === 'gym_patch' ? ' → Gym' : a.kind === 'link' || a.kind === 'open_run' || a.kind === 'open_view' ? ' →' : ''}`}</button>
 }
 
 /** F17: the Model Doctor. One fixed decision procedure over every check the workbench has (Vela, F3, F6, F12–F16, the
@@ -137,6 +142,10 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
 
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="doctor-panel" data-primary={p?.id ?? 'none'}>
+      <p className="doc-headline" data-testid="doctor-headline"><span className="micro-label">diagnosis</span> {p ? <><b>{p.title}</b> <span className={`pill ${SEV_PILL[p.severity!]}`}>{p.severity}</span></> : <b>No limiting factor found</b>}{d.secondary.length > 0 && <span className="helper"> · then {d.secondary.slice(0, 3).map((c) => c.title.toLowerCase()).join(', ')}</span>}</p>
+      {d.missing_info && <WhatsMissing m={d.missing_info} />}
+      {d.improve && d.improve.length > 0 && <HowToImprove levers={d.improve} act={act} busy={busy} />}
+      {noteEl}
       <div className="card navy explain-hero" data-testid="doctor-hero">
         <div className="eh-cell lead" style={{ minWidth: 260 }}><span className="micro-label">primary limiting factor</span>
           <b style={{ fontSize: 22, whiteSpace: 'normal', lineHeight: 1.25 }} data-testid="doctor-primary">{p ? p.title : 'None found'}</b>
@@ -148,9 +157,8 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
           <ActBtn a={p.prescription} act={act} busy={busy} primary testId="doctor-rx" /><small style={{ whiteSpace: 'normal' }}>{p.prescription.why}</small></div>}
       </div>
       {p && <p className="helper" style={{ fontSize: 13 }} data-testid="doctor-reason"><b>Why:</b> {p.reason}</p>}
-      {noteEl}
       {p && <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
-        <Evidence ev={p.evidence} />
+        {p.id === 'leakage' ? <LeakDetail c={p} /> : p.id === 'cost_tradeoff' ? <CostDetail c={p} /> : p.id === 'ceiling' ? <CeilingDetail c={p} /> : <Evidence ev={p.evidence} />}
         {p.formula && <div className="vela-formula math"><MathText text={p.formula} /></div>}
         {p.rule && <p className="helper" style={{ fontSize: 12, margin: 0 }}><span className="micro-label">rule</span> {p.rule}</p>}
       </div></div>}
@@ -236,4 +244,93 @@ function CheckRow({ c }: { c: DoctorCheck }) {
       </div>
     </details>
   )
+}
+
+
+// --------------------------------------------------------------------------- D3 · What's missing, How to improve
+
+const sgn = (v: number, d = 4) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`
+const ciTxt = (ci: [number, number] | null | undefined, d = 4) => (ci ? `[${sgn(ci[0], d)}, ${sgn(ci[1], d)}]` : '')
+const pc = (v: number) => `${(100 * v).toFixed(Math.abs(v) < 0.1 ? 1 : 0)}%`
+
+function GainCell({ g }: { g: { delta: number | null; ci: [number, number] | null; metric: string | null; simulated?: boolean } | null }) {
+  if (!g || g.delta == null) return <span className="muted">not measured</span>
+  return <span className="mono" style={{ whiteSpace: 'nowrap' }}><b>{sgn(g.delta)}</b> {g.metric ?? ''}{g.ci && <div className="muted" style={{ fontSize: 11 }}>{ciTxt(g.ci)}</div>}{g.simulated && <div><span className="pill neutral" title="an oracle test: a simulation and an upper bound">simulation</span></div>}</span>
+}
+
+/** The information the table lacks, ranked by measured potential gain; each gap is a data request the bank can act on. */
+function WhatsMissing({ m }: { m: MissingInfo }) {
+  const [copied, setCopied] = useState(false)
+  const ir = m.irreducible
+  const copy = async () => {
+    const txt = m.gaps.map((g) => `${g.rank}. ${g.title}: ${g.request}${g.gain ? ` (measured ${sgn(g.gain.delta)} ${g.gain.metric ?? ''}${g.gain.simulated ? ', a simulation' : ''})` : ''}`).join('\n')
+    try { await navigator.clipboard.writeText(txt); setCopied(true) } catch { setCopied(false) }
+  }
+  return (
+    <div className="card" data-testid="doctor-missing" data-top={m.gaps[0]?.kind ?? 'none'}>
+      <div className="card-head"><div className="left"><h3 className="card-title">What's Missing</h3>
+        <span className="helper" style={{ fontSize: 12 }}>information the table lacks, ranked by measured potential gain; each gap is a data request</span></div>
+        <button className="btn sm primary" onClick={copy} disabled={!m.gaps.length} data-testid="missing-copy">{copied ? 'Copied ✓' : 'Copy The Data Requests'}</button></div>
+      <div className="card-body stack" style={{ gap: 10 }}>
+        {ir && <p className="helper" style={{ margin: 0, fontSize: 12.5 }} data-testid="missing-irreducible"><span className="micro-label">irreducible error</span> between <b className="mono">{ir.lower.toFixed(3)}</b> and <b className="mono">{ir.r_nn.toFixed(3)}</b> <span className="muted">(R_NN CI [{ir.r_nn_ci[0].toFixed(3)}, {ir.r_nn_ci[1].toFixed(3)}])</span> against a model error of <b className="mono">{ir.model_error.toFixed(3)}</b>{ir.explained != null && <>: at least <b>{pc(ir.explained)}</b> of the error is beyond these columns</>}.</p>}
+        {m.gaps.length ? <table className="table compact"><thead><tr><th className="r">#</th><th>gap</th><th>what the data shows → what to request</th><th className="r">potential gain</th></tr></thead>
+          <tbody>{m.gaps.map((g) => <tr key={g.id} data-testid={`gap-${g.kind}`}>
+            <td className="r mono">{g.rank}</td><td style={{ minWidth: 170 }}><b>{g.title}</b></td>
+            <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal', maxWidth: 640 }}>{g.finding}<div style={{ marginTop: 4, color: 'var(--text-primary)' }}>→ {g.request}</div></td>
+            <td className="r"><GainCell g={g.gain} /></td></tr>)}</tbody></table>
+          : <p className="helper">{m.errors.length ? `Could not measure: ${m.errors.join('; ')}` : 'No gap measured.'}</p>}
+        <p className="helper" style={{ margin: 0, fontSize: 12 }} data-testid="missing-domain"><span className="micro-label">{m.domain_gaps.label}</span> {m.domain_gaps.items.length ? m.domain_gaps.items.map((x) => x.title).join(' · ') : 'not run yet (the review loop adds them).'}</p>
+        <details className="an-adv"><summary className="micro-label">How it is measured</summary>
+          <ul className="helper" style={{ fontSize: 11.5, margin: '6px 0 0', paddingLeft: 18 }}>
+            {Object.entries(m.rules).filter(([, v]) => v).map(([k, v]) => <li key={k}><b>{k}</b>: {v}</li>)}
+            {m.quick && <li><b>quick model</b>: {m.quick.model}, {m.quick.features} features, {m.quick.rows.toLocaleString()} training rows, holdout {m.quick.metric} {m.quick.score.toFixed(4)}</li>}
+          </ul></details>
+      </div>
+    </div>
+  )
+}
+
+/** One ranked list of levers, each with its measured Δ (or the experiment that measures it); one primary action. */
+function HowToImprove({ levers, act, busy }: { levers: Lever[]; act: (a: DoctorAction) => void; busy: string | null }) {
+  const first = levers.find((l) => l.action && l.action.kind !== 'info')
+  return (
+    <div className="card" data-testid="doctor-improve" data-top={levers[0]?.id}>
+      <div className="card-head"><div className="left"><h3 className="card-title">How To Improve</h3>
+        <span className="helper" style={{ fontSize: 12 }}>each lever with its measured Δ on the same holdout; a must-do first, then by gain</span></div></div>
+      <div className="card-body" style={{ overflowX: 'auto' }}>
+        <table className="table compact"><thead><tr><th className="r">#</th><th>lever</th><th className="r">measured Δ</th><th>how it was measured</th><th /></tr></thead>
+          <tbody>{levers.map((l) => <tr key={l.id} data-testid={`lever-${l.id}`}>
+            <td className="r mono">{l.rank}</td><td><b>{l.title}</b>{l.must && <> <span className="pill danger">must</span></>}{l.suggested && <> <span className="pill warning">suggested</span></>}</td>
+            <td className="r"><GainCell g={l} /></td>
+            <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal', maxWidth: 420 }}>{l.source}{l.note ? ` ${l.note}` : ''}</td>
+            <td>{l.action && <ActBtn a={l.action} act={act} busy={busy} primary={l === first} testId={`lever-act-${l.id}`} />}</td></tr>)}</tbody></table>
+      </div>
+    </div>
+  )
+}
+
+function LeakDetail({ c }: { c: DoctorCheck }) {
+  const ab = c.evidence.ablation as { with?: number; without?: number; delta?: number; ci?: [number, number]; metric?: string; run_id: string; status?: string } | undefined
+  const sus = (c.evidence.suspects as { feature: string; reason: string; share?: number; ratio?: number; single_auc?: number }[]) ?? []
+  return <div className="stack" style={{ gap: 8 }} data-testid="leak-detail">
+    <div className="doc-ev">{sus.map((s) => <span key={s.feature}><span className="mono k">{s.feature}</span> {s.reason}{s.share != null && <> · <b className="mono">{pc(s.share)}</b> of importance</>}{s.ratio != null && <> · <b className="mono">{s.ratio.toFixed(1)}×</b> the next</>}{s.single_auc != null && <> · AUC alone <b className="mono">{s.single_auc.toFixed(3)}</b></>}</span>)}</div>
+    {ab?.delta != null ? <div className="row" style={{ gap: 18, flexWrap: 'wrap' }} data-testid="ablation">
+      <span><span className="micro-label">with</span> <b className="mono">{ab.with!.toFixed(4)}</b></span>
+      <span><span className="micro-label">without</span> <b className="mono">{ab.without!.toFixed(4)}</b></span>
+      <span><span className="micro-label">Δ {ab.metric}</span> <b className="mono">{sgn(ab.delta)}</b> <span className="muted mono">{ciTxt(ab.ci)}</span></span>
+      <span className="muted" style={{ fontSize: 11 }}>ablation run <span className="mono">{ab.run_id}</span>, same body and holdout</span></div>
+      : <p className="helper" style={{ margin: 0, fontSize: 12 }}>{ab ? `Ablation ${ab.run_id} is ${ab.status}.` : 'Ablation not run yet: the prescription retrains without the column(s).'}</p>}
+  </div>
+}
+
+function CostDetail({ c }: { c: DoctorCheck }) {
+  const rows = (c.evidence.rows as { name: string; t: number; decline_rate: number; catch_rate: number; cost_per_1000: number; cost_per_1000_at_ratio?: number }[]) ?? []
+  return <table className="table compact" data-testid="cost-tradeoff"><thead><tr><th>rule</th><th className="r">threshold</th><th className="r">decline rate</th><th className="r">catch rate</th><th className="r">cost / 1,000 (run's costs)</th><th className="r">cost / 1,000 at that ratio</th></tr></thead>
+    <tbody>{rows.map((r) => <tr key={r.name} className={r.name === 'served' ? 'hl' : ''}><td><b>{r.name}</b></td><td className="r mono">{r.t.toFixed(3)}</td><td className="r mono">{pc(r.decline_rate)}</td><td className="r mono">{pc(r.catch_rate)}</td><td className="r mono">{r.cost_per_1000.toFixed(0)}</td><td className="r mono">{r.cost_per_1000_at_ratio != null ? r.cost_per_1000_at_ratio.toFixed(0) : '—'}</td></tr>)}</tbody></table>
+}
+
+function CeilingDetail({ c }: { c: DoctorCheck }) {
+  const conds = (c.evidence.conditions as Record<string, { ok: boolean } & Record<string, unknown>>) ?? {}
+  const label: Record<string, string> = { flat: 'learning curve flat', agree: 'single GBM ≈ the best rung', gap_noise: 'train–holdout gap within noise', not_concentrated: 'no fixable weak slice' }
+  return <div className="doc-ev" data-testid="ceiling-detail">{Object.entries(conds).map(([k, v]) => <span key={k}>{v.ok ? '✓' : '✕'} {label[k] ?? k}</span>)}</div>
 }

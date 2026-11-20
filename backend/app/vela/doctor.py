@@ -51,16 +51,27 @@ from ..stats import wilson
 SCHEMA = "doctor/1"
 PROCEDURE = "doctor-procedure/1"
 SEV = {"critical": 3, "major": 2, "minor": 1}
-PRECEDENCE = ["leakage", "shift", "label_noise", "overfit", "data_limited", "underfit", "latency", "weak_slice",
-              "budget", "imbalance", "weak_class"]
+# D3: re-tuned so the primary is the most actionable finding: what invalidates the score first, then a decision the
+# bank must confirm (the cost ratio), then what limits the model; "at the data's limit" ranks below every real problem.
+PRECEDENCE = ["leakage", "shift", "label_noise", "overfit", "cost_tradeoff", "data_limited", "underfit", "latency",
+              "weak_slice", "budget", "ceiling", "imbalance", "weak_class"]
 TITLES = {"leakage": "Leakage", "shift": "Shift between training and deployment", "label_noise": "Label noise",
           "overfit": "Overfitting", "data_limited": "Data-limited", "underfit": "Underfitting (the model is too simple)",
           "latency": "Latency budget", "weak_slice": "Weak slice", "budget": "Time budget", "imbalance": "Imbalanced label",
-          "weak_class": "Weak class"}
+          "weak_class": "Weak class", "cost_tradeoff": "Cost trade-off", "ceiling": "At the data's limit"}
 # The fixed thresholds, also returned with every diagnosis so the page can show them.
 RULES = {
-    "leakage": "critical: one feature alone predicts the label (AUC / accuracy ≥ 0.97, R² ≥ 0.97) with ≥ 50 % of the importance; "
-               "major: an identifier used as a feature (Vela's leakage check)",
+    "leakage": "critical: one feature holds ≥ 50 % of the permutation importance and ≥ 3 × the next AND the Data Doctor or Smart "
+               "Intake names it a leak suspect (name, values filled after the outcome, AUC alone ≥ 0.75) and nobody answered it is "
+               "known at decision time; or one feature alone has AUC ≥ 0.97 (D1 single_auc; accuracy / R² ≥ 0.97 for other "
+               "tasks); major: an identifier used as a feature. Prescription: an ablation, the same body without the column(s), "
+               "same holdout, as a child run; Δ with a paired-bootstrap CI",
+    "cost_tradeoff": "the run optimises a business cost (binary c_FP, c_FN): always a finding (major) that replaces weak class and "
+                     "imbalance; decline rate, catch rate and cost per 1,000 at the served threshold and at the 3:1, 5:1 and 10:1 "
+                     "Bayes thresholds t = 1/(1 + r). Prescription: confirm the ratio",
+    "ceiling": "minor, all four: the learning curve is flat (F12 saturated, or the quick model's next doubling has a 95 % upper "
+               "bound < ε), the top models agree (the ladder's single GBM within the interval of the best), the train–holdout "
+               "gap is within noise (no overfit finding), and no fixable weak slice; ranks below every real problem",
     "shift": "prescription: importance weights when their ESS ≥ 20 % of the rows, else drop the top shifting column, else an out-of-time twin; "
              "critical: out-of-time optimism z ≥ 3 and Δ ≥ 0.02, or adversarial verdict strong; major: z ≥ 2, or verdict moderate; "
              "minor: verdict slight, or a batch PSI > 0.25; F18 monitoring of a registered version: a performance alert on the latest "
@@ -76,8 +87,8 @@ RULES = {
     "latency": "served one-row p95 of the best model > budget → major (critical if > 2 × budget)",
     "weak_slice": "a weak slice (F16, BH q ≤ α) whose loss is above its own base-rate constant's (CI lower bound) → major; otherwise minor",
     "budget": "Vela: the fit used ≥ 95 % of τ or skipped models → minor (major if models were skipped)",
-    "imbalance": "Vela: minority share < 20 % with an uncalibrated threshold → minor",
-    "weak_class": "Vela: a class's recall ≥ 0.05 below the macro mean → minor",
+    "imbalance": "Vela: minority share < 20 % with an uncalibrated threshold → minor (n/a on a cost run: the cost trade-off replaces it)",
+    "weak_class": "Vela: a class's recall ≥ 0.05 below the macro mean → minor (n/a on a cost run: the cost trade-off replaces it)",
 }
 
 
@@ -262,15 +273,8 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
     conf = m.get("confidence")
     checks: list[dict[str, Any]] = []
 
-    # 1. leakage (Vela)
-    lk = _vela(vf, "leakage")
-    if lk:
-        sus = lk["numbers"]["suspects"]
-        sev = "critical" if any(s["reason"] == "near-perfect alone" for s in sus) else "major"
-        checks.append(_check("leakage", "finding", lk["text"], {"suspects": sus}, sev, _patch_rx(lk), formula=lk.get("formula"), source="vela"))
-    else:
-        checks.append(_check("leakage", "clear", "No feature predicts the label alone (single-feature tree on the holdout below "
-                             "0.97 for the top-3 by importance) and no identifier is used as a feature.", source="vela"))
+    # 1. leakage (D3: dominance + a D1 / intake hint, or single-column AUC ≥ 0.97; Vela's identifiers and near-perfect trees)
+    checks.append(_leakage(ctx, vf, rid))
 
     # 2. shift (F6 out-of-time gap + F15 adversarial AUC + Vela drift)
     sc = ctx.get("split_comparison") or {}
@@ -579,13 +583,25 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
                              formula="Δ = ℓ̄_S − ℓ̄_C;  fixable ⇔ lower(ℓ̄_S) > ℓ(base rate of S)", source="F16"))
 
     # 8–10. Vela's remaining checks (budget, imbalance, weak class)
+    g = ctx.get("gaps") or {}
+    cost_run = bool(g.get("cost"))
     for kind, sev_of in (("budget", lambda f: "major" if f["numbers"].get("skipped") else "minor"),
                          ("imbalance", lambda f: "minor"), ("weak_class", lambda f: "minor")):
         f = _vela(vf, kind)
+        if cost_run and kind in ("imbalance", "weak_class"):
+            checks.append(_check(kind, "n/a", "A cost run: the decision threshold comes from the costs, so a class's recall or the "
+                                 "minority share is read in the cost trade-off" + (f" (Vela: {f['text']})" if f else "") + ".", source="vela"))
+            continue
         if f:
             checks.append(_check(kind, "finding", f["text"], f["numbers"], sev_of(f), _patch_rx(f), formula=f.get("formula"), source="vela"))
         else:
             checks.append(_check(kind, "clear", "Vela's check did not fire.", source="vela"))
+
+    # 11. cost trade-off (D3) and 12. at the data's limit (D3)
+    checks.append(_cost_tradeoff(g, rid))
+    improve = _improve(ctx, checks)
+    checks.append(_ceiling(ctx, checks, improve))
+    missing = _missing(ctx, checks)
 
     found = [c for c in checks if c["status"] == "finding"]
     found.sort(key=lambda c: (-SEV[c["severity"]], PRECEDENCE.index(c["id"]) if c["id"] in PRECEDENCE else 99))
@@ -598,6 +614,7 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
     return {"schema": SCHEMA, "procedure": PROCEDURE, "run_id": rid, "computed_at": now(), "problem_type": pt,
             "primary": primary, "secondary": found[1:], "checks": checks, "offers": offers, "headline": headline,
             "precedence": PRECEDENCE, "severity_order": ["critical", "major", "minor"], "rules": RULES,
+            "missing_info": missing, "improve": improve, "errors_view": _errors_view(g),
             "inputs": {"latency_budget_ms": budget, "measured_errors": m.get("errors") or [], "vela_errors": ctx.get("vela_errors") or []}}
 
 
@@ -663,3 +680,405 @@ def _overfit_patch(ctx: dict[str, Any]) -> dict[str, Any]:
                            f"{f}: " + ", ".join(f"{k}={v}" for k, v in reg[f].items()) for f in fams))] if fams else
                        [("fit_kwargs.num_bag_folds", 5, "choose models on out-of-fold predictions")])
     return {"kind": "gym_patch", "title": patch["title"], "patch": patch, "why": "Constrain capacity so the model stops memorising."}
+
+
+# --------------------------------------------------------------------------- D3 · Model Doctor 2
+
+
+def _pct(x: float) -> str:
+    return f"{100 * x:.0f}%" if abs(x) >= 0.1 else f"{100 * x:.1f}%"
+
+
+def _ci(ci: list[float] | None, d: int = 4) -> str:
+    return f"[{ci[0]:+.{d}f}, {ci[1]:+.{d}f}]" if ci else ""
+
+
+def _exp(ctx: dict[str, Any], kind: str, columns: list[str] | None = None) -> dict[str, Any] | None:
+    for e in ctx.get("experiments") or []:
+        if e.get("kind") == kind and (columns is None or sorted(e.get("columns") or []) == sorted(columns)):
+            return e
+    return None
+
+
+def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[str, Any]:
+    g = ctx.get("gaps") or {}
+    lk = g.get("leak") or {}
+    known = set(ctx.get("known") or [])
+    d1 = {s["column"]: s for s in g.get("d1_leak") or [] if s["column"] not in known}
+    sus: list[dict[str, Any]] = []
+    f0 = lk.get("feature")
+    if f0:
+        dominant = lk["share"] >= 0.5 and (lk.get("ratio") is None or lk["ratio"] >= 3)
+        if dominant and f0 in d1:
+            sus.append({"feature": f0, "reason": "dominant + hint", "share": lk["share"], "ratio": lk.get("ratio"),
+                        "hint": "; ".join(d1[f0].get("reasons") or []) or "Data Doctor leakage suspect",
+                        "single_auc": (lk.get("single_auc") or {}).get(f0)})
+    for f, a in (lk.get("single_auc") or {}).items():
+        if a >= 0.97 and f not in known and not any(s["feature"] == f for s in sus):
+            sus.append({"feature": f, "reason": "near-perfect alone", "single_auc": a,
+                        "share": next((t["share"] for t in lk.get("top") or [] if t["feature"] == f), None)})
+    v = _vela(vf, "leakage")
+    for s in (v["numbers"]["suspects"] if v else []):
+        if s["feature"] in known or any(x["feature"] == s["feature"] for x in sus):
+            continue
+        if s["reason"] in ("identifier", "near-perfect alone"):
+            sus.append({**s})
+    if not sus:
+        why = "No feature dominates the permutation importance with a leak hint, none alone has AUC ≥ 0.97, and no identifier is used."
+        if f0:
+            why = (f"The top feature '{f0}' holds {_pct(lk['share'])} of the permutation importance"
+                   + (f" ({lk['ratio']:.1f}× the next)" if lk.get("ratio") else "")
+                   + ("; it is a Data Doctor suspect but below the dominance rule" if f0 in d1 else "; no Data Doctor leak hint")
+                   + (f"; AUC alone {lk['single_auc'][f0]:.3f}" if (lk.get("single_auc") or {}).get(f0) is not None else "")
+                   + ". No identifier is used as a feature.")
+        if known & {s for s in (x["column"] for x in g.get("d1_leak") or [])}:
+            why += f" Answered known at decision time: {', '.join(sorted(known))}."
+        return _check("leakage", "clear", why, {"top": lk.get("top"), "single_auc": lk.get("single_auc")}, source="D3 dominance + D1 + Vela")
+    leaks = [s["feature"] for s in sus if s["reason"] != "identifier"]
+    ids = [s["feature"] for s in sus if s["reason"] == "identifier"]
+    sev = "critical" if leaks else "major"
+    s0 = sus[0]
+    if s0["reason"] == "dominant + hint":
+        txt = (f"'{s0['feature']}' carries {_pct(s0['share'])} of the permutation importance"
+               + (f", {s0['ratio']:.1f}× the next feature" if s0.get("ratio") else "")
+               + f", and the Data Doctor flags it ({s0['hint']}). A column this dominant that is filled in after the outcome "
+                 "makes the score look better than any decision made without it.")
+    elif s0["reason"] == "near-perfect alone":
+        txt = (f"'{s0['feature']}' alone separates the label with "
+               + (f"AUC {s0['single_auc']:.3f}" if s0.get("single_auc") is not None else f"{s0.get('single_measure', 'score')} {s0.get('single_score', 0):.3f}")
+               + ": a column this predictive is usually recorded after the outcome.")
+    else:
+        txt = (f"'{s0['feature']}' looks like an identifier ({_pct(s0.get('unique_share') or 0)} distinct values) and is used as a "
+               "feature; IDs memorise rows and do not generalise.")
+    ev: dict[str, Any] = {"suspects": sus, "top": lk.get("top")}
+    cols = leaks or ids
+    ab = _exp(ctx, "ablate", cols)
+    rx: dict[str, Any]
+    if ab and ab.get("status") == "succeeded" and ab.get("result"):
+        r = ab["result"]
+        ev["ablation"] = {"run_id": ab["run_id"], "columns": cols, "metric": r["metric"], "with": r["parent"], "without": r["child"],
+                          "delta": r["delta"], "ci": r["ci"], "rows": r["rows"]}
+        txt += (f" Ablation ({ab['run_id']}, same body and holdout, without {', '.join(cols)}): {r['metric']} {r['parent']:.4f} → "
+                f"{r['child']:.4f}, Δ {r['delta']:+.4f} {_ci(r['ci'])}. The run without it is the honest score.")
+        rx = {"kind": "open_run", "title": f"Open The Run Without {', '.join(cols)}", "run_id": ab["run_id"],
+              "why": "The ablation is the same model without the suspect column(s): the score a decision made before the outcome can get."}
+    elif ab and ab.get("status") in ("queued", "running"):
+        ev["ablation"] = {"run_id": ab["run_id"], "status": ab["status"], "columns": cols}
+        txt += f" Ablation {ab['run_id']} is {ab['status']}: diagnose again when it finishes."
+        rx = {"kind": "open_run", "title": "Watch The Ablation", "run_id": ab["run_id"], "why": "Retraining without the suspect column(s)."}
+    else:
+        rx = {"kind": "experiment", "title": f"Retrain Without {', '.join(cols)} (Ablation)", "endpoint": f"/api/runs/{rid}/experiments",
+              "body": {"kind": "ablate", "columns": cols},
+              "why": "A child run with the same body, holdout and config, minus the column(s): the card then shows the score with "
+                     "and without, and Δ with a paired-bootstrap CI."}
+    return _check("leakage", "finding", txt, ev, sev, rx,
+                  formula="s_j = I_j / Σ_k max(I_k, 0) ≥ 0.5,  s_j ≥ 3·s_(2);  AUC_j = P(x_j⁺ > x_j⁻) ≥ 0.97;  Δ = s(without) − s(with)",
+                  source="D3 dominance + D1 hint + ablation")
+
+
+def _cost_tradeoff(g: dict[str, Any], rid: str) -> dict[str, Any]:
+    c = g.get("cost")
+    if not c:
+        return _check("cost_tradeoff", "n/a", "Not a cost run: the run optimises a standard metric.", source="F7")
+    rows = c["rows"]
+    s = rows[0]
+    cf = c["configured"]
+    ratio = cf["c_fn"] / cf["c_fp"] if cf["c_fp"] else None
+    alt = "; ".join(f"at {r['name']} (t = {r['t']:.3f}) {_pct(r['decline_rate'])} declined, {_pct(r['catch_rate'])} caught, "
+                    f"{r['cost_per_1000']:,.0f} per 1,000" for r in rows[1:])
+    txt = (f"This run minimises a business cost (c_FN {cf['c_fn']:g} : c_FP {cf['c_fp']:g}"
+           + (f", a {ratio:.3g}:1 ratio" if ratio else "") + f"). At the served threshold t = {s['t']:.3f} it declines "
+           f"{_pct(s['decline_rate'])} of applicants and catches {_pct(s['catch_rate'])} of '{c['positive_class']}', at "
+           f"{s['cost_per_1000']:,.0f} per 1,000 decisions. Under the same costs, {alt}. The ratio sets the operating point more "
+           "than any model change: confirm it with the business.")
+    return _check("cost_tradeoff", "finding", txt, {"rows": rows, "configured": cf, "prevalence": c["prevalence"], "n": c["n"]},
+                  "major", {"kind": "open_view", "view": "Threshold", "title": "Confirm The Cost Ratio",
+                            "why": "Explain → Threshold shows the cost curve: set the ratio the business confirms and keep its threshold."},
+                  formula="t*(r) = 1 / (1 + r),  decline = #{p̂ > t}/n,  catch = TP/(TP + FN),  C = 1000·(c_FP·FP + c_FN·FN − g_TP·TP)/n",
+                  source="F7 + D3")
+
+
+def _more_rows(ctx: dict[str, Any]) -> dict[str, Any] | None:
+    g = ctx.get("gaps") or {}
+    res = (ctx["run"].get("result") or {})
+    lc = res.get("learning_curve") or {}
+    v = lc.get("verdict") if isinstance(lc, dict) else None
+    qc = g.get("quick_curve")
+    x2 = ((v or {}).get("extrapolation") or {}).get("x2") if v else None
+    if x2 and x2.get("gain") is not None and x2.get("ci"):
+        nat_now = x2["score"] - x2["gain"]
+        return {"delta": float(x2["gain"]), "ci": [float(x2["ci"][0] - nat_now), float(x2["ci"][1] - nat_now)],
+                "metric": v.get("metric"), "source": f"F12 learning curve ({v.get('label')}): projected at 2N = {x2['n']:,} rows"}
+    if qc:
+        return {"delta": qc["next_doubling"], "ci": qc["ci"], "metric": qc["metric"],
+                "source": f"quick model on nested training subsets ({', '.join(f'{r:,}' for r in qc['rows'])} rows); the next doubling projected"}
+    return None
+
+
+def _improve(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """How to improve: one ranked list of levers, each with a measured Δ (or an offer to measure it)."""
+    run = ctx["run"]
+    rid = run["id"]
+    g = ctx.get("gaps") or {}
+    pt = (run.get("result") or {}).get("problem_type")
+    clf = pt in ("binary", "multiclass")
+    by = {c["id"]: c for c in checks}
+    out: list[dict[str, Any]] = []
+    lk = by.get("leakage")
+    if lk and lk["status"] == "finding":
+        ab = lk["evidence"].get("ablation") or {}
+        cols = [s["feature"] for s in lk["evidence"]["suspects"] if s["reason"] != "identifier"] or [s["feature"] for s in lk["evidence"]["suspects"]]
+        out.append({"id": "drop_leak", "title": f"Drop the leak ({', '.join(cols)})", "must": True,
+                    "delta": ab.get("delta"), "ci": ab.get("ci"), "metric": ab.get("metric"),
+                    "source": f"ablation {ab['run_id']}: same body and holdout without the column(s)" if ab.get("delta") is not None else
+                              ("ablation running" if ab.get("run_id") else "not measured yet: run the ablation"),
+                    "note": "The score falls, and that is the point: the run without it is the honest score." if ab.get("delta") is not None else None,
+                    "action": lk["prescription"]})
+    mr = _more_rows(ctx)
+    lc_missing = not ((run.get("result") or {}).get("learning_curve") or {}).get("verdict")
+    out.append({"id": "more_rows", "title": "Collect more labelled rows", "delta": mr and mr["delta"], "ci": mr and mr["ci"],
+                "metric": mr and mr["metric"], "source": mr["source"] if mr else "not measured",
+                "action": ({"kind": "run_check", "check": "learning_curve", "title": "Run The Learning Curve", "endpoint": f"/api/runs/{rid}/learning-curve",
+                            "body": {}, "why": "The run's own fit on 10 / 25 / 50 % of its rows (F12): the measured value of more rows."}
+                           if lc_missing else
+                           {"kind": "labelling_queue", "title": "Label More Rows", "run_id": rid, "endpoint": f"/api/runs/{rid}/active-learning",
+                            "why": "The labelling queue picks the most informative rows."} if clf else
+                           {"kind": "info", "title": "Collect more rows of the same kind"})})
+    cl = g.get("clean_labels")
+    if cl:
+        out.append({"id": "clean_labels", "title": f"Clean the labels ({cl['flagged']:,} training rows flagged, {_pct(cl['share'])})",
+                    "delta": cl.get("delta"), "ci": cl.get("ci"), "metric": cl.get("metric"),
+                    "source": "quick model refit without cleanlab's flagged training rows; holdout untouched" if cl.get("delta") is not None
+                              else "too few flagged rows to measure",
+                    "action": {"kind": "inbox", "title": "Review Flagged Labels", "run_id": rid,
+                               "why": "The labelling queue and annotators (Doctor → Labels): fix the labels at the source."}})
+    fl = ctx.get("feature_lab")
+    ds = run["dataset_id"]
+    if fl:
+        out.append({"id": "new_features", "title": f"New features (Feature Lab: {fl['kept']} kept of {fl['tried']} tried)",
+                    "delta": fl.get("delta"), "ci": fl.get("ci"), "metric": fl.get("metric"), "source": fl.get("source"),
+                    "action": {"kind": "link", "title": "Open Feature Lab", "link": f"build?dataset={ds}&lab=1",
+                               "why": "Build → Advanced · Feature Lab: typed features, scored on the training folds only."}})
+    else:
+        out.append({"id": "new_features", "title": "New features", "delta": None, "ci": None, "metric": None,
+                    "source": "not measured: Feature Lab has not run on this dataset",
+                    "action": {"kind": "link", "title": "Search Features", "link": f"build?dataset={ds}&lab=1",
+                               "why": "Build → Advanced · Feature Lab: ratios, differences, aggregates, date parts; kept only on a clear gain."}})
+    for kind, title in (("budget", "More time budget (2×)"), ("preset", "A stronger preset")):
+        e = _exp(ctx, kind)
+        r = (e or {}).get("result")
+        fires = kind == "budget" and (by.get("budget") or {}).get("status") == "finding"
+        out.append({"id": kind, "title": title, "delta": r and r["delta"], "ci": r and r["ci"], "metric": r and r["metric"],
+                    "source": (f"experiment {e['run_id']}: {e.get('title')}" if r else f"experiment {e['run_id']} {e['status']}" if e else
+                               "not measured" + (": the time-budget check fired" if fires else "")),
+                    "action": ({"kind": "open_run", "title": "Open The Experiment", "run_id": e["run_id"]} if e else
+                               {"kind": "experiment", "title": f"Run The {'Budget' if kind == 'budget' else 'Preset'} Experiment",
+                                "endpoint": f"/api/runs/{rid}/experiments", "body": {"kind": kind},
+                                "why": "A child run with only this change; Δ on the same holdout rows."}),
+                    "suggested": fires})
+
+    out.sort(key=_rank_key)
+    for i, x in enumerate(out):
+        x["rank"] = i + 1
+        x["measured"] = x.get("delta") is not None
+    return out
+
+
+def _rank_key(x: dict[str, Any]) -> tuple[float, float]:
+    """A must-do first; then measured gains > 0 (largest first); then what is not measured yet (an offer suggested by a
+    finding first); then what was measured and does not help."""
+    if x.get("must"):
+        return (0, 0.0)
+    d = x.get("delta")
+    if d is not None and d > 0:
+        return (1, -float(d))
+    if d is None:
+        return (2.0 if x.get("suggested") else 2.5, 0.0)
+    return (3, -float(d))
+
+
+def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[dict[str, Any]]) -> dict[str, Any]:
+    run = ctx["run"]
+    res = run.get("result") or {}
+    g = ctx.get("gaps") or {}
+    by = {c["id"]: c for c in checks}
+    conds: dict[str, Any] = {}
+    missing: list[str] = []
+    # flat learning curve
+    v = ((res.get("learning_curve") or {}).get("verdict") or {}) if isinstance(res.get("learning_curve"), dict) else {}
+    qc = g.get("quick_curve")
+    if v.get("label") in ("saturated", "data-limited"):
+        conds["flat"] = {"ok": v["label"] == "saturated", "source": "F12", "verdict": v["label"]}
+    elif qc:
+        conds["flat"] = {"ok": bool(qc["flat"]), "source": "quick curve", "next_doubling": qc["next_doubling"], "ci": qc["ci"], "eps": qc["eps"]}
+    else:
+        missing.append("learning curve")
+    # top models agree
+    lad = res.get("ladder") or {}
+    single = next((r for r in lad.get("rungs") or [] if r.get("rung") == 2), None)
+    if single and single.get("gap"):
+        conds["agree"] = {"ok": bool(single.get("within")), "single": single.get("name"), "gap": single["gap"]["delta"],
+                          "ci": single["gap"]["ci"], "metric": lad.get("metric_label"), "best_rung": lad.get("best_rung")}
+    else:
+        missing.append("model ladder")
+    of = by.get("overfit") or {}
+    if of.get("status") in ("finding", "clear"):
+        conds["gap_noise"] = {"ok": of["status"] != "finding", "z": (of.get("evidence") or {}).get("z")}
+    else:
+        missing.append("train–holdout gap")
+    ws = by.get("weak_slice") or {}
+    conds["not_concentrated"] = {"ok": not (ws.get("status") == "finding" and ws.get("severity") == "major"),
+                                 "weak_slice": ws.get("status")}
+    lk = by.get("leakage") or {}
+    if lk.get("status") == "finding":
+        return _check("ceiling", "clear", "A leak inflates the score: the data's limit is read after the ablation.", {"conditions": conds}, source="D3")
+    if missing:
+        return _check("ceiling", "missing" if "learning curve" in missing else "n/a", "Not enough to say: " + ", ".join(missing) + " missing.",
+                      {"conditions": conds}, offer={"kind": "run_check", "check": "learning_curve", "title": "Run The Learning Curve",
+                                                   "endpoint": f"/api/runs/{run['id']}/learning-curve", "body": {},
+                                                   "why": "9 refits on 10 / 25 / 50 % of the training rows (F12)."}, source="D3")
+    parts = []
+    f = conds["flat"]
+    parts.append("the learning curve is flat (F12 saturated)" if f["source"] == "F12" and f["ok"] else
+                 "the learning curve still rises (F12 data-limited)" if f["source"] == "F12" else
+                 f"the quick model's next doubling is {f['next_doubling']:+.4f} {_ci(f['ci'])} " + ("< " if f["ok"] else "vs ") + f"ε = {f['eps']:.4g}"
+                 + (" (upper bound < 2ε)" if f["ok"] else ""))
+    a = conds["agree"]
+    parts.append(f"{a['single']} is the best rung" if a.get("best_rung") == 2 else
+                 f"{a['single']} is {a['gap']:.4f} {a['metric']} from the best rung {_ci(a['ci'])}" + (" (within noise)" if a["ok"] else " (outside the interval)"))
+    gz = conds["gap_noise"]
+    parts.append("the train–holdout gap is within noise" + (f" (z = {gz['z']:.1f})" if gz.get("z") is not None else "") if gz["ok"] else "the model overfits")
+    parts.append("no fixable weak slice" if conds["not_concentrated"]["ok"] else "a fixable weak slice exists")
+    allok = all(c["ok"] for c in conds.values())
+    txt = "; ".join(parts) + "."
+    if not allok:
+        return _check("ceiling", "clear", "Not at the data's limit yet: " + txt, {"conditions": conds}, source="D3")
+    top = next((x for x in improve if x.get("measured") and (x.get("delta") or 0) > 0), None)
+    rx = ({**top["action"], "why": f"The best measured lever: {top['title']} ({top['delta']:+.4f} {top.get('metric') or ''})."}
+          if top and top.get("action") else
+          {"kind": "info", "title": "Tuning will not help: more rows, new features or a cleaner label would"})
+    tw = (ctx.get("gaps") or {}).get("twins")
+    extra = (f" The table's nearest-neighbour disagreement puts the irreducible error between {tw['lower']:.3f} and {tw['r_nn']:.3f} "
+             f"(the model errs {tw['model_error']:.3f})." if tw else "")
+    return _check("ceiling", "finding", "At the data's limit: " + txt + " Tuning will not help; more rows, new features or a cleaner "
+                  "label would. What's missing ranks the gaps." + extra, {"conditions": conds}, "minor", rx,
+                  formula="flat ∧ single ≈ stack ∧ z < 3 ∧ ¬fixable slice", source="F12 / quick curve + D2 ladder + fit gap + F16")
+
+
+def _gain(o: dict[str, Any] | None, source: str, simulated: bool = False) -> dict[str, Any] | None:
+    if not o or o.get("delta") is None:
+        return None
+    return {"delta": float(o["delta"]), "ci": o.get("ci"), "metric": o.get("metric"), "source": source, "simulated": simulated}
+
+
+def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any]:
+    """What's missing: the information gaps, ranked by measured potential gain, each a concrete data request."""
+    g = ctx.get("gaps") or {}
+    run = ctx["run"]
+    pt = (run.get("result") or {}).get("problem_type")
+    orc = {o["id"]: o for o in (g.get("oracle") or {}).get("segments") or []}
+    gaps: list[dict[str, Any]] = []
+    served = g.get("served") or {}
+    tw = g.get("twins")
+    if tw:
+        ex = tw.get("exact_conflicts") or {}
+        f = (f"{_pct(tw['errors_in_mixed'])} of the model's errors are rows whose {tw['k']} closest training rows (on the columns that "
+             f"matter, weighted by importance) had mixed outcomes. The table's nearest-neighbour disagreement R_NN is {tw['r_nn']:.3f} "
+             f"{_ci(tw['r_nn_ci'], 3)}, so the irreducible error is between {tw['lower']:.3f} and {tw['r_nn']:.3f} against a model error of "
+             f"{tw['model_error']:.3f}: at least {_pct(tw['explained'] or 0)} of the error is beyond what these columns can separate.")
+        if tw.get("where"):
+            w = tw["where"]
+            f += f" These look-alikes concentrate in {w['label']} ({_pct(w['share_mixed'])} of them vs {_pct(w['share_all'])} of all rows)."
+        if ex.get("rows"):
+            f += f" {ex['rows']:,} rows in {ex['groups']:,} groups are identical on every column with different labels."
+        gaps.append({"id": "twins", "kind": "twins", "title": "Indistinguishable twins", "finding": f,
+                     "request": "Join information that differs between these look-alikes: a source the table lacks (bureau data, a "
+                                "history of the key columns, behaviour over time). Reviewing the identical-but-different rows tells a "
+                                "wrong label from a missing column.",
+                     "gain": _gain(orc.get("twins"), "oracle on the mixed-neighbourhood rows (simulation)", True),
+                     "evidence": {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "errors_in_mixed",
+                                                         "mixed_share_holdout", "closeness", "k", "exact_conflicts", "where")}, "method": tw.get("method")})
+    con = g.get("concentration") or {}
+    for s in (con.get("segments") or [])[:3]:
+        mi = s.get("missing_inside") or []
+        f = (f"Errors concentrate in {s['label']}: error rate {s['rate']:.3f} vs {con['overall_rate']:.3f} overall ({s['lift']:.2f}×, "
+             f"n = {s['n']:,}, {s['excess']:.0f} excess errors, q = {s['q']:.1e}).")
+        req = f"Collect information that separates outcomes for {s['label']}"
+        if mi:
+            m = mi[0]
+            f += f" Inside its errors {m['column']} is missing {_pct(m['missing_in_errors'])} vs {_pct(m['missing_elsewhere'])} elsewhere."
+            req += f", and fix how {m['column']} is captured there (missing {_pct(m['missing_in_errors'])} in these errors)"
+        gaps.append({"id": f"segment:{s['column']}={s['value']}", "kind": "concentration", "title": f"Errors concentrate: {s['label']}",
+                     "finding": f, "request": req + ".",
+                     "gain": _gain(orc.get(f"seg:{s['column']}={s['value']}"), f"oracle on {s['label']} (simulation)", True),
+                     "evidence": {k: s.get(k) for k in ("column", "value", "n", "errors", "rate", "lift", "excess", "q")} | {"missing_inside": mi}})
+    for m in (con.get("missing_in_errors") or [])[:1]:
+        if any(m["column"] == x["column"] for s in con.get("segments") or [] for x in s.get("missing_inside") or []):
+            continue
+        gaps.append({"id": f"missing:{m['column']}", "kind": "missingness", "title": f"Missing where it matters: {m['column']}",
+                     "finding": f"{m['column']} is missing in {_pct(m['missing_in_errors'])} of the error rows vs {_pct(m['missing_elsewhere'])} of the rest (z = {m['z']:.1f}).",
+                     "request": f"Fix how {m['column']} is collected: it is missing where the model goes wrong.", "gain": None, "evidence": m})
+    for t in ((g.get("thin") or {}).get("features") or [])[:2]:
+        gaps.append({"id": f"thin:{t['column']}", "kind": "thin", "title": f"Thin feature: {t['column']}",
+                     "finding": (f"{t['column']} has {t['levels']} values and carries {_pct(t['importance_share'])} of the signal, but "
+                                 f"{_pct(t['within_share'])} of the outcome's variance is left inside its levels (worst: {t['column']} = "
+                                 f"{t['worst_level']}, {t['worst_n']:,} rows, rate {t['worst_rate']:.3f})."),
+                     "request": f"Collect a finer measure of {t['column']}, or its history (a trend over months, not one snapshot).",
+                     "gain": _gain(orc.get(f"thin:{t['column']}"), f"oracle on {t['column']} = {t['worst_level']} (simulation)", True), "evidence": t})
+    for p in ((g.get("confusion") or {}).get("pairs") or [])[:3]:
+        gaps.append({"id": f"confusion:{p['a']}|{p['b']}", "kind": "label_overlap", "title": f"Labels overlap: '{p['a']}' ↔ '{p['b']}'",
+                     "finding": f"'{p['a']}' is predicted as '{p['b']}' {p['a_as_b']} times and '{p['b']}' as '{p['a']}' {p['b_as_a']} times: the model confuses them both ways, so the label definitions overlap.",
+                     "request": f"Redefine the label: write the rule that separates '{p['a']}' from '{p['b']}', relabel the examples, or merge them.",
+                     "gain": {"delta": p["gain"], "ci": None, "metric": "accuracy", "simulated": False,
+                              "source": "holdout count: the errors between the two, an upper bound if they were one label"}, "evidence": p})
+    mr = _more_rows(ctx)
+    if mr:
+        gaps.append({"id": "more_rows", "kind": "more_rows", "title": "More rows of the same kind",
+                     "finding": f"Doubling the training rows: {mr['delta']:+.4f} {_ci(mr['ci'])} {mr['metric']} ({mr['source']}).",
+                     "request": "Collect more labelled rows, if the gain is worth the cost.", "gain": _gain(mr, mr["source"]), "evidence": mr})
+    cl = g.get("clean_labels")
+    eo = (g.get("errors_top") or {}).get("cleanlab")
+    if cl or eo:
+        f = ""
+        if eo:
+            f += f"cleanlab flags {_pct(eo['share_of_errors'])} of the holdout errors vs {_pct(eo['share_of_correct'])} of the correct rows. "
+        if cl and cl.get("delta") is not None:
+            f += f"Retraining without the {cl['flagged']:,} flagged training rows: {cl['delta']:+.4f} {_ci(cl['ci'])} {cl['metric']}."
+        gaps.append({"id": "labels", "kind": "label_quality", "title": "Label quality", "finding": f.strip() or "No label issues measured.",
+                     "request": "Review the flagged labels at their source and fix the labelling rule where they cluster.",
+                     "gain": _gain(cl, "quick model refit without the flagged training rows") if cl else None, "evidence": {"holdout": eo, "train": cl}})
+    fl = ctx.get("feature_lab")
+    if fl:
+        gaps.append({"id": "new_features", "kind": "new_features", "title": "New features from the same columns",
+                     "finding": f"Feature Lab tried {fl['tried']} typed features and kept {fl['kept']}: {fl['source']}.",
+                     "request": "Derived features add little: the gain must come from new information, not new arithmetic." if not fl["kept"]
+                                else "Use the Feature Lab version for the next run.",
+                     "gain": _gain(fl, fl["source"]), "evidence": fl})
+    for x in gaps:
+        x["measured"] = x.get("gain") is not None
+    gaps.sort(key=lambda x: _rank_key({"delta": x["gain"] and x["gain"]["delta"]}))
+    for i, x in enumerate(gaps):
+        x["rank"] = i + 1
+    top = gaps[0] if gaps else None
+    head = None
+    if top:
+        head = f"{top['title']}: " + (f"worth up to {top['gain']['delta']:+.4f} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
+    return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"),
+            "irreducible": tw and {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "explained", "explained_upper")},
+            "rules": {"rank": "measured potential gain first (Δ of the run's quick-model metric; an oracle is a simulation and an upper "
+                              "bound), then the unmeasured gaps",
+                      "oracle": (g.get("oracle") or {}).get("rule"), "concentration": con.get("rule"), "thin": (g.get("thin") or {}).get("rule"),
+                      "twins": tw and tw.get("method"), "confusion": (g.get("confusion") or {}).get("rule"),
+                      "curve": (g.get("quick_curve") or {}).get("rule"), "clean": (g.get("clean_labels") or {}).get("rule")},
+            "domain_gaps": {"status": "pending", "source": "llm", "label": "Suggestions to investigate (Claude, D4): never mixed with measured numbers",
+                            "items": []},
+            "problem_type": pt, "seconds": g.get("seconds"), "errors": g.get("errors") or []}
+
+
+def _errors_view(g: dict[str, Any]) -> dict[str, Any] | None:
+    if not g:
+        return None
+    return {"served": g.get("served"), "top": g.get("errors_top"), "slices": (g.get("concentration") or {}).get("segments"),
+            "overall_rate": (g.get("concentration") or {}).get("overall_rate"),
+            "missing_in_errors": (g.get("concentration") or {}).get("missing_in_errors"),
+            "slice_rule": (g.get("concentration") or {}).get("rule"), "by_time": g.get("by_time")}

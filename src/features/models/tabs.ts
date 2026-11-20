@@ -6,7 +6,7 @@ export type ExplainSub = (typeof EXPLAIN_SUBS)[number]
 
 export const TABS = ['Results', 'Explain', 'Doctor'] as const
 export type Tab = (typeof TABS)[number]
-export const DOCTOR_SUBS = ['Model Doctor', 'Weak Slices', 'Shift', 'Learning Curve', 'Labels'] as const
+export const DOCTOR_SUBS = ['Model Doctor', 'Holdout Errors', 'Weak Slices', 'Shift', 'Learning Curve', 'Labels'] as const
 export type DoctorSub = (typeof DOCTOR_SUBS)[number]
 /** Old Explain tab names (links in docs, the agent, the Doctor's actions) → the run page's tab and sub-tab. */
 const SUB_ALIASES: Record<string, string> = { doctor: 'Model Doctor', 'Labelling Queue': 'Labels', Annotators: 'Labels', shap: 'Features & SHAP', slices: 'Weak Slices', 'Fair Lending': 'Fairness' }

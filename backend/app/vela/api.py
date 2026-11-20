@@ -177,9 +177,10 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
         mon = await run_in_threadpool(monitoring_api.doctor_context, request, run_id)
     except Exception:  # noqa: BLE001 — the doctor diagnoses without monitoring rather than fail
         mon = []
+    gaps, exps, fl, known = await _d3_inputs(request, rec, opts)
     ctx = {"run": rec, "monitoring": mon, "vela": vela["findings"], "vela_errors": vela["errors"], "measured": measured, "split_comparison": sc,
            "oot_se": oot_se, "split_options": opts, "shift_actions": shift_actions, "latency_budget_ms": budget, "latency": lat,
-           "base": run_body(rec)}
+           "base": run_body(rec), "gaps": gaps, "experiments": exps, "feature_lab": fl, "known": known}
     d = await run_in_threadpool(D.diagnose, ctx)
     d["next"] = await run_in_threadpool(_next_steps, request, rec)
     store.merge_result(run_id, doctor=_doctor_summary(d))
@@ -210,3 +211,124 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
     if latency_ms is not None and latency_ms <= 0:
         raise HTTPException(422, "latency_ms must be > 0.")
     return await run_doctor(request, run_id, latency_ms, measure_latency, served_p95_ms)
+
+
+# --------------------------------------------------------------------------- D3 · What's missing, typed experiments
+
+
+GAPS_PROCEDURE = "missing/1"
+
+
+def _gaps_job(cfg, rec, hints):
+    from .missing import measure
+
+    return measure(cfg, rec, hints)
+
+
+def _gaps_key(rec: dict[str, Any]) -> str:
+    from . import doctor as D
+
+    fi = json.dumps((rec.get("result") or {}).get("feature_importance") or [], sort_keys=True, default=str)
+    return GAPS_PROCEDURE + ":" + D.cache_key(rec) + ":" + hashlib.sha1(fi.encode()).hexdigest()[:10]
+
+
+def _feature_lab_summary(request: Request, rec: dict[str, Any]) -> dict[str, Any] | None:
+    """The newest finished Feature Lab job on the run's dataset (or the dataset it was made from), as a measured Δ."""
+    from .. import featurelab as fl
+
+    store = request.app.state.datasets
+    ids = [rec["dataset_id"]]
+    try:
+        lin = store.lineage(rec["dataset_id"]) or {}
+        if lin.get("parent"):
+            ids.append(lin["parent"])
+    except Exception:  # noqa: BLE001
+        pass
+    for ds in ids:
+        try:
+            jobs = fl.list_jobs(store.dir(ds))
+        except Exception:  # noqa: BLE001
+            continue
+        for jb in jobs:
+            if jb.get("status") != "succeeded":
+                continue
+            full = fl.read_job(store.dir(ds), jb["id"]) or {}
+            res = full.get("result") or {}
+            if res.get("target") not in (None, rec["label"]):
+                continue
+            jr = [e for e in res.get("journal") or [] if e.get("delta") is not None]
+            ho = res.get("holdout")
+            if ho:
+                d, ci, src = ho["delta"], ho["ci"], f"job {jb['id']}: holdout {ho['before']:.4f} → {ho['after']:.4f} with the {len(res.get('kept') or [])} kept feature(s)"
+            elif jr:
+                b = max(jr, key=lambda e: e["delta"])
+                d, ci, src = b["delta"], b["ci"], f"job {jb['id']}: best candidate {b.get('name') or b.get('op')} out of fold (nothing kept)"
+            else:
+                continue
+            metric = res.get("metric_label")
+            return {"job": jb["id"], "dataset_id": ds, "kept": len(res.get("kept") or []), "tried": len(res.get("journal") or []),
+                    "delta": d if metric == "AUC" else None, "delta_raw": d, "ci": ci if metric == "AUC" else None, "metric": metric,
+                    "source": src + ("" if metric == "AUC" else f" ({metric}; not on the gap scale)")}
+    return None
+
+
+async def _d3_inputs(request: Request, rec: dict[str, Any], opts: dict[str, Any]):
+    from ..data_doctor_api import answers
+    from . import experiments as X
+
+    store = request.app.state.runs
+    cfg = rec["config"]
+    res = rec.get("result") or {}
+    key = await run_in_threadpool(_gaps_key, rec)
+    cached = res.get("doctor_gaps") or {}
+    if cached.get("key") == key:
+        gaps = cached["data"]
+    else:
+        dc = ((cfg.get("split") or {}).get("time_column") or (cfg.get("split_spec") or {}).get("time_column")
+              or next((d["column"] for d in (opts or {}).get("date_columns") or []), None))
+        try:
+            gaps = await request.app.state.heavy.run(_gaps_job, cfg, rec, {"date_column": dc})
+        except Exception as e:  # noqa: BLE001 — the doctor diagnoses without the gap analysis rather than fail
+            gaps = {"errors": [f"gap analysis: {type(e).__name__}: {e}"[:300]]}
+        store.merge_result(rec["id"], doctor_gaps={"key": key, "data": gaps})
+    exps = await run_in_threadpool(X.list_for, store, rec)
+    fl = await run_in_threadpool(_feature_lab_summary, request, rec)
+    try:
+        a = await run_in_threadpool(answers, request.app.state.datasets, rec["dataset_id"])
+        known = [c for c, v in (a.get("known") or {}).items() if v is True]
+    except Exception:  # noqa: BLE001
+        known = []
+    return gaps, exps, fl, known
+
+
+@router.post("/runs/{run_id}/experiments", status_code=201)
+async def start_experiment(run_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """D3: a typed experiment on a finished run: {kind: ablate, columns: [...]} | {kind: budget} | {kind: preset}. It trains
+    the run's own body with that one change as a child run (lineage: parent_run_id, source doctor-experiment), on the same
+    dataset and holdout; GET …/experiments gives Δ with a paired-bootstrap CI once it succeeds."""
+    from ..engine.api import RunCreate, _create_run
+    from ..gym.api import check_run_body
+    from . import experiments as X
+
+    rec = run_or_404(request, run_id)
+    cfg = rec["config"]
+    if rec["status"] != "succeeded":
+        raise HTTPException(409, f"Run {run_id} is {rec['status']}; experiments start from a finished run.")
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or cfg.get("import"):
+        raise HTTPException(400, "Experiments run on trained tabular runs.")
+    try:
+        b, what = X.body_for(rec, body or {})
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    await check_run_body(request, b)
+    new = await run_in_threadpool(_create_run, RunCreate(**b), request)
+    return {"id": new["id"], "run_id": new["id"], "parent_run_id": run_id, "kind": body.get("kind"), "title": what, "status": new.get("status")}
+
+
+@router.get("/runs/{run_id}/experiments")
+async def list_experiments(run_id: str, request: Request) -> dict[str, Any]:
+    from . import experiments as X
+
+    rec = run_or_404(request, run_id)
+    items = await run_in_threadpool(X.list_for, request.app.state.runs, rec)
+    return {"run_id": run_id, "experiments": items, "kinds": list(X.KINDS)}

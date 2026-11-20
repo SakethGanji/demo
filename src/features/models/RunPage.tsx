@@ -25,6 +25,7 @@ import { SEG_SPEC } from '@/features/segmented/SegmentedPage'
 import { SURV_SPEC } from '@/features/survival/SurvivalPage'
 import { AnnotatorsPanel } from './explain/components/AnnotatorsPanel'
 import { DoctorPanel } from './explain/components/DoctorPanel'
+import { HoldoutErrorsPanel } from './explain/components/HoldoutErrorsPanel'
 import { LabellingQueuePanel } from './explain/components/LabellingQueuePanel'
 import { LearningCurvePanel } from './explain/components/LearningCurvePanel'
 import { ShiftPanel } from './explain/components/ShiftPanel'
@@ -103,6 +104,7 @@ function DoctorTab({ run, sub, extra, open, go, onApplyPatch }: { run: Run; sub:
     <div className="stack explain" style={{ gap: 'var(--space-16)' }} data-testid="doctor-tab">
       <Tabs tabs={subs} value={cur} onChange={(t) => open(t)} />
       {cur === 'Model Doctor' && <DoctorPanel run={run} links={{ go, onApplyPatch, openTab: open }} />}
+      {cur === 'Holdout Errors' && <HoldoutErrorsPanel run={run} onRow={(row) => open('Features & SHAP', { row: String(row) })} />}
       {cur === 'Weak Slices' && <SlicesPanel run={run} links={{
         onRow: (row) => open('Features & SHAP', { row: String(row) }),
         onLabel: (s) => open('Labels', { slice: s.id }),

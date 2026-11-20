@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
+import { useHashParam } from '@/shared/hooks/useHashParam'
 import type { FeatureLabEntry, FeatureLabJob } from '@/shared/api/types'
 import { useFetch } from '@/shared/hooks/useFetch'
 
@@ -25,8 +26,9 @@ export function FeatureLab({ dsId, entities, onVersion }: { dsId: string; entiti
     try { const s = await api.datasets.featureLabStart(dsId, { entity: entity || null, max_candidates: 20, time_limit: 240 }); setJobId(s.id) } catch (e) { setErr((e as Error).message) }
   }
   const running = j?.status === 'running'
+  const asked = useHashParam('lab') === '1' // D3: the Model Doctor's "new features" lever opens it
   return (
-    <details className="an-adv card feature-lab" data-testid="feature-lab" open={!!j}>
+    <details className="an-adv card feature-lab" data-testid="feature-lab" open={!!j || asked}>
       <summary className="micro-label" style={{ padding: 'var(--space-12) var(--space-16)' }}>Advanced · Feature Lab</summary>
       <div className="card-body stack" style={{ gap: 10 }}>
         <p className="helper" style={{ margin: 0 }}>Searches typed features only (ratio, difference, per-entity aggregate, date part, bins, log, category cross; never code). Each is scored on the training rows, kept only if it clearly helps, and checked for leakage and decision time. The kept ones become a new version of this table.</p>

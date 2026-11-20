@@ -98,9 +98,21 @@ def pick_rungs(predictor) -> list[dict[str, Any]]:
     return out
 
 
-def _metric(predictor):
-    """(name, needs_proba, scorer(y, pred) higher-is-better, natural(score), greater_is_better)."""
+def _metric(predictor, cost: dict[str, Any] | None = None):
+    """(name, needs_proba, scorer(y, pred) higher-is-better, natural(score), greater_is_better).
+    D3: a binary cost run (F7) is scored by its expected cost per 1,000 decisions, every rung deciding by the cost's
+    Bayes rule p > t* (as AutoGluon scores the cost metric), lower is better; AUC would rank the rungs on something the
+    run does not optimise."""
     pt = predictor.problem_type
+    if pt == "binary" and cost and cost.get("kind") == "binary":
+        from ensemble_models.cost import binary_row_costs
+
+        t = float(cost["bayes_threshold"])
+
+        def cost_score(y, p):
+            return -1000.0 * float(binary_row_costs(y, p > t, cost["c_fp"], cost["c_fn"], cost.get("g_tp") or 0).mean())
+
+        return "expected_cost", "proba1", cost_score, (lambda s: -s), False
     if pt == "binary":
         return "roc_auc", "proba1", _auc, (lambda s: s), True
     em = predictor.eval_metric
@@ -154,7 +166,8 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
     feats = list(predictor.original_features)
     X = holdout[feats]
     y_raw = holdout[label]
-    name, needs, score, natural, gib = _metric(predictor)
+    name, needs, score, natural, gib = _metric(predictor, cfg.get("cost"))
+    label_of = {"roc_auc": "AUC", "expected_cost": "cost / 1,000"}
     if needs == "proba1":
         y = (y_raw == predictor.positive_class).to_numpy().astype(int)
     else:
@@ -176,7 +189,7 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
     S = []
     for _ in range(B):
         i = rng.integers(0, n, n)
-        if needs == "proba1" and y[i].min() == y[i].max():
+        if needs == "proba1" and name == "roc_auc" and y[i].min() == y[i].max():
             continue
         S.append([score(y[i], preds[k][i]) for k in present])
     S = np.asarray(S, dtype=float)
@@ -232,15 +245,20 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
     rec = next((r for r in servable if r["within"]), servable[-1] if servable else None)
     stack = next((r for r in rungs if r["rung"] == 3), None)
     out: dict[str, Any] = {
-        "metric": name, "metric_label": "AUC" if name == "roc_auc" else name, "greater_is_better": True if needs == "proba1" else gib,
+        "metric": name, "metric_label": label_of.get(name, name), "greater_is_better": True if name == "roc_auc" else gib,
         "level": level, "B": int(len(S)), "n_holdout": int(n), "best_rung": best,
         "rungs": [{k: v for k, v in r.items() if k != "score_internal"} for r in rungs],
-        "rule": (f"Serve the simplest rung whose holdout {('AUC' if name == 'roc_auc' else name)} is within the "
+        "rule": (f"Serve the simplest rung whose holdout {label_of.get(name, name)} is within the "
                  f"{level:.0%} paired-bootstrap interval of the best: its gap's interval includes 0 "
                  f"({len(S):,} resamples of the {n:,} holdout rows, every rung on the same draw)."),
         "small_data": small,
         "seconds": None,
     }
+    if name == "expected_cost":
+        c = cfg["cost"]
+        out["cost"] = {"c_fp": c["c_fp"], "c_fn": c["c_fn"], "g_tp": c.get("g_tp") or 0, "t": c["bayes_threshold"]}
+        out["rule"] += (f" Cost run: the score is the expected cost per 1,000 decisions (c_FP {c['c_fp']:g}, c_FN {c['c_fn']:g}), "
+                        f"every rung deciding by the Bayes rule p > t* = {c['bayes_threshold']:.3f}; lower is better.")
     if small and level == 0.99:
         ev = small["numbers"].get("events per feature")
         out["small_data_note"] = (f"Small data ({small['title'].split(':')[0].lower()}: "
@@ -254,8 +272,12 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
             out["sentence"] = f"{rec['name']} is the best rung ({out['metric_label']} {rec['score']:.3f}); no simpler rung is within the interval."
         else:
             g = rec["gap"]
-            out["sentence"] = (f"{rec['name']} is {g['delta']:.3f} {out['metric_label']} below {b['name']} "
-                               f"({level:.0%} CI [{g['ci'][0]:+.3f}, {g['ci'][1]:+.3f}]): serve it.")
+            if name == "expected_cost":
+                out["sentence"] = (f"{rec['name']} costs {g['delta']:.1f} more per 1,000 decisions than {b['name']} "
+                                   f"({level:.0%} CI [{g['ci'][0]:+.1f}, {g['ci'][1]:+.1f}]): serve it.")
+            else:
+                out["sentence"] = (f"{rec['name']} is {g['delta']:.3f} {out['metric_label']} below {b['name']} "
+                                   f"({level:.0%} CI [{g['ci'][0]:+.3f}, {g['ci'][1]:+.3f}]): serve it.")
             if rec.get("latency_ms_p95") and b.get("latency_ms_p95"):
                 x = b["latency_ms_p95"] / max(rec["latency_ms_p95"], 1e-6)
                 if x >= 1.5:

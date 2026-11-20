@@ -1269,8 +1269,9 @@ export type DoctorStatus = 'finding' | 'clear' | 'no-evidence' | 'missing' | 'n/
 export type DoctorSeverity = 'critical' | 'major' | 'minor'
 export type DoctorAction = {
   kind: 'gym_patch' | 'split_twin' | 'run_check' | 'labelling_queue' | 'shift_weights' | 'register' | 'inbox' | 'open_slice' | 'info' | 'retrain'
+    | 'experiment' | 'open_run' | 'open_view' | 'link'
   title: string; why?: string; endpoint?: string; method?: 'GET' | 'POST'; body?: Record<string, unknown>; check?: string
-  run_id?: string; slice_id?: string; version_id?: string
+  run_id?: string; slice_id?: string; version_id?: string; view?: string; link?: string
   patch?: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }
 }
 export type DoctorCheck = {
@@ -1285,6 +1286,33 @@ export type Doctor = {
   next?: { id: string; title: string; why: string; link: string }[]
   precedence: string[]; severity_order: DoctorSeverity[]; rules: Record<string, string>
   inputs: { latency_budget_ms: number | null; measured_errors: string[]; vela_errors: string[] }
+  /** D3: what's missing from the data (ranked gaps, each a data request), how to improve (ranked levers), the errors. */
+  missing_info?: MissingInfo; improve?: Lever[]; errors_view?: ErrorsView | null
+}
+/** D3 · a measured gain in the run's quick-model metric (an oracle is a simulation and an upper bound). */
+export type Gain = { delta: number; ci: [number, number] | null; metric: string | null; source: string; simulated?: boolean }
+export type Gap = { id: string; kind: string; title: string; finding: string; request: string; gain: Gain | null; measured: boolean; rank: number; evidence: Record<string, unknown>; method?: string }
+export type MissingInfo = {
+  schema: 'missing/1'; gaps: Gap[]; headline: string | null; problem_type: string
+  served?: { n: number; errors: number; rate: number; definition: string }
+  quick?: { score: number; metric: string; rows: number; features: number; model: string } | null
+  irreducible?: { r_nn: number; r_nn_ci: [number, number]; lower: number; lower_ci: [number, number]; model_error: number; explained: number | null; explained_upper: number | null } | null
+  rules: Record<string, string | null | undefined>
+  domain_gaps: { status: string; source: string; label: string; items: { title: string; why: string }[] }
+  seconds?: number; errors: string[]
+}
+export type Lever = {
+  id: string; title: string; rank: number; measured: boolean; must?: boolean; suggested?: boolean
+  delta: number | null; ci: [number, number] | null; metric: string | null; source: string; note?: string | null; action: DoctorAction | null
+}
+export type ErrorRow = { row: number; y_true: string; y_pred: string; confidence: number; label_issue: boolean | null; reasons?: { feature: string; value: unknown; phi: number }[] }
+export type ErrorSlice = { column: string; value: string; label: string; n: number; errors: number; rate: number; lift: number; excess: number; q: number; missing_inside?: { column: string; missing_in_errors: number; missing_elsewhere: number }[] }
+export type ErrorsView = {
+  served?: { n: number; errors: number; rate: number; definition: string }
+  top?: { rows: ErrorRow[]; reasons_from: string; cleanlab?: { flagged: number; of: number; errors_flagged: number; errors: number; share_of_errors: number; share_of_correct: number } }
+  slices?: ErrorSlice[]; overall_rate?: number; slice_rule?: string
+  missing_in_errors?: { column: string; missing_in_errors: number; missing_elsewhere: number; z: number }[]
+  by_time?: { column: string; bins: { from: string; to: string; n: number; rate: number }[]; p: number | null } | null
 }
 export type DoctorSummary = {
   schema: 'doctor/1'; computed_at: string; latency_budget_ms: number | null; headline: string; missing: string[]; no_evidence: string[]
