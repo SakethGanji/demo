@@ -327,7 +327,7 @@ def backfill_fp2(con: sqlite3.Connection, data_dir: Path, *, force: bool = False
                          " json_extract(config, '$.run_dir') AS rd FROM runs WHERE predictor_state IS NULL OR predictor_state IN ('present', 'evicted')").fetchall():
         has = bool(r["pp"]) and Path(r["pp"]).exists()
         tomb = bool(r["rd"]) and (Path(r["rd"]) / "EVICTED.json").exists()
-        new = PRESENT if has and r["predictor_state"] != EVICTED else (EVICTED if tomb else NONE) if not has else r["predictor_state"]
+        new = PRESENT if has else (EVICTED if tomb else NONE)
         if new != r["predictor_state"]:
             con.execute("UPDATE runs SET predictor_state = ? WHERE id = ?", (new, r["id"]))
             out["predictor_none"] += int(new == NONE)

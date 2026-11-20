@@ -90,8 +90,11 @@ class RunStore:
         project_id, parent_run_id, source, kind; a list means IN) run in SQL, so callers parse only the rows they need."""
         w, args = self._where(**filters)
         with self.db.connect() as con:
-            rows = con.execute(f"SELECT * FROM runs{w} ORDER BY created_at DESC, rowid DESC"
-                               + (f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""), args).fetchall()
+            if limit is None:
+                rows = con.execute(f"SELECT * FROM runs{w} ORDER BY created_at DESC, rowid DESC", args).fetchall()
+            else:  # F-P2: pick the page's ids on the narrow columns first, so the sort never reads every result JSON
+                rows = con.execute(f"SELECT * FROM runs WHERE rowid IN (SELECT rowid FROM runs{w} ORDER BY created_at DESC, rowid DESC"
+                                   f" LIMIT {int(limit)} OFFSET {int(offset)}) ORDER BY created_at DESC, rowid DESC", args).fetchall()
         return [self._row(r) for r in rows]
 
     def list_light(self, limit: int | None = None, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
