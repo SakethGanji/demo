@@ -1,6 +1,6 @@
 # Round 4 plan: strong, simple models and a Doctor for the data
 
-**Status: draft for the user's approval. Nothing below is built yet.**
+**Status: approved by the user. The core ask: when a model can't do better, tell us as much as possible about *what is missing* from the data that limits it, and how to get it.**
 
 ## Goal
 
@@ -103,6 +103,23 @@ One training request gives a **model ladder**, every rung on the same holdout wi
 
 Headline precedence is re-tuned so the **primary finding is the most actionable one**.
 
+### 3b. What's missing: the information gap (the user's core ask; part of D3, enriched in D4)
+
+When the model stops improving, say **why the data cannot separate the cases**, and **what information would**.
+
+| Signal | How it is measured | What it tells the user |
+|---|---|---|
+| **Indistinguishable twins** | Holdout rows whose nearest neighbours on all features (scaled, same categories) have the other label. The share of the error explained by them gives an estimate of the irreducible error with a CI. | "38% of errors are applicants who look identical on every column but had different outcomes: the table lacks the information that separates them." |
+| **Where errors concentrate** | Error rate and lift by slice. Missingness of each feature inside the error rows vs overall. | "Errors concentrate in self-employed applicants, where income is missing 41% vs 6% elsewhere." |
+| **Thin or coarse features** | Low-cardinality or binned features with high importance and high within-bin outcome variance. Features that are only a snapshot (no history). | "EDUCATION has 4 values and carries 12% of the signal; a finer measure or a history (6-month utilisation trend) would help." |
+| **Label quality** | cleanlab issues inside the error rows; ambiguous label definitions (classes the model confuses symmetrically). | "Classes A and B are confused both ways 31 times: the label definition overlaps." |
+| **Value of more rows** | Learning-curve extrapolation (exists). | "Doubling rows: +0.012 AUC [0.006, 0.019]." |
+| **Value of a perfect feature (simulated)** | Oracle test: add a noisy copy of the label inside one segment only, then measure how much the holdout would move. This bounds the gain from better information there. Labelled clearly as a simulation. | "Perfect information on self-employed income would be worth up to +0.04 AUC." |
+| **Domain gaps (LLM, D4)** | Claude compares the columns with what is typically predictive for this task (credit bureau, behaviour, transaction history, tenure, …) and lists candidate missing sources. Labelled "suggestions to investigate", never mixed with measured numbers. | "Typical strong signals for card default not present: bureau inquiries, payment-to-balance ratio trend, external delinquencies." |
+
+The Doctor's "What's missing" card ranks these gaps by measured potential gain. Each gap names a concrete data
+request the bank could act on ("collect", "join", "redefine the label", "fix the source").
+
 ### 4. Review (LLM layer; AIDE loop, AutoGluon-Assistant roles)
 
 - **Roles** (one prompt each, Claude Sonnet 5.5 via the Claude CLI, through the existing F5 router):
@@ -147,7 +164,8 @@ Headline precedence is re-tuned so the **primary finding is the most actionable 
 | D2 | Model ladder + Feature Lab | Section 2: ladder in one run, simplest-within-CI recommendation, distillation hook, Feature Lab DSL + search. Smoke `ladder`, `featurelab`. |
 | D3 | Model Doctor 2 | Section 3: leakage dominance + ablation, cost trade-off, Errors tab, ceiling, how-to-improve with measured Δs, re-ranked precedence. Smoke `doctor2`. |
 | D4 | Review loop | Section 4: roles, typed experiments, journal, improvement plan, audit, offline path, Vela tool, UI panel. Smoke `review`. |
-| D5 | Real-data proof | Section 5: `make realdata`, planted-issue copies, fixes for what it finds, screenshots, demo script update. |
+| D5 | Real-data proof | Section 5: `make realdata`, planted-issue copies (including hidden-feature tests for 3b: drop a known strong column and check that 'What's missing' points at it), fixes for what it finds, screenshots, demo script update. |
+| A1…An | Adversarial validation | An independent Opus agent (read-only, fresh eyes) attacks the finished system: new public datasets, nasty CSVs, planted issues it chooses, UI walk. It reports what is wrong, misleading or missing. A fix session addresses the findings, and this repeats (up to ~3 rounds) until a round finds nothing important. |
 
 Rules for every D-session:
 - Never edit `backend/app/samples*.py`.
@@ -169,6 +187,6 @@ The UCI host has an expired TLS certificate; use these mirrors:
 | Dataset | Data Doctor | Model Doctor |
 |---|---|---|
 | Bank marketing | Leakage suspect `duration` (decision-time question) | Leakage, ablation ≈ 0.95 → ≈ 0.80 |
-| Taiwan | Coded values in PAY_* and EDUCATION; SEX/AGE protected | At the data's limit (≈ 0.78); simplest rung within CI |
+| Taiwan | Coded values in PAY_* and EDUCATION; SEX/AGE protected | At the data's limit (≈ 0.78); simplest rung within CI; What's missing: twins share, thin features (no bureau or history data) |
 | German credit (5:1) | Small sample: 300 bads, prefer simpler rungs | Cost trade-off; scorecard likely within CI of the stack |
 | Banking77 | Many classes, few rows in the rarest | Time budget at 600 s; text model carries the ensemble |
