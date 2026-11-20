@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api")
 # The RunCreate fields a run's config keeps, so the Gym (and a Vela patch) can start from it.
 BODY_FIELDS = ("dataset_id", "problem_type", "eval_metric", "presets", "time_limit", "fit_kwargs", "predictor_kwargs",
                "custom_text_models", "feature_importance", "column_types", "calibrate_threshold", "pseudolabel", "distill",
-               "split_spec", "cost", "monotone", "quantile_levels", "conformal", "scorecard")
+               "split_spec", "cost", "monotone", "quantile_levels", "conformal", "scorecard", "keep_id_columns")
 
 
 def _schema_job() -> dict[str, Any]:
