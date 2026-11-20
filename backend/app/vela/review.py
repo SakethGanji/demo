@@ -862,7 +862,8 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
             rg = r.get("rung") or {}
             lat = (f" ({rg['latency_ms_p95']:.1f} ms vs {r['best']['latency_ms_p95']:.1f} ms per row)"
                    if rg.get("latency_ms_p95") and (r.get("best") or {}).get("latency_ms_p95") else "")
-            leak_open = (any(x.get("verdict") in ("leak-test", "kept-honest") for x in j) or (c.get("doctor") or {}).get("open_suspects")
+            leak_open = (any(x.get("verdict") in ("leak-test", "kept-honest") and x["experiment"]["kind"] == "ablate" for x in j)
+                         or any(x.get("verdict") == "kept-honest" for x in j) or (c.get("doctor") or {}).get("open_suspects")
                          or (c.get("doctor") or {}).get("leak_suspects"))
             nxt.append({"kind": "serve", "title": f"Serve the {rg.get('name')}", "why": f"Within noise of the best: {_fmt(r)}{lat}. "
                         "Simpler to explain and to validate." + (" Only once the leak question above is settled: a simpler model "
@@ -923,7 +924,8 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
     if kept:
         head = "; ".join(f"{e.get('title') or e['hypothesis']['title']} ({_fmt(e['result'])})" for e in kept)
         s = f"{len(j)} experiments; {len(kept)} improved the model beyond noise: {head}."
-    elif (open_q := [e for e in j if e.get("verdict") in ("leak-test", "unmeasurable")]):
+    elif (open_q := [e for e in j if e.get("verdict") in ("leak-test", "unmeasurable")
+                     and not (e["experiment"]["kind"] in ("group_split", "apply_data_fix") and e.get("verdict") == "leak-test")]):
         s = (f"{len(j)} experiments; none improved the model beyond noise. Some questions stay open (a leak to confirm, or a gain "
              "the noisy holdout cannot show): settle them before concluding anything about new information.")
     elif (open_doc := (c.get("doctor") or {}).get("leak_suspects") or (c.get("doctor") or {}).get("open_suspects")

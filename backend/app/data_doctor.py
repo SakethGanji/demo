@@ -590,8 +590,7 @@ def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
         else f"{n_near:,} near-duplicate rows ({n_near / max(cx.n, 1):.1%}): identical to another row but for one column"
     tr = ([{"op": "drop_near_duplicates"}] if n_near else []) or ([{"op": "drop_duplicates"}] if n_dup else [])
     return [_finding("duplicates", sev, title,
-                     {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near,
-                      "near-duplicates checked": nm is not None},
+                     {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near},
                      "Medium when exact duplicates are ≥ 2 % of rows or near-duplicates ≥ 5 % (one changed field also happens by chance in tables of few, coarse columns). Exact: the same values in every column except row keys "
                      "(columns unique per row). Near: identical to an earlier row on every feature but one, numbers to 3 "
                      "significant digits and text trimmed and lower-cased (the Model Doctor's train–holdout overlap rule; "
@@ -601,7 +600,7 @@ def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
                      _fix("transform", ("Drop the exact and near-duplicates (keep the first of each)." if n_near else
                                         "Drop the exact duplicates (keep the first).")
                           + ("" if nm is not None else " Near-duplicates were not checked on a table this large."),
-                          tr, selected=True))]
+                          tr, selected=True)) | {"near_checked": nm is not None}]
 
 
 def check_repeated_entities(cx: Ctx) -> list[dict[str, Any]]:

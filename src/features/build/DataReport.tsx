@@ -8,8 +8,9 @@ import { pct, sig4 } from '@/shared/lib/format'
 const SEV_WORD = { high: 'high', medium: 'medium', low: 'low', info: 'info' } as const
 
 /** A measured number as text: shares and rates as %, counts with separators, the rest to 4 significant digits. */
-function num(k: string, v: string | number | null): string {
+function num(k: string, v: string | number | boolean | null): string {
   if (v == null) return '—'
+  if (typeof v === 'boolean') return v ? 'yes' : 'no'
   if (typeof v === 'string') return v
   if (/share|rate$|^rate/.test(k) && Math.abs(v) <= 1) return pct(v)
   if (Number.isInteger(v) && (/year|yr_|_yr|^yr/i.test(k) || (v >= 1800 && v <= 2100 && /from|to|built|renov/i.test(k)))) return String(v)  // A2 m7
