@@ -535,6 +535,8 @@ def _window_dataset(request: Request, v: dict[str, Any], run: dict[str, Any], pr
     with request.app.state.db.connect() as con:
         con.execute("UPDATE datasets SET profile = ?, note = ? WHERE id = ?",
                     (json.dumps(prof), f"Monitoring window of {_label(v)} · {prop['window']['start']} … {prop['window']['end']}", rec["id"]))
+    store.catalog.record_version(run["dataset_id"], rec, store.csv_path(rec["id"]), op="monitoring-window", actor=actor,
+                                 meta={"champion_version_id": v["id"]}, paired=False)  # P1: new rows, no root-row mapping
     return request.app.state.db.get_dataset(rec["id"])
 
 

@@ -606,16 +606,12 @@ class Pilot:
         new_sp = {**sp, "holdout": sorted(hold), "fold": fold, "derived_from": src}
         df2 = df.loc[keep].reset_index(drop=True)
         n_ver = len(self.st["dataset_versions"]) + 2
-        root = self.st["brief"]["dataset_id"]
         root_name = self.st["facts"]["dataset_name"].replace(" (sample)", "")
         n_rel = sum(1 for c in changes if c["op"] == "relabel")
-        lineage = {"parent": src, "root": root, "version": n_ver, "autopilot": self.aid,
-                   "relabelled": n_rel, "dropped": len(drop), "synthetic": 0,
-                   "relabelled_holdout": sum(1 for c in changes if c["op"] == "relabel" and c["row"] in set(sp["holdout"])),
-                   "root_rows": [int(x) for x in roots[keep]], "changes": changes}
-        rec = ds.create_version(src, df2, new_sp, name=f"{root_name} · v{n_ver}",
-                                note=f"Autopilot {self.aid}: {n_rel} relabelled, {len(drop)} dropped from {src}",
-                                lineage=lineage)
+        lineage = {"version": n_ver, "autopilot": self.aid, "relabelled": n_rel, "dropped": len(drop), "synthetic": 0,
+                   "relabelled_holdout": sum(1 for c in changes if c["op"] == "relabel" and c["row"] in set(sp["holdout"]))}
+        rec = ds.derive(src, df2, keep, "autopilot", changes, splits=new_sp, extra=lineage,  # P1: root rows through `keep`
+                        name=f"{root_name} · v{n_ver}", note=f"Autopilot {self.aid}: {n_rel} relabelled, {len(drop)} dropped from {src}")
         self.st["dataset_versions"].append({"id": rec["id"], "name": rec["name"], "parent": src, "version": n_ver,
                                             "rows": rec["rows"], "relabelled": n_rel, "dropped": len(drop),
                                             "synthetic": 0, "relabelled_holdout": lineage["relabelled_holdout"],
@@ -969,19 +965,17 @@ class Pilot:
             new.append(tmpl)
         add = pd.DataFrame(new, columns=df.columns)
         df2 = pd.concat([df, add], ignore_index=True)
-        roots = self._lineage_rows(src)
         k = sp["n_folds"]
         new_sp = {**sp, "fold": list(sp["fold"]) + [i % k for i in range(len(add))], "derived_from": src}
         n_ver = len(self.st["dataset_versions"]) + 2
         root_name = f["dataset_name"].replace(" (sample)", "")
         syn_start = len(df)
-        lineage = {"parent": src, "root": self.st["brief"]["dataset_id"], "version": n_ver, "autopilot": self.aid,
-                   "relabelled": 0, "dropped": 0, "synthetic": len(add), "synthetic_rows": list(range(syn_start, len(df2))),
-                   "synthetic_source": meta["source"], "root_rows": [int(x) for x in roots] + [-1 - i for i in range(len(add))],
-                   "changes": [{"op": "synthetic", "row": syn_start + i, "label": cls} for i in range(len(add))]}
-        rec = ds.create_version(src, df2, new_sp, name=f"{root_name} · v{n_ver}",
-                                note=f"Autopilot {self.aid}: {len(add)} synthetic {cls} rows (training folds only) on {src}",
-                                lineage=lineage)
+        rec = ds.derive(src, df2, None, "autopilot_synthetic",  # P1: every parent row, then synthetic rows (root -1-i)
+                        [{"op": "synthetic", "row": syn_start + i, "label": cls} for i in range(len(add))], splits=new_sp,
+                        extra={"version": n_ver, "autopilot": self.aid, "relabelled": 0, "dropped": 0, "synthetic": len(add),
+                               "synthetic_rows": list(range(syn_start, len(df2))), "synthetic_source": meta["source"]},
+                        new_rows=len(add), name=f"{root_name} · v{n_ver}",
+                        note=f"Autopilot {self.aid}: {len(add)} synthetic {cls} rows (training folds only) on {src}")
         self.st["dataset_versions"].append({"id": rec["id"], "name": rec["name"], "parent": src, "version": n_ver, "rows": rec["rows"],
                                             "relabelled": 0, "dropped": 0, "synthetic": len(add), "relabelled_holdout": 0,
                                             "synthetic_class": cls, "synthetic_source": meta["source"], "created_at": now(),

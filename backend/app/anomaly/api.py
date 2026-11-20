@@ -292,11 +292,9 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
     ds = dataset_or_404(request, rec["dataset_id"])
     note = (f"{summ['confirmed']} confirmed, {summ['dismissed']} dismissed, {n - summ['reviewed']} unreviewed "
             f"({'positive-unlabeled: unreviewed = 0' if body.negatives == 'unlabeled' else 'reviewed rows only'})")
-    new = app.state.datasets.create_version(
-        rec["dataset_id"], df, splits, name=f"{ds['name'].replace(' (sample)', '')} · confirmed labels", note=note,
-        lineage={"parent": rec["dataset_id"], "root": rec["dataset_id"], "kind": "anomaly_review",
-                 "anomaly_run": run_id, "root_rows": list(range(n)), "changes": [],
-                 "summary": note})
+    new = app.state.datasets.derive(  # P1: every row kept; a new label column and its own split
+        rec["dataset_id"], df, None, "anomaly_review", [], splits=splits, extra={"anomaly_run": run_id, "summary": note},
+        name=f"{ds['name'].replace(' (sample)', '')} · confirmed labels", note=note)
     drop = [c for c in cfg.get("id_columns") or [] if c in df.columns]
     for c in (p.get("entity_column"), p.get("time_column")):
         if c and c in df.columns and c not in drop:

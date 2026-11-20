@@ -348,19 +348,14 @@ def _make_version(request: Request, rec: dict[str, Any], st: dict[str, Any], ans
                         "by": (a or {}).get("by"), "round": qr if a else None})
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     versions = ans.get("versions") or []
-    root = src
-    lin_parent = ds.lineage(src)
-    if lin_parent and lin_parent.get("root"):
-        root = lin_parent["root"]
     n_ver = len(versions) + 2
-    lineage = {"parent": src, "root": root, "version": n_ver, "active_learning": {"run_id": rec["id"], "round": qr},
-               "labelled": len(new), "relabelled": 0, "dropped": 0, "synthetic": 0, "relabelled_holdout": 0,
-               "root_rows": list(range(len(df))), "changes": changes}
+    extra = {"version": n_ver, "active_learning": {"run_id": rec["id"], "round": qr},
+             "labelled": len(new), "relabelled": 0, "dropped": 0, "synthetic": 0, "relabelled_holdout": 0}
     name = (ds.db.get_dataset(src) or {}).get("name", src).replace(" (sample)", "")
-    new_rec = ds.create_version(src, df, {**sp, "derived_from": src},
-                                name=f"{name} · labelled r{qr}",
-                                note=f"Active learning on {rec['id']}: round {qr}, {len(new)} rows labelled "
-                                     f"({len(labelled)} labelled training rows in all)", lineage=lineage)
+    new_rec = ds.derive(src, df, None, "active_learning", changes, splits=sp, extra=extra,  # P1: root rows from the parent
+                        name=f"{name} · labelled r{qr}",
+                        note=f"Active learning on {rec['id']}: round {qr}, {len(new)} rows labelled "
+                             f"({len(labelled)} labelled training rows in all)")
     split = cfg.get("split") or {}
     if split.get("strategy") and split.get("strategy") != "random-stratified":  # F6: keep the structured split too
         p = ds.split_path(new_rec["id"], label, split["strategy"], split.get("params"))

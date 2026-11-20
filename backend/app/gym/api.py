@@ -33,7 +33,7 @@ def _validate_job(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: di
 
 
 def _history(request: Request, limit: int = 40) -> list[dict[str, Any]]:
-    recs = [r for r in request.app.state.runs.list() if r["status"] == "succeeded"]
+    recs = request.app.state.runs.list(limit=limit, status="succeeded")  # P1: filtered and limited in SQL
     out = []
     for r in recs[:limit]:
         res = r.get("result") or {}

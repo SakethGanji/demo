@@ -373,20 +373,19 @@ def make_version(run_id: str, request: Request) -> dict[str, Any]:
     src = rec["dataset_id"]
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     parent_lin = ds.lineage(src) or {}
-    root = parent_lin.get("root") or src
     root_rows = parent_lin.get("root_rows") or list(range(len(df)))
     for ch in changes:
         ch["root_row"] = int(root_rows[ch["row"]]) if len(root_rows) == len(df) else ch["row"]
     versions = st.get("versions") or []
-    lineage = {"parent": src, "root": root, "version": int(parent_lin.get("version") or 1) + 1,
-               "annotations": {"run_id": run_id, "method": "crowdlab", "rows": int(len(d["rows"])),
-                               "annotators": res["summary"]["n_annotators"], "adjudicated": int(d["adjudicated"].sum())},
-               "labelled": 0, "relabelled": len(changes), "dropped": 0, "synthetic": 0, "relabelled_holdout": 0,
-               "root_rows": root_rows if len(root_rows) == len(df) else list(range(len(df))), "changes": changes}
+    extra = {"version": int(parent_lin.get("version") or 1) + 1,
+             "annotations": {"run_id": run_id, "method": "crowdlab", "rows": int(len(d["rows"])),
+                             "annotators": res["summary"]["n_annotators"], "adjudicated": int(d["adjudicated"].sum())},
+             "labelled": 0, "relabelled": len(changes), "dropped": 0, "synthetic": 0, "relabelled_holdout": 0}
     name = (ds.db.get_dataset(src) or {}).get("name", src).replace(" (sample)", "")
-    new_rec = ds.create_version(src, df, {**sp, "derived_from": src}, name=f"{name} · consensus labels",
-                                note=f"Annotator consensus on {run_id}: {len(changes)} of {len(d['rows'])} annotated training "
-                                     f"rows relabelled (CROWDLAB, {int(d['adjudicated'].sum())} adjudicated)", lineage=lineage)
+    new_rec = ds.derive(src, df, None, "annotations", changes, splits=sp, extra=extra,  # P1: every row kept, labels changed
+                        name=f"{name} · consensus labels",
+                        note=f"Annotator consensus on {run_id}: {len(changes)} of {len(d['rows'])} annotated training "
+                             f"rows relabelled (CROWDLAB, {int(d['adjudicated'].sum())} adjudicated)")
     split = cfg.get("split") or {}
     if split.get("strategy") and split.get("strategy") != "random-stratified":  # F6: keep the structured split too
         p = ds.split_path(new_rec["id"], label, split["strategy"], split.get("params"))

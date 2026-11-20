@@ -131,27 +131,20 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str) -> dict[
         raise HTTPException(400, str(e)) from e
     if len(sp["fold"]) != len(df):
         raise HTTPException(400, "The dataset's split does not match its rows.")
-    new_pos = np.cumsum(keep) - 1
-    new_sp = {**sp, "holdout": sorted(int(new_pos[i]) for i in sp["holdout"] if keep[i]),
-              "fold": [int(v) for v, k in zip(sp["fold"], keep) if k], "derived_from": dataset_id}
-    parent_lin = store.lineage(dataset_id) or {}
-    roots = np.asarray(parent_lin.get("root_rows") or np.arange(len(df)))
-    if len(roots) != len(df):
-        roots = np.arange(len(df))
     at = now()
-    lineage = {"parent": dataset_id, "root": parent_lin.get("root") or dataset_id, "kind": "data_doctor",
-               "fixes": effects, "applied_at": at, "by": by, "rows_before": int(len(df)), "rows_after": int(len(new_df)),
-               "columns_before": int(df.shape[1]), "columns_after": int(new_df.shape[1]),
-               "root_rows": [int(x) for x in roots[keep]], "changes": []}
+    extra = {"kind": "data_doctor", "fixes": effects, "applied_at": at, "by": by, "columns_before": int(df.shape[1]),
+             "columns_after": int(new_df.shape[1])}
     base = rec["name"].split(" · fixed")[0]
-    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == lineage["root"]
+    root = (store.lineage(dataset_id) or {}).get("root") or dataset_id
+    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
                 and (d["profile"].get("lineage") or {}).get("kind") == "data_doctor") + 1
-    try:
-        new = store.create_version(dataset_id, new_df, new_sp, name=f"{base} · fixed v{n_ver}",
-                                   note=f"Data Doctor: {len(effects)} fix{'es' if len(effects) != 1 else ''} applied to {dataset_id}",
-                                   lineage=lineage)
+    try:  # P1: datasets.derive maps the holdout and root rows through the kept rows and writes the edge
+        new = store.derive(dataset_id, new_df, np.asarray(keep, dtype=bool), "data_doctor", [], name=f"{base} · fixed v{n_ver}",
+                           note=f"Data Doctor: {len(effects)} fix{'es' if len(effects) != 1 else ''} applied to {dataset_id}",
+                           extra=extra, by=by)
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
+    lineage = {"rows_before": int(len(df)), "rows_after": int(len(new_df))}
     a = answers(store, dataset_id)
     if a:
         (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))

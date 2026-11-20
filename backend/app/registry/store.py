@@ -80,7 +80,11 @@ class RegistryStore:
                 " VALUES (?, ?, ?, ?, 'building', ?, ?, ?, ?, ?)",
                 (rec["id"], rec["model_name"], n, rec["run_id"], now(), rec["created_by"], _dump(rec["options"]),
                  _dump({"steps": []}), _dump(rec.get("card") or {})))
-        return self.get_version(rec["id"])
+        v = self.get_version(rec["id"])
+        from ..catalog.store import Catalog  # P1: the version's built_from edge to its run
+
+        Catalog(self.db).record_build(v)
+        return v
 
     def get_version(self, vid: str) -> dict[str, Any] | None:
         return self._get("model_versions", vid)
