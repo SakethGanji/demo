@@ -972,6 +972,26 @@ def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | N
         if op in ("to_missing", "split_codes", "drop_columns", "merge_classes") and target and \
                 (t.get("column") == target or target in (t.get("columns") or [])) and op != "merge_classes":
             raise ValueError(f"{op} can't change the target column '{target}'.")
+        # A1 #14: a fix that cannot apply is refused, not saved as a no-op version.
+        if op in ("to_missing", "merge_classes"):
+            key = "values" if op == "to_missing" else "classes"
+            vals = t.get(key)
+            if not isinstance(vals, list) or not vals:
+                raise ValueError(f"{op} needs {key}: a non-empty list.")
+            s = df[t["column"]]
+            if op == "to_missing" and pd.api.types.is_numeric_dtype(s):
+                bad = [v for v in vals if isinstance(v, bool) or not isinstance(v, (int, float, str))
+                       or (isinstance(v, str) and not re.fullmatch(r"-?\d+(\.\d+)?", v))]
+                if bad:
+                    raise ValueError(f"to_missing: {t['column']!r} is numeric; {', '.join(map(repr, bad))} "
+                                     "can't be one of its values.")
+            if op == "to_missing":
+                absent = [] if _match(s, vals).any() else vals
+            else:
+                present = set(s.dropna().astype(str))
+                absent = [v for v in vals if str(v) not in present]
+            if absent:
+                raise ValueError(f"{op}: {t['column']!r} has no cell equal to {', '.join(map(repr, absent))}.")
 
 
 def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None) -> tuple[pd.DataFrame, np.ndarray, list[dict[str, Any]]]:
