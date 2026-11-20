@@ -115,9 +115,11 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", name):
         raise HTTPException(400, "model_name: letters, digits, '.', '_' and '-' only (≤ 100 characters).")
     existing = reg.get_model(name)
-    if existing and (existing["dataset_id"], existing["label"]) != (rec["dataset_id"], rec["label"]):
+    lin = request.app.state.datasets.lineage(rec["dataset_id"]) or {}
+    derived = existing and existing["dataset_id"] in (lin.get("parent"), lin.get("root")) and rec["label"] == existing["label"]
+    if existing and (existing["dataset_id"], existing["label"]) != (rec["dataset_id"], rec["label"]) and not derived:
         raise HTTPException(409, f"Model '{name}' predicts {existing['label']} on {existing['dataset_id']}; "
-                                 "a version must predict the same label on the same dataset.")
+                                 "a version must predict the same label on the same dataset (or a version of it: a fix, features, a monitoring window).")
     reg.ensure_model(name, rec["dataset_id"], rec["label"], body.description)
     vid = "mv_" + secrets.token_hex(4)
     opts = body.model_dump(exclude={"created_by", "model_name"})

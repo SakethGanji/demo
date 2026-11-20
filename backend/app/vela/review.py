@@ -240,7 +240,7 @@ def _p_propose(c: dict[str, Any], analysis: dict[str, Any], node: dict[str, Any]
             f"ANALYSIS:\n{json.dumps(analysis, ensure_ascii=False)}\nALREADY TRIED (journal): {json.dumps(done, ensure_ascii=False)}\n"
             "Rules: a leak suspect from the Model Doctor is ablated first. Do not repeat a tried experiment. cost_ratio only on "
             "cost runs (try a lower and a higher ratio than the run's). serve_rung when the ladder recommends a simpler rung "
-            "(1 or 2) than the model the run serves. Never merge classes of the target (that belongs in the plan). Prefer hypotheses that test whether the "
+            "(1 or 2) than the model the run serves. Never merge classes of the target (that belongs in the plan). apply_data_fix never takes drop_rows (rows are dropped only by clean_labels, so the holdout stays untouched). Prefer hypotheses that test whether the "
             "information is in the table at all. At most 6, most promising first. Return "
             '{"hypotheses": [{"title": str (≤ 12 words), "why": str (≤ 40 words), "expected": "better"|"same"|"worse", '
             f'"experiment": {{"kind": one of {list(KINDS)}, ...its fields}}}}]}}')
@@ -276,8 +276,15 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
     for f in c["data"]["findings"]:
         fx = f.get("fix") or {}
         if fx.get("selected") and fx.get("transforms") and f["id"] not in ("conflicts", "label_quality", "class_balance"):
-            tr += [t for t in fx["transforms"] if t.get("op") not in ("drop_rows", "merge_classes")
-                   and (t.get("column") is None or t.get("column") in feats or t.get("op") == "drop_duplicates")]
+            for t in fx["transforms"]:
+                if t.get("op") in ("drop_rows", "merge_classes"):
+                    continue
+                if t.get("op") == "drop_columns":
+                    cols = [x for x in t.get("columns") or [] if x in feats]
+                    if cols:
+                        tr.append({**t, "columns": cols})
+                elif t.get("column") is None or t.get("column") in feats:
+                    tr.append(t)
     if tr:
         out.append({"title": "The Data Doctor's fixes help the model", "why": "Pre-selected fixes: " + "; ".join(
             f["title"] for f in c["data"]["findings"] if (f.get("fix") or {}).get("selected") and (f.get("fix") or {}).get("transforms"))[:300],
@@ -331,7 +338,7 @@ def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: di
     if not res or res.get("delta") is None:
         return "rejected", "no result"
     lo, hi = res["ci"]
-    d = res["delta"]
+    d = round(res["delta"], 1 if "cost" in str(res.get("metric")) else 4)
     if kind == "ablate" and set(spec.get("columns") or []) & leak_cols:
         return "kept-honest", (f"the leak suspect removed: {res['metric']} {res['parent']:.4f} → {res['child']:.4f}; the run without it "
                                "is the honest score")
@@ -344,12 +351,12 @@ def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: di
             return "equivalent", "the simpler rung is within noise of the best"
         return "rejected", "the simpler rung is worse beyond noise"
     if lo > 0:
-        return "kept", f"Δ {d:+.4f}: better beyond noise (CI above 0)"
+        return "kept", f"Δ {d:+g}: better beyond noise (CI above 0)"
     if hi < 0:
-        return "rejected", f"Δ {d:+.4f}: worse beyond noise (CI below 0)"
+        return "rejected", f"Δ {d:+g}: worse beyond noise (CI below 0)"
     if kind == "ablate":
         return "equivalent", "dropping it costs nothing measurable (CI includes 0): a simpler model"
-    return "rejected", f"Δ {d:+.4f}: within noise (CI includes 0)"
+    return "rejected", f"Δ {d:+g}: within noise (CI includes 0)"
 
 
 # --------------------------------------------------------------------------------------------------------- the loop
@@ -737,9 +744,15 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
     if cr or c["run"].get("cost"):
         cost = c["run"].get("cost") or {}
         r0 = (cost.get("c_fn") or 0) / (cost.get("c_fp") or 1) if cost else None
-        parts = [f"if it is {e['result']['ratio']['alternative']:g}:1, keeping today's threshold costs {-e['result']['delta']:.1f} per 1,000 "
-                 f"[{-e['result']['ci'][1]:.1f}, {-e['result']['ci'][0]:.1f}] (decline rate {e['result']['operating']['served_threshold']['under_alternative']['decline_rate']:.3f} → "
-                 f"{e['result']['operating']['alternative_threshold']['under_alternative']['decline_rate']:.3f})" for e in cr]
+        parts = []
+        for e in cr:
+            r_ = e["result"]
+            d_, lo_, hi_ = r_["delta"], r_["ci"][0], r_["ci"][1]
+            op_ = r_["operating"]
+            parts.append(f"if it is {r_['ratio']['alternative']:g}:1, its own threshold {'saves' if d_ > 0 else 'costs'} {abs(d_):.1f} "
+                         f"per 1,000 against today's (Δ {d_:+.1f} [{lo_:+.1f}, {hi_:+.1f}]) and declines "
+                         f"{op_['alternative_threshold']['under_alternative']['decline_rate']:.3f} instead of "
+                         f"{op_['served_threshold']['under_alternative']['decline_rate']:.3f}")
         nxt.append({"kind": "confirm_cost", "title": f"Confirm the cost ratio{f' (now {r0:g}:1)' if r0 else ''} with the business",
                     "why": ("; ".join(parts) + ". " if parts else "") + "The ratio sets the operating point more than any model change.",
                     "source": "journal: cost-ratio sensitivity" if cr else "Model Doctor: cost trade-off"})
@@ -751,23 +764,23 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
         gtxt = (f" Worth {'up to ' if gn.get('simulated') else ''}{gn['delta']:+.4f} {gn.get('metric') or ''}"
                 f"{' (simulation)' if gn.get('simulated') else ''}." if gn.get("delta") is not None else "")
         if kd == "twins" and "twins" not in kinds_done:
-            nxt.append({"kind": "join", "title": "Join a source that separates the look-alikes", "why": g["finding"][:400] + gtxt,
+            nxt.append({"kind": "join", "title": "Join a source that separates the look-alikes", "why": g["finding"] + gtxt,
                         "source": "What's missing: twins", "request": g["request"]})
         elif kd == "thin" and "thin" not in kinds_done:
             nxt.append({"kind": "collect", "title": g["title"].replace("Thin feature: ", "Collect a finer or historical ") ,
-                        "why": g["finding"][:300] + gtxt, "source": "What's missing: thin feature", "request": g["request"]})
+                        "why": g["finding"] + gtxt, "source": "What's missing: thin feature", "request": g["request"]})
         elif kd == "label_overlap":
             nxt.append({"kind": "redefine_label", "title": g["title"].replace("Labels overlap", "Redefine or merge"),
-                        "why": g["finding"][:300] + gtxt, "source": "What's missing: label overlap", "request": g["request"]})
+                        "why": g["finding"] + gtxt, "source": "What's missing: label overlap", "request": g["request"]})
         elif kd == "concentration" and "concentration" not in kinds_done:
             nxt.append({"kind": "collect", "title": g["title"].replace("Errors concentrate: ", "Collect what separates "),
-                        "why": g["finding"][:300] + gtxt, "source": "What's missing: concentration", "request": g["request"]})
+                        "why": g["finding"] + gtxt, "source": "What's missing: concentration", "request": g["request"]})
         elif kd == "more_rows" and gn.get("ci") and gn["ci"][0] > 0:
-            nxt.append({"kind": "collect", "title": "Collect more labelled rows", "why": g["finding"][:300],
+            nxt.append({"kind": "collect", "title": "Collect more labelled rows", "why": g["finding"],
                         "source": "What's missing: more rows", "request": g["request"]})
         elif kd == "missingness":
             nxt.append({"kind": "fix_capture", "title": g["title"].replace("Missing where it matters: ", "Fix how it is captured: "),
-                        "why": g["finding"][:300], "source": "What's missing: missingness", "request": g["request"]})
+                        "why": g["finding"], "source": "What's missing: missingness", "request": g["request"]})
         kinds_done.add(kd)
     kept = [e for e in j if e.get("verdict") == "kept"]
     honest = [e for e in j if e.get("verdict") == "kept-honest"]
