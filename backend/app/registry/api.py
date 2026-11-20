@@ -42,15 +42,17 @@ def _name_ok(s: str | None, what: str) -> str:
         raise HTTPException(400, f"{what} is required: say who you are (there is no sign-in; the name goes in the audit log).")
     if len(s) > 80:
         raise HTTPException(400, f"{what} is longer than 80 characters.")
+    if not identity_key(s):
+        raise HTTPException(400, f"{what} needs at least one letter or digit (four eyes compares letters and digits only).")
     return s
 
 
 def identity_key(s: str | None) -> str:
-    """A name as four-eyes compares it: NFKC, casefolded, punctuation dropped, whitespace collapsed ("Alice." = " ALICE ").
-    Names, not authenticated identities: there is no sign-in."""
-    t = unicodedata.normalize("NFKC", s or "").casefold()
-    t = "".join(" " if unicodedata.category(ch)[0] in "PSZC" else ch for ch in t)
-    return " ".join(t.split())
+    """A name as four-eyes compares it (catalog.governance.identity_key): letters and digits only, accents, full-width
+    forms and Cyrillic/Greek lookalikes folded. Names, not authenticated identities: there is no sign-in."""
+    from ..catalog.governance import identity_key as _k
+
+    return _k(s)
 
 
 def default_model_name(dataset_id: str, label: str) -> str:
@@ -307,6 +309,7 @@ class TransitionRequest(BaseModel):
     stage: Literal["None", "Staging", "Production", "Archived"]
     actor: str
     comment: str = ""
+    override_reason: str = ""  # Production with an open critical Doctor finding: why it goes ahead anyway (audited)
 
 
 class ReviewRequest(BaseModel):
@@ -340,6 +343,21 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
         raise HTTPException(409, f"Version {v['version']} is {v['approval']}: Production needs an approved review first.")
     if v["approval"] == "rejected" and body.stage in ("Staging", "Production"):
         raise HTTPException(409, f"Version {v['version']} was rejected; it can only be archived or left in None.")
+    gate: dict[str, Any] = {}
+    if body.stage == "Production":
+        from ..catalog import governance as G
+
+        # Policy (documented in docs/progress/F-P2.md): whoever registered a version does not promote it themselves,
+        # unless ENSEMBLE_ALLOW_SELF_PROMOTE is on; the audit marks a self-promotion either way.
+        self_promo = identity_key(actor) == identity_key(v["created_by"])
+        if self_promo and not G.allow_self_promote():
+            raise HTTPException(409, f"Four-eyes rule: {actor} registered this version ({v['created_by']}); someone else "
+                                     "moves it to Production (policy ENSEMBLE_ALLOW_SELF_PROMOTE is off).")
+        try:
+            gate = G.leak_gate(request.app, v["run_id"], body.override_reason, "Production")
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+        gate = {**gate, "self_promotion": self_promo, "registered_by": v["created_by"]}
     changed = []
     if body.stage == "Production":
         for o in reg.list_versions(v["model_name"]):
@@ -352,7 +370,7 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
     reg.update_version(vid, stage=body.stage)
     v2 = reg.get_version(vid)
     entry = reg.audit(actor=actor, action="stage_changed", version=v2, from_stage=v["stage"], to_stage=body.stage,
-                      comment=body.comment)
+                      comment=body.comment, **({"details": gate} if gate else {}))
     for o in changed:
         await _sync(request, o)
     ml = await _sync(request, v2, {"stage_changed_by": actor})
@@ -364,15 +382,15 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
 @router.post("/registry/versions/{vid}/review")
 async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, Any]:
     """Approve or reject a version, with the reviewer's name and comment. Four eyes: the reviewer cannot be the
-    person who registered it, nor (a D4 change) the author of its experiment; names are compared as typed with case,
-    spaces and punctuation ignored (identity_key), not authenticated identities. Rejecting needs a comment, and archives the version if it was in Staging or
+    person who registered it, nor (a D4 change) the author of its experiment; names are compared on letters and digits
+    only, with accents and lookalike letters folded (identity_key); names, not authenticated identities. Rejecting needs a comment, and archives the version if it was in Staging or
     Production."""
     reg = _reg(request)
     v = _ready_version(request, vid)
     who = _name_ok(body.reviewer, "reviewer")
     if v["approval"] != "pending":
         raise HTTPException(409, f"Version {v['version']} was already {v['approval']}; register the run again for a new review.")
-    # Four eyes on names as typed (no sign-in): case, spaces and punctuation are ignored, so "Alice." is Alice.
+    # Four eyes on names as typed (no sign-in): letters and digits only, so "a.l.i.c.e", "Alicé" and Cyrillic "Аlice" are alice.
     if identity_key(who) == identity_key(v["created_by"]):
         raise HTTPException(409, f"Four-eyes rule: {who} registered this version ({v['created_by']}), so someone else must review it.")
     author = (v.get("options") or {}).get("change_by")
