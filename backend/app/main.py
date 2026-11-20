@@ -33,6 +33,10 @@ from .registry import credit_report_api
 from .registry.store import RegistryStore
 from .engine.serving import PredictorCache
 from .engine.store import RunStore
+from .catalog import api as catalog_api
+from .catalog.retention import EvictedError
+
+log = logging.getLogger("ensemble.main")
 from .http import dataset_or_404
 from .samples import SAMPLES
 from .samples_g3 import SAMPLES_G3
@@ -77,6 +81,16 @@ def _detail(rec: dict[str, Any]) -> dict[str, Any]:
     return {**_summary(rec), "profile": rec["profile"]}
 
 
+def catalog_backfill(db: Database, data_dir) -> dict[str, Any]:
+    from .catalog.schema import backfill
+
+    with db.connect() as con:
+        out = backfill(con, data_dir)
+    if not out.get("skipped"):
+        log.info("P1 catalog backfill: %s", out)
+    return out
+
+
 def create_app(settings: config.Settings | None = None) -> FastAPI:
     settings = settings or config.load_settings()
 
@@ -85,7 +99,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         db = Database(settings.db_path)
         store = DatasetStore(settings, db)
         await run_in_threadpool(store.ensure_samples)  # first start: generate the samples
+        await run_in_threadpool(catalog_backfill, db, settings.data_dir)  # P1: once per database (idempotent)
         app.state.settings, app.state.db, app.state.datasets = settings, db, store
+        app.state.catalog = store.catalog  # P1: projects, edges, tags and notes, champions
         llm.configure(settings.data_dir)  # F5: runtime timeouts / model / switches from data/llm_settings.json
         llm.warm()
         settings.runs_dir.mkdir(parents=True, exist_ok=True)
@@ -286,6 +302,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     app.include_router(import_api.router)
     app.include_router(engine_api.router)
+    app.include_router(catalog_api.router)  # P1: projects, lineage, compare, annotations, champions, retention
+    app.middleware("http")(catalog_api.evicted_guard)
+    app.add_exception_handler(EvictedError, catalog_api.evicted_handler)
     for mod, _ in JOB_MODULES:
         app.include_router(mod.router)
     app.include_router(slices_api.router)
