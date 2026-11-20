@@ -9,6 +9,7 @@ import { useHashParam, useTabParam } from '@/shared/hooks/useHashParam'
 import { kindOf, problemLine, type RunKind } from '@/shared/lib/runKinds'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { NotesStrip } from './components/NotesStrip'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { AnomalyRun } from '@/features/anomaly/AnomalyPage'
 import { EL_SPEC } from '@/features/expected-loss/ExpectedLossPage'
@@ -84,6 +85,7 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
         <StatusPill status={done ? 'success' : run.status === 'failed' ? 'danger' : 'info'}>{run.status}</StatusPill>
       </div>
       {kindOf(run) === 'import' && <ImportRun runId={run.id} />}
+      <NotesStrip kind="run" id={run.id} />
       {tabs.length > 1 && <Tabs tabs={tabs} value={cur} onChange={pickTab} testIds={{ Explain: 'results-explain', Doctor: 'run-doctor' }} />}
       {!done && (run.status === 'failed' || run.status === 'cancelled'
         ? <ErrorCard inline err={`This run ${run.status}${run.error ? `: ${run.error}` : '.'}`} />

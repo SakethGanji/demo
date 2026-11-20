@@ -7,6 +7,7 @@ import { useWidth } from '@/shared/hooks/useWidth'
 import { FAMILY_SHORT, fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { RUN_COLORS, bestRow, presetsOf } from '../RunList'
+import { PairedDelta } from './PairedDelta'
 
 const T01 = [0, 0.2, 0.4, 0.6, 0.8, 1]
 
@@ -30,6 +31,7 @@ export function CompareRuns({ runs, go }: { runs: Run[]; go: (r: string) => void
 
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="compare">
+      {done.length > 1 && <PairedDelta runs={done} />}
       {mixed && <div className="card card-body" role="note" style={{ borderColor: 'var(--status-warning)', background: 'var(--status-warning-bg)', fontSize: 13 }}>▲ These runs predict different labels or use different data: their scores are not on the same footing. Compare runs of one dataset and label.</div>}
       <div className="card">
         <div className="card-head"><div className="left"><h3 className="card-title">Holdout Metrics</h3><span className="helper" style={{ fontSize: 12 }}>AutoGluon's evaluate() on each run's holdout · best per row in bold · Δ against the first run</span></div><ParamChip sym="runs" value={String(done.length)} /></div>
