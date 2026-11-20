@@ -684,6 +684,20 @@ def run(run_dir: Path) -> int:
                 emit("log", level="warning", logger="ensemble", message=f"scorecard report failed: {type(e).__name__}: {e}")
                 store.merge_result(run_id, scorecard={"available": False, "error": f"{type(e).__name__}: {e}"})
 
+        if predictor.problem_type in ("binary", "multiclass", "regression") and cfg.get("ladder", True):
+            emit("explaining", what="ladder")  # D2: baseline → scorecard → single GBM → stack, one holdout, one rule
+            try:
+                from . import ladder as lad
+
+                lr = lad.compute(predictor, train, holdout, cfg["label"], cfg)
+                store.merge_result(run_id, ladder=lr)
+                emit("ladder", recommended=lr.get("recommended"), sentence=lr.get("sentence"), level=lr["level"],
+                     rungs=[{k: r.get(k) for k in ("rung", "name", "model", "score", "within", "latency_ms_p95", "size_bytes")}
+                            for r in lr["rungs"]])
+            except Exception as e:  # noqa: BLE001 — reported, not fatal: GET /runs/{id}/ladder recomputes it
+                emit("log", level="warning", logger="ensemble", message=f"model ladder failed: {type(e).__name__}: {e}")
+                store.merge_result(run_id, ladder={"error": f"{type(e).__name__}: {e}"})
+
         bagged = bool(predictor._trainer.bagged_mode)
         oof = {"available": bagged,
                "models": [m for m in predictor.model_names() if not m.endswith("_FULL")] if bagged else [],

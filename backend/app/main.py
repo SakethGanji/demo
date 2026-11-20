@@ -23,7 +23,7 @@ from .vela import api as vela_api
 from .agent import api as agent_api
 from .agent.loop import AgentManager
 from . import llm, llm_api
-from . import data_doctor_api
+from . import data_doctor_api, featurelab_api
 from .engine.runner import JobRunner
 from .engine import active_learning_api, annotations_api, learning_curve_api, shift_api, slices_api
 from .engine.pool import HeavyPool
@@ -307,6 +307,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(llm_api.router)
     app.include_router(agent_api.router)
     app.include_router(data_doctor_api.router)  # D1
+    app.include_router(featurelab_api.router)  # D2
     return app
 
 

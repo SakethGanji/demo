@@ -749,6 +749,31 @@ async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -
     return {"run_id": run_id, **out}
 
 
+@router.get("/runs/{run_id}/ladder")
+async def model_ladder(run_id: str, request: Request, refresh: bool = False) -> dict[str, Any]:
+    """D2: the model ladder. Baseline → scorecard (or linear) → single GBM → AutoGluon's best, every rung a model of
+    this run scored on the same holdout, the gap to the best with a paired bootstrap CI, one-row latency and size, and
+    the recommendation (the simplest rung within the interval; 99 % on small data). Computed at the end of the fit;
+    recomputed here for older runs or with ?refresh=true."""
+    rec = run_or_404(request, run_id)
+    _require_succeeded(rec)
+    res = rec.get("result") or {}
+    if rec["config"].get("kind") or rec["config"].get("import"):
+        raise HTTPException(400, "The ladder applies to tabular runs trained here (binary, multiclass, regression).")
+    if res.get("problem_type") not in ("binary", "multiclass", "regression"):
+        raise HTTPException(400, f"The ladder applies to binary, multiclass and regression runs, not {res.get('problem_type')}.")
+    lad = res.get("ladder")
+    if refresh or not lad or lad.get("error"):
+        from . import ladder
+
+        try:
+            lad = await request.app.state.heavy.run(ladder.for_run, rec["config"])
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(500, f"The ladder failed: {type(e).__name__}: {e}") from e
+        _store(request).merge_result(run_id, ladder=lad)
+    return {"run_id": run_id, "registrable": True, **lad}
+
+
 @router.get("/runs/{run_id}/oof")
 async def out_of_fold(run_id: str, request: Request, model: str | None = None) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
