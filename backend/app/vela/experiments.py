@@ -3,7 +3,8 @@
 The result is Δ = score(child) − score(parent) on the shared holdout rows with a paired bootstrap (B = 1,000).
 
 Kinds (D4's review loop adds its hypotheses through the same route):
-  ablate   {columns: [...]}  retrain without the columns (leakage ablation)
+  ablate   {columns: [...]}  retrain without the columns (leakage ablation; the review tests one column at a time)
+  group_split {column}       the same body under a group split on an entity column (train / holdout overlap)
   budget   {}                twice the time budget (≤ 4 h)
   preset   {}                the next preset (medium → good → high → best)
 
@@ -21,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 KINDS = ("ablate", "budget", "preset", "cost_ratio", "monotone", "apply_data_fix", "add_features", "clean_labels",
-         "serve_rung", "segment")
+         "serve_rung", "segment", "group_split")
 RUN_KINDS = ("ablate", "budget", "preset", "monotone", "apply_data_fix", "add_features", "clean_labels")  # a child run
 INSTANT = ("serve_rung", "cost_ratio")  # read from the run's own files, no training
 NEXT_PRESET = {"medium_quality": "good_quality", "good_quality": "high_quality", "high_quality": "best_quality",
@@ -41,6 +42,9 @@ DESCRIBE = {
     "serve_rung": "{kind: serve_rung, rung: 1|2}: no retrain; a simpler rung of the model ladder (scorecard / linear, single GBM) "
                   "against the best on the same holdout",
     "segment": "{kind: segment, column}: one model per value of a category column (2–12 values) against one global model (G5), same holdout",
+    "group_split": "{kind: group_split, column}: the same body under a split that keeps every value of an entity column (a customer "
+                   "id that repeats) in training or in the holdout, never both; a drop beyond noise means the random split "
+                   "overstated the score (the same entity on both sides). Its holdout differs, so Δ is unpaired",
 }
 
 
@@ -140,6 +144,14 @@ def validate(rec: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("segment needs column: a feature of this run.")
         if pt not in ("binary", "regression"):
             raise ValueError("segment is for binary and regression runs (G5).")
+        out["column"] = col
+    elif kind == "group_split":
+        col = spec.get("column")
+        cols = pd.read_csv(cfg["csv_path"], nrows=0).columns if cfg.get("csv_path") else []
+        if not isinstance(col, str) or col not in cols or col == rec.get("label"):
+            raise ValueError("group_split needs column: an entity column of the run's table (e.g. a customer id).")
+        if cfg.get("import") or (cfg.get("split") or {}).get("strategy") not in (None, "random-stratified"):
+            raise ValueError("group_split compares against a random split: the run must use one.")
         out["column"] = col
     if kind in ("budget", "preset") and cfg.get("import"):
         raise ValueError("an imported run has no training body.")
@@ -434,12 +446,12 @@ def list_for(store, rec: dict[str, Any]) -> list[dict[str, Any]]:
     fresh = store.get(rec["id"]) or rec
     for e in ((fresh.get("result") or {}).get("experiments_extra") or []):
         item = dict(e)
-        if e.get("kind") == "segment" and e.get("run_id") and not e.get("result"):
+        if e.get("kind") in ("segment", "group_split") and e.get("run_id") and not e.get("result"):
             r = store.get(e["run_id"]) or {}
             item["status"] = r.get("status")
             if r.get("status") == "succeeded":
                 try:
-                    item["result"] = segment_result(r)
+                    item["result"] = segment_result(r) if e["kind"] == "segment" else group_split_result(fresh, r)
                 except Exception as ex:  # noqa: BLE001
                     item["error"] = f"{type(ex).__name__}: {ex}"[:200]
             elif r.get("status") == "failed":
@@ -465,6 +477,32 @@ def list_for(store, rec: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(item)
     out.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return out
+
+
+def group_split_result(parent: dict[str, Any], child: dict[str, Any]) -> dict[str, Any]:
+    """The random-split run against its group-split twin. The holdouts differ, so Δ = score(group) − score(random) is
+    unpaired: CI = Δ ± 1.96 √(SE₁² + SE₂²), each SE a bootstrap over its own holdout rows."""
+    from .findings import bootstrap_se
+
+    out = []
+    for r in (parent, child):
+        hp, pt = _scores(r)
+        h = (r.get("result") or {}).get("holdout") or {}
+        em = (r.get("result") or {}).get("eval_metric") or {}
+        m = em.get("name") or h.get("eval_metric")
+        out.append({"score": (h.get("metrics") or {}).get(m), "metric": m, "gib": bool(em.get("greater_is_better", True)),
+                    "se": bootstrap_se(r, hp) if hp is not None else None})
+    a, b = out
+    if a["score"] is None or b["score"] is None:
+        raise ValueError("a run has no holdout score")
+    sign = 1 if a["gib"] else -1
+    d = sign * (float(b["score"]) - float(a["score"]))
+    se = ((a["se"] or 0) ** 2 + (b["se"] or 0) ** 2) ** 0.5
+    return {"metric": a["metric"], "parent": float(a["score"]), "child": float(b["score"]), "delta": d,
+            "ci": [d - 1.96 * se, d + 1.96 * se], "same_rows": False, "paired": False,
+            "rows": len(_scores(child)[0]) if _scores(child)[0] is not None else None,
+            "sign": "better is positive; a drop means the random split overstated the score (entities on both sides)",
+            "versus": "the same body under the random split; unpaired (different holdout rows), CI from both bootstrap SEs"}
 
 
 def segment_result(seg: dict[str, Any]) -> dict[str, Any]:

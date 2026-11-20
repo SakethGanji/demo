@@ -77,6 +77,7 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
     if (a.kind === 'open_run' && a.run_id) return links.go(`models?run=${a.run_id}`)
     if (a.kind === 'open_view' && a.view) return tab(a.view)
     if (a.kind === 'link' && a.link) return links.go(a.link)
+    if (a.kind === 'confirm_decision_time') return links.go(`build?dataset=${encodeURIComponent(a.dataset_id ?? run.dataset_id)}`)
     if (!a.endpoint) return
     setBusy(a.title)
     try {
@@ -94,7 +95,7 @@ function useActions(run: Run, links: DoctorLinks, reload: () => void) {
 export function ActBtn({ a, act, busy, primary, testId }: { a: DoctorAction; act: (a: DoctorAction) => void; busy: string | null; primary?: boolean; testId?: string }) {
   if (a.kind === 'info') return <span className="helper" style={{ fontSize: 12 }}>{a.title}</span>
   return <button className={`btn sm ${primary ? 'primary' : ''}`} style={{ whiteSpace: 'normal', maxWidth: '100%', textAlign: 'left', height: 'auto', minHeight: 28 }} onClick={() => act(a)} disabled={busy != null} title={a.why ?? ''} data-testid={testId}>
-    {busy === a.title ? 'Working…' : `${a.title}${a.kind === 'gym_patch' ? ' → Gym' : a.kind === 'link' || a.kind === 'open_run' || a.kind === 'open_view' ? ' →' : ''}`}</button>
+    {busy === a.title ? 'Working…' : `${a.title}${a.kind === 'gym_patch' ? ' → Gym' : a.kind === 'link' || a.kind === 'open_run' || a.kind === 'open_view' || a.kind === 'confirm_decision_time' ? ' →' : ''}`}</button>
 }
 
 /** F17: the Model Doctor. One fixed decision procedure over every check the workbench has (Vela, F3, F6, F12–F16, the

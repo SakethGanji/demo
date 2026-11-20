@@ -1269,9 +1269,9 @@ export type DoctorStatus = 'finding' | 'clear' | 'no-evidence' | 'missing' | 'n/
 export type DoctorSeverity = 'critical' | 'major' | 'minor'
 export type DoctorAction = {
   kind: 'gym_patch' | 'split_twin' | 'run_check' | 'labelling_queue' | 'shift_weights' | 'register' | 'inbox' | 'open_slice' | 'info' | 'retrain'
-    | 'experiment' | 'open_run' | 'open_view' | 'link'
+    | 'experiment' | 'open_run' | 'open_view' | 'link' | 'confirm_decision_time'
   title: string; why?: string; endpoint?: string; method?: 'GET' | 'POST'; body?: Record<string, unknown>; check?: string
-  run_id?: string; slice_id?: string; version_id?: string; view?: string; link?: string
+  run_id?: string; dataset_id?: string; columns?: string[]; slice_id?: string; version_id?: string; view?: string; link?: string
   patch?: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }
 }
 export type DoctorCheck = {
@@ -1468,7 +1468,7 @@ export type AgentStatus = { route: string[]; default: string; sdk: { available: 
 export type AgentSessionSummary = { id: string; user: string; status: AgentSession['status']; decider: string; created_at: string; title: string; steps: number }
 
 /** D1 Data Doctor: one typed fix (applied into a new dataset version), and one finding with its rule and evidence. */
-export type DataFix = { op: string; column?: string; columns?: string[]; values?: (string | number)[]; codes?: number[]; rows?: number[]; flag?: boolean; fill?: number; classes?: string[]; into?: string; reason?: string }
+export type DataFix = { op: string; column?: string; columns?: string[]; values?: (string | number)[]; codes?: number[]; rows?: number[]; flag?: boolean; fill?: number; classes?: string[]; into?: string; reason?: string; factor?: number; from?: string; date_column?: string }
 export type DataFinding = {
   id: string; key: string; severity: 'high' | 'medium' | 'low' | 'info'; title: string; rule: string
   numbers: Record<string, string | number | null>
@@ -1530,7 +1530,7 @@ export type ReviewResult = {
   sign?: string; versus?: string; rung?: { name: string; model: string; latency_ms_p95?: number | null; size_bytes?: number | null }
   ratio?: { served: number; alternative: number }
 }
-export type ReviewVerdict = 'kept' | 'kept-honest' | 'equivalent' | 'info' | 'rejected' | 'request'
+export type ReviewVerdict = 'kept' | 'kept-honest' | 'equivalent' | 'info' | 'rejected' | 'request' | 'leak-test' | 'unmeasurable'
 export type JournalEntry = {
   step: number; hypothesis: { id: string; title: string; why?: string; expected?: string; source?: string }
   experiment: { kind: string; spec: Record<string, unknown> }; node: string; run_id: string | null; status: string
