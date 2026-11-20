@@ -195,26 +195,99 @@ def numbers(text: str) -> list[str]:
     return [n.replace("−", "-").replace(",", "").rstrip("%") for n in NUM.findall(text or "")]
 
 
+METRIC_WORDS = ("auc", "accuracy", "recall", "precision", "log loss", "rmse", "mae", "r2", "f1", "cost")
+GAIN_WORDS = re.compile(r"(?i)\b(by|gain\w*|improv\w*|rais\w*|lift\w*|increas\w*|decreas\w*|drop\w*|fell|fall\w*|rose|Δ|delta|"
+                        r"points?|worse|better)\b")
+GAIN_BEFORE = re.compile(r"(?i)(\bby|\bgain(ed)?( of)?|\bimprov\w*( of)?|\blift( of)?|Δ|\bdelta|\+)\s*[−-]?$")
+GAIN_KEYS = re.compile(r"(?i)(^|_)(delta|gain|diff|change|excess|ci|lift|optimism|gap|lo|hi|lower|upper|next_doubling|raw|random)($|_)")
+
+
+def _variants(v: float, pct: bool) -> set[str]:
+    out = set()
+    for w in (v, abs(v)):
+        out |= {f"{w:.0f}", f"{w:.1f}", f"{w:.2f}", f"{w:.3f}", f"{w:.4f}"}
+        if pct:
+            out |= {f"{100 * w:.0f}", f"{100 * w:.1f}", f"{100 * w:.2f}"}
+    return out
+
+
+def _fact_index(facts: Any) -> list[tuple[str, str, set[str]]]:
+    """(key path, the words around it — the keys and string values of its object —, its rendered variants) per number."""
+    out: list[tuple[str, str, set[str]]] = []
+
+    def walk(x: Any, path: str, ctx: str) -> None:
+        if isinstance(x, dict):
+            here = " ".join([*map(str, x.keys()), *[v for v in x.values() if isinstance(v, str)]]).lower()
+            for k, v in x.items():
+                walk(v, f"{path}.{k}", here)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                walk(v, path, ctx)
+        elif isinstance(x, bool) or x is None:
+            return
+        elif isinstance(x, (int, float)):
+            v = float(x)
+            key = path.rsplit(".", 1)[-1].lower()
+            pct = 0 <= abs(v) <= 1 and bool(re.search(r"(share|rate|pct|percent|recall|precision|accuracy|prob|catch|decline|fraction|ratio|error)", key + " " + ctx)) \
+                or abs(v) <= 1 and not re.search(r"(auc|score|roc)", key)
+            out.append((path.lower(), ctx, {n.rstrip("0").rstrip(".") if "." in n else n for n in {str(x), *_variants(v, pct)}} | {str(x)}))
+        elif isinstance(x, str):
+            for n in numbers(x):
+                try:
+                    v = float(n)
+                except ValueError:
+                    continue
+                out.append((path.lower(), (ctx + " " + x).lower(), {n, *_variants(v, "%" in x)}))
+
+    if isinstance(facts, str):
+        walk({"text": facts}, "", "")
+    else:
+        walk(facts, "", "")
+    return out
+
+
 def unsupported_numbers(answer: str, facts: Any) -> list[str]:
-    """Numbers in the answer that appear nowhere in the facts, after rounding either side to the answer's precision.
-    Small counting words (0–10) are allowed."""
-    have = set()
-    for n in numbers(_canon(facts)):
-        have.add(n)
+    """Numbers in the answer that the facts do not support, after rounding either side to the answer's precision.
+
+    Presence is not enough (A1 #17): a number written next to a metric word (AUC, accuracy, recall, …) must come from a
+    fact whose object names that metric; a number written as a change ('by', 'gain', 'raised', 'points', Δ) must come
+    from a change field (delta, gain, CI, …); a percentage must come from a share-like fact (share, rate, accuracy, …),
+    not from an AUC × 100. Small counting words (0–10) pass only as plain integers away from a metric word or %."""
+    idx = _fact_index(facts)
+    norm = lambda n: n.rstrip("0").rstrip(".") if "." in n else n  # noqa: E731
+    out = []
+    text = answer or ""
+    for m in NUM.finditer(text):
+        raw = m.group(0)
+        n = raw.replace("−", "-").replace(",", "").rstrip("%")
+        pct = raw.endswith("%") or text[m.end():m.end() + 9].lstrip().startswith(("%", "percent", "per cent"))
         try:
             v = float(n)
-            have.update({f"{v:.0f}", f"{v:.1f}", f"{v:.2f}", f"{v:.3f}", f"{v:.4f}", f"{100 * v:.0f}", f"{100 * v:.1f}",
-                         f"{100 * v:.2f}"})
-        except ValueError:
-            pass
-    out = []
-    for n in numbers(answer):
-        try:
-            if float(n).is_integer() and 0 <= float(n) <= 10:
-                continue
         except ValueError:
             continue
-        if n not in have and n.lstrip("-") not in have:
+        around = text[max(0, m.start() - 40):m.end() + 30].lower()
+        metric = next((w for w in METRIC_WORDS if re.search(rf"\b{re.escape(w)}\b", around)), None)
+        gain = bool(GAIN_BEFORE.search(text[max(0, m.start() - 20):m.start()]))
+        if v.is_integer() and 0 <= v <= 10 and not pct and not metric and "." not in n:
+            continue
+        cands = {n, n.lstrip("-"), norm(n), norm(n.lstrip("-"))}
+        ok = False
+        for path, ctx, vs in idx:
+            if not (cands & vs):
+                continue
+            key = path.rsplit(".", 1)[-1]
+            if pct and not (re.search(r"(share|rate|pct|percent|recall|precision|accuracy|prob|catch|decline|fraction|error)", key + " " + ctx)
+                            or n in vs and not any(a == n for a in _variants(float(n) / 100, True) - {n})):
+                continue
+            if pct and re.search(r"(auc|roc)", key) and not re.search(r"(share|rate|percent)", key):
+                continue
+            if metric and metric not in (path + " " + ctx) and not (metric == "cost" and "1,000" in ctx):
+                continue
+            if gain and not GAIN_KEYS.search(key) and not (key == "text" and re.search(r"(Δ|delta|gain|[+−-]\d)", ctx)):
+                continue
+            ok = True
+            break
+        if not ok:
             out.append(n)
     return sorted(set(out))
 
