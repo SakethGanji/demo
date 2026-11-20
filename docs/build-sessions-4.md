@@ -1,87 +1,174 @@
-# Round 4: a Doctor that works on real data
+# Round 4 plan: strong, simple models and a Doctor for the data
 
-Why: four public bank datasets (German credit, Taiwan card default, UCI bank marketing, Banking77) trained to published
-scores, but the Doctor's headline was weak or misleading on three of them:
-- bank marketing: `duration` (call length, known only after the call) dominated the model (AUC 0.956, ≈ 0.80 without it).
-  Smart Intake warned about it, but the Doctor's headline was "imbalanced label, minor".
-- German credit and Taiwan, trained on a business cost: the Doctor called the cost-optimal trade-off a "weak class"
-  and prescribed reweighting, which would raise the cost.
-- bank marketing: a generic imbalance note.
+**Status: draft for the user's approval. Nothing below is built yet.**
 
-The goal: upload any table → a strong AutoGluon model → a Doctor whose headline a credit analyst would act on → an LLM
-review that proposes hypotheses and **proves them with experiments**, not opinions.
+## Goal
 
-## What we learn from AIDE ML and AutoGluon Assistant
+Upload any bank table, then:
+1. **Data Doctor (before training):** what is wrong with this dataset, and how to fix it.
+2. **Build:** the strongest model the data supports, then the **simplest model that is as good**, with proof.
+3. **Model Doctor (after training):** where the model goes wrong, why, whether we are at the data's limit, and
+   **what would improve it**, ranked by measured gain.
+4. **Review (LLM, Claude Sonnet 5.5):**
+   - Claude reads the data and the findings, then proposes hypotheses.
+   - The platform proves or rejects each one with a fixed experiment on the same holdout.
+   - It writes an improvement plan.
+   - The numbers come from code; it works with the LLM off.
 
-Both are cloned for reference (read only, nothing vendored): `git clone --depth 1 https://github.com/WecoAI/aideml` and
-`git clone --depth 1 https://github.com/autogluon/autogluon-assistant`.
-- **AIDE** (aide/agent.py, journal.py): a journal of nodes. Each node is an attempt with its metric. A search policy
-  drafts, debugs or improves (greedy on the best node). Keep the pattern: **journal + propose → run → measure → keep**.
-  Do not keep free-form LLM-written training code: it maximises the score (it would use `duration`), and it is not
-  auditable or reproducible.
-- **AutoGluon Assistant** (agents/): separate roles. data_perception (read the files), task_descriptor (what is
-  the task), error_analyzer (why did it fail), coder and executer. Keep the role split for prompts: perceive
-  data → describe task → analyse errors → propose. Leave out its LLM-written AutoGluon code.
-- **Our rule:** the LLM proposes. The platform runs a fixed, typed experiment on the same holdout. The evidence decides.
-  Numbers and rankings come from code, never from the LLM. Everything also works with the LLM off.
+### Honest ceiling
 
-## Honest ceiling
+A model cannot be more accurate than the information in the table allows. On Taiwan card default, AUC ≈ 0.78 is the
+data's limit, and so is 0.80 on bank marketing without the leak. The product must say so, and must say what would move
+the limit: more rows, new features, a better label, or a different decision.
 
-No tool reaches "99%" on a table whose information does not support it. On Taiwan default, AUC ≈ 0.78 is the data's
-limit. The Doctor must **say when a model is at the data's limit**: flat learning curve, top models agree, error rows
-look like label noise. It must also say what would move it: more rows, new features, a better label, a different
-decision.
+## What we learn from others (read, not vendored)
 
-## Sessions (sequential; one session each; orchestrator coordinates)
+- **H2O Driverless AI:** leakage by single-feature AUC, shift by train-vs-test classifier, both at strict thresholds
+  (0.999). An LLM summarises results only.
+- **DataRobot:**
+  - Data Quality Assessment runs before training: outliers, inliers, excess zeros, disguised missing values,
+    target leakage, plus extra checks for time series.
+  - "Leakage Removed" feature list.
+  - "Known in advance" is declared by the user.
+  - Its docs say leakage needs domain knowledge.
+- **AIDE ML:** a journal of attempts, and a propose → run → measure → keep loop with a greedy search. We keep the loop
+  and drop free-form LLM code: it chases the score and is not auditable.
+- **AutoGluon Assistant:** LLM roles (data perception, task description, error analysis, coder). We use the roles
+  for our prompts. AutoGluon stays the engine.
 
-| # | Session | Builds | Proven by |
-|---|---|---|---|
-| D1 | Doctor core (deterministic) | Leakage that real data needs, decision-time step, cost-aware checks, "where it went wrong", ceiling. Detail below. | smoke `doctor` + new `doctor2` section; the four real datasets give the expected headlines |
-| D2 | LLM review loop | The AIDE-style journal of hypotheses → typed experiments → evidence. The role prompts, the Claude CLI (Sonnet 5.5) through the F5 router, audit, offline fallback. A "Review" panel in the Doctor tab and a Vela tool. | smoke `review` section on crafted + real data; offline path |
-| D3 | Real-data benchmark + polish | `scripts/realdata.py`: 6+ public datasets (cached download, no UCI host: its TLS cert is expired), upload → intake → train → doctor → review. It asserts the expected headlines and published score ranges. Fix what it finds, take screenshots, update the demo script. | `make realdata` report in docs/progress/D3.md |
+## The design
 
-### D1 detail
-1. **Leakage, as real data needs it:**
-   - The existing single-feature AUC check stays.
-   - Add **dominance**: one feature carries a large share of permutation importance (for example ≥ 50% and ≥ 3× the next).
-   - Add **intake hint**: Smart Intake flagged the column as a possible leak, or the name reads post-outcome.
-   - Dominance + hint → leakage is the primary finding (major), with a **one-click ablation**: retrain without the column,
-     same holdout and config. The result card shows the score with and without it.
-   - Ablation is a typed experiment the Doctor (and D2) can start.
-2. **"Known at decision time?" step in Build:**
-   - One question per dataset, with Smart Intake's suspects pre-ticked (DataRobot's "known in advance", for tables).
-   - Stored with the dataset. Unticked columns are dropped from runs by default, and the run records it.
-3. **Cost-aware class checks:**
-   - When a run optimises a business cost, weak_class / imbalance no longer fire for the cheap error.
-   - They become a **trade-off** finding: decline rate, catch rate, and cost per 1,000 at the served threshold and at
-     3:1 / 5:1 / 10:1. Prescription: confirm the ratio, not reweight.
-4. **Where it went wrong:** a Doctor sub-tab "Errors".
-   - The holdout's confident errors, ranked, each with its SHAP reasons.
-   - Errors by slice (reuse weak slices).
-   - Overlap with cleanlab label issues ("these 40 errors look mislabelled").
-   - Errors by time if a date exists.
-5. **Ceiling:** an "at the data's limit" finding when all of these hold:
-   - the learning curve is flat (reuse F14);
-   - the top-k models agree;
-   - the val/holdout gap is within noise;
-   - the error rows are not concentrated.
-   It says what would move the score. It ranks below real problems.
-6. **Headline discipline:** re-tune precedence so the primary finding is the most actionable one. Keep every rule
-   written on screen (as today).
+### 1. Data Doctor (new; before training; seconds)
 
-Rules as before: speed mode (smoke sections + `npm run build` + screenshots); never edit `backend/app/samples*.py` (add new
-generator files if needed); small commits, push only to `motion-components`, no PRs; progress report in
-`docs/progress/D<n>.md`; report to the orchestrator session.
+Each check gives a severity, the numbers, the rule on screen, and **a fix**: either a typed transform the user
+applies with one click, or a question.
 
-Real datasets (download in-session, cache under backend/data/realdata/, not committed):
+| Check | Example on real data | Fix |
+|---|---|---|
+| Leakage suspects: name + single-feature AUC + "known at decision time?" | bank `duration` | Question with suspects pre-ticked; unticked columns are dropped |
+| Disguised missing (-1, 999, 0 bursts) and coded values | Taiwan PAY_* = -2 / -1, EDUCATION 0/5/6 | Map to missing / "unknown" |
+| Informative missingness (missing rate differs by target) | — | Keep a "was missing" flag |
+| Duplicates / near-duplicates, conflicting labels on identical rows | — | Drop, or send to label review |
+| Label quality (cleanlab on a quick 60 s model) | — | Review queue (exists, F15) |
+| Class balance and **rows per class** (too few to learn) | Banking77: 77 classes, 35 to 187 rows each | Merge rare classes, or collect more |
+| Time coverage and drift across time (if a date exists) | — | Out-of-time split (exists) |
+| IDs, constants, high-cardinality text masquerading as categories | Taiwan ID | Drop (exists) |
+| Protected / proxy attributes | Taiwan SEX, AGE | Fairness only (exists) |
+| Sample size vs features (rows per feature, events per variable) | German credit: 300 bads, 20 features | Warn; prefer simpler models |
+
+The output is a **Data Report** card at the top of Build, with one primary action: "Apply the 3 fixes". Fixes produce
+a new dataset version with lineage; the original is never changed.
+
+### 2. Powerful, then simple (Build + Results)
+
+One training request gives a **model ladder**, every rung on the same holdout with CIs:
+
+| Rung | Model | Why |
+|---|---|---|
+| 0 | Baseline (majority / mean) | The floor |
+| 1 | Scorecard (WoE logistic, exists F11) | Fully interpretable, the regulator's baseline |
+| 2 | Single LightGBM / CatBoost (monotone where set) | Simple, fast, explainable with SHAP |
+| 3 | AutoGluon best stack (good/best quality) | The ceiling of what the data supports |
+
+- **Recommendation rule:** serve the **simplest rung whose holdout score is within the CI of the best** (paired
+  bootstrap). Example: "The single CatBoost is 0.003 AUC below the stack (CI [-0.006, 0.001]): serve it. It is 40×
+  faster and easier to explain."
+- If the stack is clearly better, offer **distillation** of the stack into a single GBM (exists), and report what is
+  kept.
+- **Feature Lab** (optional, under Advanced; AIDE-style):
+  - A search over a **whitelisted feature DSL**: ratios, differences, per-entity aggregates, date parts, bins,
+    text TF-IDF.
+  - Never free-form code.
+  - Each candidate is scored on the training folds only, kept only if it improves the CI, and checked by the leakage and
+    decision-time rules.
+  - The result is a reviewable transform list attached to the dataset version.
+
+### 3. Model Doctor (after training)
+
+| Finding | Rule (all on screen) | Prescription |
+|---|---|---|
+| **Leakage** | Dominant feature (≥ 50% of permutation importance and ≥ 3× the next) + intake hint, or single-feature AUC ≥ 0.97 | **Ablation**: retrain without it; the card shows score with/without and the Δ CI |
+| **Cost trade-off** (replaces weak class / imbalance for cost runs) | Run optimises a business cost | Shows decline rate, catch rate, cost/1,000 at 3:1, 5:1, 10:1; "confirm the ratio" |
+| **Where it went wrong** (new Errors sub-tab) | Holdout errors ranked by confidence | Each error shows SHAP reasons. Errors are also split by slice, overlap with cleanlab label issues and by time. |
+| **At the data's limit** (ceiling) | Flat learning curve, top models agree, gap within noise, errors not concentrated | "Tuning will not help. More rows, new features or a cleaner label would." |
+| Overfit, shift, label noise, data-limited, budget, latency, weak slice | Existing rules, re-ranked | Existing patches |
+
+**"How to improve" panel:** each lever has a **measured expected gain**, not a guess:
+- **More data:** learning-curve extrapolation (exists F14). Example: "doubling rows → +0.012 AUC [0.006, 0.019]".
+- **Cleaner labels:** retrain on cleanlab-cleaned training rows; measured Δ on the untouched holdout.
+- **Fix a feature or drop a leak:** ablation Δ.
+- **New features:** Feature Lab Δ. It also names where features are thin: "errors concentrate in self-employed
+  applicants where income is missing 41%".
+- **More budget or a better preset:** Δ from a budget-doubling run when the budget finding fires.
+
+Headline precedence is re-tuned so the **primary finding is the most actionable one**.
+
+### 4. Review (LLM layer; AIDE loop, AutoGluon-Assistant roles)
+
+- **Roles** (one prompt each, Claude Sonnet 5.5 via the Claude CLI, through the existing F5 router):
+  1. perceive the data (columns, samples, data dictionary if uploaded);
+  2. describe the task and the decision point;
+  3. analyse errors (Data and Model Doctor findings, Errors tab);
+  4. propose hypotheses.
+- **Hypotheses map to typed experiments only.** For example: ablate columns, apply a Data Doctor fix, add a Feature
+  Lab feature, double the budget, raise the preset, change the cost ratio, segment, monotone constraint, clean labels.
+- **Journal** (from AIDE): every hypothesis → experiment → result (Δ with CI) → kept/rejected. Greedy on the best
+  node, capped by budget (for example 5 experiments or 30 minutes), stops when nothing improves beyond noise.
+- **Output:** an **improvement plan**: what was tried, what helped (with numbers), and what the bank should do next
+  (collect X, define the label as Y, drop Z). The number guard blocks any figure not in the journal. Every review is
+  saved to the audit log with its inputs.
+- **Offline:** the deterministic Doctor proposes the same kinds of experiments from its rules; only the wording is
+  simpler.
+- Vela's agent gets a "review this run" tool. In the UI: a Review panel in the Doctor tab with one primary action,
+  "Run review".
+
+### 5. Proof: real data with known answers
+
+`scripts/realdata.py` (`make realdata`):
+- **6+ public datasets** with published scores: Taiwan, bank marketing, German credit, Banking77, plus 2+ from
+  OpenML / Hugging Face.
+- **Planted issues on real data:** copies of each dataset with known problems injected. For example: a leak column,
+  10% flipped labels, drift in the last 30%, disguised missing -999, a duplicated block, missing-not-at-random. Real
+  distributions, known answers.
+- **Assertions:**
+  - the Data Doctor finds each planted issue;
+  - the Model Doctor headline is the expected one;
+  - ablation and cleaning Δs have the right sign;
+  - scores land in the published ranges;
+  - the ladder recommends a simpler rung when it is within the CI;
+  - the review's kept experiments are real improvements.
+- The report goes to `docs/progress/R4-realdata.md` with screenshots.
+
+## Sessions (sequential, the orchestrator coordinates; speed mode: smoke sections + build + screenshots)
+
+| # | Session | Builds |
+|---|---|---|
+| D1 | Data Doctor | Section 1: checks, fixes as typed transforms, dataset versions, the decision-time question, Build's Data Report card. Smoke section `datadoctor`. |
+| D2 | Model ladder + Feature Lab | Section 2: ladder in one run, simplest-within-CI recommendation, distillation hook, Feature Lab DSL + search. Smoke `ladder`, `featurelab`. |
+| D3 | Model Doctor 2 | Section 3: leakage dominance + ablation, cost trade-off, Errors tab, ceiling, how-to-improve with measured Δs, re-ranked precedence. Smoke `doctor2`. |
+| D4 | Review loop | Section 4: roles, typed experiments, journal, improvement plan, audit, offline path, Vela tool, UI panel. Smoke `review`. |
+| D5 | Real-data proof | Section 5: `make realdata`, planted-issue copies, fixes for what it finds, screenshots, demo script update. |
+
+Rules for every D-session:
+- Never edit `backend/app/samples*.py`.
+- Small commits, pushed only to `motion-components`; no PRs.
+- Keep the UI concise: one primary action per screen, no new nav items, reuse the shared atoms.
+- Every number on screen is computed. Every rule is written on screen.
+- Report to the orchestrator.
+
+## Real datasets (download in-session; cache under backend/data/realdata/, not committed)
+
+The UCI host has an expired TLS certificate; use these mirrors:
 - Taiwan default: https://huggingface.co/datasets/scikit-learn/credit-card-clients/resolve/main/UCI_Credit_Card.csv
 - Bank marketing (bank-additional-full, `;`-separated): https://raw.githubusercontent.com/selva86/datasets/master/bank-full.csv
 - German credit: https://api.openml.org/data/v1/download/31 (ARFF; cost 5:1)
 - Banking77: https://raw.githubusercontent.com/PolyAI-LDN/task-specific-datasets/master/banking_data/train.csv
-- D3 adds 2+ more from OpenML or Hugging Face, with published baselines.
 
-Expected Doctor headlines:
-- bank marketing → leakage on `duration`, with ablation showing ≈ 0.95 → ≈ 0.80;
-- German/Taiwan with cost → trade-off, not weak class;
-- Banking77 at 600 s → time budget;
-- Taiwan → at the data's limit, AUC ≈ 0.78.
+## Expected headlines (round 3 got three of four wrong)
+
+| Dataset | Data Doctor | Model Doctor |
+|---|---|---|
+| Bank marketing | Leakage suspect `duration` (decision-time question) | Leakage, ablation ≈ 0.95 → ≈ 0.80 |
+| Taiwan | Coded values in PAY_* and EDUCATION; SEX/AGE protected | At the data's limit (≈ 0.78); simplest rung within CI |
+| German credit (5:1) | Small sample: 300 bads, prefer simpler rungs | Cost trade-off; scorecard likely within CI of the stack |
+| Banking77 | Many classes, few rows in the rarest | Time budget at 600 s; text model carries the ensemble |
