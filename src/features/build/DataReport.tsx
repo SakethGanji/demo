@@ -26,6 +26,7 @@ function fixWords(t: DataFixEffect): string {
     case 'drop_rows': return `drop ${t.reason ?? 'rows'}${n(Array.isArray(t.rows) ? t.rows.length : t.rows)}`
     case 'drop_columns': return `drop ${(t.columns ?? []).join(', ')}`
     case 'merge_classes': return `${t.column}: ${(t.classes ?? []).length} classes → '${t.into}'`
+    case 'rescale': return `${t.column} × ${t.factor} from ${t.from} (+ flag)${n(t.cells)}`
     default: return t.op
   }
 }

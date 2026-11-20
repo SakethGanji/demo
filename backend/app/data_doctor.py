@@ -29,14 +29,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .profiling import MAX_CLASSES, detect_type
+from .profiling import MAX_CLASSES, REF_NAME, detect_type
 
 log = logging.getLogger("ensemble.data_doctor")
 
 SEVERITIES = ("high", "medium", "low", "info")
 # The order findings are listed in within a severity: the most actionable first.
-ORDER = ("leakage", "coded_values", "disguised_missing", "rare_codes", "missing_words", "label_quality", "duplicates", "conflicts",
-         "class_balance", "sample_size", "time", "informative_missing", "ids_constants", "protected")
+ORDER = ("leakage", "coerced_numbers", "coded_values", "disguised_missing", "rare_codes", "missing_words", "label_quality", "duplicates", "repeated_entities", "conflicts",
+         "class_balance", "sample_size", "time", "unit_change", "informative_missing", "ids_constants", "protected")
 
 NUM_SENTINELS = (-1, -9, -99, -999, -9999, 99, 999, 9999, 99999, 999999)
 STR_SENTINELS = ("unknown", "?", "n/a", "na", "null", "-", "--", "missing", "not available", "undefined", "")  # not 'none': a real category
@@ -46,6 +46,7 @@ PROTECTED_EXTRA = re.compile(r"(^|_|\.)(sex|gender|race|ethnic\w*|religion|marit
                              r"pregnan\w*|citizenship)($|_|\.)", re.I)
 WEAK_SUSPECT_AUC = 0.75
 SEX_WORDS = re.compile(r"(?i)\b(?:male|female|man|woman|men|women)\b")
+VALUE_AFTER = re.compile(r"(assess|apprais|valuation|settle|final|closing|sold|sale_?price|paid|payout|recover)", re.I)
 CALL_AFTER = re.compile(r"(duration|call_?len|talk_?time|handle_?time|outcome|result|response|status_after)", re.I)
 
 
@@ -170,6 +171,7 @@ class Ctx:
         self.y01, self.pos = (b if b else (None, None))
         self.excluded_roles = {"id", "constant"}
         self.coded: list[str] = []  # set by check_coded_values (rare codes skips them)
+        self.coerced: list[dict[str, Any]] = []  # columns read as numbers at upload (profiling.coerce_numeric)
 
     def role(self, c: str) -> str:
         return (self.cols.get(c) or {}).get("role", "feature")
@@ -213,14 +215,19 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
                 s["reasons"].append(f"alone it separates {cx.target} with AUC {a:.3f}")
         elif cx.task == "regression" and pd.api.types.is_numeric_dtype(x):
             rho = x.corr(cx.y, method="spearman")
-            if rho is not None and np.isfinite(rho) and abs(rho) >= 0.95:
+            if rho is not None and np.isfinite(rho) and abs(rho) >= 0.85:
                 s = sus.setdefault(c, {"column": c, "confidence": 0.0, "reasons": [], "auc": None})
                 s["confidence"] = max(s["confidence"], 0.9 if abs(rho) >= 0.99 else 0.6)
                 s["reasons"].append(f"alone its rank correlation with {cx.target} is {rho:+.3f}")
+                s["rho"] = round(float(rho), 4)
+                if VALUE_AFTER.search(str(c)):
+                    s["reasons"].append(f"its name ('{c}') reads like a value set at or after the outcome (an assessment, a "
+                                        "valuation, a settlement)")
     if cx.task == "binary":  # a name-only suspect (confidence < 0.85) must also be strong alone: German 'duration' is a loan term
         sus = {c: s for c, s in sus.items() if s["confidence"] >= 0.85 or (s["auc"] or 0) >= WEAK_SUSPECT_AUC}
     rule_auc = ("binary: single-column AUC ≥ 0.90 is a suspect, ≥ 0.97 is high; a suspect by name alone must reach AUC ≥ 0.75" if cx.task == "binary" else
-                "regression: |Spearman ρ| ≥ 0.95 is a suspect, ≥ 0.99 is high" if cx.task == "regression" else "")
+                "regression: |Spearman ρ| ≥ 0.85 is a suspect (a single column that close to the target is rare unless it is "
+                "derived from it), ≥ 0.99 is high" if cx.task == "regression" else "")
     if not sus:
         return []
     items = sorted(sus.values(), key=lambda s: (-s["confidence"], -(s["auc"] or 0)))
@@ -236,7 +243,7 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
             nums[f"median {s['column']} otherwise"] = _jsonable(round(float(x[cx.y01 == 0].median()), 4))
     for s in items:  # what the suspicion rests on: a name / values rule, or only how strong the column is alone
         s["basis"] = "strength only" if all(r.startswith("alone ") for r in s["reasons"]) else "name or values"
-    sev = "high" if high else "medium" if cx.task == "binary" or any(s["auc"] for s in items) else "low"
+    sev = "high" if high else "medium" if cx.task in ("binary", "regression") or any(s["auc"] for s in items) else "low"
     strength_only = all(s["basis"] == "strength only" for s in items)
     names = f"{', '.join(cols[:4])}{'…' if len(cols) > 4 else ''}"
     title = (f"Leak or strong signal? {names} alone predict{'s' if len(items) == 1 else ''} {cx.target} very well: "
@@ -380,8 +387,17 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
         if not rare or float(share[rare].sum()) >= 0.05:
             continue
         above = [v for v in rare if v > main[-1]]
-        if rare == above and all(vc[a] >= vc[b] for a, b in zip(above, above[1:])):
+        below = [v for v in rare if v < main[0]][::-1]
+        thin = all(vc[a] >= vc[b] for side in (above, below) for a, b in zip(side, side[1:]))
+        if rare == above and thin:
             continue  # a count's thinning tail (previous = 3, 4, 5 …), not codes
+        if thin and cx.target and cx.task in ("regression", "binary"):
+            from scipy.stats import spearmanr
+
+            yy = cx.y.astype(float) if cx.task == "regression" else cx.y01
+            m_ = yy.groupby(s).mean().dropna()
+            if len(m_) >= 4 and abs(spearmanr(m_.index.astype(float), m_.to_numpy())[0]) >= 0.9:
+                continue  # an ordinal scale whose rare ends continue the outcome's trend (house grade 1 … 13), not codes
         items.append({"column": c, "codes": rare, "documented": f"{main[0]}…{main[-1]}", "rows": int(vc[rare].sum()),
                       "share": round(float(share[rare].sum()), 4)})
     if not items:
@@ -395,10 +411,11 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
                      {"columns": len(items), "rows affected": int(mask.sum()), "largest share": max(i["share"] for i in items)},
                      "An integer code column (3–12 values) whose common values (≥ 1 % each) form a run, plus values outside "
                      "the run holding < 5 % together: codes the data dictionary probably does not define. A thinning tail above the run (a count's "
-                     "large values: 3, 4, 5 … each rarer) is not flagged.",
+                     "large values: 3, 4, 5 … each rarer) is not flagged, nor thinning tails at both ends of a scale whose outcome "
+                     "keeps its trend through them (|Spearman| ≥ 0.9 of value vs mean outcome: a grade 1 … 13).",
                      _rows(cx.df, mask, cols + ([cx.target] if cx.target else [])),
                      _fix("transform", "Map them to missing ('unknown') with a flag; check the data dictionary.",
-                          [{"op": "to_missing", "column": i["column"], "values": i["codes"], "flag": True} for i in items]),
+                          [{"op": "to_missing", "column": i["column"], "values": i["codes"], "flag": True} for i in items], selected=False),
                      columns=cols) | {"items": items}]
 
 
@@ -443,12 +460,21 @@ def check_informative_missing(cx: Ctx) -> list[dict[str, Any]]:
                      columns=cols) | {"items": items}]
 
 
+def _row_keys(df: pd.DataFrame) -> list[str]:
+    """Columns that are unique per row (a row key): they would hide every duplicate. Anything else counts, including a
+    column the profile calls an ID that repeats (a customer seen twice) or a mistyped one."""
+    n = len(df)
+    return [c for c in df.columns if n > 1 and df[c].notna().all() and df[c].nunique() == n
+            and not pd.api.types.is_float_dtype(df[c])]
+
+
 def _content_cols(cx: Ctx) -> list[str]:
-    return [c for c in cx.df.columns if cx.types[c] != "id" and cx.role(c) != "id"]
+    keys = set(_row_keys(cx.df))
+    return [c for c in cx.df.columns if c not in keys]
 
 
 def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
-    """Exact duplicates (ignoring IDs) and near-duplicates (same after trimming and lower-casing text and rounding
+    """Exact duplicates (every column but row keys, which are unique per row) and near-duplicates (same after trimming and lower-casing text and rounding
     numbers to 4 significant digits)."""
     cols = _content_cols(cx) or list(cx.df.columns)
     dup = cx.df.duplicated(subset=cols, keep="first")
@@ -471,12 +497,46 @@ def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
         else f"{n_near:,} near-duplicate rows (same after trimming, case and rounding)"
     return [_finding("duplicates", sev, title,
                      {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near},
-                     "Medium when exact duplicates are ≥ 2 % of rows. Exact: the same values in every column except IDs. Near: the same after trimming and lower-casing text "
+                     "Medium when exact duplicates are ≥ 2 % of rows. Exact: the same values in every column except row keys (columns unique per row). Near: the same after trimming and lower-casing text "
                      "and rounding numbers to 4 significant digits. A duplicate split across training and holdout makes the "
                      "score optimistic.",
                      _rows(cx.df, first_dup, cols[:6]),
                      _fix("transform", "Drop the exact duplicates (keep the first)." + (" Near-duplicates are listed, not dropped." if n_near else ""),
                           [{"op": "drop_duplicates"}] if n_dup else [], selected=True))]
+
+
+def check_repeated_entities(cx: Ctx) -> list[dict[str, Any]]:
+    """An ID-like column (the profile's ID type, or text with more distinct values than half the rows) whose values
+    repeat: the same customer more than once. A random split then puts copies of one entity on both sides, and the
+    holdout score is optimistic."""
+    items = []
+    for c in cx.features():
+        s = cx.df[c]
+        if cx.types[c] != "id" and not (s.dtype == object and s.nunique() > 0.5 * cx.n):
+            continue
+        if pd.api.types.is_float_dtype(s):
+            continue
+        v = s.astype(str).where(s.notna())
+        rep = v.duplicated(keep=False) & v.notna()
+        if rep.sum() >= max(10, 0.01 * cx.n):
+            items.append({"column": c, "rows": int(rep.sum()), "entities": int(v[rep].nunique()), "share": round(float(rep.mean()), 4),
+                          "_mask": rep.to_numpy()})
+    if not items:
+        return []
+    it = items[0]
+    mask = it.pop("_mask")
+    for i in items[1:]:
+        i.pop("_mask", None)
+    return [_finding("repeated_entities", "medium" if it["share"] >= 0.02 else "low",
+                     f"The same {it['column']} appears more than once: {it['entities']:,} values on {it['rows']:,} rows ({it['share']:.1%})",
+                     {"rows": it["rows"], "entities": it["entities"], "share": it["share"]},
+                     "An ID-like column whose values repeat (≥ 1 % of rows): the same entity several times, as a later snapshot or a "
+                     "copy. A random split puts copies on both sides, so the model is scored on entities it has seen. Medium when "
+                     "≥ 2 % of rows.",
+                     _rows(cx.df, mask, [it["column"]] + [c for c in cx.features() if c != it["column"]][:4] + ([cx.target] if cx.target else [])),
+                     _fix("advice", f"Split by {it['column']} (New Model → split → group, pre-filled): every {it['column']} then sits "
+                                    "in training or in the holdout, never both. If the repeats are copies, de-duplicate them."),
+                     columns=[i["column"] for i in items]) | {"items": items}]
 
 
 def check_conflicts(cx: Ctx) -> list[dict[str, Any]]:
@@ -570,9 +630,12 @@ def check_sample_size(cx: Ctx) -> list[dict[str, Any]]:
             nums["holdout AUC ± (at AUC 0.75)"] = round(hw, 3)
         if epv < 5:
             sev = "high"
+        elif cx.n >= 50_000 and epv >= 10:
+            sev = "low"  # plenty of rows: the rare class is what is thin, not the table
         elif epv < 20 or cx.n < 2000:
             sev = "medium"
-        title = (f"Small sample: {events:,} rows of the rarest class for {p} features ({epv:.0f} per feature)")
+        title = (f"Few events: {events:,} rows of the rarest class for {p} features ({epv:.0f} per feature) in {cx.n:,} rows"
+                 if cx.n >= 50_000 else f"Small sample: {events:,} rows of the rarest class for {p} features ({epv:.0f} per feature)")
     else:  # multiclass: rows per class is the class-balance check; here rows per feature
         rpf = cx.n / p
         if rpf < 10:
@@ -584,7 +647,7 @@ def check_sample_size(cx: Ctx) -> list[dict[str, Any]]:
         return []
     return [_finding("sample_size", sev, title, nums,
                      "Events per feature (rows of the smallest class ÷ model features): < 5 high; < 20, or fewer than 2,000 rows, "
-                     "medium (binary). Regression and multiclass: rows per feature < 10 high, < 50 medium. "
+                     "medium (binary); low instead of medium when the table has ≥ 50,000 rows and ≥ 10 events per feature. Regression and multiclass: rows per feature < 10 high, < 50 medium. "
                      "The AUC ± is the 95 % half-width a 20 % holdout of this size gives (Hanley–McNeil at AUC 0.75).",
                      None,
                      _fix("advice", "Prefer simpler models (scorecard, a single GBM) and read the confidence intervals; "
@@ -648,6 +711,103 @@ def check_time(cx: Ctx) -> list[dict[str, Any]]:
                                     "future and over-states the score."), columns=[date])]
 
 
+def _numeric_id(c: str, s: pd.Series, n: int) -> bool:
+    """An integer column that is (almost) unique per row and named like a reference, or a run of consecutive numbers
+    (a sequence): a key, not a quantity."""
+    if not pd.api.types.is_integer_dtype(s) or n < 200:
+        return False
+    nn = s.dropna()
+    if nn.nunique() < 0.95 * len(nn):
+        return False
+    if REF_NAME.search(str(c)):
+        return True
+    d = np.diff(np.sort(nn.to_numpy()))
+    return bool(len(d) and (d == 1).mean() >= 0.9 and nn.min() >= 1000)
+
+
+UNIT_FACTORS = {100: "× 100 (pounds → pence, dollars → cents)", 1000: "× 1,000 (thousands, or kg → g)",
+                10.7639: "× 10.76 (m² → ft²)", 0.092903: "× 0.0929 (ft² → m²)", 0.01: "÷ 100 (pence → pounds)",
+                0.001: "÷ 1,000", 2.54: "× 2.54 (inches → cm)", 0.3937: "÷ 2.54 (cm → inches)",
+                2.2046: "× 2.205 (kg → lb)", 0.4536: "× 0.454 (lb → kg)", 12: "× 12 (months / years)", 0.0833: "÷ 12"}
+
+
+def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
+    """A number column whose scale jumps at one date and stays there (a unit change: pounds → pence, ft² → m²), when a
+    date exists. Rows ordered by the date, cut into 12 equal bins; the median of the column's non-zero values per bin;
+    a step where the medians after a cut differ from those before by a factor ≥ 3 (or ≤ 1/3), consistently (every bin
+    on each side within a factor 1.6 of its side's median)."""
+    date = next((c for c in cx.df.columns if cx.role(c) == "date" or any(a["role"] == "date" for a in cx.also(c))), None)
+    if not date:
+        return []
+    from .splits import time_values
+
+    t = time_values(cx.df[date])
+    ok = t.notna().to_numpy()
+    if ok.sum() < 240:
+        return []
+    order = np.argsort(t[ok].to_numpy(), kind="stable")
+    rows = np.flatnonzero(ok)[order]
+    bins = np.array_split(rows, 12)
+    items = []
+    for c in cx.model_features():
+        x = cx.df[c]
+        if c == date or not pd.api.types.is_numeric_dtype(x) or pd.api.types.is_bool_dtype(x) or x.nunique() < 20:
+            continue
+        med = []
+        for b in bins:
+            v = x.iloc[b]
+            v = v[(v != 0) & v.notna()].abs()
+            med.append(float(v.median()) if len(v) >= 10 else np.nan)
+        med = np.asarray(med)
+        if np.isnan(med).any() or (med <= 0).any():
+            continue
+        best = None
+        for k in range(2, 11):  # at least two bins on each side; the bin holding the change may be mixed (skip it)
+            for gap in (0, 1):
+                if k + gap > 10:
+                    continue
+                left, right = med[:k], med[k + gap:]
+                a_, b_ = np.median(left), np.median(right)
+                r = b_ / a_
+                dev = max(np.abs(np.log(left / a_)).max(), np.abs(np.log(right / b_)).max())
+                if (r >= 3 or r <= 1 / 3) and dev <= np.log(2.0) and abs(np.log(r)) >= 2 * dev:
+                    if best is None or abs(np.log(r)) > abs(np.log(best["factor"])) * 1.1:
+                        best = {"k": k + gap, "factor": float(r)}
+        if not best:
+            continue
+        k = best["k"]
+        cut_row = bins[k][0]
+        cut = t.iloc[cut_row]
+        near = min(UNIT_FACTORS, key=lambda f: abs(np.log(best["factor"] / f)))
+        known = abs(np.log(best["factor"] / near)) <= np.log(1.25)
+        after = (t >= cut).to_numpy() & ok
+        items.append({"column": c, "from": str(cut)[:10], "factor": round(best["factor"], 4),
+                      "unit": UNIT_FACTORS[near] if known else None, "rows_after": int(after.sum()),
+                      "median_before": round(float(np.median(med[:k])), 4), "median_after": round(float(np.median(med[k:])), 4),
+                      "rescale": round(1 / near, 6) if known else round(1 / best["factor"], 6), "_mask": after})
+    if not items:
+        return []
+    it = items[0]
+    mask = it.pop("_mask")
+    for i in items[1:]:
+        i.pop("_mask", None)
+    cols = [i["column"] for i in items]
+    desc = "; ".join(f"{i['column']} × {i['factor']:.3g} from {i['from']}" + (f" ({i['unit']})" if i["unit"] else "") for i in items[:3])
+    return [_finding("unit_change", "medium", f"The scale changes over time: {desc}",
+                     {"columns": len(items), "rows after the change": it["rows_after"], "factor": it["factor"],
+                      f"median {it['column']} before": it["median_before"], f"median {it['column']} after": it["median_after"]},
+                     f"Rows ordered by {date} and cut into 12 equal bins; the median of each number column's non-zero values per "
+                     "bin. A unit change: the medians after one cut differ from those before by a factor ≥ 3 (or ≤ 1/3), every "
+                     "bin on each side stays within a factor 2 of its side, and the jump is at least twice that spread (in logs); the "
+                     "bin holding the change may be mixed. A model trained across the change mixes two units.",
+                     _rows(cx.df, mask, [date] + cols[:4] + ([cx.target] if cx.target else [])),
+                     _fix("transform", "Ask the data owner which unit each period uses; if the factor is a unit change, rescale the "
+                                       "later rows back (the fix below does that and keeps a flag).",
+                          [{"op": "rescale", "column": i["column"], "date_column": date, "from": i["from"], "factor": i["rescale"]}
+                           for i in items], selected=False),
+                     columns=cols) | {"items": items}]
+
+
 def check_ids_constants(cx: Ctx) -> list[dict[str, Any]]:
     """Row IDs, constants and high-cardinality categories that are really IDs or free text."""
     items = []
@@ -656,6 +816,8 @@ def check_ids_constants(cx: Ctx) -> list[dict[str, Any]]:
         k = int(s.nunique(dropna=True))
         if r == "id" or t == "id":
             items.append({"column": c, "why": f"a row ID ({k:,} distinct)"})
+        elif _numeric_id(c, s, cx.n):
+            items.append({"column": c, "why": f"an ID-like number ({k:,} distinct integers in {cx.n:,} rows, no order to learn)"})
         elif k <= 1:
             items.append({"column": c, "why": "constant"})
         elif t == "category" and s.dtype == object and k > max(50, 0.5 * cx.n) and r not in ("entity", "date", "surname", "zip"):
@@ -665,7 +827,8 @@ def check_ids_constants(cx: Ctx) -> list[dict[str, Any]]:
     cols = [i["column"] for i in items]
     return [_finding("ids_constants", "low", f"Not features: {', '.join(f'{i['column']} ({i['why'].split(' (')[0]})' for i in items[:4])}",
                      {"columns": len(items)},
-                     "A row ID (unique per row, or an ID-like name), a constant, or a text category with more distinct values "
+                     "A row ID (unique per row, or an ID-like name), an ID-like integer (unique per row and named like a reference — "
+                     "_ref, _no, acct… — or consecutive numbers ≥ 1,000), a constant, or a text category with more distinct values "
                      "than half the rows. They can only memorise rows.",
                      _rows(cx.df, np.ones(cx.n, bool), cols[:5]),
                      _fix("transform", "Drop them from the dataset (runs already leave row IDs out).",
@@ -713,17 +876,41 @@ def check_protected(cx: Ctx) -> list[dict[str, Any]]:
                      columns=cols) | {"items": prot, "proxies": proxies}]
 
 
-CHECKS = (check_leakage, check_coded_values, check_disguised_missing, check_rare_codes, check_duplicates,
-          check_conflicts, check_class_balance, check_sample_size, check_time, check_informative_missing,
+def check_coerced(cx: Ctx) -> list[dict[str, Any]]:
+    """Columns read as numbers although some cells were not (A1 #5): blanks, 'n/a', '$12,000'. Recorded at upload."""
+    items = [i for i in cx.coerced if i["column"] in cx.df.columns]
+    if not items:
+        return []
+    bad = sum(i["blank"] + i["unparsed"] for i in items)
+    desc = "; ".join(f"{i['column']}: {i['blank']:,} blank" + (f", {i['unparsed']:,} not numbers ({', '.join(map(repr, i['unparsed_values'][:3]))})"
+                                                              if i["unparsed"] else "")
+                     + (f", {i['reformatted']:,} reformatted (currency, thousands separators)" if i["reformatted"] else "")
+                     for i in items[:3])
+    share = max((i["blank"] + i["unparsed"]) / max(i["rows"], 1) for i in items)
+    return [_finding("coerced_numbers", "medium" if share >= 0.05 else "low",
+                     f"Read as numbers: {desc}",
+                     {"columns": len(items), "cells made missing": bad, "largest share": round(share, 4)},
+                     "A text column where ≥ 90 % of the non-blank cells are numbers ('12,000', '$12,000', '1e5') is read as a "
+                     "number column; blank and non-numeric cells ('n/a', '?') become missing. As text it would be a category with "
+                     "thousands of levels (or an ID) and the model could not use its order.",
+                     None, _fix("advice", "Check what the blank and coded cells mean (not applicable, not yet billed, unknown): "
+                                          "if they mean something, keep a 'was missing' flag (Informative missingness lists it)."),
+                     columns=[i["column"] for i in items]) | {"items": items}]
+
+
+CHECKS = (check_coerced, check_leakage, check_coded_values, check_disguised_missing, check_rare_codes, check_duplicates,
+          check_repeated_entities,
+          check_conflicts, check_class_balance, check_sample_size, check_time, check_unit_change, check_informative_missing,
           check_ids_constants, check_protected)
 
 
 def report(df: pd.DataFrame, target: str | None, roles: list[dict[str, Any]], answers: dict[str, Any] | None = None,
-           labels: dict[str, Any] | None = None) -> dict[str, Any]:
+           labels: dict[str, Any] | None = None, coerced: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Every check on the frame. `roles`: Smart Intake's columns; `answers`: the stored decision-time / fairness
     answers; `labels`: the label-quality job's state (its finding is built from it)."""
     t0 = time.perf_counter()
     cx = Ctx(df, target, roles)
+    cx.coerced = coerced or []
     findings: list[dict[str, Any]] = []
     timings = {}
     for chk in CHECKS:
@@ -819,7 +1006,7 @@ def start_labels(dirpath: Path, target: str, csv: Path, roles: list[dict[str, An
             k = label_key(target, csv)
             t0 = time.perf_counter()
             try:
-                out = label_issues(pd.read_csv(csv), target, roles)
+                out = label_issues(pd.read_csv(csv), target, roles, all_rows=True)
             except Exception as e:  # noqa: BLE001
                 log.exception("label quality failed")
                 out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
@@ -913,7 +1100,7 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
             "Medium when the model beats 'always the largest class' by ≥ 5 points, cleanlab flags ≥ 5 %, and the most "
             "confident fifth of predictions is wrong ≥ 3 points more than the model expects and at ≥ 0.6 × its overall "
             "error rate (flipped labels hit confident rows too; overlap does not); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
-            "not a wrong label.")
+            "not a wrong label. Flags that concentrate in one category level (≥ 2× the rest, ≥ 30 rows) point at a labelling problem there.")
     if cx.task not in ("binary", "multiclass"):
         return None
     if not st or st.get("status") == "running":
@@ -935,8 +1122,33 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
           "rows": [[e["row"], e["given"], e["suggested"], e["p_suggested"],
                     *[_jsonable(cx.df.iat[e["row"], cx.df.columns.get_loc(c)]) for c in feats]] for e in ex]}
     rows = [e["row"] for e in st["examples"]]
+    # where the flags concentrate: a category level holding ≥ 2× its share of the flags (≥ 30 flagged) points at a
+    # labelling process there, not at classes that overlap everywhere
+    conc = None
+    iss = st.get("issue_rows")
+    if iss and len(iss) >= 30:
+        fl = np.zeros(cx.n, bool)
+        fl[[i for i in iss if i < cx.n]] = True
+        best = None
+        for c in cx.model_features():
+            x = cx.df[c]
+            if pd.api.types.is_numeric_dtype(x) or not 2 <= x.nunique() <= 20:
+                continue
+            for lv, grp in pd.Series(fl).groupby(x.astype(str).to_numpy()):
+                if grp.sum() >= 30 and len(grp) < cx.n:
+                    r_in, r_out = float(grp.mean()), float(fl[(x.astype(str) != lv).to_numpy()].mean())
+                    if r_in >= 2 * max(r_out, 1e-9) and (best is None or r_in / max(r_out, 1e-9) > best["lift"]):
+                        best = {"column": c, "value": lv, "rate_inside": r_in, "rate_outside": r_out,
+                                "flagged": int(grp.sum()), "lift": r_in / max(r_out, 1e-9)}
+        conc = best
+    if conc and sev == "info":
+        sev = "low"
+    where = (f"; they concentrate where {conc['column']} = {conc['value']} ({conc['rate_inside']:.1%} flagged vs "
+             f"{conc['rate_outside']:.1%} elsewhere), which looks like a labelling problem there" if conc else "")
+    what = (" that look wrong" if looks_wrong else
+            ": wrong labels or classes that overlap (this check cannot tell which; reviewing a sample can)")
     return _finding("label_quality", sev,
-                    f"cleanlab flags {st['n']:,} labels ({st['rate']:.1%})" + (" that look wrong" if looks_wrong else ": mostly where classes overlap"),
+                    f"cleanlab flags {st['n']:,} labels ({st['rate']:.1%})" + what + where,
                     {"flagged": st["n"], "rate": st["rate"], "quick model accuracy (out-of-fold)": st["accuracy_oof"],
                      "largest class share": st.get("majority"),
                      "error in the most confident fifth": st["floor"], "error it expects there": st["expected_floor"],
@@ -944,7 +1156,7 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
                     rule + f" Model: {st['model']}.", ev,
                     _fix("transform", "Review them in Models → Doctor → Labels after the first run; or drop the top flagged rows.",
                          [{"op": "drop_rows", "rows": rows, "reason": "cleanlab label issues"}], selected=False),
-                    columns=[cx.target]) | {"status": "done"}
+                    columns=[cx.target]) | {"status": "done", "concentration": conc}
 
 
 # ---------------------------------------------------------------------------------------------------- the transforms
@@ -953,10 +1165,11 @@ TRANSFORMS = {
     "to_missing": "values → missing, with a <column>_was_missing flag when flag is true",
     "split_codes": "codes → fill in the column, and a new <column>_code column holding the code (or 'value')",
     "add_missing_flag": "a new <column>_was_missing 0/1 column",
-    "drop_duplicates": "drop exact duplicate rows (IDs ignored), keep the first",
+    "drop_duplicates": "drop exact duplicate rows (row keys ignored), keep the first",
     "drop_rows": "drop the listed row numbers",
     "drop_columns": "drop the listed columns",
     "merge_classes": "the listed classes of the column → one class",
+    "rescale": "multiply the column by factor on rows whose date_column is on or after from, with a <column>_rescaled flag",
 }
 
 
@@ -977,6 +1190,13 @@ def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | N
         for c in ([t["column"]] if "column" in t else []) + list(t.get("columns") or []):
             if c not in df.columns:
                 raise ValueError(f"{op}: no column named {c!r}.")
+        if op == "rescale":
+            try:
+                float(t.get("factor"))
+            except (TypeError, ValueError):
+                raise ValueError("rescale needs a numeric factor.") from None
+            if t.get("date_column") not in df.columns or not t.get("from") or "column" not in t:
+                raise ValueError("rescale needs column, date_column (a column of the table) and from (a date).")
         if op in ("to_missing", "split_codes", "add_missing_flag", "merge_classes") and "column" not in t:
             raise ValueError(f"{op} needs a column.")
         if op in ("to_missing", "split_codes", "drop_columns", "merge_classes") and target and \
@@ -1012,7 +1232,7 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             out[f"{c}_was_missing"] = out[c].isna().astype(int)
             effects.append({**t, "cells": int(out.loc[keep, c].isna().sum()), "added": f"{c}_was_missing"})
         elif op == "drop_duplicates":
-            ids = [c for c in out.columns if detect_type(str(c), out[c]) == "id"]
+            ids = set(_row_keys(out))
             content = [c for c in out.columns if c not in ids] or list(out.columns)
             d = out[keep].duplicated(subset=content, keep="first")
             gone = np.flatnonzero(keep)[d.to_numpy()]
@@ -1027,6 +1247,16 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             cols = [c for c in t.get("columns") or [] if c != target]
             out = out.drop(columns=cols)
             effects.append({**t, "columns": cols})
+        elif op == "rescale":
+            from .splits import time_values
+
+            c = t["column"]
+            tv = time_values(out[t["date_column"]])
+            m = (tv >= pd.Timestamp(t["from"]) if pd.api.types.is_datetime64_any_dtype(tv) else tv >= float(t["from"])).fillna(False).to_numpy()
+            out[c] = out[c].astype(float)
+            out.loc[m, c] = out.loc[m, c] * float(t["factor"])
+            out[f"{c}_rescaled"] = m.astype(int)
+            effects.append({**t, "cells": int((m & keep).sum())})
         elif op == "merge_classes":
             c, into = t["column"], str(t.get("into") or "other")
             m = out[c].astype(str).isin([str(v) for v in t.get("classes") or []])

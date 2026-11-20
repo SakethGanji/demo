@@ -79,7 +79,11 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     task_ok = target is not None and not (df[target].dtype.kind in "fi" and df[target].nunique() > dd.MAX_CLASSES)
     if labels is None and task_ok and df[target].nunique(dropna=True) >= 2:
         labels = dd.start_labels(store.dir(dataset_id), target, csv, roles)
-    out = dd.report(df, target, roles, answers(store, dataset_id), labels)
+    cpath = store.dir(dataset_id) / "coerced.json"
+    lin_ = store.lineage(dataset_id) or {}
+    if not cpath.exists() and lin_.get("root"):
+        cpath = store.dir(lin_["root"]) / "coerced.json"
+    out = dd.report(df, target, roles, answers(store, dataset_id), labels, json.loads(cpath.read_text()) if cpath.exists() else None)
     leak = next((f for f in out["findings"] if f["id"] == "leakage"), None)
     (store.dir(dataset_id) / "data_doctor_suspects.json").write_text(json.dumps(
         [{k: s.get(k) for k in ("column", "confidence", "reasons", "auc", "basis")} for s in (leak or {}).get("suspects") or []],

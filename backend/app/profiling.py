@@ -13,7 +13,56 @@ ColumnType = str  # 'text' | 'category' | 'number' | 'id'
 
 LABEL_NAME = re.compile(r"(^|_)(label|target|class|category|categor\w*|sentiment|churn\w*|outcome|y|fraud|default\w*)$|^is_\w+|^has_\w+", re.I)
 ID_NAME = re.compile(r"(^id$|_id$|^id_|uuid|^key$)", re.I)
+# a number named like a reference (acct_ref, loan_no, account_number): an ID when it is (almost) unique per row
+REF_NAME = re.compile(r"(_ref$|^ref_|_no$|_nbr$|_num$|_number$|^acct|account_?(no|num|ref|id)|serial|reference)", re.I)
 MAX_CLASSES = 50  # a label column has at most this many distinct values
+
+
+NUM_TEXT = re.compile(r"^[-+]?[$€£]?\s*[-+]?(\d{1,3}(,\d{3})+|\d+)?(\.\d+)?([eE][-+]?\d+)?\s*%?$")
+
+
+def _parse_number(v: str) -> float | None:
+    t = v.strip()
+    if not t or not NUM_TEXT.match(t) or not re.search(r"\d", t):
+        return None
+    t = re.sub(r"[$€£,%\s]", "", t)
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def coerce_numeric(df: pd.DataFrame, min_share: float = 0.9) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+    """Text columns that are mostly numbers (≥ 90 % of the non-blank cells parse: '12,000', '$12,000', '1e5', ' 42 ')
+    become numbers; blanks and cells that do not parse ('n/a', '?', 'unknown') become missing. Codes with leading zeros
+    ('007', zip codes) are left as text. Returns the frame and one record per converted column, so the Data Doctor can
+    list what was blank or coded."""
+    out = df.copy()
+    info: list[dict[str, Any]] = []
+    for c in df.columns:
+        s = df[c]
+        if s.dtype != object:
+            continue
+        txt = s.dropna().astype(str)
+        nonblank = txt[txt.str.strip() != ""]
+        if len(nonblank) < 10:
+            continue
+        if nonblank.str.match(r"^\s*0\d").mean() > 0.05:  # codes like 007 or 02134
+            continue
+        parsed = nonblank.map(_parse_number)
+        ok = parsed.notna()
+        if ok.mean() < min_share:
+            continue
+        vals = s.astype(str).map(lambda v: _parse_number(v) if v is not None else None)
+        vals = pd.to_numeric(vals.where(s.notna()), errors="coerce")
+        blank = int((txt.str.strip() == "").sum())
+        bad = nonblank[~ok]
+        reformatted = int((ok & ~nonblank.str.strip().str.match(r"^[-+]?(\d+)?(\.\d+)?([eE][-+]?\d+)?$")).sum())
+        out[c] = vals
+        info.append({"column": c, "blank": blank, "unparsed": int(len(bad)), "reformatted": reformatted,
+                     "unparsed_values": sorted(bad.str.strip().value_counts().index[:6].tolist()),
+                     "share_numeric": round(float(ok.mean()), 4), "rows": int(len(s))})
+    return out, info
 
 
 def _example(series: pd.Series) -> str:
@@ -32,7 +81,7 @@ def detect_type(name: str, s: pd.Series) -> ColumnType:
         return "category"
     if pd.api.types.is_numeric_dtype(s):
         is_int = pd.api.types.is_integer_dtype(s) or bool(np.all(np.mod(non_null, 1) == 0))
-        if ID_NAME.search(name) and is_int and unique_ratio > 0.95:
+        if (ID_NAME.search(name) or REF_NAME.search(name)) and is_int and unique_ratio > 0.95:
             return "id"
         return "number"
     as_str = non_null.astype(str)
