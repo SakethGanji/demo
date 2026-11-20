@@ -7,6 +7,19 @@
 - **Parallel work:** D5 pushed during this session and was merged twice. Its D5.md covers parts of #3, #6, #8 and #16;
   this session built on them (see #3 and the label-noise note under #16).
 
+## Run sizes (which numbers came from small runs)
+
+The orchestrator's "train small" instruction reached this session after the runs had been made. The runs here were
+not subsampled, but they were short:
+- every fit used the API's default body with `time_limit` 60–180 s and one fit at a time;
+- telco runs (7,043 / 7,743 rows): 120 s; approval (690 rows): 60 s; house (21,613 rows): 120 s;
+- fraud (200,000 rows, full size, needed for #11 and #12): 180 s;
+- reviews: max_experiments 2 (telco_leak) and 3 (telco_planted);
+- the #7 / #9 checks (helper session): one 40 s fit on a synthetic 3,000-row table; #10 / #11 / #13–#15 (helper
+  session): tiny fits on synthetic tables, plus a synthetic 200k-row binary run for #11's timing.
+Every Data Doctor number is on the full regenerated file. D5's merged code (00184e5 and 1e55e2f) was re-run in all
+the "after" Doctor and review calls above.
+
 ## The data (regenerated; under `backend/data/realdata/`, not committed)
 
 | Dataset | Source | Plants (as A1 describes; measured here) |
