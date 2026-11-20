@@ -36,7 +36,7 @@ export function PairedDelta({ runs }: { runs: Run[] }) {
               <td><span className="pill warning">different holdout, not paired</span></td><td className="mono">{c.a.eval_metric}</td>
               <td className="r table-cell">{fmtScore(c.a.holdout_score, 4)} · {fmtScore(c.b.holdout_score, 4)}</td>
               <td className="r table-cell muted">{c.difference != null ? sign(c.difference) : '—'}</td><td className="r muted">none</td>
-              <td className="r table-cell muted">{c.a.holdout_rows ?? '—'} / {c.b.holdout_rows ?? '—'}</td><td className="helper" style={{ fontSize: 12 }}>{c.reason}</td></tr>)
+              <td className="r table-cell muted">{c.a.holdout_rows ?? '—'} / {c.b.holdout_rows ?? '—'}</td><td className="helper" style={{ fontSize: 12, whiteSpace: 'normal', minWidth: 220 }}>{c.reason}</td></tr>)
           return (
             <tr key={r.id} data-testid={`paired-${r.id}`} data-paired="true"><td className="table-cell">{dot}{r.id}</td>
               <td><span className="pill success">paired</span>{c.warning && <span title={c.warning}> ▲</span>}</td><td className="mono">{c.metric}</td>

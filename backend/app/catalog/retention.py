@@ -231,3 +231,5 @@ STORED_ONLY = {
     ("GET", "/shift"), ("GET", "/slices"), ("GET", "/supervised"), ("GET", "/labels"),
 }
 STORED_PREFIX = (("GET", "/review/"), ("GET", "/predictions/"), ("GET", "/batches/"))
+#: GET routes that serve a copy stored in the run's result when there is one (and no ?refresh=true): the ladder.
+STORED_IF_CACHED = {"/ladder": "ladder"}

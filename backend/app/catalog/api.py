@@ -245,6 +245,9 @@ async def evicted_guard(request: Request, call_next):
                 r = con.execute("SELECT predictor_state FROM runs WHERE id = ?", (m.group(1),)).fetchone()
             if r and r["predictor_state"] == "evicted":
                 run = st.runs.get(m.group(1))
+                key = RT.STORED_IF_CACHED.get(sub) if meth == "GET" else None
+                if key and run and (run.get("result") or {}).get(key) and request.query_params.get("refresh") not in ("true", "1"):
+                    return await call_next(request)  # the stored copy, no predictor needed
                 return JSONResponse(RT.gone_message(m.group(1), RT.tombstone(run) if run else None), status_code=410)
     return await call_next(request)
 
