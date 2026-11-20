@@ -428,8 +428,16 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             how = "clone(): every model kept"
         shutil.rmtree(work, ignore_errors=True)
         final = TabularPredictor.load(str(dest), verbosity=0, require_py_version_match=False)
+        cal = opts.get("calibration")
+        if cal and final.problem_type == "binary":
+            # D4 recalibration: the version serves σ(a · logit p + b); its threshold below is on that scale
+            from ensemble_models.calibration import apply_platt, formula
+
+            apply_platt(final, float(cal["a"]), float(cal["b"]), change_id=opts.get("change_id"))
+            final.save()
+            how += f"; probabilities recalibrated (Platt: p′ = {formula(cal['a'], cal['b'])})"
         if opts.get("decision_threshold") is not None and final.problem_type == "binary":
-            # D4 post-deployment change: the approved threshold (a move, or a recalibration's equivalent on the raw score)
+            # D4 post-deployment change: the approved threshold (a move; after a recalibration, on the calibrated scale)
             final.set_decision_threshold(float(opts["decision_threshold"]))
             final.save()
             how += f"; decision threshold set to {float(opts['decision_threshold']):.4f} (change request {opts.get('change_id') or ''})".rstrip()
@@ -513,7 +521,8 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                         "holdout": hold.get("metrics"), "confusion_matrix": hold.get("confusion_matrix"),
                         "classes": jsonable(hold.get("classes")), "holdout_ci": ci, "problem_type": final.problem_type,
                         "eval_metric": final.eval_metric.name, "positive_class": jsonable(final.positive_class) if final.problem_type == "binary" else None,
-                        "decision_threshold": threshold, "features": list(final.original_features)},
+                        "decision_threshold": threshold, "features": list(final.original_features),
+                        "calibration": (getattr(final._learner, "ensemble_platt", None) if final.problem_type == "binary" else None)},
             "tradeoff": {"size_ratio": ver_size / src_size if src_size else None,
                          "latency_ratio_p50": lat_ver["us_per_row_p50"] / lat_src["us_per_row_p50"] if lat_src["us_per_row_p50"] else None,
                          "single_ratio_p50": lat_ver["single_ms_p50"] / lat_src["single_ms_p50"] if lat_src["single_ms_p50"] else None},
@@ -544,7 +553,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         v = reg.get_version(version_id)
         reg.audit(actor=v["created_by"], action="registered", version=v, to_stage="None",
                   comment=opts.get("description") or "",
-                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline", "decision_threshold", "change_id")},
+                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline", "decision_threshold", "calibration", "change_id", "change_by")},
                            "best_model": final.model_best, "size_bytes": ver_size,
                            "us_per_row_p50": lat_ver["us_per_row_p50"], "data_sha256": data_hash})
         return {"ok": True, "version_id": version_id}

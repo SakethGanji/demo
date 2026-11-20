@@ -15,7 +15,12 @@ is read from `GET …/experiments`: paired bootstrap on the shared holdout rows,
 per 1,000 for cost runs). The journal records hypothesis → experiment → Δ with CI → verdict:
 
   kept         the CI is above 0: better beyond noise. The child becomes the best node (greedy).
-  kept-honest  the ablation of a leak suspect: the score falls and that is the point; the child becomes the node.
+  kept-honest  a leak test that confirms a pattern-leak (the Doctor's dominant + hint, or near-perfect alone) or a group
+               split that shows optimism: the score falls and that is the point; the child becomes the node.
+  leak-test    the ablation of any other suspect (Data Doctor, Model Doctor or the language model's own), one column at a
+               time: judged by whether the score leans on it, never by whether it went up; always a "confirm decision
+               time" action in the plan.
+  unmeasurable clean labels scored on a holdout whose labels carry the same noise: the gain cannot show there.
   equivalent   a simpler option within noise (a simpler rung, a dropped feature): an option, not a new node.
   info         a cost-ratio sensitivity: what confirming the ratio is worth; never a new node.
   rejected     within noise or worse, or nothing changed (Feature Lab kept nothing, cleanlab flagged too few rows).
@@ -52,7 +57,9 @@ STOP_AFTER = 3  # trained experiments in a row within noise or worse
 POLL_S = 8
 RULES = {
     "verdict": "kept: Δ CI above 0 (better beyond noise) → the new best node · kept-honest: ablation of a leak suspect "
-               "(the honest score) → the new node · equivalent: a simpler option whose CI includes 0 · info: a cost-ratio "
+               "(the honest score) → the new node · leak-test: one-column ablation of any other suspect (Data Doctor, Model Doctor or the language model's), "
+               "judged by whether the score leans on it; always a confirm-decision-time action · unmeasurable: cleaning scored on a "
+               "holdout with the same label noise · equivalent: a simpler option whose CI includes 0 · info: a cost-ratio "
                "sensitivity · rejected: within noise, worse, or nothing changed",
     "policy": f"Greedy on the best node; at most {MAX_EXPERIMENTS} trained experiments and {MAX_MINUTES} minutes (checked "
               f"before each start); a second proposal round only after a new node; stop after {STOP_AFTER} trained experiments "
@@ -153,7 +160,7 @@ def digest(rec: dict[str, Any], doctor: dict[str, Any], dd: dict[str, Any] | Non
            "features": len(res.get("features") or []), "best_model": res.get("best_model"),
            "cost": cfg.get("cost") and {k: cfg["cost"].get(k) for k in ("c_fp", "c_fn", "g_tp", "bayes_threshold")},
            "threshold": (res.get("threshold") or {}).get("value"), "dropped": cfg.get("drop_columns"),
-           "decision_time": cfg.get("decision_time") and {k: cfg["decision_time"].get(k) for k in ("not_known", "fairness_only", "dropped")}}
+           "decision_time": cfg.get("decision_time") and {k: cfg["decision_time"].get(k) for k in ("not_known", "fairness_only", "dropped", "unanswered")}}
     cols = []
     for c in ((ds or {}).get("profile") or {}).get("columns") or []:
         cols.append({"name": c["name"], "type": c.get("type"), "role": c.get("role"), "missing": c.get("missing_share"),
@@ -171,10 +178,18 @@ def digest(rec: dict[str, Any], doctor: dict[str, Any], dd: dict[str, Any] | Non
     lk = next((c for c in doctor.get("checks") or [] if c["id"] == "leakage" and c["status"] == "finding"), None)
     if lk:
         doc["leak_suspects"] = [s["feature"] for s in (lk.get("evidence") or {}).get("suspects") or [] if s.get("reason") != "identifier"]
+        doc["hard_leaks"] = [s["feature"] for s in (lk.get("evidence") or {}).get("suspects") or []
+                             if s.get("reason") in ("dominant + hint", "near-perfect alone")]
+        ov = (lk.get("evidence") or {}).get("overlap") or {}
+        if ov.get("entities"):
+            doc["overlap_entity"] = ov["entities"][0]["column"]
+    lk_any = next((c for c in doctor.get("checks") or [] if c["id"] == "leakage"), None)
+    doc["open_suspects"] = ((lk_any or {}).get("evidence") or {}).get("open_suspects") or []
     mi = doctor.get("missing_info") or {}
     miss = {"headline": mi.get("headline"), "caveat": mi.get("caveat"), "irreducible": mi.get("irreducible"),
             "gaps": [{"id": g["id"], "kind": g["kind"], "title": g["title"], "finding": g["finding"], "request": g["request"],
-                      "gain": g.get("gain") and {k: g["gain"].get(k) for k in ("delta", "ci", "metric", "simulated")}}
+                      "gain": g.get("gain") and {k: g["gain"].get(k) for k in ("delta", "ci", "metric", "simulated")},
+                      "unmeasurable": g.get("unmeasurable") or None}
                      for g in mi.get("gaps") or []]}
     imp = [{"id": x["id"], "title": x["title"], "delta": x.get("delta"), "ci": x.get("ci"), "metric": x.get("metric"),
             "source": x.get("source")} for x in doctor.get("improve") or []]
@@ -238,7 +253,9 @@ def _p_propose(c: dict[str, Any], analysis: dict[str, Any], node: dict[str, Any]
             f"Data Doctor fixes available (use these transforms as given for apply_data_fix): {json.dumps(fixes, ensure_ascii=False)}\n"
             f"Model ladder: {json.dumps(c['ladder'], ensure_ascii=False)}\nRun: {json.dumps(c['run'], ensure_ascii=False)}\n"
             f"ANALYSIS:\n{json.dumps(analysis, ensure_ascii=False)}\nALREADY TRIED (journal): {json.dumps(done, ensure_ascii=False)}\n"
-            "Rules: a leak suspect from the Model Doctor is ablated first. Do not repeat a tried experiment. cost_ratio only on "
+            "Rules: a leak suspect (from the Model Doctor, the Data Doctor or your own reading) is tested first, ONE column per "
+            "ablation; a drop in score is evidence it leaks, not a reason to keep it. An entity that repeats across rows (a "
+            "customer id seen twice) is tested with group_split on that column, not by ablating it. Do not repeat a tried experiment. cost_ratio only on "
             "cost runs (try a lower and a higher ratio than the run's). serve_rung when the ladder recommends a simpler rung "
             "(1 or 2) than the model the run serves. Never merge classes of the target (that belongs in the plan). apply_data_fix never takes drop_rows (rows are dropped only by clean_labels, so the holdout stays untouched). Prefer hypotheses that test whether the "
             "information is in the table at all. At most 6, most promising first. Return "
@@ -269,9 +286,14 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
     lk = checks.get("leakage") or {}
     if lk.get("status") == "finding":
         cols = [s["feature"] for s in lk["evidence"]["suspects"] if s.get("reason") != "identifier" and s["feature"] in feats]
-        if cols:
-            out.append({"title": f"{', '.join(cols)} leaks the outcome", "why": lk["reason"][:300], "expected": "worse",
-                        "experiment": {"kind": "ablate", "columns": cols}, "source": "rule: leakage finding → ablation"})
+        for col in cols:  # one column per ablation: a joint drop cannot say which one carries it
+            out.append({"title": f"{col} is recorded after the outcome", "why": lk["reason"][:300], "expected": "worse",
+                        "experiment": {"kind": "ablate", "columns": [col]}, "source": "rule: leakage finding → ablation"})
+        ov = (lk["evidence"].get("overlap") or {}).get("entities") or []
+        if ov:
+            out.append({"title": f"The same {ov[0]['column']} sits in training and holdout", "why": lk["reason"][:300],
+                        "expected": "worse", "experiment": {"kind": "group_split", "column": ov[0]["column"]},
+                        "source": "rule: train–holdout overlap → group split"})
     tr = []
     for f in c["data"]["findings"]:
         fx = f.get("fix") or {}
@@ -299,7 +321,8 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
         out.append({"title": "Wrong labels hold the model back: relabel them", "why": (d1 or {}).get("title") or "Data Doctor label finding",
                     "expected": "better", "experiment": {"kind": "clean_labels", "mode": "relabel"},
                     "source": "rule: Data Doctor labels that look wrong → relabel to cleanlab's suggestion"})
-    if run["problem_type"] in ("binary", "multiclass") and (noisy or lab_gain or d1_noisy):
+    lab_unmeas = bool(lab and lab.get("unmeasurable"))
+    if run["problem_type"] in ("binary", "multiclass") and (noisy or lab_gain or d1_noisy) and not lab_unmeas:
         out.append({"title": "Noisy labels hold the model back", "why": (lab or {}).get("finding") or (d1 or {}).get("title") or "label-noise finding",
                     "expected": "better", "experiment": {"kind": "clean_labels"}, "source": "rule: label quality → clean labels"})
     numeric = [col for col in c["data"]["columns"] if col["name"] in feats and col.get("type") == "number" and (col.get("unique") or 0) > 20]
@@ -337,17 +360,58 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
     return out
 
 
+def split_hypotheses(hyps: list[dict[str, Any]], rec: dict[str, Any]) -> list[dict[str, Any]]:
+    """One column per ablation (a joint ablation cannot say which column carries the drop), and an ablation of a column
+    the run does not use but that repeats across rows (an entity id) becomes a group split on it."""
+    feats = set((rec.get("result") or {}).get("features") or [])
+    out = []
+    for h in hyps:
+        x = h.get("experiment") or {}
+        cols = x.get("columns") if isinstance(x.get("columns"), list) else None
+        if x.get("kind") == "ablate" and cols:
+            for c in cols:
+                if c not in feats and isinstance(c, str):
+                    out.append({**h, "title": f"{c} repeats across the split" if len(cols) == 1 else f"{h.get('title')} ({c}: group split)",
+                                "experiment": {"kind": "group_split", "column": c}})
+                else:
+                    out.append({**h, "title": h.get("title") if len(cols) == 1 else f"{h.get('title')} ({c})",
+                                "experiment": {**x, "columns": [c]}})
+        else:
+            out.append(h)
+    return out
+
+
 # --------------------------------------------------------------------------------------------------------- verdict
 
 
-def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: dict[str, Any]) -> tuple[str, str]:
+def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: dict[str, Any],
+            hard: set[str] | None = None, unmeasurable: bool = False) -> tuple[str, str]:
+    """`leak_cols`: every leak suspect (Model Doctor, Data Doctor, the language model's decision-time risks); `hard`: the
+    Doctor's confirmed-pattern leaks (dominant + a hint, or near-perfect alone)."""
     if not res or res.get("delta") is None:
         return "rejected", "no result"
     lo, hi = res["ci"]
     d = round(res["delta"], 1 if "cost" in str(res.get("metric")) else 4)
-    if kind == "ablate" and set(spec.get("columns") or []) & leak_cols:
-        return "kept-honest", (f"the leak suspect removed: {res['metric']} {res['parent']:.4f} → {res['child']:.4f}; the run without it "
-                               "is the honest score")
+    cols = set(spec.get("columns") or [])
+    if kind == "ablate" and cols & leak_cols:
+        # a leak test: judged by whether the score leans on the column, never by "did the score go up"
+        c = ", ".join(sorted(cols))
+        if hi < 0 and cols & (hard or set()):
+            return "kept-honest", (f"the leak suspect removed: {res['metric']} {res['parent']:.4f} → {res['child']:.4f}; the score leans "
+                                   f"on {c}. Unless {c} is known at decision time, the run without it is the honest score")
+        if hi < 0:
+            return "leak-test", (f"the score leans on {c} ({res['metric']} {res['parent']:.4f} → {res['child']:.4f}, Δ {d:+g}): evidence "
+                                 f"for a leak if {c} is not known when the decision is made. Confirm before using it")
+        return "leak-test", (f"no measurable drop without {c} (Δ {d:+g}, CI includes 0): the score does not lean on it. "
+                             "Still confirm it is known at decision time")
+    if kind == "group_split":
+        if hi < 0:
+            return "kept-honest", (f"with each {spec.get('column')} on one side only, {res['metric']} {res['parent']:.4f} → {res['child']:.4f} "
+                                   f"(Δ {d:+g}, unpaired): the random split overstated the score; the group split is the honest one")
+        return "leak-test", f"no measurable optimism from shared {spec.get('column')} values (Δ {d:+g}, CI includes 0)"
+    if kind == "clean_labels" and unmeasurable:
+        return "unmeasurable", (f"Δ {d:+g} against the holdout's own labels, which carry the same kind of noise: a cleaner model "
+                                "cannot show its gain there. Measure on reviewed holdout labels")
     if kind == "cost_ratio":
         return "info", "a sensitivity of the decision to the cost ratio, not a model change"
     if kind == "serve_rung":
@@ -452,7 +516,13 @@ class Review:
             rv["analysis"] = {"perceive": perceive or None, "task": task or None, "errors": analysis or None}
             rv["domain_gaps"] = clean_domain_gaps(analysis.get("domain_gaps"))
             self.save()
-            leak_cols = set(c["doctor"].get("leak_suspects") or [])
+            dd_sus = [s["column"] for f in (dd or {}).get("findings") or [] if f["id"] == "leakage" and not f.get("answered")
+                      for s in f.get("suspects") or []]
+            llm_sus = [x for x in (perceive.get("decision_time_risks") or []) if isinstance(x, str)]
+            leak_cols = set(c["doctor"].get("leak_suspects") or []) | set(dd_sus) | set(llm_sus)
+            rv["leak_suspects"] = {"model_doctor": c["doctor"].get("leak_suspects") or [], "data_doctor": dd_sus, "llm": llm_sus}
+            self.hard_leaks = set(c["doctor"].get("hard_leaks") or [])
+            self.labels_unmeasurable = any(g.get("unmeasurable") for g in c["missing"]["gaps"] if g["kind"] == "label_quality")
             node = await self.node_info(rid)
             rv["node"] = {"start": rid, "best": rid, "path": [rid]}
             trained = 0
@@ -478,8 +548,10 @@ class Review:
                     hyps = rule_hypotheses(c, node, node_doctor)
                     for h in hyps:
                         h.setdefault("source", "rule")
-                # validate and order: a leak ablation first, then the instant ones, then the rest in the proposer's order
+                # one column per ablation; an ablation of a non-feature entity column is a group split
                 nrec = self.raw(node["run_id"])
+                hyps = split_hypotheses(hyps, nrec)
+                # validate and order: a leak ablation first, then the instant ones, then the rest in the proposer's order
                 ok = []
                 for h in hyps[:8]:
                     h["id"] = "h" + str(len(rv["hypotheses"]) + 1)
@@ -498,7 +570,8 @@ class Review:
                     rv["hypotheses"].append({k: h.get(k) for k in ("id", "title", "why", "expected", "experiment", "source", "valid",
                                                                   "invalid_reason", "round", "node")})
                 self.save()
-                ok.sort(key=lambda h: (0 if h["spec"]["kind"] == "ablate" and set(h["spec"].get("columns") or []) & leak_cols else
+                ok.sort(key=lambda h: (0 if (h["spec"]["kind"] == "ablate" and set(h["spec"].get("columns") or []) & leak_cols)
+                                       or h["spec"]["kind"] == "group_split" else
                                        1 if h["spec"]["kind"] in INSTANT else 2))
                 moved = False
                 for h in ok:
@@ -518,7 +591,7 @@ class Review:
                     e = await self.experiment(h, node, leak_cols)
                     if not instant and e["status"] != "invalid":
                         trained += 1
-                        misses = 0 if e.get("verdict") in ("kept", "kept-honest") else misses + 1
+                        misses = 0 if e.get("verdict") in ("kept", "kept-honest", "leak-test", "unmeasurable") else misses + 1
                     if e.get("verdict") in ("kept", "kept-honest") and e.get("run_id"):
                         node = await self.node_info(e["run_id"])
                         rv["node"]["best"] = e["run_id"]
@@ -615,7 +688,8 @@ class Review:
         if e["status"] != "succeeded":
             e.update(verdict="rejected", reason=f"the experiment {e['status']}: {x.get('error') or ''}".strip())
         else:
-            e["verdict"], e["reason"] = verdict(spec["kind"], e["result"], leak_cols, spec)
+            e["verdict"], e["reason"] = verdict(spec["kind"], e["result"], leak_cols, spec, getattr(self, "hard_leaks", set()),
+                                                getattr(self, "labels_unmeasurable", False))
         e["finished_at"] = _now()
         self.save()
         return e
@@ -725,12 +799,27 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
         r = e.get("result") or {}
         k = e["experiment"]["kind"]
         sp = e["experiment"]["spec"]
-        if e.get("verdict") == "kept-honest":
-            cols = ", ".join(sp.get("columns") or [])
-            nxt.append({"kind": "drop", "title": f"Drop {cols} and confirm when it is known",
-                        "why": f"Without {cols}: {r['metric']} {r['parent']:.4f} → {r['child']:.4f} ({_fmt(r)}). If {cols} is recorded "
-                               "after the decision, the run without it is the honest model; answer the decision-time question in Build.",
+        if k == "group_split" and e.get("verdict") in ("kept-honest", "leak-test") and r:
+            col = sp.get("column")
+            nxt.append({"kind": "split", "title": f"Split by {col} for every run" if e["verdict"] == "kept-honest" else f"{col}: no overlap effect measured",
+                        "why": f"Random split vs each {col} on one side only: {r['metric']} {r['parent']:.4f} → {r['child']:.4f} ({_fmt(r)}, unpaired). "
+                               + ("The same entity on both sides made the score look better; use the group split (Build → split) and "
+                                  "de-duplicate repeated entities." if e["verdict"] == "kept-honest" else "Shared values do not inflate the score measurably."),
                         "source": f"journal step {e['step']}", "run_id": e.get("run_id")})
+        elif k == "ablate" and e.get("verdict") in ("kept-honest", "leak-test") and r:
+            cols = ", ".join(sp.get("columns") or [])
+            leans = r["ci"][1] < 0
+            nxt.append({"kind": "confirm_decision_time", "title": f"Confirm when {cols} is known",
+                        "why": f"Without {cols}: {r['metric']} {r['parent']:.4f} → {r['child']:.4f} ({_fmt(r)}). "
+                               + (f"The score leans on it: if {cols} is recorded after the decision, the run without it is the honest "
+                                  "model and every number measured with it is optimistic." if leans else
+                                  f"The score barely depends on it, so the risk is small; still answer whether {cols} exists at decision time.")
+                               + " Answer the decision-time question in Build → Data Report.",
+                        "source": f"journal step {e['step']}", "run_id": e.get("run_id"), "columns": sp.get("columns")})
+        elif e.get("verdict") == "unmeasurable":
+            nxt.append({"kind": "review_labels", "title": "Review the holdout labels, then measure cleaning",
+                        "why": f"{e.get('reason')}. Review the flagged holdout labels in the label queue (Doctor → Labels).",
+                        "source": f"journal step {e['step']}"})
         elif e.get("verdict") == "kept":
             nxt.append({"kind": "adopt", "title": f"Adopt: {e.get('title') or e['hypothesis']['title']}",
                         "why": f"{_fmt(r)} on the same holdout rows: better beyond noise. Register run {e.get('run_id')} after review.",
@@ -744,8 +833,11 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
             rg = r.get("rung") or {}
             lat = (f" ({rg['latency_ms_p95']:.1f} ms vs {r['best']['latency_ms_p95']:.1f} ms per row)"
                    if rg.get("latency_ms_p95") and (r.get("best") or {}).get("latency_ms_p95") else "")
+            leak_open = any(x.get("verdict") in ("leak-test", "kept-honest") for x in j) or (c.get("doctor") or {}).get("open_suspects")
             nxt.append({"kind": "serve", "title": f"Serve the {rg.get('name')}", "why": f"Within noise of the best: {_fmt(r)}{lat}. "
-                        "Simpler to explain and to validate.", "source": f"journal step {e['step']}", "serve_model": rg.get("model")})
+                        "Simpler to explain and to validate." + (" Only once the leak question above is settled: a simpler model "
+                                                                 "of a table with a leak still has the leak." if leak_open else ""),
+                        "source": f"journal step {e['step']}", "serve_model": rg.get("model")})
         elif e.get("verdict") == "equivalent" and k == "ablate":
             nxt.append({"kind": "drop", "title": f"Drop {', '.join(sp.get('columns') or [])}: it adds nothing measurable",
                         "why": f"{_fmt(r)}: within noise.", "source": f"journal step {e['step']}"})
@@ -787,6 +879,9 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
         elif kd == "more_rows" and gn.get("ci") and gn["ci"][0] > 0:
             nxt.append({"kind": "collect", "title": "Collect more labelled rows", "why": g["finding"],
                         "source": "What's missing: more rows", "request": g["request"]})
+        elif kd == "label_review":
+            nxt.append({"kind": "review_labels", "title": g["title"].replace("Check the labels: ", "Review the labels where "),
+                        "why": g["finding"], "source": "What's missing: label review", "request": g["request"]})
         elif kd == "missingness":
             nxt.append({"kind": "fix_capture", "title": g["title"].replace("Missing where it matters: ", "Fix how it is captured: "),
                         "why": g["finding"], "source": "What's missing: missingness", "request": g["request"]})
@@ -798,6 +893,9 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
     if kept:
         head = "; ".join(f"{e.get('title') or e['hypothesis']['title']} ({_fmt(e['result'])})" for e in kept)
         s = f"{len(j)} experiments; {len(kept)} improved the model beyond noise: {head}."
+    elif (open_q := [e for e in j if e.get("verdict") in ("leak-test", "unmeasurable")]):
+        s = (f"{len(j)} experiments; none improved the model beyond noise. Some questions stay open (a leak to confirm, or a gain "
+             "the noisy holdout cannot show): settle them before concluding anything about new information.")
     elif others := [e for e in j if e.get("verdict") != "kept-honest"]:
         # D5: claim that tuning or arithmetic will not help only when such an experiment ran (a capped review may not get there)
         lead = (f"{len(others)} {'other ' if honest else ''}experiment{'s' if len(others) != 1 else ''}: none improved the model "

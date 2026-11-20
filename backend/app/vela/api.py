@@ -221,7 +221,7 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments
 
 
-GAPS_PROCEDURE = "missing/3"  # D5: the confusion rule changed
+GAPS_PROCEDURE = "missing/5"  # D5 + A1: the confusion rule and the gaps changed
 
 
 def _gaps_job(cfg, rec, hints):
@@ -427,6 +427,15 @@ async def start_experiment_impl(request: Request, run_id: str, body: dict[str, A
         _ = k
         item = {**base, "title": f"one model per {spec['column']} (G5) vs one global model", "status": new.get("status"),
                 "run_id": new["id"]}
+        await run_in_threadpool(_record_extra, request, run_id, item)
+        return {**item, "parent_run_id": run_id}
+    if kind == "group_split":
+        from ..engine.api import SplitTwin, split_twin
+
+        new = await split_twin(run_id, SplitTwin(split_spec={"strategy": "group", "group_column": spec["column"]},
+                                                 name=f"{rec['name']} · group split by {spec['column']}"), request)
+        item = {**base, "title": f"group split by {spec['column']} (each entity on one side) vs the random split",
+                "status": new.get("status"), "run_id": new["id"], "columns": [spec["column"]]}
         await run_in_threadpool(_record_extra, request, run_id, item)
         return {**item, "parent_run_id": run_id}
     ds_id, prep = None, None

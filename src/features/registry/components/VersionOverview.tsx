@@ -5,7 +5,7 @@ import { useWidth } from '@/shared/hooks/useWidth'
 import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { APPROVAL_STATUS, STAGES, STAGE_STATUS, bytes, ms, short, us } from '../lib'
+import { APPROVAL_STATUS, STAGES, STAGE_STATUS, bytes, ms, nameKey, short, us } from '../lib'
 
 const STEP_TEXT: Record<string, string> = {
   clone: 'predictor.clone(work)', refit_full: 'refit_full(model=…)', distill: 'distill(): single student models', infer_limit: 'set_model_best under τ', deploy_copy: 'clone_for_deployment + pruned pipeline',
@@ -161,7 +161,9 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
     setBusy(true); setErr('')
     try { const r = await f(); onChanged(r.version); setComment('') } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
-  const self = actor.trim().toLowerCase() === v.created_by.trim().toLowerCase()
+  const me = nameKey(actor)
+  const author = v.options?.change_by
+  const self = !!me && (me === nameKey(v.created_by) || (!!author && me === nameKey(author)))
   const ready = v.status === 'ready'
   return (
     <div className="card" data-testid="review-card">
@@ -187,7 +189,8 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
         </div>}
         <p className="helper" style={{ fontSize: 12 }}>
           None → Staging → Production → Archived. Production needs an approved review; promoting archives the model’s current Production version; rejecting archives a live version.
-          {self && v.approval === 'pending' ? <><br /><b style={{ color: 'var(--status-warning)' }}>▲ Four eyes: {v.created_by} registered this version, so someone else reviews it.</b></> : null}
+          {v.approval === 'pending' ? <><br />Names, not authenticated identities: four-eyes compares names as typed (case, spaces and punctuation ignored).</> : null}
+          {self && v.approval === 'pending' ? <><br /><b style={{ color: 'var(--status-warning)' }}>▲ Four eyes: {v.created_by} registered this version{author ? ` and ${author} designed its change experiment` : ''}, so someone else reviews it.</b></> : null}
         </p>
         {err && <p role="alert" className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
       </div>

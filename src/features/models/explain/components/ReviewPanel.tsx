@@ -9,12 +9,14 @@ const dg = (m: string) => (/cost/.test(m) ? 1 : 4)
 const VERDICT: Record<ReviewVerdict, { label: string; pill: string; title: string }> = {
   kept: { label: 'kept', pill: 'success', title: 'better beyond noise: the new best node' },
   'kept-honest': { label: 'kept · honest', pill: 'warning', title: 'a leak removed: the score falls and that is the honest score' },
+  'leak-test': { label: 'leak test', pill: 'warning', title: 'judged by whether the score leans on the column, not by whether it went up: confirm when the column is known' },
+  unmeasurable: { label: 'not measurable', pill: 'warning', title: 'the holdout labels carry the same noise: a cleaner model cannot show its gain there' },
   equivalent: { label: 'equivalent', pill: 'info', title: 'a simpler option within noise' },
   info: { label: 'sensitivity', pill: 'neutral', title: 'what the cost ratio changes; not a model change' },
   rejected: { label: 'rejected', pill: 'neutral', title: 'within noise, worse, or nothing changed' },
   request: { label: 'request', pill: 'success', title: 'a post-deployment change better beyond noise: request it in Registry' },
 }
-const KIND_PILL: Record<string, string> = { drop: 'danger', adopt: 'success', serve: 'info', confirm_cost: 'warning', request: 'success', join: 'neutral', collect: 'neutral', redefine_label: 'neutral', fix_capture: 'neutral' }
+const KIND_PILL: Record<string, string> = { confirm_decision_time: 'warning', split: 'warning', review_labels: 'warning', drop: 'danger', adopt: 'success', serve: 'info', confirm_cost: 'warning', request: 'success', join: 'neutral', collect: 'neutral', redefine_label: 'neutral', fix_capture: 'neutral' }
 
 function spec(e: JournalEntry): string {
   const s = e.experiment.spec as Record<string, unknown>
@@ -22,6 +24,7 @@ function spec(e: JournalEntry): string {
   if (k === 'ablate') return `without ${(s.columns as string[]).join(', ')}`
   if (k === 'cost_ratio') return `${Number(s.c_fn) / Number(s.c_fp || 1)}:1`
   if (k === 'serve_rung') return `rung ${String(s.rung)}`
+  if (k === 'group_split') return `group split by ${String(s.column)}`
   if (k === 'segment' || k === 'monotone') return k === 'segment' ? `by ${String(s.column)}` : Object.keys((s.constraints as object) ?? {}).join(', ')
   if (k === 'apply_data_fix') return `${(s.transforms as unknown[]).length} fix(es)`
   if (k === 'add_features') return s.candidates ? `${(s.candidates as unknown[]).length} candidate(s)` : 'Feature Lab heuristics'

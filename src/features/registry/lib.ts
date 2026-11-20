@@ -21,6 +21,9 @@ export const STAGE_STATUS: Record<Stage, Status> = { None: 'neutral', Staging: '
 export const APPROVAL_STATUS: Record<Approval, Status> = { pending: 'warning', approved: 'success', rejected: 'danger' }
 export const STAGES: Stage[] = ['None', 'Staging', 'Production', 'Archived']
 
+/** A name as four-eyes compares it (as the API's identity_key): case, spaces and punctuation ignored. */
+export const nameKey = (s: string | null | undefined) => (s ?? '').normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\p{Z}\p{C}]+/gu, ' ').trim().replace(/\s+/g, ' ')
+
 export const versionLabel = (v: Pick<ModelVersion, 'model_name' | 'version'>) => `${v.model_name} v${v.version}`
 
 export const ACTION_WORD: Record<AuditEntry['action'], string> = {

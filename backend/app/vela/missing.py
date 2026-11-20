@@ -23,6 +23,7 @@ number is computed here from the run's own files (data.csv, splits, holdout_pred
   clean labels   cleanlab on the quick model's out-of-fold p̂ over the training rows; refit without the flagged rows;
                  Δ on the untouched holdout
   leak           permutation-importance dominance (share, ratio to the next) and D1's single-column AUC
+  overlap        holdout rows that are not new: the same entity (an ID-like column) or a (near-)identical row in training
   cost           decline rate, catch rate and cost per 1,000 at the served threshold and at the 3:1, 5:1, 10:1 rules
 """
 
@@ -411,13 +412,21 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
         conf = P.max(1)
         argmax_err = (np.asarray(pcols)[P.argmax(1)] != ("p_" + hp["y_true"].astype(str)).to_numpy()).astype(int)
     else:
-        resid = np.abs(pd.to_numeric(hp["y_true"], errors="coerce") - pd.to_numeric(hp["y_pred"], errors="coerce")).to_numpy()
+        yt_ = pd.to_numeric(hp["y_true"], errors="coerce").to_numpy(dtype=float)
+        resid = np.abs(yt_ - pd.to_numeric(hp["y_pred"], errors="coerce").to_numpy(dtype=float))
+        pos_y = np.nanmin(yt_) > 0
+        skew = float(pd.Series(yt_).skew()) if len(yt_) > 2 else 0.0
+        relative = bool(pos_y and skew > 1.0)  # a skewed positive target (prices, amounts): errors relative to the value
+        if relative:
+            resid = resid / yt_
+        out["relative_error"] = relative
         err = (resid >= np.nanquantile(resid, 0.8)).astype(int)
         conf, P, argmax_err = resid, None, err
     out["served"] = {"n": int(len(err)), "errors": int(err.sum()), "rate": float(err.mean()),
                      "argmax_error": float(argmax_err.mean()),
                      "definition": ("a holdout row whose served decision differs from its label" if pt != "regression"
-                                    else "a holdout row in the top 20 % of absolute error")}
+                                    else "a holdout row in the top 20 % of " + ("relative error |y − ŷ| / y (the target is skewed, "
+                                         "so absolute error would only pick the largest values)" if out.get("relative_error") else "absolute error"))}
     Xh = df.iloc[ho][feats].reset_index(drop=True)
     min_n = max(30, int(0.01 * len(ho)))
 
@@ -491,6 +500,21 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
             m = (binned[s["column"]][0] == s["value"]).to_numpy()
             s["label"] = _seg_label(s)
             s["missing_inside"] = missingness(Xh, err, [c for c in feats if c != s["column"]], inside=m)[:2]
+            if X is not None and m.sum() >= 10 and pt != "multiclass":
+                try:  # the columns the quick model leans on for this segment's rows (mean |TreeSHAP|)
+                    rows_ = ho[np.flatnonzero(m)[:2000]]
+                    cc = np.abs(np.asarray(base_m.predict(X.iloc[rows_], pred_contrib=True))[:, :len(feats)]).mean(0)
+                    s["top_features"] = [feats[k] for k in np.argsort(-cc)[:3] if feats[k] != s["column"]][:2]
+                except Exception:  # noqa: BLE001
+                    pass
+            em, eo_ = m & (err == 1), ~m & (err == 1)
+            if flags is not None and em.sum() >= 10 and eo_.sum() >= 10:
+                # flags follow errors anywhere; a labelling problem shows as errors here being flagged more often than
+                # errors elsewhere (the model is confidently "wrong" because the label is)
+                fi_, fo_ = float(flags[em].mean()), float(flags[eo_].mean())
+                if flags[em].sum() >= 10 and fi_ >= 1.3 * max(fo_, 1e-9) and fi_ - fo_ >= 0.1:
+                    s["label_review"] = {"flagged": int(flags[m].sum()), "rate_inside": fi_, "rate_outside": fo_, "basis": "errors",
+                                         "errors_flagged": int((flags[m] & (err[m] == 1)).sum()), "n": int(m.sum())}
         out["concentration"] = {"segments": segs, "overall_rate": float(err.mean()), "min_n": min_n,
                                 "missing_in_errors": missingness(Xh, err, feats),
                                 "rule": f"error rate by bin (quintiles of numbers, levels of categories, missing as its own bin; "
@@ -655,6 +679,10 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                 segs.append({"id": "twins", "kind": "twins", "label": "rows whose nearest neighbours had mixed outcomes", "mask": m})
             orc = []
             rng = np.random.default_rng(3)
+            if pt != "regression":
+                flip = rng.random(len(df)) < ORACLE_NOISE
+                ncls_o = 2 if pt == "binary" else len(q.classes)
+                alt = (np.nan_to_num(q.y, nan=0) + rng.integers(1, ncls_o, len(df))) % ncls_o
             for s in segs:
                 m = s["mask"]
                 if m[ho].sum() < 20 or m[tr].sum() < 50:
@@ -666,21 +694,38 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                     sd = float(np.nanstd(yv))
                     col[m] = yv[m] + rng.normal(0, ORACLE_NOISE * sd, m.sum())
                 else:
-                    flip = rng.random(len(df)) < ORACLE_NOISE
-                    ncls = 2 if pt == "binary" else len(q.classes)
-                    alt = (yv + rng.integers(1, ncls, len(df))) % ncls
                     col[m] = np.where(flip[m], alt[m], yv[m])
                 Xo["__oracle__"] = col
                 if pt == "multiclass":
                     Xo["__oracle__"] = Xo["__oracle__"].astype("category")
                 _, p_o = q.fit_predict(Xo, tr, ho)
                 d = _paired(q, yh[okh], p_o[okh], base_p[okh], seed=7)
+                # the same oracle on a random segment of the same size: what any segment that large would gain
+                mr_ = np.zeros(len(df), bool)
+                mr_[rng.choice(tr, int(m[tr].sum()), replace=False)] = True
+                mr_[rng.choice(ho, int(m[ho].sum()), replace=False)] = True
+                Xr = X.copy()
+                colr = np.full(len(df), np.nan)
+                if pt == "regression":
+                    colr[mr_] = yv[mr_] + rng.normal(0, ORACLE_NOISE * float(np.nanstd(yv)), mr_.sum())
+                else:
+                    colr[mr_] = np.where(flip[mr_], alt[mr_], yv[mr_])
+                Xr["__oracle__"] = colr
+                if pt == "multiclass":
+                    Xr["__oracle__"] = Xr["__oracle__"].astype("category")
+                _, p_r = q.fit_predict(Xr, tr, ho)
+                dr = _paired(q, yh[okh], p_r[okh], base_p[okh], seed=8)
+                dx = _paired(q, yh[okh], p_o[okh], p_r[okh], seed=9)
                 orc.append({"id": s["id"], "kind": s["kind"], "label": s["label"], "rows_holdout": int(m[ho].sum()),
-                            "rows_train": int(m[tr].sum()), "delta": d["delta"], "ci": d["ci"], "metric": q.label})
+                            "rows_train": int(m[tr].sum()), "share": float(m.mean()), "delta": d["delta"], "ci": d["ci"], "metric": q.label,
+                            "random": {"delta": dr["delta"], "ci": dr["ci"]}, "excess": {"delta": dx["delta"], "ci": dx["ci"]},
+                            "beyond_noise": bool(dx["ci"][0] > 0)})
             out["oracle"] = {"segments": orc, "noise": ORACLE_NOISE,
                              "rule": (f"SIMULATION. The quick model refit with one extra column: the label with {ORACLE_NOISE:.0%} "
                                       "noise inside the segment and missing elsewhere (training and holdout rows alike). Δ holdout "
-                                      "score with a paired bootstrap: an upper bound on what better information there is worth.")}
+                                      "score with a paired bootstrap: an upper bound on what better information there is worth. Each is also run on a random "
+                                      "segment of the same size: the excess over it is what the segment itself is worth; a gap whose "
+                                      "excess is within noise (its 95 % interval reaches 0) is dropped.")}
         except Exception as e:  # noqa: BLE001
             out["errors"].append(f"oracle: {type(e).__name__}: {e}"[:200])
     if tw:
@@ -708,6 +753,19 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                     _, p_c = q.fit_predict(X, tr[~fl], ho)
                     d = _paired(q, yh[okh], p_c[okh], base_p[okh], seed=11)
                     item.update(delta=d["delta"], ci=d["ci"], metric=q.label)
+                    # The holdout's labels come from the same process: if cleanlab flags them at a similar rate, a model trained
+                    # on cleaner labels is scored against the same wrong labels and its gain cannot show (it can even look worse).
+                    hshare = float(flags.mean()) if flags is not None else None
+                    item["holdout_flagged_share"] = hshare
+                    if hshare is not None and hshare >= max(0.02, 0.5 * share_f):
+                        item["measurable"] = False
+                        item["unmeasurable_reason"] = (
+                            f"cleanlab flags {hshare:.1%} of the holdout labels too ({share_f:.1%} of training). If those are wrong labels, "
+                            "a model trained on cleaned labels is scored against them and its gain cannot show (it can even look worse); "
+                            "if they are classes that overlap, cleaning will not help. This holdout cannot tell which: reviewed holdout "
+                            "labels can (the flagged holdout rows in the label queue).")
+                    else:
+                        item["measurable"] = True
                 out["clean_labels"] = {**item, "rule": "cleanlab find_label_issues(prune_by_noise_rate) on the quick model's 3-fold "
                                                        "out-of-fold p̂ over the training rows; the quick model refit without the flagged "
                                                        "rows; Δ on the untouched holdout (paired bootstrap)"}
@@ -749,6 +807,12 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
     except Exception as e:  # noqa: BLE001
         out["errors"].append(f"leak: {type(e).__name__}: {e}"[:200])
 
+    # L. train–holdout overlap: the same entity (an ID column with repeats) or a near-identical row on both sides of the split
+    try:
+        out["overlap"] = overlap(df, cfg, res, label, is_h, feats_all, hp, pt, positive)
+    except Exception as e:  # noqa: BLE001
+        out["errors"].append(f"overlap: {type(e).__name__}: {e}"[:200])
+
     # K. cost trade-off
     c = cfg.get("cost") or {}
     if pt == "binary" and c.get("kind") == "binary":
@@ -758,6 +822,85 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
         except Exception as e:  # noqa: BLE001
             out["errors"].append(f"cost: {type(e).__name__}: {e}"[:200])
     out["seconds"] = round(time.time() - t0, 1)
+    return out
+
+
+def _row_keys(F: pd.DataFrame) -> np.ndarray:
+    G = F.copy()
+    for c in G.columns:
+        if pd.api.types.is_float_dtype(G[c]):
+            G[c] = G[c].map(lambda v: float(f"{v:.3g}") if pd.notna(v) else v)
+    return pd.util.hash_pandas_object(G.astype(str), index=False).to_numpy()
+
+
+def overlap(df: pd.DataFrame, cfg: dict[str, Any], res: dict[str, Any], label: str, is_h: np.ndarray, feats: list[str],
+            hp: pd.DataFrame, pt: str, positive: Any) -> dict[str, Any]:
+    """Holdout rows that are not new to the model: (1) the same entity as a training row (an ID-like column of the
+    table, used or not, whose value repeats across the split: a customer seen twice), (2) the same row as a training
+    row on every feature (numbers to 3 significant digits), (3) the same on all features but one. The served score
+    on the holdout without those rows is the score on new entities."""
+    from ..profiling import detect_type
+
+    trm = ~is_h
+    ent = []
+    for c in df.columns:
+        if c == label:
+            continue
+        s = df[c]
+        if detect_type(str(c), s) != "id" and not (s.dtype == object and s.nunique() > 0.5 * len(s)):
+            continue
+        if s.dtype == object and pd.to_numeric(s.astype(str).str.strip().replace("", np.nan), errors="coerce").notna().mean() >= 0.9:
+            continue  # numbers stored as text (amounts that repeat by chance), not an entity
+        v = s.astype(str).where(s.notna())
+        seen = set(v[trm].dropna())
+        rep = v[is_h].isin(seen).to_numpy() & v[is_h].notna().to_numpy()
+        if rep.sum():
+            ent.append({"column": c, "holdout_rows": int(rep.sum()), "share": float(rep.mean()),
+                        "repeats_in_table": int(v.duplicated(keep=False).sum()), "_mask": rep})
+    ent.sort(key=lambda e: -e["share"])
+    hidx = np.flatnonzero(is_h)
+    out: dict[str, Any] = {"holdout_rows": int(len(hidx))}
+    F = df[feats] if feats else None
+    near_mask = np.zeros(len(hidx), bool)
+    exact_mask = np.zeros(len(hidx), bool)
+    if F is not None and len(feats) >= 2:
+        k_all = _row_keys(F)
+        exact_mask = np.isin(k_all[is_h], k_all[trm])
+        if len(df) <= 120_000 and len(feats) <= 40:
+            for c in feats:
+                k = _row_keys(F.drop(columns=[c]))
+                near_mask |= np.isin(k[is_h], k[trm])
+        near_mask &= ~exact_mask
+    out["exact"] = {"holdout_rows": int(exact_mask.sum()), "share": float(exact_mask.mean()) if len(hidx) else 0.0}
+    out["near"] = {"holdout_rows": int(near_mask.sum()), "share": float(near_mask.mean()) if len(hidx) else 0.0,
+                   "checked": bool(len(df) <= 120_000 and len(feats) <= 40)}
+    out["entities"] = [{k: v for k, v in e.items() if k != "_mask"} for e in ent[:3]]
+    seen_mask = exact_mask | near_mask | (ent[0]["_mask"] if ent else False)
+    # the served score on the holdout rows that are new (by holdout_predictions' row numbers)
+    pos_in_h = {int(r): i for i, r in enumerate(hidx)}
+    hrow = hp["row"].to_numpy().astype(int)
+    m_seen = np.array([bool(seen_mask[pos_in_h[r]]) if r in pos_in_h else False for r in hrow])
+    out["seen_rows"] = int(m_seen.sum())
+    out["seen_share"] = float(m_seen.mean()) if len(m_seen) else 0.0
+    if pt == "binary" and m_seen.sum() >= 10 and (~m_seen).sum() >= 30:
+        from ..data_doctor import auc_halfwidth
+        from ..engine.scorecard import auc
+
+        y = (hp["y_true"].astype(str) == str(positive)).to_numpy().astype(int)
+        p = hp[f"p_{positive}"].to_numpy(dtype=float)
+        sc = {}
+        for name, m in (("all", np.ones(len(y), bool)), ("new", ~m_seen), ("seen", m_seen)):
+            if y[m].min() != y[m].max():
+                a = float(auc(y[m], p[m]))
+                sc[name] = {"auc": a, "n": int(m.sum()), "pm": auc_halfwidth(a, int(y[m].sum()), int((1 - y[m]).sum()))}
+        out["score"] = sc
+    elif pt in ("binary", "multiclass") and m_seen.sum() >= 10:
+        err = (hp["y_true"].astype(str) != hp["y_pred"].astype(str)).to_numpy()
+        out["score"] = {"error_seen": float(err[m_seen].mean()), "error_new": float(err[~m_seen].mean())}
+    out["rule"] = ("a holdout row is 'seen' when an ID-like column's value (any ID column of the table, used as a feature or "
+                   "not) also occurs in a training row, or when the row equals a training row on every feature (numbers to 3 "
+                   "significant digits) or on all features but one. Finding when seen rows are ≥ 1 % of the holdout; "
+                   "the honest score is the one on the new rows")
     return out
 
 

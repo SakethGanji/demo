@@ -719,7 +719,7 @@ export type VersionResult = {
 export type ModelVersion = {
   id: string; model_name: string; version: number; run_id: string; status: 'building' | 'ready' | 'failed'; stage: Stage; approval: Approval
   created_at: string; created_by: string
-  options: { refit_full: boolean; infer_limit: number | null; infer_limit_batch_size: number | null; clone_for_deployment: boolean; description: string }
+  options: { refit_full: boolean; infer_limit: number | null; infer_limit_batch_size: number | null; clone_for_deployment: boolean; description: string; change_by?: string | null }
   progress: { steps: BuildStep[] } | null; error: string | null; path: string | null; model_hash: string | null
   summary: {
     best_model: string | null; size_bytes: number | null; n_models: number | null; us_per_row_p50: number | null; us_per_row_p95: number | null
@@ -1269,9 +1269,9 @@ export type DoctorStatus = 'finding' | 'clear' | 'no-evidence' | 'missing' | 'n/
 export type DoctorSeverity = 'critical' | 'major' | 'minor'
 export type DoctorAction = {
   kind: 'gym_patch' | 'split_twin' | 'run_check' | 'labelling_queue' | 'shift_weights' | 'register' | 'inbox' | 'open_slice' | 'info' | 'retrain'
-    | 'experiment' | 'open_run' | 'open_view' | 'link'
+    | 'experiment' | 'open_run' | 'open_view' | 'link' | 'confirm_decision_time'
   title: string; why?: string; endpoint?: string; method?: 'GET' | 'POST'; body?: Record<string, unknown>; check?: string
-  run_id?: string; slice_id?: string; version_id?: string; view?: string; link?: string
+  run_id?: string; dataset_id?: string; columns?: string[]; slice_id?: string; version_id?: string; view?: string; link?: string
   patch?: { id: string; title: string; changes: { path: string; from: unknown; to: unknown; label: string }[]; body: Record<string, unknown> }
 }
 export type DoctorCheck = {
@@ -1468,7 +1468,7 @@ export type AgentStatus = { route: string[]; default: string; sdk: { available: 
 export type AgentSessionSummary = { id: string; user: string; status: AgentSession['status']; decider: string; created_at: string; title: string; steps: number }
 
 /** D1 Data Doctor: one typed fix (applied into a new dataset version), and one finding with its rule and evidence. */
-export type DataFix = { op: string; column?: string; columns?: string[]; values?: (string | number)[]; codes?: number[]; rows?: number[]; flag?: boolean; fill?: number; classes?: string[]; into?: string; reason?: string }
+export type DataFix = { op: string; column?: string; columns?: string[]; values?: (string | number)[]; codes?: number[]; rows?: number[]; flag?: boolean; fill?: number; classes?: string[]; into?: string; reason?: string; factor?: number; from?: string; date_column?: string }
 export type DataFinding = {
   id: string; key: string; severity: 'high' | 'medium' | 'low' | 'info'; title: string; rule: string
   numbers: Record<string, string | number | null>
@@ -1476,12 +1476,12 @@ export type DataFinding = {
   fix: { kind: 'transform' | 'question' | 'advice'; text: string; transforms: DataFix[]; selected: boolean }
   columns: string[]; status?: string; answered?: boolean
 }
-export type DecisionColumn = { column: string; suspect: boolean; reasons: string[]; auc: number | null; confidence: number; known: boolean }
+export type DecisionColumn = { column: string; suspect: boolean; reasons: string[]; auc: number | null; confidence: number; known: boolean | null; basis?: 'strength only' | 'name or values' }
 export type DataReport = {
   dataset_id: string; name: string; target: string | null; task: string | null; rows: number; columns: number
   findings: DataFinding[]; counts: Record<'high' | 'medium' | 'low' | 'info', number>; n_fixes: number; seconds: number
   severity_rule: string
-  decision_time: { question: string; rule: string; columns: DecisionColumn[]; answered: boolean; answered_at: string | null; by: string | null; fairness_only: string[]; protected: string[] }
+  decision_time: { question: string; rule: string; columns: DecisionColumn[]; unanswered?: string[]; answered: boolean; answered_at: string | null; by: string | null; fairness_only: string[]; protected: string[] }
   lineage: { parent: string; root: string; kind?: string; fixes?: DataFixEffect[]; applied_at?: string; by?: string } | null
 }
 /** A fix as applied: `rows` becomes the number of rows it dropped; `cells` how many values it changed. */
@@ -1530,7 +1530,7 @@ export type ReviewResult = {
   sign?: string; versus?: string; rung?: { name: string; model: string; latency_ms_p95?: number | null; size_bytes?: number | null }
   ratio?: { served: number; alternative: number }
 }
-export type ReviewVerdict = 'kept' | 'kept-honest' | 'equivalent' | 'info' | 'rejected' | 'request'
+export type ReviewVerdict = 'kept' | 'kept-honest' | 'equivalent' | 'info' | 'rejected' | 'request' | 'leak-test' | 'unmeasurable'
 export type JournalEntry = {
   step: number; hypothesis: { id: string; title: string; why?: string; expected?: string; source?: string }
   experiment: { kind: string; spec: Record<string, unknown> }; node: string; run_id: string | null; status: string

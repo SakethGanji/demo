@@ -26,6 +26,7 @@ function fixWords(t: DataFixEffect): string {
     case 'drop_rows': return `drop ${t.reason ?? 'rows'}${n(Array.isArray(t.rows) ? t.rows.length : t.rows)}`
     case 'drop_columns': return `drop ${(t.columns ?? []).join(', ')}`
     case 'merge_classes': return `${t.column}: ${(t.classes ?? []).length} classes → '${t.into}'`
+    case 'rescale': return `${t.column} × ${t.factor} from ${t.from} (+ flag)${n(t.cells)}`
     default: return t.op
   }
 }
@@ -47,7 +48,8 @@ export function DataReport({ dsId, onVersion }: { dsId: string; onVersion: (id: 
 function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: string, msg: string) => void; reload: () => void }) {
   const [sel, setSel] = useState<Record<string, boolean>>(() => Object.fromEntries(r.findings.map((f) => [f.key, f.fix.selected])))
   const dt = r.decision_time
-  const [known, setKnown] = useState<Record<string, boolean>>(() => Object.fromEntries(dt.columns.map((c) => [c.column, c.known])))
+  // null = not answered yet: the column stays in every run (recorded as unanswered); never saved as an answer by itself
+  const [known, setKnown] = useState<Record<string, boolean | null>>(() => Object.fromEntries(dt.columns.map((c) => [c.column, c.known ?? null])))
   const [fair, setFair] = useState<string[]>(dt.fairness_only)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
@@ -60,7 +62,8 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
   const main = r.findings.filter((f) => f.severity === 'high' || f.severity === 'medium')
   const rest = r.findings.filter((f) => f.severity === 'low' || f.severity === 'info')
   const asks = dt.columns.length > 0 || dt.protected.length > 0
-  const dropped = useMemo(() => [...dt.columns.filter((c) => !known[c.column]).map((c) => c.column), ...fair], [dt, known, fair])
+  const dropped = useMemo(() => [...dt.columns.filter((c) => known[c.column] === false).map((c) => c.column), ...fair], [dt, known, fair])
+  const open = dt.columns.filter((c) => c.suspect && known[c.column] == null).map((c) => c.column)
 
   const saveAnswers = async () => { await api.datasets.decisionTime(r.dataset_id, known, fair); setSaved(true) }
   const confirm = async () => {
@@ -70,7 +73,6 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
   const apply = async () => {
     setErr(''); setBusy(`Applying ${chosen.length} fix${chosen.length === 1 ? '' : 'es'}…`)
     try {
-      if (asks) await saveAnswers()
       const out = await api.datasets.applyFixes(r.dataset_id, transforms)
       const what = [out.rows_before !== out.rows_after ? `${(out.rows_before - out.rows_after).toLocaleString()} rows dropped` : '',
         out.columns_added.length ? `+ ${out.columns_added.join(', ')}` : '', out.columns_removed.length ? `− ${out.columns_removed.join(', ')}` : ''].filter(Boolean).join(' · ')
@@ -90,7 +92,7 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
           <span className="helper" style={{ fontSize: 12 }}>{r.rows.toLocaleString()} rows × {r.columns} · {r.target ? `y = ${r.target}` : 'no target yet'} · checked in {r.seconds < 0.1 ? '< 0.1' : r.seconds.toFixed(1)} s</span>
         </div>
         {chosen.length > 0
-          ? <button className="btn primary" disabled={!!busy} onClick={apply} data-testid="dr-apply" title="Makes a new dataset version with these fixes (and saves your answers below); the original is never changed">{busy || `Apply ${chosen.length} fix${chosen.length === 1 ? '' : 'es'} →`}</button>
+          ? <button className="btn primary" disabled={!!busy} onClick={apply} data-testid="dr-apply" title="Makes a new dataset version with these fixes; the original is never changed. Your decision-time answers are saved only with Save answers.">{busy || `Apply ${chosen.length} fix${chosen.length === 1 ? '' : 'es'} →`}</button>
           : asks && !saved ? <button className="btn primary" disabled={!!busy} onClick={confirm} data-testid="dr-confirm">{busy || 'Save answers'}</button> : null}
       </div>
       {r.lineage?.kind === 'data_doctor' && (
@@ -107,8 +109,11 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
             <b>Known when you decide?</b>
             {dt.columns.map((c) => (
               <label key={c.column} className="dr-tick" title={c.reasons.join(' · ')} data-testid={`dr-known-${c.column}`}>
-                <input type="checkbox" checked={!!known[c.column]} onChange={(e) => { setKnown({ ...known, [c.column]: e.target.checked }); setSaved(false) }} />
-                <span className="mono">{c.column}</span>{c.auc != null && <small className="muted mono">AUC {c.auc.toFixed(3)} alone</small>}
+                <span className="mono">{c.column}</span>{c.auc != null && <small className="muted mono">AUC {c.auc.toFixed(3)} alone{c.basis === 'strength only' ? ' (strength only)' : ''}</small>}
+                <select className="input sm" value={known[c.column] == null ? '' : known[c.column] ? 'yes' : 'no'}
+                  onChange={(e) => { setKnown({ ...known, [c.column]: e.target.value === '' ? null : e.target.value === 'yes' }); setSaved(false) }}>
+                  <option value="">not answered (kept)</option><option value="yes">known: keep</option><option value="no">not known: drop</option>
+                </select>
               </label>
             ))}
           </div>}
@@ -122,10 +127,10 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
             ))}
           </div>}
           <p className="helper dr-ask-rule">
-            {saved ? <>Saved{dt.by ? ` by ${dt.by}` : ''}: {dropped.length ? <><span className="mono">{dropped.join(', ')}</span> left out of every run on this dataset.</> : 'every column kept.'}</>
-              : <>Not saved yet: runs keep every column. {dt.rule.replace('Unticked columns', 'Unticked suspects and ticked fairness-only columns')}</>}
-            {saved && chosen.length === 0 && <button className="btn sm ghost" onClick={confirm} disabled={!!busy} style={{ marginLeft: 8 }}>Save changes</button>}
-            {!saved && chosen.length > 0 && <span> {`Applying the fixes saves them too.`}</span>}
+            {saved ? <>Saved{dt.by ? ` by ${dt.by}` : ''}: {dropped.length ? <><span className="mono">{dropped.join(', ')}</span> left out of every run on this dataset.</> : 'no column dropped.'}</>
+              : <>Not saved yet: runs keep every column. {dt.rule} Ticked fairness-only columns are left out too.</>}
+            {open.length > 0 && <span data-testid="dr-unanswered"> Not answered: <span className="mono">{open.join(', ')}</span> stay in every run as an open leak question.</span>}
+            {(chosen.length > 0 || saved) && <button className="btn sm ghost" onClick={confirm} disabled={!!busy || saved} style={{ marginLeft: 8 }} data-testid="dr-save">{saved ? 'Saved' : 'Save answers'}</button>}
           </p>
         </div>
       )}

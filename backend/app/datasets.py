@@ -313,10 +313,15 @@ class DatasetStore:
             raise DatasetError("A dataset needs at least two columns.")
         if len(df) < 2:
             raise DatasetError("A dataset needs at least two rows.")
+        from .profiling import coerce_numeric
+
+        df, coerced = coerce_numeric(df)  # A1 #5: '  ' / 'n/a' / '$12,000' in a number column must not make it a category or an ID
         dataset_id = "ds_" + secrets.token_hex(4)
         d = self.dir(dataset_id)
         d.mkdir(parents=True, exist_ok=True)
         df.to_csv(self.csv_path(dataset_id), index=False)
+        if coerced:
+            (d / "coerced.json").write_text(json.dumps(coerced))
         df = pd.read_csv(self.csv_path(dataset_id))  # profile exactly what the engine will read back
         try:
             rec = self._register(dataset_id, df, name=name, filename=filename, source="upload", note=note,
