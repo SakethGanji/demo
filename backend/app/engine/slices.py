@@ -125,6 +125,8 @@ def _fmt(v: float) -> str:
     if v is None or not math.isfinite(v):
         return str(v)
     a = abs(v)
+    if float(v).is_integer() and 1800 <= v <= 2100:  # A2 m7: a year, not "1,900"
+        return f"{v:.0f}"
     if a >= 1000:
         return f"{v:,.0f}"
     if a >= 100 or float(v).is_integer():

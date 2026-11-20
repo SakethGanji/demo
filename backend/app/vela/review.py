@@ -289,11 +289,17 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
         for col in cols:  # one column per ablation: a joint drop cannot say which one carries it
             out.append({"title": f"{col} is recorded after the outcome", "why": lk["reason"][:300], "expected": "worse",
                         "experiment": {"kind": "ablate", "columns": [col]}, "source": "rule: leakage finding → ablation"})
-        ov = (lk["evidence"].get("overlap") or {}).get("entities") or []
+        ovd = lk["evidence"].get("overlap") or {}
+        ov = ovd.get("entities") or []
         if ov:
             out.append({"title": f"The same {ov[0]['column']} sits in training and holdout", "why": lk["reason"][:300],
                         "expected": "worse", "experiment": {"kind": "group_split", "column": ov[0]["column"]},
                         "source": "rule: train–holdout overlap → group split"})
+        if ((ovd.get("near") or {}).get("holdout_rows") or 0) + ((ovd.get("exact") or {}).get("holdout_rows") or 0) >= 10:
+            # A2 M4: near-duplicates (identical but for one column) are removed by a typed dedupe, not drop_duplicates
+            out.append({"title": "Near-duplicate rows inflate the holdout score", "why": lk["reason"][:300], "expected": "worse",
+                        "experiment": {"kind": "apply_data_fix", "transforms": [{"op": "drop_near_duplicates"}]},
+                        "source": "rule: train–holdout near-duplicates → typed dedupe"})
     tr = []
     for f in c["data"]["findings"]:
         fx = f.get("fix") or {}
@@ -399,11 +405,18 @@ def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: di
         if hi < 0 and cols & (hard or set()):
             return "kept-honest", (f"the leak suspect removed: {res['metric']} {res['parent']:.4f} → {res['child']:.4f}; the score leans "
                                    f"on {c}. Unless {c} is known at decision time, the run without it is the honest score")
-        if hi < 0:
-            return "leak-test", (f"the score leans on {c} ({res['metric']} {res['parent']:.4f} → {res['child']:.4f}, Δ {d:+g}): evidence "
-                                 f"for a leak if {c} is not known when the decision is made. Confirm before using it")
+        if hi < 0:  # A2 m1: a drop alone does not tell a leak from a strong real signal; the plan compares the drops
+            return "leak-test", (f"the score uses {c} ({res['metric']} {res['parent']:.4f} → {res['child']:.4f}, Δ {d:+g}). Whether that is a "
+                                 f"leak depends only on when {c} is known: confirm its timing")
         return "leak-test", (f"no measurable drop without {c} (Δ {d:+g}, CI includes 0): the score does not lean on it. "
                              "Still confirm it is known at decision time")
+    dedupe = kind == "apply_data_fix" and any((t or {}).get("op") in ("drop_near_duplicates", "drop_duplicates")
+                                              for t in spec.get("transforms") or []) and res.get("paired") is False
+    if dedupe:  # A2 M4: unpaired, like a group split: the run without the (near-)duplicates against this one
+        if hi < 0:
+            return "kept-honest", (f"without the near-duplicate rows {res['metric']} {res['parent']:.4f} → {res['child']:.4f} "
+                                   f"(Δ {d:+g}, unpaired): copies on both sides of the split overstated the score")
+        return "leak-test", f"no measurable optimism from near-duplicate rows (Δ {d:+g}, CI includes 0)"
     if kind == "group_split":
         if hi < 0:
             return "kept-honest", (f"with each {spec.get('column')} on one side only, {res['metric']} {res['parent']:.4f} → {res['child']:.4f} "
@@ -799,7 +812,14 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
         r = e.get("result") or {}
         k = e["experiment"]["kind"]
         sp = e["experiment"]["spec"]
-        if k == "group_split" and e.get("verdict") in ("kept-honest", "leak-test") and r:
+        if k == "apply_data_fix" and r.get("paired") is False and e.get("verdict") in ("kept-honest", "leak-test"):
+            nxt.append({"kind": "dedupe", "title": "Remove near-duplicates before every split" if e["verdict"] == "kept-honest"
+                        else "Near-duplicates: no optimism measured",
+                        "why": f"With vs without rows identical but for one column: {r['metric']} {r['parent']:.4f} → {r['child']:.4f} "
+                               f"({_fmt(r)}, unpaired). " + ("Copies on both sides made the score look better: de-duplicate (Build → "
+                               "Data Report → near-duplicates) before training." if e["verdict"] == "kept-honest" else
+                               "They do not inflate the score measurably."), "source": f"journal step {e['step']}", "run_id": e.get("run_id")})
+        elif k == "group_split" and e.get("verdict") in ("kept-honest", "leak-test") and r:
             col = sp.get("column")
             nxt.append({"kind": "split", "title": f"Split by {col} for every run" if e["verdict"] == "kept-honest" else f"{col}: no overlap effect measured",
                         "why": f"Random split vs each {col} on one side only: {r['metric']} {r['parent']:.4f} → {r['child']:.4f} ({_fmt(r)}, unpaired). "
@@ -807,12 +827,21 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
                                   "de-duplicate repeated entities." if e["verdict"] == "kept-honest" else "Shared values do not inflate the score measurably."),
                         "source": f"journal step {e['step']}", "run_id": e.get("run_id")})
         elif k == "ablate" and e.get("verdict") in ("kept-honest", "leak-test") and r:
+            from .doctor import drop_class
+
             cols = ", ".join(sp.get("columns") or [])
-            leans = r["ci"][1] < 0
+            abl = [{"column": (x["experiment"]["spec"].get("columns") or [""])[0], "delta": x["result"]["delta"], "ci": x["result"]["ci"],
+                    "with": x["result"]["parent"]} for x in j if x["experiment"]["kind"] == "ablate" and x.get("result")
+                   and len(x["experiment"]["spec"].get("columns") or []) == 1]
+            cl = drop_class({"column": (sp.get("columns") or [""])[0], "delta": r["delta"], "ci": r["ci"], "with": r["parent"]}, abl)
             nxt.append({"kind": "confirm_decision_time", "title": f"Confirm when {cols} is known",
+                        "drop": cl,
                         "why": f"Without {cols}: {r['metric']} {r['parent']:.4f} → {r['child']:.4f} ({_fmt(r)}). "
-                               + (f"The score leans on it: if {cols} is recorded after the decision, the run without it is the honest "
-                                  "model and every number measured with it is optimistic." if leans else
+                               + (f"The score leans on it far more than on any other column tested: the pattern of a column recorded "
+                                  f"after the outcome. If {cols} is recorded after the decision, the run without it is the honest model "
+                                  "and every number measured with it is optimistic." if cl == "stands out" else
+                                  f"The score uses it, as it would any strong real signal; only its timing says whether that is a leak."
+                                  if cl == "uses" else
                                   f"The score barely depends on it, so the risk is small; still answer whether {cols} exists at decision time.")
                                + " Answer the decision-time question in Build → Data Report.",
                         "source": f"journal step {e['step']}", "run_id": e.get("run_id"), "columns": sp.get("columns")})
@@ -833,7 +862,8 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
             rg = r.get("rung") or {}
             lat = (f" ({rg['latency_ms_p95']:.1f} ms vs {r['best']['latency_ms_p95']:.1f} ms per row)"
                    if rg.get("latency_ms_p95") and (r.get("best") or {}).get("latency_ms_p95") else "")
-            leak_open = any(x.get("verdict") in ("leak-test", "kept-honest") for x in j) or (c.get("doctor") or {}).get("open_suspects")
+            leak_open = (any(x.get("verdict") in ("leak-test", "kept-honest") for x in j) or (c.get("doctor") or {}).get("open_suspects")
+                         or (c.get("doctor") or {}).get("leak_suspects"))
             nxt.append({"kind": "serve", "title": f"Serve the {rg.get('name')}", "why": f"Within noise of the best: {_fmt(r)}{lat}. "
                         "Simpler to explain and to validate." + (" Only once the leak question above is settled: a simpler model "
                                                                  "of a table with a leak still has the leak." if leak_open else ""),
@@ -896,6 +926,12 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
     elif (open_q := [e for e in j if e.get("verdict") in ("leak-test", "unmeasurable")]):
         s = (f"{len(j)} experiments; none improved the model beyond noise. Some questions stay open (a leak to confirm, or a gain "
              "the noisy holdout cannot show): settle them before concluding anything about new information.")
+    elif (open_doc := (c.get("doctor") or {}).get("leak_suspects") or (c.get("doctor") or {}).get("open_suspects")
+          or any(g.get("kind") == "label_review" for g in (doctor.get("missing_info") or {}).get("gaps") or [])) and not honest:
+        # A2 C1 / M3: a leak or a label question still open: no conclusion about new information
+        s = (f"{len(j)} experiment{'s' if len(j) != 1 else ''}; none improved the model beyond noise. A question stays open ("
+             + ("a column whose timing nobody has confirmed" if (c.get("doctor") or {}).get("leak_suspects") or (c.get("doctor") or {}).get("open_suspects")
+                else "labels to review") + "): settle it before concluding anything about new information.")
     elif others := [e for e in j if e.get("verdict") != "kept-honest"]:
         # D5: claim that tuning or arithmetic will not help only when such an experiment ran (a capped review may not get there)
         lead = (f"{len(others)} {'other ' if honest else ''}experiment{'s' if len(others) != 1 else ''}: none improved the model "

@@ -12,6 +12,7 @@ function num(k: string, v: string | number | null): string {
   if (v == null) return '—'
   if (typeof v === 'string') return v
   if (/share|rate$|^rate/.test(k) && Math.abs(v) <= 1) return pct(v)
+  if (Number.isInteger(v) && (/year|yr_|_yr|^yr/i.test(k) || (v >= 1800 && v <= 2100 && /from|to|built|renov/i.test(k)))) return String(v)  // A2 m7
   return Number.isInteger(v) ? v.toLocaleString() : sig4(v)
 }
 
@@ -23,6 +24,7 @@ function fixWords(t: DataFixEffect): string {
     case 'split_codes': return `${t.column}: codes ${(t.codes ?? []).join(', ')} → ${t.fill ?? 0} + ${t.column}_code${n(t.cells)}`
     case 'add_missing_flag': return `+ ${t.column}_was_missing`
     case 'drop_duplicates': return `drop duplicate rows${n(typeof t.rows === 'number' ? t.rows : undefined)}`
+    case 'drop_near_duplicates': return `drop near-duplicate rows (identical but for one column)${n(typeof t.rows === 'number' ? t.rows : undefined)}`
     case 'drop_rows': return `drop ${t.reason ?? 'rows'}${n(Array.isArray(t.rows) ? t.rows.length : t.rows)}`
     case 'drop_columns': return `drop ${(t.columns ?? []).join(', ')}`
     case 'merge_classes': return `${t.column}: ${(t.classes ?? []).length} classes → '${t.into}'`
@@ -130,6 +132,7 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
             {saved ? <>Saved{dt.by ? ` by ${dt.by}` : ''}: {dropped.length ? <><span className="mono">{dropped.join(', ')}</span> left out of every run on this dataset.</> : 'no column dropped.'}</>
               : <>Not saved yet: runs keep every column. {dt.rule} Ticked fairness-only columns are left out too.</>}
             {open.length > 0 && <span data-testid="dr-unanswered"> Not answered: <span className="mono">{open.join(', ')}</span> {open.length === 1 ? 'stays' : 'stay'} in every run as an open leak question.</span>}
+            {dt.protected.length > 0 && !saved && fair.length === 0 && <span data-testid="dr-fair-open"> Fairness question open: <span className="mono">{dt.protected.join(', ')}</span> {dt.protected.length === 1 ? 'stays' : 'stay'} in runs until you tick {dt.protected.length === 1 ? 'it' : 'them'}.</span>}
             {(chosen.length > 0 || saved) && <button className="btn sm ghost" onClick={confirm} disabled={!!busy || saved} style={{ marginLeft: 8 }} data-testid="dr-save">{saved ? 'Saved' : 'Save answers'}</button>}
           </p>
         </div>
@@ -161,6 +164,10 @@ function Finding({ f, on, toggle }: { f: DataFinding; on: boolean; toggle: () =>
       </summary>
       <div className="dr-body">
         {f.fix.text && <p className="dr-fixtext"><b>Fix · </b>{f.fix.text}{f.fix.transforms.length > 0 && <span className="mono muted"> {f.fix.transforms.slice(0, 4).map(fixWords).join(' · ')}{f.fix.transforms.length > 4 ? ` · +${f.fix.transforms.length - 4}` : ''}</span>}</p>}
+        {f.preview && f.preview.rows.length > 0 && <div className="table-wrap dr-ev" data-testid={`dr-preview-${f.id}`}>
+          <p className="helper" style={{ margin: '0 0 4px', fontSize: 12 }}><b>Preview before Apply</b>: {f.preview.rows_rescaled.toLocaleString()} {f.preview.column} values change; {f.preview.rows_left.toLocaleString()} from that date already on the old scale stay.</p>
+          <table className="table"><thead><tr><th>row</th><th>date</th><th>{f.preview.column} now</th><th>after the fix</th><th /></tr></thead>
+          <tbody>{f.preview.rows.map((p) => <tr key={p.row}><td className="mono">{p.row}</td><td className="mono">{p.date}</td><td className="mono">{String(p.before)}</td><td className="mono">{String(p.after)}</td><td className="muted">{p.changed ? 'rescaled' : 'unchanged'}</td></tr>)}</tbody></table></div>}
         <p className="dr-rule"><span className="micro-label">Rule</span> {f.rule}</p>
         {Object.keys(f.numbers).length > 0 && <div className="dr-nums">{Object.entries(f.numbers).map(([k, v]) => <span key={k} className="chip"><span className="muted">{k}</span> {num(k, v)}</span>)}</div>}
         {ev.rows.length > 0 && <div className="table-wrap dr-ev"><table className="table">

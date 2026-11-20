@@ -478,7 +478,14 @@ def list_for(store, rec: dict[str, Any]) -> list[dict[str, Any]]:
             item["error"] = (r.get("error") or "")[:300]
         if r.get("status") == "succeeded":
             try:
-                item["result"] = delta(rec, full)
+                dedupe = ex.get("kind") == "apply_data_fix" and any((t or {}).get("op") in ("drop_near_duplicates", "drop_duplicates")
+                                                                     for t in ex.get("transforms") or [])
+                # A2 M4: removing (near-)duplicates changes the holdout too; the question is how much the parent's score
+                # was inflated, so Δ is unpaired like a group split (each run on its own holdout)
+                item["result"] = ({**group_split_result(rec, full), "sign": "better is positive; a drop means copies on both "
+                                   "sides of the split overstated the score", "versus": "the same body with the (near-)duplicates; "
+                                   "unpaired (the dedupe removes holdout rows too), CI from both bootstrap SEs"}
+                                  if dedupe else delta(rec, full))
             except Exception as e:  # noqa: BLE001
                 item["error"] = f"{type(e).__name__}: {e}"[:200]
         out.append(item)

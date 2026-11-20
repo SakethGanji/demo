@@ -271,7 +271,26 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
                 predictor.unpersist(models=[r["model"]])
             except Exception:  # noqa: BLE001
                 pass
-    # the recommendation: the simplest servable rung within the interval of the best
+    # A2 m4: "within the interval" is evidence of equivalence only when the interval is narrow enough to exclude a
+    # material loss. With few positives (fraud: about 100) the CI spans ±0.1 and contains 0 for any rung. A simpler rung
+    # is recommended only when its gap's upper bound is ≤ max(0.02, 5 % of the best score) on a score-like metric, and
+    # (binary) the holdout has ≥ 50 rows of each class; otherwise the interval is "too wide to tell".
+    n_min = None
+    try:
+        if getattr(predictor, "problem_type", None) == "binary":
+            yb = (y_raw.astype(str) == str(predictor.positive_class))
+            n_min = int(min(yb.sum(), (~yb).sum()))
+    except Exception:  # noqa: BLE001
+        n_min = None
+    best_abs = abs(float(natural(full[best]))) if best in full else 0.0
+    tol = max(0.02, 0.05 * best_abs) if best_abs <= 1.0 else None  # score-like metrics only (not RMSE, not cost)
+    for r in rungs:
+        if r["rung"] == best or not r.get("gap") or not r["within"]:
+            continue
+        wide = (tol is not None and r["gap"]["ci"][1] > tol) or (n_min is not None and n_min < 50)
+        if wide:
+            r["within"] = False
+            r["too_wide"] = True
     servable = [r for r in rungs if r["rung"] > 0 and r["model"] and not r.get("same_as") and r["rung"] in col]
     rec = next((r for r in servable if r["within"]), servable[-1] if servable else None)
     stack = next((r for r in rungs if r["rung"] == 3), None)
@@ -281,7 +300,8 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
         "rungs": [{k: v for k, v in r.items() if k != "score_internal"} for r in rungs],
         "rule": (f"Serve the simplest rung whose holdout {label_of.get(name, name)} is within the "
                  f"{level:.0%} paired-bootstrap interval of the best: its gap's interval includes 0 "
-                 f"({len(S):,} resamples of the {n:,} holdout rows, every rung on the same draw)."),
+                 f"({len(S):,} resamples of the {n:,} holdout rows, every rung on the same draw), and the interval is narrow "
+                 "enough to tell: the gap's upper bound ≤ max(0.02, 5 % of the best score) and ≥ 50 holdout rows of each class."),
         "small_data": small,
         "seconds": None,
     }
@@ -306,8 +326,12 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
                               "serve_model": None if rec["rung"] == 3 else rec["model"]}
         b = next(r for r in rungs if r["rung"] == best)
         if rec["rung"] == best:
+            wide_ = [r for r in rungs if r.get("too_wide")]
             out["sentence"] = (f"{rec['name']} is the best rung ({out['metric_label']} {f(rec['score'])}, {better} is better); "
-                               "no simpler rung is within the interval.")
+                               + ("no simpler rung is within the interval." if not wide_ else
+                                  f"{', '.join(r['name'] for r in wide_)}'s interval includes 0 but is too wide to show it is as good "
+                                  f"(gap up to {f(max(r['gap']['ci'][1] for r in wide_))}"
+                                  + (f"; {n_min:,} rows of the rarer class" if n_min is not None and n_min < 50 else "") + "), so serve the best."))
         else:
             g = rec["gap"]
             if name == "expected_cost":

@@ -269,6 +269,16 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     id_dropped = [] if body.keep_id_columns else \
         [c["name"] for c in profile["columns"] if c["type"] == "id" and c["name"] != label
          and c["name"] not in types and c["name"] not in drop]
+    if id_dropped:  # A2 M7: an "ID" tied to the target is a value (often recorded with the outcome), not a key: keep it,
+        # the Data Doctor raises it as a leakage suspect instead of hiding it
+        try:
+            from ..data_doctor import id_tie
+
+            fr = app.state.datasets.load_frame(ds["id"])
+            tied = [c for c in id_dropped if c in fr.columns and label in fr.columns and id_tie(fr[c], fr[label])]
+        except Exception:  # noqa: BLE001
+            tied = []
+        id_dropped = [c for c in id_dropped if c not in tied]
     drop = [*drop, *id_dropped]
     bad = [c for c in types if c not in cols]
     if bad:
