@@ -818,7 +818,7 @@ def _more_rows(ctx: dict[str, Any]) -> dict[str, Any] | None:
                 "metric": v.get("metric"), "source": f"F12 learning curve ({v.get('label')}): projected at 2N = {x2['n']:,} rows"}
     if qc:
         return {"delta": qc["next_doubling"], "ci": qc["ci"], "metric": qc["metric"],
-                "source": f"quick model on nested training subsets ({', '.join(f'{r:,}' for r in qc['rows'])} rows); the next doubling projected"}
+                "source": f"early-stopped LightGBM on nested training subsets ({', '.join(f'{r:,}' for r in qc['rows'])} rows); the next doubling projected"}
     return None
 
 

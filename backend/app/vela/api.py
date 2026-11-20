@@ -216,7 +216,7 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments
 
 
-GAPS_PROCEDURE = "missing/1"
+GAPS_PROCEDURE = "missing/2"
 
 
 def _gaps_job(cfg, rec, hints):

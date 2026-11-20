@@ -80,6 +80,28 @@ class Q:
         m.fit(X.iloc[tr], yt)
         return m, self.predict(m, X.iloc[ho])
 
+    def fit_predict_es(self, X: pd.DataFrame, tr: np.ndarray, ho: np.ndarray):
+        """The learning-curve model: a regularised LightGBM (15 leaves, ≥ 40 rows a leaf, row and column subsampling,
+        learning rate 0.03) early-stopped on 15 % of its own rows, so a small subset is not under- or over-fit and the
+        gain per doubling is not inflated (a fixed 200-tree model on 1/8 of Taiwan understated it by 0.025 AUC)."""
+        import lightgbm as lgb
+
+        v = np.random.default_rng(2).random(len(tr)) < 0.15
+        a, b = tr[~v], tr[v]
+        kw = dict(n_estimators=3000, learning_rate=0.03, num_leaves=15, min_child_samples=40, subsample=0.8, subsample_freq=1,
+                  colsample_bytree=0.8, reg_lambda=1.0, random_state=0, verbose=-1, n_jobs=4)
+        reg = self.pt in ("regression", "quantile")
+        m = lgb.LGBMRegressor(**kw) if reg else lgb.LGBMClassifier(**kw)
+        ya, yb = self.y[a], self.y[b]
+        if self.pt == "multiclass":
+            ya, yb = ya.astype(int), yb.astype(int)
+        if not reg and len(np.unique(yb)) < len(np.unique(ya)):  # a tiny subset: no early stop
+            m.set_params(n_estimators=300)
+            m.fit(X.iloc[tr], self.y[tr].astype(int))
+        else:
+            m.fit(X.iloc[a], ya, eval_X=(X.iloc[b],), eval_y=(yb,), callbacks=[lgb.early_stopping(100, verbose=False)])
+        return self.predict(m, X.iloc[ho])
+
     def predict(self, m, X):
         if self.pt in ("regression", "quantile"):
             return m.predict(X)
@@ -578,7 +600,7 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
             preds = []
             for f in fr:
                 sub = np.sort(perm[: max(50, int(f * len(perm)))])
-                preds.append(q.fit_predict(X, sub, ho)[1] if f < 1.0 else base_p)
+                preds.append(q.fit_predict_es(X, sub, ho))
             yv = yh[okh]
             sc = [q.score(yv, p[okh]) for p in preds]
             g = np.diff(sc)
@@ -598,7 +620,7 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                                   "scores": [q.natural(s) for s in sc], "gains": [float(x) for x in g], "decay": _decay(g),
                                   "next_doubling": nxt, "ci": ci, "eps": eps, "flat": bool(nxt < eps and ci[1] < 2 * eps),
                                   "metric": q.label,
-                                  "rule": (f"the quick model on nested 1/8, 1/4, 1/2 and all {len(perm):,} training rows; the next doubling is "
+                                  "rule": (f"a regularised, early-stopped LightGBM on nested 1/8, 1/4, 1/2 and all {len(perm):,} training rows; the next doubling is "
                                            f"projected as the last gain × the mean decay ratio of successive gains (clipped to [0, 1]); "
                                            f"flat when it is < ε = {eps:.4g} and its 95 % upper bound < 2ε")}
         except Exception as e:  # noqa: BLE001
