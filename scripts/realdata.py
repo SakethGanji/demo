@@ -226,8 +226,9 @@ def shift(c: httpx.Client, rid: str, cutoff: str) -> dict:
         if time.time() - t0 > 1200:
             break
         time.sleep(5)
-    return {"key": key, "status": g.get("status"), "auc": g.get("auc"), "ci": g.get("ci"), "verdict": g.get("verdict"),
-            "top": [f.get("feature") for f in g.get("top_features") or [] if f.get("significant")][:5]}
+    r = g.get("result") or {}
+    return {"key": key, "status": g.get("status"), "auc": (r.get("auc") or {}).get("value"), "ci": (r.get("auc") or {}).get("ci"),
+            "verdict": (r.get("verdict") or {}).get("label"), "top": [f.get("feature") for f in (g.get("summary") or {}).get("top_features") or []][:5]}
 
 
 def apply_fix(c: httpx.Client, ds: str, fid: str) -> dict:
