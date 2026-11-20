@@ -167,7 +167,7 @@ request the bank could act on ("collect", "join", "redefine the label", "fix the
 | D5 | Real-data proof | Section 5: `make realdata`, planted-issue copies (including hidden-feature tests for 3b: drop a known strong column and check that 'What's missing' points at it), fixes for what it finds, screenshots, demo script update. |
 | A1…An | Adversarial validation | An independent Opus agent (read-only, fresh eyes) attacks the finished system: new public datasets, nasty CSVs, planted issues it chooses, UI walk. It reports what is wrong, misleading or missing. A fix session addresses the findings, and this repeats (up to ~3 rounds) until a round finds nothing important. |
 
-Rules for every D-session:
+Rules for every D-session (updated by the user on 2026-11-20: **no integration or smoke-suite runs, and no new smoke sections. Verify by calling the APIs manually, chained the way the UI calls them, on real and crafted data, plus `npm run build`.**):
 - Never edit `backend/app/samples*.py`.
 - Small commits, pushed only to `motion-components`; no PRs.
 - Keep the UI concise: one primary action per screen, no new nav items, reuse the shared atoms.
