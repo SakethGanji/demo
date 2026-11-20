@@ -19,6 +19,9 @@ Results go to backend/data/realdata/d4_postdeploy.json and are printed.
 from __future__ import annotations
 
 import argparse
+import functools
+import builtins
+print = functools.partial(builtins.print, flush=True)  # noqa: A001
 import io
 import json
 import time
@@ -68,9 +71,12 @@ def wait(get, ok=("succeeded", "ready", "failed", "cancelled"), key="status", ti
 
 def batch(c: httpx.Client, vid: str, df: pd.DataFrame, name: str, date: str) -> dict:
     feats = df.drop(columns=["default"])
-    b = c.post(f"/api/registry/versions/{vid}/batches", files={"file": (name, csv(feats), "text/csv")},
-               data={"created_by": "d4-ops", "data_date": date}).json()
-    b = wait(lambda: c.get(f"/api/registry/batches/{b['id']}").json())
+    for _ in range(3):  # a batch killed by an API restart is scored again
+        b = c.post(f"/api/registry/versions/{vid}/batches", files={"file": (name, csv(feats), "text/csv")},
+                   data={"created_by": "d4-ops", "data_date": date}).json()
+        b = wait(lambda: c.get(f"/api/registry/batches/{b['id']}").json())
+        if b["status"] == "succeeded":
+            break
     lab = df[["app_id", "default"]].assign(label_date=date)
     r = c.post(f"/api/registry/batches/{b['id']}/labels", files={"file": (f"labels_{name}", csv(lab), "text/csv")},
                data={"created_by": "d4-ops", "id_column": "app_id", "label_column": "default"})
@@ -99,10 +105,10 @@ def main() -> None:
     rid = res["run"]
     scen = {
         "threshold": [("m4", make(3000, 14, shift=0.9, start=400000), "2026-04-30")],
-        "recalibrate": [("m4", make(3000, 24, steep=1.8, start=500000), "2026-04-30")],
-        "retrain_window": [(f"m{m}", make(1000, 30 + m, flip_x2=True, start=600000 + 10000 * m), f"2026-0{m}-28") for m in (1, 2, 3)]
-                          + [("m4", make(3000, 34, flip_x2=True, start=640000), "2026-04-30")],
-        "drop_feature": [("m4", make(3000, 44, broken_x3=True, start=700000), "2026-04-30")],
+        "recalibrate": [("m4", make(1500, 24, steep=1.8, start=500000), "2026-04-30")],
+        "retrain_window": [(f"m{m}", make(600, 30 + m, flip_x2=True, start=600000 + 10000 * m), f"2026-0{m}-28") for m in (1, 2, 3)]
+                          + [("m4", make(1500, 34, flip_x2=True, start=640000), "2026-04-30")],
+        "drop_feature": [("m4", make(1500, 44, broken_x3=True, start=700000), "2026-04-30")],
     }
     for kind in [x.strip() for x in a.only.split(",") if x.strip()]:
         out = res.get(kind) or {}

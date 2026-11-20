@@ -687,7 +687,8 @@ def clean_domain_gaps(items: Any) -> list[dict[str, Any]]:
 
 
 def _fmt(res: dict[str, Any]) -> str:
-    return f"{res['metric']} {res['delta']:+.4f} [{res['ci'][0]:+.4f}, {res['ci'][1]:+.4f}]"
+    d = 1 if "cost" in str(res.get("metric")) else 4
+    return f"{res['metric']} {res['delta']:+.{d}f} [{res['ci'][0]:+.{d}f}, {res['ci'][1]:+.{d}f}]"
 
 
 def journal_facts(rv: dict[str, Any]) -> dict[str, Any]:

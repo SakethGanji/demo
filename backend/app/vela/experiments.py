@@ -470,7 +470,7 @@ def list_for(store, rec: dict[str, Any]) -> list[dict[str, Any]]:
 def segment_result(seg: dict[str, Any]) -> dict[str, Any]:
     """G5's own paired comparison on its holdout: the routed per-segment models against its global model."""
     res = seg.get("result") or {}
-    ov = res.get("overall") or {}
+    ov = res.get("overall") or (res.get("segmented") or {}).get("overall") or {}
     if "delta_auc" in ov:
         d = ov["delta_auc"]
         return {"metric": "AUC", "parent": (ov.get("global") or {}).get("auc"), "child": (ov.get("routed") or {}).get("auc"),
