@@ -6,7 +6,8 @@ Kinds (binary versions):
   threshold      the cost-optimal threshold on recent data. Out of sample: chosen on one half of the batch (stratified),
                  applied to the other, and back (cross-fitted). Δ = cost per 1,000 (current t − new t).
   recalibrate    Platt scaling on logit p̂, cross-fitted the same way. Δ log loss (the verdict) and the cost at the
-                 calibrated Bayes threshold. Served as the equivalent threshold on the raw score (ranking unchanged).
+                 calibrated Bayes threshold. The requested version serves the calibrated probabilities (the Platt map is
+                 stored with it, ensemble_models.calibration) and decides at the Bayes threshold on that scale.
   retrain_window the version's config retrained on the labelled batches BEFORE the newest (the window; plus the
                  version's training data when the window has < 300 rows), scored on the newest batch.
   drop_feature   the version's config retrained without one (drifted) feature on its own training data, scored on the
@@ -122,10 +123,12 @@ def recalibrate(y: np.ndarray, p: np.ndarray, t0: float, cost: dict[str, float])
                             "platt": {"a": a_full, "b": b_full}, "bayes_threshold": tb},
             "cost": {"current": float(ca.mean()), "proposed": float(cb.mean()), "delta": float(ca.mean() - cb.mean()), "ci": _boot(ca, cb, 1)},
             "operating": {"current": _op(y, d_cur, cost, t0), "proposed": _op(y, d_new, cost, t_raw)},
-            "proposal": {"decision_threshold": t_raw, "platt": {"a": a_full, "b": b_full}} if t_raw and 0 < t_raw < 1 else None,
+            "proposal": {"decision_threshold": tb, "platt": {"a": a_full, "b": b_full}, "raw_threshold_equivalent": t_raw}
+            if a_full > 0 and 0 < tb < 1 else None,
             "sign": "Δ = log loss now − log loss calibrated (positive: better calibrated)",
-            "serving": "Served as the equivalent threshold on the raw score: p_cal > t* ⟺ p > σ((logit t* − b) / a). Ranking and "
-                       "decisions match the calibrated model; the probabilities shown stay the raw ones."}
+            "serving": "The requested version serves the calibrated probabilities p′ = σ(a · logit p + b) (a, b fitted on the whole "
+                       "batch) and decides at the calibrated Bayes threshold t* = c_FP / (c_FP + c_FN); the same decisions as "
+                       "p > σ((logit t* − b) / a) on the raw score. The log loss above is the cross-fitted estimate."}
 
 
 def compare_models(y: np.ndarray, p_cur: np.ndarray, p_new: np.ndarray, cost: dict[str, float]) -> dict[str, Any]:
@@ -177,6 +180,16 @@ def save_all(reg_dir: Path, vid: str, items: list[dict[str, Any]]) -> None:
     tmp = p.with_suffix(".tmp")
     tmp.write_text(json.dumps(items, default=lambda v: v.item() if hasattr(v, "item") else str(v)))
     tmp.replace(p)
+
+
+def compose_platt(cur: dict[str, Any] | None, new: dict[str, Any]) -> dict[str, float]:
+    """The map to serve on the run's raw score when the version already serves σ(a₁ · logit p + b₁) and the new
+    calibration (a₂, b₂) was fitted on those served probabilities: a = a₂a₁, b = a₂b₁ + b₂."""
+    a2, b2 = float(new["a"]), float(new["b"])
+    if not cur:
+        return {"a": a2, "b": b2}
+    a1, b1 = float(cur["a"]), float(cur["b"])
+    return {"a": a2 * a1, "b": a2 * b1 + b2}
 
 
 def verdict(res: dict[str, Any] | None) -> str:

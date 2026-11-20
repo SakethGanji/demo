@@ -4,6 +4,7 @@ model card, Try It, batch scoring with drift, and MLflow's view of a version."""
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import secrets
@@ -90,6 +91,9 @@ class RegisterRequest(BaseModel):
                                  "to the features the served model reads (predictions checked unchanged).")
     decision_threshold: float | None = Field(None, gt=0, lt=1, description="Binary: serve this decision threshold (D4 "
                                              "post-deployment change requests: a threshold move or a recalibration).")
+    calibration: dict[str, float] | None = Field(None, description="Binary: serve Platt-recalibrated probabilities "
+                                                 "σ(a · logit p + b), {a > 0, b} (D4 recalibration); decision_threshold "
+                                                 "is then on the calibrated scale.")
     change_id: str | None = Field(None, description="The D4 change request this version carries out.")
 
 
@@ -109,6 +113,12 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
     if body.distill and (rec.get("result") or {}).get("problem_type") == "quantile":
         raise HTTPException(400, "This is a quantile run; distill trains students on one prediction per row, not one "
                                  "per quantile level. Register without distill.")
+    if body.calibration is not None:
+        a, b = body.calibration.get("a"), body.calibration.get("b")
+        if not (isinstance(a, (int, float)) and isinstance(b, (int, float)) and math.isfinite(a) and math.isfinite(b) and a > 0):
+            raise HTTPException(400, "calibration is {a, b}: Platt p′ = σ(a · logit p + b), finite, with a > 0 (ranking kept).")
+        if (rec.get("result") or {}).get("problem_type") not in (None, "binary"):
+            raise HTTPException(400, "calibration applies to binary (yes/no) runs only.")
     who = _name_ok(body.created_by, "created_by")
     reg = _reg(request)
     name = (body.model_name or default_model_name(rec["dataset_id"], rec["label"])).strip()

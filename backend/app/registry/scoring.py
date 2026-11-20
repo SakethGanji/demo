@@ -52,6 +52,7 @@ def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target
         if p.problem_type == "binary":
             out["positive_class"] = jsonable(p.positive_class)
             out["threshold"] = float(p.decision_threshold)
+            out["calibration"] = getattr(p._learner, "ensemble_platt", None)  # D4: the Platt map it serves, if any
     elif p.problem_type == "quantile":  # F9: every level, and the centre as the prediction
         from ..engine import quantile as qt
 
