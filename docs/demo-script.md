@@ -146,6 +146,35 @@ Old links (`#/experiments`, `#/explain?run=…&tab=…`, `#/autopilot`, `#/forec
    7,200 rows). On its newest 1,464 rows the champion scores AUC **0.7510**, the retrained run **0.7739**.
 5. Back in **Models →** the champion run → **Doctor**: **Shift (critical)**, prescription **Retrain On Recent Data**.
 
+## Optional · real data: what is missing, and a leak (about 4 minutes, D5)
+
+Two public tables with known answers. Prepare them before the audience arrives: `make realdata REALDATA_ONLY=taiwan,bank`
+(about 25 minutes on 4 CPUs; it uploads, trains, follows the Doctor's prescriptions and prints PASS / FAIL per
+expectation). The run ids are in `backend/data/realdata/results.json`.
+
+1. **Taiwan card default (30,000 clients): at the data's limit.** Models → the `taiwan · D5` run → **Results**: the
+   ladder recommends the **single LightGBM** (it is the best rung, AUC **0.780**; published ≈ 0.78).
+   - **Doctor** tab. **Expect:** **At the data's limit (minor)**: the next doubling of rows is worth **+0.0027
+     [−0.0002, +0.0064]** AUC, below ε = 0.005; the single model is the best rung; no overfit; no fixable slice.
+   - **What's Missing.** **Expect:** the irreducible error is between **0.158 and 0.266** against a model error of
+     **0.182**, and **63 %** of the errors are applicants whose 15 nearest neighbours had mixed outcomes. The ranked gaps:
+     the twins (oracle up to +0.10 AUC, a simulation), errors concentrated where PAY_AMT4 ≤ 1,000 and PAY_AMT1 ≤ 316,
+     and **PAY_0 is thin** (11 values, about half the signal).
+   - **Say:** "Tuning will not move this model. The table cannot tell these applicants apart; a bureau feed or a payment
+     history would. Each gap is a data request: Copy The Data Requests."
+2. **Bank marketing (41,188 calls): a leak, and the honest score.** The `bank · D5` run → **Doctor**. **Expect:**
+   **Leakage (critical)**: `duration` carries **75 %** of the importance, **11.2×** the next, and the Data Doctor named
+   it (a call's length is known only after the call).
+   - The leak card shows the ablation the Doctor ran: AUC **0.957 → 0.816**, Δ **−0.142 [−0.158, −0.126]** on 8,238
+     shared holdout rows. 0.816 is the honest score (Moro et al. 2014 report 0.80 on the features known before the call).
+   - **Review** (same tab): the journal's first line is the ablation, **kept · honest**; the plan's first action is
+     "Drop duration and confirm when it is known".
+   - **Say:** "A score of 0.96 would have gone to production. The platform proved it was a leak with a number, and
+     wrote down the score you can actually have."
+3. Optional, for the sceptics: `docs/progress/D5.md` lists eight planted-issue copies of real tables (a leak column,
+   flipped labels, a planted ratio, drift, −999 codes, duplicates, income missing in one segment, a hidden column) with
+   what each check found.
+
 ## Optional · the credit-risk add-on (about 5 minutes)
 
 For a credit-risk audience that wants more than the core story. Each step stands alone.

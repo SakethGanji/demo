@@ -50,10 +50,10 @@ FIT = {"num_bag_folds": 3, "num_stack_levels": 0}
 # Published scores (holdout AUC, accuracy for Banking77). Sources in docs/progress/D5.md.
 PUBLISHED = {
     "taiwan": ("roc_auc", 0.76, 0.80, "Yeh & Lien 2009; GBM benchmarks ≈ 0.78"),
-    "bank": ("roc_auc", 0.92, 0.96, "Moro et al. 2014 (with duration) ≈ 0.94"),
-    "bank_noduration": ("roc_auc", 0.77, 0.82, "without duration ≈ 0.79–0.80"),
+    "bank": ("roc_auc", 0.92, 0.96, "with duration, public benchmarks ≈ 0.93–0.95"),
+    "bank_noduration": ("roc_auc", 0.77, 0.82, "Moro et al. 2014: AUC 0.80 on the features known before the call"),
     "german_cost": ("roc_auc", 0.70, 0.82, "OpenML 31 task runs ≈ 0.75–0.80"),
-    "banking77": ("accuracy", 0.85, 0.94, "Casanueva et al. 2020: 0.93 (BERT); TF-IDF baselines ≈ 0.87–0.89"),
+    "banking77": ("accuracy", 0.85, 0.94, "Casanueva et al. 2020: 0.93–0.94 with sentence encoders; a TF-IDF stack sits lower"),
     "gmsc": ("roc_auc", 0.84, 0.88, "Kaggle Give Me Some Credit: winning AUC 0.869; GBMs ≈ 0.86"),
     "credit_approval": ("roc_auc", 0.88, 0.96, "OpenML 29 task runs: AUC ≈ 0.92–0.94, accuracy ≈ 0.86–0.88"),
 }
@@ -354,7 +354,7 @@ EXPECT: dict[str, list[tuple[str, Callable[[dict], Any]]]] = {
         ("Data Doctor: leakage suspect duration", lambda o: ("duration" in ((_f(o, "leakage") or {}).get("suspects") or []), (_f(o, "leakage") or {}).get("title"))),
         ("Model Doctor: leakage (critical)", lambda o: (o["doctor"]["primary"] == "leakage" and o["doctor"]["severity"] == "critical", o["doctor"]["headline"][:160])),
         ("Ablation Δ < 0 beyond noise", lambda o: (lambda a: (bool(a) and a.get("ci") and a["ci"][1] < 0, a))(((o.get("ablation") or {}).get("ablation")))),
-        ("Without duration: AUC ≈ 0.80 (published 0.77–0.82)", lambda o: (lambda s: (s is not None and 0.77 <= s <= 0.82, s))((o.get("ablation") or {}).get("child_auc"))),
+        ("Without duration: AUC in [0.77, 0.82] (Moro et al. 2014: 0.80 before the call)", lambda o: (lambda s: (s is not None and 0.77 <= s <= 0.82, s))((o.get("ablation") or {}).get("child_auc"))),
         ("Review: the ablation is kept-honest", lambda o: (_kept(o, "ablate"), _journal(o, "ablate"))),
     ],
     "german_cost": [

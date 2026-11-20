@@ -81,6 +81,16 @@ Anomaly Detection, Import and the credit flows are Build choices; their runs ope
 it end to end". Every old route redirects. The Model Doctor also lists what else applies to the run's table
 (segmented models, reject inference, fair lending, recourse), with a link that opens each pre-filled.
 
+### Round 4 at a glance (D1–D5): strong, simple models and a Doctor for the data
+
+| Session | Where in the UI | What it adds |
+| --- | --- | --- |
+| D1 Data Doctor | Build → Data Report | Before training: leakage suspects with the decision-time question, coded and disguised missing values (−999, 96 / 98 codes in counts), duplicates and conflicting labels, label quality (cleanlab), rows per class, drift over time, protected attributes; each with its rule and a one-click typed fix that makes a dataset version |
+| D2 Ladder + Feature Lab | Results → Ladder; Build → Feature Lab | Baseline, scorecard, single GBM and the stack on one holdout; serve the simplest rung within the CI of the best; typed features (ratios, differences, aggregates) kept only on a clear gain |
+| D3 Model Doctor 2 | Models → Doctor | Leakage with a one-click ablation, the cost trade-off, at the data's limit, Holdout Errors, **What's missing** (look-alike rows and the irreducible error, where errors concentrate and what is missing there, thin features, overlapping labels, the value of more rows) and How to improve, each with a measured Δ |
+| D4 Review + changes | Doctor → Review; Registry → Monitoring → Changes | Claude proposes typed experiments, the platform proves or rejects each on the same holdout, a journal and an improvement plan (numbers checked); post-deployment threshold, recalibration, retrain-window and drop-feature changes become four-eyes requests |
+| D5 Real-data proof | `make realdata` | A manual driver over six public datasets (Taiwan, bank marketing, German credit, Banking77, Give Me Some Credit, credit approval) and nine planted-issue copies of real tables with known answers; scores land in the published ranges. See `docs/progress/D5.md` |
+
 ## Quickstart
 
 ```
