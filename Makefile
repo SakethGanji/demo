@@ -6,7 +6,7 @@ PY := $(VENV)/bin/python
 API_PORT ?= 8000
 UI_PORT ?= 5190
 
-.PHONY: setup lock dev api ui smoke reset test test-full test-backend test-backend-full test-ui e2e clean-data
+.PHONY: setup lock dev api ui smoke realdata reset test test-full test-backend test-backend-full test-ui e2e clean-data
 
 ## Create the Python venv, install the pinned backend deps and the npm packages.
 setup:
@@ -49,6 +49,12 @@ smoke:
 	else \
 		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY) --start-api; \
 	fi
+
+## D5 · the real-data proof: a manual driver (not a test suite) that chains the API calls the UI makes on six public
+## datasets and eight planted-issue copies of real data, and prints one PASS / FAIL line per expectation. Needs the API on
+## :$(API_PORT); downloads are cached in backend/data/realdata/ (not committed). REALDATA_ONLY=taiwan,bank_leak,… picks items.
+realdata:
+	$(PY) -I scripts/realdata.py --api http://127.0.0.1:$(API_PORT) $(if $(REALDATA_ONLY),--only $(REALDATA_ONLY),)
 
 ## Fast tier: pytest without the slow marks, type check, production build.
 test: test-backend test-ui
