@@ -77,3 +77,17 @@ def leaky(n: int = 6000, seed: int = 204) -> pd.DataFrame:
     paid = (billed * share).round(2)
     return pd.DataFrame({"amount_billed": billed, "amount_paid": paid, "age": age, "utilisation": util.round(3),
                          "defaulted": np.where(y, "yes", "no")})
+
+
+def dsl(n: int = 3000, seed: int = 205) -> pd.DataFrame:
+    """Every DSL op has something to read: an entity that repeats, a date, two categories, two amounts."""
+    rng = np.random.default_rng(seed)
+    cust = rng.integers(1, 400, n)
+    when = pd.Timestamp("2025-01-01") + pd.to_timedelta(rng.integers(0, 365 * 24, n), unit="h")
+    amount = rng.lognormal(5, 1, n).round(2)
+    limit = rng.lognormal(7, 0.5, n).round(0)
+    channel = rng.choice(["web", "branch", "phone"], n)
+    product = rng.choice(["card", "loan"], n)
+    y = rng.random(n) < _sig(-1 + 2 * (amount / limit) + 0.4 * (channel == "web"))
+    return pd.DataFrame({"customer_id": cust, "booked_at": when.strftime("%Y-%m-%d %H:%M"), "amount": amount, "limit": limit,
+                         "channel": channel, "product": product, "flagged": np.where(y, "yes", "no")})

@@ -82,6 +82,13 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              new version (effect, lineage, holdout kept, original untouched), the decision-time answer dropped from a run
              and recorded, merge / sample size / drift, cleanlab label quality against the planted flips, refusals, and no
              unexpected high-severity finding on the bundled samples
+  ladder     D2: the model ladder on crafted data (scripts/ladder_data.py): rungs 0–3 from one training request on one
+             holdout (baseline, the run's SCORECARD, its best single GBM, AutoGluon's best), paired-bootstrap gaps,
+             latency and size; an additive world → a simpler rung, served through register(serve_model); a stack-only
+             world → the stack and a distillation offer; small data → the 99 % interval; refusals
+  featurelab D2: Feature Lab: a planted debt / income ratio kept (training folds only) and confirmed on the holdout,
+             applied as a dataset version; a leaky paid / billed ratio rejected; a column answered 'not known' never
+             read; every DSL op equal to pandas; free-form code refused
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -5498,11 +5505,240 @@ def datadoctor(st: dict[str, Any]) -> None:
     step("datadoctor: no false alarms on samples", samples_clean)
 
 
+
+# --------------------------------------------------------------------------- D2 · model ladder and Feature Lab
+
+
+def _ld_train(df: pd.DataFrame, name: str, label: str, hp: dict[str, Any], stack: int = 0) -> tuple[str, dict[str, Any]]:
+    ds = _dd_upload(df, name, label)
+    body = {"dataset_id": ds, "label": label, "problem_type": "binary", "eval_metric": "roc_auc", "presets": "medium_quality",
+            "time_limit": 600, "fit_kwargs": {"hyperparameters": hp, "num_bag_folds": 3, "num_stack_levels": stack, "dynamic_stacking": False},
+            "feature_importance": False, "source": "smoke-ladder"}
+    rec = wait_run(post("/api/runs", body)["id"])
+    check(rec["status"] == "succeeded", rec.get("error"))
+    return rec["id"], rec
+
+
+def _ld_shape(lad: dict[str, Any], rec: dict[str, Any]) -> None:
+    rungs = {r["rung"]: r for r in lad["rungs"]}
+    check(sorted(rungs) == [0, 1, 2, 3], list(rungs))
+    check(lad["n_holdout"] == rec["holdout"]["n_rows"], (lad["n_holdout"], rec["holdout"]["n_rows"]))
+    check(rungs[1]["model"] and rungs[1]["model"].startswith("Scorecard"), rungs[1])
+    check(rungs[2]["model"] and rungs[2]["model"].split("_")[0] in ("LightGBM", "CatBoost", "XGBoost"), rungs[2])
+    check(rungs[3]["model"] == rec["best_model"], (rungs[3]["model"], rec["best_model"]))
+    check(abs(rungs[0]["score"] - 0.5) < 1e-9, rungs[0]["score"])  # the prior ranks nobody
+    # rung 3 is the served model: its holdout AUC is the run's own holdout AUC
+    check(abs(rungs[3]["score"] - rec["holdout"]["metrics"]["roc_auc"]) < 1e-6, (rungs[3]["score"], rec["holdout"]["metrics"]["roc_auc"]))
+    for k in (1, 2, 3):
+        r = rungs[k]
+        check(r["latency_ms_p95"] and r["latency_ms_p95"] > 0 and r["size_bytes"] > 0, (k, r.get("latency_ms_p95"), r.get("size_bytes")))
+        g = r["gap"]
+        check(g["ci"][0] <= g["delta"] + 1e-12 <= g["ci"][1] + 2e-12 or k == lad["best_rung"], (k, g))
+        check(r["within"] == (k == lad["best_rung"] or g["ci"][0] <= 0), (k, r["within"], g))
+    rec_r = lad["recommended"]["rung"]
+    simpler_within = [k for k in (1, 2, 3) if rungs[k]["within"]]
+    check(rec_r == min(simpler_within), f"recommended {rec_r}, within {simpler_within}: not the simplest")
+    check("paired-bootstrap" in lad["rule"] and "simplest" in lad["rule"], lad["rule"])
+
+
+def ladder(st: dict[str, Any]) -> None:
+    """D2 model ladder on crafted data (scripts/ladder_data.py): one training request gives rungs 0–3 (baseline, the
+    run's own SCORECARD, its best single level-1 GBM, AutoGluon's best) on one holdout with paired-bootstrap gaps,
+    one-row latency and size. An additive world → a simpler rung is recommended and serving it registers exactly that
+    model; a world only a stack can model (additive over 60 weak columns + an interaction, L2 stacking) → the stack is
+    recommended and distillation is offered; small data → the 99 % interval and the D1 note; refusals."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import ladder_data as lg
+
+    s: dict[str, Any] = {}
+
+    def simple():
+        rid, rec = _ld_train(lg.simple(), "ladder_simple.csv", "defaulted", {"GBM": {}, "CAT": {}, "LR": {}})
+        lad = get(f"/api/runs/{rid}/ladder")
+        _ld_shape(lad, rec)
+        check(lad["level"] == 0.95 and not lad.get("small_data_note"), (lad["level"], lad.get("small_data")))
+        r = lad["recommended"]
+        check(r["rung"] < 3 and r["serve_model"] == r["model"], r)
+        check(lad["sentence"] and "serve it" in lad["sentence"], lad.get("sentence"))
+        check(not lad["distill"]["available"], "distill offered although a simpler rung is recommended")
+        rr = {x["rung"]: x for x in lad["rungs"]}
+        check(rr[r["rung"]]["latency_ms_p95"] < rr[3]["latency_ms_p95"], "the simpler rung is not faster")
+        again = get(f"/api/runs/{rid}/ladder", refresh="true")
+        check(again["recommended"] == r and [x.get("score") for x in again["rungs"]] == [x.get("score") for x in lad["rungs"]]
+              and [x.get("gap") for x in again["rungs"]] == [x.get("gap") for x in lad["rungs"]], "recomputed ladder differs")
+        s.update(rid=rid, rec=r)
+        return (f"{rid}: recommended rung {r['rung']} {r['name']} · " + " · ".join(f"{x['rung']}={x['score']:.3f}" for x in lad["rungs"])
+                + f" · gap {rr[r['rung']]['gap']['delta']:+.3f} CI [{rr[r['rung']]['gap']['ci'][0]:+.3f}, {rr[r['rung']]['gap']['ci'][1]:+.3f}]"
+                + f" · {rr[r['rung']]['latency_ms_p95']:.1f} vs {rr[3]['latency_ms_p95']:.1f} ms · same on refresh")
+
+    if step("ladder: simple world → a simpler rung", simple):
+        def serve():
+            r = s["rec"]
+            v = post(f"/api/runs/{s['rid']}/register", {"created_by": "Smoke Analyst", "model_name": f"smoke.ladder.{s['rid']}", "serve_model": r["serve_model"]})
+            v = poll(f"/api/registry/versions/{v['id']}", lambda x: x["status"] in ("ready", "failed"), 600)
+            check(v["status"] == "ready", v.get("error"))
+            check(v["summary"]["best_model"] == r["serve_model"], (v["summary"]["best_model"], r["serve_model"]))
+            return f"{v['id']} ready · serves {v['summary']['best_model']} ({v['summary']['n_models']} model(s), {v['summary']['size_bytes']:,} bytes)"
+
+        step("ladder: Serve <rung> registers that model", serve)
+
+    def stack():
+        rid, rec = _ld_train(lg.complex(), "ladder_complex.csv", "churned", {"GBM": {"num_boost_round": 100}, "LR": {}}, stack=1)
+        lad = get(f"/api/runs/{rid}/ladder")
+        _ld_shape(lad, rec)
+        rr = {x["rung"]: x for x in lad["rungs"]}
+        check(lad["recommended"]["rung"] == 3 and lad["recommended"]["serve_model"] is None, lad["recommended"])
+        check(rr[2]["gap"]["ci"][0] > 0 and rr[1]["gap"]["ci"][0] > 0, (rr[1]["gap"], rr[2]["gap"]))
+        check(lad["distill"]["available"] and "Distillation" in lad["distill"]["text"], lad["distill"])
+        return (f"{rid}: stack {rr[3]['score']:.3f} vs single {rr[2]['score']:.3f} (gap {rr[2]['gap']['delta']:+.3f} CI "
+                f"[{rr[2]['gap']['ci'][0]:+.3f}, {rr[2]['gap']['ci'][1]:+.3f}]) vs scorecard {rr[1]['score']:.3f} → serve the stack · distill offered")
+
+    step("ladder: stack world → the stack, distillation offered", stack)
+
+    def small():
+        rid, rec = _ld_train(lg.simple(n=700, seed=211), "ladder_small.csv", "defaulted", {"GBM": {}, "LR": {}})
+        lad = get(f"/api/runs/{rid}/ladder")
+        check(lad["small_data"] and lad["small_data"]["severity"] in ("medium", "high"), lad.get("small_data"))
+        check(lad["level"] == 0.99 and "99 %" in lad["small_data_note"] and "99%" in lad["rule"], (lad["level"], lad.get("small_data_note")))
+        for x in lad["rungs"]:
+            if x.get("gap") and x["rung"] != lad["best_rung"]:
+                check(x["gap"]["ci"][0] <= x["gap"]["ci95"][0] + 1e-12 and x["gap"]["ci"][1] >= x["gap"]["ci95"][1] - 1e-12, x["gap"])
+        return f"{rid}: {lad['small_data']['title']} → 99 % interval · recommended rung {lad['recommended']['rung']} {lad['recommended']['name']}"
+
+    step("ladder: small data → 99 % interval and the D1 note", small)
+
+    def refuse():
+        r = C.get("/api/runs/run_nope/ladder")
+        check(r.status_code == 404, r.status_code)
+        return "unknown run → 404"
+
+    step("ladder: refusals", refuse)
+
+
+def _fl_job(ds: str, body: dict[str, Any], timeout: float = 600) -> dict[str, Any]:
+    j = post(f"/api/datasets/{ds}/feature-lab", body)
+    return poll(f"/api/datasets/{ds}/feature-lab/{j['id']}", lambda x: x["status"] != "running", timeout, 2)
+
+
+def featurelab(st: dict[str, Any]) -> None:
+    """D2 Feature Lab: a planted ratio (debt / income) found and kept, its gain confirmed once on the holdout and
+    applied as a dataset version (same holdout rows, lineage, original untouched); a leaky ratio (paid / billed ≈ the
+    label) rejected by the leakage check; a column answered 'not known at decision time' never read; every DSL op
+    computed as written; free-form code and bad requests refused."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
+    import ladder_data as lg
+
+    def planted():
+        df = lg.ratio()
+        ds = _dd_upload(df, "fl_ratio.csv", "defaulted")
+        j = _fl_job(ds, {"max_candidates": 12, "time_limit": 300})
+        check(j["status"] == "succeeded", j.get("error"))
+        r = j["result"]
+        kept = [t["name"] for t in r["kept"]]
+        check("debt_per_income" in kept, f"kept {kept}")
+        check(j["journal"][0]["name"] == "debt_per_income", "the ratio was not proposed first")
+        e = next(x for x in j["journal"] if x["name"] == "debt_per_income")
+        check(e["ci"][0] > 0 and e["single"] < 0.90, e)
+        check(len(kept) <= 2, f"spurious keeps: {kept}")
+        h = r["holdout"]
+        check(h["ci"][0] > 0 and h["after"] > h["before"], h)
+        check(r["rows"]["holdout"] == h["rows"] and r["rows"]["train"] + r["rows"]["holdout"] == len(df), r["rows"])
+        v = j["version"]
+        nd = get(f"/api/datasets/{v['id']}")
+        check("debt_per_income" in [c["name"] for c in nd["profile"]["columns"]], "the version lacks the column")
+        lin = nd["profile"]["lineage"]
+        check(lin["kind"] == "feature_lab" and lin["parent"] == ds and lin["transforms"][0]["op"] == "ratio", lin)
+        check(get(f"/api/datasets/{ds}")["profile"]["n_cols"] == df.shape[1], "the original changed")
+        check(v["holdout_rows"] == h["rows"], (v["holdout_rows"], h["rows"]))
+        st["fl_ratio"] = (ds, v["id"])
+        return (f"kept {kept} of {len(j['journal'])} · debt_per_income out-of-fold ΔAUC {e['delta']:+.4f} "
+                f"[{e['ci'][0]:+.4f}, {e['ci'][1]:+.4f}] (alone {e['single']:.3f}) · holdout {h['before']:.4f} → {h['after']:.4f} "
+                f"({h['delta']:+.4f} [{h['ci'][0]:+.4f}, {h['ci'][1]:+.4f}]) · version {v['id']} · {j['result']['seconds']:.0f} s")
+
+    step("featurelab: planted ratio found, kept, versioned", planted)
+
+    def leaky():
+        df = lg.leaky()
+        ds = _dd_upload(df, "fl_leaky.csv", "defaulted")
+        j = _fl_job(ds, {"max_candidates": 8, "time_limit": 300})
+        check(j["status"] == "succeeded", j.get("error"))
+        e = next((x for x in j["journal"] if x["name"] == "amount_paid_per_amount_billed"), None)
+        check(e is not None, [x["name"] for x in j["journal"]])
+        check(e["status"] == "rejected" and "leakage" in e["reason"] and e["single"] >= 0.9 and e.get("delta") is None, e)
+        check("amount_paid_per_amount_billed" not in [t["name"] for t in j["result"]["kept"]], "the leak was kept")
+        st["fl_leaky"] = ds
+        return f"amount_paid ÷ amount_billed alone AUC {e['single']:.3f} ≥ 0.9 → rejected before scoring · kept {[t['name'] for t in j['result']['kept']]}"
+
+    step("featurelab: leaky ratio rejected", leaky)
+
+    def decision_time():
+        ds = st.get("fl_leaky")
+        check(ds, "needs the leaky dataset")
+        post(f"/api/datasets/{ds}/decision-time", {"known": {"amount_paid": False}, "fairness_only": [], "by": "Smoke Analyst"})
+        cands = [{"op": "ratio", "a": "amount_paid", "b": "amount_billed"}, {"op": "ratio", "a": "utilisation", "b": "age"},
+                 {"op": "ratio", "a": "nope", "b": "age"}]
+        j = _fl_job(ds, {"candidates": cands, "apply": False})
+        check(j["status"] == "succeeded", j.get("error"))
+        by = {x["step"]: x for x in j["journal"]}
+        check(by[1]["status"] == "rejected" and "decision-time" in by[1]["reason"], by[1])
+        check(by[2]["status"] in ("kept", "rejected") and by[2].get("delta") is not None, by[2])
+        check(by[3]["status"] == "rejected" and "not a valid typed transform" in by[3]["reason"], by[3])
+        check("amount_paid" in j["result"]["blocked"] and "amount_paid" not in j["result"]["base_features"], j["result"]["blocked"])
+        check(j["result"]["proposed_by"] == "given" and not j.get("version"), "given candidates / apply false")
+        post(f"/api/datasets/{ds}/decision-time", {"known": {}, "fairness_only": [], "by": "Smoke Analyst"})
+        return "amount_paid answered 'not known' → never read (blocked, rejected by rule) · a bad column → rejected as invalid · apply: false → no version"
+
+    step("featurelab: decision-time rule and given candidates", decision_time)
+
+    def ops():
+        from app import featurelab as fl
+
+        df = lg.dsl()
+        tm = np.ones(len(df), dtype=bool)
+        cands = [{"op": "ratio", "a": "amount", "b": "limit"}, {"op": "diff", "a": "limit", "b": "amount"},
+                 {"op": "agg", "entity": "customer_id", "col": "amount", "fn": "mean"}, {"op": "agg", "entity": "customer_id", "col": None, "fn": "count"},
+                 {"op": "date_part", "col": "booked_at", "part": "dayofweek"}, {"op": "bin", "col": "amount", "k": 4},
+                 {"op": "log", "col": "amount"}, {"op": "cross", "a": "channel", "b": "product"}]
+        vals = {}
+        for c in cands:
+            t = fl.validate(df, c, "flagged")
+            vals[t["op"] + ("_count" if c.get("fn") == "count" else "")] = (t, fl.compute(df, t, tm))
+        ref = {"ratio": df.amount / df.limit, "diff": df.limit - df.amount, "agg": df.groupby("customer_id").amount.transform("mean"),
+               "agg_count": df.groupby("customer_id").customer_id.transform("size").astype(float),
+               "date_part": pd.to_datetime(df.booked_at).dt.dayofweek.astype(float),
+               "bin": pd.qcut(df.amount, 4, labels=False).astype(float), "log": np.log1p(df.amount),
+               "cross": df.channel + "|" + df["product"]}
+        for k, (t, v) in vals.items():
+            r = ref[k]
+            same = (v == r).all() if k == "cross" else np.allclose(v.to_numpy(dtype=float), r.to_numpy(dtype=float), equal_nan=True)
+            check(same, f"{k}: {t['name']} differs from pandas")
+        ds = _dd_upload(df, "fl_dsl.csv", "flagged")
+        j = _fl_job(ds, {"candidates": cands, "entity": "customer_id", "apply": False})
+        check(j["status"] == "succeeded" and len(j["journal"]) == len(cands), j.get("error"))
+        check(all(x["status"] in ("kept", "rejected") and "not a valid" not in x["reason"] for x in j["journal"]), [x["reason"] for x in j["journal"]])
+        bad = [({"candidates": [{"op": "python", "code": "import os"}]}, 400, "free-form code"),
+               ({"candidates": [{"op": "ratio", "a": "amount", "b": "limit", "code": "x"}]}, 202, None),
+               ({"target": "nope"}, 400, "target"), ({"max_candidates": 0}, 400, "max_candidates"),
+               ({"entity": "nope"}, 400, "entity")]
+        for b, code, words in bad:
+            r = C.post(f"/api/datasets/{ds}/feature-lab", json=b)
+            check(r.status_code == code and (words is None or words in r.text), f"{b}: {r.status_code} {r.text[:200]}")
+        r = C.post("/api/datasets/ds_nope/feature-lab", json={})
+        check(r.status_code == 404, r.status_code)
+        lst = get(f"/api/datasets/{ds}/feature-lab")
+        check(set(lst["dsl"]) == {"ratio", "diff", "agg", "date_part", "bin", "log", "cross"} and len(lst["jobs"]) >= 2, lst["dsl"].keys())
+        return (f"8 transforms (7 ops) = pandas · all scored by the API · {', '.join(f'{x['name']} {x['status']}' for x in j['journal'][:3])} … · "
+                f"refusals: code → 400, bad target / budget / entity → 400, unknown dataset → 404")
+
+    step("featurelab: every DSL op, refusals", ops)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,intake,datadoctor,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
+    ap.add_argument("--only", default="core,samples,intake,datadoctor,ladder,featurelab,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")
@@ -5759,7 +5995,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm, "datadoctor": datadoctor}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm, "datadoctor": datadoctor, "ladder": ladder, "featurelab": featurelab}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

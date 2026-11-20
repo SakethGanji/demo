@@ -173,7 +173,7 @@ def compute(df: pd.DataFrame, t: dict[str, Any], train_mask: np.ndarray | None =
             fit = x[train_mask] if train_mask is not None else x
             q = np.unique(np.nanquantile(fit.dropna(), np.linspace(0, 1, t["k"] + 1)[1:-1]))
             t["edges"] = [float(e) for e in q]
-        return pd.Series(np.searchsorted(np.asarray(t["edges"]), x.to_numpy(), side="right"), index=df.index).where(x.notna()).astype(float)
+        return pd.Series(np.searchsorted(np.asarray(t["edges"]), x.to_numpy(), side="left"), index=df.index).where(x.notna()).astype(float)
     if op == "log":
         x = _num(df, t["col"])
         return np.sign(x) * np.log1p(x.abs())

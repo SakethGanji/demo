@@ -70,9 +70,11 @@ def pick_rungs(predictor) -> list[dict[str, Any]]:
                     "why": "points per bin, readable by a reviewer; the regulator's baseline",
                     "missing": None if r1 else "no SCORECARD model in this run (switched off, or skipped by AutoGluon)"})
     else:
-        lr = sorted([r for r in l1 if r["_family"] == "LR"], key=sv, reverse=True)
-        out.append({"rung": 1, "key": "linear", "name": "Linear model", "model": lr[0]["model"] if lr else None,
-                    "why": "one coefficient per feature",
+        lr = sorted([r for r in l1 if r["_family"] in ("LR", "TFIDF_LR")], key=sv, reverse=True)
+        tfidf = bool(lr) and lr[0]["_family"] == "TFIDF_LR"
+        out.append({"rung": 1, "key": "linear", "name": "Linear model" + (" (TF-IDF)" if tfidf else ""),
+                    "model": lr[0]["model"] if lr else None,
+                    "why": "one weight per word and class" if tfidf else "one coefficient per feature",
                     "missing": None if lr else "no linear (LR) model in this run's hyperparameters"})
     # rung 2: one boosted-tree model, no stacking
     gbm = sorted([r for r in l1 if r["_family"] in GBM_FAMILIES], key=sv, reverse=True)
@@ -81,7 +83,7 @@ def pick_rungs(predictor) -> list[dict[str, Any]]:
         out.append({"rung": 2, "key": "single", "name": f"Single {FAMILY_NAMES.get(r2['_family'], r2['_family'])}",
                     "model": r2["model"], "why": "one fast model, explainable with SHAP", "missing": None})
     else:
-        other = sorted([r for r in l1 if r["_family"] not in ("SCORECARD", "LR")], key=sv, reverse=True)
+        other = sorted([r for r in l1 if r["_family"] not in ("SCORECARD", "LR", "TFIDF_LR")], key=sv, reverse=True)
         r2 = other[0] if other else None
         out.append({"rung": 2, "key": "single",
                     "name": f"Single {FAMILY_NAMES.get(r2['_family'], r2['_family'] or 'model')}" if r2 else "Single GBM",
