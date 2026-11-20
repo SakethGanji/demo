@@ -211,6 +211,49 @@ def _variants(v: float, pct: bool) -> set[str]:
     return out
 
 
+POS_DIR = re.compile(r"(?i)\b(improv\w*|rais\w*|rose|increas\w*|gain\w*|lift\w*|better|up|higher|climb\w*|add\w*)\b")
+NEG_DIR = re.compile(r"(?i)\b(fell|fall\w*|drop\w*|decreas\w*|declin\w*|worse|down|lower|lost|los\w*|cost|reduc\w*|hurt\w*)\b")
+BEFORE_KEYS = ("parent", "with", "before", "current", "served", "old", "start", "baseline")
+AFTER_KEYS = ("child", "without", "after", "proposed", "new", "end", "candidate")
+METRIC_KEY = re.compile(r"(auc|roc|accuracy|acc$|recall|precision|log_?loss|rmse|mae|r2|f1|cost)")
+
+
+def _metric_of_key(key: str) -> str | None:
+    k = key.lower()
+    if re.search(r"auc|roc", k):
+        return "auc"
+    for w in ("accuracy", "recall", "precision", "rmse", "mae", "r2", "f1", "cost"):
+        if w in k:
+            return w
+    if re.search(r"log_?loss", k):
+        return "log loss"
+    return None
+
+
+def _pairs(facts: Any) -> list[tuple[set[str], set[str]]]:
+    """(before, after) value variants of every object holding a before key and an after key (parent → child, …)."""
+    out: list[tuple[set[str], set[str]]] = []
+
+    def v(x: float) -> set[str]:
+        return {n.rstrip("0").rstrip(".") if "." in n else n for n in _variants(float(x), False)}
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            nums = {k.lower(): val for k, val in x.items() if isinstance(val, (int, float)) and not isinstance(val, bool)}
+            b = next((nums[k] for k in BEFORE_KEYS if k in nums), None)
+            a = next((nums[k] for k in AFTER_KEYS if k in nums), None)
+            if b is not None and a is not None:
+                out.append((v(b), v(a)))
+            for val in x.values():
+                walk(val)
+        elif isinstance(x, (list, tuple)):
+            for val in x:
+                walk(val)
+
+    walk(facts)
+    return out
+
+
 def _fact_index(facts: Any) -> list[tuple[str, str, set[str]]]:
     """(key path, the words around it — the keys and string values of its object —, its rendered variants) per number."""
     out: list[tuple[str, str, set[str]]] = []
@@ -246,6 +289,33 @@ def _fact_index(facts: Any) -> list[tuple[str, str, set[str]]]:
     return out
 
 
+def _fact_values(facts: Any) -> list[float | None]:
+    """The numeric value of each _fact_index entry, in the same order (None for numbers quoted inside text)."""
+    out: list[float | None] = []
+
+    def walk(x: Any) -> None:
+        if isinstance(x, dict):
+            for v in x.values():
+                walk(v)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                walk(v)
+        elif isinstance(x, bool) or x is None:
+            return
+        elif isinstance(x, (int, float)):
+            out.append(float(x))
+        elif isinstance(x, str):
+            for n in numbers(x):
+                try:
+                    float(n)
+                except ValueError:
+                    continue
+                out.append(None)
+
+    walk({"text": facts} if isinstance(facts, str) else facts)
+    return out
+
+
 def unsupported_numbers(answer: str, facts: Any) -> list[str]:
     """Numbers in the answer that the facts do not support, after rounding either side to the answer's precision.
 
@@ -254,9 +324,23 @@ def unsupported_numbers(answer: str, facts: Any) -> list[str]:
     from a change field (delta, gain, CI, …); a percentage must come from a share-like fact (share, rate, accuracy, …),
     not from an AUC × 100. Small counting words (0–10) pass only as plain integers away from a metric word or %."""
     idx = _fact_index(facts)
+    vals = _fact_values(facts)
+    pairs = _pairs(facts)
     norm = lambda n: n.rstrip("0").rstrip(".") if "." in n else n  # noqa: E731
     out = []
     text = answer or ""
+    # A2 M8: "from A to B" must not reverse a before → after pair of the facts, and its direction word must match B − A
+    for fm in re.finditer(r"(?i)(\w+)\s+(?:\w+\s+){0,3}?from\s+([−-]?\d[\d,]*\.?\d*)\s*%?\s+to\s+([−-]?\d[\d,]*\.?\d*)", text):
+        a_, b_ = (norm(x.replace("−", "-").replace(",", "")) for x in (fm.group(2), fm.group(3)))
+        try:
+            fa, fb = float(a_), float(b_)
+        except ValueError:
+            continue
+        win = text[max(0, fm.start() - 30):fm.start(2)]
+        up, down = bool(POS_DIR.search(win)), bool(NEG_DIR.search(win))
+        reversed_ = any(a_ in aft and b_ in bef for bef, aft in pairs) and not any(a_ in bef and b_ in aft for bef, aft in pairs)
+        if reversed_ or (up and not down and fb < fa) or (down and not up and fb > fa):
+            out += [a_, b_]
     for m in NUM.finditer(text):
         raw = m.group(0)
         n = raw.replace("−", "-").replace(",", "").rstrip("%")
@@ -266,16 +350,38 @@ def unsupported_numbers(answer: str, facts: Any) -> list[str]:
         except ValueError:
             continue
         around = text[max(0, m.start() - 40):m.end() + 30].lower()
-        metric = next((w for w in METRIC_WORDS if re.search(rf"\b{re.escape(w)}\b", around)), None)
+        # A2 M8: the metric word nearest the number (not the first in a fixed list)
+        hits = [(min(abs(mm.start() - (m.start() - max(0, m.start() - 40))), abs(mm.end() - (m.start() - max(0, m.start() - 40)))), w)
+                for w in METRIC_WORDS for mm in re.finditer(rf"\b{re.escape(w)}\b", around)]
+        metric = min(hits)[1] if hits else None
         gain = bool(GAIN_BEFORE.search(text[max(0, m.start() - 20):m.start()]))
+        before_txt = text[max(0, m.start() - 30):m.start()]
+        signed = raw.startswith(("-", "−", "+")) or text[max(0, m.start() - 1):m.start()] in ("-", "−", "+")
+        neg = raw.startswith(("-", "−")) or text[max(0, m.start() - 1):m.start()] in ("-", "−")
+        up, down = bool(POS_DIR.search(before_txt)), bool(NEG_DIR.search(before_txt))
         if v.is_integer() and 0 <= v <= 10 and not pct and not metric and "." not in n:
             continue
         cands = {n, n.lstrip("-"), norm(n), norm(n.lstrip("-"))}
         ok = False
-        for path, ctx, vs in idx:
+        for (path, ctx, vs), fv in zip(idx, vals):
             if not (cands & vs):
                 continue
             key = path.rsplit(".", 1)[-1]
+            change = bool(GAIN_KEYS.search(key)) or bool(gain)
+            if fv is not None:  # A2 M8: at the precision the answer writes ("0.80" is not 0.85 rounded to one place)
+                d_ = len(n.split(".")[1]) if "." in n else 0
+                if not any(abs(round(x_, d_) - abs(v)) < 10 ** -(d_ + 3) for x_ in (abs(fv), 100 * abs(fv))):
+                    continue
+            if fv is not None and fv != 0:
+                # A2 M8: keep signs. A signed number must have the fact's sign; an unsigned change must agree with its
+                # direction word (improved / rose vs fell / dropped)
+                if signed and neg != (fv < 0):
+                    continue
+                if change and not signed and (up != down) and ((up and fv < 0) or (down and fv > 0)):
+                    continue
+            km = _metric_of_key(key)
+            if metric and km and km != metric:  # the fact's own key names another metric
+                continue
             if pct and not (re.search(r"(share|rate|pct|percent|recall|precision|accuracy|prob|catch|decline|fraction|error)", key + " " + ctx)
                             or n in vs and not any(a == n for a in _variants(float(n) / 100, True) - {n})):
                 continue
