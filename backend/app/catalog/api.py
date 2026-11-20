@@ -331,7 +331,9 @@ def decide_champion(request_id: str, request: Request, body: dict[str, Any]) -> 
 @router.get("/retention/plan")
 async def retention_plan(request: Request) -> dict[str, Any]:
     """Dry run: what the policy would slim and evict, the bytes it would free, and why each pinned run is kept."""
-    return await run_in_threadpool(RT.plan, request.app)
+    out = await run_in_threadpool(RT.plan, request.app)
+    return {**out, "admins": {"configured": bool(G.admins()), "how": "ENSEMBLE_ADMINS (comma-separated names)",
+                              "note": "names, not authenticated identities: there is no sign-in"}}
 
 
 @router.post("/retention/run")
@@ -341,8 +343,9 @@ async def retention_run(request: Request, body: dict[str, Any]) -> dict[str, Any
     body = body or {}
     by = _who(body.get("by"))
     if not G.is_admin(by):
-        raise HTTPException(403, f"Retention is for admins (ENSEMBLE_ADMINS, compared as names on letters and digits; "
-                                 f"names, not authenticated identities); {by} is not one.")
+        raise HTTPException(403, (f"Retention is for the admins named in ENSEMBLE_ADMINS; {by} is not one. " if G.admins() else
+                                  "Retention is off: no admin is configured (set ENSEMBLE_ADMINS to a comma-separated list of names). ")
+                            + "Names, not authenticated identities: there is no sign-in, names are compared on letters and digits.")
     if body.get("confirm") != "retention":
         raise HTTPException(400, 'Send {"confirm": "retention"}: this deletes predictor files. GET /api/retention/plan first.')
     tier = body.get("tier")

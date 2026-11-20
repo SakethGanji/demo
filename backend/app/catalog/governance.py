@@ -52,8 +52,9 @@ def same_person(a: str | None, b: str | None) -> bool:
 
 
 def admins() -> set[str]:
-    """ENSEMBLE_ADMINS (comma-separated, default "admin"), as identity keys. Names, not authenticated identities."""
-    return {identity_key(a) for a in os.environ.get("ENSEMBLE_ADMINS", "admin").split(",") if identity_key(a)}
+    """ENSEMBLE_ADMINS (comma-separated names), as identity keys. F-P2 (A2 m6): no default, so typing "admin" is not
+    enough; with the variable unset nobody runs retention. Names, not authenticated identities: there is no sign-in."""
+    return {identity_key(a) for a in os.environ.get("ENSEMBLE_ADMINS", "").split(",") if identity_key(a)}
 
 
 def is_admin(name: str | None) -> bool:
@@ -78,11 +79,16 @@ def open_critical(app: Any, run_id: str) -> list[str] | None:
     if fn is None:
         return None
     try:
-        n = len(inspect.signature(fn).parameters)
+        params = inspect.signature(fn).parameters
     except (TypeError, ValueError):
-        n = 1
+        params = {}
     try:
-        out = fn(app, run_id) if n >= 2 else fn(run_id)
+        if "runs" in params:  # F-A2: open_critical(run_id, runs=RunStore, datasets=DatasetStore)
+            out = fn(run_id, runs=app.state.runs, datasets=app.state.datasets)
+        elif "app" in params:
+            out = fn(app, run_id)
+        else:
+            out = fn(run_id)
     except Exception as e:  # noqa: BLE001 — a failing check blocks like an open leak would
         return [f"the leak check failed ({type(e).__name__}: {e}); override with a reason if you have checked by hand"]
     return [str(x) for x in (out or [])]
