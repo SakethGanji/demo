@@ -1293,7 +1293,7 @@ export type Doctor = {
 export type Gain = { delta: number; ci: [number, number] | null; metric: string | null; source: string; simulated?: boolean }
 export type Gap = { id: string; kind: string; title: string; finding: string; request: string; gain: Gain | null; measured: boolean; rank: number; evidence: Record<string, unknown>; method?: string }
 export type MissingInfo = {
-  schema: 'missing/1'; gaps: Gap[]; headline: string | null; problem_type: string
+  schema: 'missing/1'; gaps: Gap[]; headline: string | null; problem_type: string; caveat?: string | null
   served?: { n: number; errors: number; rate: number; definition: string }
   quick?: { score: number; metric: string; rows: number; features: number; model: string } | null
   irreducible?: { r_nn: number; r_nn_ci: [number, number]; lower: number; lower_ci: [number, number]; model_error: number; explained: number | null; explained_upper: number | null } | null

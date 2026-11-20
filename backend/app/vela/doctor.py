@@ -62,7 +62,7 @@ TITLES = {"leakage": "Leakage", "shift": "Shift between training and deployment"
 # The fixed thresholds, also returned with every diagnosis so the page can show them.
 RULES = {
     "leakage": "critical: one feature holds ≥ 50 % of the permutation importance and ≥ 3 × the next AND the Data Doctor or Smart "
-               "Intake names it a leak suspect (name, values filled after the outcome, AUC alone ≥ 0.75) and nobody answered it is "
+               "Intake names it a leak suspect by its name or values (filled after the outcome; strength alone is not a hint) and nobody answered it is "
                "known at decision time; or one feature alone has AUC ≥ 0.97 (D1 single_auc; accuracy / R² ≥ 0.97 for other "
                "tasks); major: an identifier used as a feature. Prescription: an ablation, the same body without the column(s), "
                "same holdout, as a child run; Δ with a paired-bootstrap CI",
@@ -704,7 +704,11 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
     g = ctx.get("gaps") or {}
     lk = g.get("leak") or {}
     known = set(ctx.get("known") or [])
-    d1 = {s["column"]: s for s in g.get("d1_leak") or [] if s["column"] not in known}
+    # a hint is what the name or the values say (Smart Intake's leak roles), never strength alone: a strong legitimate
+    # feature is dominant and predictive too, so "AUC alone ≥ 0.90" would make every clean rule look like a leak
+    d1 = {s["column"]: {**s, "reasons": [r for r in s.get("reasons") or [] if not r.startswith("alone it separates")]}
+          for s in g.get("d1_leak") or [] if s["column"] not in known}
+    d1 = {c: s for c, s in d1.items() if s["reasons"]}
     sus: list[dict[str, Any]] = []
     f0 = lk.get("feature")
     if f0:
@@ -734,6 +738,9 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
         if known & {s for s in (x["column"] for x in g.get("d1_leak") or [])}:
             why += f" Answered known at decision time: {', '.join(sorted(known))}."
         return _check("leakage", "clear", why, {"top": lk.get("top"), "single_auc": lk.get("single_auc")}, source="D3 dominance + D1 + Vela")
+    for s in sus:  # the F17 field names too (single_score / single_measure), for older readers
+        if s.get("single_auc") is not None and s.get("single_score") is None:
+            s.update(single_score=s["single_auc"], single_measure="AUC")
     leaks = [s["feature"] for s in sus if s["reason"] != "identifier"]
     ids = [s["feature"] for s in sus if s["reason"] == "identifier"]
     sev = "critical" if leaks else "major"
@@ -984,7 +991,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         ex = tw.get("exact_conflicts") or {}
         f = (f"{_pct(tw['errors_in_mixed'])} of the model's errors are rows whose {tw['k']} closest training rows (on the columns that "
              f"matter, weighted by importance) had mixed outcomes. The table's nearest-neighbour disagreement R_NN is {tw['r_nn']:.3f} "
-             f"{_ci(tw['r_nn_ci'], 3)}, so the irreducible error is between {tw['lower']:.3f} and {tw['r_nn']:.3f} against a model error of "
+             f"[{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}], so the irreducible error is between {tw['lower']:.3f} and {tw['r_nn']:.3f} against a model error of "
              f"{tw['model_error']:.3f}: at least {_pct(tw['explained'] or 0)} of the error is beyond what these columns can separate.")
         if tw.get("where"):
             w = tw["where"]
@@ -1063,7 +1070,12 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     head = None
     if top:
         head = f"{top['title']}: " + (f"worth up to {top['gain']['delta']:+.4f} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
-    return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"),
+    lk = next((c for c in checks if c["id"] == "leakage"), None)
+    caveat = None
+    if lk and lk["status"] == "finding":
+        caveat = ("Measured with the suspected leak in the table: these gaps describe a model that reads it. Read them again on the "
+                  "ablation run" + (f" ({lk['evidence']['ablation']['run_id']})" if (lk["evidence"].get("ablation") or {}).get("run_id") else "") + ".")
+    return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"), "caveat": caveat,
             "irreducible": tw and {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "explained", "explained_upper")},
             "rules": {"rank": "measured potential gain first (Δ of the run's quick-model metric; an oracle is a simulation and an upper "
                               "bound), then the unmeasured gaps",

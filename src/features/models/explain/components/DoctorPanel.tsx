@@ -272,6 +272,7 @@ function WhatsMissing({ m }: { m: MissingInfo }) {
         <span className="helper" style={{ fontSize: 12 }}>information the table lacks, ranked by measured potential gain; each gap is a data request</span></div>
         <button className="btn sm primary" onClick={copy} disabled={!m.gaps.length} data-testid="missing-copy">{copied ? 'Copied ✓' : 'Copy The Data Requests'}</button></div>
       <div className="card-body stack" style={{ gap: 10 }}>
+        {m.caveat && <p className="helper" role="note" style={{ margin: 0, fontSize: 12.5, color: 'var(--status-warning, #a15c00)' }} data-testid="missing-caveat">▲ {m.caveat}</p>}
         {ir && <p className="helper" style={{ margin: 0, fontSize: 12.5 }} data-testid="missing-irreducible"><span className="micro-label">irreducible error</span> between <b className="mono">{ir.lower.toFixed(3)}</b> and <b className="mono">{ir.r_nn.toFixed(3)}</b> <span className="muted">(R_NN CI [{ir.r_nn_ci[0].toFixed(3)}, {ir.r_nn_ci[1].toFixed(3)}])</span> against a model error of <b className="mono">{ir.model_error.toFixed(3)}</b>{ir.explained != null && <>: at least <b>{pc(ir.explained)}</b> of the error is beyond these columns</>}.</p>}
         {m.gaps.length ? <table className="table compact"><thead><tr><th className="r">#</th><th>gap</th><th>what the data shows → what to request</th><th className="r">potential gain</th></tr></thead>
           <tbody>{m.gaps.map((g) => <tr key={g.id} data-testid={`gap-${g.kind}`}>
