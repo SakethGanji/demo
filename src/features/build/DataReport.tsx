@@ -87,7 +87,7 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
             {(['high', 'medium', 'low'] as const).map((s) => r.counts[s] > 0 && <span key={s} className={`dr-sev s-${s}`}>{r.counts[s]} {SEV_WORD[s]}</span>)}
             {r.counts.high + r.counts.medium + r.counts.low === 0 && <span className="dr-sev s-ok">nothing to fix</span>}
           </span>
-          <span className="helper" style={{ fontSize: 12 }}>{r.rows.toLocaleString()} rows × {r.columns} · {r.target ? `y = ${r.target}` : 'no target yet'} · checked in {r.seconds.toFixed(1)} s</span>
+          <span className="helper" style={{ fontSize: 12 }}>{r.rows.toLocaleString()} rows × {r.columns} · {r.target ? `y = ${r.target}` : 'no target yet'} · checked in {r.seconds < 0.1 ? '< 0.1' : r.seconds.toFixed(1)} s</span>
         </div>
         {chosen.length > 0
           ? <button className="btn primary" disabled={!!busy} onClick={apply} data-testid="dr-apply" title="Makes a new dataset version with these fixes (and saves your answers below); the original is never changed">{busy || `Apply ${chosen.length} fix${chosen.length === 1 ? '' : 'es'} →`}</button>

@@ -5502,7 +5502,7 @@ def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
     ap.add_argument("--api", default=API)
-    ap.add_argument("--only", default="core,samples,intake,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
+    ap.add_argument("--only", default="core,samples,intake,datadoctor,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset")
     ap.add_argument("--start-api", action="store_true", help="start uvicorn on the --api port if nothing answers there")
     args = ap.parse_args()
     API = args.api.rstrip("/")

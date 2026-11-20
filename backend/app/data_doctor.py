@@ -533,11 +533,13 @@ def check_class_balance(cx: Ctx) -> list[dict[str, Any]]:
     text = ("Collect more rows for the smallest classes (≥ 100 each is a good floor)"
             + (", or " + parts[0] if parts else "") + ". Expect them to be the weakest; read per-class recall, not accuracy."
             if k > 2 else "Score it with a business cost or a balanced metric (the binary suggestion pre-fills it), not accuracy.")
-    rare_rows = cx.y.astype(str).isin(vc.index[-3:])
+    smallest = vc.iloc[::-1].head(6)  # evidence: the smallest classes and their rows (all and in a 20 % holdout)
+    ev = {"columns": ["class", "rows", "in a 20 % holdout"],
+          "rows": [[str(c), int(v), int(round(v * 0.2))] for c, v in smallest.items()]}
     return [_finding("class_balance", sev, title, nums,
                      "Rows per class: < 10 is high (it cannot be learned or scored), < 50 is medium; a minority share < 5 %, or "
                      "any class under 100 rows when there are more than two, is low. The holdout keeps 20 % of each class.",
-                     _rows(cx.df, rare_rows, [cx.target]),
+                     ev,
                      _fix("transform" if transforms else "advice", text, transforms, selected=False),
                      columns=[cx.target]) | {"classes": [{"name": n, "count": int(v)} for n, v in vc.items()][-12:]}]
 
