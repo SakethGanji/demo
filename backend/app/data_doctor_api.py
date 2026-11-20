@@ -3,7 +3,7 @@
     GET  /api/datasets/{id}/data-doctor          every check (seconds); starts the label-quality job once per target
     POST /api/datasets/{id}/data-doctor/apply    {transforms, by?} → a new dataset version with lineage (original untouched)
     GET  /api/datasets/{id}/decision-time        the stored answers
-    POST /api/datasets/{id}/decision-time        {known: {column: bool}, fairness_only: [column], by?}
+    POST /api/datasets/{id}/decision-time        {known: {column: true | false | null}, fairness_only: [column], by?}
 
 The answers live in data/datasets/<id>/decisions.json. Columns answered "not known at decision time" and the
 fairness-only columns are dropped from every run started on the dataset (`run_drops`, read by POST /api/runs) unless
@@ -35,15 +35,31 @@ def answers(store: DatasetStore, dataset_id: str) -> dict[str, Any]:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
+def suspects(store: DatasetStore, dataset_id: str) -> list[dict[str, Any]] | None:
+    """The leakage suspects of the dataset's last Data Report (None when no report has been computed yet). Fixed
+    versions inherit their parent's until their own report runs."""
+    for ds in (dataset_id, (store.lineage(dataset_id) or {}).get("parent")):
+        p = store.dir(ds) / "data_doctor_suspects.json" if ds else None
+        if p and p.exists():
+            return json.loads(p.read_text())
+    return None
+
+
 def run_drops(store: DatasetStore, dataset_id: str, columns: list[str]) -> dict[str, Any] | None:
-    """What the stored answers drop from a run: {not_known, fairness_only, columns, answered_at, by}, or None."""
+    """What the stored answers drop from a run: {not_known, fairness_only, columns, unanswered, answered_at, by}, or
+    None when nothing is answered and no suspect is open. Only an explicit 'not known' drops a column: an unanswered
+    suspect stays in the run and is listed in `unanswered` (never treated as an answer)."""
     a = answers(store, dataset_id)
-    if not a.get("answered_at"):
+    sus = suspects(store, dataset_id)
+    known = a.get("known") or {}
+    unanswered = [s["column"] for s in sus or [] if s["column"] in columns and known.get(s["column"]) is None]
+    if not a.get("answered_at") and not unanswered:
         return None
-    not_known = [c for c, v in (a.get("known") or {}).items() if v is False and c in columns]
-    fair = [c for c in a.get("fairness_only") or [] if c in columns]
+    not_known = [c for c, v in known.items() if v is False and c in columns]
+    fair = [c for c in a.get("fairness_only") or [] if c in columns] if a.get("answered_at") else []
     return {"not_known": not_known, "fairness_only": fair, "columns": list(dict.fromkeys(not_known + fair)),
-            "answered_at": a.get("answered_at"), "by": a.get("by"), "inherited_from": a.get("inherited_from")}
+            "unanswered": unanswered, "answered_at": a.get("answered_at"), "by": a.get("by"),
+            "inherited_from": a.get("inherited_from")}
 
 
 def _roles(store: DatasetStore, dataset_id: str, df) -> list[dict[str, Any]]:
@@ -64,6 +80,10 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     if labels is None and task_ok and df[target].nunique(dropna=True) >= 2:
         labels = dd.start_labels(store.dir(dataset_id), target, csv, roles)
     out = dd.report(df, target, roles, answers(store, dataset_id), labels)
+    leak = next((f for f in out["findings"] if f["id"] == "leakage"), None)
+    (store.dir(dataset_id) / "data_doctor_suspects.json").write_text(json.dumps(
+        [{k: s.get(k) for k in ("column", "confidence", "reasons", "auc", "basis")} for s in (leak or {}).get("suspects") or []],
+        default=dd._jsonable))
     lin = store.lineage(dataset_id) or {}
     out.update(dataset_id=dataset_id, name=rec["name"],
                lineage={k: lin.get(k) for k in ("parent", "root", "kind", "fixes", "applied_at", "by") if k in lin} or None,
@@ -160,7 +180,8 @@ def set_decision_time(dataset_id: str, request: Request, body: dict[str, Any]) -
         raise HTTPException(400, f"No column named {bad[0]!r}.")
     if rec["target"] in fair or known.get(rec["target"]) is False:
         raise HTTPException(400, f"'{rec['target']}' is the target; it can't be left out.")
-    out = {"known": {c: bool(v) for c, v in known.items()}, "fairness_only": list(dict.fromkeys(fair)),
+    # Only explicit answers are stored: null (or a missing column) means "not answered yet", never "not known".
+    out = {"known": {c: bool(v) for c, v in known.items() if v is not None}, "fairness_only": list(dict.fromkeys(fair)),
            "answered_at": now(), "by": str(body.get("by") or "you")}
     (store.dir(dataset_id) / "decisions.json").write_text(json.dumps(out))
     return {"dataset_id": dataset_id, **out, "drops": run_drops(store, dataset_id, list(cols))}

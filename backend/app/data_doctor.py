@@ -234,9 +234,14 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
         if cx.task == "binary" and pd.api.types.is_numeric_dtype(x) and not pd.api.types.is_bool_dtype(x):
             nums[f"median {s['column']} when {cx.target} = {cx.pos}"] = _jsonable(round(float(x[cx.y01 == 1].median()), 4))
             nums[f"median {s['column']} otherwise"] = _jsonable(round(float(x[cx.y01 == 0].median()), 4))
+    for s in items:  # what the suspicion rests on: a name / values rule, or only how strong the column is alone
+        s["basis"] = "strength only" if all(r.startswith("alone ") for r in s["reasons"]) else "name or values"
     sev = "high" if high else "medium" if cx.task == "binary" or any(s["auc"] for s in items) else "low"
-    title = (f"Leakage suspect{'s' if len(items) > 1 else ''}: {', '.join(cols[:4])}{'…' if len(cols) > 4 else ''} "
-             f"may be known only after the outcome")
+    strength_only = all(s["basis"] == "strength only" for s in items)
+    names = f"{', '.join(cols[:4])}{'…' if len(cols) > 4 else ''}"
+    title = (f"Leak or strong signal? {names} alone predict{'s' if len(items) == 1 else ''} {cx.target} very well: "
+             f"confirm {'it is' if len(items) == 1 else 'each is'} known when you decide" if strength_only and not high else
+             f"Leakage suspect{'s' if len(items) > 1 else ''}: {names} may be known only after the outcome")
     ev_cols = cols[:4] + [cx.target]
     ev_mask = np.ones(cx.n, bool)
     if cx.task in ("binary", "multiclass"):  # three example rows of each of the two largest classes, side by side
@@ -247,8 +252,10 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
                      "A column is a suspect when its name or values say it is filled in after the outcome (Smart Intake's "
                      "leak rules), or when it alone predicts the target (" + rule_auc + "). Only you know what is available when the decision is made.",
                      _rows(cx.df, ev_mask, ev_cols, n=6),
-                     _fix("question", "Answer 'known at decision time?' below: columns you leave unticked are dropped from "
-                                      "every run started on this dataset."),
+                     _fix("question", "Answer 'known when you decide?' below for each column. 'Not known' drops it from every "
+                                      "run on this dataset; 'known' keeps it. Until you answer, it stays in every run, the run "
+                                      "records it as unanswered, and the Model Doctor treats it as an open leak question. "
+                                      "Strength alone is not proof of a leak: a strong real signal looks the same."),
                      columns=cols) | {"suspects": items}]
 
 
@@ -742,18 +749,21 @@ def report(df: pd.DataFrame, target: str | None, roles: list[dict[str, Any]], an
     known = answers.get("known") or {}
     decision = {
         "question": "Is each of these columns known at the moment the decision is made?",
-        "rule": "Unticked columns are dropped from every run started on this dataset (and its fixed versions); the run records it.",
-        "columns": [{"column": s["column"], "suspect": True, "reasons": s["reasons"], "auc": s["auc"],
-                     "confidence": s["confidence"], "known": bool(known.get(s["column"], False))} for s in suspects]
+        "rule": "'Not known' columns are dropped from every run started on this dataset (and its fixed versions); 'known' "
+                "columns are kept. Unanswered columns are kept too, and every run records them as unanswered.",
+        "columns": [{"column": s["column"], "suspect": True, "reasons": s["reasons"], "auc": s["auc"], "basis": s.get("basis"),
+                     "confidence": s["confidence"],
+                     "known": (bool(known[s["column"]]) if known.get(s["column"]) is not None else None)} for s in suspects]
                    + [{"column": c, "suspect": False, "reasons": [], "auc": None, "confidence": 0, "known": False}
                       for c, v in known.items() if v is False and c not in {s["column"] for s in suspects}],
+        "unanswered": [s["column"] for s in suspects if known.get(s["column"]) is None],
         "answered": bool(answers.get("answered_at")),
         "answered_at": answers.get("answered_at"), "by": answers.get("by"),
         "fairness_only": answers.get("fairness_only") if answers.get("answered_at") else
                          [p["column"] for p in (prot or {}).get("items", [])],
         "protected": [p["column"] for p in (prot or {}).get("items", [])],
     }
-    if leak and decision["answered"] and all(s["column"] in known for s in suspects):
+    if leak and decision["answered"] and all(known.get(s["column"]) is not None for s in suspects):
         dropped = [s["column"] for s in suspects if known.get(s["column"]) is False]
         leak["severity"], leak["answered"] = "info", True
         leak["title"] = (f"Leakage suspects answered: {', '.join(dropped)} dropped from runs" if dropped

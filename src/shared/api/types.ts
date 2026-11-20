@@ -1476,12 +1476,12 @@ export type DataFinding = {
   fix: { kind: 'transform' | 'question' | 'advice'; text: string; transforms: DataFix[]; selected: boolean }
   columns: string[]; status?: string; answered?: boolean
 }
-export type DecisionColumn = { column: string; suspect: boolean; reasons: string[]; auc: number | null; confidence: number; known: boolean }
+export type DecisionColumn = { column: string; suspect: boolean; reasons: string[]; auc: number | null; confidence: number; known: boolean | null; basis?: 'strength only' | 'name or values' }
 export type DataReport = {
   dataset_id: string; name: string; target: string | null; task: string | null; rows: number; columns: number
   findings: DataFinding[]; counts: Record<'high' | 'medium' | 'low' | 'info', number>; n_fixes: number; seconds: number
   severity_rule: string
-  decision_time: { question: string; rule: string; columns: DecisionColumn[]; answered: boolean; answered_at: string | null; by: string | null; fairness_only: string[]; protected: string[] }
+  decision_time: { question: string; rule: string; columns: DecisionColumn[]; unanswered?: string[]; answered: boolean; answered_at: string | null; by: string | null; fairness_only: string[]; protected: string[] }
   lineage: { parent: string; root: string; kind?: string; fixes?: DataFixEffect[]; applied_at?: string; by?: string } | null
 }
 /** A fix as applied: `rows` becomes the number of rows it dropped; `cells` how many values it changed. */

@@ -66,7 +66,7 @@ export const api = {
     /** D1: apply typed fixes into a new dataset version (lineage kept; the original is never changed). */
     applyFixes: (id: string, transforms: DataFix[]) => json<DataFixResult>(`/datasets/${encodeURIComponent(id)}/data-doctor/apply`, 'POST', { transforms, by: actor() }, 300_000),
     /** D1: store 'known at decision time?' and fairness-only answers; later runs drop those columns. */
-    decisionTime: (id: string, known: Record<string, boolean>, fairness_only: string[]) => json<{ answered_at: string }>(`/datasets/${encodeURIComponent(id)}/decision-time`, 'POST', { known, fairness_only, by: actor() }),
+    decisionTime: (id: string, known: Record<string, boolean | null>, fairness_only: string[]) => json<{ answered_at: string }>(`/datasets/${encodeURIComponent(id)}/decision-time`, 'POST', { known, fairness_only, by: actor() }),
     /** D2 Feature Lab: the dataset's searches (newest first) and the typed DSL. */
     featureLab: (id: string) => request<FeatureLabList>(`/datasets/${encodeURIComponent(id)}/feature-lab`),
     featureLabStart: (id: string, body: { target?: string; entity?: string | null; candidates?: FeatureTransform[]; max_candidates?: number; time_limit?: number }) =>
