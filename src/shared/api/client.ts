@@ -270,8 +270,8 @@ export const api = {
     score: (id: string, rows: Record<string, unknown>[]) => json<ScoreResult>(`/registry/versions/${encodeURIComponent(id)}/score`, 'POST', { rows }),
     /** F3: one-row p50 / p95 and batches of 1 → 1,000 as served, in a predict worker. */
     benchmark: (id: string) => json<ServingBenchmark & { version_id: string }>(`/registry/versions/${encodeURIComponent(id)}/benchmark`, 'POST', {}),
-    transition: (id: string, stage: Stage, actor: string, comment = '') =>
-      json<{ version: ModelVersion; audit: AuditEntry; archived: string[] }>(`/registry/versions/${encodeURIComponent(id)}/transition`, 'POST', { stage, actor, comment }),
+    transition: (id: string, stage: Stage, actor: string, comment = '', override_reason = '') =>
+      json<{ version: ModelVersion; audit: AuditEntry; archived: string[] }>(`/registry/versions/${encodeURIComponent(id)}/transition`, 'POST', { stage, actor, comment, ...(override_reason ? { override_reason } : {}) }),
     review: (id: string, decision: 'approve' | 'reject', reviewer: string, comment = '') =>
       json<{ version: ModelVersion; audit: AuditEntry }>(`/registry/versions/${encodeURIComponent(id)}/review`, 'POST', { decision, reviewer, comment }),
     audit: (q: { model?: string; versionId?: string; limit?: number } = {}) => {

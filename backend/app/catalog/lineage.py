@@ -58,10 +58,19 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
             p = con.execute("SELECT * FROM projects WHERE id = ?", (id_,)).fetchone()
             if not p:
                 raise KeyError(id_)
-            root = ("dataset", p["root_dataset_id"])
+            # F-P2: every dataset root in the project (a user project can hold several uploads; a new one none yet)
+            roots = [r[0] for r in con.execute("SELECT id FROM datasets WHERE project_id = ? AND parent_id IS NULL ORDER BY created_at",
+                                               (id_,))]
+            if not roots and p["root_dataset_id"] and con.execute("SELECT 1 FROM datasets WHERE id = ? AND project_id = ?",
+                                                                  (p["root_dataset_id"], id_)).fetchone():
+                roots = [p["root_dataset_id"]]
+            root = ("dataset", roots[0]) if roots else ("project", id_)
         else:
             root = root_of(con, kind, id_)
-        nodes = con.execute(TREE, root).fetchall()
+            roots = [root[1]] if root[0] == "dataset" else []
+        nodes = []
+        for r0 in roots or ([] if kind == "project" else [root[1]]):
+            nodes += con.execute(TREE, ("dataset", r0) if roots else root).fetchall()
         keys = {(n["kind"], n["id"]) for n in nodes}
         depth = {(n["kind"], n["id"]): n["depth"] for n in nodes}
         ids = {k: [i for (kk, i) in keys if kk == k] for k in ("dataset", "run", "version")}
@@ -76,7 +85,8 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
         dsets = q("SELECT id, name, rows, created_at, project_id, parent_id, root_id, sha256, op, target FROM datasets WHERE id IN ({})",
                   ids["dataset"])
         runs = q("SELECT id, name, dataset_id, label, status, created_at, project_id, parent_run_id, source, kind, primary_metric,"
-                 " primary_score, greater_is_better, predictor_state, predictor_bytes FROM runs WHERE id IN ({})", ids["run"])
+                 " primary_score, greater_is_better, predictor_state, predictor_bytes, json_extract(config, '$.run_dir') AS run_dir"
+                 " FROM runs WHERE id IN ({})", ids["run"])
         vers = q("SELECT id, model_name, version, run_id, status, stage, approval, created_at, created_by FROM model_versions"
                  " WHERE id IN ({})", ids["version"])
         all_ids = [i for (_, i) in keys]
@@ -86,43 +96,49 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
                  all_ids)
         notes = q("SELECT target_id, COUNT(*) AS n FROM annotations WHERE kind = 'note' AND deleted_at IS NULL AND target_id IN ({})"
                   " GROUP BY target_id", all_ids)
-        proj_id = next((d["project_id"] for d in dsets if d["id"] == root[1]), None)
+        proj_id = id_ if kind == "project" else next((d["project_id"] for d in dsets if d["id"] == root[1]), None)
         project = dict(con.execute("SELECT * FROM projects WHERE id = ?", (proj_id,)).fetchone() or {}) if proj_id else None
     champ = app.state.catalog.champion(proj_id) if proj_id else None
     tag_map: dict[str, list[str]] = {}
     for t in tags:
         tag_map.setdefault(t["target_id"], []).append(t["value"])
     note_map = {n["target_id"]: n["n"] for n in notes}
-    # -- verdicts of review branches (from the parent run's journal; stored back on the edge once the review is over)
+    # -- review branches: review_id (and the verdict once the review is over) are stored on the edge at write time
+    # (F-P2 backfilled the old ones), so the tree reads one journal per review, never one glob per edge
     reviews: dict[str, dict[str, Any]] = {}
-    run_by_id = {r["id"]: r for r in runs}
-    by_child: dict[str, str] = {}  # branch run → the review whose journal ran it (for branches recorded without review_id)
+    run_dir = {r["id"]: r.pop("run_dir") for r in runs}
     for e in edges:
         e["meta"] = _j(e["meta"]) or {}
-        if e["relation"] == "branched_from" and not e["meta"].get("review_id"):
-            parent = app.state.runs.get(e["src_id"])
-            d = Path((parent or {}).get("config", {}).get("run_dir") or "/nonexistent") / "reviews"
-            for p in d.glob("rv_*.json") if d.exists() else []:
-                rv = review_journal(parent, p.stem) or {}
-                for j in rv.get("journal") or []:
+    # fallback for a branch written before its review journal named it (one directory check per parent, not per edge)
+    by_child: dict[str, str] = {}
+    for src in {e["src_id"] for e in edges if e["relation"] == "branched_from" and not e["meta"].get("review_id")}:
+        d = Path(run_dir.get(src) or "/nonexistent") / "reviews"
+        if d.is_dir():
+            for p in d.glob("rv_*.json"):
+                for j in (review_journal({"config": {"run_dir": run_dir.get(src)}}, p.stem) or {}).get("journal") or []:
                     if j.get("run_id"):
                         by_child.setdefault(j["run_id"], p.stem)
+    for e in edges:
+        if e["relation"] == "branched_from" and not e["meta"].get("review_id") and by_child.get(e["dst_id"]):
+            e["meta"]["review_id"] = by_child[e["dst_id"]]
+            app.state.catalog.update_edge_meta(("run", e["src_id"]), ("run", e["dst_id"]), "branched_from",
+                                               {"review_id": e["meta"]["review_id"]})
     for e in edges:
         m = e["meta"]
         if e["relation"] != "branched_from":
             continue
-        rid = m.get("review_id") or by_child.get(e["dst_id"])
+        rid = m.get("review_id")
         if not rid:
             continue
-        m["review_id"] = rid
         if rid not in reviews:
-            parent = app.state.runs.get(e["src_id"])
-            rv = review_journal(parent, rid) or {}
+            rv = review_journal({"config": {"run_dir": run_dir.get(e["src_id"])}}, rid) or {}
             reviews[rid] = {"id": rid, "run_id": e["src_id"], "status": rv.get("status"), "by": rv.get("by"),
                             "mode": rv.get("mode"), "started_at": rv.get("started_at"), "finished_at": rv.get("finished_at"),
                             "_journal": {j.get("run_id"): j for j in rv.get("journal") or [] if j.get("run_id")}}
+        if m.get("verdict"):
+            continue
         j = reviews[rid]["_journal"].get(e["dst_id"])
-        if j and not m.get("verdict"):
+        if j:
             m.update(verdict=j.get("verdict"), hypothesis_id=(j.get("hypothesis") or {}).get("id"), step=j.get("step"),
                      hypothesis=(j.get("hypothesis") or {}).get("title"))
             if reviews[rid]["status"] in ("done", "stopped", "interrupted", "failed") and j.get("verdict"):
@@ -140,7 +156,6 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
     for v in vers:
         out_nodes.append({"kind": "version", **v, "depth": depth.get(("version", v["id"])), "tags": tag_map.get(v["id"], []),
                           "notes": note_map.get(v["id"], 0), "champion": bool(champ and champ["version_id"] == v["id"])})
-    del run_by_id
     return {"focus": {"kind": kind, "id": id_}, "root": {"kind": root[0], "id": root[1]}, "project": project,
             "champion": champ, "nodes": out_nodes,
             "edges": [{"src": {"kind": e["src_kind"], "id": e["src_id"]}, "dst": {"kind": e["dst_kind"], "id": e["dst_id"]},

@@ -7,8 +7,9 @@ what-if on an evicted run return 410 "re-fit from config"; paired compare, the l
 work.
 
 Pinned (never slimmed or evicted): source runs of non-rejected versions; the champion, Production and Staging;
-runs under a pending or running review (the base run and its branches); the top 3 per project and dataset; runs tagged
-`keep`; queued and running runs."""
+runs under a pending or running review (the base run and its branches); the top 3 per project, dataset, label and
+problem type (by AUC for binary, else the run's metric); runs tagged `keep` (any case) and the source runs of versions
+tagged `keep`; queued and running runs."""
 
 from __future__ import annotations
 
@@ -89,19 +90,34 @@ def pins(app) -> dict[str, list[str]]:
                 pin(v["run_id"], f"{label} is the champion")
         for r in con.execute("SELECT id FROM runs WHERE status IN ('queued', 'running')"):
             pin(r[0], "queued or running")
-        # top k per (project, dataset) by the primary score, in the metric's direction
-        rows = con.execute("SELECT id, project_id, dataset_id, primary_metric, primary_score, greater_is_better FROM runs"
-                           " WHERE status = 'succeeded' AND primary_score IS NOT NULL").fetchall()
+        # F-P2 #4: top k per (project, dataset, label, problem type), ranked by the metric compare uses: AUC (or average
+        # precision) for binary, else the run's own eval metric. json_extract keeps the result JSON out of Python.
+        rows = con.execute(
+            "SELECT id, project_id, dataset_id, label, primary_metric, primary_score, greater_is_better,"
+            " json_extract(result, '$.problem_type') AS pt, json_extract(result, '$.holdout.metrics.roc_auc') AS auc,"
+            " json_extract(result, '$.holdout.metrics.average_precision') AS ap FROM runs"
+            " WHERE status = 'succeeded' AND (primary_score IS NOT NULL OR json_extract(result, '$.holdout.metrics.roc_auc') IS NOT NULL)").fetchall()
+        keep_versions = [r[0] for r in con.execute(
+            "SELECT v.run_id FROM annotations a JOIN model_versions v ON v.id = a.target_id WHERE a.target_kind = 'version'"
+            " AND a.kind = 'tag' AND lower(a.value) = lower(?) AND a.deleted_at IS NULL", (pol["keep_tag"],))]
     groups: dict[tuple, list] = {}
     for r in rows:
-        groups.setdefault((r["project_id"], r["dataset_id"], r["primary_metric"]), []).append(r)
+        if r["pt"] == "binary" and (r["auc"] is not None or r["ap"] is not None):
+            m, score, up = ("roc_auc", r["auc"], True) if r["auc"] is not None else ("average_precision", r["ap"], True)
+        else:
+            m, score, up = r["primary_metric"], r["primary_score"], r["greater_is_better"] in (1, None)
+        if score is None:
+            continue
+        groups.setdefault((r["project_id"], r["dataset_id"], r["label"], r["pt"], m), []).append((score if up else -score, r["id"]))
     k = int(pol["top_k_pinned"])
-    for (_, ds, m), rs in groups.items():
-        rs.sort(key=lambda r: r["primary_score"] if r["greater_is_better"] in (1, None) else -r["primary_score"], reverse=True)
-        for i, r in enumerate(rs[:k]):
-            pin(r["id"], f"top {k} on {ds} by {m} (#{i + 1})")
-    for rid in cat.tagged("run", pol["keep_tag"]):
+    for (_, ds, label, pt, m), rs in groups.items():
+        rs.sort(reverse=True)
+        for i, (_, rid) in enumerate(rs[:k]):
+            pin(rid, f"top {k} on {ds} · {label} ({pt or 'unknown'}) by {m} (#{i + 1})")
+    for rid in cat.tagged("run", pol["keep_tag"]):  # case-insensitive: "Keep" and "KEEP" pin too
         pin(rid, f"tagged '{pol['keep_tag']}'")
+    for rid in keep_versions:
+        pin(rid, f"source of a version tagged '{pol['keep_tag']}'")
     # reviews that are pending or running: the base run and every branch under it
     for p in app.state.settings.runs_dir.glob("run_*/reviews/rv_*.json"):
         try:
@@ -170,12 +186,33 @@ def plan(app, run_ids: list[str] | None = None, tier: str | None = None) -> dict
             "note": "slim estimates 60 % freed until a run is actually slimmed; evict frees the whole predictor folder"}
 
 
-def _slim(path: str) -> None:
+def _slim(path: str) -> list[str]:
+    """Keep only the best model (and what it depends on); returns the models left."""
     from autogluon.tabular import TabularPredictor
 
     p = TabularPredictor.load(path, verbosity=0, require_py_version_match=False, require_version_match=False)
     p.delete_models(models_to_keep="best", dry_run=False)
     p.save_space()
+    return list(p.model_names())
+
+
+def mark_deleted_models(app, run_id: str, kept: list[str] | None) -> None:
+    """F-P2 #20: after a slim or an evict, the stored leaderboard marks the models that are gone (can_infer false), so
+    the pickers stop offering them; the scores stay for the record."""
+    run = app.state.runs.get(run_id)
+    res = (run or {}).get("result") or {}
+    lb = res.get("leaderboard")
+    if not isinstance(lb, list):
+        return
+    keep = set(kept or [])
+    new = []
+    for row in lb:
+        if isinstance(row, dict):
+            name = row.get("model")
+            gone = name not in keep and (row.get("predict_model") or name) not in keep
+            row = {**row, **({"deleted": True, "can_infer": False} if gone else {})}
+        new.append(row)
+    app.state.runs.merge_result(run_id, leaderboard=new, models_kept=sorted(keep))
 
 
 def execute(app, by: str, run_ids: list[str] | None = None, tier: str | None = None) -> dict[str, Any]:
@@ -188,9 +225,10 @@ def execute(app, by: str, run_ids: list[str] | None = None, tier: str | None = N
         run = app.state.runs.get(it["run_id"])
         pp = Path(run["config"]["predictor_path"])
         before = dir_bytes(pp)
+        kept: list[str] = []
         try:
             if it["action"] == "slim":
-                _slim(str(pp))
+                kept = _slim(str(pp))
                 state = SLIMMED
             else:
                 shutil.rmtree(pp, ignore_errors=False) if pp.is_dir() else pp.unlink()
@@ -210,6 +248,10 @@ def execute(app, by: str, run_ids: list[str] | None = None, tier: str | None = N
             app.state.predictors.drop(str(pp))
         except Exception:  # noqa: BLE001
             pass
+        try:
+            mark_deleted_models(app, it["run_id"], kept if state == SLIMMED else [])
+        except Exception:  # noqa: BLE001 — the record of the slim matters more than the picker hint
+            pass
         reg.audit(actor=by, action=f"retention_{it['action']}", run_id=it["run_id"], from_stage=it["state"], to_stage=state,
                   comment=it["reason"], details={"bytes_before": before, "bytes_after": after, "freed": before - after,
                                                  "policy": config.RETENTION_POLICY["status"]})
@@ -225,7 +267,7 @@ def execute(app, by: str, run_ids: list[str] | None = None, tier: str | None = N
 # guarded by default.
 STORED_ONLY = {
     ("GET", ""), ("DELETE", ""), ("GET", "/events"), ("GET", "/experiments"), ("GET", "/review"), ("GET", "/holdout-predictions"),
-    ("GET", "/oof"), ("GET", "/export.py"), ("GET", "/split-comparison"), ("GET", "/cost-comparison"), ("GET", "/vela"),
+    ("GET", "/children"), ("GET", "/export.py"), ("GET", "/split-comparison"), ("GET", "/cost-comparison"), ("GET", "/vela"),
     ("GET", "/gym"), ("GET", "/scores"), ("GET", "/scores.csv"), ("GET", "/top"), ("GET", "/forecast.csv"), ("GET", "/chart"),
     ("POST", "/cancel"), ("GET", "/doctor"), ("GET", "/active-learning"), ("GET", "/annotations"), ("GET", "/learning-curve"),
     ("GET", "/shift"), ("GET", "/slices"), ("GET", "/supervised"), ("GET", "/labels"),

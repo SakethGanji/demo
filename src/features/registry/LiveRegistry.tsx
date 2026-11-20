@@ -22,6 +22,7 @@ import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/Versi
 import { ServingCard } from './components/ServingCard'
 import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, distillParamReg, short, us, useActor, versionParam, when } from './lib'
 import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { registrableRuns } from '@/shared/api/catalog'
 
 type Tab = 'Overview' | 'Results' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending'
 const TABS: Tab[] = ['Overview', 'Results', 'Model Card', 'Try It', 'Reason Codes', 'Batch & Drift', 'Monitoring', 'Credit Report', 'Fair Lending']
@@ -53,6 +54,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   const [detail, setDetail] = useState<ModelVersion | null>(null)
   const [ds, setDs] = useState<DatasetDetail | null>(null)
   const [tick, setTick] = useState(0)
+  const [wantRuns, setWantRuns] = useState(false)
   const bump = useCallback(() => setTick((t) => t + 1), [])
 
   useEffect(() => {
@@ -61,12 +63,19 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   }, [])
   useEffect(() => {
     let alive = true
-    Promise.all([api.registry.get(), api.registry.audit({ limit: 60 }), api.runs.list()]).then(([reg, au, rs]) => {
+    // F-P2: no unscoped GET /api/runs here (35 MB at 3k runs): the version's run is read by id, Register… reads its own page
+    Promise.all([api.registry.get(), api.registry.audit({ limit: 60 })]).then(([reg, au]) => {
       if (!alive) return
-      setVersions(reg.versions); setCounts(reg.counts); setAudit(au); setRuns(rs); setLoaded(true); setErr('')
+      setVersions(reg.versions); setCounts(reg.counts); setAudit(au); setLoaded(true); setErr('')
     }).catch((e) => alive && setErr((e as Error).message))
     return () => { alive = false }
   }, [tick])
+  useEffect(() => {
+    if (!registering && !wantRuns) return
+    let alive = true
+    registrableRuns(registering).then((rs) => alive && setRuns(rs)).catch(() => {})
+    return () => { alive = false }
+  }, [registering, wantRuns])
   // keep polling while anything builds
   useEffect(() => {
     if (!versions.some((v) => v.status === 'building')) return
@@ -101,6 +110,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
     history.replaceState(null, '', id ? `#/registry?version=${id}&tab=${encodeURIComponent(t)}` : '#/registry')
   }
   const okRuns = runs.filter((r) => r.status === 'succeeded' && kindOf(r) !== 'reject_inference')
+  const openRegister = () => { if (okRuns.length) setRegistering(okRuns[0].id); else setWantRuns(true) }
+  useEffect(() => { if (wantRuns && okRuns.length && registering == null) { setRegistering(okRuns[0].id); setWantRuns(false) } }, [wantRuns, okRuns.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (err && !loaded) return <ErrorCard err={err} />
   if (!loaded || !counts) return <Loading>Reading the registry: registered models, versions, stages, the audit log and lineage…</Loading>
@@ -117,7 +128,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
         <div className="row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8 }}>
           <label className="actor"><span className="micro-label">acting as</span><input className="input" data-testid="actor" placeholder="your name" value={actor} onChange={(e) => setActor(e.target.value)} /></label>
           <button className="btn" onClick={() => go('models')}>Models</button>
-          <button className={`btn ${detail ? '' : 'primary'}`} data-testid="open-register" disabled={!okRuns.length} onClick={() => setRegistering(okRuns[0]?.id ?? null)}>Register…</button>
+          <button className={`btn ${detail ? '' : 'primary'}`} data-testid="open-register" onClick={openRegister}>Register…</button>
         </div>
       </div>
 

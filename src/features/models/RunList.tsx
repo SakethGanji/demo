@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { api } from '@/shared/api/client'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Run } from '@/shared/api/types'
 import { fmtScore, fmtSeconds, metricInfo } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
@@ -12,7 +11,8 @@ import { ParamDiff } from './components/ParamDiff'
 import { RunCoordinates } from './components/RunCoordinates'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 import { useFetch } from '@/shared/hooks/useFetch'
-import { catalog, projectRuns } from '@/shared/api/catalog'
+import { activeRuns, catalog, runsByIds, runsPage } from '@/shared/api/catalog'
+import { api } from '@/shared/api/client'
 import { ProjectTree } from './components/ProjectTree'
 
 export const STATUS_PILL: Record<string, Status> = { succeeded: 'success', running: 'info', queued: 'neutral', failed: 'danger', cancelled: 'warning' }
@@ -49,9 +49,9 @@ export function RunList({ go }: { go: (r: string) => void }) {
     history.replaceState(null, '', `#/models${q.toString() ? `?${q}` : ''}`)
   }
   const projects = useFetch(() => catalog.projects(), [])
-  const { data: runs, err } = useFetch(() => (project ? projectRuns(project) : api.runs.list(undefined, 'all')), [project], { pollMs: 5000 })
-  const [tab, setTab] = useState<Tab>('Runs')
   const [sel, setSel] = useState<string[]>([])
+  const { runs, total, err, more, loadingMore } = useRunPages(project, sel)
+  const [tab, setTab] = useState<Tab>('Runs')
   // ?type= (from a setup page's "earlier runs are in Models" link) preselects the problem filter.
   const [f, setF] = useState<Filters>(() => ({ dataset: 'all', type: typeParam(), status: 'all', q: '', min: '' }))
   // #/models?compare=a,b (from a Vela patch's retrain): select those runs and open Compare.
@@ -79,7 +79,8 @@ export function RunList({ go }: { go: (r: string) => void }) {
     return true
   }), [runs, f])
   const toggle = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
-  const selRuns = (runs ?? []).filter((r) => sel.includes(r.id) && tabularLike(r))
+  // in the order they were selected: the first one clicked is Compare's base
+  const selRuns = sel.map((id) => (runs ?? []).find((r) => r.id === id)).filter((r): r is Run => !!r && tabularLike(r))
   const selOther = (runs ?? []).filter((r) => sel.includes(r.id) && !tabularLike(r)).length
 
   if (err && !runs) return <ErrorCard err={err} />
@@ -103,14 +104,15 @@ export function RunList({ go }: { go: (r: string) => void }) {
       <div className="page-head">
         <div>
           <h1 className="page-title">Models</h1>
-          <p className="helper sub" data-testid="exp-summary">{project ? `${projects.data?.find((x) => x.id === project)?.name ?? project} · ` : ''}{runs.length} runs · {shown.length} shown · {sel.length} selected · {byStatus.succeeded ?? 0} succeeded{byStatus.running ? ` · ${byStatus.running} running` : ''}{byStatus.failed ? ` · ${byStatus.failed} failed` : ''}</p>
+          <p className="helper sub" data-testid="exp-summary">{project ? `${projects.data?.find((x) => x.id === project)?.name ?? project} · ` : ''}{total.toLocaleString()} runs{runs.length < total ? ` (newest ${runs.length.toLocaleString()} loaded)` : ''} · {shown.length} shown · {sel.length} selected · {byStatus.succeeded ?? 0} succeeded{byStatus.running ? ` · ${byStatus.running} running` : ''}{byStatus.failed ? ` · ${byStatus.failed} failed` : ''}</p>
         </div>
         <div className="row">
           <label className="project-switch"><span className="micro-label">project</span>
             <select className="select" value={project ?? ''} onChange={(e) => setProject(e.target.value || null)} data-testid="project-switch">
               <option value="">All projects</option>
-              {(projects.data ?? []).filter((p) => p.n_runs > 0 || p.id === project).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.n_runs}){p.champion ? ' ★' : ''}</option>)}
+              {(projects.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.n_runs}){p.champion ? ' ★' : ''}</option>)}
             </select></label>
+          <NewProject onMade={(id) => { projects.reload(); setProject(id) }} />
           <button className="btn" disabled={sel.length !== 1} onClick={() => go(`models?run=${sel[0]}&tab=Explain`)} title="Select exactly one run">Explain</button>
           <button className="btn primary" onClick={() => go('build')}>Build</button>
         </div>
@@ -171,6 +173,7 @@ export function RunList({ go }: { go: (r: string) => void }) {
                   </tr>
                 )
               })}
+              {runs.length < total && <tr><td colSpan={13} style={{ padding: 12 }}><button className="btn" disabled={loadingMore} onClick={more} data-testid="exp-more">{loadingMore ? 'Loading…' : `Load ${Math.min(100, total - runs.length)} more (${(total - runs.length).toLocaleString()} older)`}</button></td></tr>}
               {!shown.length && <tr><td colSpan={13} className="helper" style={{ padding: 24 }}>No runs match these filters. <button className="chip-btn" onClick={() => setF({ dataset: 'all', type: 'all', status: 'all', q: '', min: '' })}>Clear filters</button></td></tr>}
             </tbody>
           </table></div>
@@ -184,13 +187,104 @@ export function RunList({ go }: { go: (r: string) => void }) {
       {tab === 'Compare' && <><PatchLineage runs={selRuns} />{<CompareRuns runs={selRuns} go={go} />}</>}
       {tab === 'Parameter Diff' && <ParamDiff runs={selRuns} />}
       {tab === 'Lineage' && <div className="card card-body" data-testid="models-lineage">
+        {project && <MoveDataset project={project} onMoved={() => location.reload()} />}
         {project ? <ProjectTree kind="project" id={project} go={go} />
           : sel.length ? <ProjectTree kind="run" id={sel[0]} go={go} />
             : <p className="helper">Pick a project above, or select a run, to see its tree: dataset → versions → runs → branches → registered versions.</p>}
       </div>}
 
-      <div className="chips-row"><ParamChip sym="runs" value={String(runs.length)} />{metricInfo('roc_auc') && <span className="helper" style={{ fontSize: 12 }}>Every number on this page is read from <span className="mono">GET /api/runs</span>; refreshed every 5 s.</span>}</div>
+      <div className="chips-row"><ParamChip sym="runs" value={String(runs.length)} />{metricInfo('roc_auc') && <span className="helper" style={{ fontSize: 12 }}>Every number on this page is read from <span className="mono">GET /api/runs</span>, 100 runs a page; only queued and running runs are re-read, every 5 s.</span>}</div>
     </div>
+  )
+}
+
+/** F-P2: the Models list, a page at a time (100 newest, "load more" for older), scoped to the project in SQL. Only the
+ *  queued and running runs are polled (indexed columns, every 5 s); a row is re-read when its status changes. Selected
+ *  runs that are not on a loaded page (a ?compare= link) are fetched by id. */
+function useRunPages(project: string | null, sel: string[]) {
+  const [runs, setRuns] = useState<Run[] | null>(null)
+  const [total, setTotal] = useState(0)
+  const [err, setErr] = useState('')
+  const [loadingMore, setLoadingMore] = useState(false)
+  const active = useRef<Set<string>>(new Set())
+  const merge = useCallback((fresh: Run[], prepend = false) => setRuns((old) => {
+    const byId = new Map(fresh.map((r) => [r.id, r]))
+    const kept = (old ?? []).map((r) => byId.get(r.id) ?? r)
+    const add = fresh.filter((r) => !(old ?? []).some((o) => o.id === r.id))
+    return prepend ? [...add, ...kept] : [...kept, ...add]
+  }), [])
+  useEffect(() => {
+    let alive = true
+    setRuns(null); setErr('')
+    runsPage(project).then((p) => { if (!alive) return; setRuns(p.runs); setTotal(p.total); active.current = new Set(p.runs.filter((r) => r.status === 'queued' || r.status === 'running').map((r) => r.id)) })
+      .catch((e) => alive && setErr((e as Error).message))
+    return () => { alive = false }
+  }, [project])
+  useEffect(() => {
+    if (!runs) return
+    let alive = true
+    const t = setInterval(() => {
+      activeRuns(project).then((a) => {
+        const now = new Set(a.map((r) => r.id))
+        // re-read a run when it appears, or when its status differs from the row we hold (finished → no longer active)
+        const changed = [...new Set([...active.current, ...now])].filter((id) => {
+          const row = runs.find((r) => r.id === id)
+          return !row || row.status !== (a.find((x) => x.id === id)?.status ?? 'finished')
+        })
+        active.current = now
+        if (!alive || !changed.length) return
+        const isNew = changed.filter((id) => !runs.some((r) => r.id === id))
+        if (isNew.length) setTotal((n) => n + isNew.length)
+        runsByIds(changed).then((fresh) => alive && merge(fresh, true)).catch(() => {})
+      }).catch(() => {})
+    }, 5000)
+    return () => { alive = false; clearInterval(t) }
+  }, [project, runs, merge])
+  useEffect(() => {
+    if (!runs) return
+    const missing = sel.filter((id) => !runs.some((r) => r.id === id))
+    if (missing.length) runsByIds(missing).then((fresh) => merge(fresh)).catch(() => {})
+  }, [sel, runs, merge])
+  const more = () => {
+    if (!runs) return
+    setLoadingMore(true)
+    runsPage(project, runs.length).then((p) => { merge(p.runs); setTotal(p.total) }).catch((e) => setErr((e as Error).message)).finally(() => setLoadingMore(false))
+  }
+  return { runs, total, err, more, loadingMore }
+}
+
+/** F-P2: move an original dataset (with its versions and runs) into the selected project. */
+function MoveDataset({ project, onMoved }: { project: string; onMoved: () => void }) {
+  const [list, setList] = useState<{ id: string; name: string }[] | null>(null)
+  const [pick, setPick] = useState('')
+  const [msg, setMsg] = useState('')
+  const by = (() => { try { return localStorage.getItem('ensemble.actor') ?? '' } catch { return '' } })()
+  if (!list) return <p className="helper" style={{ fontSize: 12 }}><button className="chip-btn" onClick={() => api.datasets.list().then((d) => setList(d.map((x) => ({ id: x.id, name: x.name })))).catch((e) => setMsg((e as Error).message))} data-testid="move-dataset-open">Move a dataset into this project…</button>{msg}</p>
+  return (
+    <div className="row" style={{ gap: 6, marginBottom: 8 }} data-testid="move-dataset">
+      <select className="select" value={pick} onChange={(e) => setPick(e.target.value)}><option value="">pick an original dataset</option>{list.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.id}</option>)}</select>
+      <button className="btn" disabled={!pick || !by} title={by ? 'Moves the dataset, its versions and its runs (audited)' : 'Type your name in “acting as” first'} onClick={() => catalog.moveDataset(project, pick, by).then(onMoved).catch((e) => setMsg((e as Error).message))}>Move</button>
+      {msg && <span className="helper" style={{ color: 'var(--status-danger)' }}>{msg}</span>}
+    </div>
+  )
+}
+
+/** F-P2: make an empty project, then upload into it or move a dataset into it (Data). */
+function NewProject({ onMade }: { onMade: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [by, setBy] = useState(() => { try { return localStorage.getItem('ensemble.actor') ?? '' } catch { return '' } })
+  const [msg, setMsg] = useState('')
+  if (!open) return <button className="btn" onClick={() => setOpen(true)} data-testid="project-new">New project…</button>
+  const go = () => catalog.createProject(name, by).then((p) => { setOpen(false); setName(''); setMsg(''); onMade(p.id) }).catch((e) => setMsg((e as Error).message))
+  return (
+    <span className="row" style={{ gap: 6 }} data-testid="project-new-form">
+      <input className="input" placeholder="project name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} style={{ width: 160 }} />
+      <input className="input" placeholder="acting as" value={by} maxLength={80} onChange={(e) => setBy(e.target.value)} style={{ width: 110 }} title="Names, not authenticated identities: the name goes in the audit log" />
+      <button className="btn primary" disabled={!name.trim() || !by.trim()} onClick={go}>Create</button>
+      <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
+      {msg && <span className="helper" style={{ color: 'var(--status-danger)' }}>{msg}</span>}
+    </span>
   )
 }
 
@@ -225,7 +319,7 @@ function PatchLineage({ runs }: { runs: Run[] }) {
             <span className="mono">{p.id}</span><span className="muted">→</span><span className="mono">{c.id}</span>
             {(patch?.changes ?? []).map((x) => <span key={x.path} className="chip">{x.path}: {JSON.stringify(x.from)} → {JSON.stringify(x.to)}</span>)}
           </div>
-          {d != null && <p className="math" style={{ margin: '8px 0 0' }} data-testid="exp-patch-delta">Δ{metricInfo(m)?.name ?? m}<sub>holdout</sub> = {fmtScore(b)} − {fmtScore(a)} = <b className={better ? 'g-ok' : 'g-bad'}>{d >= 0 ? '+' : ''}{fmtScore(d)}</b> <span className="helper" style={{ fontStyle: 'normal' }}>({p.eval_metric?.greater_is_better ? 'higher' : 'lower'} is better; same fixed holdout rows)</span></p>}
+          {d != null && <p className="math" style={{ margin: '8px 0 0' }} data-testid="exp-patch-delta">Δ{metricInfo(m)?.name ?? m}<sub>holdout</sub> = {fmtScore(b)} − {fmtScore(a)} = <b className={better ? 'g-ok' : 'g-bad'}>{d >= 0 ? '+' : ''}{fmtScore(d)}</b> <span className="helper" style={{ fontStyle: 'normal' }}>({p.eval_metric?.greater_is_better ? 'higher' : 'lower'} is better; each run's own holdout{c.config.split_spec || c.dataset_id !== p.dataset_id ? ': not the same rows (another split or dataset), see Δ Against below for the paired rows' : ''})</span></p>}
         </div>
       </div>
     )

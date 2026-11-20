@@ -139,7 +139,8 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str) -> dict[
     n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
                 and (d["profile"].get("lineage") or {}).get("kind") == "data_doctor") + 1
     try:  # P1: datasets.derive maps the holdout and root rows through the kept rows and writes the edge
-        new = store.derive(dataset_id, new_df, np.asarray(keep, dtype=bool), "data_doctor", [], name=f"{base} · fixed v{n_ver}",
+        op = "clean_labels" if any(isinstance(t, dict) and t.get("op") == "relabel" for t in transforms or []) else "data_doctor"
+        new = store.derive(dataset_id, new_df, np.asarray(keep, dtype=bool), op, list(effects or []), name=f"{base} · fixed v{n_ver}",
                            note=f"Data Doctor: {len(effects)} fix{'es' if len(effects) != 1 else ''} applied to {dataset_id}",
                            extra=extra, by=by)
     except DatasetError as e:

@@ -157,6 +157,7 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [override, setOverride] = useState('')
   const act = async (f: () => Promise<{ version: ModelVersion }>) => {
     setBusy(true); setErr('')
     try { const r = await f(); onChanged(r.version); setComment('') } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
@@ -176,7 +177,7 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
               {i > 0 && <i className="stage-wire" />}
               <button className="stage-node" disabled={!ready || busy || v.stage === s || !actor.trim() || (s === 'Production' && v.approval !== 'approved') || (v.approval === 'rejected' && (s === 'Staging' || s === 'Production'))}
                 data-testid={`to-${s}`} title={s === 'Production' && v.approval !== 'approved' ? 'Production needs an approved review' : `Move to ${s}`}
-                onClick={() => act(() => api.registry.transition(v.id, s as Stage, actor, comment))}>{s}</button>
+                onClick={() => act(() => api.registry.transition(v.id, s as Stage, actor, comment, s === 'Production' ? override : ''))}>{s}</button>
             </div>
           ))}
         </div>
@@ -189,10 +190,12 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
         </div>}
         <p className="helper" style={{ fontSize: 12 }}>
           None → Staging → Production → Archived. Production needs an approved review; promoting archives the model’s current Production version; rejecting archives a live version.
-          {v.approval === 'pending' ? <><br />Names, not authenticated identities: four-eyes compares names as typed (case, spaces and punctuation ignored).</> : null}
+          <br />Names, not authenticated identities: four eyes compares names on letters and digits only (case, spaces, punctuation and accents ignored; lookalike letters folded). Whoever registered a version does not move it to Production themselves, and Production is blocked while a critical Doctor finding is open unless overridden with a reason (audited).
           {self && v.approval === 'pending' ? <><br /><b style={{ color: 'var(--status-warning)' }}>▲ Four eyes: {v.created_by} registered this version{author ? ` and ${author} designed its change experiment` : ''}, so someone else reviews it.</b></> : null}
         </p>
         {err && <p role="alert" className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
+        {(/critical finding is open/.test(err) || override) && <label className="row" style={{ gap: 6 }}><span className="micro-label">override reason</span>
+          <input className="input" style={{ flex: 1 }} placeholder="why Production goes ahead with the finding open (≥ 10 characters, audited)" value={override} onChange={(e) => setOverride(e.target.value)} data-testid="production-override" /></label>}
       </div>
     </div>
   )

@@ -69,7 +69,9 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
   const [extra, setExtra] = useState<Record<string, string>>(() => Object.fromEntries(['slice', 'group'].flatMap((k) => (q.get(k) ? [[k, q.get(k)!]] : []))))
   const done = run.status === 'succeeded'
   const tabular = kindOf(run) === 'tabular'
-  const tabs: Tab[] = done ? (tabular ? [...TABS] : ['Results', 'Explain']) : ['Results']
+  const evicted = run.predictor_state === 'evicted'
+  // F-P2: an evicted run keeps its stored results and Doctor; Explain (SHAP, what-if, importance) needs the model
+  const tabs: Tab[] = done ? (tabular ? [...TABS] : ['Results', 'Explain'] as Tab[]).filter((t) => !evicted || t !== 'Explain') : ['Results']
   const cur = tabs.includes(tab) ? tab : 'Results'
   const pickTab = (t: Tab) => { setTab(t); setSub(''); setExtra({}); writeHash(run.id, t) }
   /** Open a view by name from anywhere on the page (the Doctor's actions, Weak Slices' links, Errors → SHAP). */
@@ -85,6 +87,7 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
         <StatusPill status={done ? 'success' : run.status === 'failed' ? 'danger' : 'info'}>{run.status}</StatusPill>
       </div>
       {kindOf(run) === 'import' && <ImportRun runId={run.id} />}
+      {evicted && <EvictedBanner run={run} go={go} />}
       <NotesStrip kind="run" id={run.id} />
       {tabs.length > 1 && <Tabs tabs={tabs} value={cur} onChange={pickTab} testIds={{ Explain: 'results-explain', Doctor: 'run-doctor' }} />}
       {!done && (run.status === 'failed' || run.status === 'cancelled'
@@ -93,6 +96,32 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
       {done && cur === 'Results' && <ResultsStep runId={run.id} mockRun={null} ds={null} live go={go} onAgain={() => go('build')} embedded />}
       {done && cur === 'Explain' && <ExplainTab run={run} sub={(sub || 'Performance') as ExplainSub} extra={extra} pick={open} onRunChanged={reload} />}
       {done && cur === 'Doctor' && <DoctorTab run={run} sub={(sub || 'Model Doctor') as DoctorSub} extra={extra} open={open} go={go} onApplyPatch={onApplyPatch} />}
+    </div>
+  )
+}
+
+/** F-P2: the predictor was deleted by retention. What still works (stored results, holdout predictions, compare, the
+ *  Doctor, the review journal) and what doesn't (register, serve, predict, Explain), and re-fit from the stored config. */
+function EvictedBanner({ run, go }: { run: Run; go: (r: string) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const refit = async () => {
+    setBusy(true); setMsg('')
+    try {
+      const g = await api.gym.fromRun(run.id)
+      const r = await api.runs.create({ ...g.body, name: `${run.name} · re-fit`, parent_run_id: run.id, source: 'refit' } as Parameters<typeof api.runs.create>[0])
+      go(`models?run=${r.id}`)
+    } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+  }
+  return (
+    <div className="card card-body" role="status" data-testid="evicted-banner" style={{ borderColor: 'var(--status-warning)', background: 'var(--status-warning-bg)' }}>
+      <div className="row" style={{ gap: 'var(--space-12)', flexWrap: 'wrap' }}>
+        <b>Evicted</b>
+        <span style={{ flex: 1, minWidth: 320 }}>Retention deleted this run's predictor. Its scores, leaderboard, holdout predictions, Doctor and review journal are kept, so Compare and the lineage still work. Register…, Serve, predict and Explain need the model and are off until it is re-fitted from its stored config.</span>
+        <button className="btn" onClick={() => go(`gym?from=${run.id}`)}>Open the config in the Gym</button>
+        <button className="btn primary" disabled={busy} onClick={refit} data-testid="evicted-refit">{busy ? 'Starting…' : 'Re-fit from config'}</button>
+      </div>
+      {msg && <p className="helper" role="alert" style={{ color: 'var(--status-danger)', fontSize: 12 }}>{msg}</p>}
     </div>
   )
 }

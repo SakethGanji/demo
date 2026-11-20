@@ -53,4 +53,6 @@ RETENTION_POLICY = {
 
 def admins() -> set[str]:
     """Names allowed to run retention (no sign-in: names, as four-eyes uses them). ENSEMBLE_ADMINS, comma-separated."""
-    return {a.strip().casefold() for a in os.environ.get("ENSEMBLE_ADMINS", "admin").split(",") if a.strip()}
+    from .catalog.governance import admins as _admins  # identity keys: letters and digits, accents and lookalikes folded
+
+    return _admins()

@@ -84,13 +84,17 @@ def _detail(rec: dict[str, Any]) -> dict[str, Any]:
 
 
 def catalog_backfill(db: Database, data_dir) -> dict[str, Any]:
-    from .catalog.schema import backfill
+    from .catalog.schema import backfill, backfill_fp2
 
     with db.connect() as con:
         out = backfill(con, data_dir)
     if not out.get("skipped"):
         log.info("P1 catalog backfill: %s", out)
-    return out
+    with db.connect() as con:
+        out2 = backfill_fp2(con, data_dir)  # F-P2: phantom projects, root ops, predictor 'none', review edges
+    if not out2.get("skipped"):
+        log.info("F-P2 catalog backfill: %s", out2)
+    return {**out, "fp2": out2}
 
 
 def create_app(settings: config.Settings | None = None) -> FastAPI:
@@ -155,7 +159,11 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return _detail(rec)
 
     @app.post("/api/datasets", response_model=Dataset, status_code=201)
-    async def upload_dataset(request: Request, file: UploadFile = File(...), target: str | None = Form(None)) -> dict[str, Any]:
+    async def upload_dataset(request: Request, file: UploadFile = File(...), target: str | None = Form(None),
+                             project_id: str | None = Form(None)) -> dict[str, Any]:
+        """A CSV upload. F-P2: `project_id` puts it in an existing project (default: a new project of its own)."""
+        if project_id and not request.app.state.catalog.project(project_id):
+            raise HTTPException(404, f"No project '{project_id}'.")
         content = await file.read(config.MAX_UPLOAD_BYTES + 1)
         if len(content) > config.MAX_UPLOAD_BYTES:
             raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
@@ -163,6 +171,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             rec = await run_in_threadpool(store(request).create_from_upload, file.filename or "", content, target or None)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
+        if project_id:
+            request.app.state.catalog.move_dataset_tree(rec["id"], project_id)
         return _detail(rec)
 
     @app.patch("/api/datasets/{dataset_id}", response_model=Dataset)
