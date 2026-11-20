@@ -171,6 +171,7 @@ class Ctx:
         self.y01, self.pos = (b if b else (None, None))
         self.excluded_roles = {"id", "constant"}
         self.coded: list[str] = []  # set by check_coded_values (rare codes skips them)
+        self.far_codes: dict[str, list[int]] = {}  # set by check_disguised_missing (rare codes skips those values)
         self.coerced: list[dict[str, Any]] = []  # columns read as numbers at upload (profiling.coerce_numeric)
 
     def role(self, c: str) -> str:
@@ -326,6 +327,18 @@ def check_disguised_missing(cx: Ctx) -> list[dict[str, Any]]:
                 if far:
                     items.append({"column": c, "values": [v], "rows": int(m.sum()), "share": round(share, 4),
                                   "rest": f"{lo:g} … {hi:g}"})
+            # D5: codes in a small count, far beyond it (Give Me Some Credit's past-due counts hold 96 and 98 above
+            # 0 … 15): 1–3 values ≥ 90, each > 5 × the largest of the rest, ≥ 20 rows together, < 5 % of the column
+            if not any(i["column"] == c for i in items) and (nn == nn.round()).all():
+                uniq = np.sort(nn.unique())
+                rest_max = float(uniq[uniq < 90].max()) if (uniq < 90).any() else None
+                if rest_max and rest_max >= 1:
+                    far_v = [int(v) for v in uniq if v >= 90 and v > 5 * rest_max]
+                    m = nn.isin(far_v)
+                    if 1 <= len(far_v) <= 3 and m.sum() >= 20 and m.mean() < 0.05:
+                        cx.far_codes[c] = far_v
+                        items.append({"column": c, "values": far_v, "rows": int(m.sum()), "share": round(float(m.mean()), 4),
+                                      "rest": f"{float(uniq.min()):g} … {rest_max:g}"})
         elif s.dtype == object:
             low = nn.astype(str).str.strip().str.lower()
             hit = low.isin(STR_SENTINELS)
@@ -346,7 +359,8 @@ def check_disguised_missing(cx: Ctx) -> list[dict[str, Any]]:
 def _missing_finding(cx: Ctx, fid: str, sev: str, what: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     big = max(items, key=lambda i: i["share"])
     cols = [i["column"] for i in items]
-    desc = ", ".join(f"{i['column']} = {i['values'][0]!r} ({i['share']:.0%})" for i in items[:4])
+    desc = ", ".join(f"{i['column']} = {' / '.join(repr(v) for v in i['values'][:3])} ({i['share']:.0%})" if i["share"] >= 0.01 else
+                     f"{i['column']} = {' / '.join(repr(v) for v in i['values'][:3])} ({i['share']:.1%})" for i in items[:4])
     mask = np.zeros(cx.n, bool)
     for i in items:
         s = cx.df[i["column"]]
@@ -354,7 +368,9 @@ def _missing_finding(cx: Ctx, fid: str, sev: str, what: str, items: list[dict[st
     return _finding(fid, sev, f"{what}: {desc}{'…' if len(items) > 4 else ''}",
                      {"columns": len(items), "largest share": big["share"], "rows affected": int(mask.sum())},
                      "Numbers: −1, −9, −99, −999, 99, 999, 9999, … on ≥ 0.5 % of rows and beyond the rest of the column's range "
-                     "(more than its own spread above the 99.9th percentile, or below 0 in a column that is otherwise ≥ 0). Words: "
+                     "(more than its own spread above the 99.9th percentile, or below 0 in a column that is otherwise ≥ 0); in a "
+                     "whole-number column, 1–3 values ≥ 90 above 5 × the largest of the rest on ≥ 20 rows (codes such as 96 / 98 "
+                     "after a count of 0 … 15). Words: "
                      "'unknown', '?', 'N/A', 'null', '-' on ≥ 0.5 % of rows. As a number, 999 days pulls every average "
                      "and split towards it.",
                      _rows(cx.df, mask, cols[:5] + ([cx.target] if cx.target else [])),
@@ -374,6 +390,7 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
         if not pd.api.types.is_integer_dtype(s) or c in coded:
             continue
         vc = s.dropna().value_counts()
+        vc = vc[~vc.index.isin(cx.far_codes.get(c, []))]  # D5: far codes are disguised missing, not undocumented codes
         if not 3 <= len(vc) <= 12:
             continue
         share = vc / vc.sum()
@@ -388,8 +405,9 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
             continue
         above = [v for v in rare if v > main[-1]]
         below = [v for v in rare if v < main[0]][::-1]
-        thin = all(vc[a] >= vc[b] for side in (above, below) for a, b in zip(side, side[1:]))
+        thin = all(vc[a] >= vc[b] or vc[b] <= 5 for side in (above, below) for a, b in zip(side, side[1:]))
         if rare == above and thin:
+            # D5: ≤ 5-row blips allowed in a thinning tail
             continue  # a count's thinning tail (previous = 3, 4, 5 …), not codes
         if thin and cx.target and cx.task in ("regression", "binary"):
             from scipy.stats import spearmanr
@@ -411,7 +429,7 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
                      {"columns": len(items), "rows affected": int(mask.sum()), "largest share": max(i["share"] for i in items)},
                      "An integer code column (3–12 values) whose common values (≥ 1 % each) form a run, plus values outside "
                      "the run holding < 5 % together: codes the data dictionary probably does not define. A thinning tail above the run (a count's "
-                     "large values: 3, 4, 5 … each rarer) is not flagged, nor thinning tails at both ends of a scale whose outcome "
+                     "large values: 3, 4, 5 … each rarer, blips of ≤ 5 rows allowed) is not flagged, nor thinning tails at both ends of a scale whose outcome "
                      "keeps its trend through them (|Spearman| ≥ 0.9 of value vs mean outcome: a grade 1 … 13).",
                      _rows(cx.df, mask, cols + ([cx.target] if cx.target else [])),
                      _fix("transform", "Map them to missing ('unknown') with a flag; check the data dictionary.",
@@ -1086,20 +1104,29 @@ def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], see
     examples = [{"row": int(rows[i]), "given": classes[yi[i]], "suggested": classes[int(P[i].argmax())],
                  "p_given": round(float(P[i, yi[i]]), 3), "p_suggested": round(float(P[i].max()), 3)} for i in iss[:200]]
     majority = float(np.bincount(yi).max() / len(yi))
-    return {"status": "done", "model": name, "rows": int(len(yi)), "accuracy_oof": round(acc, 4),
+    # D5: how the flags spread over (given → suggested) pairs. Random flips scatter over many pairs; classes that
+    # overlap concentrate in a few confusable ones. Only read for ≥ 10 classes (a binary table has one pair).
+    pair_top10 = None
+    if len(classes) >= 10 and len(iss):
+        pc = pd.Series(list(zip(yi[iss], P[iss].argmax(1)))).value_counts()
+        pair_top10 = round(float(pc.head(10).sum() / len(iss)), 4)
+    return {"status": "done", "model": name, "pair_top10_share": pair_top10, "rows": int(len(yi)), "accuracy_oof": round(acc, 4),
             "majority": round(majority, 4), "error_all": round(1 - acc, 4),
             "n": int(len(iss)), "rate": round(len(iss) / len(yi), 4), "floor": round(floor, 4),
             "expected_floor": round(expected, 4), "examples": examples, "classes": classes,
             "over_budget": time.perf_counter() > deadline,
             "method": "cleanlab.filter.find_label_issues(filter_by='prune_by_noise_rate') on out-of-fold p̂",
-            **({"issue_rows": [int(rows[i]) for i in iss]} if all_rows else {})}
+            **({"issue_rows": [int(rows[i]) for i in iss],
+                "issue_suggested": [classes[int(P[i].argmax())] for i in iss]} if all_rows else {})}
 
 
 def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
     rule = ("A quick model (≤ 60 s, out-of-fold) predicts every row; cleanlab flags labels it disagrees with confidently. "
             "Medium when the model beats 'always the largest class' by ≥ 5 points, cleanlab flags ≥ 5 %, and the most "
             "confident fifth of predictions is wrong ≥ 3 points more than the model expects and at ≥ 0.6 × its overall "
-            "error rate (flipped labels hit confident rows too; overlap does not); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
+            "error rate (flipped labels hit confident rows too; overlap does not), or, with ≥ 10 classes, the flags spread over many "
+            "(given → suggested) pairs (the 10 most frequent hold < 20 %) and the confident fifth errs at ≥ half the rate expected "
+            "there (random flips; overlap concentrates in a few pairs); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
             "not a wrong label. Flags that concentrate in one category level (≥ 2× the rest, ≥ 30 rows) point at a labelling problem there.")
     if cx.task not in ("binary", "multiclass"):
         return None
@@ -1113,8 +1140,12 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
     gap = st["floor"] - st["expected_floor"]
     signal = st["accuracy_oof"] - st.get("majority", 0) >= 0.05  # the quick model must beat 'always the largest class'
     ratio = st["floor"] / max(st.get("error_all", 1), 1e-9)       # flip noise hits confident rows as often as the rest
-    noisy = signal and st["rate"] >= 0.05 and gap >= 0.03 and ratio >= 0.6
-    looks_wrong = signal and gap >= 0.01
+    # D5: with many classes, flags spread over many (given → suggested) pairs (the 10 most frequent pairs hold < 20 %)
+    # while the most confident fifth errs at ≥ half the rate the model expects there are random flips: a model trained on
+    # flipped labels learns to expect them, so the gap above can stay below 0 (Banking77 with 10 % flipped intents).
+    spread = st.get("pair_top10_share") is not None and st["pair_top10_share"] < 0.2 and st["floor"] >= 0.5 * st["expected_floor"]
+    noisy = signal and st["rate"] >= 0.05 and ((gap >= 0.03 and ratio >= 0.6) or spread)
+    looks_wrong = signal and (gap >= 0.01 or spread)
     sev = "medium" if noisy else ("low" if st["rate"] >= 0.02 or (st["rate"] >= 0.01 and looks_wrong) else "info")
     ex = st["examples"][:5]
     feats = [c for c in cx.model_features()][:4]
@@ -1169,6 +1200,7 @@ TRANSFORMS = {
     "drop_rows": "drop the listed row numbers",
     "drop_columns": "drop the listed columns",
     "merge_classes": "the listed classes of the column → one class",
+    "relabel": "set the label of the listed row numbers to the given labels (D5: cleanlab's suggestion; training rows only)",
     "rescale": "multiply the column by factor on rows whose date_column is on or after from, with a <column>_rescaled flag",
 }
 
@@ -1199,6 +1231,8 @@ def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | N
                 raise ValueError("rescale needs column, date_column (a column of the table) and from (a date).")
         if op in ("to_missing", "split_codes", "add_missing_flag", "merge_classes") and "column" not in t:
             raise ValueError(f"{op} needs a column.")
+        if op == "relabel" and (not target or len(t.get("rows") or []) != len(t.get("labels") or []) or not t.get("rows")):
+            raise ValueError("relabel needs the target and as many labels as rows.")
         if op in ("to_missing", "split_codes", "drop_columns", "merge_classes") and target and \
                 (t.get("column") == target or target in (t.get("columns") or [])) and op != "merge_classes":
             raise ValueError(f"{op} can't change the target column '{target}'.")
@@ -1267,6 +1301,18 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             cols = [c for c in t.get("columns") or [] if c != target]
             out = out.drop(columns=cols)
             effects.append({**t, "columns": cols})
+        elif op == "relabel":
+            rows = np.asarray([int(r) for r in t["rows"]])
+            ok = (rows >= 0) & (rows < len(df))
+            vals = pd.Series(t["labels"])[ok].to_numpy()
+            col = out[target]
+            if pd.api.types.is_numeric_dtype(col):
+                vals = pd.to_numeric(pd.Series(vals)).to_numpy()
+            else:
+                out[target] = col.astype(object)
+            changed = int((out[target].to_numpy()[rows[ok]].astype(str) != vals.astype(str)).sum())
+            out.iloc[rows[ok], out.columns.get_loc(target)] = vals
+            effects.append({"op": op, "reason": t.get("reason"), "rows": int(ok.sum()), "changed": changed})
         elif op == "rescale":
             from .splits import time_values
 

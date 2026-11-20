@@ -78,7 +78,9 @@ RULES = {
              "labelled batch → critical, a drift alert (PSI / adversarial AUC / score PSI) on the latest batch → major, and the "
              "prescription is then the retrain proposal",
     "label_noise": "classification: error floor (top-20 % confidence) Wilson lower bound ≥ 0.06, not overconfident, cleanlab rate ≥ 0.05 → "
-                   "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major",
+                   "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major; "
+                   "or retraining without cleanlab's flagged training rows gains beyond noise (95 % CI above 0; the full-model "
+                   "clean_labels experiment once it ran, else the quick model) → major: noise in the training labels only",
     "overfit": "z = (train − holdout)/SE ≥ 3 and, for classification, overconfident (floor − expected ≥ 0.05 and expected < floor/3) → "
                "major (critical if z ≥ 8); Vela's validation-vs-holdout optimism alone → minor",
     "data_limited": "learning curve verdict data-limited (CI of the gain per doubling above ε) → major; "
@@ -422,12 +424,23 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
                                  {"kind": "inbox", "title": "Save The Consensus Labels", "run_id": rid,
                                   "endpoint": f"/api/runs/{rid}/annotations/version", "why": "Use the CROWDLAB consensus as the labels."},
                                  source="F14"))
+        elif (lab := _label_gain(ctx, rid)) is not None and lab["fires"]:
+            # D5: noise in the training labels only (the holdout's confident predictions are right, so the floor stays
+            # low) shows as a measured gain from dropping cleanlab's flagged training rows; the full-ensemble
+            # experiment, once it ran, decides over the quick model.
+            e.update(clean=lab["evidence"])
+            checks.append(_check("label_noise", "finding", base + lab["text"], e, "major", lab["rx"],
+                                 formula="Δ = score(fit without the flagged training rows) − score(fit with them), same holdout, paired bootstrap",
+                                 source="cleanlab on the training rows + " + lab["source"]))
         else:
             r = base
+            if (lab := _label_gain(ctx, rid)) is not None:
+                r += lab["text"] + " "
             if conf["overconfident"] and lo >= 0.06:
                 r += "The model does not expect these errors (overconfident): attributed to overfitting, not to the labels."
             elif (rate or 0) >= 0.05:
-                r += "cleanlab's rate is high but the confident predictions are right: the disagreements sit where classes overlap (hard by nature)."
+                r += ("cleanlab's rate is high but the confident predictions are right: the flagged rows sit where the model is unsure "
+                      "(classes that overlap, or flipped labels it cannot tell from them).")
             else:
                 r += "No error floor."
             checks.append(_check("label_noise", "clear", r, e, source="confidence floor + cleanlab"))
@@ -874,6 +887,37 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
                   source="D3 dominance + D1 hint + R* bound + overlap + ablation")
 
 
+def _label_gain(ctx: dict[str, Any], rid: str) -> dict[str, Any] | None:
+    """D5: the measured value of cleaner training labels. The full-ensemble clean_labels experiment when it has run,
+    else the quick model refit without cleanlab's flagged training rows. Fires when the Δ's 95 % CI is above 0."""
+    e = _exp(ctx, "clean_labels")
+    r = (e or {}).get("result")
+    if r and r.get("delta") is not None:
+        fires = r["ci"][0] > 0  # Δ is "better is positive" in every metric (experiments.delta)
+        return {"fires": fires, "source": f"experiment {e['run_id']}",
+                "evidence": {"run_id": e["run_id"], "metric": r["metric"], "with": r["parent"], "without": r["child"], "delta": r["delta"], "ci": r["ci"]},
+                "text": (f"The full model retrained without cleanlab's flagged training rows ({e['run_id']}): {r['metric']} {r['parent']:.4f} → "
+                         f"{r['child']:.4f}, Δ {r['delta']:+.4f} {_ci(r['ci'])} on the same holdout: "
+                         + ("noisy training labels hold the model back." if fires else
+                            "within noise, so the flagged labels are not what limits the model." if r["ci"][1] >= 0 else
+                            "worse: the flagged rows carry real signal.")),
+                "rx": {"kind": "open_run", "title": "Open The Run On Cleaned Labels", "run_id": e["run_id"],
+                       "why": "The same body trained without the flagged training rows; review those labels at their source too."}}
+    cl = (ctx.get("gaps") or {}).get("clean_labels") or {}
+    if cl.get("delta") is None or not cl.get("ci"):
+        return None
+    fires = cl["ci"][0] > 0
+    return {"fires": fires, "source": "quick model",
+            "evidence": {"flagged": cl.get("flagged"), "share": cl.get("share"), "metric": cl.get("metric"), "delta": cl["delta"], "ci": cl["ci"]},
+            "text": (f"A quick model refit without cleanlab's {cl['flagged']:,} flagged training rows ({_pct(cl['share'])}) gains "
+                     f"{cl['delta']:+.4f} {_ci(cl['ci'])} {cl.get('metric') or ''} on the untouched holdout"
+                     + (": the noise sits in the training labels. The clean-labels experiment measures it with the full model."
+                        if fires else ", within noise.")),
+            "rx": {"kind": "experiment", "title": "Retrain On Cleaned Labels", "endpoint": f"/api/runs/{rid}/experiments",
+                   "body": {"kind": "clean_labels"},
+                   "why": "The run's own body without cleanlab's flagged training rows (a dataset version; the holdout untouched); Δ on the same holdout rows."}}
+
+
 def _cost_tradeoff(g: dict[str, Any], rid: str) -> dict[str, Any]:
     c = g.get("cost")
     if not c:
@@ -1225,7 +1269,13 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         gaps = [x for x in gaps if not any(x["id"].split(":", 1)[-1].split("=")[0] == c for c in sus_cols)]
     for x in gaps:
         x["measured"] = x.get("gain") is not None
-    gaps.sort(key=lambda x: _rank_key({"delta": x["gain"] and x["gain"]["delta"], "suggested": x.get("suggested")}))
+    def _gap_key(x: dict[str, Any]) -> tuple[float, float]:
+        gn = x.get("gain") or {}
+        if x.get("kind") != "label_review" and gn.get("delta") is not None and not gn.get("simulated") and gn.get("ci") and gn["ci"][0] > 0:
+            return (0.5, -float(gn["delta"]))  # D5: a gain measured beyond noise and available now, before the simulated upper bounds
+        return _rank_key({"delta": gn.get("delta"), "suggested": x.get("suggested")})
+
+    gaps.sort(key=_gap_key)
     lr_i = next((i for i, x in enumerate(gaps) if x["kind"] == "label_review"), None)
     if lr_i is not None:  # the label check goes just before the first gap about the same segment (it is the cheaper test)
         lr_g = gaps.pop(lr_i)
@@ -1239,8 +1289,8 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         head = f"{top['title']}: " + (f"worth up to {_sv(top['gain']['delta'])} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
     return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"), "caveat": caveat,
             "irreducible": tw and {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "explained", "explained_upper")},
-            "rules": {"rank": "measured potential gain first (Δ of the run's quick-model metric; an oracle is a simulation and an upper "
-                              "bound), then the unmeasured gaps",
+            "rules": {"rank": "a gain measured beyond noise (its 95 % CI above 0, not a simulation) first, then measured potential gain "
+                              "(Δ of the run's quick-model metric; an oracle is a simulation and an upper bound), then the unmeasured gaps",
                       "oracle": (g.get("oracle") or {}).get("rule"), "concentration": con.get("rule"), "thin": (g.get("thin") or {}).get("rule"),
                       "twins": tw and tw.get("method"), "confusion": (g.get("confusion") or {}).get("rule"),
                       "curve": (g.get("quick_curve") or {}).get("rule"), "clean": (g.get("clean_labels") or {}).get("rule")},
