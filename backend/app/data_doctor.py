@@ -35,7 +35,7 @@ log = logging.getLogger("ensemble.data_doctor")
 
 SEVERITIES = ("high", "medium", "low", "info")
 # The order findings are listed in within a severity: the most actionable first.
-ORDER = ("leakage", "coerced_numbers", "coded_values", "disguised_missing", "rare_codes", "missing_words", "label_quality", "duplicates", "repeated_entities", "conflicts",
+ORDER = ("target", "leakage", "coerced_numbers", "coded_values", "disguised_missing", "rare_codes", "missing_words", "label_quality", "duplicates", "repeated_entities", "conflicts",
          "class_balance", "sample_size", "time", "unit_change", "informative_missing", "ids_constants", "protected")
 
 NUM_SENTINELS = (-1, -9, -99, -999, -9999, 99, 999, 9999, 99999, 999999)
@@ -942,6 +942,15 @@ def report(df: pd.DataFrame, target: str | None, roles: list[dict[str, Any]], an
             findings.append(_finding(chk.__name__.removeprefix("check_"), "info", f"Check failed: {type(e).__name__}",
                                      {}, str(e)[:200], None, _fix("advice", "")))
         timings[chk.__name__.removeprefix("check_")] = round(time.perf_counter() - t1, 3)
+    if target and target in df.columns and cx.task is None and not (cx.cols.get(target) or {}).get("role") == "multilabel":
+        y = df[target]
+        k = int(y.nunique(dropna=True))
+        if k < 2:  # A1 #15: an empty or one-class target gets a finding, not silence
+            title = (f"The target '{target}' is empty: every row is missing" if k == 0 else
+                     f"The target '{target}' has one value ({y.dropna().iloc[0]!r}) in all {int(y.notna().sum()):,} labelled rows")
+            findings.append(_finding("target", "high", title, {"labelled rows": int(y.notna().sum()), "distinct values": k},
+                                     "A model needs at least two outcomes to learn from.", None,
+                                     _fix("advice", "Choose another target column, or add rows with the other outcome."), columns=[target]))
     lf = label_finding(cx, labels)
     if lf:
         findings.append(lf)
