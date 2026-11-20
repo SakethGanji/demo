@@ -55,10 +55,58 @@ def _ctx(request: Request, vid: str) -> dict[str, Any]:
                drifted=sorted([{"feature": f["feature"], "psi": f.get("psi"), "band": f.get("band")} for f in drift.get("features") or []
                                if (f.get("psi") or 0) >= 0.1], key=lambda f: -(f["psi"] or 0)),
                features=list(ver.get("features") or (run.get("result") or {}).get("features") or []))
+    try:  # A2 M6: a drifted number whose whole distribution moved by one constant factor is a unit change at the source
+        out["scale_changes"] = _scale_changes(request, run, newest, [d["feature"] for d in out["drifted"]])
+    except Exception:  # noqa: BLE001 — the changes card works without it
+        out["scale_changes"] = []
     if n < C.MIN_ROWS:
         out["why"] = f"The newest labelled batch has {n} labelled rows; changes need ≥ {C.MIN_ROWS}."
         return out
     out["eligible"] = True
+    return out
+
+
+def _scale_changes(request: Request, run: dict[str, Any], batch: dict[str, Any], feats: list[str]) -> list[dict[str, Any]]:
+    """A2 M6, the Data Doctor's factor logic on a scored batch: for each drifted numeric feature, the ratio of the batch's
+    quantiles (10–90 %, non-zero absolute values) to the training rows'. A unit change when the median ratio is ≥ 3 or
+    ≤ 1/3 and every quantile ratio stays within a factor 1.5 of it (the whole distribution moved by one constant)."""
+    from ..data_doctor import UNIT_FACTORS
+
+    cfg = run.get("config") or {}
+    if not feats or not cfg.get("csv_path"):
+        return []
+    inp = _regdir(request) / "batches" / batch["id"] / "input.csv"
+    if not inp.exists():
+        return []
+    head = pd.read_csv(inp, nrows=0).columns
+    cols = [f for f in feats if f in head]
+    if not cols:
+        return []
+    tr = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
+    bt = pd.read_csv(inp, usecols=lambda c: c in cols)
+    qs = [0.1, 0.25, 0.5, 0.75, 0.9]
+    out = []
+    for f in cols:
+        a = pd.to_numeric(tr[f], errors="coerce").abs()
+        b = pd.to_numeric(bt[f], errors="coerce").abs()
+        a, b = a[(a > 0) & a.notna()], b[(b > 0) & b.notna()]
+        if len(a) < 50 or len(b) < 30 or a.nunique() < 10:
+            continue
+        r = b.quantile(qs).to_numpy() / a.quantile(qs).to_numpy()
+        if not np.all(np.isfinite(r)) or np.any(r <= 0):
+            continue
+        k = float(np.median(r))
+        if not (k >= 3 or k <= 1 / 3) or float(np.max(np.abs(np.log(r / k)))) > np.log(1.5):
+            continue
+        near = min(UNIT_FACTORS, key=lambda u: abs(np.log(k / u)))
+        known = abs(np.log(k / near)) <= np.log(1.25)
+        fix = 1 / near if known else 1 / k
+        out.append({"feature": f, "factor": round(k, 4), "unit": UNIT_FACTORS[near] if known else None, "rescale": round(fix, 6),
+                    "quantile_ratios": [round(float(x), 4) for x in r],
+                    "text": (f"{f} arrives × {k:.4g} its training scale" + (f" ({UNIT_FACTORS[near]})" if known else "")
+                             + f": every quantile of the batch moved by the same factor (10–90 %: {', '.join(f'{x:.3g}' for x in r)}). "
+                             f"A unit change at the source, not new behaviour: fix the feed (or rescale × {fix:,.6g} before scoring) "
+                             "first; retraining on it or dropping the feature is the last resort.")})
     return out
 
 
@@ -81,7 +129,13 @@ def _public(c: dict[str, Any]) -> dict[str, Any]:
             "older_batches": [{"batch_id": b["id"], "data_date": b.get("data_date"),
                                "labelled_rows": b["result"]["labels"]["n_joined"]} for b in c.get("older") or []],
             "cost": c.get("cost"), "threshold": c.get("t0"), "drifted": c.get("drifted") or [],
-            "suggested_drop": (c.get("drifted") or [{}])[0].get("feature") if c.get("drifted") else None}
+            "scale_changes": c.get("scale_changes") or [],
+            # A2 M6: a feature whose drift is a unit change is fixed at the feed, never suggested for dropping
+            "suggested_drop": next((d["feature"] for d in c.get("drifted") or []
+                                    if d["feature"] not in {x["feature"] for x in c.get("scale_changes") or []}), None),
+            "suggested_fix": next(({"kind": "fix_feed", "feature": x["feature"], "rescale": x["rescale"], "title":
+                                    f"Fix the feed: rescale {x['feature']} × {x['rescale']:,.6g}", "why": x["text"]}
+                                   for x in c.get("scale_changes") or []), None)}
 
 
 async def _refresh(request: Request, vid: str, c: dict[str, Any], items: list[dict[str, Any]]) -> list[dict[str, Any]]:

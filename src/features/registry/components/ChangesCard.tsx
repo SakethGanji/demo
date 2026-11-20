@@ -46,6 +46,8 @@ export function ChangesCard({ v, actor, onRequested }: { v: ModelVersion; actor:
         {!s.eligible ? <p className="helper" style={{ margin: 0 }}>{s.why}</p> : <p className="helper" style={{ margin: 0, fontSize: 12.5 }}>
           Newest labelled batch <b>{nb!.filename}</b> ({nb!.data_date ?? '—'}, <b className="mono">{nb!.labelled_rows.toLocaleString()}</b> labelled rows) · threshold now <b className="mono">{s.threshold?.toFixed(4)}</b> · costs: {s.cost?.source}
           {s.drifted.length > 0 && <> · drifted: {s.drifted.slice(0, 3).map((d) => `${d.feature} (PSI ${d.psi.toFixed(2)})`).join(', ')}</>}</p>}
+        {(s.scale_changes ?? []).map((x) => <div key={x.feature} className="split-warn" role="note" data-testid="changes-scale">
+          <b>Fix the feed first: {x.feature} changed scale</b> (× {x.factor.toPrecision(4)}{x.unit ? `, ${x.unit}` : ''}). {x.text}</div>)}
         {msg && <p className="helper" style={{ fontSize: 12.5, margin: 0 }} data-testid="changes-msg">{msg}</p>}
         {s.experiments.length > 0 && <div style={{ overflowX: 'auto' }}><table className="table compact" data-testid="changes-table">
           <thead><tr><th>change</th><th className="r">now → with it</th><th className="r">Δ (CI)</th><th>operating point</th><th>verdict</th><th /></tr></thead>
