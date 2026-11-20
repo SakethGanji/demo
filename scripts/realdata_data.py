@@ -90,6 +90,10 @@ PLANTED = {
                     "10 % of the TRAINING rows carry the other class's label (features of a 'yes' row swapped with a 'no' row's, so the "
                     "label column and the platform's stratified holdout are unchanged and the holdout stays clean)",
                     "Data Doctor: label quality flags · review: clean_labels kept (Δ CI above 0)"),
+    "banking77_flip": ("Banking77", "category",
+                       "10 % of the TRAINING rows carry another intent's label (the texts of two training rows with different intents "
+                       "swapped, so the label column and the stratified holdout are unchanged)",
+                       "Data Doctor: label quality flags labels that look wrong · review: clean_labels kept (Δ CI above 0)"),
     "taiwan_ratio": ("Taiwan", "default.payment.next.month",
                      "for 40 % of the rows the label is redrawn from utilisation u = BILL_AMT1 ÷ LIMIT_BAL: p = σ(6 (u − 0.7))",
                      "review: add_features kept (Feature Lab finds BILL_AMT1 ÷ LIMIT_BAL)"),
@@ -154,6 +158,29 @@ def planted() -> dict[str, tuple[Path, str]]:
         write("taiwan_flip", d, ty)
     else:
         out["taiwan_flip"] = (PLANT / "taiwan_flip.csv", ty)
+
+    # 2b. the same on a text table, where a wrong intent label is visible in the words
+    if not (PLANT / "banking77_flip.csv").exists():
+        rng = np.random.default_rng(18)
+        d = pd.read_csv(files["banking77"])
+        h = _holdout(d["category"])
+        tr = np.array([i for i in range(len(d)) if i not in h])
+        k = int(0.05 * len(tr))
+        a = rng.choice(tr, k, replace=False)
+        rest = rng.permutation(np.setdiff1d(tr, a))
+        b, used = [], set()
+        for i in a:  # a partner with a different intent, each row used once
+            j = next(j for j in rest if j not in used and d.at[j, "category"] != d.at[i, "category"])
+            used.add(j)
+            b.append(j)
+        b = np.array(b)
+        ta, tb = d.loc[a, "text"].to_numpy(), d.loc[b, "text"].to_numpy()
+        d.loc[a, "text"], d.loc[b, "text"] = tb, ta
+        assert _holdout(d["category"]) == h
+        (PLANT / "banking77_flip_rows.json").write_text(json.dumps({"flipped": sorted(int(x) for x in np.r_[a, b])}))
+        write("banking77_flip", d, "category")
+    else:
+        out["banking77_flip"] = (PLANT / "banking77_flip.csv", "category")
 
     # 3. a planted ratio signal
     if not (PLANT / "taiwan_ratio.csv").exists():

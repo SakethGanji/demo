@@ -889,7 +889,13 @@ def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], see
     examples = [{"row": int(rows[i]), "given": classes[yi[i]], "suggested": classes[int(P[i].argmax())],
                  "p_given": round(float(P[i, yi[i]]), 3), "p_suggested": round(float(P[i].max()), 3)} for i in iss[:200]]
     majority = float(np.bincount(yi).max() / len(yi))
-    return {"status": "done", "model": name, "rows": int(len(yi)), "accuracy_oof": round(acc, 4),
+    # D5: how the flags spread over (given → suggested) pairs. Random flips scatter over many pairs; classes that
+    # overlap concentrate in a few confusable ones. Only read for ≥ 10 classes (a binary table has one pair).
+    pair_top10 = None
+    if len(classes) >= 10 and len(iss):
+        pc = pd.Series(list(zip(yi[iss], P[iss].argmax(1)))).value_counts()
+        pair_top10 = round(float(pc.head(10).sum() / len(iss)), 4)
+    return {"status": "done", "model": name, "pair_top10_share": pair_top10, "rows": int(len(yi)), "accuracy_oof": round(acc, 4),
             "majority": round(majority, 4), "error_all": round(1 - acc, 4),
             "n": int(len(iss)), "rate": round(len(iss) / len(yi), 4), "floor": round(floor, 4),
             "expected_floor": round(expected, 4), "examples": examples, "classes": classes,
@@ -902,7 +908,9 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
     rule = ("A quick model (≤ 60 s, out-of-fold) predicts every row; cleanlab flags labels it disagrees with confidently. "
             "Medium when the model beats 'always the largest class' by ≥ 5 points, cleanlab flags ≥ 5 %, and the most "
             "confident fifth of predictions is wrong ≥ 3 points more than the model expects and at ≥ 0.6 × its overall "
-            "error rate (flipped labels hit confident rows too; overlap does not); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
+            "error rate (flipped labels hit confident rows too; overlap does not), or, with ≥ 10 classes, the flags spread over many "
+            "(given → suggested) pairs (the 10 most frequent hold < 20 %) and the confident fifth errs at ≥ half the rate expected "
+            "there (random flips; overlap concentrates in a few pairs); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
             "not a wrong label.")
     if cx.task not in ("binary", "multiclass"):
         return None
@@ -916,8 +924,12 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
     gap = st["floor"] - st["expected_floor"]
     signal = st["accuracy_oof"] - st.get("majority", 0) >= 0.05  # the quick model must beat 'always the largest class'
     ratio = st["floor"] / max(st.get("error_all", 1), 1e-9)       # flip noise hits confident rows as often as the rest
-    noisy = signal and st["rate"] >= 0.05 and gap >= 0.03 and ratio >= 0.6
-    looks_wrong = signal and gap >= 0.01
+    # D5: with many classes, flags spread over many (given → suggested) pairs (the 10 most frequent pairs hold < 20 %)
+    # while the most confident fifth errs at ≥ half the rate the model expects there are random flips: a model trained on
+    # flipped labels learns to expect them, so the gap above can stay below 0 (Banking77 with 10 % flipped intents).
+    spread = st.get("pair_top10_share") is not None and st["pair_top10_share"] < 0.2 and st["floor"] >= 0.5 * st["expected_floor"]
+    noisy = signal and st["rate"] >= 0.05 and ((gap >= 0.03 and ratio >= 0.6) or spread)
+    looks_wrong = signal and (gap >= 0.01 or spread)
     sev = "medium" if noisy else ("low" if st["rate"] >= 0.02 or (st["rate"] >= 0.01 and looks_wrong) else "info")
     ex = st["examples"][:5]
     feats = [c for c in cx.model_features()][:4]
@@ -926,7 +938,8 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
                     *[_jsonable(cx.df.iat[e["row"], cx.df.columns.get_loc(c)]) for c in feats]] for e in ex]}
     rows = [e["row"] for e in st["examples"]]
     return _finding("label_quality", sev,
-                    f"cleanlab flags {st['n']:,} labels ({st['rate']:.1%})" + (" that look wrong" if looks_wrong else ": mostly where classes overlap"),
+                    f"cleanlab flags {st['n']:,} labels ({st['rate']:.1%})" + (" that look wrong" if looks_wrong else
+                                                                   ": where the classes overlap, or wrong labels this table cannot tell apart from overlap"),
                     {"flagged": st["n"], "rate": st["rate"], "quick model accuracy (out-of-fold)": st["accuracy_oof"],
                      "largest class share": st.get("majority"),
                      "error in the most confident fifth": st["floor"], "error it expects there": st["expected_floor"],

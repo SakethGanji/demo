@@ -78,6 +78,8 @@ def items() -> dict[str, dict[str, Any]]:
         # planted-issue copies of real data
         "bank_leak": {"src": pl["bank_leak"], "ablate": True, "review": off1},
         "taiwan_flip": {"src": pl["taiwan_flip"], "drop": ["ID"], "review": {"offline": True, "max_experiments": 3, "max_minutes": 30}},
+        "banking77_flip": {"src": pl["banking77_flip"], "tl": 300, "multiclass": True,
+                           "review": {"offline": True, "max_experiments": 2, "max_minutes": 30}},
         "taiwan_ratio": {"src": pl["taiwan_ratio"], "drop": ["ID"], "review": {"offline": True, "max_experiments": 3, "max_minutes": 30}},
         "taiwan_drift": {"src": pl["taiwan_drift"], "drop": ["ID"], "shift": True, "postdeploy": True, "review": None},
         "bank_999": {"src": pl["bank_999"], "train": False, "apply_fix": "disguised_missing"},
@@ -380,6 +382,10 @@ EXPECT: dict[str, list[tuple[str, Callable[[dict], Any]]]] = {
     ],
     "taiwan_flip": [
         ("Data Doctor: label quality flags (≥ low)", lambda o: (_sev_ok(_f(o, "label_quality")), (_f(o, "label_quality") or {}).get("title"))),
+        ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels"))),
+    ],
+    "banking77_flip": [
+        ("Data Doctor: label quality flags labels that look wrong", lambda o: (_sev_ok(_f(o, "label_quality"), ("medium", "high")), (_f(o, "label_quality") or {}).get("title"))),
         ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels"))),
     ],
     "taiwan_ratio": [
