@@ -689,6 +689,25 @@ def _pct(x: float) -> str:
     return f"{100 * x:.0f}%" if abs(x) >= 0.1 else f"{100 * x:.1f}%"
 
 
+ERROR_METRICS = ("RMSE", "MAE", "root_mean_squared_error", "mean_absolute_error", "log loss", "cost / 1,000")
+
+
+def _sv(v: float, metric: str | None = None, ref: float | None = None, sign: bool = True) -> str:
+    """A measured number at a sensible precision: money-scale errors (RMSE in dollars) to whole units with separators,
+    small scores to 4 decimals."""
+    big = abs(ref if ref is not None else v) >= 100
+    body = f"{v:+,.0f}" if big else f"{v:+.4f}"
+    return body if sign else body.lstrip("+")
+
+
+def _better(metric: str | None) -> str:
+    return " (lower error is better; the sign shows the improvement)" if metric in ERROR_METRICS else ""
+
+
+def _cis(ci: list[float] | None, ref: float | None = None) -> str:
+    return f"[{_sv(ci[0], ref=ref)}, {_sv(ci[1], ref=ref)}]" if ci else ""
+
+
 def _ci(ci: list[float] | None, d: int = 4) -> str:
     return f"[{ci[0]:+.{d}f}, {ci[1]:+.{d}f}]" if ci else ""
 
@@ -1037,7 +1056,7 @@ def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[di
     f = conds["flat"]
     parts.append("the learning curve is flat (F12 saturated)" if f["source"] == "F12" and f["ok"] else
                  "the learning curve still rises (F12 data-limited)" if f["source"] == "F12" else
-                 f"the quick model's next doubling is {f['next_doubling']:+.4f} {_ci(f['ci'])} " + ("< " if f["ok"] else "vs ") + f"ε = {f['eps']:.4g}"
+                 f"the quick model's next doubling is {_sv(f['next_doubling'], ref=f['eps'] * 200)} {_cis(f['ci'], ref=f['eps'] * 200)} " + ("< " if f["ok"] else "vs ") + f"ε = {f['eps']:.4g}"
                  + (" (upper bound < 2ε)" if f["ok"] else ""))
     a = conds["agree"]
     parts.append(f"{a['single']} is the best rung" if a.get("best_rung") == 2 else
@@ -1051,7 +1070,7 @@ def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[di
     if not allok:
         return _check("ceiling", "clear", "Not at the data's limit yet: " + txt, {"conditions": conds}, source="D3")
     top = next((x for x in improve if x.get("measured") and (x.get("delta") or 0) > 0), None)
-    rx = ({**top["action"], "why": f"The best measured lever: {top['title']} ({top['delta']:+.4f} {top.get('metric') or ''})."}
+    rx = ({**top["action"], "why": f"The best measured lever: {top['title']} ({_sv(top['delta'])} {top.get('metric') or ''})."}
           if top and top.get("action") else
           {"kind": "info", "title": "Tuning will not help: more rows, new features or a cleaner label would"})
     tw = (ctx.get("gaps") or {}).get("twins")
@@ -1075,7 +1094,7 @@ def _excess_gain(o: dict[str, Any] | None, source: str) -> dict[str, Any] | None
     if o.get("excess") is None:
         return _gain(o, source, True)
     return {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
-            "source": f"{source}: {o['delta']:+.4f}, minus {o['random']['delta']:+.4f} that a random segment of the same size gets",
+            "source": f"{source}: {_sv(o['delta'])}, minus {_sv(o['random']['delta'], ref=o['delta'])} that a random segment of the same size gets",
             "raw": o["delta"], "random": o["random"]["delta"], "beyond_noise": o.get("beyond_noise")}
 
 
@@ -1091,8 +1110,9 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     if tw:
         ex = tw.get("exact_conflicts") or {}
         f = (f"{_pct(tw['errors_in_mixed'])} of the model's errors are rows whose {tw['k']} closest training rows (on the columns that "
-             f"matter, weighted by importance) had mixed outcomes. The table's nearest-neighbour disagreement R_NN is {tw['r_nn']:.3f} "
-             f"[{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}], so the irreducible error is between {tw['lower']:.3f} and {tw['r_nn']:.3f} against a model error of "
+             f"matter, weighted by importance) had mixed outcomes: look-alike customers who ended differently. How often look-alikes "
+             f"disagree ({tw['r_nn']:.3f}, 95 % CI [{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}]) puts the error no model can avoid "
+             f"with these columns between about {tw['lower']:.3f} and {tw['r_nn']:.3f}, against a model error of "
              f"{tw['model_error']:.3f}" + (
                  f": roughly {_pct(tw['explained'] or 0)} or more of the error is beyond what these columns can separate (an approximate, "
                  "finite-sample bound)." if (tw.get("explained") or 0) < 0.95 else
@@ -1104,11 +1124,11 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
             f += f" These look-alikes concentrate in {w['label']} ({_pct(w['share_mixed'])} of them vs {_pct(w['share_all'])} of all rows)."
         if ex.get("rows"):
             f += f" {ex['rows']:,} rows in {ex['groups']:,} groups are identical on every column with different labels."
-        gaps.append({"id": "twins", "kind": "twins", "title": "Indistinguishable twins", "finding": f,
+        gaps.append({"id": "twins", "kind": "twins", "title": "Look-alike rows with different outcomes", "finding": f,
                      "request": "Join information that differs between these look-alikes: a source the table lacks (bureau data, a "
                                 "history of the key columns, behaviour over time). Reviewing the identical-but-different rows tells a "
                                 "wrong label from a missing column.",
-                     "gain": _excess_gain(orc.get("twins"), "oracle on the look-alike rows (simulation)"),
+                     "gain": _excess_gain(orc.get("twins"), "simulated perfect information on the look-alike rows"),
                      "evidence": {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "errors_in_mixed",
                                                          "mixed_share_holdout", "closeness", "k", "exact_conflicts", "where")}, "method": tw.get("method")})
     con = g.get("concentration") or {}
@@ -1143,7 +1163,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         gain = None
         if o:
             gain = {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
-                    "source": (f"oracle on {s['label']} (simulation): {o['delta']:+.4f}, minus {o['random']['delta']:+.4f} that a random "
+                    "source": (f"simulated perfect information on {s['label']}: {_sv(o['delta'])}, minus {_sv(o['random']['delta'], ref=o['delta'])} that a random "
                                f"{_pct(o.get('share') or 0)} of rows gets"), "raw": o["delta"], "random": o["random"]["delta"]}
         gaps.append({"id": f"segment:{s['column']}={s['value']}", "kind": "concentration", "title": f"Errors concentrate: {s['label']}",
                      "finding": f, "request": req + ".", "gain": gain,
@@ -1160,7 +1180,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
                                  f"{_pct(t['within_share'])} of the outcome's variance is left inside its levels (worst: {t['column']} = "
                                  f"{t['worst_level']}, {t['worst_n']:,} rows, rate {t['worst_rate']:.3f})."),
                      "request": f"Collect a finer measure of {t['column']}, or its history (a trend over months, not one snapshot).",
-                     "gain": _excess_gain(orc.get(f"thin:{t['column']}"), f"oracle on {t['column']} = {t['worst_level']} (simulation)"), "evidence": t})
+                     "gain": _excess_gain(orc.get(f"thin:{t['column']}"), f"simulated perfect information on {t['column']} = {t['worst_level']}"), "evidence": t})
     for p in ((g.get("confusion") or {}).get("pairs") or [])[:3]:
         gaps.append({"id": f"confusion:{p['a']}|{p['b']}", "kind": "label_overlap", "title": f"Labels overlap: '{p['a']}' ↔ '{p['b']}'",
                      "finding": f"'{p['a']}' is predicted as '{p['b']}' {p['a_as_b']} times and '{p['b']}' as '{p['a']}' {p['b_as_a']} times: the model confuses them both ways, so the label definitions overlap.",
@@ -1170,7 +1190,8 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     mr = _more_rows(ctx)
     if mr and mr.get("ci") and mr["ci"][1] > 0:
         gaps.append({"id": "more_rows", "kind": "more_rows", "title": "More rows of the same kind",
-                     "finding": f"Doubling the training rows: {mr['delta']:+.4f} {_ci(mr['ci'])} {mr['metric']} ({mr['source']}).",
+                     "finding": f"Doubling the training rows: {_sv(mr['delta'], ref=max(abs(x) for x in [mr['delta'], *(mr['ci'] or [])]))} "
+                                f"{_cis(mr['ci'], ref=max(abs(x) for x in [mr['delta'], *(mr['ci'] or [])]))} {mr['metric']}{_better(mr['metric'])} ({mr['source']}).",
                      "request": "Collect more labelled rows, if the gain is worth the cost.", "gain": _gain(mr, mr["source"]), "evidence": mr})
     cl = g.get("clean_labels")
     eo = (g.get("errors_top") or {}).get("cleanlab")
@@ -1215,7 +1236,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     top = gaps[0] if gaps else None
     head = None
     if top:
-        head = f"{top['title']}: " + (f"worth up to {top['gain']['delta']:+.4f} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
+        head = f"{top['title']}: " + (f"worth up to {_sv(top['gain']['delta'])} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
     return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"), "caveat": caveat,
             "irreducible": tw and {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "explained", "explained_upper")},
             "rules": {"rank": "measured potential gain first (Δ of the run's quick-model metric; an oracle is a simulation and an upper "
