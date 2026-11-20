@@ -79,8 +79,10 @@ def items() -> dict[str, dict[str, Any]]:
         # planted-issue copies of real data
         "bank_leak": {"src": pl["bank_leak"], "ablate": True, "review": off1},
         "taiwan_flip": {"src": pl["taiwan_flip"], "drop": ["ID"], "review": {"offline": True, "max_experiments": 3, "max_minutes": 30}},
-        "banking77_flip": {"src": pl["banking77_flip"], "tl": 300, "multiclass": True,
-                           "review": {"offline": True, "max_experiments": 2, "max_minutes": 30}},
+        "banking77_flip": {"src": pl["banking77_flip"], "tl": 300, "multiclass": True, "fit": {"excluded_model_types": ["RF", "XT"]},
+                           "review": {"offline": True, "max_experiments": 1, "max_minutes": 30}},
+        "banking77_flip30": {"src": pl["banking77_flip30"], "tl": 300, "multiclass": True, "fit": {"excluded_model_types": ["RF", "XT"]},
+                             "review": {"offline": True, "max_experiments": 1, "max_minutes": 30}},
         "taiwan_ratio": {"src": pl["taiwan_ratio"], "drop": ["ID"], "review": {"offline": True, "max_experiments": 3, "max_minutes": 30}},
         "taiwan_drift": {"src": pl["taiwan_drift"], "drop": ["ID"], "shift": True, "postdeploy": True, "review": None},
         "bank_999": {"src": pl["bank_999"], "train": False, "apply_fix": "disguised_missing"},
@@ -128,7 +130,7 @@ def train(c: httpx.Client, name: str, ds: str, target: str, it: dict) -> dict:
     multi = it.get("multiclass")
     body = {"dataset_id": ds, "label": target, "presets": "medium_quality", "time_limit": it.get("tl", TL),
             "problem_type": "multiclass" if multi else "binary", "eval_metric": None if multi or it.get("cost") else "roc_auc",
-            "fit_kwargs": dict(FIT), "source": "realdata-d5", "name": f"{name} · D5"}
+            "fit_kwargs": {**FIT, **(it.get("fit") or {})}, "source": "realdata-d5", "name": f"{name} · D5"}
     if it.get("drop"):
         body["drop_columns"] = it["drop"]
     if it.get("cost"):
@@ -303,6 +305,25 @@ def postdeploy(c: httpx.Client, path: Path, target: str, cut: str) -> dict:
     return out
 
 
+def flip_score(c: httpx.Client, o: dict, rows_file: Path) -> dict | None:
+    """Precision and recall of the clean_labels experiment's dropped training rows against the planted flips (the
+    version's lineage maps its rows to the original ones)."""
+    j = next((j for j in (o.get("review") or {}).get("journal") or [] if j["kind"] == "clean_labels" and j.get("run_id")), None)
+    if not j or not rows_file.exists():
+        return None
+    ds = c.get(f"/api/runs/{j['run_id']}").json().get("dataset_id")
+    lin = rdd.BACKEND / "data" / "datasets" / str(ds) / "lineage.json"
+    if not lin.exists():
+        return None
+    kept = set(json.loads(lin.read_text()).get("root_rows") or [])
+    n = int(json.loads(lin.read_text()).get("rows_before") or 0)
+    dropped = set(range(n)) - kept
+    flips = set(json.loads(rows_file.read_text())["flipped"])
+    hit = len(dropped & flips)
+    return {"dropped": len(dropped), "planted": len(flips), "caught": hit,
+            "precision": round(hit / max(len(dropped), 1), 3), "recall": round(hit / max(len(flips), 1), 3)}
+
+
 # --------------------------------------------------------------------------------------------- expectations
 
 def _f(o: dict, fid: str) -> dict | None:
@@ -387,11 +408,15 @@ EXPECT: dict[str, list[tuple[str, Callable[[dict], Any]]]] = {
         ("How to improve: cleaning the labels measured above 0 beyond noise (quick model)", lambda o: (lambda x: (
             bool(x and x.get("ci") and x["ci"][0] > 0), x and f"{x['title']}: {x['delta']:+.4f} {x['ci']}"))(
             next((x for x in o["doctor"]["levers"] if x["id"] == "clean_labels"), None))),
-        ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels"))),
+        ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels") + f" · cleanlab vs the planted flips: {o.get('flip_score')}")),
     ],
     "banking77_flip": [
         ("Data Doctor: label quality flags labels that look wrong", lambda o: (_sev_ok(_f(o, "label_quality"), ("medium", "high")), (_f(o, "label_quality") or {}).get("title"))),
-        ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels"))),
+        ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels") + f" · cleanlab vs the planted flips: {o.get('flip_score')}")),
+    ],
+    "banking77_flip30": [
+        ("Data Doctor: label quality flags labels that look wrong", lambda o: (_sev_ok(_f(o, "label_quality"), ("medium", "high")), (_f(o, "label_quality") or {}).get("title"))),
+        ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels") + f" · cleanlab vs the planted flips: {o.get('flip_score')}")),
     ],
     "taiwan_ratio": [
         ("Review: add_features kept", lambda o: (_kept(o, "add_features"), _journal(o, "add_features"))),
@@ -546,6 +571,8 @@ def main() -> int:
                 o["review"] = review(c, rid, it["review"])
             if it.get("postdeploy") and not ((o.get("postdeploy") or {}).get("retrain_window")):
                 o["postdeploy"] = postdeploy(c, path, target, "2025-06-01")
+        if name.endswith(("_flip", "_flip30")) and o.get("review"):  # cleanlab's dropped training rows vs the planted flips
+            o["flip_score"] = flip_score(c, o, rdd.PLANT / f"{name}_rows.json")
         if name == "bank_dupes":  # the base table's own duplicates and conflicts, counted the Data Doctor's way
             b = pd.read_csv(rd.prepare()["bank"]).drop(columns=["duration"])
             feats = [x for x in b.columns if x != "y"]

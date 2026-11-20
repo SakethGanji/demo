@@ -77,6 +77,34 @@ def _holdout(y: pd.Series) -> set[int]:
     return set(make_splits(y, len(y), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS)["holdout"])
 
 
+def _flip_text(src: Path, name: str, share: float, seed: int, write) -> tuple[Path, str]:
+    """Swap the texts of pairs of training rows with different intents: `share` of the training rows get a wrong label,
+    the label column (so the stratified holdout) is unchanged. The flipped rows go to planted/<name>_rows.json."""
+    p = PLANT / f"{name}.csv"
+    if p.exists():
+        return p, "category"
+    rng = np.random.default_rng(seed)
+    d = pd.read_csv(src)
+    h = _holdout(d["category"])
+    tr = np.array([i for i in range(len(d)) if i not in h])
+    k = int(share / 2 * len(tr))
+    a = rng.choice(tr, k, replace=False)
+    rest = rng.permutation(np.setdiff1d(tr, a))
+    b, used = [], set()
+    cat = d["category"].to_numpy()
+    for i in a:  # a partner with a different intent, each row used once
+        j = next(j for j in rest if j not in used and cat[j] != cat[i])
+        used.add(j)
+        b.append(j)
+    b = np.array(b)
+    ta, tb = d.loc[a, "text"].to_numpy(), d.loc[b, "text"].to_numpy()
+    d.loc[a, "text"], d.loc[b, "text"] = tb, ta
+    assert _holdout(d["category"]) == h
+    (PLANT / f"{name}_rows.json").write_text(json.dumps({"flipped": sorted(int(x) for x in np.r_[a, b])}))
+    write(name, d, "category")
+    return p, "category"
+
+
 def _sig(x):
     return 1 / (1 + np.exp(-x))
 
@@ -94,6 +122,9 @@ PLANTED = {
                        "10 % of the TRAINING rows carry another intent's label (the texts of two training rows with different intents "
                        "swapped, so the label column and the stratified holdout are unchanged)",
                        "Data Doctor: label quality flags labels that look wrong · review: clean_labels kept (Δ CI above 0)"),
+    "banking77_flip30": ("Banking77", "category",
+                         "30 % of the TRAINING rows carry another intent's label (the same text swap as banking77_flip)",
+                         "review: clean_labels kept (Δ CI above 0): heavy noise that the model cannot shrug off"),
     "taiwan_ratio": ("Taiwan, a 6,000-row sample", "default.payment.next.month",
                      "for 60 % of the rows the label is redrawn from utilisation u = BILL_AMT1 ÷ LIMIT_BAL: p = σ(20 (u − 0.8)). A "
                      "sample, because on all 30,000 rows the trees learn the ratio from the two raw columns (run 1: Feature Lab "
@@ -161,28 +192,9 @@ def planted() -> dict[str, tuple[Path, str]]:
     else:
         out["taiwan_flip"] = (PLANT / "taiwan_flip.csv", ty)
 
-    # 2b. the same on a text table, where a wrong intent label is visible in the words
-    if not (PLANT / "banking77_flip.csv").exists():
-        rng = np.random.default_rng(18)
-        d = pd.read_csv(files["banking77"])
-        h = _holdout(d["category"])
-        tr = np.array([i for i in range(len(d)) if i not in h])
-        k = int(0.05 * len(tr))
-        a = rng.choice(tr, k, replace=False)
-        rest = rng.permutation(np.setdiff1d(tr, a))
-        b, used = [], set()
-        for i in a:  # a partner with a different intent, each row used once
-            j = next(j for j in rest if j not in used and d.at[j, "category"] != d.at[i, "category"])
-            used.add(j)
-            b.append(j)
-        b = np.array(b)
-        ta, tb = d.loc[a, "text"].to_numpy(), d.loc[b, "text"].to_numpy()
-        d.loc[a, "text"], d.loc[b, "text"] = tb, ta
-        assert _holdout(d["category"]) == h
-        (PLANT / "banking77_flip_rows.json").write_text(json.dumps({"flipped": sorted(int(x) for x in np.r_[a, b])}))
-        write("banking77_flip", d, "category")
-    else:
-        out["banking77_flip"] = (PLANT / "banking77_flip.csv", "category")
+    # 2b. the same on a text table, where a wrong intent label is visible in the words (10 %, and 30 %)
+    for nm, share, seed in (("banking77_flip", 0.10, 18), ("banking77_flip30", 0.30, 19)):
+        out[nm] = _flip_text(files["banking77"], nm, share, seed, write)
 
     # 3. a planted ratio signal, on a sample: with 24,000 training rows the trees learn u from BILL_AMT1 and LIMIT_BAL
     if not (PLANT / "taiwan_ratio.csv").exists():
