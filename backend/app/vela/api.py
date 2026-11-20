@@ -178,7 +178,12 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
     except Exception:  # noqa: BLE001 — the doctor diagnoses without monitoring rather than fail
         mon = []
     gaps, exps, fl, known = await _d3_inputs(request, rec, opts)
-    ctx = {"run": rec, "monitoring": mon, "vela": vela["findings"], "vela_errors": vela["errors"], "measured": measured, "split_comparison": sc,
+    from . import review as R
+
+    rv = await run_in_threadpool(R.latest_done, rec)
+    ctx = {"review": rv and {"id": rv["id"], "decider": rv.get("decider"), "model": rv.get("model"), "mode": rv.get("mode"),
+                             "finished_at": rv.get("finished_at"), "domain_gaps": rv.get("domain_gaps") or []},
+           "run": rec, "monitoring": mon, "vela": vela["findings"], "vela_errors": vela["errors"], "measured": measured, "split_comparison": sc,
            "oot_se": oot_se, "split_options": opts, "shift_actions": shift_actions, "latency_budget_ms": budget, "latency": lat,
            "base": run_body(rec), "gaps": gaps, "experiments": exps, "feature_lab": fl, "known": known}
     d = await run_in_threadpool(D.diagnose, ctx)
@@ -301,13 +306,78 @@ async def _d3_inputs(request: Request, rec: dict[str, Any], opts: dict[str, Any]
     return gaps, exps, fl, known
 
 
-@router.post("/runs/{run_id}/experiments", status_code=201)
-async def start_experiment(run_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
-    """D3: a typed experiment on a finished run: {kind: ablate, columns: [...]} | {kind: budget} | {kind: preset}. It trains
-    the run's own body with that one change as a child run (lineage: parent_run_id, source doctor-experiment), on the same
-    dataset and holdout; GET …/experiments gives Δ with a paired-bootstrap CI once it succeeds."""
+def _record_extra(request: Request, run_id: str, item: dict[str, Any]) -> None:
+    store = request.app.state.runs
+    cur = ((store.get(run_id) or {}).get("result") or {}).get("experiments_extra") or []
+    store.merge_result(run_id, experiments_extra=[*cur, item])
+
+
+def _flag_job(cfg, label):
+    from .experiments import flag_training_labels
+
+    return flag_training_labels(cfg, label)
+
+
+async def _prepare(request: Request, rec: dict[str, Any], spec: dict[str, Any], by: str) -> tuple[str | None, dict[str, Any]]:
+    """A dataset version with the parent's holdout rows for the data experiments; (None, why) when nothing changes."""
+    import asyncio
+
+    from .. import featurelab as fl
+    from ..data_doctor_api import _apply
+    from ..featurelab_api import start_feature_lab
+
+    kind = spec["kind"]
+    ds = rec["dataset_id"]
+    if kind == "apply_data_fix":
+        out = await run_in_threadpool(_apply, request, ds, spec["transforms"], by)
+        eff = out["effects"]
+        what = "; ".join(f"{e.get('op')} {e.get('column') or ''}".strip() for e in eff)
+        return out["dataset"]["id"], {"dataset_id": out["dataset"]["id"], "effects": eff, "what": what,
+                                      "rows_before": out["rows_before"], "rows_after": out["rows_after"],
+                                      "columns_added": out["columns_added"], "columns_removed": out["columns_removed"]}
+    if kind == "add_features":
+        body = {"target": rec["label"], "apply": True, "by": by, "time_limit": 300, "max_candidates": 20}
+        if spec.get("candidates"):
+            body["candidates"] = spec["candidates"]
+        job = await run_in_threadpool(start_feature_lab, ds, request, body)
+        d = request.app.state.datasets.dir(ds)
+        while True:
+            await asyncio.sleep(2)
+            j = await run_in_threadpool(fl.read_job, d, job["id"]) or {}
+            if j.get("status") != "running":
+                break
+        res = j.get("result") or {}
+        kept = res.get("kept") or []
+        jr = [e for e in res.get("journal") or [] if e.get("delta") is not None]
+        best = max(jr, key=lambda e: e["delta"]) if jr else None
+        info = {"featurelab_job": job["id"], "tried": len(res.get("journal") or []), "kept": [t.get("name") for t in kept],
+                "metric": res.get("metric_label"), "best": best and {"name": best.get("name"), "delta": best["delta"], "ci": best.get("ci")},
+                "holdout": res.get("holdout"), "status": j.get("status"), "error": j.get("error")}
+        if j.get("status") != "succeeded" or not j.get("version"):
+            info["why"] = ("Feature Lab failed: " + str(j.get("error"))) if j.get("status") != "succeeded" else \
+                f"Feature Lab kept none of the {info['tried']} candidates (scored on the training folds only; kept only on a clear gain)"
+            return None, info
+        info["what"] = ", ".join(info["kept"])
+        info["dataset_id"] = j["version"]["id"] if isinstance(j["version"], dict) and "id" in j["version"] else (j["version"].get("dataset") or {}).get("id")
+        return info["dataset_id"], info
+    if kind == "clean_labels":
+        fl_ = await request.app.state.heavy.run(_flag_job, rec["config"], rec["label"])
+        rows = fl_.get("rows") or []
+        if len(rows) < 10:
+            return None, {**{k: v for k, v in fl_.items() if k != "rows"}, "why": f"cleanlab flags {len(rows)} training rows: nothing to clean"}
+        out = await run_in_threadpool(_apply, request, ds, [{"op": "drop_rows", "rows": rows,
+                                                             "reason": "cleanlab label issues on the training rows (out of fold)"}], by)
+        return out["dataset"]["id"], {"dataset_id": out["dataset"]["id"], "flagged": len(rows), "of": fl_.get("of"),
+                                      "model": fl_.get("model"), "method": fl_.get("method"),
+                                      "what": f"{len(rows):,} of {fl_.get('of'):,} training rows dropped",
+                                      "rows_before": out["rows_before"], "rows_after": out["rows_after"]}
+    return None, {}
+
+
+async def start_experiment_impl(request: Request, run_id: str, body: dict[str, Any]) -> dict[str, Any]:
     from ..engine.api import RunCreate, _create_run
     from ..gym.api import check_run_body
+    from ..datasets import now
     from . import experiments as X
 
     rec = run_or_404(request, run_id)
@@ -316,13 +386,76 @@ async def start_experiment(run_id: str, request: Request, body: dict[str, Any]) 
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; experiments start from a finished run.")
     if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or cfg.get("import"):
         raise HTTPException(400, "Experiments run on trained tabular runs.")
+    body = body or {}
+    by = str(body.get("by") or "you")
     try:
-        b, what = X.body_for(rec, body or {})
+        spec = X.validate(rec, {k: v for k, v in body.items() if k not in ("by", "review_id")})
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    kind = spec["kind"]
+    base = {"id": "x_" + __import__("secrets").token_hex(4), "kind": kind, "spec": spec, "created_at": now(), "by": by,
+            "review_id": body.get("review_id")}
+    if kind in X.INSTANT:
+        try:
+            res = await run_in_threadpool(X.serve_rung_result if kind == "serve_rung" else X.cost_ratio_result, rec,
+                                          *((spec["rung"],) if kind == "serve_rung" else (spec["c_fn"], spec["c_fp"])))
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(400, f"{kind}: {type(e).__name__}: {e}") from e
+        title = (f"serve rung {spec['rung']} ({res['rung']['name']})" if kind == "serve_rung"
+                 else f"cost ratio {spec['c_fn'] / spec['c_fp']:g}:1 (the same model, its cost-optimal threshold)")
+        item = {**base, "title": title, "status": "succeeded", "result": res, "run_id": None}
+        await run_in_threadpool(_record_extra, request, run_id, item)
+        return {**item, "parent_run_id": run_id}
+    if kind == "segment":
+        from ..segmented.api import SegCreate, _create as seg_create
+
+        k = len(set(((rec.get("result") or {}).get("features") or [])))
+        tl = float(cfg.get("time_limit") or 120)
+        sb = SegCreate(dataset_id=rec["dataset_id"], label=rec["label"], segment_column=spec["column"],
+                       drop_columns=[c for c in (cfg.get("drop_columns") or []) if c != spec["column"]], split="random",
+                       cost=({"c_fp": cfg["cost"]["c_fp"], "c_fn": cfg["cost"]["c_fn"]} if (cfg.get("cost") or {}).get("c_fn") else None),
+                       presets="medium_quality", time_limit=max(30.0, round(tl / 4)),
+                       name=f"{rec['name']} · segmented by {spec['column']}")
+        try:
+            new = await run_in_threadpool(seg_create, sb, request)
+        except HTTPException:
+            raise
+        _ = k
+        item = {**base, "title": f"one model per {spec['column']} (G5) vs one global model", "status": new.get("status"),
+                "run_id": new["id"]}
+        await run_in_threadpool(_record_extra, request, run_id, item)
+        return {**item, "parent_run_id": run_id}
+    ds_id, prep = None, None
+    if kind in ("apply_data_fix", "add_features", "clean_labels"):
+        ds_id, prep = await _prepare(request, rec, spec, by)
+        if ds_id is None:
+            item = {**base, "title": {"add_features": "Feature Lab features", "clean_labels": "cleaned training labels"}.get(kind, kind),
+                    "status": "no-change", "prepared": prep, "run_id": None, "result": None}
+            await run_in_threadpool(_record_extra, request, run_id, item)
+            return {**item, "parent_run_id": run_id}
+    try:
+        b, what = X.body_for(rec, spec, ds_id, prep)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    if body.get("review_id"):
+        b["patch"]["review_id"] = body["review_id"]
     await check_run_body(request, b)
     new = await run_in_threadpool(_create_run, RunCreate(**b), request)
-    return {"id": new["id"], "run_id": new["id"], "parent_run_id": run_id, "kind": body.get("kind"), "title": what, "status": new.get("status")}
+    return {"id": new["id"], "run_id": new["id"], "parent_run_id": run_id, "kind": kind, "title": what, "status": new.get("status"),
+            "prepared": prep, "dataset_id": b["dataset_id"]}
+
+
+@router.post("/runs/{run_id}/experiments", status_code=201)
+async def start_experiment(run_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """D3 + D4: a typed experiment on a finished run (`experiments.KINDS`, the whitelist; never free-form):
+    - a child run with one change (ablate, budget, preset, monotone), or on a prepared dataset version with the parent's
+      holdout rows (apply_data_fix → D1 fixes, add_features → D2 Feature Lab, clean_labels → cleanlab on the training
+      rows only); lineage parent_run_id, source doctor-experiment;
+    - instant, from the run's own files (serve_rung → the D2 ladder, cost_ratio → the same model at another ratio's
+      Bayes threshold);
+    - segment: a G5 segmented run against its global model.
+    GET …/experiments gives Δ with a paired-bootstrap CI on the shared holdout rows, in the run's own metric."""
+    return await start_experiment_impl(request, run_id, body)
 
 
 @router.get("/runs/{run_id}/experiments")
@@ -331,4 +464,56 @@ async def list_experiments(run_id: str, request: Request) -> dict[str, Any]:
 
     rec = run_or_404(request, run_id)
     items = await run_in_threadpool(X.list_for, request.app.state.runs, rec)
-    return {"run_id": run_id, "experiments": items, "kinds": list(X.KINDS)}
+    return {"run_id": run_id, "experiments": items, "kinds": list(X.KINDS), "describe": X.DESCRIBE}
+
+
+# --------------------------------------------------------------------------- D4 · Review
+
+
+@router.post("/runs/{run_id}/review", status_code=202)
+async def start_review(run_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """D4: start the review loop on a finished run: the four LLM roles (perceive → task → errors → propose), each
+    hypothesis proved or rejected by a typed experiment on the same holdout, the journal, the improvement plan. Body:
+    {by, max_experiments (1–8, default 5), max_minutes (5–240, default 30), offline (the deterministic Doctor proposes)}.
+    Returns at once; GET …/review/{id} has the live journal."""
+    from . import review as R
+
+    rec = run_or_404(request, run_id)
+    cfg = rec["config"]
+    if rec["status"] != "succeeded":
+        raise HTTPException(409, f"Run {run_id} is {rec['status']}; a review reads a finished run.")
+    if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or cfg.get("import"):
+        raise HTTPException(400, "The review reads trained tabular runs.")
+    body = body or {}
+    try:
+        mx = int(body.get("max_experiments") or R.MAX_EXPERIMENTS)
+        mm = float(body.get("max_minutes") or R.MAX_MINUTES)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "max_experiments and max_minutes are numbers.") from None
+    if not 1 <= mx <= 8 or not 5 <= mm <= 240:
+        raise HTTPException(400, "max_experiments is 1–8 and max_minutes 5–240.")
+    cur = await run_in_threadpool(R.running, rec)
+    if cur:
+        raise HTTPException(409, f"Review {cur} is already running on this run.")
+    rv = R.start(request.app, rec, str(body.get("by") or "you"), {"max_experiments": mx, "max_minutes": mm,
+                                                                  "offline": bool(body.get("offline"))})
+    return {k: rv[k] for k in ("id", "run_id", "status", "mode", "mode_note", "options", "llm_route", "model")}
+
+
+@router.get("/runs/{run_id}/review")
+async def list_run_reviews(run_id: str, request: Request) -> dict[str, Any]:
+    from . import review as R
+
+    rec = run_or_404(request, run_id)
+    return {"run_id": run_id, "reviews": await run_in_threadpool(R.list_reviews, rec), "rules": R.RULES}
+
+
+@router.get("/runs/{run_id}/review/{review_id}")
+async def get_run_review(run_id: str, review_id: str, request: Request) -> dict[str, Any]:
+    from . import review as R
+
+    rec = run_or_404(request, run_id)
+    rv = await run_in_threadpool(R.load, rec, review_id)
+    if not rv:
+        raise HTTPException(404, f"No review {review_id} on run {run_id}.")
+    return rv

@@ -1082,9 +1082,20 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
                       "oracle": (g.get("oracle") or {}).get("rule"), "concentration": con.get("rule"), "thin": (g.get("thin") or {}).get("rule"),
                       "twins": tw and tw.get("method"), "confusion": (g.get("confusion") or {}).get("rule"),
                       "curve": (g.get("quick_curve") or {}).get("rule"), "clean": (g.get("clean_labels") or {}).get("rule")},
-            "domain_gaps": {"status": "pending", "source": "llm", "label": "Suggestions to investigate (Claude, D4): never mixed with measured numbers",
-                            "items": []},
+            "domain_gaps": _domain_gaps(ctx.get("review")),
             "problem_type": pt, "seconds": g.get("seconds"), "errors": g.get("errors") or []}
+
+
+def _domain_gaps(rv: dict[str, Any] | None) -> dict[str, Any]:
+    label = "Suggestions to investigate (Claude, D4 review): never mixed with measured numbers"
+    if not rv:
+        return {"status": "pending", "source": "llm", "label": label, "items": [],
+                "note": "Run a review (Doctor → Review) to fill this: Claude compares the columns with what is typically predictive for this task."}
+    items = rv.get("domain_gaps") or []
+    return {"status": "done" if items else "none", "source": "llm", "label": label, "items": items, "review_id": rv["id"],
+            "decider": rv.get("decider"), "model": rv.get("model"), "at": rv.get("finished_at"),
+            "note": None if items else ("The review ran offline: no language model, so no suggestions." if rv.get("mode") == "offline"
+                                        else "The review's language model returned no suggestions.")}
 
 
 def _errors_view(g: dict[str, Any]) -> dict[str, Any] | None:

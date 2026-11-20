@@ -822,7 +822,7 @@ def start_labels(dirpath: Path, target: str, csv: Path, roles: list[dict[str, An
     return {"status": "running"}
 
 
-def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], seed: int = 0) -> dict[str, Any]:
+def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], seed: int = 0, all_rows: bool = False) -> dict[str, Any]:
     """A quick out-of-fold model (3 folds) and cleanlab's find_label_issues on its p̂. Tabular: histogram gradient
     boosting on numbers and category codes. With text: TF-IDF + logistic regression. At most 50,000 rows."""
     from cleanlab.filter import find_label_issues
@@ -894,7 +894,8 @@ def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], see
             "n": int(len(iss)), "rate": round(len(iss) / len(yi), 4), "floor": round(floor, 4),
             "expected_floor": round(expected, 4), "examples": examples, "classes": classes,
             "over_budget": time.perf_counter() > deadline,
-            "method": "cleanlab.filter.find_label_issues(filter_by='prune_by_noise_rate') on out-of-fold p̂"}
+            "method": "cleanlab.filter.find_label_issues(filter_by='prune_by_noise_rate') on out-of-fold p̂",
+            **({"issue_rows": [int(rows[i]) for i in iss]} if all_rows else {})}
 
 
 def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:

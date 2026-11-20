@@ -294,7 +294,8 @@ PATHS = {SDK: _via_sdk, CLI: _via_cli}
 
 # ------------------------------------------------------------------------------------------------------------ router
 
-async def _route(prompt: str, s: dict[str, Any], timeout: float | None, max_tokens: int) -> tuple[dict | None, dict]:
+async def _route(prompt: str, s: dict[str, Any], timeout: float | None, max_tokens: int,
+                 path_timeout: float | None = None) -> tuple[dict | None, dict]:
     attempts: list[dict[str, Any]] = []
     t0 = time.perf_counter()
     budget = float(timeout or s["total_timeout"])
@@ -306,7 +307,7 @@ async def _route(prompt: str, s: dict[str, Any], timeout: float | None, max_toke
             attempts.append({"source": source, "ok": False, "skipped": True, "seconds": 0.0, "error": why})
             continue
         left = budget - (time.perf_counter() - t0)
-        per = min(s["sdk_timeout"] if source == SDK else s["cli_timeout"], left)
+        per = min(path_timeout or (s["sdk_timeout"] if source == SDK else s["cli_timeout"]), left)
         if per < 0.1:
             attempts.append({"source": source, "ok": False, "error": "skipped: the total time budget is spent", "seconds": 0.0})
             continue
@@ -336,7 +337,7 @@ async def _route(prompt: str, s: dict[str, Any], timeout: float | None, max_toke
 
 
 async def ask_json_async(prompt: str, *, facts: Any = None, timeout: float | None = None, max_tokens: int = 1500,
-                         use_cache: bool = True) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+                         use_cache: bool = True, path_timeout: float | None = None) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """(the reply as a JSON object or None, meta: source, decider, model, seconds, attempts, cached, key, …)."""
     s = settings()
     key, ph, fh = cache_key(prompt, facts, s["model"])
@@ -365,7 +366,7 @@ async def ask_json_async(prompt: str, *, facts: Any = None, timeout: float | Non
     if use_cache:
         _inflight[fk] = fut
     try:
-        obj, meta = await _route(prompt, s, timeout, max_tokens)
+        obj, meta = await _route(prompt, s, timeout, max_tokens, path_timeout)
         if obj is not None and use_cache and s["cache_ttl"] > 0:
             with _lock:
                 _cache[key] = (time.time(), obj, meta)
