@@ -719,7 +719,7 @@ export type VersionResult = {
 export type ModelVersion = {
   id: string; model_name: string; version: number; run_id: string; status: 'building' | 'ready' | 'failed'; stage: Stage; approval: Approval
   created_at: string; created_by: string
-  options: { refit_full: boolean; infer_limit: number | null; infer_limit_batch_size: number | null; clone_for_deployment: boolean; description: string }
+  options: { refit_full: boolean; infer_limit: number | null; infer_limit_batch_size: number | null; clone_for_deployment: boolean; description: string; change_by?: string | null }
   progress: { steps: BuildStep[] } | null; error: string | null; path: string | null; model_hash: string | null
   summary: {
     best_model: string | null; size_bytes: number | null; n_models: number | null; us_per_row_p50: number | null; us_per_row_p95: number | null

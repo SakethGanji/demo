@@ -126,8 +126,9 @@ async def get_changes(vid: str, request: Request) -> dict[str, Any]:
                       "out_of_sample": "A threshold or a calibration is fitted on one half of the batch and applied to the other, "
                                        "and back (cross-fitted). Retrained models never see the newest batch.",
                       "request": "Only a result better beyond noise (CI above 0) can be requested. A request registers a new "
-                                 "version (approval pending): a reviewer other than the requester approves it, then someone "
-                                 "promotes it. Nothing changes the live version on its own.",
+                                 "version (approval pending): a reviewer other than the requester and the experiment's author "
+                                 "approves it (names as typed; case, spaces and punctuation ignored), then someone promotes "
+                                 "it. Nothing changes the live version on its own.",
                       "cost": (c.get("cost") or {}).get("source")}}
 
 
@@ -250,9 +251,10 @@ async def request_change(vid: str, cid: str, request: Request, body: dict[str, A
         rc = r["cost"]
         desc += (f"; cost / 1,000 at the new threshold {rc['current']:.1f} → {rc['proposed']:.1f}, Δ {rc['delta']:+.1f} "
                  f"[{rc['ci'][0]:+.1f}, {rc['ci'][1]:+.1f}] ({C.verdict(rc)})")
-    out = await register(run_id, RegisterRequest(created_by=actor, model_name=v["model_name"], description=desc, change_id=cid, **keep), request)
+    out = await register(run_id, RegisterRequest(created_by=actor, model_name=v["model_name"], description=desc, change_id=cid, change_by=it.get("by"), **keep), request)
     it["request"] = {"version_id": out["id"], "by": actor, "at": now(), "run_id": run_id,
-                     "next": f"A reviewer other than {actor} approves the new version in Registry (four eyes); promotion to "
+                     "next": f"A reviewer other than {actor}" + (f" and {it['by']} (who designed the experiment)" if it.get("by") and it["by"] != actor else "")
+                             + " approves the new version in Registry (four eyes); promotion to "
                              "Production is a separate, human step."}
     await run_in_threadpool(C.save_all, _regdir(request), vid, items)
     request.app.state.registry.audit(actor=actor, action="change_requested", version=v, run_id=run_id,

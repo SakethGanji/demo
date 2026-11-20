@@ -553,7 +553,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         v = reg.get_version(version_id)
         reg.audit(actor=v["created_by"], action="registered", version=v, to_stage="None",
                   comment=opts.get("description") or "",
-                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline", "decision_threshold", "calibration", "change_id")},
+                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline", "decision_threshold", "calibration", "change_id", "change_by")},
                            "best_model": final.model_best, "size_bytes": ver_size,
                            "us_per_row_p50": lat_ver["us_per_row_p50"], "data_sha256": data_hash})
         return {"ok": True, "version_id": version_id}

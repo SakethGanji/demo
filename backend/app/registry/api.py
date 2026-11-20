@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import unicodedata
 from pathlib import Path
 from typing import Any, Literal
 
@@ -42,6 +43,14 @@ def _name_ok(s: str | None, what: str) -> str:
     if len(s) > 80:
         raise HTTPException(400, f"{what} is longer than 80 characters.")
     return s
+
+
+def identity_key(s: str | None) -> str:
+    """A name as four-eyes compares it: NFKC, casefolded, punctuation dropped, whitespace collapsed ("Alice." = " ALICE ").
+    Names, not authenticated identities: there is no sign-in."""
+    t = unicodedata.normalize("NFKC", s or "").casefold()
+    t = "".join(" " if unicodedata.category(ch)[0] in "PSZC" else ch for ch in t)
+    return " ".join(t.split())
 
 
 def default_model_name(dataset_id: str, label: str) -> str:
@@ -95,6 +104,8 @@ class RegisterRequest(BaseModel):
                                                  "σ(a · logit p + b), {a > 0, b} (D4 recalibration); decision_threshold "
                                                  "is then on the calibrated scale.")
     change_id: str | None = Field(None, description="The D4 change request this version carries out.")
+    change_by: str | None = Field(None, description="Who designed the D4 change experiment; four eyes: they cannot "
+                                  "approve the version either.")
 
 
 @router.post("/runs/{run_id}/register", status_code=202)
@@ -353,15 +364,21 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
 @router.post("/registry/versions/{vid}/review")
 async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, Any]:
     """Approve or reject a version, with the reviewer's name and comment. Four eyes: the reviewer cannot be the
-    person who registered it. Rejecting needs a comment, and archives the version if it was in Staging or
+    person who registered it, nor (a D4 change) the author of its experiment; names are compared as typed with case,
+    spaces and punctuation ignored (identity_key), not authenticated identities. Rejecting needs a comment, and archives the version if it was in Staging or
     Production."""
     reg = _reg(request)
     v = _ready_version(request, vid)
     who = _name_ok(body.reviewer, "reviewer")
     if v["approval"] != "pending":
         raise HTTPException(409, f"Version {v['version']} was already {v['approval']}; register the run again for a new review.")
-    if who.casefold() == (v["created_by"] or "").strip().casefold():
-        raise HTTPException(409, f"Four-eyes rule: {who} registered this version, so someone else must review it.")
+    # Four eyes on names as typed (no sign-in): case, spaces and punctuation are ignored, so "Alice." is Alice.
+    if identity_key(who) == identity_key(v["created_by"]):
+        raise HTTPException(409, f"Four-eyes rule: {who} registered this version ({v['created_by']}), so someone else must review it.")
+    author = (v.get("options") or {}).get("change_by")
+    if author and identity_key(who) == identity_key(author):
+        raise HTTPException(409, f"Four-eyes rule: {who} designed the change experiment behind this version ({author}), "
+                                 "so someone else must review it.")
     if body.decision == "reject" and not body.comment.strip():
         raise HTTPException(400, "A rejection needs a comment saying why.")
     approval = "approved" if body.decision == "approve" else "rejected"
