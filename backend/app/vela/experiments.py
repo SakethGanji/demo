@@ -464,7 +464,7 @@ def list_for(store, rec: dict[str, Any]) -> list[dict[str, Any]]:
             elif r.get("status") == "failed":
                 item["error"] = r.get("error")
         out.append(item)
-    for r in store.list():
+    for r in store.list(parent_run_id=rec["id"], source="doctor-experiment"):  # P1: indexed columns, not a full scan
         cfg = r.get("config") or {}
         if cfg.get("parent_run_id") != rec["id"] or cfg.get("source") != "doctor-experiment":
             continue

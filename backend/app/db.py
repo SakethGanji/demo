@@ -121,6 +121,9 @@ class Database:
             cols = {r[1] for r in con.execute("PRAGMA table_info(batch_jobs)")}
             if "data_date" not in cols:
                 con.execute("ALTER TABLE batch_jobs ADD COLUMN data_date TEXT")
+            from .catalog.schema import migrate  # P1: projects, lineage edges, annotations, champions, indexed run columns
+
+            migrate(con)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -139,8 +142,12 @@ class Database:
     def insert_dataset(self, rec: dict[str, Any]) -> None:
         with self.connect() as con:
             con.execute(
-                "INSERT OR REPLACE INTO datasets (id, name, filename, source, note, created_at, size_bytes, rows, target, kind, profile)"
-                " VALUES (:id, :name, :filename, :source, :note, :created_at, :size_bytes, :rows, :target, :kind, :profile)",
+                "INSERT INTO datasets (id, name, filename, source, note, created_at, size_bytes, rows, target, kind, profile)"
+                " VALUES (:id, :name, :filename, :source, :note, :created_at, :size_bytes, :rows, :target, :kind, :profile)"
+                # an upsert, not OR REPLACE: P1's columns (project, parent, root, sha256) survive a re-profile
+                " ON CONFLICT (id) DO UPDATE SET name = excluded.name, filename = excluded.filename, source = excluded.source,"
+                " note = excluded.note, created_at = excluded.created_at, size_bytes = excluded.size_bytes, rows = excluded.rows,"
+                " target = excluded.target, kind = excluded.kind, profile = excluded.profile",
                 {**rec, "profile": json.dumps(rec["profile"])},
             )
 

@@ -35,3 +35,22 @@ class Settings:
 def load_settings() -> Settings:
     data_dir = Path(os.environ.get("ENSEMBLE_DATA_DIR", BACKEND_DIR / "data")).resolve()
     return Settings(data_dir=data_dir)
+
+
+#: P1 step 7: predictor retention. NEEDS MODEL-RISK APPROVAL before it runs on a timer: retention periods are bank
+#: policy. Until then the job runs only when an admin calls POST /api/retention/run (every action is audited), and
+#: GET /api/retention/plan is the dry run. Days are counted from the run's finish.
+RETENTION_POLICY = {
+    "status": "needs model-risk approval",
+    "slim_after_days": 7,      # present → slimmed: delete_models(models_to_keep='best') + save_space()
+    "evict_after_days": 30,    # → evicted: the predictor folder is deleted; config, result, holdout predictions,
+                               #   leaderboard, journal and hashes are kept
+    "failed_evict_after_days": 3,
+    "top_k_pinned": 3,         # the best runs per project and dataset are never evicted
+    "keep_tag": "keep",
+}
+
+
+def admins() -> set[str]:
+    """Names allowed to run retention (no sign-in: names, as four-eyes uses them). ENSEMBLE_ADMINS, comma-separated."""
+    return {a.strip().casefold() for a in os.environ.get("ENSEMBLE_ADMINS", "admin").split(",") if a.strip()}

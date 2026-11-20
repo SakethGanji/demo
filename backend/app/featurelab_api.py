@@ -111,22 +111,16 @@ def _version(request: Request, rec: dict[str, Any], df, sp: dict[str, Any], res:
         new_df[t["name"]] = fl.compute(new_df, t)  # bins carry their training-row edges, so this is the same column
         effects.append({"kind": "feature_lab", "transform": t, "text": fl.describe(t), "column": t["name"],
                         "missing": int(new_df[t["name"]].isna().sum())})
-    parent_lin = store.lineage(dataset_id) or {}
-    roots = parent_lin.get("root_rows") or list(range(len(df)))
-    if len(roots) != len(df):
-        roots = list(range(len(df)))
-    lineage = {"parent": dataset_id, "root": parent_lin.get("root") or dataset_id, "kind": "feature_lab",
-               "fixes": effects, "transforms": res["kept"], "applied_at": now(), "by": by,
-               "rows_before": int(len(df)), "rows_after": int(len(new_df)), "columns_before": int(df.shape[1]),
-               "columns_after": int(new_df.shape[1]), "root_rows": [int(x) for x in roots], "changes": [],
-               "search": {"metric": res["metric"], "improvement_oof": res["improvement_oof"], "holdout": res.get("holdout")}}
+    root = (store.lineage(dataset_id) or {}).get("root") or dataset_id
+    extra = {"kind": "feature_lab", "fixes": effects, "transforms": res["kept"], "applied_at": now(), "by": by,
+             "columns_before": int(df.shape[1]), "columns_after": int(new_df.shape[1]),
+             "search": {"metric": res["metric"], "improvement_oof": res["improvement_oof"], "holdout": res.get("holdout")}}
     base = rec["name"].split(" · features")[0]
-    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == lineage["root"]
+    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
                 and (d["profile"].get("lineage") or {}).get("kind") == "feature_lab") + 1
-    new_sp = {**sp, "derived_from": dataset_id}
-    new = store.create_version(dataset_id, new_df, new_sp, name=f"{base} · features v{n_ver}",
-                               note=f"Feature Lab: {len(effects)} feature{'s' if len(effects) != 1 else ''} added to {dataset_id}",
-                               lineage=lineage)
+    new = store.derive(dataset_id, new_df, None, "feature_lab", [], splits=sp, extra=extra, by=by,  # P1: every row kept
+                       name=f"{base} · features v{n_ver}",
+                       note=f"Feature Lab: {len(effects)} feature{'s' if len(effects) != 1 else ''} added to {dataset_id}")
     a = answers(store, dataset_id)
     if a:
         (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))

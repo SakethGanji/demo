@@ -47,3 +47,25 @@ def delong(y: np.ndarray, s: np.ndarray, level: float = 0.95) -> dict[str, Any]:
     z = float(norm.ppf(0.5 + level / 2))
     return {"value": auc, "se": se, "ci": [max(0.0, auc - z * se), min(1.0, auc + z * se)], "level": level, "z": z,
             "m": m, "n": n, "s10": s10, "s01": s01, "method": "DeLong (midranks)"}
+
+
+def paired_bootstrap(fa, fb, n: int, b: int = 1000, seed: int = 0, level: float = 0.95, valid=None) -> dict[str, Any]:
+    """Δ = fb(rows) − fa(rows) on the same n rows, with a percentile bootstrap CI: each replicate resamples the n row
+    indices with replacement and scores both models on the SAME resample (paired). `fa`/`fb` map an index array to a
+    higher-is-better score; `valid(idx)` may veto a replicate (e.g. one class only for AUC). P1: the one implementation
+    /api/compare uses (step 8 moves the other modules onto it)."""
+    allr = np.arange(n)
+    s_a, s_b = float(fa(allr)), float(fb(allr))
+    rng = np.random.default_rng(seed)
+    ds = []
+    for _ in range(b):
+        i = rng.integers(0, n, n)
+        if valid is not None and not valid(i):
+            continue
+        ds.append(fb(i) - fa(i))
+    ds = np.asarray(ds, dtype=float)
+    lo, hi = (0.5 - level / 2, 0.5 + level / 2)
+    ci = [float(np.quantile(ds, lo)), float(np.quantile(ds, hi))] if len(ds) else [None, None]
+    return {"a": s_a, "b": s_b, "delta": s_b - s_a, "ci": ci, "level": level, "B": int(len(ds)), "n": int(n),
+            "se": float(ds.std(ddof=1)) if len(ds) > 1 else None,
+            "excludes_zero": bool(len(ds)) and (ci[0] > 0 or ci[1] < 0)}

@@ -471,12 +471,18 @@ def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: 
 
 @router.get("/runs")
 def list_runs(request: Request, dataset_id: str | None = None, full: bool = False,
-              kind: str = Query("tabular", description="tabular (includes imports) | forecast | anomaly | all")) -> dict[str, Any]:
+              kind: str = Query("tabular", description="tabular (includes imports) | forecast | anomaly | all"),
+              project_id: str | None = None, light: bool = False, limit: int | None = Query(None, ge=1, le=5000),
+              offset: int = Query(0, ge=0)) -> dict[str, Any]:
     """Runs, newest first. Forecast and anomaly runs are listed only with kind=forecast / anomaly / all, so pages
-    built for tabular runs never see them."""
+    built for tabular runs never see them. P1: the filters run in SQL on the indexed columns; light=true returns those
+    columns only (no config or result JSON), the list path for thousands of runs."""
     store = _store(request)
-    recs = [r for r in store.list() if (dataset_id is None or r["dataset_id"] == dataset_id)
-            and (kind == "all" or (r["config"].get("kind") or "tabular") == kind)]
+    kinds = None if kind == "all" else (["tabular", "import"] if kind == "tabular" else [kind])
+    if light:
+        return {"runs": store.list_light(limit=limit, offset=offset, dataset_id=dataset_id, project_id=project_id, kind=kinds),
+                "total": len(store.list_light(dataset_id=dataset_id, project_id=project_id, kind=kinds))}
+    recs = store.list(limit=limit, dataset_id=dataset_id, project_id=project_id, kind=kinds)
     return {"runs": [run_out(r, store, full=full) for r in recs]}
 
 
@@ -533,7 +539,7 @@ def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
     metric, _, gib = _score(base)
     cfg0 = base["config"]
     rows, seen = [], set()
-    for r in store.list():  # newest first
+    for r in store.list(dataset_id=base["dataset_id"], status="succeeded"):  # newest first; P1: filtered in SQL
         cfg = r["config"]
         if r["dataset_id"] != base["dataset_id"] or r["label"] != base["label"] or r["status"] != "succeeded" \
                 or cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or cfg.get("import"):
@@ -1080,7 +1086,7 @@ async def cost_comparison(run_id: str, request: Request, c_fp: float | None = Qu
         key0 = (cfg0.get("split") or {}).get("key")
         picked: list[dict[str, Any]] = [rec]
         seen = {_metric_slot(rec)}
-        for r in store.list():  # newest first
+        for r in store.list(dataset_id=rec["dataset_id"], status="succeeded"):  # newest first; P1: filtered in SQL
             cfg = r["config"]
             if r["id"] == run_id or r["dataset_id"] != rec["dataset_id"] or r["label"] != rec["label"] \
                     or r["status"] != "succeeded" or cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or cfg.get("import"):

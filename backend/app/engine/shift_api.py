@@ -444,19 +444,17 @@ def weights_version(run_id: str, key: str, request: Request) -> dict[str, Any]:
     df[sh.WEIGHT_COLUMN] = col
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     parent_lin = ds.lineage(src) or {}
-    root = parent_lin.get("root") or src
-    root_rows = parent_lin.get("root_rows") or list(range(len(df)))
     w = (st.get("result") or {}).get("weights") or {}
-    lineage = {"parent": src, "root": root, "version": int(parent_lin.get("version") or 1) + 1,
-               "shift_weights": {"run_id": run_id, "key": key, "column": sh.WEIGHT_COLUMN, "reference": st["sets"]["reference"]["name"],
-                                 "new": st["sets"]["new"]["name"], "ess": w.get("ess"), "clip_quantile": w.get("clip_quantile")},
-               "labelled": 0, "relabelled": 0, "dropped": 0, "synthetic": 0, "relabelled_holdout": 0,
-               "root_rows": root_rows if len(root_rows) == len(df) else list(range(len(df))),
-               "changes": [{"op": "add_column", "column": sh.WEIGHT_COLUMN, "rows_weighted": int(len(wdf))}]}
+    extra = {"version": int(parent_lin.get("version") or 1) + 1,
+             "shift_weights": {"run_id": run_id, "key": key, "column": sh.WEIGHT_COLUMN, "reference": st["sets"]["reference"]["name"],
+                               "new": st["sets"]["new"]["name"], "ess": w.get("ess"), "clip_quantile": w.get("clip_quantile")},
+             "labelled": 0, "relabelled": 0, "dropped": 0, "synthetic": 0, "relabelled_holdout": 0}
     name = (ds.db.get_dataset(src) or {}).get("name", src).replace(" (sample)", "")
-    new_rec = ds.create_version(src, df, {**sp, "derived_from": src}, name=f"{name} · shift weights",
-                                note=f"Importance weights from shift check {key} of {run_id}: {sh.WEIGHT_COLUMN} = p_N(x)/p_R(x) on "
-                                     f"{len(wdf):,} reference rows (ESS {w.get('ess', 0):,.0f}), 1 elsewhere", lineage=lineage)
+    new_rec = ds.derive(src, df, None, "shift_weights",  # P1: every row kept, one column added
+                        [{"op": "add_column", "column": sh.WEIGHT_COLUMN, "rows_weighted": int(len(wdf))}], splits=sp, extra=extra,
+                        name=f"{name} · shift weights",
+                        note=f"Importance weights from shift check {key} of {run_id}: {sh.WEIGHT_COLUMN} = p_N(x)/p_R(x) on "
+                             f"{len(wdf):,} reference rows (ESS {w.get('ess', 0):,.0f}), 1 elsewhere")
     split = cfg.get("split") or {}
     if split.get("strategy") and split.get("strategy") != "random-stratified":
         p = ds.split_path(new_rec["id"], cfg["label"], split["strategy"], split.get("params"))

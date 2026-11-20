@@ -1,0 +1,42 @@
+/* P1: the project tree (Models → Lineage, Registry), tags and notes, the champion badge, the project switcher. */
+.project-tree { font-size: 13px; }
+.pt-head { margin-bottom: var(--space-8); }
+.pt-legend { display: flex; flex-wrap: wrap; gap: var(--space-12); font-size: 11.5px; margin-bottom: var(--space-8); }
+.pt-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.pt, .pt ul { list-style: none; margin: 0; padding: 0; }
+.pt ul { margin-left: 10px; padding-left: 14px; border-left: 1px solid var(--border-default); }
+.pt li { padding: 2px 0; }
+.pt-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-height: 24px; }
+.pt-focus > .pt-row { background: var(--status-info-bg); border-radius: var(--radius-control); padding: 0 6px; margin-left: -6px; }
+.pt-ico { color: var(--text-secondary); width: 14px; text-align: center; }
+.pt-toggle { border: 0; background: none; cursor: pointer; color: var(--text-secondary); padding: 0 2px; width: 14px; }
+.pt-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--text-secondary); flex: none; }
+.pt-dot.src-you { background: var(--viz-a); }
+.pt-dot.src-experiment { background: var(--viz-c); }
+.pt-dot.src-agent { background: var(--viz-e); }
+.pt-dot.src-gym, .pt-dot.src-velapatch { background: var(--viz-b); }
+.pt-dot.src-splittwin, .pt-dot.src-metrictwin { background: var(--viz-d); }
+.pt-chip { font-size: 11px; padding: 0 6px; border-radius: var(--radius-badge); background: var(--bg-subtle, #F1F5F9); color: var(--text-secondary); white-space: nowrap; }
+.pt-chip.op { background: var(--status-info-bg); color: var(--status-info); }
+.pt-chip.state-evicted { background: var(--status-warning-bg); color: var(--status-warning); }
+.pt-chip.state-slimmed { background: var(--status-info-bg); color: var(--status-info); }
+.pt-chip.appr-approved { background: var(--status-success-bg); color: var(--status-success); }
+.pt-chip.appr-rejected { background: var(--status-danger-bg); color: var(--status-danger); }
+.pt-chip.appr-pending { background: var(--status-warning-bg); color: var(--status-warning); }
+.pt-v { font-size: 11px; padding: 0 6px; border-radius: var(--radius-badge); border: 1px solid currentColor; }
+.pt-legend .pt-v { display: inline-block; width: 10px; height: 10px; padding: 0; }
+.pt-v.v-kept { color: var(--status-success); }
+.pt-v.v-rejected { color: var(--status-danger); }
+.pt-v.v-neutral { color: var(--text-secondary); }
+.pt-score { margin-left: auto; font-size: 12px; }
+.pt-tag { font-size: 11px; color: var(--accent-secondary); }
+.pt-tag.keep { font-weight: 700; }
+.linkish { border: 0; background: none; padding: 0; color: var(--text-primary); font: inherit; font-weight: 600; cursor: pointer; }
+.linkish:hover { color: var(--accent-primary); text-decoration: underline; }
+.champ-badge { font-size: 11.5px; font-weight: 700; color: #92400E; background: #FEF3C7; border-radius: var(--radius-full); padding: 1px 8px; white-space: nowrap; }
+.notes-card .tag-list { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.notes-card .tag { font-size: 12px; background: var(--status-info-bg); color: var(--status-info); border-radius: var(--radius-full); padding: 1px 8px; }
+.notes-card .tag button { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 0 0 4px; }
+.notes-card .note { font-size: 12.5px; border-left: 2px solid var(--border-default); padding-left: 8px; margin: 4px 0; }
+.project-switch select { min-width: 220px; }
+.paired-card .ci { font-family: var(--font-mono); }

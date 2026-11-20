@@ -18,6 +18,27 @@ def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _primary(con, run_id: str, result: dict[str, Any]) -> None:
+    """P1: keep the indexed primary_metric / primary_score in step with the result JSON."""
+    from ..catalog.schema import primary
+
+    m, v, g = primary(result)
+    if m is not None:
+        con.execute("UPDATE runs SET primary_metric = ?, primary_score = ?, greater_is_better = ? WHERE id = ?", (m, v, g, run_id))
+
+
+def _extra_edges(con, run_id: str, items: list[Any]) -> None:
+    from ..catalog.schema import add_edge
+
+    for e in items or []:
+        if isinstance(e, dict) and e.get("run_id"):
+            add_edge(con, ("run", run_id), ("run", e["run_id"]), "branched_from",
+                     meta={k: v for k, v in {"source": "doctor-experiment", "experiment": e.get("kind"), "patch": e.get("title"),
+                                             "review_id": e.get("review_id")}.items() if v})
+            con.execute("UPDATE runs SET parent_run_id = COALESCE(parent_run_id, ?), source = CASE WHEN source IS NULL OR source = 'user'"
+                        " THEN 'doctor-experiment' ELSE source END WHERE id = ?", (run_id, e["run_id"]))
+
+
 class RunStore:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -31,16 +52,58 @@ class RunStore:
                 " VALUES (:id, :name, :dataset_id, :label, 'queued', :created_at, :config)",
                 {**rec, "config": json.dumps(jsonable(rec["config"]))},
             )
+        from ..catalog.store import Catalog  # P1: indexed columns, trained_on / branched_from edges
+
+        Catalog(self.db).record_run(rec["id"], rec["dataset_id"], rec["config"], actor=(rec["config"].get("patch") or {}).get("by"))
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self.db.connect() as con:
             r = con.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
         return self._row(r) if r else None
 
-    def list(self) -> list[dict[str, Any]]:
+    #: P1: indexed columns only, no config / result JSON
+    LIGHT = ("id", "name", "dataset_id", "label", "status", "created_at", "started_at", "finished_at", "error", "project_id",
+             "parent_run_id", "source", "kind", "primary_metric", "primary_score", "greater_is_better", "predictor_state",
+             "predictor_bytes")
+
+    @staticmethod
+    def _where(**filters: Any) -> tuple[str, list[Any]]:
+        conds, args = [], []
+        for k, v in filters.items():
+            if v is None:
+                continue
+            if isinstance(v, (list, tuple, set)):
+                conds.append(f"{k} IN ({','.join('?' * len(v))})")
+                args.extend(v)
+            else:
+                conds.append(f"{k} = ?")
+                args.append(v)
+        return (" WHERE " + " AND ".join(conds)) if conds else "", args
+
+    def list(self, limit: int | None = None, **filters: Any) -> list[dict[str, Any]]:
+        """Full rows (config and result parsed), newest first. P1: filters on the indexed columns (dataset_id, status,
+        project_id, parent_run_id, source, kind; a list means IN) run in SQL, so callers parse only the rows they need."""
+        w, args = self._where(**filters)
         with self.db.connect() as con:
-            rows = con.execute("SELECT * FROM runs ORDER BY created_at DESC, rowid DESC").fetchall()
+            rows = con.execute(f"SELECT * FROM runs{w} ORDER BY created_at DESC, rowid DESC"
+                               + (f" LIMIT {int(limit)}" if limit is not None else ""), args).fetchall()
         return [self._row(r) for r in rows]
+
+    def list_light(self, limit: int | None = None, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
+        """P1: the indexed columns only (no JSON parsed), newest first: the list path for thousands of runs."""
+        w, args = self._where(**filters)
+        q = f"SELECT {', '.join(self.LIGHT)} FROM runs{w} ORDER BY created_at DESC, rowid DESC"
+        if limit is not None:
+            q += " LIMIT ? OFFSET ?"
+            args += [int(limit), int(offset)]
+        with self.db.connect() as con:
+            return [dict(r) for r in con.execute(q, args).fetchall()]
+
+    def children(self, run_id: str, source: str | None = None) -> list[dict[str, Any]]:
+        """P1: runs branched from `run_id`, from the lineage edges (no scan of every run)."""
+        from ..catalog.store import Catalog
+
+        return Catalog(self.db).children(run_id, source)
 
     def count(self) -> int:
         with self.db.connect() as con:
@@ -57,6 +120,8 @@ class RunStore:
         cols = ", ".join(f"{k} = :{k}" for k in fields)
         with self.db.connect() as con:
             con.execute(f"UPDATE runs SET {cols} WHERE id = :_id", {**fields, "_id": run_id})
+            if fields.get("result") is not None:
+                _primary(con, run_id, json.loads(fields["result"]))
 
     def mark_running(self, run_id: str, pid: int) -> None:
         with self.db.connect() as con:
@@ -70,6 +135,10 @@ class RunStore:
             result = json.loads(r["result"]) if r and r["result"] else {}
             result.update(jsonable(parts))
             con.execute("UPDATE runs SET result = ? WHERE id = ?", (json.dumps(result), run_id))
+            if "holdout" in parts or "eval_metric" in parts:
+                _primary(con, run_id, result)
+            if parts.get("experiments_extra"):  # P1: segment / group-split experiment runs recorded on the parent
+                _extra_edges(con, run_id, parts["experiments_extra"])
         return result
 
     def finish(self, run_id: str, status: str, error: str | None = None, only_if_active: bool = True) -> bool:

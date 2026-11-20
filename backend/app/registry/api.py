@@ -411,7 +411,7 @@ def _ri_for_card(request: Request, run: dict[str, Any]) -> dict[str, Any] | None
         return None
     from ..reject.api import card_section
 
-    same = [r for r in request.app.state.runs.list() if r["dataset_id"] == run["dataset_id"]]
+    same = request.app.state.runs.list(dataset_id=run["dataset_id"])  # P1: filtered in SQL
     return card_section(sorted(same, key=lambda r: r.get("created_at") or "", reverse=True))
 
 

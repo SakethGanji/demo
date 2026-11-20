@@ -122,6 +122,9 @@ class DatasetStore:
         self.db = db
         self._split_lock = threading.Lock()
         settings.datasets_dir.mkdir(parents=True, exist_ok=True)
+        from .catalog.store import Catalog
+
+        self.catalog = Catalog(db)  # P1: dataset versions and lineage edges
 
     def dir(self, dataset_id: str) -> Path:
         return self.settings.datasets_dir / dataset_id
@@ -273,6 +276,7 @@ class DatasetStore:
             "kind": kind or profile["kind"], "profile": profile,
         }
         self.db.insert_dataset(rec)
+        self.catalog.record_root_dataset(rec, self.csv_path(dataset_id), op=source)
         return rec
 
     def sidecar(self, dataset_id: str, name: str) -> dict[str, Any] | None:
@@ -310,7 +314,7 @@ class DatasetStore:
         return made
 
     def create_version(self, parent_id: str, df: pd.DataFrame, splits: dict[str, Any], *, name: str, note: str,
-                       lineage: dict[str, Any]) -> dict[str, Any]:
+                       lineage: dict[str, Any], op: str | None = None) -> dict[str, Any]:
         """A new dataset derived from `parent_id` (Autopilot: relabelled / dropped / synthetic rows). The splits are
         given, not drawn: the holdout is the parent's holdout rows that were kept, so scores stay comparable.
         `lineage` (parent, root, root row of every row, the changes) goes to lineage.json and a summary to the profile."""
@@ -338,7 +342,52 @@ class DatasetStore:
             "kind": profile["kind"], "profile": profile,
         }
         self.db.insert_dataset(rec)
+        rr = lineage.get("root_rows")
+        self.catalog.record_version(parent_id, rec, self.csv_path(dataset_id), op=str(op or lineage.get("kind") or "derived"),
+                                    actor=str(lineage.get("by") or lineage.get("created_by") or "system"),
+                                    meta={k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic")
+                                          if lineage.get(k) is not None} | {"n_changes": len(lineage.get("changes") or [])},
+                                    paired=bool(rr) and len(rr) == len(df))
         return rec
+
+    def derive(self, parent_id: str, df: pd.DataFrame, keep_idx: Any, op: str, changes: list[Any], *, name: str, note: str,
+               splits: dict[str, Any] | None = None, extra: dict[str, Any] | None = None, by: str | None = None,
+               new_rows: int = 0) -> dict[str, Any]:
+        """P1 step 2: the one way to make a dataset version. `df` is the new frame: the parent's rows `keep_idx` (positions
+        in the parent, in order; a bool mask or ints; None = every row) followed by `new_rows` rows with no root row
+        (synthetic: root -1-i). Writes data.csv, lineage.json {parent, root, root_rows, changes, op, …extra}, the version's
+        columns and a derived_from edge. `splits` defaults to the parent's split mapped through keep_idx (the holdout is the
+        parent's holdout rows that were kept, so scores stay paired)."""
+        import numpy as np
+
+        parent = self.db.get_dataset(parent_id)
+        if not parent:
+            raise DatasetError(f"No dataset with id '{parent_id}'.")
+        plin = self.lineage(parent_id) or {}
+        n_parent = int(parent["rows"])
+        proots = plin.get("root_rows")
+        proots = np.asarray(proots, dtype=int) if proots and len(proots) == n_parent else np.arange(n_parent)
+        if keep_idx is None:
+            keep = np.arange(n_parent)
+        else:
+            keep = np.asarray(keep_idx)
+            keep = np.flatnonzero(keep) if keep.dtype == bool else keep.astype(int)
+        if len(keep) + new_rows != len(df):
+            raise DatasetError(f"derive: {len(keep)} kept + {new_rows} new rows ≠ {len(df)} rows in the frame.")
+        root_rows = [int(x) for x in proots[keep]] + [-1 - i for i in range(new_rows)]
+        if splits is None:
+            _, sp, _ = self.ensure_splits(parent_id, parent["target"])
+            pos = {int(p): i for i, p in enumerate(keep)}
+            k = int(sp.get("n_folds") or config.N_FOLDS)
+            splits = {**sp, "holdout": sorted(pos[h] for h in sp["holdout"] if h in pos),
+                      "fold": [int(sp["fold"][p]) for p in keep] + [i % k for i in range(new_rows)]}
+        splits = {**splits, "derived_from": parent_id}
+        lineage = {**(extra or {}), "parent": parent_id, "root": plin.get("root") or parent_id, "kind": (extra or {}).get("kind") or op,
+                   "op": op, "rows_before": (extra or {}).get("rows_before", n_parent), "rows_after": int(len(df)),
+                   "root_rows": root_rows, "changes": changes}
+        if by:
+            lineage["by"] = by
+        return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op)
 
     def lineage(self, dataset_id: str) -> dict[str, Any] | None:
         p = self.dir(dataset_id) / "lineage.json"
@@ -412,4 +461,7 @@ class DatasetStore:
             (d / "lineage.json").write_text(json.dumps(lineage))
             rec["profile"]["lineage"] = lineage
             self.db.insert_dataset(rec)
+            if lineage.get("parent") and self.db.get_dataset(lineage["parent"]):  # a SQL refresh: a version of new rows
+                self.catalog.record_version(lineage["parent"], rec, self.csv_path(dataset_id), op=str(lineage.get("source") or "refresh"),
+                                            meta={"version": lineage.get("version")}, paired=False)
         return rec

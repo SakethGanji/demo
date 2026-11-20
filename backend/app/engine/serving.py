@@ -32,6 +32,15 @@ class PredictorCache:
             if path in self._cache:
                 self._cache.move_to_end(path)
                 return self._cache[path]
+        from pathlib import Path as _P
+
+        tomb = _P(path).parent / "EVICTED.json"
+        if not _P(path).exists() and tomb.exists():  # P1: retention deleted it; the API answers 410 "re-fit from config"
+            import json as _json
+
+            from ..catalog.retention import EvictedError
+
+            raise EvictedError(_P(path).parent.name, _json.loads(tomb.read_text()))
         from autogluon.tabular import TabularPredictor
 
         import ensemble_models  # noqa: F401 — custom models must be importable to unpickle them

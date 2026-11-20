@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { AuditEntry, DatasetDetail, DatasetSummary, ModelVersion, RegisteredModel, RegistryCounts, Run } from '@/shared/api/types'
+import type { AuditEntry, DatasetDetail, ModelVersion, RegistryCounts, Run } from '@/shared/api/types'
 import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
@@ -11,6 +11,7 @@ import { ChangesCard } from './components/ChangesCard'
 import { MonitoringPanel } from './components/MonitoringPanel'
 import { CreditReport } from './components/CreditReport'
 import { Lineage } from './components/Lineage'
+import { ChampionCard } from './components/ChampionCard'
 import { ModelCardView } from './components/ModelCardView'
 import { RegisterPanel } from './components/RegisterPanel'
 import { KindResults, RESULTS, TryItFor } from '@/shared/components/KindResults'
@@ -40,12 +41,10 @@ const APPLIES: Record<Tab, (v: ModelVersion) => boolean> = {
  *  and each version's card, Try It and batch scoring with drift. */
 export function LiveRegistry({ go }: { go: (r: string) => void }) {
   const [actor, setActor] = useActor()
-  const [models, setModels] = useState<RegisteredModel[]>([])
   const [versions, setVersions] = useState<ModelVersion[]>([])
   const [counts, setCounts] = useState<RegistryCounts | null>(null)
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [runs, setRuns] = useState<Run[]>([])
-  const [datasets, setDatasets] = useState<DatasetSummary[]>([])
   const [loaded, setLoaded] = useState(false)
   const [err, setErr] = useState('')
   const [sel, setSel] = useState<string | null>(versionParam)
@@ -62,9 +61,9 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
   }, [])
   useEffect(() => {
     let alive = true
-    Promise.all([api.registry.get(), api.registry.audit({ limit: 60 }), api.runs.list(), api.datasets.list()]).then(([reg, au, rs, dss]) => {
+    Promise.all([api.registry.get(), api.registry.audit({ limit: 60 }), api.runs.list()]).then(([reg, au, rs]) => {
       if (!alive) return
-      setModels(reg.models); setVersions(reg.versions); setCounts(reg.counts); setAudit(au); setRuns(rs); setDatasets(dss); setLoaded(true); setErr('')
+      setVersions(reg.versions); setCounts(reg.counts); setAudit(au); setRuns(rs); setLoaded(true); setErr('')
     }).catch((e) => alive && setErr((e as Error).message))
     return () => { alive = false }
   }, [tick])
@@ -144,15 +143,8 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
         </div>
       ) : <>
         <div className="card">
-          <div className="card-head"><div className="left"><h3 className="card-title">Lineage</h3><span className="helper" style={{ fontSize: 12 }}>dataset → run → version → registered model</span></div>
-            <div className="row">
-              <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="#0D9488" strokeWidth="2" /></svg>Production</span>
-              <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--accent-primary)" strokeWidth="2" /></svg>Approved</span>
-              <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--status-warning)" strokeWidth="2" strokeDasharray="4 3" /></svg>Pending / Staging</span>
-              <span className="legend"><svg width="20" height="6"><line x1="0" x2="20" y1="3" y2="3" stroke="var(--status-danger)" strokeWidth="2" strokeDasharray="2 4" /></svg>Rejected</span>
-            </div>
-          </div>
-          <Lineage versions={versions} models={models} runs={runs} datasets={datasets} selected={sel} />
+          <div className="card-head"><div className="left"><h3 className="card-title">Lineage</h3><span className="helper" style={{ fontSize: 12 }}>the selected version's project: dataset → versions → runs → branches → registered versions</span></div></div>
+          <div className="card-body"><Lineage versions={versions} selected={sel} go={go} /></div>
         </div>
 
         <div className="card table-wrap">
@@ -196,6 +188,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
             ? <BuildSteps v={detail} />
             : <>
               <div className="grid vd-top"><ReviewCard v={detail} actor={actor} onChanged={() => bump()} /><Provenance v={detail} /></div>
+              <ChampionCard key={`champ-${detail.id}`} v={detail} actor={actor} onChanged={bump} />
               {flowOf(detail) === 'tabular' ? <Tradeoff v={detail} /> : <FlowMeasured v={detail} />}
               {flowOf(detail) === 'tabular' && detail.result?.serving && <ServingCard key={detail.id} v={detail} sampleRow={
                 ds && detail.result.version.features.length ? Object.fromEntries(detail.result.version.features.map((f) => [f, ds.profile.columns.find((c) => c.name === f)?.example ?? null])) : null} />}
