@@ -456,6 +456,8 @@ export type Run = {
   /** model → class → [word, coefficient][] (TF-IDF models). Null in the list. */
   text_models: Record<string, Record<string, [string, number][]>> | null
   feature_importance: FeatureImportance[] | null
+  /** F-P2: present | slimmed (best model only) | evicted (predictor deleted by retention) | none (no predictor yet) */
+  predictor_state?: 'present' | 'slimmed' | 'evicted' | 'none' | null
   leaderboard: LeaderboardRow[] | null
   /** The exact TabularPredictor(...) and .fit(...) arguments. Null in the list. */
   resolved: { predictor_kwargs: Record<string, unknown>; fit_kwargs: Record<string, unknown>; notes: string[]; path: string } | null

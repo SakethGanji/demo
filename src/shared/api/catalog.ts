@@ -2,8 +2,8 @@
 import { request } from './client'
 
 export type NodeKind = 'dataset' | 'run' | 'version' | 'project'
-export type Project = { id: string; name: string; root_dataset_id: string; description: string; created_at: string; n_datasets: number; n_runs: number; last_run_at: string | null; champion: { version_id: string; run_id: string; decided_by: string; decided_at: string } | null }
-export type ChampionRequest = { id: string; project_id: string; version_id: string; run_id: string; status: 'pending' | 'approved' | 'rejected' | 'superseded'; requested_by: string; requested_at: string; decided_by: string | null; decided_at: string | null; comment: string }
+export type Project = { id: string; name: string; root_dataset_id: string | null; created_by?: string; description: string; created_at: string; n_datasets: number; n_runs: number; last_run_at: string | null; champion: { version_id: string; run_id: string; decided_by: string; decided_at: string } | null }
+export type ChampionRequest = { id: string; project_id: string; version_id: string; run_id: string; status: 'pending' | 'approved' | 'rejected' | 'superseded' | 'withdrawn'; requested_by: string; requested_at: string; decided_by: string | null; decided_at: string | null; comment: string }
 export type LNode = {
   kind: 'dataset' | 'run' | 'version'; id: string; depth: number; tags: string[]; notes: number
   name?: string; rows?: number; op?: string | null; parent_id?: string | null; sha256?: string | null
@@ -18,7 +18,8 @@ export type CompareSide = { kind: 'run' | 'version'; id: string; label: string; 
 export type Compare = {
   a: CompareSide; b: CompareSide; paired: boolean; label: string
   reason?: string; table?: { side: string; id: string; label: string; dataset_id: string; metric: string | null; holdout_score: number | null; holdout_rows: number | null }[]; difference?: number | null; difference_note?: string
-  metric?: string; score_a?: number; score_b?: number; delta?: number; ci?: [number, number]; level?: number; B?: number; rows?: number; same_rows?: boolean; verdict?: string; method?: string; sign?: string; warning?: string
+  metric?: string; metric_key?: string; metric_note?: string; auc?: { a: number; b: number; delta: number; note: string }; partial?: boolean; overlap?: string | null; rows_a?: number; rows_b?: number; B_note?: string
+  score_a?: number; score_b?: number; delta?: number; ci?: [number | null, number | null]; level?: number; B?: number; rows?: number; same_rows?: boolean; verdict?: string; method?: string; sign?: string; warning?: string
 }
 export type Notes = { tags: string[]; notes: { id: number; value: string; actor: string; created_at: string }[] }
 
@@ -34,11 +35,30 @@ export const catalog = {
   annotations: (kind: NodeKind, id: string) => request<Notes>(`/annotations/${kind}/${e(id)}`),
   tag: (kind: NodeKind, id: string, tag: string, by: string) => json<Notes>(`/annotations/${kind}/${e(id)}`, 'POST', { tag, by }),
   note: (kind: NodeKind, id: string, note: string, by: string) => json<Notes>(`/annotations/${kind}/${e(id)}`, 'POST', { note, by }),
-  untag: (kind: NodeKind, id: string, tag: string, by: string) => request<Notes>(`/annotations/${kind}/${e(id)}/tags/${e(tag)}?by=${e(by)}`, { method: 'DELETE' }),
-  requestChampion: (project: string, version_id: string, by: string, comment = '') => json<ChampionRequest>(`/projects/${e(project)}/champion`, 'POST', { version_id, by, comment }),
-  decideChampion: (id: string, approve: boolean, by: string, comment = '') => json<ChampionRequest>(`/champions/${e(id)}/decide`, 'POST', { approve, by, comment }),
+  // a tag may contain '/': the API route takes the rest of the path, so the slashes stay unencoded
+  untag: (kind: NodeKind, id: string, tag: string, by: string) => request<Notes>(`/annotations/${kind}/${e(id)}/tags/${tag.split('/').map(e).join('/')}?by=${e(by)}`, { method: 'DELETE' }),
+  editNote: (kind: NodeKind, id: string, noteId: number, note: string, by: string) => json<Notes>(`/annotations/${kind}/${e(id)}/notes/${noteId}`, 'PATCH', { note, by }),
+  deleteNote: (kind: NodeKind, id: string, noteId: number, by: string) => request<Notes>(`/annotations/${kind}/${e(id)}/notes/${noteId}?by=${e(by)}`, { method: 'DELETE' }),
+  createProject: (name: string, by: string, description = '') => json<Project>('/projects', 'POST', { name, by, description }),
+  moveDataset: (project: string, dataset_id: string, by: string) => json<{ datasets: number; runs: number }>(`/projects/${e(project)}/datasets`, 'POST', { dataset_id, by }),
+  requestChampion: (project: string, version_id: string, by: string, comment = '', override_reason = '') => json<ChampionRequest>(`/projects/${e(project)}/champion`, 'POST', { version_id, by, comment, ...(override_reason ? { override_reason } : {}) }),
+  decideChampion: (id: string, approve: boolean, by: string, comment = '', override_reason = '') => json<ChampionRequest>(`/champions/${e(id)}/decide`, 'POST', { approve, by, comment, ...(override_reason ? { override_reason } : {}) }),
 }
 
-/** Runs of one project (filtered in SQL on the indexed project_id), every kind, the same shape as api.runs.list. */
-export const projectRuns = (projectId: string | null) =>
-  request<{ runs: import('./types').Run[] }>(`/runs?kind=all${projectId ? `&project_id=${e(projectId)}` : ''}`).then((r) => r.runs)
+type RunT = import('./types').Run
+/** F-P2: one page of runs (the list shape, newest first), scoped to a project in SQL; `total` = runs matching. */
+export const runsPage = (projectId: string | null, offset = 0, limit = 100) =>
+  request<{ runs: RunT[]; total: number }>(`/runs?kind=all&limit=${limit}&offset=${offset}${projectId ? `&project_id=${e(projectId)}` : ''}`, { timeoutMs: 60_000 })
+/** F-P2: chosen runs by id (the list shape): a selection from a link, or the rows whose status is changing. */
+export const runsByIds = (ids: string[]) =>
+  ids.length ? request<{ runs: RunT[] }>(`/runs?kind=all&ids=${ids.map(e).join(',')}`).then((r) => r.runs) : Promise.resolve([] as RunT[])
+/** F-P2: the queued and running runs only, indexed columns (cheap enough to poll every few seconds). */
+export const activeRuns = (projectId: string | null) =>
+  request<{ runs: { id: string; status: string }[] }>(`/runs?kind=all&light=true&status=queued,running${projectId ? `&project_id=${e(projectId)}` : ''}`).then((r) => r.runs)
+
+/** F-P2: the runs Register… offers: the newest 100 finished tabular runs (never the whole unscoped list), plus `include`. */
+export const registrableRuns = async (include: string | null) => {
+  const r = await request<{ runs: RunT[] }>('/runs?status=succeeded&limit=100', { timeoutMs: 60_000 })
+  if (include && !r.runs.some((x) => x.id === include)) r.runs.unshift(...(await runsByIds([include])))
+  return r.runs
+}

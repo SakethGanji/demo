@@ -11,7 +11,7 @@ import { FAMILY_SHORT, fmtScore } from '../wizard'
  * says plainly whether it beats the best single model, on validation and on the holdout.
  */
 export function CustomEnsemble({ run, live, onDone }: { run: Run; live: boolean; onDone: (r: Result) => void }) {
-  const base = (run.leaderboard ?? []).filter((r) => !(r.family === 'ENS_WEIGHTED' || r.model.startsWith('WeightedEnsemble')) && !r.model.endsWith('_FULL'))
+  const base = (run.leaderboard ?? []).filter((r) => !(r as { deleted?: boolean }).deleted && !(r.family === 'ENS_WEIGHTED' || r.model.startsWith('WeightedEnsemble')) && !r.model.endsWith('_FULL'))
   const [chosen, setChosen] = useState<string[]>(() => base.slice(0, 3).map((r) => r.model))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')

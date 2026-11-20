@@ -21,8 +21,12 @@ export const STAGE_STATUS: Record<Stage, Status> = { None: 'neutral', Staging: '
 export const APPROVAL_STATUS: Record<Approval, Status> = { pending: 'warning', approved: 'success', rejected: 'danger' }
 export const STAGES: Stage[] = ['None', 'Staging', 'Production', 'Archived']
 
-/** A name as four-eyes compares it (as the API's identity_key): case, spaces and punctuation ignored. */
-export const nameKey = (s: string | null | undefined) => (s ?? '').normalize('NFKC').toLowerCase().replace(/[\p{P}\p{S}\p{Z}\p{C}]+/gu, ' ').trim().replace(/\s+/g, ' ')
+/** A name as four-eyes compares it (as the API's identity_key): letters and digits only; accents, full-width forms and
+ *  Cyrillic / Greek lookalikes folded ("a.l.i.c.e", "Alicé", "Аlice" are alice). Names, not authenticated identities. */
+const CONFUSABLE: Record<string, string> = { а: 'a', в: 'b', ь: 'b', с: 'c', ԁ: 'd', е: 'e', ё: 'e', һ: 'h', н: 'h', і: 'i', ї: 'i', ј: 'j', к: 'k', ӏ: 'l', м: 'm', о: 'o', р: 'p', ԛ: 'q', ѕ: 's', т: 't', у: 'y', ү: 'y', х: 'x', ԝ: 'w', п: 'n', ѵ: 'v', г: 'r', α: 'a', β: 'b', ε: 'e', ζ: 'z', η: 'n', ι: 'i', κ: 'k', μ: 'm', ν: 'v', ο: 'o', ρ: 'p', τ: 't', υ: 'u', χ: 'x', γ: 'y', ω: 'w', ϲ: 'c', ı: 'i', ł: 'l', ø: 'o', đ: 'd', ħ: 'h', ß: 'ss', æ: 'ae', œ: 'oe', '0': 'o', '1': 'l' }
+const UPPER: Record<string, string> = { Η: 'h', Μ: 'm', Ν: 'n', Υ: 'y', Ζ: 'z' }
+export const nameKey = (s: string | null | undefined) => [...(s ?? '').normalize('NFKD')].map((c) => UPPER[c] ?? c).join('').toLowerCase()
+  .split('').map((c) => CONFUSABLE[c] ?? c).join('').replace(/[^\p{L}\p{N}]|\p{Lm}/gu, '')
 
 export const versionLabel = (v: Pick<ModelVersion, 'model_name' | 'version'>) => `${v.model_name} v${v.version}`
 

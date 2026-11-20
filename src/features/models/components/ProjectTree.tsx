@@ -7,7 +7,7 @@ import './project-tree.css'
 
 /** Where a run came from: the colour of its dot. */
 const SOURCE: Record<string, string> = { user: 'you', wizard: 'you', client: 'client', gym: 'Gym', vela: 'Vela patch', 'vela-agent': 'agent', 'doctor-experiment': 'experiment', 'split-twin': 'split twin', 'metric-twin': 'metric twin', 'anomaly-supervised': 'from anomalies', import: 'import' }
-const srcClass = (s?: string | null) => `src-${(s ?? 'user').replace(/[^a-z]/g, '')}`
+const srcClass = (s?: string | null) => `src-${(s ?? 'user').toLowerCase().replace(/[^a-z]/g, '')}`
 const KEPT = new Set(['kept', 'kept-honest'])
 const verdictClass = (v?: string) => (!v ? '' : KEPT.has(v) ? 'v-kept' : v === 'rejected' ? 'v-rejected' : 'v-neutral')
 
@@ -33,6 +33,8 @@ function Tree({ t, go, compact }: { t: LineageTree; go: (r: string) => void; com
     return { node, out, branchedRuns, reviews: new Map(t.reviews.map((r) => [r.id, r])) }
   }, [t])
   const root = ix.node.get(`${t.root.kind}:${t.root.id}`)
+  // a user project can hold several uploads: every dataset with no parent in the tree is a root
+  const roots = t.nodes.filter((n) => n.kind === 'dataset' && !t.edges.some((e) => e.relation === 'derived_from' && e.dst.id === n.id))
   const focus = `${t.focus.kind}:${t.focus.id}`
   const legend = (
     <div className="pt-legend helper">
@@ -40,15 +42,15 @@ function Tree({ t, go, compact }: { t: LineageTree; go: (r: string) => void; com
       <span><i className="pt-v v-kept" />kept</span><span><i className="pt-v v-rejected" />rejected</span><span className="mono">◇ inferred edge</span>
     </div>
   )
-  if (!root) return <p className="helper">No lineage recorded yet.</p>
+  if (!root) return <p className="helper">{t.root.kind === 'project' ? 'This project has no datasets yet: upload into it (Data → Upload, project) or move a dataset into it.' : 'No lineage recorded yet.'}</p>
   const ctx: Ctx = { ix, go, focus }
   return (
     <div className="project-tree" data-testid="project-tree" data-root={t.root.id}>
       {!compact && <div className="pt-head"><span className="micro-label">project</span> <b>{t.project?.name ?? t.root.id}</b>
         <span className="helper mono"> · {t.counts.datasets} datasets · {t.counts.runs} runs · {t.counts.versions} versions</span>
-        {t.champion && <span className="champ-badge" title={`approved by ${t.champion.decided_by}`}>★ champion {t.champion.version_id}</span>}</div>}
+        {t.champion && <span className="champ-badge" title={`${t.champion.version_id} · approved by ${t.champion.decided_by}`}>★ champion {champName(t)}</span>}</div>}
       {legend}
-      <ul className="pt"><DatasetNode n={root} ctx={ctx} /></ul>
+      <ul className="pt">{roots.map((r) => <DatasetNode key={r.id} n={r} ctx={ctx} />)}</ul>
     </div>
   )
 }
@@ -90,7 +92,7 @@ function RunNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
         {edge?.meta.patch && <span className="pt-chip">{String(edge.meta.patch)}</span>}
         {v && <span className={`pt-v ${verdictClass(v)}`} data-testid={`pt-verdict-${n.id}`}>{v}</span>}
         <span className="mono pt-score">{n.status !== 'succeeded' ? n.status : n.primary_metric ? `${n.primary_metric} ${fmtScore(n.primary_score, 4)}` : ''}</span>
-        {n.predictor_state && n.predictor_state !== 'present' && <span className={`pt-chip state-${n.predictor_state}`} title={n.predictor_state === 'evicted' ? 'predictor deleted by retention: scores and holdout predictions kept; re-fit from config to predict' : 'only the best model kept'}>{n.predictor_state}</span>}
+        {n.predictor_state && n.predictor_state !== 'present' && n.predictor_state !== 'none' && <span className={`pt-chip state-${n.predictor_state}`} title={n.predictor_state === 'evicted' ? 'predictor deleted by retention: scores and holdout predictions kept; re-fit from config to predict' : 'only the best model kept'}>{n.predictor_state}</span>}
         <Tags n={n} />
       </div>
       {(branches.length > 0 || builds.length > 0) && <ul>
@@ -129,4 +131,10 @@ function VersionNode({ n, ctx }: { n: LNode; ctx: Ctx }) {
   )
 }
 
-const Tags = ({ n }: { n: LNode }) => <>{n.tags.map((t) => <span key={t} className={`pt-tag${t === 'keep' ? ' keep' : ''}`}>#{t}</span>)}{n.notes > 0 && <span className="muted" title={`${n.notes} note(s)`}> ✎{n.notes}</span>}</>
+/** The champion by name and version (the tree holds its version node), not by id. */
+const champName = (t: LineageTree) => {
+  const v = t.nodes.find((n) => n.kind === 'version' && n.id === t.champion?.version_id)
+  return v ? `${v.model_name} v${v.version}` : t.champion?.version_id ?? ''
+}
+
+const Tags = ({ n }: { n: LNode }) => <>{n.tags.map((t) => <span key={t} className={`pt-tag${t.toLowerCase() === 'keep' ? ' keep' : ''}`}>#{t}</span>)}{n.notes > 0 && <span className="muted" title={`${n.notes} note(s)`}> ✎{n.notes}</span>}</>
