@@ -323,8 +323,8 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
     mon_rx = None
     mons = ctx.get("monitoring") or []
     for mv in mons:
-        cov = [a for a in mv.get("active") or [] if a["kind"] in ("covariate", "score")]
-        perf = [a for a in mv.get("active") or [] if a["kind"] == "performance"]
+        cov = [a for a in mv.get("active") or [] if a["kind"] in ("covariate", "score") and not a.get("explained_by")]
+        perf = [a for a in mv.get("active") or [] if a["kind"] == "performance" and not a.get("explained_by")]
         if not (cov or perf):
             continue
         ev.setdefault("monitoring", []).append({"version_id": mv["version_id"], "label": mv["label"], "stage": mv["stage"],
@@ -757,6 +757,28 @@ CONC_TOP1, CONC_TOP2, CONC_SECOND = 0.45, 0.75, 0.25
 BIG_DROP, DROP_RATIO = 0.02, 2.0
 
 
+TIMING_TOP_K, TIMING_MIN_SHARE = 3, 0.05
+
+
+def dominant_unanswered(top: list[dict[str, Any]], known: set[str] | list[str] = ()) -> list[str]:
+    """The A2 C1 concentration rule: one feature ≥ CONC_TOP1 of the importance, or two ≥ CONC_TOP2 together (the second
+    ≥ CONC_SECOND), with no decision-time answer."""
+    conc: list[str] = []
+    if top and top[0]["share"] >= CONC_TOP1:
+        conc.append(top[0]["feature"])
+    if len(top) > 1 and top[0]["share"] + top[1]["share"] >= CONC_TOP2 and top[1]["share"] >= CONC_SECOND:
+        conc += [t["feature"] for t in top[:2] if t["feature"] not in conc]
+    return [f for f in conc if f not in set(known)]
+
+
+def timing_questions(top: list[dict[str, Any]], known: set[str] | list[str] = ()) -> list[str]:
+    """A3 N1: the open timing questions of a run: its top TIMING_TOP_K features by permutation importance (each
+    ≥ TIMING_MIN_SHARE) that nobody has answered "known at decision time", whatever their share. Shared with the
+    label check's reference model (missing.py), which leaves them out."""
+    kn = set(known)
+    return [t["feature"] for t in (top or [])[:TIMING_TOP_K] if (t.get("share") or 0) >= TIMING_MIN_SHARE and t["feature"] not in kn]
+
+
 def _ablations(ctx: dict[str, Any], cols: list[str]) -> list[dict[str, Any]]:
     """Every finished one-column ablation of the run (any column), largest drop first."""
     out = []
@@ -804,7 +826,7 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
         if any(x["feature"] == f for x in sus) or f not in shares or shares[f] < 0.10:
             continue
         sus.append({"feature": f, "reason": "open suspect", "share": shares[f], "single_auc": s_.get("auc"),
-                    "hint": "; ".join(s_.get("reasons") or []), "basis": s_.get("basis")})
+                    "hint": "; ".join(s_.get("reasons") or []), "basis": s_.get("basis"), "confidence": s_.get("confidence")})
     v = _vela(vf, "leakage")
     ids_ = {s["feature"] for s in (v["numbers"]["suspects"] if v else []) if s["reason"] == "identifier"}
     for s in (v["numbers"]["suspects"] if v else []):
@@ -816,16 +838,15 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
     # model nothing else would ask, so the Doctor asks: an open question (a strong real signal looks the same), tested by
     # a one-column run without each.
     top = lk.get("top") or []
-    conc: list[str] = []
-    if top and top[0]["share"] >= CONC_TOP1:
-        conc.append(top[0]["feature"])
-    if len(top) > 1 and top[0]["share"] + top[1]["share"] >= CONC_TOP2 and top[1]["share"] >= CONC_SECOND:
-        conc += [t["feature"] for t in top[:2] if t["feature"] not in conc]
-    for f in conc:
-        if f in known or f in ids_ or any(x["feature"] == f for x in sus):
+    dom = dominant_unanswered(top, known)
+    # A3 N1: a moderate leak need not dominate (visit_index at 34 %, telco_planted's at 40 % and 25 %), so offline the
+    # model's top features with no decision-time answer are each an open timing question, whatever their share (minor
+    # alone: a strong real signal looks the same); the review ablates them one column at a time.
+    for f in timing_questions(top, known):
+        if f in ids_ or any(x["feature"] == f for x in sus):
             continue
         sus.append({"feature": f, "reason": "concentrated", "share": shares.get(f), "single_auc": sauc.get(f),
-                    "hint": "no decision-time answer", "basis": "strength only"})
+                    "hint": "no decision-time answer", "basis": "strength only", "dominant": f in dom})
     # the model errs less than the table's own look-alike estimate allows: a leak or train/holdout overlap
     tw = g.get("twins") or {}
     contra = None
@@ -875,14 +896,16 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
             s["ablation"] = {**a, "class": drop_class(a, abl)}
     stands = [s["feature"] for s in sus if (s.get("ablation") or {}).get("class") == "stands out"]
     named_open = [s["feature"] for s in sus if s["reason"] == "open suspect" and s.get("basis") != "strength only"]
-    if leaks or (contra and (opens or concs)):
+    doms = [s["feature"] for s in sus if s["reason"] == "concentrated" and s.get("dominant")]
+    if leaks or (contra and (opens or doms)):
         sev = "critical"
     elif ids or contra or ov_major or named_open or stands:
         sev = "major"
     else:  # open questions resting on strength alone (a strong real signal looks the same), or a small overlap
         sev = "minor"
     parts: list[str] = []
-    for s0 in sus[:4]:
+    cq = [s0 for s0 in sus if s0["reason"] == "concentrated"]
+    for s0 in [x for x in sus if x["reason"] != "concentrated"][:4] + cq[:1]:
         if s0["reason"] == "dominant + hint":
             parts.append(f"'{s0['feature']}' carries {_pct(s0['share'])} of the permutation importance"
                          + (f", {s0['ratio']:.1f}× the next feature" if s0.get("ratio") else "")
@@ -896,11 +919,14 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
             parts.append(f"'{s0['feature']}' is a Data Doctor leakage suspect nobody has answered yet ({s0.get('hint') or 'strong alone'}) "
                          f"and carries {_pct(s0['share'])} of the model's importance. Until someone confirms it is known when the "
                          "decision is made, this score may include a leak.")
-        elif s0["reason"] == "concentrated":
-            parts.append(f"'{s0['feature']}' carries {_pct(s0['share'] or 0)} of the model's importance"
-                         + (f" (alone AUC {s0['single_auc']:.3f})" if s0.get("single_auc") is not None else "")
-                         + " and nobody has said it is known when the decision is made. Open question: a strong real signal "
-                           "and a column recorded after the outcome look the same here; only its timing settles it.")
+        elif s0["reason"] == "concentrated":  # A3 N1: one sentence for all the top features' timing questions
+            many = len(cq) > 1
+            parts.append(", ".join(f"'{x['feature']}' ({_pct(x['share'] or 0)}"
+                                   + (f", alone AUC {x['single_auc']:.3f}" if x.get("single_auc") is not None else "") + ")" for x in cq)
+                         + f" {'carry' if many else 'carries'} the most of the model's importance and nobody has said "
+                         + ("they are" if many else "it is") + " known when the decision is made. Open timing question"
+                         + ("s" if many else "") + ": a strong real signal and a column recorded after the outcome look the same "
+                           "here; only the timing settles it (a one-column run without each measures how much the score leans on it).")
         else:
             parts.append(f"'{s0['feature']}' looks like an identifier ({_pct(s0.get('unique_share') or 0)} distinct values) and is used as a "
                          "feature; IDs memorise rows and do not generalise.")
@@ -982,15 +1008,21 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
         rx = {"kind": "info", "title": "Look For The Column That Gives It Away",
               "why": "The error is below the look-alike estimate: check the top features for columns filled in after the "
                      "outcome, and the split for shared entities."}
+    only_timing = bool(cq) and all(x["reason"] == "concentrated" for x in sus) and not contra and not ov_major
     only_overlap = ov_hit and not sus and not contra
     if only_overlap and sev == "minor":  # F-A2: a small overlap that does not move the score is not a leak question
         ev["overlap_only"] = True
         c_ = _check("leakage", "finding", txt, ev, sev, rx, source="overlap")
         c_["title"] = "Train–holdout overlap"
         return c_
+    if only_timing and sev == "minor":  # A3 N1: on a clean table these are questions, not a leak finding
+        ev["timing_only"] = True
+        c_ = _check("leakage", "finding", txt, ev, sev, rx, source="top features without a decision-time answer")
+        c_["title"] = "Decision-time questions"
+        return c_
     return _check("leakage", "finding", txt, ev, sev, rx,
                   formula="s_j = I_j / Σ_k max(I_k, 0) ≥ 0.5,  s_j ≥ 3·s_(2);  AUC_j ≥ 0.97;  open D1 suspect with s_j ≥ 0.10;  "
-                          f"unanswered s_(1) ≥ {CONC_TOP1} or s_(1) + s_(2) ≥ {CONC_TOP2} (s_(2) ≥ {CONC_SECOND});  "
+                          f"unanswered top-{TIMING_TOP_K} feature (s_j ≥ {TIMING_MIN_SHARE}): an open timing question;  "
                           f"err < {R_STAR_RATIO}·lower(R*);  seen holdout rows ≥ 1 %;  Δ = s(without) − s(with)",
                   source="D3 dominance + D1 hint + concentration + R* estimate + overlap + ablation")
 
@@ -999,19 +1031,46 @@ def critical_questions(d: dict[str, Any]) -> list[dict[str, Any]]:
     """The open critical leak questions of a computed diagnosis, [{column | None, question}] (stored on the run's
     `doctor` summary so promotion can read them without recomputing)."""
     lk = next((c for c in d.get("checks") or [] if c["id"] == "leakage"), None)
-    if not lk or lk.get("status") != "finding" or lk.get("severity") != "critical":
+    if not lk or lk.get("status") != "finding":
         return []
+    sev = lk.get("severity")
     ev = lk.get("evidence") or {}
-    out = [{"column": s["feature"], "question": f"Is '{s['feature']}' known at the moment the decision is made? The Doctor "
-                                                f"flags it ({s['reason']}); if it is recorded after the outcome the score is a leak."}
-           for s in ev.get("suspects") or [] if s.get("reason") != "identifier"]
-    if not out:
+
+    def gates(s: dict[str, Any]) -> bool:
+        # A3 N2: not only a critical leak: an unanswered suspect the Data Doctor names high (confidence ≥ 0.85), or one
+        # the Model Doctor rates major or worse, that the model actually uses (≥ GATE_SHARE of the importance). A top
+        # feature's timing question alone (strength only) gates when its one-column run stands out, or it dominates in a
+        # major finding.
+        if s.get("reason") == "identifier":
+            return False
+        if sev == "critical":
+            return True
+        if (s.get("share") or 0) < GATE_SHARE:
+            return False
+        if s.get("reason") in ("dominant + hint", "near-perfect alone"):
+            return True
+        if s.get("reason") == "open suspect":
+            return (s.get("confidence") or 0) >= 0.85 or (sev == "major" and s.get("basis") != "strength only")
+        if s.get("reason") == "concentrated":
+            return (s.get("ablation") or {}).get("class") == "stands out" or (sev == "major" and bool(s.get("dominant")))
+        return False
+
+    out = [{"column": s["feature"], "severity": sev,
+            "question": f"Is '{s['feature']}' known at the moment the decision is made? The Doctor flags it ({s['reason']}"
+                        + (f", {_pct(s['share'])} of the importance" if s.get("share") else "")
+                        + f"; leakage {sev}); if it is recorded after the outcome the score is a leak."}
+           for s in ev.get("suspects") or [] if gates(s)]
+    if not out and sev == "critical":
         out.append({"column": None, "question": lk["reason"][:300]})
     return out
 
 
+GATE_SHARE = 0.10
+
+
 def open_critical(run_id: str, runs: Any = None, datasets: Any = None) -> list[str]:
-    """A2 M2: the run's open critical leak questions, as sentences; [] when none. Read from the Doctor's last diagnosis
+    """A2 M2 (A3 N2: and the open major leak questions the model leans on, see critical_questions): the run's open
+    leak questions that gate promotion, as sentences; [] when none. Read from the Doctor's last diagnosis
     of the run (computed after every fit and on every Doctor view), minus columns answered "known at decision time"
     since. A run whose Doctor never ran returns []. For promotion gates (Production, champion): block while this is
     non-empty unless an explicit override with a reason is given. `runs` / `datasets`: the app's RunStore and
@@ -1239,8 +1298,9 @@ def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[di
                                  "weak_slice": ws.get("status")}
     lk = by.get("leakage") or {}
     if lk.get("status") == "finding" and not (lk.get("evidence") or {}).get("overlap_only"):
-        return _check("ceiling", "clear", "A leak question is open: the data's limit is read only after it is answered (and on the "
-                      "ablation run if the column is not known at decision time).", {"conditions": conds}, source="D3")
+        return _check("ceiling", "clear", ("Decision-time questions are open on the top features" if (lk.get("evidence") or {}).get("timing_only")
+                                           else "A leak question is open") + ": the data's limit is read only after "
+                      "it is answered (and on the ablation run if the column is not known at decision time).", {"conditions": conds}, source="D3")
     opens = (lk.get("evidence") or {}).get("open_suspects") or []
     if opens:
         return _check("ceiling", "clear", f"Not judged: {', '.join(opens)} {'is a' if len(opens) == 1 else 'are'} Data Doctor leakage "
@@ -1447,11 +1507,27 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         qs = ([f"is {' / '.join(sus_q)} known when the decision is made?"] if sus_q else []) \
             + ([f"{_pct(ovq.get('seen_share') or 0)} of holdout rows are not new to the model (shared entity or near-duplicate)"] if ovq else []) \
             + (["the model errs below the look-alike estimate: which column gives it away?"] if lev.get("below_bound") else [])
-        caveat = ("Measured with an open leak question (" + "; ".join(qs) + "): these gaps describe a model that reads it, and a gap "
-                  "on a suspect column is not a data request. Answer it in Build → Data Report (decision time), then read them again"
+        tonly = bool(lev.get("timing_only"))
+        caveat = (("Measured with open decision-time questions (" if tonly else "Measured with an open leak question (") + "; ".join(qs)
+                  + "): these gaps, and the look-alike estimate, describe a model that reads "
+                  + ("those columns" if tonly else "it") + ", and a gap on a column with an open question is not a data request. "
+                  "Answer in Build → Data Report (decision time), then read them again"
                   + (f" on the run without the column ({lev['ablation']['run_id']})" if (lev.get("ablation") or {}).get("run_id") else "") + ".")
     if unanswered:
-        gaps = [x for x in gaps if not any(x["id"].split(":", 1)[-1].split("=")[0] == c for c in unanswered)]
+        # A3 N1: a gap about a column with an open question is never a data request ("collect a finer X"): a named
+        # suspect's gaps go; a top feature's open timing question keeps the segment gap, re-worded to confirm first
+        timing_q = {x["feature"] for x in lev.get("suspects") or [] if x.get("reason") == "concentrated"}
+        kept = []
+        for x in gaps:
+            col = next((c for c in unanswered if x["id"].split(":", 1)[-1].split("=")[0] == c), None)
+            if col is None:
+                kept.append(x)
+            elif col in timing_q and x["kind"] in ("concentration", "label_review", "missingness"):
+                x["request"] = (f"First confirm {col} is known at decision time (an open timing question, see Leakage); if it is: "
+                                + x["request"][0].lower() + x["request"][1:])
+                x["pending_question"] = col
+                kept.append(x)
+        gaps = kept
     for x in gaps:
         x["measured"] = x.get("gain") is not None
     def _gap_key(x: dict[str, Any]) -> tuple[float, float]:
@@ -1472,6 +1548,8 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     head = None
     if top:
         head = f"{top['title']}: " + (f"worth up to {_sv(top['gain']['delta'])} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
+        if caveat and qs:  # A3 N1: the open question comes before any data request
+            head = f"First answer the open question ({qs[0]}), then: " + head
     return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"), "caveat": caveat,
             "caveat_questions": qs if lk_open else [],
             "irreducible": tw and {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "explained", "explained_upper")},

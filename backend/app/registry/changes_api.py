@@ -59,6 +59,13 @@ def _ctx(request: Request, vid: str) -> dict[str, Any]:
         out["scale_changes"] = _scale_changes(request, run, newest, [d["feature"] for d in out["drifted"]])
     except Exception:  # noqa: BLE001 — the changes card works without it
         out["scale_changes"] = []
+    try:  # A3 M6: a date column drifts by construction (new months): never the feature to drop
+        inp = _regdir(request) / "batches" / newest["id"] / "input.csv"
+        dcols = [d["feature"] for d in out["drifted"]]
+        bt = pd.read_csv(inp, usecols=lambda c_: c_ in dcols, nrows=500) if dcols and inp.exists() else pd.DataFrame()
+        out["date_features"] = [c_ for c_ in bt.columns if date_like(bt[c_])]
+    except Exception:  # noqa: BLE001
+        out["date_features"] = []
     if n < C.MIN_ROWS:
         out["why"] = f"The newest labelled batch has {n} labelled rows; changes need ≥ {C.MIN_ROWS}."
         return out
@@ -67,15 +74,30 @@ def _ctx(request: Request, vid: str) -> dict[str, Any]:
 
 
 def _scale_changes(request: Request, run: dict[str, Any], batch: dict[str, Any], feats: list[str]) -> list[dict[str, Any]]:
+    return scale_changes_for(run, _regdir(request) / "batches" / batch["id"] / "input.csv", feats)
+
+
+def date_like(s: pd.Series) -> bool:
+    """A3 M6: a text column whose values read as dates (a date column drifts by construction: new months)."""
+    if s.dtype != object:
+        return False
+    v = s.dropna().astype(str).head(200)
+    if len(v) < 5 or pd.to_numeric(v, errors="coerce").notna().mean() >= 0.5:
+        return False
+    return bool(pd.to_datetime(v, errors="coerce", format="mixed").notna().mean() >= 0.9)
+
+
+def scale_changes_for(run: dict[str, Any], inp: Path, feats: list[str]) -> list[dict[str, Any]]:
     """A2 M6, the Data Doctor's factor logic on a scored batch: for each drifted numeric feature, the ratio of the batch's
     quantiles (10–90 %, non-zero absolute values) to the training rows'. A unit change when the median ratio is ≥ 3 or
-    ≤ 1/3 and every quantile ratio stays within a factor 1.5 of it (the whole distribution moved by one constant)."""
+    ≤ 1/3 and every quantile ratio stays within a factor 1.5 of it (the whole distribution moved by one constant).
+    A3: shared by Changes, the monitoring alerts and the retrain proposal."""
     from ..data_doctor import UNIT_FACTORS
 
     cfg = run.get("config") or {}
     if not feats or not cfg.get("csv_path"):
         return []
-    inp = _regdir(request) / "batches" / batch["id"] / "input.csv"
+    inp = Path(inp)
     if not inp.exists():
         return []
     head = pd.read_csv(inp, nrows=0).columns
@@ -102,7 +124,8 @@ def _scale_changes(request: Request, run: dict[str, Any], batch: dict[str, Any],
         known = abs(np.log(k / near)) <= np.log(1.25)
         fix = 1 / near if known else 1 / k
         out.append({"feature": f, "factor": round(k, 4), "unit": UNIT_FACTORS[near] if known else None, "rescale": round(fix, 6),
-                    "quantile_ratios": [round(float(x), 4) for x in r],
+                    "quantile_ratios": [round(float(x), 4) for x in r], "snapped": near if known else None,
+                    "short": f"{f} changed scale (× {(near if known else k):.4g}): fix the feed (rescale × {fix:,.6g} before scoring)",
                     "text": (f"{f} arrives × {k:.4g} its training scale" + (f" ({UNIT_FACTORS[near]})" if known else "")
                              + f": every quantile of the batch moved by the same factor (10–90 %: {', '.join(f'{x:.3g}' for x in r)}). "
                              f"A unit change at the source, not new behaviour: fix the feed (or rescale × {fix:,.6g} before scoring) "
@@ -132,7 +155,8 @@ def _public(c: dict[str, Any]) -> dict[str, Any]:
             "scale_changes": c.get("scale_changes") or [],
             # A2 M6: a feature whose drift is a unit change is fixed at the feed, never suggested for dropping
             "suggested_drop": next((d["feature"] for d in c.get("drifted") or []
-                                    if d["feature"] not in {x["feature"] for x in c.get("scale_changes") or []}), None),
+                                    if d["feature"] not in {x["feature"] for x in c.get("scale_changes") or []}
+                                    and d["feature"] not in (c.get("date_features") or [])), None),
             "suggested_fix": next(({"kind": "fix_feed", "feature": x["feature"], "rescale": x["rescale"], "title":
                                     f"Fix the feed: rescale {x['feature']} × {x['rescale']:,.6g}", "why": x["text"]}
                                    for x in c.get("scale_changes") or []), None)}

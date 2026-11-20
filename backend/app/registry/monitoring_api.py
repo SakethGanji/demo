@@ -264,6 +264,16 @@ def _point(request: Request, run: dict[str, Any], b: dict[str, Any], th: dict[st
         "shadow": {k: v for k, v in (res.get("shadow") or {}).items() if k not in ("quantiles_champion", "quantiles_challenger")} or None,
         "paired": (lab or {}).get("paired"),
     }
+    try:  # A3 M6: the Changes card's unit-change test, so a unit change is not read as covariate drift
+        from .changes_api import date_like, scale_changes_for
+
+        drifted = [f["feature"] for f in p["features"] if (f.get("psi") or 0) > th["feature_psi"]]
+        inp = _dir(request) / "batches" / b["id"] / "input.csv"
+        p["scale_changes"] = scale_changes_for(run, inp, drifted) if drifted else []
+        bt = pd.read_csv(inp, usecols=lambda c: c in drifted, nrows=500) if drifted and inp.exists() else pd.DataFrame()
+        p["date_features"] = [c for c in bt.columns if date_like(bt[c])]
+    except Exception:  # noqa: BLE001
+        p["scale_changes"], p["date_features"] = [], []
     p["alerts"] = M.alerts_for(p, baseline, th)
     return p
 
@@ -354,10 +364,24 @@ def monitoring_state(request: Request, vid: str) -> dict[str, Any]:
             "rules": M.THRESHOLD_RULES, "baseline": baseline, "points": points, "running": running, "alerts": summ,
             "challenger": challenger, "stream": stream,
             "retrain": {"endpoint": f"/api/registry/versions/{vid}/monitoring/retrain",
-                        "suggested": bool(summ["active"] or summ["first_performance"] or summ["first_covariate"])},
+                        # A3 M6: a unit change (kind "feed") is fixed at the feed, never a reason to retrain
+                        "suggested": bool([a for a in summ["active"] if a["kind"] != "feed" and not a.get("explained_by")]
+                                          or summ["first_covariate"]
+                                          or any(a["kind"] == "performance" and not a.get("explained_by")
+                                                 for p in points for a in p.get("alerts") or [])),
+                        "feed_fixes": _feed_fixes(points)},
             "formulas": {"psi": "PSI = Σᵢ (aᵢ − eᵢ) · ln(aᵢ / eᵢ)", "auc_ci": "AUC ± 1.96 · SE_DeLong",
                          "calibration": "z = (Σy − Σp̂) / √Σp̂(1 − p̂)", "lag": "lag = label date − data date",
                          "paired": "Δ = AUC_challenger − AUC_champion,  Var(Δ) = Var(A₁) + Var(A₂) − 2 Cov(A₁, A₂)"}}
+
+
+def _feed_fixes(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """A3 M6: the unit changes of the latest batch that shows any, one per feature."""
+    for p in reversed(points):
+        if p.get("scale_changes"):
+            return [{"feature": x["feature"], "factor": x["factor"], "rescale": x["rescale"], "text": x["short"],
+                     "batch_id": p["batch_id"], "period": p.get("period")} for x in p["scale_changes"]]
+    return []
 
 
 @router.get("/registry/versions/{vid}/monitoring")
@@ -435,11 +459,12 @@ def _proposal(request: Request, vid: str, months: int | None, include_reference:
     if include_reference:
         ds = request.app.state.db.get_dataset(run["dataset_id"]) or {}
         ref_rows = int(ds.get("rows") or 0)
-    alerts = monitoring_state(request, vid)["alerts"]
+    st_ = monitoring_state(request, vid)
+    alerts = st_["alerts"]
     why = []
     if alerts["first_covariate"]:
         why.append(f"covariate drift since {alerts['first_covariate']['period']} ({alerts['first_covariate']['text']})")
-    if alerts["first_performance"]:
+    if alerts["first_performance"] and st_["retrain"]["suggested"]:
         why.append(f"performance since {alerts['first_performance']['period']}, seen {alerts['first_performance']['visible_on']} "
                    f"({alerts['first_performance']['text']})")
     return {"version_id": vid, "label": _label(v), "champion_run_id": run["id"], "window_months": months,
@@ -449,6 +474,9 @@ def _proposal(request: Request, vid: str, months: int | None, include_reference:
                                                                 "label_date": b["result"]["labels"].get("label_date")} for b in sel],
             "rows": n_rows + ref_rows, "rows_window": n_rows, "rows_reference": ref_rows, "include_reference": include_reference,
             "body": body, "split_note": split_note, "why": why,
+            # A3 M6: unit changes are fixed at the feed first; they are not a reason for this retrain
+            "suggested": st_["retrain"]["suggested"], "feed_fixes": st_["retrain"]["feed_fixes"],
+            "not_for": [f"{x['text']}: a unit change, not a reason to retrain" for x in st_["retrain"]["feed_fixes"]],
             "ready": n_rows >= 200,
             "blocked": None if n_rows >= 200 else "Fewer than 200 labelled rows in the window: wait for labels or widen the window.",
             "launch": {"method": "POST", "endpoint": f"/api/registry/versions/{vid}/monitoring/retrain",

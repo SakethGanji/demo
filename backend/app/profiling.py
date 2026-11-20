@@ -140,6 +140,20 @@ def class_balance(s: pd.Series) -> list[dict[str, Any]]:
     return [{"name": str(k), "count": int(v), "share": round(int(v) / total, 6)} for k, v in counts.items()]
 
 
+def _reads_as_dates(s: pd.Series) -> bool:
+    """≥ 95 % of the values parse as dates (splits.time_values' reading), ≥ 10 distinct, and not numbers stored as text."""
+    v = s.dropna().astype(str)
+    if v.nunique() < 10:
+        return False
+    v = v.sample(min(len(v), 500), random_state=0) if len(v) > 500 else v
+    if pd.to_numeric(v, errors="coerce").notna().mean() >= 0.5:
+        return False
+    try:
+        return bool(pd.to_datetime(v, errors="coerce", format="mixed").notna().mean() >= 0.95)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def profile_frame(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]:
     n_rows, n_cols = df.shape
     types = {col: detect_type(str(col), df[col]) for col in df.columns}
@@ -159,6 +173,12 @@ def profile_frame(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]
             "missing": missing, "missing_share": round(missing / n_rows, 6) if n_rows else 0.0,
             "unique": int(s.nunique(dropna=True)), "example": _example(s),
         }
+        if t == "category" and _reads_as_dates(s):  # A3: a date column is profiled as a date, not a category
+            t = info["type"] = "date"
+            tv = pd.to_datetime(s.dropna().astype(str), errors="coerce", format="mixed")
+            info["range"] = {"min": str(tv.min())[:10], "max": str(tv.max())[:10]}
+            top = s.dropna().astype(str).value_counts().head(5)
+            info["top"] = [{"value": str(k), "count": int(v)} for k, v in top.items()]
         if t == "number":
             info["stats"] = _numeric_stats(s)
         elif t == "text":

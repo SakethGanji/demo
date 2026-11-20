@@ -205,6 +205,16 @@ def alerts_for(point: dict[str, Any], baseline: dict[str, Any] | None, th: dict[
     """The alerts one batch raises. Each says which signal fired, the number and the rule."""
     out: list[dict[str, Any]] = []
     drift_feats = [f for f in point.get("features") or [] if (f.get("psi") or 0) > th["feature_psi"]]
+    # A3 M6: a drifted number whose whole distribution moved by one constant factor is a unit change at the source (fix
+    # the feed), not covariate drift; a date column drifts by construction. Neither is a reason to retrain.
+    sc = {x["feature"]: x for x in point.get("scale_changes") or []}
+    dates = set(point.get("date_features") or [])
+    for f in sorted([f for f in drift_feats if f["feature"] in sc], key=lambda f: -f["psi"]):
+        x = sc[f["feature"]]
+        out.append({"signal": "scale_change", "kind": "feed", "severity": "major", "features": [f["feature"]], "value": x["factor"],
+                    "psi": f["psi"], "rescale": x["rescale"], "rule": "every 10–90 % quantile ratio within × 1.5 of one factor ≥ 3 or ≤ ⅓",
+                    "text": x["short"] + f" (PSI {f['psi']:.3f}; a unit change, not drift: no retrain)"})
+    drift_feats = [f for f in drift_feats if f["feature"] not in sc and f["feature"] not in dates]
     if drift_feats:
         top = max(drift_feats, key=lambda f: f["psi"])
         out.append({"signal": "feature_psi", "kind": "covariate", "severity": "major",
@@ -238,6 +248,13 @@ def alerts_for(point: dict[str, Any], baseline: dict[str, Any] | None, th: dict[
                         "threshold": th["calibration_z"], "rule": THRESHOLD_RULES["calibration_z"],
                         "lag_days": point.get("label_lag_days"),
                         "text": f"Observed rate {perf['observed_rate']:.3f} vs predicted {perf['mean_p']:.3f}: z = {z:+.1f}"})
+    feed = [a for a in out if a["kind"] == "feed"]
+    if feed:  # A3 M6: the score and the performance of a batch with a unit change move because of it: fix the feed first
+        fs = ", ".join(a["features"][0] for a in feed)
+        for a in out:
+            if a["kind"] in ("score", "performance"):
+                a["explained_by"] = "unit change"
+                a["text"] += f" (with the unit change in {fs}: fix the feed, then read this again; not a reason to retrain)"
     return out
 
 

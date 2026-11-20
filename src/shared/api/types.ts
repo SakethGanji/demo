@@ -4,7 +4,7 @@ export type EngineInfo = { name: string; version: string | null; timeseries: str
 
 export type Health = { status: 'ok'; version: string; datasets: number; data_dir: string; runs: number; engine: EngineInfo }
 
-export type ColumnType = 'text' | 'category' | 'number' | 'id'
+export type ColumnType = 'text' | 'category' | 'number' | 'id' | 'date'
 
 export type ColumnProfile = {
   name: string
@@ -1331,7 +1331,7 @@ export type MonitoringPerf = {
   log_loss: number; brier: number; auc: number | null; auc_ci: [number, number] | null; auc_se: number | null
   threshold: number; flagged_share: number; recall: number | null; precision: number | null; cost_per_1000?: number | null
 }
-export type MonitoringAlert = { signal: string; kind: 'covariate' | 'score' | 'performance'; severity: string; value: number; threshold: number; rule: string; text: string; features?: string[]; ci?: [number, number]; baseline?: number; lag_days?: number | null; batch_id?: string; period?: string; visible_on?: string }
+export type MonitoringAlert = { signal: string; kind: 'covariate' | 'score' | 'performance' | 'feed'; explained_by?: string; severity: string; value: number; threshold: number; rule: string; text: string; features?: string[]; ci?: [number, number]; baseline?: number; lag_days?: number | null; batch_id?: string; period?: string; visible_on?: string }
 export type PairedAuc = { auc_champion: number; auc_challenger: number; delta: number; se: number; ci: [number, number]; z: number | null; p_value: number | null; corr: number | null; m: number; n: number; method: string }
 export type PairedLoss = { delta: number; ci: [number, number]; se: number; B: number; n: number; method: string }
 export type ShadowSummary = { version_id: string; label: string | null; model?: string; error?: string; n: number; psi: number; band: string; ks: number; spearman: number; agreement: number; kappa: number | null
@@ -1355,7 +1355,7 @@ export type MonitoringState = {
   challenger: { version_id: string; label: string; stage: Stage; approval: string; run_id: string; batches: number; agreement_mean: number | null; psi_mean: number | null; spearman_mean: number | null
     pooled: { n: number; auc?: PairedAuc; log_loss: PairedLoss; batches: string[] } | null; decision: string; promote: { review: string; transition: string } } | null
   stream: { dataset: string; fed_months: number[]; next_month: number | null } | null
-  retrain: { endpoint: string; suggested: boolean }
+  retrain: { endpoint: string; suggested: boolean; feed_fixes?: { feature: string; factor: number; rescale: number; text: string; batch_id: string; period: string | null }[] }
   formulas: Record<string, string>
 }
 export type RetrainProposal = {

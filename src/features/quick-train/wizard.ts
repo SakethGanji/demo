@@ -142,7 +142,7 @@ export function labelClasses(ds: Dataset, label: string): { name: string; share:
 
 export const labelOptions = (ds: Dataset) => ds.cols.filter((c) => c.type !== 'text' && c.type !== 'id' || c.name === ds.target)
 
-export function effectiveType(c: Col, ch: Choices): ColType { return ch.types[c.name] ?? c.type }
+export function effectiveType(c: Col, ch: Choices): ColType { return ch.types[c.name] ?? (c.type === 'date' ? 'category' : c.type) }
 
 export { METRICS, EXTRA_METRICS, metricInfo, type Metric } from '@/shared/lib/metrics'
 

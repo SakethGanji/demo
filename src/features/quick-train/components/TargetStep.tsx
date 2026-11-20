@@ -127,11 +127,11 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
               <tr className="sel"><td className="table-cell">{ch.label}</td><td><span className="chip" style={{ fontSize: 11 }}>{ds.cols.find((c) => c.name === ch.label)?.type}</span></td><td><StatusPill status="success">Label y</StatusPill></td><td className="muted mono" style={{ fontSize: 12 }}>{task ?? '—'}</td><td className="muted">{ds.cols.find((c) => c.name === ch.label)?.sample}</td></tr>
               {feats.map((c) => {
                 const t = effectiveType(c, ch)
-                const isChanged = t !== c.type
+                const isChanged = t !== (c.type === 'date' ? 'category' : c.type)
                 return (
                   <tr key={c.name} className={isChanged ? 'changed' : ''} data-testid={`coltype-row-${c.name}`}>
                     <td className="table-cell">{c.name}</td>
-                    <td><span className="chip" style={{ fontSize: 11 }}>{TYPE_LABEL[c.type]}</span></td>
+                    <td><span className="chip" style={{ fontSize: 11 }}>{c.type === 'date' ? 'date' : TYPE_LABEL[c.type]}</span></td>
                     <td>
                       <select className="select sm" aria-label={`Type of ${c.name}`} data-testid={`coltype-${c.name}`} value={t} onChange={(e) => setType(c.name, e.target.value as ColType)}>
                         {(['number', 'category', 'text', 'id'] as ColType[]).map((o) => <option key={o} value={o}>{TYPE_LABEL[o]}</option>)}

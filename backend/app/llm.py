@@ -341,6 +341,18 @@ def unsupported_numbers(answer: str, facts: Any) -> list[str]:
         reversed_ = any(a_ in aft and b_ in bef for bef, aft in pairs) and not any(a_ in bef and b_ in aft for bef, aft in pairs)
         if reversed_ or (up and not down and fb < fa) or (down and not up and fb > fa):
             out += [a_, b_]
+    # A3: "B, up from A" / "B, down from A": the direction word against B − A, and against the facts' before → after pair
+    for fm in re.finditer(r"(?i)([−-]?\d[\d,]*\.?\d*)\s*%?[^\d.;]{0,30}?\b(up|down|higher|lower|rising|falling|rose|fell)\s+from\s+"
+                          r"([−-]?\d[\d,]*\.?\d*)", text):
+        b_, a_ = (norm(x.replace("−", "-").replace(",", "")) for x in (fm.group(1), fm.group(3)))
+        try:
+            fa, fb = float(a_), float(b_)
+        except ValueError:
+            continue
+        upw = fm.group(2).lower() in ("up", "higher", "rising", "rose")
+        reversed_ = any(a_ in aft and b_ in bef for bef, aft in pairs) and not any(a_ in bef and b_ in aft for bef, aft in pairs)
+        if reversed_ or (upw and fb < fa) or (not upw and fb > fa):
+            out += [a_, b_]
     for m in NUM.finditer(text):
         raw = m.group(0)
         n = raw.replace("−", "-").replace(",", "").rstrip("%")

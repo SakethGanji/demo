@@ -2,7 +2,7 @@
 
 import type { DatasetDetail, Profile } from '@/shared/api/types'
 
-export type Col = { name: string; type: 'text' | 'category' | 'number' | 'id'; sample: string; missing?: number }
+export type Col = { name: string; type: 'text' | 'category' | 'number' | 'id' | 'date'; sample: string; missing?: number }
 
 export type Dataset = {
   name: string; rows: number; cols: Col[]; target: string; classes: { name: string; share: number }[]; kind: 'text' | 'tabular'; note: string

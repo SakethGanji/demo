@@ -39,7 +39,7 @@ export function DatasetStep({ ds, onPick }: { ds: Dataset; onPick: (d: Dataset) 
             <tbody>
               {ds.cols.map((c) => (
                 <tr key={c.name} className={c.name === ds.target ? 'sel' : ''}>
-                  <td className="table-cell">{c.name}</td><td><span className="chip" style={{ fontSize: 11 }}>{c.type === 'text' ? 'str' : c.type === 'number' ? 'num' : c.type === 'id' ? 'id' : 'cat'}</span></td>
+                  <td className="table-cell">{c.name}</td><td><span className="chip" style={{ fontSize: 11 }}>{c.type === 'text' ? 'str' : c.type === 'number' ? 'num' : c.type === 'id' ? 'id' : c.type === 'date' ? 'date' : 'cat'}</span></td>
                   <td className="muted" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.sample}</td>
                   <td>{c.name === ds.target ? <span className="pill success">Target y</span> : <span className="muted">{c.type === 'id' ? 'Ignored' : 'Feature'}</span>}</td>
                 </tr>

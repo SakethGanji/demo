@@ -13,7 +13,7 @@ import { useFetch } from '@/shared/hooks/useFetch'
 
 const sgn = (v: number | null | undefined, d = 4) => (v == null ? '—' : `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(d)}`)
 const COLORS = ['var(--viz-a)', 'var(--viz-b)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-e)']
-const KIND_STATUS = { covariate: 'warning', score: 'warning', performance: 'danger' } as const
+const KIND_STATUS = { covariate: 'warning', score: 'warning', performance: 'danger', feed: 'danger' } as const
 
 /** F18 · Monitoring over time for one version: every scored batch in data order, PSI per feature, the score's
  *  distribution, F15's adversarial AUC, performance once labels arrive (with the lag), alerts, the challenger's shadow
@@ -354,6 +354,7 @@ function RetrainCard({ m, v, actor }: { m: MonitoringState; v: ModelVersion; act
       </div>
       {err && <div className="card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</div>}
       {p && <div className="card-body stack" style={{ gap: 8 }}>
+        {(m.retrain.feed_fixes ?? []).length > 0 && <div className="split-warn" role="note" data-testid="mon-feed-fix">{(m.retrain.feed_fixes ?? []).map((x) => <div key={x.feature}><b>Fix the feed first:</b> {x.text}. A unit change, not drift: not a reason to retrain.</div>)}</div>}
         {p.why.length > 0 && <div className="stack" style={{ gap: 4 }}><span className="micro-label">why</span>{p.why.map((w) => <span key={w} className="mono" style={{ fontSize: 12 }}>· {w}</span>)}</div>}
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <ParamChip sym="window" value={p.window.start ? `${p.window.start} … ${p.window.end}` : '—'} />

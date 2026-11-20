@@ -559,16 +559,28 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
         # wrong or not, and hides wrong labels from any model that reads it.
         if flags is not None and P is not None and X is not None and pt == "binary":
             ranked_ = sorted(share.items(), key=lambda kv: -kv[1])
+            from .doctor import timing_questions
+
             sus_ = set(hints.get("suspects") or [])
-            if ranked_ and ranked_[0][1] >= 0.45:
-                sus_.add(ranked_[0][0])
-            if len(ranked_) > 1 and ranked_[0][1] + ranked_[1][1] >= 0.75 and ranked_[1][1] >= 0.25:
-                sus_ |= {ranked_[0][0], ranked_[1][0]}
+            # A3 N3: the same open timing questions as the Doctor's leakage check (the top features nobody has answered
+            # known at decision time, whatever their share): a moderate leak the model reads hides wrong labels too
+            sus_ |= set(timing_questions([{"feature": f, "share": v} for f, v in ranked_[:3]], hints.get("known") or []))
             ref_feats = [c for c in feats if c not in sus_]
             yi_ = q.y[ho]
             okr = ~np.isnan(yi_)
+            tr_ref = tr
+            try:  # A3 N3: and without near-duplicate training rows (identical but for one column), which it would memorise
+                Fk = df[ref_feats].iloc[tr]
+                dup_ = np.zeros(len(tr), bool)
+                if len(ref_feats) >= 2 and len(tr) <= 120_000 and len(ref_feats) <= 40:
+                    for c_ in ref_feats:
+                        dup_ |= pd.Series(_row_keys(Fk.drop(columns=[c_]))).duplicated().to_numpy()
+                out["label_expect_dedup"] = int(dup_.sum())
+                tr_ref = tr[~dup_]
+            except Exception:  # noqa: BLE001
+                pass
             if ref_feats and okr.all():
-                _, pr_ = q.fit_predict(X[ref_feats], tr, ho)
+                _, pr_ = q.fit_predict(X[ref_feats], tr_ref, ho)
                 Pr = np.column_stack([1 - pr_, pr_])
                 yi_ = yi_.astype(int)
                 flags_r = find_label_issues(yi_, Pr, filter_by="prune_by_noise_rate", n_jobs=1) if len(np.unique(yi_)) == 2 else None

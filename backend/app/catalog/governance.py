@@ -32,18 +32,38 @@ _CONFUSABLES = {
 def identity_key(s: str | None) -> str:
     """A name as four-eyes compares it: letters and digits only. NFKD (accents and full-width forms folded), lookalike
     Cyrillic / Greek letters mapped to Latin, casefolded; punctuation, spaces, symbols, zero-width and other format
-    characters dropped. "a.l.i.c.e", "Al-ice", "Al ice", "Alicé", "Аlice" (Cyrillic А) and "Ali​ce" are all "alice".
+    characters dropped. "a.l.i.c.e", "Al-ice", "Al ice", "Alicé", "Аlice" (Cyrillic А) and "Ali​ce" are all "alice"; A3: "AIice" (capital I), "A1ice" and "ᴀlice" (small capitals) too: I / l / 1 are one class.
     Collisions only make four eyes stricter (two different people whose names fold together must use other names)."""
     t = unicodedata.normalize("NFKD", s or "")
     out = []
     for ch in t:
         ch = _CONFUSABLES.get(ch, ch)
+        ch = _small_capital(ch)
         for c in ch.casefold():
             c = _CONFUSABLES.get(c, c)
             for d in c:
                 if unicodedata.category(d)[0] in "LN" and unicodedata.category(d) != "Lm":
-                    out.append(d)
+                    out.append(_ONE_STROKE.get(d, d))
     return "".join(out)
+
+
+# A3: capital I, small l and digit 1 look alike in most fonts ("AIice" for "Alice"), so they are one class
+_ONE_STROKE = {"i": "l", "1": "l", "ı": "l"}
+
+
+def _small_capital(ch: str) -> str:
+    """A3: small-capital letters ("ᴀlice") fold to the Latin letter."""
+    if len(ch) != 1 or ord(ch) < 0x250:
+        return ch
+    try:
+        n = unicodedata.name(ch)
+    except ValueError:
+        return ch
+    if n.startswith("LATIN LETTER SMALL CAPITAL "):
+        rest = n[len("LATIN LETTER SMALL CAPITAL "):]
+        if len(rest) == 1:
+            return rest.lower()
+    return ch
 
 
 def same_person(a: str | None, b: str | None) -> bool:
@@ -95,13 +115,14 @@ def open_critical(app: Any, run_id: str) -> list[str] | None:
 
 
 def leak_gate(app: Any, run_id: str, override: Any, what: str) -> dict[str, Any]:
-    """Block `what` (Production, champion) while the run has an open critical finding, unless an override reason is
+    """Block `what` (Production, champion) while the run has an open leak question that gates (critical, or A3 N2 a
+    high / major suspect the model uses), unless an override reason is
     given. Returns the details for the audit row; raises ValueError(message) when blocked."""
     crit = open_critical(app, run_id)
     reason = str(override or "").strip()
     if crit:
         if not reason:
-            raise ValueError(f"{what} is blocked while a critical finding is open on {run_id}: " + "; ".join(crit[:5])
+            raise ValueError(f"{what} is blocked while a leak question is open on {run_id}: " + "; ".join(q.rstrip(".") for q in crit[:5])
                              + '. Fix it, or send {"override_reason": "…"} to proceed on the record (audited).')
         if len(reason) < 10:
             raise ValueError("An override needs a reason of at least 10 characters (it goes in the audit log).")

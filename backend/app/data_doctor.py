@@ -925,7 +925,7 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
                       "rows_after": int(after.sum()),
                       "rows_rescaled": int(changed.sum()), "rows_left": int(left.sum()), "misplaced": int(best_err or 0),
                       "median_before": round(m_before, 4), "median_after": round(m_after, 4),
-                      "rescale": rf, "preview": preview, "_mask": after})
+                      "rescale": rf, "preview": preview, "_mask": after, "snapped": near if known or probable else None})
     if not items:
         return []
     it = items[0]
@@ -933,7 +933,13 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
     for i in items[1:]:
         i.pop("_mask", None)
     cols = [i["column"] for i in items]
-    desc = "; ".join(f"{i['column']} × {i['factor']:.3g} from {i['from']}" + (f" ({i['unit']})" if i["unit"] else "") for i in items[:3])
+    def _one(i: dict[str, Any]) -> str:  # A3: the title's factor is the fix's (snapped) factor, or both when they differ
+        k, sn = i["factor"], i.get("snapped")
+        if sn and abs(np.log(k / sn)) > np.log(1.05):
+            return f"{i['column']}: medians × {k:.3g}, likely × {sn:g}, from {i['from']}" + (f" ({UNIT_FACTORS[sn]})" if sn in UNIT_FACTORS else "")
+        return f"{i['column']} × {(sn or k):.3g} from {i['from']}" + (f" ({i['unit']})" if i["unit"] else "")
+
+    desc = "; ".join(_one(i) for i in items[:3])
     prev = "; ".join(f"{p['date']}: {p['before']} → {p['after']}" for p in it["preview"] if p["changed"])[:240]
     return [_finding("unit_change", "medium", f"The scale changes over time: {desc}",
                      {"columns": len(items), "rows after the change": it["rows_after"], "factor": it["factor"],
