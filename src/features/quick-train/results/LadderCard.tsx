@@ -26,7 +26,7 @@ function LadderView({ l, run, go }: { l: Ladder; run: Run; go: (r: string) => vo
   const lvl = `${Math.round(l.level * 100)} %`
   const serve = () => go(`registry?register=${run.id}${rec?.serve_model ? `&serve=${encodeURIComponent(rec.serve_model)}` : ''}`)
   return (
-    <div className="card ladder" data-testid="ladder" data-recommended={rec?.rung ?? ''}>
+    <div className="card mladder" data-testid="ladder" data-recommended={rec?.rung ?? ''}>
       <div className="card-head">
         <div className="left"><h3 className="card-title">Model ladder</h3><span className="helper">powerful, then simple · holdout {l.metric_label} · {l.n_holdout.toLocaleString()} rows</span></div>
         {rec && <button className="btn primary" onClick={serve} data-testid="ladder-serve">Serve {rec.name} →</button>}

@@ -182,14 +182,14 @@
 .split-adv summary { cursor: pointer; }
 
 /* D2 · Model ladder (Results) */
-.ladder .ladder-say { margin: 0 var(--space-16) var(--space-8); color: var(--text-primary); font-size: 14px; }
-.ladder .ladder-note { margin: 0 var(--space-16) var(--space-8); font-size: 12.5px; color: var(--text-body); }
-.ladder .ladder-note.warn { color: var(--status-warning); }
-.ladder .ladder-table { width: 100%; }
-.ladder .ladder-table td { vertical-align: top; }
-.ladder .ladder-table td.num, .ladder .ladder-table th.num { text-align: right; white-space: nowrap; }
-.ladder .ladder-table tr.rec td { background: var(--status-success-bg); }
-.ladder .ladder-table tr.muted td { color: var(--text-muted); }
-.ladder .chip.ok { border-color: var(--status-success); color: var(--status-success); }
-.ladder .ladder-rule { margin: var(--space-8) var(--space-16) var(--space-12); font-size: 12px; }
-.ladder .ladder-distill { gap: var(--space-12); align-items: center; padding: 0 var(--space-16) var(--space-12); }
+.mladder .ladder-say { margin: 0 var(--space-16) var(--space-8); color: var(--text-primary); font-size: 14px; }
+.mladder .ladder-note { margin: 0 var(--space-16) var(--space-8); font-size: 12.5px; color: var(--text-body); }
+.mladder .ladder-note.warn { color: var(--status-warning); }
+.mladder .ladder-table { width: 100%; }
+.mladder .ladder-table td { vertical-align: top; }
+.mladder .ladder-table td.num, .mladder .ladder-table th.num { text-align: right; white-space: nowrap; }
+.mladder .ladder-table tr.rec td { background: var(--status-success-bg); }
+.mladder .ladder-table tr.muted td { color: var(--text-muted); }
+.mladder .chip.ok { border-color: var(--status-success); color: var(--status-success); }
+.mladder .ladder-rule { margin: var(--space-8) var(--space-16) var(--space-12); font-size: 12px; }
+.mladder .ladder-distill { gap: var(--space-12); align-items: center; padding: 0 var(--space-16) var(--space-12); }
