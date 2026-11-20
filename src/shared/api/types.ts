@@ -1490,12 +1490,12 @@ export type DataFixResult = { dataset: DatasetDetail; parent: string; effects: D
 
 /** D2: one rung of the model ladder (0 baseline, 1 scorecard / linear, 2 single GBM, 3 AutoGluon's best). */
 export interface LadderRung {
-  rung: number; key: string; name: string; model: string | null; why: string; missing: string | null; same_as?: number | null
+  rung: number; key: string; name: string; model: string | null; why: string; missing: string | null; same_as?: number | null; same_predictions_as?: number
   score?: number; gap?: { delta: number; ci: [number, number]; ci95: [number, number]; p_le_0: number }; within?: boolean
   latency_ms_p50?: number | null; latency_ms_p95?: number | null; size_bytes?: number; n_models?: number; latency_error?: string
 }
 export interface Ladder {
-  run_id: string; metric: string; metric_label: string; greater_is_better: boolean; level: number; B: number; n_holdout: number
+  run_id: string; metric: string; metric_label: string; greater_is_better: boolean; level: number; B: number; n_holdout: number; decimals?: number
   best_rung: number; rungs: LadderRung[]; rule: string; sentence?: string; small_data_note?: string; floor_warning?: string
   small_data: { severity: string; title: string; numbers: Record<string, number> } | null
   recommended?: { rung: number; name: string; model: string; serve_model: string | null }

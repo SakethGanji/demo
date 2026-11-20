@@ -6,7 +6,9 @@ import { fix } from '@/shared/lib/format'
 import { bytes } from '@/features/registry/lib'
 
 const ms = (v: number | null | undefined) => (v == null ? '—' : v === 0 ? '0' : v < 1 ? `${v.toFixed(2)} ms` : `${v < 10 ? v.toFixed(1) : v.toFixed(0)} ms`)
-const signed = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(3)}`
+/** A1 #13: decimals follow the metric's size (the API's `decimals`: 3 for AUC, 0 for an RMSE in dollars). */
+const num = (v: number, d: number) => Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d })
+const signed = (v: number, d: number) => `${v >= 0 ? '+' : '−'}${num(v, d)}`
 
 /**
  * D2 · Model ladder: every rung (baseline → scorecard → single GBM → AutoGluon's best) on the same holdout, its gap to
@@ -35,7 +37,7 @@ function LadderView({ l, run, go }: { l: Ladder; run: Run; go: (r: string) => vo
       {l.small_data_note && <p className="ladder-note" data-testid="ladder-small">{l.small_data_note}</p>}
       {l.floor_warning && <p className="ladder-note warn">{l.floor_warning}</p>}
       <table className="table ladder-table">
-        <thead><tr><th>Rung</th><th>Model</th><th className="num">{l.metric_label}</th><th className="num">Gap to best · {lvl} CI</th><th className="num">One row (p95)</th><th className="num">Size</th><th /></tr></thead>
+        <thead><tr><th>Rung</th><th>Model</th><th className="num">{l.metric_label} <span className="helper">({l.greater_is_better ? 'higher' : 'lower'} is better)</span></th><th className="num">Worse than best by · {lvl} CI</th><th className="num">One row (p95)</th><th className="num">Size</th><th /></tr></thead>
         <tbody>
           {l.rungs.map((r) => <Row key={r.rung} r={r} l={l} rec={rec?.rung === r.rung} />)}
         </tbody>
@@ -57,12 +59,14 @@ function Row({ r, l, rec }: { r: LadderRung; l: Ladder; rec: boolean }) {
     return <tr className="muted"><td className="mono">{r.rung}</td><td>{r.name}</td><td colSpan={5} className="helper">{r.missing}</td></tr>
   }
   const best = r.rung === l.best_rung
+  const d = l.decimals ?? 3
   return (
     <tr className={rec ? 'rec' : ''} data-testid={`ladder-rung-${r.rung}`} data-within={r.within ? '1' : '0'}>
       <td className="mono">{r.rung}</td>
       <td><b>{r.name}</b>{r.model && <span className="mono helper"> {r.model}</span>}<div className="helper">{r.why}</div></td>
-      <td className="num mono">{fix(r.score, 3)}</td>
-      <td className="num mono">{best ? 'best' : r.gap ? <>{signed(-r.gap.delta)} <span className="helper">[{signed(-r.gap.ci[1])}, {signed(-r.gap.ci[0])}]</span></> : '—'}</td>
+      <td className="num mono">{fix(r.score, d)}</td>
+      <td className="num mono">{best ? 'best' : r.same_predictions_as != null ? <span className="helper">same predictions as rung {r.same_predictions_as}</span>
+        : r.gap ? <>{num(r.gap.delta, d)} <span className="helper">[{signed(r.gap.ci[0], d)}, {signed(r.gap.ci[1], d)}]</span></> : '—'}</td>
       <td className="num mono">{ms(r.latency_ms_p95)}</td>
       <td className="num mono">{r.rung === 0 ? '—' : bytes(r.size_bytes)}</td>
       <td>{rec ? <span className="chip ok">serve</span> : r.within ? <span className="chip">within CI</span> : null}</td>
