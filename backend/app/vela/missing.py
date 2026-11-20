@@ -42,6 +42,7 @@ K_NN = 15
 MAX_TRAIN = 30_000
 B = 400
 ORACLE_NOISE = 0.10
+LABEL_Z = 1.75  # F-A2: the strongest of ~8 segments must beat the calibrated clean-label expectation by this z
 EPS = {"binary": 0.005, "multiclass": 0.005}  # a doubling worth less than this is "flat" (regression: 0.5 % of RMSE)
 RATIOS = (3, 5, 10)
 
@@ -299,7 +300,7 @@ def _flag_expectation(P: np.ndarray, yi: np.ndarray, masks: list[np.ndarray], dr
     if len(tot) < 5:
         return None
     q = lambda v: (float(np.mean(v)), float(np.quantile(v, 0.975)))  # noqa: E731
-    return {"overall": q(tot), "segments": [q(v) for v in seg], "draws": len(tot)}
+    return {"overall": q(tot), "segments": [q(v) for v in seg], "sd": [float(np.std(v, ddof=1)) for v in seg], "draws": len(tot)}
 
 
 # --------------------------------------------------------------------------- twins (Cover–Hart)
@@ -409,6 +410,7 @@ def cost_tradeoff(hp: pd.DataFrame, cost: dict[str, Any], positive: Any, t_serve
 
 def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | None = None) -> dict[str, Any]:
     """(Runs in a worker.) Every part fails alone; failures are listed in `errors`."""
+    from cleanlab.filter import find_label_issues
     from ..profiling import detect_type
     from ..splits import holdout_mask
     from .findings import holdout_frame
@@ -552,22 +554,58 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
         # nothing about the labels. The comparison is with labels drawn from the model's own probabilities (clean by
         # construction, the same hardness): a segment is a label question only when cleanlab flags more of its labels
         # than such clean labels would get (above the 97.5 % point of R draws), in excess of 10 rows.
-        if flags is not None and P is not None:
-            yi_ = pd.Series(hp["y_true"].astype(str)).map({c[2:]: i for i, c in enumerate(pcols)}).to_numpy().astype(int)
+        # The reference model leaves out the columns with an open leak question (unanswered Data Doctor suspects and
+        # features holding most of the importance): a column filled in after the outcome encodes the recorded label,
+        # wrong or not, and hides wrong labels from any model that reads it.
+        if flags is not None and P is not None and X is not None and pt == "binary":
+            ranked_ = sorted(share.items(), key=lambda kv: -kv[1])
+            sus_ = set(hints.get("suspects") or [])
+            if ranked_ and ranked_[0][1] >= 0.45:
+                sus_.add(ranked_[0][0])
+            if len(ranked_) > 1 and ranked_[0][1] + ranked_[1][1] >= 0.75 and ranked_[1][1] >= 0.25:
+                sus_ |= {ranked_[0][0], ranked_[1][0]}
+            ref_feats = [c for c in feats if c not in sus_]
+            yi_ = q.y[ho]
+            okr = ~np.isnan(yi_)
+            if ref_feats and okr.all():
+                _, pr_ = q.fit_predict(X[ref_feats], tr, ho)
+                Pr = np.column_stack([1 - pr_, pr_])
+                yi_ = yi_.astype(int)
+                flags_r = find_label_issues(yi_, Pr, filter_by="prune_by_noise_rate", n_jobs=1) if len(np.unique(yi_)) == 2 else None
+            else:
+                flags_r = None
             masks = [(binned[s_["column"]][0] == s_["value"]).to_numpy() for s_ in segs]
-            sim = _flag_expectation(P, yi_, masks)
+            sim = _flag_expectation(Pr, yi_, masks) if flags_r is not None else None
             if sim:
+                flags = flags_r
+                out["label_expect_reference"] = {"without": sorted(sus_), "features": len(ref_feats)}
                 out["label_expect"] = {"observed": float(flags.mean()), "expected": sim["overall"][0], "expected_hi": sim["overall"][1],
-                                       "draws": sim["draws"],
-                                       "rule": "cleanlab on labels drawn from the served model's own holdout probabilities (clean by "
-                                               f"construction), {sim['draws']} draws: the flag rate clean labels get at this hardness"}
-                for s_, m_, (e_mean, e_hi) in zip(segs, masks, sim["segments"]):
+                                       "draws": sim["draws"], "without": sorted(sus_),
+                                       "rule": "the quick model without the columns of an open leak question"
+                                               + (f" ({', '.join(sorted(sus_))})" if sus_ else "") + "; cleanlab on its holdout "
+                                               f"probabilities with the recorded labels, against labels drawn from those probabilities (clean "
+                                               f"by construction, the same hardness), {sim['draws']} draws"}
+                # the table-wide ratio (observed / clean) calibrates the reference: a segment is a label question only
+                # when it beats that ratio too, by z ≥ 2 (sd from the clean draws, floored at the binomial sd); the
+                # strongest such segment is the one to review
+                r_ = float(flags.mean()) / max(sim["overall"][0], 1e-9)
+                best_ = None
+                for s_, m_, (e_mean, e_hi), sd_ in zip(segs, masks, sim["segments"], sim["sd"]):
+                    n_ = int(m_.sum())
                     fi_, fo_ = float(flags[m_].mean()), float(flags[~m_].mean()) if (~m_).sum() else 0.0
                     k_ = int(flags[m_].sum())
-                    if k_ >= 10 and fi_ > e_hi and (fi_ - e_mean) * m_.sum() >= 10:
-                        s_["label_review"] = {"flagged": k_, "rate_inside": fi_, "rate_outside": fo_, "expected_rate": e_mean,
-                                              "expected_hi": e_hi, "errors_flagged": int((flags[m_] & (err[m_] == 1)).sum()),
-                                              "n": int(m_.sum())}
+                    adj = min(0.99, r_ * e_mean)
+                    sd_rate = max(sd_, (adj * (1 - adj) / max(n_, 1)) ** 0.5 * 0.5)
+                    z_ = (fi_ - adj) / sd_rate if sd_rate > 0 else 0.0
+                    s_["label_check"] = {"rate_inside": fi_, "expected_rate": e_mean, "adjusted_expected": adj, "z": z_}
+                    if s_["column"] in sus_:  # a segment of a suspect column is the leak question, not a label question
+                        continue
+                    if k_ >= 10 and fi_ > e_hi and (fi_ - adj) * n_ >= 10 and z_ >= LABEL_Z and (best_ is None or z_ > best_[1]):
+                        best_ = (s_, z_, {"flagged": k_, "rate_inside": fi_, "rate_outside": fo_, "expected_rate": adj,
+                                          "expected_hi": min(0.99, r_ * e_hi), "z": z_, "table_ratio": r_,
+                                          "errors_flagged": int((flags[m_] & (err[m_] == 1)).sum()), "n": n_})
+                if best_:
+                    best_[0]["label_review"] = best_[2]
         out["concentration"] = {"segments": segs, "overall_rate": float(err.mean()), "min_n": min_n,
                                 "missing_in_errors": missingness(Xh, err, feats),
                                 "rule": f"error rate by bin (quintiles of numbers, levels of categories, missing as its own bin; "

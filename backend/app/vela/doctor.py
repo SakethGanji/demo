@@ -982,6 +982,12 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
         rx = {"kind": "info", "title": "Look For The Column That Gives It Away",
               "why": "The error is below the look-alike estimate: check the top features for columns filled in after the "
                      "outcome, and the split for shared entities."}
+    only_overlap = ov_hit and not sus and not contra
+    if only_overlap and sev == "minor":  # F-A2: a small overlap that does not move the score is not a leak question
+        ev["overlap_only"] = True
+        c_ = _check("leakage", "finding", txt, ev, sev, rx, source="overlap")
+        c_["title"] = "Train–holdout overlap"
+        return c_
     return _check("leakage", "finding", txt, ev, sev, rx,
                   formula="s_j = I_j / Σ_k max(I_k, 0) ≥ 0.5,  s_j ≥ 3·s_(2);  AUC_j ≥ 0.97;  open D1 suspect with s_j ≥ 0.10;  "
                           f"unanswered s_(1) ≥ {CONC_TOP1} or s_(1) + s_(2) ≥ {CONC_TOP2} (s_(2) ≥ {CONC_SECOND});  "
@@ -1232,7 +1238,7 @@ def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[di
     conds["not_concentrated"] = {"ok": not (ws.get("status") == "finding" and ws.get("severity") == "major"),
                                  "weak_slice": ws.get("status")}
     lk = by.get("leakage") or {}
-    if lk.get("status") == "finding":
+    if lk.get("status") == "finding" and not (lk.get("evidence") or {}).get("overlap_only"):
         return _check("ceiling", "clear", "A leak question is open: the data's limit is read only after it is answered (and on the "
                       "ablation run if the column is not known at decision time).", {"conditions": conds}, source="D3")
     opens = (lk.get("evidence") or {}).get("open_suspects") or []
@@ -1308,7 +1314,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     served = g.get("served") or {}
     tw = g.get("twins")
     lk = next((c for c in checks if c["id"] == "leakage"), None)
-    lk_open = bool(lk and lk["status"] == "finding")
+    lk_open = bool(lk and lk["status"] == "finding" and not (lk.get("evidence") or {}).get("overlap_only"))
     lev = (lk or {}).get("evidence") or {}
     # A2 C1: columns with an open leak question are never the subject of a data request ("collect a finer X")
     unanswered = ({x["feature"] for x in lev.get("suspects") or [] if x.get("feature")} | set(lev.get("open_suspects") or [])
@@ -1351,9 +1357,10 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
             gaps.append({"id": f"labels:{s['column']}={s['value']}", "kind": "label_review", "title": f"Wrong labels or missing information? {s['label']}",
                          "finding": f + f" cleanlab flags {_pct(lr['rate_inside'])} of the labels in this group vs {_pct(lr['rate_outside'])} "
                                         f"elsewhere ({lr['flagged']:,} holdout rows)"
-                                        + (f", more than labels drawn from the model's own probabilities would give here ({_pct(lr['expected_rate'])}, "
-                                           f"95 % up to {_pct(lr['expected_hi'])}): the model is surer of these rows than their labels agree with"
-                                           if lr.get("expected_rate") is not None else "")
+                                        + (f", more than labels drawn from a reference model's own probabilities would give here "
+                                           f"({_pct(lr['expected_rate'])} after the table-wide calibration, z = {lr['z']:.1f}): these labels "
+                                           "disagree with the rest of the table more than the cases' hardness explains"
+                                           if lr.get("z") is not None else "")
                                         + ". Two explanations fit: the outcome is recorded wrongly here (a process, a form, a team), or the "
                                           "table lacks what separates these cases. A sample of reviewed labels tells them apart.",
                          "request": f"First review a sample of the {lr['flagged']:,} flagged labels where {s['label']} (Doctor → Labels): "
