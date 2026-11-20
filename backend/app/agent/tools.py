@@ -327,6 +327,53 @@ async def model_doctor(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
             "patchable": [c["id"] for c in [d.get("primary"), *(d.get("secondary") or [])] if c and (c.get("prescription") or {}).get("kind") == "gym_patch"]}
 
 
+def review_digest(rv: dict[str, Any]) -> dict[str, Any]:
+    p = rv.get("plan") or {}
+    return {"review_id": rv["id"], "run_id": rv["run_id"], "status": rv["status"], "mode": rv.get("mode"), "decider": rv.get("decider"),
+            "progress": rv.get("progress"), "stop_reason": rv.get("stop_reason"),
+            "journal": [{"step": e["step"], "hypothesis": e["hypothesis"]["title"], "kind": e["experiment"]["kind"],
+                         "run_id": e.get("run_id"), "verdict": e.get("verdict") or e.get("status"),
+                         "result": e.get("result") and {k: _r(e["result"].get(k)) for k in ("metric", "parent", "child", "delta", "ci")}}
+                        for e in rv.get("journal") or []],
+            "plan": p and {"summary": p.get("summary"), "next": [{"kind": x["kind"], "title": x["title"], "why": x["why"]} for x in p.get("next") or []][:8],
+                           "best_run": p.get("best_run")},
+            "domain_gaps": rv.get("domain_gaps"), "guard": rv.get("guard")}
+
+
+async def review_run(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    """D4: start the review loop (or follow the one running) and wait for it within the time left."""
+    rid = a["run_id"]
+    cur = (await call(ctx, "GET", f"/api/runs/{rid}/review")).get("reviews") or []
+    live = next((r for r in cur if r["status"] in ("queued", "running")), None)
+    if live:
+        rv_id = live["id"]
+    else:
+        out = await call(ctx, "POST", f"/api/runs/{rid}/review", body={"by": ctx.actor, **{k: a[k] for k in ("max_experiments", "max_minutes") if a.get(k)}})
+        rv_id = out["id"]
+    t0 = time.monotonic()
+    wait = min(float(a.get("max_wait_seconds") or 1500), ctx.left())
+    while True:
+        rv = await call(ctx, "GET", f"/api/runs/{rid}/review/{rv_id}")
+        el = time.monotonic() - t0
+        if rv["status"] not in ("queued", "running"):
+            return {**review_digest(rv), "waited_seconds": round(el, 1)}
+        if el >= wait or ctx.stop():
+            return {**review_digest(rv), "waited_seconds": round(el, 1), "note": "still running; call read_review later"}
+        ctx.progress(f"review {rv_id}: {rv.get('progress') or rv['status']} · {el:.0f} s")
+        await asyncio.sleep(5)
+
+
+async def read_review(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    rid = a["run_id"]
+    rv_id = a.get("review_id")
+    if not rv_id:
+        cur = (await call(ctx, "GET", f"/api/runs/{rid}/review")).get("reviews") or []
+        if not cur:
+            raise ToolError(f"Run {rid} has no review yet; call review_run.")
+        rv_id = cur[0]["id"]
+    return review_digest(await call(ctx, "GET", f"/api/runs/{rid}/review/{rv_id}"))
+
+
 async def _patch_for(ctx: Ctx, run_id: str, finding: str | None) -> tuple[dict[str, Any], str]:
     d = await call(ctx, "GET", f"/api/runs/{run_id}/doctor")
     for c in [d.get("primary"), *(d.get("secondary") or [])]:
@@ -590,6 +637,15 @@ TOOLS: list[Tool] = [
     Tool("explain_run", "Explain a run: ROC AUC, confusion matrix, top features.", {"run_id": RUN}, ["run_id"], READ, explain_run, _run_link, "diagnose"),
     Tool("model_doctor", "F17 Model Doctor: the primary limiting factor and secondary ones, each with a prescription.",
          {"run_id": RUN}, ["run_id"], READ, model_doctor, lambda a, r: f"#/models?run={a['run_id']}&tab=Doctor", "diagnose"),
+    Tool("review_run", "D4 review this run: Claude proposes hypotheses, each proved or rejected by a typed experiment (ablate, "
+         "Data Doctor fix, Feature Lab, clean labels, budget, preset, cost ratio, simpler rung, segment, monotone) on the same "
+         "holdout; returns the journal (Δ with CI, kept/rejected) and the improvement plan. Trains child runs.",
+         {"run_id": RUN, "max_experiments": S("integer", minimum=1, maximum=8), "max_minutes": S("number", minimum=5, maximum=240),
+          "max_wait_seconds": S("number", minimum=10, maximum=3600)}, ["run_id"], WRITE, review_run,
+         lambda a, r: f"#/models?run={a['run_id']}&tab=Doctor&review=1", "diagnose"),
+    Tool("read_review", "Read a run's latest (or a given) review: journal, improvement plan, domain gaps.",
+         {"run_id": RUN, "review_id": S("string")}, ["run_id"], READ, read_review,
+         lambda a, r: f"#/models?run={a['run_id']}&tab=Doctor&review=1", "diagnose"),
     Tool("preview_gym_patch", "Show the Gym patch the doctor (or a Vela finding) prescribes and validate it, without training.",
          {"run_id": RUN, "finding_id": S("string")}, ["run_id"], READ, preview_gym_patch, group="diagnose"),
     Tool("apply_gym_patch", "Apply the doctor's (or a Vela finding's) Gym patch: retrain a child run with lineage to the parent.",
@@ -668,6 +724,7 @@ HTTP = {
     "start_run": "POST /api/gym/validate → POST /api/runs", "watch_run": "GET /api/runs/{run_id} (polled)",
     "get_results": "GET /api/runs/{run_id}", "list_runs": "GET /api/runs", "compare_runs": "GET /api/runs/{base_run_id}, /api/runs/{other_run_id}",
     "explain_run": "GET /api/runs/{run_id}/explain, /feature-importance", "model_doctor": "GET /api/runs/{run_id}/doctor",
+    "review_run": "POST /api/runs/{run_id}/review, GET /api/runs/{run_id}/review/{id}", "read_review": "GET /api/runs/{run_id}/review/{id}",
     "preview_gym_patch": "GET /api/runs/{run_id}/doctor → POST /api/gym/validate",
     "apply_gym_patch": "GET /api/runs/{run_id}/doctor → POST /api/gym/validate → POST /api/runs (parent_run_id {run_id})",
     "gym_validate": "POST /api/gym/validate", "split_twin": "POST /api/runs/{run_id}/split-twin",
