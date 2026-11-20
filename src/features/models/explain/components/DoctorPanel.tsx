@@ -276,9 +276,11 @@ function WhatsMissing({ m }: { m: MissingInfo }) {
         <button className="btn sm primary" onClick={copy} disabled={!m.gaps.length} data-testid="missing-copy">{copied ? 'Copied ✓' : 'Copy The Data Requests'}</button></div>
       <div className="card-body stack" style={{ gap: 10 }}>
         {m.caveat && <p className="helper" role="note" style={{ margin: 0, fontSize: 12.5, color: 'var(--status-warning, #a15c00)' }} data-testid="missing-caveat">▲ {m.caveat}</p>}
-        {ir && <p className="helper" style={{ margin: 0, fontSize: 12.5 }} data-testid="missing-irreducible"><span className="micro-label">error no model can avoid with these columns</span> about <b className="mono">{ir.lower.toFixed(3)}</b> to <b className="mono">{ir.r_nn.toFixed(3)}</b> <span className="muted">(from how often look-alike rows disagree; 95 % CI [{ir.r_nn_ci[0].toFixed(3)}, {ir.r_nn_ci[1].toFixed(3)}]; approximate)</span> against a model error of <b className="mono">{ir.model_error.toFixed(3)}</b>{ir.explained != null && (ir.explained < 0.95
+        {ir && <p className="helper" style={{ margin: 0, fontSize: 12.5 }} data-testid="missing-irreducible"><span className="micro-label">error no model can avoid with these columns</span> about <b className="mono">{ir.lower.toFixed(3)}</b> to <b className="mono">{ir.r_nn.toFixed(3)}</b> <span className="muted">(from how often look-alike rows disagree; 95 % CI [{ir.r_nn_ci[0].toFixed(3)}, {ir.r_nn_ci[1].toFixed(3)}]; approximate)</span> against a model error of <b className="mono">{ir.model_error.toFixed(3)}</b>{m.caveat
+          ? <>: not read as the data's limit while the leak question above is open (the columns include the suspects)</>
+          : ir.explained != null && (ir.model_error >= ir.lower && ir.explained < 0.95
           ? <>: roughly <b>{pc(ir.explained)}</b> or more of the error is beyond these columns</>
-          : <>: the model is at or below this bound, so either the bound is loose here or the model reads something look-alikes cannot see (a leak, an ID, rows shared with training): see Leakage</>)}.</p>}
+          : <>: the model errs less than this estimate, so here it is not a lower bound (it runs high with many columns), or the model reads something look-alikes cannot see (a leak, an ID, rows shared with training): see Leakage</>)}.</p>}
         {m.gaps.length ? <table className="table compact"><thead><tr><th className="r">#</th><th>gap</th><th>what the data shows → what to request</th><th className="r">potential gain</th></tr></thead>
           <tbody>{m.gaps.map((g) => <tr key={g.id} data-testid={`gap-${g.kind}`}>
             <td className="r mono">{g.rank}</td><td style={{ minWidth: 170 }}><b>{g.title}</b></td>
