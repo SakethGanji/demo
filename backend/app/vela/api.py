@@ -285,7 +285,7 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments
 
 
-GAPS_PROCEDURE = "missing/10"  # A2 (F-A2): the label-review expectation and the overlap rule changed
+GAPS_PROCEDURE = "missing/13"  # A2 (F-A2): the label-review expectation and the overlap rule changed
 
 
 def _gaps_job(cfg, rec, hints):
@@ -355,8 +355,15 @@ async def _d3_inputs(request: Request, rec: dict[str, Any], opts: dict[str, Any]
     else:
         dc = ((cfg.get("split") or {}).get("time_column") or (cfg.get("split_spec") or {}).get("time_column")
               or next((d["column"] for d in (opts or {}).get("date_columns") or []), None))
+        try:  # F-A2: unanswered Data Doctor suspects, left out of the label check's reference model
+            from ..data_doctor_api import answers as _ans, suspects as _sus
+
+            kn = {c for c, v in (_ans(request.app.state.datasets, rec["dataset_id"]).get("known") or {}).items() if v is True}
+            sus_h = [x["column"] for x in (_sus(request.app.state.datasets, rec["dataset_id"]) or []) if x.get("column") not in kn]
+        except Exception:  # noqa: BLE001
+            sus_h = []
         try:
-            gaps = await request.app.state.heavy.run(_gaps_job, cfg, rec, {"date_column": dc})
+            gaps = await request.app.state.heavy.run(_gaps_job, cfg, rec, {"date_column": dc, "suspects": sus_h})
         except Exception as e:  # noqa: BLE001 — the doctor diagnoses without the gap analysis rather than fail
             gaps = {"errors": [f"gap analysis: {type(e).__name__}: {e}"[:300]]}
         store.merge_result(rec["id"], doctor_gaps={"key": key, "data": gaps})

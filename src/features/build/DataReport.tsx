@@ -165,7 +165,7 @@ function Finding({ f, on, toggle }: { f: DataFinding; on: boolean; toggle: () =>
       <div className="dr-body">
         {f.fix.text && <p className="dr-fixtext"><b>Fix · </b>{f.fix.text}{f.fix.transforms.length > 0 && <span className="mono muted"> {f.fix.transforms.slice(0, 4).map(fixWords).join(' · ')}{f.fix.transforms.length > 4 ? ` · +${f.fix.transforms.length - 4}` : ''}</span>}</p>}
         {f.preview && f.preview.rows.length > 0 && <div className="table-wrap dr-ev" data-testid={`dr-preview-${f.id}`}>
-          <p className="helper" style={{ margin: '0 0 4px', fontSize: 12 }}><b>Preview before Apply</b>: {f.preview.rows_rescaled.toLocaleString()} {f.preview.column} values change; {f.preview.rows_left.toLocaleString()} from that date already on the old scale stay.</p>
+          <p className="helper" style={{ margin: '0 0 4px', fontSize: 12 }}><b>Preview before Apply</b>: {f.preview.rows_rescaled.toLocaleString()} {f.preview.column} values change (every row from the change date); the last rows before it and the first rows from it:</p>
           <table className="table"><thead><tr><th>row</th><th>date</th><th>{f.preview.column} now</th><th>after the fix</th><th /></tr></thead>
           <tbody>{f.preview.rows.map((p) => <tr key={p.row}><td className="mono">{p.row}</td><td className="mono">{p.date}</td><td className="mono">{String(p.before)}</td><td className="mono">{String(p.after)}</td><td className="muted">{p.changed ? 'rescaled' : 'unchanged'}</td></tr>)}</tbody></table></div>}
         <p className="dr-rule"><span className="micro-label">Rule</span> {f.rule}</p>

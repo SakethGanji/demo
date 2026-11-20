@@ -584,7 +584,7 @@ def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
         return []
     share = n_dup / max(cx.n, 1)
     share_all = (n_dup + n_near) / max(cx.n, 1)
-    sev = "medium" if share_all >= 0.02 else "low"
+    sev = "medium" if share >= 0.02 or n_near / max(cx.n, 1) >= 0.05 else "low"
     first_dup = dup | near
     title = (f"{n_dup:,} exact duplicate rows ({share:.1%})" + (f" and {n_near:,} near-duplicates (identical but for one column)" if n_near else "")) if n_dup \
         else f"{n_near:,} near-duplicate rows ({n_near / max(cx.n, 1):.1%}): identical to another row but for one column"
@@ -592,7 +592,7 @@ def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
     return [_finding("duplicates", sev, title,
                      {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near,
                       "near-duplicates checked": nm is not None},
-                     "Medium when exact and near-duplicates together are ≥ 2 % of rows. Exact: the same values in every column except row keys "
+                     "Medium when exact duplicates are ≥ 2 % of rows or near-duplicates ≥ 5 % (one changed field also happens by chance in tables of few, coarse columns). Exact: the same values in every column except row keys "
                      "(columns unique per row). Near: identical to an earlier row on every feature but one, numbers to 3 "
                      "significant digits and text trimmed and lower-cased (the Model Doctor's train–holdout overlap rule; "
                      f"checked up to {NEAR_MAX_ROWS:,} rows and {NEAR_MAX_COLS} columns). A re-submitted application with one "
@@ -846,7 +846,8 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
         return []
     order = np.argsort(t[ok].to_numpy(), kind="stable")
     rows = np.flatnonzero(ok)[order]
-    bins = np.array_split(rows, 12)
+    nbins = 24 if ok.sum() >= 24 * 500 else 12  # F-A2: a change in the last ~1/12 of a large table still gets two bins
+    bins = np.array_split(rows, nbins)
     items = []
     for c in cx.model_features():
         x = cx.df[c]
@@ -861,9 +862,9 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
         if np.isnan(med).any() or (med <= 0).any():
             continue
         best = None
-        for k in range(2, 11):  # at least two bins on each side; the bin holding the change may be mixed (skip it)
+        for k in range(2, nbins - 1):  # at least two bins on each side; the bin holding the change may be mixed (skip it)
             for gap in (0, 1):
-                if k + gap > 10:
+                if k + gap > nbins - 2:
                     continue
                 left, right = med[:k], med[k + gap:]
                 a_, b_ = np.median(left), np.median(right)
@@ -899,19 +900,30 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
         cut = pd.Timestamp(best_cut) if pd.api.types.is_datetime64_any_dtype(t) else best_cut
         near = min(UNIT_FACTORS, key=lambda f: abs(np.log(best["factor"] / f)))
         known = abs(np.log(best["factor"] / near)) <= np.log(1.25)
+        # F-A2: medians of a shifted mix (April's purchases are smaller) can put a × 100 change at × 60: within a factor 2
+        # of a power-of-ten unit it is reported as the probable unit, never silently
+        probable = not known and near in (100, 1000, 0.01, 0.001) and abs(np.log(best["factor"] / near)) <= np.log(2.0)
         after = (t >= cut).to_numpy() & ok
         xa = pd.to_numeric(x, errors="coerce").abs().to_numpy(dtype=float)
         hv = np.isfinite(xa) & (xa > 0)
+        # every row dated from the cut is rescaled: a per-row "which scale is it on" test misreads wide columns (a 691 m²
+        # house looks like ft², a £1 payment in pence like pounds), so it only counts rows that look off-scale
         on_after_scale = hv & (np.abs(np.log(np.where(hv, xa, 1) / m_after)) < np.abs(np.log(np.where(hv, xa, 1) / m_before)))
-        changed = after & on_after_scale
+        changed = after & hv
         left = after & hv & ~on_after_scale
-        rf = round(1 / near, 6) if known else round(1 / best["factor"], 6)
-        prev_rows = np.concatenate([np.flatnonzero(changed)[:4], np.flatnonzero(left)[:2], np.flatnonzero(ok & ~after & hv)[-2:]])
+        rf = round(1 / near, 6) if known or probable else round(1 / best["factor"], 6)
+        first_after = np.flatnonzero(changed)
+        first_after = first_after[np.argsort(t.iloc[first_after].to_numpy(), kind="stable")][:3]
+        last_before = np.flatnonzero(ok & ~after & hv)
+        last_before = last_before[np.argsort(t.iloc[last_before].to_numpy(), kind="stable")][-3:]
+        prev_rows = np.concatenate([last_before, first_after])
         preview = [{"row": int(r), "date": str(cx.df[date].iloc[r]), "before": _jsonable(x.iloc[r]),
                     "after": _jsonable(round(float(x.iloc[r]) * rf, 6)) if changed[r] else _jsonable(x.iloc[r]),
                     "changed": bool(changed[r])} for r in prev_rows]
         items.append({"column": c, "from": str(cut)[:10], "factor": round(best["factor"], 4),
-                      "unit": UNIT_FACTORS[near] if known else None, "rows_after": int(after.sum()),
+                      "unit": UNIT_FACTORS[near] if known else (f"probably {UNIT_FACTORS[near]}: the medians moved × {best['factor']:.3g}, "
+                                                                "the nearest unit is used; confirm it" if probable else None),
+                      "rows_after": int(after.sum()),
                       "rows_rescaled": int(changed.sum()), "rows_left": int(left.sum()), "misplaced": int(best_err or 0),
                       "median_before": round(m_before, 4), "median_after": round(m_after, 4),
                       "rescale": rf, "preview": preview, "_mask": after})
@@ -927,19 +939,18 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
     return [_finding("unit_change", "medium", f"The scale changes over time: {desc}",
                      {"columns": len(items), "rows after the change": it["rows_after"], "factor": it["factor"],
                       f"median {it['column']} before": it["median_before"], f"median {it['column']} after": it["median_after"]},
-                     f"Rows ordered by {date} and cut into 12 equal bins; the median of each number column's non-zero values per "
+                     f"Rows ordered by {date} and cut into 12 equal bins (24 from 12,000 dated rows); the median of each number column's non-zero values per "
                      "bin. A unit change: the medians after one cut differ from those before by a factor ≥ 3 (or ≤ 1/3), every "
                      "bin on each side stays within a factor 2 of its side, and the jump is at least twice that spread (in logs); the "
                      "bin holding the change may be mixed. A model trained across the change mixes two units.",
                      _rows(cx.df, mask, [date] + cols[:4] + ([cx.target] if cx.target else [])),
                      _fix("transform", "Ask the data owner which unit each period uses; if the factor is a unit change, rescale the "
-                                       f"later rows back (the fix below does that and keeps a flag). It changes {it['rows_rescaled']:,} "
-                                       f"{it['column']} values: rows dated on or after {it['from']} whose value is on the new scale "
-                                       f"(nearer {it['median_after']:,.6g} than {it['median_before']:,.6g}); "
-                                       f"{it['rows_left']:,} rows from that date already on the old scale are left as they are. "
+                                       f"later rows back (the fix below does that and keeps a flag). It changes the {it['rows_rescaled']:,} "
+                                       f"{it['column']} values dated on or after {it['from']}, the first date from which the new scale "
+                                       f"holds (median {it['median_before']:,.6g} before, {it['median_after']:,.6g} after); "
+                                       f"{it['rows_left']:,} of them look like the old scale on their own (wide columns overlap). "
                                        f"Before → after: {prev}.",
-                          [{"op": "rescale", "column": i["column"], "date_column": date, "from": i["from"], "factor": i["rescale"],
-                            "scale": {"before": i["median_before"], "after": i["median_after"]}}
+                          [{"op": "rescale", "column": i["column"], "date_column": date, "from": i["from"], "factor": i["rescale"]}
                            for i in items], selected=False),
                      columns=cols) | {"items": items, "preview": {"column": it["column"], "rows": it["preview"],
                                                                   "rows_rescaled": it["rows_rescaled"], "rows_left": it["rows_left"]}}]
