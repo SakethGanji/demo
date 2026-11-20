@@ -193,7 +193,9 @@ def _bins(s: pd.Series) -> tuple[pd.Series, str]:
         try:
             b = pd.qcut(s, 5, duplicates="drop")
             lab = b.astype(str).where(s.notna(), "missing")
-            lab = lab.map(lambda v: v if v == "missing" else _interval(v))
+            nn = s.dropna()
+            year = bool(len(nn) and (nn % 1 == 0).all() and nn.between(1800, 2100).all())  # A2 m7: years, no separators
+            lab = lab.map(lambda v: v if v == "missing" else _interval(v, year))
             return lab, "number"
         except Exception:  # noqa: BLE001
             pass
@@ -202,9 +204,11 @@ def _bins(s: pd.Series) -> tuple[pd.Series, str]:
     return v.where(v.isin(top), "other"), "level"
 
 
-def _interval(v: str) -> str:
+def _interval(v: str, year: bool = False) -> str:
     try:
         lo, hi = v.strip("(]").split(",")
+        if year:
+            return f"{float(lo):.0f} – {float(hi):.0f}"
         return f"{_fmt(float(lo))} – {_fmt(float(hi))}"
     except Exception:  # noqa: BLE001
         return v
@@ -268,6 +272,34 @@ def missingness(Xh: pd.DataFrame, err: np.ndarray, feats: list[str], inside: np.
             out.append({"column": c, "missing_in_errors": a, "missing_elsewhere": b, "n_errors": n1, "z": z})
     out.sort(key=lambda o: -(o["missing_in_errors"] - o["missing_elsewhere"]))
     return out[:5]
+
+
+def _flag_expectation(P: np.ndarray, yi: np.ndarray, masks: list[np.ndarray], draws: int | None = None, seed: int = 5
+                      ) -> dict[str, Any] | None:
+    """A2 M3: cleanlab's flag rate on labels drawn from the model's own probabilities (clean labels at the same
+    hardness), overall and in each mask: (mean, 97.5 % point) over `draws` draws."""
+    from cleanlab.filter import find_label_issues
+
+    n, k = P.shape
+    draws = draws or (30 if n <= 20_000 else 12)
+    rng = np.random.default_rng(seed)
+    cum = np.cumsum(np.clip(P, 0, None) / np.clip(P.sum(1, keepdims=True), 1e-12, None), 1)
+    tot, seg = [], [[] for _ in masks]
+    for _ in range(draws):
+        ys = (rng.random((n, 1)) > cum).sum(1).clip(0, k - 1)
+        if len(np.unique(ys)) < k:
+            continue
+        try:
+            f = find_label_issues(ys, P, filter_by="prune_by_noise_rate", n_jobs=1)
+        except Exception:  # noqa: BLE001
+            continue
+        tot.append(float(f.mean()))
+        for j, m in enumerate(masks):
+            seg[j].append(float(f[m].mean()) if m.sum() else 0.0)
+    if len(tot) < 5:
+        return None
+    q = lambda v: (float(np.mean(v)), float(np.quantile(v, 0.975)))  # noqa: E731
+    return {"overall": q(tot), "segments": [q(v) for v in seg], "draws": len(tot)}
 
 
 # --------------------------------------------------------------------------- twins (Cover–Hart)
@@ -516,13 +548,26 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                     s["top_features"] = [feats[k] for k in np.argsort(-cc)[:3] if feats[k] != s["column"]][:2]
                 except Exception:  # noqa: BLE001
                     pass
-            if flags is not None and m.sum() and (~m).sum():
-                # cleanlab flags follow errors; where errors concentrate AND flags concentrate, wrong labels are one of the
-                # two explanations (the other: information the table lacks). The data alone cannot tell them apart.
-                fi_, fo_ = float(flags[m].mean()), float(flags[~m].mean())
-                if flags[m].sum() >= 10 and fi_ >= 1.5 * max(fo_, 1e-9):
-                    s["label_review"] = {"flagged": int(flags[m].sum()), "rate_inside": fi_, "rate_outside": fo_,
-                                         "errors_flagged": int((flags[m] & (err[m] == 1)).sum()), "n": int(m.sum())}
+        # A2 M3: cleanlab flags follow errors, and errors concentrate where cases are hard, so "more flags here" alone says
+        # nothing about the labels. The comparison is with labels drawn from the model's own probabilities (clean by
+        # construction, the same hardness): a segment is a label question only when cleanlab flags more of its labels
+        # than such clean labels would get (above the 97.5 % point of R draws), in excess of 10 rows.
+        if flags is not None and P is not None:
+            yi_ = pd.Series(hp["y_true"].astype(str)).map({c[2:]: i for i, c in enumerate(pcols)}).to_numpy().astype(int)
+            masks = [(binned[s_["column"]][0] == s_["value"]).to_numpy() for s_ in segs]
+            sim = _flag_expectation(P, yi_, masks)
+            if sim:
+                out["label_expect"] = {"observed": float(flags.mean()), "expected": sim["overall"][0], "expected_hi": sim["overall"][1],
+                                       "draws": sim["draws"],
+                                       "rule": "cleanlab on labels drawn from the served model's own holdout probabilities (clean by "
+                                               f"construction), {sim['draws']} draws: the flag rate clean labels get at this hardness"}
+                for s_, m_, (e_mean, e_hi) in zip(segs, masks, sim["segments"]):
+                    fi_, fo_ = float(flags[m_].mean()), float(flags[~m_].mean()) if (~m_).sum() else 0.0
+                    k_ = int(flags[m_].sum())
+                    if k_ >= 10 and fi_ > e_hi and (fi_ - e_mean) * m_.sum() >= 10:
+                        s_["label_review"] = {"flagged": k_, "rate_inside": fi_, "rate_outside": fo_, "expected_rate": e_mean,
+                                              "expected_hi": e_hi, "errors_flagged": int((flags[m_] & (err[m_] == 1)).sum()),
+                                              "n": int(m_.sum())}
         out["concentration"] = {"segments": segs, "overall_rate": float(err.mean()), "min_n": min_n,
                                 "missing_in_errors": missingness(Xh, err, feats),
                                 "rule": f"error rate by bin (quintiles of numbers, levels of categories, missing as its own bin; "

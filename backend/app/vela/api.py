@@ -102,6 +102,8 @@ def _twin_se_job(recs):
 
 def _doctor_summary(d: dict[str, Any]) -> dict[str, Any]:
     """The small summary on the run payload (`doctor`), for lists, Autopilot and Vela's layer 2."""
+    from . import doctor as D
+
     def one(c):
         rx = c.get("prescription") or {}
         return {"id": c["id"], "title": c["title"], "severity": c["severity"], "reason": c["reason"],
@@ -109,7 +111,8 @@ def _doctor_summary(d: dict[str, Any]) -> dict[str, Any]:
     return {"schema": d["schema"], "computed_at": d["computed_at"], "latency_budget_ms": d["inputs"]["latency_budget_ms"],
             "primary": one(d["primary"]) if d["primary"] else None, "secondary": [one(c) for c in d["secondary"]],
             "missing": [c["id"] for c in d["checks"] if c["status"] == "missing"],
-            "no_evidence": [c["id"] for c in d["checks"] if c["status"] == "no-evidence"], "headline": d["headline"]}
+            "no_evidence": [c["id"] for c in d["checks"] if c["status"] == "no-evidence"], "headline": d["headline"],
+            "open_critical": D.critical_questions(d)}
 
 
 async def run_doctor(request: Request, run_id: str, latency_ms: float | None = None, measure_latency: bool = False,
@@ -124,6 +127,10 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; the doctor reads finished runs.")
     if cfg.get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or cfg.get("import"):
         raise HTTPException(400, "The Model Doctor reads trained tabular runs (not forecast, anomaly or imported runs).")
+    fp = await run_in_threadpool(_diagnosis_fp, request, rec, latency_ms, measure_latency, served_p95_ms)
+    hit = ((rec.get("result") or {}).get("doctor_cache") or {})
+    if fp and hit.get("key") == fp and hit.get("data"):  # A2 m8: nothing the diagnosis reads has changed
+        return {**hit["data"], "cache": {"hit": True, "key": fp, "computed_at": hit["data"].get("computed_at")}}
     rec, vela = await compute_findings(request, run_id)
     res = rec.get("result") or {}
     key = await run_in_threadpool(D.cache_key, rec)
@@ -190,8 +197,40 @@ async def run_doctor(request: Request, run_id: str, latency_ms: float | None = N
            "base": run_body(rec), "gaps": gaps, "experiments": exps, "feature_lab": fl, "known": known}
     d = await run_in_threadpool(D.diagnose, ctx)
     d["next"] = await run_in_threadpool(_next_steps, request, rec)
-    store.merge_result(run_id, doctor=_doctor_summary(d))
-    return d
+    store.merge_result(run_id, doctor=_doctor_summary(d), **({"doctor_cache": {"key": fp, "data": d}} if fp else {}))
+    return {**d, "cache": {"hit": False, "key": fp}}
+
+
+VOLATILE = ("doctor", "doctor_measured", "doctor_gaps", "doctor_cache", "vela_wording")
+
+
+def _diagnosis_fp(request: Request, rec: dict[str, Any], latency_ms, measure_latency, served_p95_ms) -> str | None:
+    """A2 m8: a fingerprint of everything the diagnosis reads that can change after the fit: the run's result (minus the
+    Doctor's own caches), its experiments and their states, the decision-time answers, the reviews, the registry
+    batches of its versions, the runs of the same dataset (split twins) and the request's latency arguments. The same
+    fingerprint → the stored diagnosis is returned as is."""
+    from ..data_doctor_api import answers
+    from . import experiments as X
+    from . import review as R
+
+    try:
+        store = request.app.state.runs
+        res = {k: v for k, v in (rec.get("result") or {}).items() if k not in VOLATILE}
+        exps = [(e.get("run_id"), e.get("kind"), e.get("status"), json.dumps(e.get("spec"), sort_keys=True, default=str))
+                for e in X.list_for(store, rec)]
+        reg = request.app.state.registry
+        vers = [(v["id"], v.get("status"), v.get("stage"), [(b["id"], b.get("status"), bool(((b.get("result") or {}).get("labels") or {}).get("n_joined")))
+                                                           for b in reg.list_batches(v["id"])])
+                for v in reg.list_versions() if v.get("run_id") == rec["id"]]
+        sibs = [(r["id"], r.get("status")) for r in store.list(dataset_id=rec["dataset_id"], status="succeeded")]
+        parts = [res, exps, answers(request.app.state.datasets, rec["dataset_id"]), [r["id"] for r in R.list_reviews(rec) if r["status"] == "done"][:1],
+                 vers, sibs, [latency_ms, measure_latency, served_p95_ms], GAPS_PROCEDURE, D_VERSION]
+        return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()[:20]
+    except Exception:  # noqa: BLE001 — no fingerprint, no cache
+        return None
+
+
+D_VERSION = "doctor-f-a2/1"  # bump when diagnose() changes, so stored diagnoses are recomputed
 
 
 def _next_steps(request: Request, rec: dict[str, Any]) -> list[dict[str, Any]]:
@@ -246,7 +285,7 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments
 
 
-GAPS_PROCEDURE = "missing/9"  # D5 + A1 (F-A1): the confusion rule and the gaps changed
+GAPS_PROCEDURE = "missing/10"  # A2 (F-A2): the label-review expectation and the overlap rule changed
 
 
 def _gaps_job(cfg, rec, hints):
