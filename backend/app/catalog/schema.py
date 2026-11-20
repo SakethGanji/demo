@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS champions (
     project_id    TEXT NOT NULL,
     version_id    TEXT NOT NULL,
     run_id        TEXT,
-    status        TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'superseded')),
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'superseded', 'withdrawn')),
     requested_by  TEXT NOT NULL,
     requested_at  TEXT NOT NULL,
     decided_by    TEXT,
@@ -96,6 +96,8 @@ BACKFILL_VERSION = "1"
 
 #: what the predictor state is while the predictor folder is on disk / gone
 PRESENT, SLIMMED, EVICTED = "present", "slimmed", "evicted"
+#: no predictor on disk and never evicted (queued, cancelled before fitting, failed)
+NONE = "none"
 
 
 def now() -> str:
@@ -112,6 +114,15 @@ def migrate(con: sqlite3.Connection) -> None:
                 con.execute(f"ALTER TABLE {table} ADD COLUMN {c} {typ}")
     for q in INDEXES:
         con.execute(q)
+    # F-P2: champions gained the 'withdrawn' status (a CHECK cannot be altered in SQLite: rebuild the table once)
+    sql = (con.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'champions'").fetchone() or [""])[0] or ""
+    if "withdrawn" not in sql:
+        con.execute("ALTER TABLE champions RENAME TO champions_old")
+        con.execute("DROP INDEX IF EXISTS ix_champions_project")
+        con.executescript(SCHEMA)
+        con.execute("INSERT INTO champions SELECT id, project_id, version_id, run_id, status, requested_by, requested_at, decided_by,"
+                    " decided_at, comment FROM champions_old")
+        con.execute("DROP TABLE champions_old")
 
 
 def project_id_for(root_dataset_id: str) -> str:
@@ -183,6 +194,21 @@ def ensure_project(con: sqlite3.Connection, root_id: str, name: str, created_at:
     con.execute("INSERT OR IGNORE INTO projects (id, name, root_dataset_id, created_at) VALUES (?, ?, ?, ?)",
                 (pid, name.replace(" (sample)", ""), root_id, created_at or now()))
     return pid
+
+
+def drop_if_phantom(con: sqlite3.Connection, pid: str) -> bool:
+    """Remove a system-made default project that holds nothing (no dataset, run, champion or annotation): what a SQL
+    refresh or a monitoring window left behind when its dataset became a version of another project's root."""
+    r = con.execute("SELECT created_by FROM projects WHERE id = ?", (pid,)).fetchone()
+    if not r or r[0] != "system":
+        return False
+    for q in ("SELECT 1 FROM datasets WHERE project_id = ?", "SELECT 1 FROM runs WHERE project_id = ?",
+              "SELECT 1 FROM champions WHERE project_id = ?",
+              "SELECT 1 FROM annotations WHERE target_kind = 'project' AND target_id = ? AND deleted_at IS NULL"):
+        if con.execute(q + " LIMIT 1", (pid,)).fetchone():
+            return False
+    con.execute("DELETE FROM projects WHERE id = ?", (pid,))
+    return True
 
 
 def backfill(con: sqlite3.Connection, data_dir: Path, *, force: bool = False) -> dict[str, Any]:
@@ -279,3 +305,76 @@ def backfill(con: sqlite3.Connection, data_dir: Path, *, force: bool = False) ->
     con.execute("INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('backfill', ?)", (BACKFILL_VERSION,))
     con.execute("INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('backfill_at', ?)", (now(),))
     return stats
+
+
+BACKFILL2_VERSION = "1"
+
+
+def backfill_fp2(con: sqlite3.Connection, data_dir: Path, *, force: bool = False) -> dict[str, Any]:
+    """F-P2, once per database (idempotent): remove the empty projects SQL refreshes and monitoring windows left; give
+    backfilled roots their op; 'none' (not present / evicted) for runs with no predictor folder and no tombstone; store
+    review_id / verdict on review branch edges (so the tree never globs reviews/ per edge); n_changes and op on
+    derived_from edges from lineage.json."""
+    done = con.execute("SELECT value FROM catalog_meta WHERE key = 'backfill_fp2'").fetchone()
+    if done and done[0] == BACKFILL2_VERSION and not force:
+        return {"skipped": True}
+    out = {"phantom_projects": 0, "root_ops": 0, "predictor_none": 0, "review_edges": 0, "derived_meta": 0}
+    for (pid,) in con.execute("SELECT id FROM projects WHERE created_by = 'system'").fetchall():
+        out["phantom_projects"] += int(drop_if_phantom(con, pid))
+    out["root_ops"] = con.execute("UPDATE datasets SET op = COALESCE(source, 'upload') WHERE parent_id IS NULL AND op IS NULL").rowcount
+    # predictor_state: evicted needs a tombstone; present needs the folder
+    for r in con.execute("SELECT id, predictor_state, json_extract(config, '$.predictor_path') AS pp,"
+                         " json_extract(config, '$.run_dir') AS rd FROM runs WHERE predictor_state IS NULL OR predictor_state IN ('present', 'evicted')").fetchall():
+        has = bool(r["pp"]) and Path(r["pp"]).exists()
+        tomb = bool(r["rd"]) and (Path(r["rd"]) / "EVICTED.json").exists()
+        new = PRESENT if has and r["predictor_state"] != EVICTED else (EVICTED if tomb else NONE) if not has else r["predictor_state"]
+        if new != r["predictor_state"]:
+            con.execute("UPDATE runs SET predictor_state = ? WHERE id = ?", (new, r["id"]))
+            out["predictor_none"] += int(new == NONE)
+    # review branches: the journal says which review ran each branch (and its verdict once the review is over)
+    run_dirs = {r[0]: r[1] for r in con.execute("SELECT id, json_extract(config, '$.run_dir') FROM runs")}
+    for rid, rd in run_dirs.items():
+        d = Path(rd or "/nonexistent") / "reviews"
+        if not rd or not d.exists():
+            continue
+        for p in d.glob("rv_*.json"):
+            try:
+                rv = json.loads(p.read_text())
+            except (OSError, ValueError):
+                continue
+            over = rv.get("status") in ("done", "stopped", "interrupted", "failed")
+            for j in rv.get("journal") or []:
+                if not j.get("run_id"):
+                    continue
+                e = con.execute("SELECT id, meta FROM lineage_edges WHERE src_kind = 'run' AND src_id = ? AND dst_kind = 'run'"
+                                " AND dst_id = ? AND relation = 'branched_from'", (rid, j["run_id"])).fetchone()
+                if not e:
+                    continue
+                m = json.loads(e["meta"]) if e["meta"] else {}
+                new_m = {**m, "review_id": m.get("review_id") or p.stem}
+                if over and j.get("verdict") and not m.get("verdict"):
+                    new_m.update(verdict=j.get("verdict"), hypothesis_id=(j.get("hypothesis") or {}).get("id"), step=j.get("step"),
+                                 hypothesis=(j.get("hypothesis") or {}).get("title"))
+                if new_m != m:
+                    con.execute("UPDATE lineage_edges SET meta = ? WHERE id = ?", (json.dumps(new_m, default=str), e["id"]))
+                    out["review_edges"] += 1
+    # derived_from: n_changes and op from the version's own lineage.json
+    for e in con.execute("SELECT id, dst_id, meta FROM lineage_edges WHERE relation = 'derived_from'").fetchall():
+        p = data_dir / "datasets" / e["dst_id"] / "lineage.json"
+        try:
+            lj = json.loads(p.read_text()) if p.exists() else {}
+        except (OSError, ValueError):
+            lj = {}
+        m = json.loads(e["meta"]) if e["meta"] else {}
+        ch = lj.get("changes")
+        new_m = dict(m)
+        if isinstance(ch, list) and ch and not m.get("n_changes"):
+            new_m["n_changes"] = len(ch)
+        if lj.get("op") and lj["op"] != m.get("op"):
+            new_m["op"] = lj["op"]
+            con.execute("UPDATE datasets SET op = ? WHERE id = ?", (lj["op"], e["dst_id"]))
+        if new_m != m:
+            con.execute("UPDATE lineage_edges SET meta = ? WHERE id = ?", (json.dumps(new_m, default=str), e["id"]))
+            out["derived_meta"] += 1
+    con.execute("INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('backfill_fp2', ?)", (BACKFILL2_VERSION,))
+    return out
