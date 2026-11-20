@@ -45,7 +45,7 @@ AGE_NAME = re.compile(r"(^|_|\.)age($|_|\.)|^age\w*$", re.I)
 PROTECTED_EXTRA = re.compile(r"(^|_|\.)(sex|gender|race|ethnic\w*|religion|marital\w*|marriage|national\w*|disab\w*|"
                              r"pregnan\w*|citizenship)($|_|\.)", re.I)
 WEAK_SUSPECT_AUC = 0.75
-SEX_WORDS = re.compile(r"(?i)\b(male|female|man|woman|men|women)\b")
+SEX_WORDS = re.compile(r"(?i)\b(?:male|female|man|woman|men|women)\b")
 CALL_AFTER = re.compile(r"(duration|call_?len|talk_?time|handle_?time|outcome|result|response|status_after)", re.I)
 
 
@@ -227,17 +227,26 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
     high = [s for s in items if s["confidence"] >= 0.85]
     cols = [s["column"] for s in items]
     nums: dict[str, Any] = {"suspects": len(items)}
-    for s in items[:4]:
+    for s in items[:3]:
         if s["auc"] is not None:
             nums[f"AUC of {s['column']} alone"] = s["auc"]
+        x = cx.df[s["column"]]
+        if cx.task == "binary" and pd.api.types.is_numeric_dtype(x) and not pd.api.types.is_bool_dtype(x):
+            nums[f"median {s['column']} when {cx.target} = {cx.pos}"] = _jsonable(round(float(x[cx.y01 == 1].median()), 4))
+            nums[f"median {s['column']} otherwise"] = _jsonable(round(float(x[cx.y01 == 0].median()), 4))
     sev = "high" if high else "medium" if cx.task == "binary" or any(s["auc"] for s in items) else "low"
     title = (f"Leakage suspect{'s' if len(items) > 1 else ''}: {', '.join(cols[:4])}{'…' if len(cols) > 4 else ''} "
              f"may be known only after the outcome")
     ev_cols = cols[:4] + [cx.target]
+    ev_mask = np.ones(cx.n, bool)
+    if cx.task in ("binary", "multiclass"):  # three example rows of each of the two largest classes, side by side
+        ev_mask = np.zeros(cx.n, bool)
+        for v in cx.y.astype(str).value_counts().index[:2][::-1]:
+            ev_mask[np.flatnonzero((cx.y.astype(str) == v).to_numpy())[:3]] = True
     return [_finding("leakage", sev, title, nums,
                      "A column is a suspect when its name or values say it is filled in after the outcome (Smart Intake's "
-                     "leak rules), or when " + rule_auc + ". Only you know what is available when the decision is made.",
-                     _rows(cx.df, np.ones(cx.n, bool), ev_cols),
+                     "leak rules), or when it alone predicts the target (" + rule_auc + "). Only you know what is available when the decision is made.",
+                     _rows(cx.df, ev_mask, ev_cols, n=6),
                      _fix("question", "Answer 'known at decision time?' below: columns you leave unticked are dropped from "
                                       "every run started on this dataset."),
                      columns=cols) | {"suspects": items}]
@@ -449,13 +458,13 @@ def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
     if n_dup + n_near == 0:
         return []
     share = n_dup / max(cx.n, 1)
-    sev = "medium" if share >= 0.05 else "low"
+    sev = "medium" if share >= 0.02 else "low"
     first_dup = dup | near
     title = (f"{n_dup:,} exact duplicate rows ({share:.1%})" + (f" and {n_near:,} near-duplicates" if n_near else "")) if n_dup \
         else f"{n_near:,} near-duplicate rows (same after trimming, case and rounding)"
     return [_finding("duplicates", sev, title,
                      {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near},
-                     "Exact: the same values in every column except IDs. Near: the same after trimming and lower-casing text "
+                     "Medium when exact duplicates are ≥ 2 % of rows. Exact: the same values in every column except IDs. Near: the same after trimming and lower-casing text "
                      "and rounding numbers to 4 significant digits. A duplicate split across training and holdout makes the "
                      "score optimistic.",
                      _rows(cx.df, first_dup, cols[:6]),
@@ -518,7 +527,7 @@ def check_class_balance(cx: Ctx) -> list[dict[str, Any]]:
     nums["smallest class in a 20 % holdout"] = holdout
     transforms = []
     tiny = vc[vc < 20]
-    if len(tiny) and k > 2:
+    if len(tiny) >= 2 and k > 3:  # two or more tiny classes become one 'other' class (one alone would just be renamed)
         transforms = [{"op": "merge_classes", "column": cx.target, "classes": list(tiny.index), "into": "other"}]
         parts.append(f"merge the {len(tiny)} classes under 20 rows into 'other'")
     text = ("Collect more rows for the smallest classes (≥ 100 each is a good floor)"
@@ -877,7 +886,9 @@ def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], see
     expected = float((1 - conf[top]).mean())
     examples = [{"row": int(rows[i]), "given": classes[yi[i]], "suggested": classes[int(P[i].argmax())],
                  "p_given": round(float(P[i, yi[i]]), 3), "p_suggested": round(float(P[i].max()), 3)} for i in iss[:200]]
+    majority = float(np.bincount(yi).max() / len(yi))
     return {"status": "done", "model": name, "rows": int(len(yi)), "accuracy_oof": round(acc, 4),
+            "majority": round(majority, 4), "error_all": round(1 - acc, 4),
             "n": int(len(iss)), "rate": round(len(iss) / len(yi), 4), "floor": round(floor, 4),
             "expected_floor": round(expected, 4), "examples": examples, "classes": classes,
             "over_budget": time.perf_counter() > deadline,
@@ -886,8 +897,9 @@ def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], see
 
 def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
     rule = ("A quick model (≤ 60 s, out-of-fold) predicts every row; cleanlab flags labels it disagrees with confidently. "
-            "Medium when cleanlab flags ≥ 5 % and the most confident fifth of predictions is wrong ≥ 3 points more than the "
-            "model itself expects (noise, not overlap); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
+            "Medium when the model beats 'always the largest class' by ≥ 5 points, cleanlab flags ≥ 5 %, and the most "
+            "confident fifth of predictions is wrong ≥ 3 points more than the model expects and at ≥ 0.6 × its overall "
+            "error rate (flipped labels hit confident rows too; overlap does not); low when it flags ≥ 2 %, or ≥ 1 % with that gap ≥ 1 point; else info. A tabular overlap is often the table lacking a column, "
             "not a wrong label.")
     if cx.task not in ("binary", "multiclass"):
         return None
@@ -899,8 +911,10 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
         return _finding("label_quality", "info", f"Label quality not checked: {st.get('reason') or st.get('error') or st.get('status')}",
                         {}, rule, None, _fix("advice", ""), columns=[cx.target]) | {"status": st.get("status")}
     gap = st["floor"] - st["expected_floor"]
-    noisy = st["rate"] >= 0.05 and gap >= 0.03
-    looks_wrong = gap >= 0.01
+    signal = st["accuracy_oof"] - st.get("majority", 0) >= 0.05  # the quick model must beat 'always the largest class'
+    ratio = st["floor"] / max(st.get("error_all", 1), 1e-9)       # flip noise hits confident rows as often as the rest
+    noisy = signal and st["rate"] >= 0.05 and gap >= 0.03 and ratio >= 0.6
+    looks_wrong = signal and gap >= 0.01
     sev = "medium" if noisy else ("low" if st["rate"] >= 0.02 or (st["rate"] >= 0.01 and looks_wrong) else "info")
     ex = st["examples"][:5]
     feats = [c for c in cx.model_features()][:4]
@@ -911,6 +925,7 @@ def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
     return _finding("label_quality", sev,
                     f"cleanlab flags {st['n']:,} labels ({st['rate']:.1%})" + (" that look wrong" if looks_wrong else ": mostly where classes overlap"),
                     {"flagged": st["n"], "rate": st["rate"], "quick model accuracy (out-of-fold)": st["accuracy_oof"],
+                     "largest class share": st.get("majority"),
                      "error in the most confident fifth": st["floor"], "error it expects there": st["expected_floor"],
                      "seconds": st.get("seconds")},
                     rule + f" Model: {st['model']}.", ev,

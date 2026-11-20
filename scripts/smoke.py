@@ -77,6 +77,11 @@ One line per step: ✓ or ✗, the step, a key number. Exits 1 if any step faile
              train → doctor → patch → compare → register from one instruction, paused before training; one decline
              explained with reason codes and counterfactuals; a batch scored and its drift reported; number guard on every
              answer; Skip and Stop
+  datadoctor D1: the Data Doctor on crafted tables (scripts/data_doctor_data.py) with every issue planted: detection at
+             the expected severity with its rule / numbers / evidence / fix, speed on ~40k rows, the fixes applied into a
+             new version (effect, lineage, holdout kept, original untouched), the decision-time answer dropped from a run
+             and recorded, merge / sample size / drift, cleanlab label quality against the planted flips, refusals, and no
+             unexpected high-severity finding on the bundled samples
   reset      a second API on a throwaway data folder: upload + run, POST /api/admin/reset, back to the samples only
 """
 
@@ -5280,6 +5285,219 @@ def sql_source(st: dict[str, Any]) -> None:
     step("sql: refresh → new version with lineage (acceptance 2)", refresh)
 
 
+# --------------------------------------------------------------------------- D1 · Data Doctor
+
+# Bundled samples whose high-severity findings are planted on purpose (true positives, not false alarms).
+DD_EXPECTED_HIGH = {"loan-losses": {"leakage"}, "account-attrition": {"leakage"}}
+
+
+def _dd_upload(df: pd.DataFrame, name: str, target: str) -> str:
+    d = j(C.post("/api/datasets", files={"file": (name, df.to_csv(index=False).encode(), "text/csv")}, data={"target": target}))
+    return d["id"]
+
+
+def _dd_report(ds: str, labels: bool = False, timeout: float = 240) -> dict[str, Any]:
+    """The Data Report; with labels, polled until the background label-quality model has finished."""
+    r = get(f"/api/datasets/{ds}/data-doctor")
+    if labels:
+        r = poll(f"/api/datasets/{ds}/data-doctor",
+                 lambda x: all(f.get("status") != "running" for f in x["findings"] if f["id"] == "label_quality"), timeout, 2)
+    return r
+
+
+def _dd_find(r: dict[str, Any], fid: str) -> dict[str, Any]:
+    f = next((f for f in r["findings"] if f["id"] == fid), None)
+    check(f is not None, f"no '{fid}' finding: {[x['id'] for x in r['findings']]}")
+    for k in ("severity", "title", "numbers", "rule", "evidence", "fix"):
+        check(k in f and (f[k] or k in ("numbers", "evidence")), f"{fid}: '{k}' missing or empty")
+    return f
+
+
+def _dd_col(ds: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(c for c in ds["profile"]["columns"] if c["name"] == name)
+
+
+def datadoctor(st: dict[str, Any]) -> None:
+    """D1 Data Doctor: crafted tables from scripts/data_doctor_data.py with planted issues (one of each check), the
+    rule / numbers / evidence / fix shape, speed on ~40k rows, the typed fixes applied into a new version (effect,
+    lineage, holdout kept, original untouched), the decision-time answer dropped from a run (and recorded), refusals,
+    and no high-severity false alarms on the bundled samples."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import data_doctor_data as dg
+
+    raw = dg.planted()
+    s: dict[str, Any] = {}
+
+    def planted():
+        s["ds"] = ds = _dd_upload(raw, "dd_planted.csv", "defaulted")
+        t0 = time.time()
+        r = _dd_report(ds)
+        dt = time.time() - t0
+        check(r["seconds"] < 10 and dt < 30, f"too slow: checks {r['seconds']} s, request {dt:.1f} s on {len(raw):,} rows")
+        want = {"leakage": "high", "coded_values": "medium", "disguised_missing": "medium", "duplicates": "medium",
+                "conflicts": "medium", "rare_codes": "low", "informative_missing": "low", "ids_constants": "low",
+                "missing_words": "low", "protected": "info"}
+        got = {}
+        for fid, sev in want.items():
+            f = _dd_find(r, fid)
+            got[fid] = f["severity"]
+            check(f["severity"] == sev, f"{fid}: severity {f['severity']} ≠ {sev} ({f['title']})")
+        lk = _dd_find(r, "leakage")
+        check(lk["columns"] == ["review_score"] and lk["numbers"]["AUC of review_score alone"] >= 0.97, f"leakage {lk['columns']} {lk['numbers']}")
+        cv = _dd_find(r, "coded_values")
+        check(cv["columns"] == ["months_late"] and cv["fix"]["transforms"][0]["codes"] == [-2, -1], f"coded {cv['fix']}")
+        dm = _dd_find(r, "disguised_missing")
+        check(dm["columns"] == ["days_since_last"] and dm["fix"]["transforms"][0]["values"] == [999], f"disguised {dm['fix']}")
+        rc = _dd_find(r, "rare_codes")
+        check(rc["items"][0]["column"] == "education" and rc["items"][0]["codes"] == [0, 9], f"rare codes {rc['items']}")
+        im = _dd_find(r, "informative_missing")
+        check(im["columns"] == ["income"], f"informative missing {im['columns']}")
+        ic = _dd_find(r, "ids_constants")
+        check(set(ic["columns"]) == {"app_id", "country"}, f"ids/constants {ic['columns']}")
+        pr = _dd_find(r, "protected")
+        check(set(r["decision_time"]["protected"]) == {"gender", "age"}, f"protected {r['decision_time']['protected']}")
+        dt_cols = [c["column"] for c in r["decision_time"]["columns"]]
+        check(dt_cols == ["review_score"] and not r["decision_time"]["answered"], f"decision-time question {dt_cols}")
+        n_dup_true = int(raw.drop(columns="app_id").duplicated().sum())
+        check(_dd_find(r, "duplicates")["numbers"]["exact duplicates"] == n_dup_true, "duplicate count ≠ pandas'")
+        check(r["n_fixes"] >= 3 and all(t["op"] for t in r["selected_fixes"]), f"selected fixes {r['selected_fixes']}")
+        s["report"] = r
+        _ = pr
+        return (f"{len(raw):,} rows in {r['seconds']:.2f} s (request {dt:.1f} s) · all {len(want)} planted issues at the "
+                f"expected severity · {r['n_fixes']} fixes pre-selected")
+    if not step("datadoctor: planted issues found", planted):
+        return
+
+    def apply_fixes():
+        ds, r = s["ds"], s["report"]
+        before = get(f"/api/datasets/{ds}")
+        out = post(f"/api/datasets/{ds}/data-doctor/apply", {"transforms": r["selected_fixes"], "by": "smoke"})
+        new = out["dataset"]
+        s["fixed"] = new["id"]
+        lin = new["profile"]["lineage"]
+        check(lin["parent"] == ds and lin["root"] == ds and lin["kind"] == "data_doctor" and lin["by"] == "smoke", f"lineage {lin}")
+        check([e["op"] for e in lin["fixes"]] == [t["op"] for t in r["selected_fixes"]], "the version does not record the fixes applied")
+        n999 = int((raw["days_since_last"] == 999).sum())
+        dsl = _dd_col(new, "days_since_last")
+        check(dsl["missing"] == n999 - int(((raw["days_since_last"] == 999) & raw.drop(columns="app_id").duplicated()).sum()), f"999 → missing: {dsl['missing']} vs {n999}")
+        check(dsl["stats"]["max"] <= 120, f"days_since_last max {dsl['stats']['max']}")
+        check(_dd_col(new, "months_late")["stats"]["min"] >= 0, "months_late still has codes")
+        check(_dd_col(new, "months_late_code")["unique"] == 3, "months_late_code: not -2 / -1 / value")
+        check("days_since_last_was_missing" in out["columns_added"], f"no flag column: {out['columns_added']}")
+        n_dup = _dd_find(r, "duplicates")["numbers"]["exact duplicates"]
+        check(out["rows_before"] - out["rows_after"] == n_dup and new["rows"] == out["rows_after"],
+              f"rows {out['rows_before']} → {out['rows_after']}, {n_dup} duplicates")
+        hp, hn = before["profile"]["splits"]["holdout_rows"], new["profile"]["splits"]["holdout_rows"]
+        check(hp - n_dup <= hn <= hp, f"holdout {hp} → {hn}: not the parent's kept holdout rows")
+        orig = get(f"/api/datasets/{ds}")
+        check(orig["rows"] == len(raw) and _dd_col(orig, "days_since_last")["missing"] == 0
+              and _dd_col(orig, "days_since_last")["stats"]["max"] == 999, "the original dataset changed")
+        r2 = _dd_report(new["id"])
+        ids2 = {f["id"] for f in r2["findings"]}
+        check(not ids2 & {"coded_values", "disguised_missing", "duplicates"}, f"fixed findings came back: {ids2}")
+        check(r2["lineage"]["parent"] == ds, "the report does not show the lineage")
+        return (f"{new['id']} ← {ds}: {len(lin['fixes'])} fixes · {n999:,} × 999 → missing + flag · months_late codes split · "
+                f"{n_dup:,} duplicates dropped · holdout {hp:,} → {hn:,} · original unchanged · fixed findings gone")
+    if not step("datadoctor: fixes → new version", apply_fixes):
+        return
+
+    def decision_time():
+        ds, fixed = s["ds"], s["fixed"]
+        bad = C.post(f"/api/datasets/{ds}/decision-time", json={"known": {"defaulted": False}})
+        check(bad.status_code == 400, f"dropping the target → {bad.status_code}")
+        a = post(f"/api/datasets/{ds}/decision-time", {"known": {"review_score": False}, "fairness_only": ["gender", "age"], "by": "smoke"})
+        check(set(a["drops"]["columns"]) == {"review_score", "gender", "age"}, f"drops {a['drops']}")
+        r = _dd_report(ds)
+        lk = _dd_find(r, "leakage")
+        check(r["decision_time"]["answered"] and lk["severity"] == "info" and lk.get("answered"), f"answered leakage {lk['severity']}")
+        # the fixed version was made before the answer: answer it there too, then check intake's pre-fill and a run
+        post(f"/api/datasets/{fixed}/decision-time", {"known": {"review_score": False}, "fairness_only": ["gender", "age"], "by": "smoke"})
+        it = get(f"/api/datasets/{fixed}/intake")
+        s0 = next(x for x in it["suggestions"] if x["route"] == "quick-train")
+        check({"review_score", "gender", "age"} <= set(s0["prefill"].get("drop") or []), f"intake pre-fill drop {s0['prefill']}")
+        body = {"dataset_id": fixed, "time_limit": 60, "presets": "medium_quality",
+                "fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 30}}}}
+        run = post("/api/runs", body)
+        dtc = run["config"]["decision_time"]
+        check(dtc and dtc["applied"] and set(dtc["dropped"]) == {"review_score", "gender", "age"}, f"run decision_time {dtc}")
+        check({"review_score", "gender", "age"} <= set(run["config"]["drop_columns"]), f"run drop {run['config']['drop_columns']}")
+        twin = post("/api/runs", {**body, "use_decision_time": False})
+        check("review_score" not in twin["config"]["drop_columns"] and twin["config"]["decision_time"]["applied"] is False,
+              "use_decision_time: false still dropped")
+        post(f"/api/runs/{twin['id']}/cancel")
+        rec = wait_run(run["id"], 600)
+        fi = get(f"/api/runs/{run['id']}/feature-importance")
+        feats = {f.get("feature") or f.get("name") for f in (fi.get("features") or fi.get("importance") or [])}
+        check(not feats & {"review_score", "gender", "age"}, f"a dropped column was a feature: {feats & {'review_score', 'gender', 'age'}}")
+        m, v = primary(rec)
+        return (f"answer stored → leakage answered (info) · intake pre-fill drops them · run {run['id']} recorded and dropped "
+                f"review_score, gender, age ({m} {v:.3f} without them) · use_decision_time=false keeps them")
+    step("datadoctor: decision-time drop", decision_time)
+
+    def refusals():
+        ds = s["ds"]
+        for body, want in (({"transforms": [{"op": "rm_rf"}]}, "Unknown fix"), ({"transforms": [{"op": "drop_columns", "columns": ["nope"]}]}, "no column"),
+                           ({"transforms": [{"op": "to_missing", "column": "defaulted", "values": [1]}]}, "target"), ({"transforms": []}, "at least one")):
+            r = C.post(f"/api/datasets/{ds}/data-doctor/apply", json=body)
+            check(r.status_code == 400 and want in r.text, f"{body} → {r.status_code} {r.text[:120]}")
+        check(C.get("/api/datasets/nope/data-doctor").status_code == 404, "unknown dataset ≠ 404")
+        return "unknown fix, unknown column, the target, no fixes → 400 · unknown dataset → 404"
+    step("datadoctor: refusals", refusals)
+
+    def other_checks():
+        out = []
+        rc = _dd_upload(dg.rare_classes(), "dd_rare.csv", "product_line")
+        cb = _dd_find(_dd_report(rc), "class_balance")
+        check(cb["severity"] == "high" and cb["numbers"]["rows in the smallest"] == 8, f"class balance {cb['severity']} {cb['numbers']}")
+        tr = cb["fix"]["transforms"]
+        check(tr and tr[0]["op"] == "merge_classes" and set(tr[0]["classes"]) == {"F", "G"}, f"merge fix {tr}")
+        v = post(f"/api/datasets/{rc}/data-doctor/apply", {"transforms": tr})["dataset"]
+        check(v["n_classes"] == 6 and "other" in {c["name"] for c in v["profile"]["classes"]}, f"merged classes {v['n_classes']}")
+        out.append("8- and 12-row classes → high, merged into 'other' (7 → 6 classes)")
+        sm = _dd_upload(dg.small_sample(), "dd_small.csv", "defaulted")
+        ss = _dd_find(_dd_report(sm), "sample_size")
+        check(ss["severity"] == "high" and ss["numbers"]["events per feature"] == 3.2, f"sample size {ss['severity']} {ss['numbers']}")
+        out.append(f"EPV 3.2 → high (AUC ± {ss['numbers']['holdout AUC ± (at AUC 0.75)']})")
+        dr = _dd_upload(dg.drifting(), "dd_drift.csv", "defaulted")
+        tm = _dd_find(_dd_report(dr), "time")
+        check(tm["severity"] == "medium" and tm["numbers"]["outcome, last fifth"] > tm["numbers"]["outcome, first fifth"] + 0.1, f"time {tm['numbers']}")
+        out.append(f"drift {tm['numbers']['outcome, first fifth']:.3f} → {tm['numbers']['outcome, last fifth']:.3f} → medium")
+        return " · ".join(out)
+    step("datadoctor: classes, sample size, time", other_checks)
+
+    def labels():
+        df, flipped = dg.noisy_labels()
+        ds = _dd_upload(df, "dd_noisy.csv", "queue")
+        r = _dd_report(ds, labels=True)
+        lq = _dd_find(r, "label_quality")
+        check(lq["status"] == "done" and lq["severity"] == "medium", f"label quality {lq['severity']} {lq['title']}")
+        rows = lq["fix"]["transforms"][0]["rows"]
+        prec = len(set(rows) & set(flipped)) / max(1, len(rows))
+        check(prec >= 0.7, f"precision of the flagged rows vs the planted flips {prec:.2f}")
+        planted_r = _dd_report(s["ds"], labels=True)  # overlap without planted label noise must not be medium
+        lq2 = _dd_find(planted_r, "label_quality")
+        check(lq2["severity"] in ("info", "low"), f"planted table's label quality {lq2['severity']}")
+        return (f"{len(flipped)} flipped → {lq['numbers']['flagged']} flagged ({lq['severity']}), precision {prec:.2f} on the top "
+                f"{len(rows)} in {lq['numbers']['seconds']} s · planted table: {lq2['severity']}")
+    step("datadoctor: label quality (cleanlab)", labels)
+
+    def samples_clean():
+        lines, bad = [], []
+        for d in get("/api/datasets")["datasets"]:
+            if not d["sample"]:
+                continue
+            r = _dd_report(d["id"])
+            high = {f["id"] for f in r["findings"] if f["severity"] == "high"}
+            extra = high - DD_EXPECTED_HIGH.get(d["id"], set())
+            missing = DD_EXPECTED_HIGH.get(d["id"], set()) - high
+            if extra or missing:
+                bad.append(f"{d['id']}: high {sorted(high)}")
+            lines.append(f"{d['id']} {r['counts']['high']}/{r['counts']['medium']}")
+        check(not bad, "; ".join(bad))
+        return f"{len(lines)} samples, high/medium: " + ", ".join(lines)
+    step("datadoctor: no false alarms on samples", samples_clean)
+
+
 def main() -> int:
     global C, API
     ap = argparse.ArgumentParser()
@@ -5541,7 +5759,7 @@ def _main(args) -> int:
     st: dict[str, Any] = {}
     print(f"ENSEMBLE smoke against {API}\n")
     sections = {"core": core, "samples": samples, "autopilot": autopilot, "forecast": forecast, "anomaly": anomaly,
-                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm}
+                "import": importer, "intake": intake, "fresh": fresh, "latency": latency, "targets": targets, "splits": splits, "cost": cost, "monotone": monotone, "quantile": quantile, "reasons": reasons, "recourse": recourse, "scorecard": scorecard, "learning": learning, "active": active, "annotators": annotators, "shift": shift, "slices": slices, "doctor": doctor, "monitor": monitor, "credit": credit, "el": expected_loss, "fair": fair_lending, "seg": segmented, "surv": survival, "ri": reject_inference, "ml": multilabel, "sql": sql_source, "agent": agent, "reset": reset, "llm": llm, "datadoctor": datadoctor}
     for name in args.only.split(","):
         if name.strip():
             print(f"── {name}")

@@ -1438,3 +1438,24 @@ export type AgentSession = {
 }
 export type AgentStatus = { route: string[]; default: string; sdk: { available: boolean; why: string }; cli: { path: string | null }; tools: number; write_tools: string[]; budget: { max_steps: number; max_seconds: number } }
 export type AgentSessionSummary = { id: string; user: string; status: AgentSession['status']; decider: string; created_at: string; title: string; steps: number }
+
+/** D1 Data Doctor: one typed fix (applied into a new dataset version), and one finding with its rule and evidence. */
+export type DataFix = { op: string; column?: string; columns?: string[]; values?: (string | number)[]; codes?: number[]; rows?: number[]; flag?: boolean; fill?: number; classes?: string[]; into?: string; reason?: string }
+export type DataFinding = {
+  id: string; key: string; severity: 'high' | 'medium' | 'low' | 'info'; title: string; rule: string
+  numbers: Record<string, string | number | null>
+  evidence: { columns: string[]; rows: (string | number | null)[][] }
+  fix: { kind: 'transform' | 'question' | 'advice'; text: string; transforms: DataFix[]; selected: boolean }
+  columns: string[]; status?: string; answered?: boolean
+}
+export type DecisionColumn = { column: string; suspect: boolean; reasons: string[]; auc: number | null; confidence: number; known: boolean }
+export type DataReport = {
+  dataset_id: string; name: string; target: string | null; task: string | null; rows: number; columns: number
+  findings: DataFinding[]; counts: Record<'high' | 'medium' | 'low' | 'info', number>; n_fixes: number; seconds: number
+  severity_rule: string
+  decision_time: { question: string; rule: string; columns: DecisionColumn[]; answered: boolean; answered_at: string | null; by: string | null; fairness_only: string[]; protected: string[] }
+  lineage: { parent: string; root: string; kind?: string; fixes?: DataFixEffect[]; applied_at?: string; by?: string } | null
+}
+/** A fix as applied: `rows` becomes the number of rows it dropped; `cells` how many values it changed. */
+export type DataFixEffect = Omit<DataFix, 'rows'> & { rows?: number | number[]; cells?: number; added?: string }
+export type DataFixResult = { dataset: DatasetDetail; parent: string; effects: DataFixEffect[]; rows_before: number; rows_after: number; columns_added: string[]; columns_removed: string[] }

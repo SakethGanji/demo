@@ -7,6 +7,7 @@ import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { Segmented } from '@/shared/primitives/Segmented'
+import { DataReport } from './DataReport'
 import { SqlLineageLine, SqlSource } from './SqlSource'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
@@ -99,6 +100,7 @@ function BuildLive({ go }: { go: (r: string) => void }) {
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [refreshed, setRefreshed] = useState<{ id: string; msg: string } | null>(null)
+  const [fixed, setFixed] = useState<{ id: string; msg: string } | null>(null)  // D1: the version the Data Report just made
   const [from, setFrom] = useState<'CSV file' | 'SQL query'>('CSV file')  // G9: a second way in
   const detail = useFetch(dsId ? () => api.datasets.get(dsId) : null, [dsId])
   const sqlDs = detail.data?.id === dsId && (detail.data?.profile.lineage as { source?: string } | undefined)?.source === 'sql' ? detail.data : null
@@ -125,6 +127,8 @@ function BuildLive({ go }: { go: (r: string) => void }) {
   return (
     <div className="page build" data-testid="build">
       <BuildHead go={go} />
+      {dsId && fixed?.id === dsId && <p className="helper dr-made" role="status" data-testid="dr-made">✓ {fixed.msg}</p>}
+      {dsId && <DataReport dsId={dsId} onVersion={(id, msg) => { setFixed({ id, msg }); list.reload(); setDs(id) }} />}
       <div className="grid build-top">
         <div className="card">
           <div className="card-head"><h3 className="card-title">1 · Your table</h3><Segmented options={['CSV file', 'SQL query']} value={from} onChange={setFrom} /></div>
