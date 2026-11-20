@@ -318,7 +318,8 @@ def propose(df: pd.DataFrame, base_cols: list[str], importance: dict[str, float]
             types: dict[str, str], limit: int) -> list[dict[str, Any]]:
     """Heuristic candidates, most promising first. Monotone transforms of one column (log, bins) are not proposed:
     tree models are invariant to them. D4's LLM can still send them."""
-    nums = [c for c in base_cols if pd.api.types.is_numeric_dtype(df[c]) and df[c].nunique() > 10]
+    # a quantity, not a code: numbers with > 20 distinct values (status codes such as Taiwan's PAY_0, −2…8, are left out)
+    nums = [c for c in base_cols if pd.api.types.is_numeric_dtype(df[c]) and not pd.api.types.is_bool_dtype(df[c]) and df[c].nunique() > 20]
     cats = [c for c in base_cols if types.get(c) in ("category", "boolean") or (not pd.api.types.is_numeric_dtype(df[c]) and df[c].nunique() <= 50)]
     dates = [c for c in df.columns if types.get(c) == "date"]
     imp = lambda c: importance.get(c, 0.0)  # noqa: E731
