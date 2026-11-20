@@ -1475,6 +1475,8 @@ export type DataFinding = {
   evidence: { columns: string[]; rows: (string | number | null)[][] }
   fix: { kind: 'transform' | 'question' | 'advice'; text: string; transforms: DataFix[]; selected: boolean }
   columns: string[]; status?: string; answered?: boolean
+  /** A2 C2: a rescale fix's affected rows, before → after, shown before Apply. */
+  preview?: { column: string; rows_rescaled: number; rows_left: number; rows: { row: number; date: string; before: string | number | null; after: string | number | null; changed: boolean }[] }
 }
 export type DecisionColumn = { column: string; suspect: boolean; reasons: string[]; auc: number | null; confidence: number; known: boolean | null; basis?: 'strength only' | 'name or values' }
 export type DataReport = {
@@ -1580,5 +1582,7 @@ export type ChangesState = {
   older_batches: { batch_id: string; data_date?: string | null; labelled_rows: number }[]
   cost: { c_fp: number; c_fn: number; source: string } | null; threshold: number | null
   drifted: { feature: string; psi: number; band?: string }[]; suggested_drop: string | null
+  scale_changes?: { feature: string; factor: number; unit: string | null; rescale: number; text: string }[]
+  suggested_fix?: { kind: 'fix_feed'; feature: string; rescale: number; title: string; why: string } | null
   kinds: Record<string, string>; experiments: ChangeItem[]; rules: Record<string, string>
 }

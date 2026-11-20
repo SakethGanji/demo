@@ -212,9 +212,16 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     def _intake(request: Request, dataset_id: str, roles: dict[str, str] | None) -> dict[str, Any]:
         from .intake import intake
 
-        dataset_or_404(request, dataset_id)
+        rec = dataset_or_404(request, dataset_id)
+        # A2 M9: a confirmed target (Data Report's y, the run's label) is the target here too, unless the user's role
+        # edits name another; Smart Intake's own guess is only for an unconfirmed table
+        tgt = rec.get("target")
+        if tgt and (rec.get("profile") or {}).get("target_source") != "guessed" and not any(v == "target" for v in (roles or {}).values()):
+            roles = {**(roles or {}), tgt: "target"}
         try:
             df = store(request).load_frame(dataset_id)
+            if tgt not in df.columns:
+                roles = {k: v for k, v in (roles or {}).items() if k in df.columns} or None
             out = {"dataset_id": dataset_id, **intake(df, roles, versions=_binary_versions(request, dataset_id))}
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
