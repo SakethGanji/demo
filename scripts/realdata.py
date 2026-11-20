@@ -80,9 +80,9 @@ def items() -> dict[str, dict[str, Any]]:
         "bank_leak": {"src": pl["bank_leak"], "ablate": True, "review": off1},
         "taiwan_flip": {"src": pl["taiwan_flip"], "drop": ["ID"], "review": {"offline": True, "max_experiments": 3, "max_minutes": 30}},
         "banking77_flip": {"src": pl["banking77_flip"], "tl": 300, "multiclass": True, "fit": {"excluded_model_types": ["RF", "XT"]},
-                           "review": {"offline": True, "max_experiments": 1, "max_minutes": 30}},
+                           "review": {"offline": True, "max_experiments": 2, "max_minutes": 40}},
         "banking77_flip30": {"src": pl["banking77_flip30"], "tl": 300, "multiclass": True, "fit": {"excluded_model_types": ["RF", "XT"]},
-                             "review": {"offline": True, "max_experiments": 1, "max_minutes": 30}},
+                             "review": {"offline": True, "max_experiments": 2, "max_minutes": 40}},
         "taiwan_ratio": {"src": pl["taiwan_ratio"], "drop": ["ID"], "review": {"offline": True, "max_experiments": 3, "max_minutes": 30}},
         "taiwan_drift": {"src": pl["taiwan_drift"], "drop": ["ID"], "shift": True, "postdeploy": True, "review": None},
         "bank_999": {"src": pl["bank_999"], "train": False, "apply_fix": "disguised_missing"},
@@ -308,7 +308,8 @@ def postdeploy(c: httpx.Client, path: Path, target: str, cut: str) -> dict:
 def flip_score(c: httpx.Client, o: dict, rows_file: Path) -> dict | None:
     """Precision and recall of the clean_labels experiment's dropped training rows against the planted flips (the
     version's lineage maps its rows to the original ones)."""
-    j = next((j for j in (o.get("review") or {}).get("journal") or [] if j["kind"] == "clean_labels" and j.get("run_id")), None)
+    j = next((j for j in (o.get("review") or {}).get("journal") or []
+              if j["kind"] == "clean_labels" and j.get("run_id") and "relabel" not in json.dumps(j.get("spec") or {})), None)
     if not j or not rows_file.exists():
         return None
     ds = c.get(f"/api/runs/{j['run_id']}").json().get("dataset_id")

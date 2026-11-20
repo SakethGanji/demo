@@ -20,8 +20,15 @@ async function shoot(p, sel, file, top = false) {
   const box = await el.boundingBox()
   await p.setViewportSize({ width: 1366, height: Math.min(Math.max(900, Math.ceil(box.height) + 200), 7000) })
   await p.waitForTimeout(500)
-  if (top) await p.screenshot({ path: file })
-  else await (await p.$(sel)).screenshot({ path: file })
+  if (top) await p.screenshot({ path: file, animations: 'disabled' })
+  else {
+    try {
+      await (await p.$(sel)).screenshot({ path: file, animations: 'disabled', timeout: 60000 })
+    } catch (e) {  // an element that keeps moving (a live chart): the viewport around it instead
+      await p.evaluate((s) => document.querySelector(s).scrollIntoView({ block: 'start' }), sel)
+      await p.screenshot({ path: file, animations: 'disabled' })
+    }
+  }
   await p.setViewportSize({ width: 1366, height: 900 })
 }
 

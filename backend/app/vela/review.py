@@ -295,6 +295,10 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
     lab_gain = bool(lab and lab.get("gain") and lab["gain"].get("ci") and lab["gain"]["ci"][1] > 0)
     d1 = next((f for f in c["data"]["findings"] if f["id"] == "label_quality"), None)
     d1_noisy = bool(d1 and d1.get("severity") in ("medium", "high"))  # D5: the Data Doctor's labels that look wrong
+    if run["problem_type"] in ("binary", "multiclass") and d1_noisy:  # D5: labels that look wrong are fixed, not dropped
+        out.append({"title": "Wrong labels hold the model back: relabel them", "why": (d1 or {}).get("title") or "Data Doctor label finding",
+                    "expected": "better", "experiment": {"kind": "clean_labels", "mode": "relabel"},
+                    "source": "rule: Data Doctor labels that look wrong → relabel to cleanlab's suggestion"})
     if run["problem_type"] in ("binary", "multiclass") and (noisy or lab_gain or d1_noisy):
         out.append({"title": "Noisy labels hold the model back", "why": (lab or {}).get("finding") or (d1 or {}).get("title") or "label-noise finding",
                     "expected": "better", "experiment": {"kind": "clean_labels"}, "source": "rule: label quality → clean labels"})

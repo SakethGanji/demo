@@ -918,7 +918,8 @@ def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], see
             "expected_floor": round(expected, 4), "examples": examples, "classes": classes,
             "over_budget": time.perf_counter() > deadline,
             "method": "cleanlab.filter.find_label_issues(filter_by='prune_by_noise_rate') on out-of-fold p̂",
-            **({"issue_rows": [int(rows[i]) for i in iss]} if all_rows else {})}
+            **({"issue_rows": [int(rows[i]) for i in iss],
+                "issue_suggested": [classes[int(P[i].argmax())] for i in iss]} if all_rows else {})}
 
 
 def label_finding(cx: Ctx, st: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -977,6 +978,7 @@ TRANSFORMS = {
     "drop_rows": "drop the listed row numbers",
     "drop_columns": "drop the listed columns",
     "merge_classes": "the listed classes of the column → one class",
+    "relabel": "set the label of the listed row numbers to the given labels (D5: cleanlab's suggestion; training rows only)",
 }
 
 
@@ -999,6 +1001,8 @@ def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | N
                 raise ValueError(f"{op}: no column named {c!r}.")
         if op in ("to_missing", "split_codes", "add_missing_flag", "merge_classes") and "column" not in t:
             raise ValueError(f"{op} needs a column.")
+        if op == "relabel" and (not target or len(t.get("rows") or []) != len(t.get("labels") or []) or not t.get("rows")):
+            raise ValueError("relabel needs the target and as many labels as rows.")
         if op in ("to_missing", "split_codes", "drop_columns", "merge_classes") and target and \
                 (t.get("column") == target or target in (t.get("columns") or [])) and op != "merge_classes":
             raise ValueError(f"{op} can't change the target column '{target}'.")
@@ -1047,6 +1051,18 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             cols = [c for c in t.get("columns") or [] if c != target]
             out = out.drop(columns=cols)
             effects.append({**t, "columns": cols})
+        elif op == "relabel":
+            rows = np.asarray([int(r) for r in t["rows"]])
+            ok = (rows >= 0) & (rows < len(df))
+            vals = pd.Series(t["labels"])[ok].to_numpy()
+            col = out[target]
+            if pd.api.types.is_numeric_dtype(col):
+                vals = pd.to_numeric(pd.Series(vals)).to_numpy()
+            else:
+                out[target] = col.astype(object)
+            changed = int((out[target].to_numpy()[rows[ok]].astype(str) != vals.astype(str)).sum())
+            out.iloc[rows[ok], out.columns.get_loc(target)] = vals
+            effects.append({"op": op, "reason": t.get("reason"), "rows": int(ok.sum()), "changed": changed})
         elif op == "merge_classes":
             c, into = t["column"], str(t.get("into") or "other")
             m = out[c].astype(str).isin([str(v) for v in t.get("classes") or []])

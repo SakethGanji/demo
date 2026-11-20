@@ -365,11 +365,15 @@ async def _prepare(request: Request, rec: dict[str, Any], spec: dict[str, Any], 
         rows = fl_.get("rows") or []
         if len(rows) < 10:
             return None, {**{k: v for k, v in fl_.items() if k != "rows"}, "why": f"cleanlab flags {len(rows)} training rows: nothing to clean"}
-        out = await run_in_threadpool(_apply, request, ds, [{"op": "drop_rows", "rows": rows,
-                                                             "reason": "cleanlab label issues on the training rows (out of fold)"}], by)
-        return out["dataset"]["id"], {"dataset_id": out["dataset"]["id"], "flagged": len(rows), "of": fl_.get("of"),
+        relabel = spec.get("mode") == "relabel"
+        tf = ({"op": "relabel", "rows": rows, "labels": fl_.get("suggested") or [], "reason": "cleanlab's suggested label on the "
+               "training rows (out of fold)"} if relabel else
+              {"op": "drop_rows", "rows": rows, "reason": "cleanlab label issues on the training rows (out of fold)"})
+        out = await run_in_threadpool(_apply, request, ds, [tf], by)
+        return out["dataset"]["id"], {"dataset_id": out["dataset"]["id"], "flagged": len(rows), "of": fl_.get("of"), "mode": "relabel" if relabel else "drop",
                                       "model": fl_.get("model"), "method": fl_.get("method"),
-                                      "what": f"{len(rows):,} of {fl_.get('of'):,} training rows dropped",
+                                      "what": (f"{len(rows):,} of {fl_.get('of'):,} training labels set to cleanlab's suggestion" if relabel
+                                               else f"{len(rows):,} of {fl_.get('of'):,} training rows dropped"),
                                       "rows_before": out["rows_before"], "rows_after": out["rows_after"]}
     return None, {}
 
