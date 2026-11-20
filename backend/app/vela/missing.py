@@ -584,11 +584,13 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
             for i, a in enumerate(names):
                 for b in names[i + 1:]:
                     ab, ba = int(cmf.loc[a, b]), int(cmf.loc[b, a])
-                    if min(ab, ba) >= 3 and min(ab, ba) / max(ab, ba) >= 0.4:
+                    # D5: ≥ 2 each way and ≥ 5 in all (was ≥ 3 each way: on a 2,001-row Banking77 holdout the overlapping
+                    # pairs D3 found had 2 errors one way and the card listed none)
+                    if min(ab, ba) >= 2 and ab + ba >= 5 and min(ab, ba) / max(ab, ba) >= 1 / 3:
                         pairs.append({"a": a, "b": b, "a_as_b": ab, "b_as_a": ba, "n": ab + ba, "gain": (ab + ba) / len(yt)})
             pairs.sort(key=lambda o: -o["n"])
             out["confusion"] = {"pairs": pairs[:6], "n": int(len(yt)), "total_errors": int(err.sum()),
-                                "rule": "both directions ≥ 3 errors and the smaller ≥ 0.4 × the larger: the two labels overlap"}
+                                "rule": "both directions ≥ 2 errors, ≥ 5 together, and the smaller ≥ ⅓ × the larger: the two labels overlap"}
         except Exception as e:  # noqa: BLE001
             out["errors"].append(f"confusion: {type(e).__name__}: {e}"[:200])
 

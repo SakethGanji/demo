@@ -3,7 +3,7 @@
 prints what it observed, and one PASS / FAIL line per expectation.
 
     backend/.venv/bin/python -I scripts/realdata.py [--api http://127.0.0.1:8000] [--only taiwan,bank_leak,…]
-        [--redo] [--recheck] [--no-review]
+        [--redo] [--recheck] [--rereview] [--no-review]
 
 The chain per dataset (or planted copy):
 
@@ -19,7 +19,8 @@ The chain per dataset (or planted copy):
 Datasets: the four of round 4 (scripts/realdata_d1.py), two new OpenML sets with published scores, and planted-issue
 copies of real data with known answers (scripts/realdata_data.py). Budgets are short where the answer does not depend
 on the budget. Results: backend/data/realdata/results.json (not committed). --recheck re-reads the Data Doctor and the
-Model Doctor of finished runs (after a product fix) without retraining; --redo trains again.
+Model Doctor of finished runs (after a product fix) without retraining; --rereview runs the review again (its
+finished experiments are reused); --redo trains again. A copy planted again (its CSV changed) is retrained.
 """
 
 from __future__ import annotations
@@ -383,6 +384,9 @@ EXPECT: dict[str, list[tuple[str, Callable[[dict], Any]]]] = {
     ],
     "taiwan_flip": [
         ("Data Doctor: label quality flags (≥ low)", lambda o: (_sev_ok(_f(o, "label_quality")), (_f(o, "label_quality") or {}).get("title"))),
+        ("How to improve: cleaning the labels measured above 0 beyond noise (quick model)", lambda o: (lambda x: (
+            bool(x and x.get("ci") and x["ci"][0] > 0), x and f"{x['title']}: {x['delta']:+.4f} {x['ci']}"))(
+            next((x for x in o["doctor"]["levers"] if x["id"] == "clean_labels"), None))),
         ("Review: clean_labels kept", lambda o: (_kept(o, "clean_labels"), _journal(o, "clean_labels"))),
     ],
     "banking77_flip": [
@@ -493,6 +497,7 @@ def main() -> int:
     ap.add_argument("--redo", action="store_true", help="train again even when a finished run is recorded")
     ap.add_argument("--recheck", action="store_true", help="re-read the Data Doctor and Model Doctor of recorded runs")
     ap.add_argument("--no-review", action="store_true")
+    ap.add_argument("--rereview", action="store_true", help="run the review again (finished experiments are reused)")
     a = ap.parse_args()
     c = httpx.Client(base_url=a.api.rstrip("/"), timeout=1800)
     its = items()
@@ -537,7 +542,7 @@ def main() -> int:
                 o["ablation"] = ablate(c, rid, o["doctor"])
             elif it.get("ablate") and a.recheck and o.get("ablation"):
                 o["ablation"]["child_doctor"] = doctor(c, o["ablation"]["run"])
-            if it.get("review") and not a.no_review and not (o.get("review") or {}).get("status") == "done":
+            if it.get("review") and not a.no_review and (a.rereview or not (o.get("review") or {}).get("status") == "done"):
                 o["review"] = review(c, rid, it["review"])
             if it.get("postdeploy") and not ((o.get("postdeploy") or {}).get("retrain_window")):
                 o["postdeploy"] = postdeploy(c, path, target, "2025-06-01")
