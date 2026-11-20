@@ -88,6 +88,9 @@ class RegisterRequest(BaseModel):
                                                            "hyperparameters; default {'GBM': {}}.")
     prune_pipeline: bool = Field(True, description="With clone_for_deployment: prune AutoGluon's feature pipeline "
                                  "to the features the served model reads (predictions checked unchanged).")
+    decision_threshold: float | None = Field(None, gt=0, lt=1, description="Binary: serve this decision threshold (D4 "
+                                             "post-deployment change requests: a threshold move or a recalibration).")
+    change_id: str | None = Field(None, description="The D4 change request this version carries out.")
 
 
 @router.post("/runs/{run_id}/register", status_code=202)

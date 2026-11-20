@@ -428,6 +428,11 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             how = "clone(): every model kept"
         shutil.rmtree(work, ignore_errors=True)
         final = TabularPredictor.load(str(dest), verbosity=0, require_py_version_match=False)
+        if opts.get("decision_threshold") is not None and final.problem_type == "binary":
+            # D4 post-deployment change: the approved threshold (a move, or a recalibration's equivalent on the raw score)
+            final.set_decision_threshold(float(opts["decision_threshold"]))
+            final.save()
+            how += f"; decision threshold set to {float(opts['decision_threshold']):.4f} (change request {opts.get('change_id') or ''})".rstrip()
         step("deploy_copy", "done", seconds=time.time() - t0, how=how, models=len(final.model_names()))
 
         # 5. measure source and version alike
@@ -539,7 +544,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         v = reg.get_version(version_id)
         reg.audit(actor=v["created_by"], action="registered", version=v, to_stage="None",
                   comment=opts.get("description") or "",
-                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline")},
+                  details={"options": {k: opts.get(k) for k in ("refit_full", "infer_limit", "infer_limit_batch_size", "clone_for_deployment", "serve_model", "serve_fastest", "distill", "prune_pipeline", "decision_threshold", "change_id")},
                            "best_model": final.model_best, "size_bytes": ver_size,
                            "us_per_row_p50": lat_ver["us_per_row_p50"], "data_sha256": data_hash})
         return {"ok": True, "version_id": version_id}
