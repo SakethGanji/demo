@@ -726,7 +726,8 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                     Xr["__oracle__"] = Xr["__oracle__"].astype("category")
                 _, p_r = q.fit_predict(Xr, tr, ho)
                 dr = _paired(q, yh[okh], p_r[okh], base_p[okh], seed=8)
-                dx = _paired(q, yh[okh], p_o[okh], p_r[okh], seed=9)
+                # the excess over a random segment; a random segment that loses (unstable on a rare class) is no baseline
+                dx = _paired(q, yh[okh], p_o[okh], p_r[okh], seed=9) if dr["delta"] > 0 else {"delta": d["delta"], "ci": d["ci"]}
                 orc.append({"id": s["id"], "kind": s["kind"], "label": s["label"], "rows_holdout": int(m[ho].sum()),
                             "rows_train": int(m[tr].sum()), "share": float(m.mean()), "delta": d["delta"], "ci": d["ci"], "metric": q.label,
                             "random": {"delta": dr["delta"], "ci": dr["ci"]}, "excess": {"delta": dx["delta"], "ci": dx["ci"]},
@@ -790,7 +791,7 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
 
         cx = dd.Ctx(df, label, detect(df)["columns"])
         f_l = dd.check_leakage(cx)
-        out["d1_leak"] = [{k: s_.get(k) for k in ("column", "confidence", "reasons", "auc")} for s_ in (f_l[0].get("suspects") or [])] if f_l else []
+        out["d1_leak"] = [{k: s_.get(k) for k in ("column", "confidence", "reasons", "auc", "basis")} for s_ in (f_l[0].get("suspects") or [])] if f_l else []
         f_c = dd.check_conflicts(cx)
         out["conflicts"] = f_c[0]["numbers"] if f_c else {"rows": 0, "groups": 0, "share": 0.0}
         if tw is not None and "twins" in out:

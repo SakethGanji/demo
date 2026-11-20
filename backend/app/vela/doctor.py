@@ -808,7 +808,11 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
     leaks = [s["feature"] for s in sus if s["reason"] in ("dominant + hint", "near-perfect alone")]
     opens = [s["feature"] for s in sus if s["reason"] == "open suspect"]
     ids = [s["feature"] for s in sus if s["reason"] == "identifier"]
-    sev = "critical" if leaks or (contra and opens) else "major"
+    # an open suspect resting on strength alone (no name or value rule), not dominant, with no other evidence: an open
+    # question (minor) — a strong real signal looks the same; a name / value hint, the R* bound or overlap make it major
+    weak_open = (not leaks and not contra and not ov_hit and not ids and opens
+                 and all(s.get("basis") == "strength only" for s in sus if s["reason"] == "open suspect"))
+    sev = "critical" if leaks or (contra and opens) else "minor" if weak_open else "major"
     parts: list[str] = []
     for s0 in sus[:3]:
         if s0["reason"] == "dominant + hint":
@@ -1144,8 +1148,10 @@ def _excess_gain(o: dict[str, Any] | None, source: str) -> dict[str, Any] | None
         return None
     if o.get("excess") is None:
         return _gain(o, source, True)
+    if o.get("beyond_noise") is False:  # worth no more than a random group of the same size: not a gain of this gap
+        return None
     return {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
-            "source": f"{source}: {_sv(o['delta'])}, minus {_sv(o['random']['delta'], ref=o['delta'])} that a random segment of the same size gets",
+            "source": f"{source}: {_sv(o['delta'])}, minus {_sv(max(o['random']['delta'], 0), ref=o['delta'])} that a random segment of the same size gets",
             "raw": o["delta"], "random": o["random"]["delta"], "beyond_noise": o.get("beyond_noise")}
 
 
@@ -1214,7 +1220,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         gain = None
         if o:
             gain = {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
-                    "source": (f"simulated perfect information on {s['label']}: {_sv(o['delta'])}, minus {_sv(o['random']['delta'], ref=o['delta'])} that a random "
+                    "source": (f"simulated perfect information on {s['label']}: {_sv(o['delta'])}, minus {_sv(max(o['random']['delta'], 0), ref=o['delta'])} that a random "
                                f"{_pct(o.get('share') or 0)} of rows gets"), "raw": o["delta"], "random": o["random"]["delta"]}
         gaps.append({"id": f"segment:{s['column']}={s['value']}", "kind": "concentration", "title": f"Errors concentrate: {s['label']}",
                      "finding": f, "request": req + ".", "gain": gain,
