@@ -258,7 +258,7 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
                 x = b["latency_ms_p95"] / max(rec["latency_ms_p95"], 1e-6)
                 if x >= 1.5:
                     out["sentence"] += f" It is {x:.0f}× faster per row"
-                    if b.get("size_bytes") and rec.get("size_bytes"):
+                    if b.get("size_bytes") and rec.get("size_bytes") and b["size_bytes"] / max(rec["size_bytes"], 1) >= 1.5:
                         out["sentence"] += f" and {b['size_bytes'] / max(rec['size_bytes'], 1):.0f}× smaller"
                     out["sentence"] += "."
     base = rungs[0]
@@ -266,7 +266,7 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
         out["floor_warning"] = "The baseline is within the interval of the best: no model clearly beats predicting the average."
     # distillation: offered when the stack clearly beats the single model
     single = next((r for r in rungs if r["rung"] == 2), None)
-    if (stack and single and stack["rung"] in col and single["rung"] in col and best == 3 and not single["within"]
+    if (stack and single and rec and rec["rung"] == 3 and stack["rung"] in col and single["rung"] in col and not single["within"]
             and not cfg.get("monotone") and predictor.problem_type != "quantile"):
         out["distill"] = {"available": True, "gap": single["gap"],
                           "text": (f"The stack is clearly better than the single model (+{single['gap']['delta']:.3f} "

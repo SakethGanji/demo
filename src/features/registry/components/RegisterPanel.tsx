@@ -11,8 +11,8 @@ import { bytes, us } from '../lib'
 const sanitize = (s: string) => s.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100)
 
 /** Register a finished run: pick the deployment options and see what they trade, measured on this run's models. */
-export function RegisterPanel({ runs, initialRun, initialServe = null, actor, onRegistered, onCancel }: {
-  runs: Run[]; initialRun: string | null; initialServe?: string | null; actor: string; onRegistered: (v: ModelVersion) => void; onCancel: () => void
+export function RegisterPanel({ runs, initialRun, initialServe = null, initialDistill = false, actor, onRegistered, onCancel }: {
+  runs: Run[]; initialRun: string | null; initialServe?: string | null; initialDistill?: boolean; actor: string; onRegistered: (v: ModelVersion) => void; onCancel: () => void
 }) {
   const [runId, setRunId] = useState(initialRun && runs.some((r) => r.id === initialRun) ? initialRun : runs[0]?.id ?? '')
   const run = runs.find((r) => r.id === runId) ?? null
@@ -27,7 +27,7 @@ export function RegisterPanel({ runs, initialRun, initialServe = null, actor, on
   const [oneRow, setOneRow] = useState(true)        // infer_limit_batch_size = 1: the budget is per one-row call
   const [limitMs, setLimitMs] = useState(10)
   const [fastest, setFastest] = useState(false)
-  const [distill, setDistill] = useState(false)
+  const [distill, setDistill] = useState(initialDistill && initialRun != null)
   const [distillT, setDistillT] = useState(120)
   const [prune, setPrune] = useState(true)
   const [axis, setAxis] = useState<'one' | 'batch'>('one')

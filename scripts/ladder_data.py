@@ -2,7 +2,7 @@
 
 simple()      a logistic, additive world: the outcome is a sum of monotone effects. A scorecard (binned, additive) is
               as good as anything, so the ladder must recommend a simpler rung than the stack.
-complex()     an additive part over 16 columns (easy for linear / scorecard models, slow for trees) plus a sharp
+complex()     an additive part over 60 weak columns (easy for linear / scorecard models, slow for trees) plus a sharp
               interaction (x·z sign and a threshold pair, easy for trees, impossible for an additive model). No single
               family gets both, so the stack clearly beats every single model.
 ratio()       the outcome depends on debt / income (log-odds linear in log(debt/income)); debt and income alone are
@@ -36,14 +36,13 @@ def simple(n: int = 2500, seed: int = 201) -> pd.DataFrame:
                          "defaulted": np.where(y, "yes", "no")})
 
 
-def complex(n: int = 9000, seed: int = 202) -> pd.DataFrame:
+def complex(n: int = 9000, seed: int = 202, k: int = 60, w: float = 0.25) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    k = 16
     A = rng.normal(0, 1, (n, k))
     x, zc = rng.normal(0, 1, n), rng.normal(0, 1, n)
     u, v = rng.uniform(0, 1, n), rng.uniform(0, 1, n)
     inter = 2.2 * np.sign(x * zc) + 2.0 * ((u > 0.7) & (v < 0.3))
-    logit = 0.42 * A.sum(axis=1) + inter - 0.4
+    logit = w * A.sum(axis=1) + inter - 0.4
     y = rng.random(n) < _sig(logit)
     df = pd.DataFrame(A.round(4), columns=[f"s{i + 1:02d}" for i in range(k)])
     df["x"], df["z"], df["u"], df["v"] = x.round(4), zc.round(4), u.round(4), v.round(4)

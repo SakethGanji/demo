@@ -1459,3 +1459,38 @@ export type DataReport = {
 /** A fix as applied: `rows` becomes the number of rows it dropped; `cells` how many values it changed. */
 export type DataFixEffect = Omit<DataFix, 'rows'> & { rows?: number | number[]; cells?: number; added?: string }
 export type DataFixResult = { dataset: DatasetDetail; parent: string; effects: DataFixEffect[]; rows_before: number; rows_after: number; columns_added: string[]; columns_removed: string[] }
+
+/** D2: one rung of the model ladder (0 baseline, 1 scorecard / linear, 2 single GBM, 3 AutoGluon's best). */
+export interface LadderRung {
+  rung: number; key: string; name: string; model: string | null; why: string; missing: string | null; same_as?: number | null
+  score?: number; gap?: { delta: number; ci: [number, number]; ci95: [number, number]; p_le_0: number }; within?: boolean
+  latency_ms_p50?: number | null; latency_ms_p95?: number | null; size_bytes?: number; n_models?: number; latency_error?: string
+}
+export interface Ladder {
+  run_id: string; metric: string; metric_label: string; greater_is_better: boolean; level: number; B: number; n_holdout: number
+  best_rung: number; rungs: LadderRung[]; rule: string; sentence?: string; small_data_note?: string; floor_warning?: string
+  small_data: { severity: string; title: string; numbers: Record<string, number> } | null
+  recommended?: { rung: number; name: string; model: string; serve_model: string | null }
+  distill: { available: boolean; text?: string; gap?: { delta: number; ci: [number, number] } }
+  seconds: number; error?: string
+}
+/** D2 Feature Lab: a typed transform (never code). */
+export interface FeatureTransform { op: 'ratio' | 'diff' | 'agg' | 'date_part' | 'bin' | 'log' | 'cross'; name?: string; a?: string; b?: string; col?: string | null; entity?: string; fn?: string; part?: string; k?: number; edges?: number[] }
+export interface FeatureLabEntry {
+  step: number; name: string | null; transform: FeatureTransform | null; text: string | null; why?: string; status: 'kept' | 'rejected' | 'skipped'
+  reason: string; delta?: number; ci?: [number, number]; single?: number | null; seconds?: number
+}
+export interface FeatureLabJob {
+  id: string; status: 'running' | 'succeeded' | 'failed'; started_at: string; finished_at?: string; error?: string; target?: string
+  journal: FeatureLabEntry[]
+  version?: { id: string; name: string; columns_added: string[]; rows: number; holdout_rows: number }
+  result?: {
+    task: string; metric: string; metric_label: string; rows: { train: number; scored: number; holdout: number }
+    base_features: string[]; blocked: Record<string, string>; entity: string | null; proposed_by: string
+    base_score_oof: number; final_score_oof: number; improvement_oof: number; kept: FeatureTransform[]
+    rules: { score: string; keep: string; leakage: string; budget: string; dsl: Record<string, string> }
+    holdout?: { before: number; after: number; delta: number; ci: [number, number]; rows: number; model: string; note: string }
+    seconds: number
+  }
+}
+export interface FeatureLabList { dataset_id: string; jobs: { id: string; status: string; started_at: string; kept: number; tried: number; version?: { id: string; name: string } | null }[]; dsl: Record<string, { args: string[]; text: string }> }

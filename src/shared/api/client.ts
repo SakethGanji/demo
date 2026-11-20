@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, Ladder, FeatureLabJob, FeatureLabList, FeatureTransform, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
 
 /** Who is acting (typed once in the Registry; there is no sign-in): recorded in the audit log. */
 const actor = () => { try { return localStorage.getItem('ensemble.actor') || undefined } catch { return undefined } }
@@ -67,6 +67,11 @@ export const api = {
     applyFixes: (id: string, transforms: DataFix[]) => json<DataFixResult>(`/datasets/${encodeURIComponent(id)}/data-doctor/apply`, 'POST', { transforms, by: actor() }, 300_000),
     /** D1: store 'known at decision time?' and fairness-only answers; later runs drop those columns. */
     decisionTime: (id: string, known: Record<string, boolean>, fairness_only: string[]) => json<{ answered_at: string }>(`/datasets/${encodeURIComponent(id)}/decision-time`, 'POST', { known, fairness_only, by: actor() }),
+    /** D2 Feature Lab: the dataset's searches (newest first) and the typed DSL. */
+    featureLab: (id: string) => request<FeatureLabList>(`/datasets/${encodeURIComponent(id)}/feature-lab`),
+    featureLabStart: (id: string, body: { target?: string; entity?: string | null; candidates?: FeatureTransform[]; max_candidates?: number; time_limit?: number }) =>
+      json<FeatureLabJob>(`/datasets/${encodeURIComponent(id)}/feature-lab`, 'POST', { ...body, by: actor() }, 60_000),
+    featureLabJob: (id: string, job: string) => request<FeatureLabJob>(`/datasets/${encodeURIComponent(id)}/feature-lab/${encodeURIComponent(job)}`),
     splits: (id: string) => request<DatasetSplits>(`/datasets/${encodeURIComponent(id)}/splits`),
     /** F6: strategies, date and entity columns found, and warnings for a random split. */
     splitOptions: (id: string, target?: string) => request<SplitOptions>(`/datasets/${encodeURIComponent(id)}/split-options${target ? `?target=${encodeURIComponent(target)}` : ''}`, { timeoutMs: 60_000 }),
@@ -102,6 +107,8 @@ export const api = {
     },
     /** F11: the scorecard challenger: table, IV, holdout AUC vs the served model, ΔAUC with a bootstrap CI. */
     scorecard: (id: string) => request<ScorecardReport>(`/runs/${encodeURIComponent(id)}/scorecard`),
+    /** D2: the model ladder: baseline → scorecard → single GBM → stack on one holdout, and the rung to serve. */
+    ladder: (id: string) => request<Ladder>(`/runs/${encodeURIComponent(id)}/ladder`, { timeoutMs: 180_000 }),
     /** F12: the run's learning curve (status 'none' with the defaults until one is started). */
     learningCurve: (id: string) => request<LearningCurve>(`/runs/${encodeURIComponent(id)}/learning-curve`),
     /** F12: refit the run's exact config on nested subsamples of its training rows, in a worker process. */

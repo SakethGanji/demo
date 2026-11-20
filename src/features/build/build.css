@@ -68,3 +68,11 @@
 .build .data-report { margin-bottom: var(--space-16, 16px); }
 .dr-ev .table tr { height: auto; }
 .dr-ev .table td { padding-top: 4px; padding-bottom: 4px; }
+
+/* D2 · Feature Lab (Build → Advanced) */
+.feature-lab .fl-say { margin: 0; font-size: 13.5px; color: var(--text-primary); }
+.feature-lab .fl-table td { vertical-align: top; }
+.feature-lab .fl-table .r { text-align: right; white-space: nowrap; }
+.feature-lab tr.fl-kept td { background: var(--status-success-bg); }
+.feature-lab tr.fl-skipped td { color: var(--text-muted); }
+.feature-lab .chip.ok { border-color: var(--status-success); color: var(--status-success); }

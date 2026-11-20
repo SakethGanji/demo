@@ -180,3 +180,16 @@
 .split-random .sr-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 6px; }
 .split-random .sr-bar i { display: block; height: 100%; opacity: 0.85; }
 .split-adv summary { cursor: pointer; }
+
+/* D2 · Model ladder (Results) */
+.ladder .ladder-say { margin: 0 var(--space-16) var(--space-8); color: var(--text-primary); font-size: 14px; }
+.ladder .ladder-note { margin: 0 var(--space-16) var(--space-8); font-size: 12.5px; color: var(--text-body); }
+.ladder .ladder-note.warn { color: var(--status-warning); }
+.ladder .ladder-table { width: 100%; }
+.ladder .ladder-table td { vertical-align: top; }
+.ladder .ladder-table td.num, .ladder .ladder-table th.num { text-align: right; white-space: nowrap; }
+.ladder .ladder-table tr.rec td { background: var(--status-success-bg); }
+.ladder .ladder-table tr.muted td { color: var(--text-muted); }
+.ladder .chip.ok { border-color: var(--status-success); color: var(--status-success); }
+.ladder .ladder-rule { margin: var(--space-8) var(--space-16) var(--space-12); font-size: 12px; }
+.ladder .ladder-distill { gap: var(--space-12); align-items: center; padding: 0 var(--space-16) var(--space-12); }

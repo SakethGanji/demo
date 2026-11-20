@@ -18,7 +18,7 @@ import { useTabParam } from '@/shared/hooks/useHashParam'
 import { ReasonCodes } from './components/ReasonCodes'
 import { BuildSteps, Provenance, ReviewCard, Tradeoff } from './components/VersionOverview'
 import { ServingCard } from './components/ServingCard'
-import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, short, us, useActor, versionParam, when } from './lib'
+import { APPROVAL_STATUS, STAGE_STATUS, bytes, runParamReg, serveParamReg, distillParamReg, short, us, useActor, versionParam, when } from './lib'
 import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
 
 type Tab = 'Overview' | 'Results' | 'Model Card' | 'Try It' | 'Reason Codes' | 'Batch & Drift' | 'Monitoring' | 'Credit Report' | 'Fair Lending'
@@ -122,7 +122,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
       </div>
 
       {registering != null && okRuns.length > 0 && (
-        <RegisterPanel runs={okRuns} initialRun={registering} initialServe={serveParamReg()} actor={actor} onCancel={() => { setRegistering(null); if (runParamReg()) history.replaceState(null, '', '#/registry') }}
+        <RegisterPanel runs={okRuns} initialRun={registering} initialServe={serveParamReg()} initialDistill={distillParamReg()} actor={actor} onCancel={() => { setRegistering(null); if (runParamReg()) history.replaceState(null, '', '#/registry') }}
           onRegistered={(v) => { setRegistering(null); bump(); select(v.id, 'Overview') }} />
       )}
 

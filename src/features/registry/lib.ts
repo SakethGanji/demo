@@ -41,6 +41,8 @@ export const tabParam = () => new URLSearchParams(location.hash.split('?')[1] ??
 export const runParamReg = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('register')
 /** F19: a model to preselect as serve_model in Register (the Model Doctor's latency prescription). */
 export const serveParamReg = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('serve')
+/** D2: the ladder's distillation offer opens Register with distill ticked. */
+export const distillParamReg = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('distill') === '1'
 
 /** PSI bands used across the bank: < 0.10 stable, 0.10–0.25 watch, > 0.25 shift. */
 export const BAND_STATUS: Record<string, Status> = { stable: 'success', watch: 'warning', shift: 'danger', missing: 'neutral' }

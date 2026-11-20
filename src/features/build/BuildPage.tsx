@@ -8,6 +8,7 @@ import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { Segmented } from '@/shared/primitives/Segmented'
 import { DataReport } from './DataReport'
+import { FeatureLab } from './FeatureLab'
 import { SqlLineageLine, SqlSource } from './SqlSource'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
@@ -148,6 +149,7 @@ function BuildLive({ go }: { go: (r: string) => void }) {
           : <div className="card card-body row helper">{dsId ? (intake.err ? <span style={{ color: 'var(--status-danger)' }}>✕ {intake.err}</span> : <><ResonanceWave /> Reading every column…</>) : 'Drop a CSV, query a database or pick a dataset: Smart Intake finds the target, dates, IDs, money, segments and what to leave out, and says why.'}</div>}
       </div>
       {current && <Suggestions intake={current} onOpen={open} busy={!!busy} />}
+      {current && dsId && <FeatureLab dsId={dsId} entities={current.roles.entity ?? []} onVersion={(id, msg) => { setFixed({ id, msg }); list.reload(); setDs(id) }} />}
     </div>
   )
 }

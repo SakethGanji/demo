@@ -14,6 +14,7 @@ import { MetricCards } from './MetricCards'
 import { QuantileResults } from './QuantileResults'
 import { residuals } from './stats'
 import { TryPrediction } from './TryPrediction'
+import { LadderCard } from './LadderCard'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 
 /** Step 5: what the run produced. Live: everything from GET /api/runs/{id}; mock: the simulated run. */
@@ -86,6 +87,8 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain, embedded }:
           {weights && Object.keys(weights).length > 0 && <div className="rh-eq"><StackEquation model={run.ensemble!.model} weights={weights} dark testId="result-equation" problemType={run.problem_type} K={run.classes?.length} scoreLabel={`validation ${metric} = ${fmtScore(bestVal)}${best?.score_val_natural == null && bestVal != null ? ` (${best?.model.replace(/_FULL$/, '')}, before refit)` : ''}`} /></div>}
         </div>
       </div>
+
+      {live && <LadderCard run={run} go={go} />}
 
       <MetricCards run={run} preds={preds} />
 
