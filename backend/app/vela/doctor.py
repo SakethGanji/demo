@@ -439,7 +439,8 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
             if conf["overconfident"] and lo >= 0.06:
                 r += "The model does not expect these errors (overconfident): attributed to overfitting, not to the labels."
             elif (rate or 0) >= 0.05:
-                r += "cleanlab's rate is high but the confident predictions are right: the disagreements sit where classes overlap (hard by nature)."
+                r += ("cleanlab's rate is high but the confident predictions are right: the flagged rows sit where the model is unsure "
+                      "(classes that overlap, or flipped labels it cannot tell from them).")
             else:
                 r += "No error floor."
             checks.append(_check("label_noise", "clear", r, e, source="confidence floor + cleanlab"))
