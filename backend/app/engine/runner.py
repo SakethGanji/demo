@@ -58,6 +58,7 @@ class JobRunner:
         self._q: queue.Queue[str | None] = queue.Queue()
         self._procs: dict[str, subprocess.Popen] = {}
         self._cancelled: set[str] = set()
+        self.on_success = None  # callable(run_id), set by the API: warms the Model Doctor after a fit
         self._lock = threading.Lock()
         self._threads: list[threading.Thread] = []
         self._stopping = False
@@ -206,6 +207,11 @@ class JobRunner:
             if self.store.finish(run_id, "cancelled", error="Cancelled."):
                 self.store.emit(run_id, "run_cancelled", reason="cancelled while running")
             return
+        if self.on_success is not None and (self.store.get(run_id) or {}).get("status") == "succeeded":
+            try:  # A1 #12: the Model Doctor is computed (and cached) right after the fit, not on the first page view
+                self.on_success(run_id)
+            except Exception:  # noqa: BLE001
+                log.exception("on_success hook failed for %s", run_id)
         if self.store.finish(run_id, "failed", error=f"The worker exited with code {code}. {self._tail(d)}".strip()):
             self.store.emit(run_id, "run_failed", error=f"The worker exited with code {code}.", log_tail=self._tail(d))
 

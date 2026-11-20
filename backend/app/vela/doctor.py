@@ -78,7 +78,9 @@ RULES = {
              "labelled batch → critical, a drift alert (PSI / adversarial AUC / score PSI) on the latest batch → major, and the "
              "prescription is then the retrain proposal",
     "label_noise": "classification: error floor (top-20 % confidence) Wilson lower bound ≥ 0.06, not overconfident, cleanlab rate ≥ 0.05 → "
-                   "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major",
+                   "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major; "
+                   "or retraining without cleanlab's flagged training rows gains beyond noise (95 % CI above 0; the full-model "
+                   "clean_labels experiment once it ran, else the quick model) → major: noise in the training labels only",
     "overfit": "z = (train − holdout)/SE ≥ 3 and, for classification, overconfident (floor − expected ≥ 0.05 and expected < floor/3) → "
                "major (critical if z ≥ 8); Vela's validation-vs-holdout optimism alone → minor",
     "data_limited": "learning curve verdict data-limited (CI of the gain per doubling above ε) → major; "
@@ -422,12 +424,23 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
                                  {"kind": "inbox", "title": "Save The Consensus Labels", "run_id": rid,
                                   "endpoint": f"/api/runs/{rid}/annotations/version", "why": "Use the CROWDLAB consensus as the labels."},
                                  source="F14"))
+        elif (lab := _label_gain(ctx, rid)) is not None and lab["fires"]:
+            # D5: noise in the training labels only (the holdout's confident predictions are right, so the floor stays
+            # low) shows as a measured gain from dropping cleanlab's flagged training rows; the full-ensemble
+            # experiment, once it ran, decides over the quick model.
+            e.update(clean=lab["evidence"])
+            checks.append(_check("label_noise", "finding", base + lab["text"], e, "major", lab["rx"],
+                                 formula="Δ = score(fit without the flagged training rows) − score(fit with them), same holdout, paired bootstrap",
+                                 source="cleanlab on the training rows + " + lab["source"]))
         else:
             r = base
+            if (lab := _label_gain(ctx, rid)) is not None:
+                r += lab["text"] + " "
             if conf["overconfident"] and lo >= 0.06:
                 r += "The model does not expect these errors (overconfident): attributed to overfitting, not to the labels."
             elif (rate or 0) >= 0.05:
-                r += "cleanlab's rate is high but the confident predictions are right: the disagreements sit where classes overlap (hard by nature)."
+                r += ("cleanlab's rate is high but the confident predictions are right: the flagged rows sit where the model is unsure "
+                      "(classes that overlap, or flipped labels it cannot tell from them).")
             else:
                 r += "No error floor."
             checks.append(_check("label_noise", "clear", r, e, source="confidence floor + cleanlab"))
@@ -689,6 +702,25 @@ def _pct(x: float) -> str:
     return f"{100 * x:.0f}%" if abs(x) >= 0.1 else f"{100 * x:.1f}%"
 
 
+ERROR_METRICS = ("RMSE", "MAE", "root_mean_squared_error", "mean_absolute_error", "log loss", "cost / 1,000")
+
+
+def _sv(v: float, metric: str | None = None, ref: float | None = None, sign: bool = True) -> str:
+    """A measured number at a sensible precision: money-scale errors (RMSE in dollars) to whole units with separators,
+    small scores to 4 decimals."""
+    big = abs(ref if ref is not None else v) >= 100
+    body = f"{v:+,.0f}" if big else f"{v:+.4f}"
+    return body if sign else body.lstrip("+")
+
+
+def _better(metric: str | None) -> str:
+    return " (lower error is better; the sign shows the improvement)" if metric in ERROR_METRICS else ""
+
+
+def _cis(ci: list[float] | None, ref: float | None = None) -> str:
+    return f"[{_sv(ci[0], ref=ref)}, {_sv(ci[1], ref=ref)}]" if ci else ""
+
+
 def _ci(ci: list[float] | None, d: int = 4) -> str:
     return f"[{ci[0]:+.{d}f}, {ci[1]:+.{d}f}]" if ci else ""
 
@@ -855,6 +887,37 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
                   source="D3 dominance + D1 hint + R* bound + overlap + ablation")
 
 
+def _label_gain(ctx: dict[str, Any], rid: str) -> dict[str, Any] | None:
+    """D5: the measured value of cleaner training labels. The full-ensemble clean_labels experiment when it has run,
+    else the quick model refit without cleanlab's flagged training rows. Fires when the Δ's 95 % CI is above 0."""
+    e = _exp(ctx, "clean_labels")
+    r = (e or {}).get("result")
+    if r and r.get("delta") is not None:
+        fires = r["ci"][0] > 0  # Δ is "better is positive" in every metric (experiments.delta)
+        return {"fires": fires, "source": f"experiment {e['run_id']}",
+                "evidence": {"run_id": e["run_id"], "metric": r["metric"], "with": r["parent"], "without": r["child"], "delta": r["delta"], "ci": r["ci"]},
+                "text": (f"The full model retrained without cleanlab's flagged training rows ({e['run_id']}): {r['metric']} {r['parent']:.4f} → "
+                         f"{r['child']:.4f}, Δ {r['delta']:+.4f} {_ci(r['ci'])} on the same holdout: "
+                         + ("noisy training labels hold the model back." if fires else
+                            "within noise, so the flagged labels are not what limits the model." if r["ci"][1] >= 0 else
+                            "worse: the flagged rows carry real signal.")),
+                "rx": {"kind": "open_run", "title": "Open The Run On Cleaned Labels", "run_id": e["run_id"],
+                       "why": "The same body trained without the flagged training rows; review those labels at their source too."}}
+    cl = (ctx.get("gaps") or {}).get("clean_labels") or {}
+    if cl.get("delta") is None or not cl.get("ci"):
+        return None
+    fires = cl["ci"][0] > 0
+    return {"fires": fires, "source": "quick model",
+            "evidence": {"flagged": cl.get("flagged"), "share": cl.get("share"), "metric": cl.get("metric"), "delta": cl["delta"], "ci": cl["ci"]},
+            "text": (f"A quick model refit without cleanlab's {cl['flagged']:,} flagged training rows ({_pct(cl['share'])}) gains "
+                     f"{cl['delta']:+.4f} {_ci(cl['ci'])} {cl.get('metric') or ''} on the untouched holdout"
+                     + (": the noise sits in the training labels. The clean-labels experiment measures it with the full model."
+                        if fires else ", within noise.")),
+            "rx": {"kind": "experiment", "title": "Retrain On Cleaned Labels", "endpoint": f"/api/runs/{rid}/experiments",
+                   "body": {"kind": "clean_labels"},
+                   "why": "The run's own body without cleanlab's flagged training rows (a dataset version; the holdout untouched); Δ on the same holdout rows."}}
+
+
 def _cost_tradeoff(g: dict[str, Any], rid: str) -> dict[str, Any]:
     c = g.get("cost")
     if not c:
@@ -907,11 +970,18 @@ def _improve(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> list[dict[str
     if lk and lk["status"] == "finding":
         ab = lk["evidence"].get("ablation") or {}
         cols = [s["feature"] for s in lk["evidence"]["suspects"] if s["reason"] != "identifier"] or [s["feature"] for s in lk["evidence"]["suspects"]]
-        out.append({"id": "drop_leak", "title": f"Drop the leak ({', '.join(cols)})", "must": True,
+        if not cols:  # train/holdout overlap or an error below the bound, no column named: the prescription is the lever
+            out.append({"id": "drop_leak", "title": lk["prescription"]["title"] if lk.get("prescription") else "Remove the overlap",
+                        "must": True, "delta": None, "ci": None, "metric": None,
+                        "source": "not measured yet: " + ((lk.get("prescription") or {}).get("why") or ""), "action": lk.get("prescription")})
+            cols = None
+    if lk and lk["status"] == "finding" and cols:
+        out.append({"id": "drop_leak", "title": f"Settle the leak question ({', '.join(cols)})", "must": True,
                     "delta": ab.get("delta"), "ci": ab.get("ci"), "metric": ab.get("metric"),
                     "source": f"ablation {ab['run_id']}: same body and holdout without the column(s)" if ab.get("delta") is not None else
                               ("ablation running" if ab.get("run_id") else "not measured yet: run the ablation"),
-                    "note": "The score falls, and that is the point: the run without it is the honest score." if ab.get("delta") is not None else None,
+                    "note": ("If the column is not known at decision time, the run without it is the honest score; a fall is evidence the "
+                             "score leans on it.") if ab.get("delta") is not None else None,
                     "action": lk["prescription"]})
     mr = _more_rows(ctx)
     lc_missing = not ((run.get("result") or {}).get("learning_curve") or {}).get("verdict")
@@ -1030,7 +1100,7 @@ def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[di
     f = conds["flat"]
     parts.append("the learning curve is flat (F12 saturated)" if f["source"] == "F12" and f["ok"] else
                  "the learning curve still rises (F12 data-limited)" if f["source"] == "F12" else
-                 f"the quick model's next doubling is {f['next_doubling']:+.4f} {_ci(f['ci'])} " + ("< " if f["ok"] else "vs ") + f"ε = {f['eps']:.4g}"
+                 f"the quick model's next doubling is {_sv(f['next_doubling'], ref=f['eps'] * 200)} {_cis(f['ci'], ref=f['eps'] * 200)} " + ("< " if f["ok"] else "vs ") + f"ε = {f['eps']:.4g}"
                  + (" (upper bound < 2ε)" if f["ok"] else ""))
     a = conds["agree"]
     parts.append(f"{a['single']} is the best rung" if a.get("best_rung") == 2 else
@@ -1044,7 +1114,7 @@ def _ceiling(ctx: dict[str, Any], checks: list[dict[str, Any]], improve: list[di
     if not allok:
         return _check("ceiling", "clear", "Not at the data's limit yet: " + txt, {"conditions": conds}, source="D3")
     top = next((x for x in improve if x.get("measured") and (x.get("delta") or 0) > 0), None)
-    rx = ({**top["action"], "why": f"The best measured lever: {top['title']} ({top['delta']:+.4f} {top.get('metric') or ''})."}
+    rx = ({**top["action"], "why": f"The best measured lever: {top['title']} ({_sv(top['delta'])} {top.get('metric') or ''})."}
           if top and top.get("action") else
           {"kind": "info", "title": "Tuning will not help: more rows, new features or a cleaner label would"})
     tw = (ctx.get("gaps") or {}).get("twins")
@@ -1068,7 +1138,7 @@ def _excess_gain(o: dict[str, Any] | None, source: str) -> dict[str, Any] | None
     if o.get("excess") is None:
         return _gain(o, source, True)
     return {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
-            "source": f"{source}: {o['delta']:+.4f}, minus {o['random']['delta']:+.4f} that a random segment of the same size gets",
+            "source": f"{source}: {_sv(o['delta'])}, minus {_sv(o['random']['delta'], ref=o['delta'])} that a random segment of the same size gets",
             "raw": o["delta"], "random": o["random"]["delta"], "beyond_noise": o.get("beyond_noise")}
 
 
@@ -1084,8 +1154,9 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     if tw:
         ex = tw.get("exact_conflicts") or {}
         f = (f"{_pct(tw['errors_in_mixed'])} of the model's errors are rows whose {tw['k']} closest training rows (on the columns that "
-             f"matter, weighted by importance) had mixed outcomes. The table's nearest-neighbour disagreement R_NN is {tw['r_nn']:.3f} "
-             f"[{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}], so the irreducible error is between {tw['lower']:.3f} and {tw['r_nn']:.3f} against a model error of "
+             f"matter, weighted by importance) had mixed outcomes: look-alike customers who ended differently. How often look-alikes "
+             f"disagree ({tw['r_nn']:.3f}, 95 % CI [{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}]) puts the error no model can avoid "
+             f"with these columns between about {tw['lower']:.3f} and {tw['r_nn']:.3f}, against a model error of "
              f"{tw['model_error']:.3f}" + (
                  f": roughly {_pct(tw['explained'] or 0)} or more of the error is beyond what these columns can separate (an approximate, "
                  "finite-sample bound)." if (tw.get("explained") or 0) < 0.95 else
@@ -1097,11 +1168,11 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
             f += f" These look-alikes concentrate in {w['label']} ({_pct(w['share_mixed'])} of them vs {_pct(w['share_all'])} of all rows)."
         if ex.get("rows"):
             f += f" {ex['rows']:,} rows in {ex['groups']:,} groups are identical on every column with different labels."
-        gaps.append({"id": "twins", "kind": "twins", "title": "Indistinguishable twins", "finding": f,
+        gaps.append({"id": "twins", "kind": "twins", "title": "Look-alike rows with different outcomes", "finding": f,
                      "request": "Join information that differs between these look-alikes: a source the table lacks (bureau data, a "
                                 "history of the key columns, behaviour over time). Reviewing the identical-but-different rows tells a "
                                 "wrong label from a missing column.",
-                     "gain": _excess_gain(orc.get("twins"), "oracle on the look-alike rows (simulation)"),
+                     "gain": _excess_gain(orc.get("twins"), "simulated perfect information on the look-alike rows"),
                      "evidence": {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "errors_in_mixed",
                                                          "mixed_share_holdout", "closeness", "k", "exact_conflicts", "where")}, "method": tw.get("method")})
     con = g.get("concentration") or {}
@@ -1111,14 +1182,15 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         lr = s.get("label_review")
         f = (f"Errors concentrate in {s['label']} ({s['n']:,} holdout rows): {s['rate']:.1%} of them are wrong vs {con['overall_rate']:.1%} "
              f"overall ({s['lift']:.2f}×, {s['excess']:.0f} more errors than an average group of that size).")
-        if lr:  # cleanlab flags concentrate here too: the labels may be the problem, not missing information
-            gaps.append({"id": f"labels:{s['column']}={s['value']}", "kind": "label_review", "title": f"Check the labels: {s['label']}",
-                         "finding": f + f" cleanlab flags {_pct(lr['rate_inside'])} of this group's errors as likely wrong labels vs {_pct(lr['rate_outside'])} "
-                                        f"for errors elsewhere ({lr['flagged']:,} rows): the model is confidently 'wrong' here more often than "
-                                        "anywhere else, which is what wrong labels there look like (a process, a form, a team).",
-                         "request": f"Review a sample of the {lr['flagged']:,} flagged labels where {s['label']} (Doctor → Labels). If many "
-                                    "are wrong, fix how the outcome is recorded there before collecting new information; the holdout "
-                                    "score cannot show the gain until its labels are reviewed too.",
+        if lr and not any(x["kind"] == "label_review" for x in gaps):  # the top such segment only
+            gaps.append({"id": f"labels:{s['column']}={s['value']}", "kind": "label_review", "title": f"Wrong labels or missing information? {s['label']}",
+                         "finding": f + f" cleanlab flags {_pct(lr['rate_inside'])} of the labels in this group vs {_pct(lr['rate_outside'])} "
+                                        f"elsewhere ({lr['flagged']:,} holdout rows). Two explanations fit: the outcome is recorded wrongly "
+                                        "here (a process, a form, a team), or the table lacks what separates these cases. The data alone "
+                                        "cannot tell them apart; a sample of reviewed labels can.",
+                         "request": f"First review a sample of the {lr['flagged']:,} flagged labels where {s['label']} (Doctor → Labels): "
+                                    "if many are wrong, fix how the outcome is recorded there (and the holdout labels, or no score can "
+                                    "show the gain); if they are right, the gap is missing information (below).",
                          "gain": None, "suggested": True, "evidence": {**lr, "column": s["column"], "value": s["value"]}})
         if o and o.get("excess") is not None and not o.get("beyond_noise"):
             continue  # what a random group of the same size would gain: not a property of this segment
@@ -1131,11 +1203,11 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         if s.get("top_features"):
             req += f"; the model already leans on {', '.join(s['top_features'][:2])} here, so a finer or historical version of those is a start"
         if lr:
-            req = "After the label check above: " + req[0].lower() + req[1:]
+            req = "If the labels check out: " + req[0].lower() + req[1:]
         gain = None
         if o:
             gain = {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
-                    "source": (f"oracle on {s['label']} (simulation): {o['delta']:+.4f}, minus {o['random']['delta']:+.4f} that a random "
+                    "source": (f"simulated perfect information on {s['label']}: {_sv(o['delta'])}, minus {_sv(o['random']['delta'], ref=o['delta'])} that a random "
                                f"{_pct(o.get('share') or 0)} of rows gets"), "raw": o["delta"], "random": o["random"]["delta"]}
         gaps.append({"id": f"segment:{s['column']}={s['value']}", "kind": "concentration", "title": f"Errors concentrate: {s['label']}",
                      "finding": f, "request": req + ".", "gain": gain,
@@ -1152,7 +1224,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
                                  f"{_pct(t['within_share'])} of the outcome's variance is left inside its levels (worst: {t['column']} = "
                                  f"{t['worst_level']}, {t['worst_n']:,} rows, rate {t['worst_rate']:.3f})."),
                      "request": f"Collect a finer measure of {t['column']}, or its history (a trend over months, not one snapshot).",
-                     "gain": _excess_gain(orc.get(f"thin:{t['column']}"), f"oracle on {t['column']} = {t['worst_level']} (simulation)"), "evidence": t})
+                     "gain": _excess_gain(orc.get(f"thin:{t['column']}"), f"simulated perfect information on {t['column']} = {t['worst_level']}"), "evidence": t})
     for p in ((g.get("confusion") or {}).get("pairs") or [])[:3]:
         gaps.append({"id": f"confusion:{p['a']}|{p['b']}", "kind": "label_overlap", "title": f"Labels overlap: '{p['a']}' ↔ '{p['b']}'",
                      "finding": f"'{p['a']}' is predicted as '{p['b']}' {p['a_as_b']} times and '{p['b']}' as '{p['a']}' {p['b_as_a']} times: the model confuses them both ways, so the label definitions overlap.",
@@ -1162,7 +1234,8 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
     mr = _more_rows(ctx)
     if mr and mr.get("ci") and mr["ci"][1] > 0:
         gaps.append({"id": "more_rows", "kind": "more_rows", "title": "More rows of the same kind",
-                     "finding": f"Doubling the training rows: {mr['delta']:+.4f} {_ci(mr['ci'])} {mr['metric']} ({mr['source']}).",
+                     "finding": f"Doubling the training rows: {_sv(mr['delta'], ref=max(abs(x) for x in [mr['delta'], *(mr['ci'] or [])]))} "
+                                f"{_cis(mr['ci'], ref=max(abs(x) for x in [mr['delta'], *(mr['ci'] or [])]))} {mr['metric']}{_better(mr['metric'])} ({mr['source']}).",
                      "request": "Collect more labelled rows, if the gain is worth the cost.", "gain": _gain(mr, mr["source"]), "evidence": mr})
     cl = g.get("clean_labels")
     eo = (g.get("errors_top") or {}).get("cleanlab")
@@ -1196,18 +1269,28 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         gaps = [x for x in gaps if not any(x["id"].split(":", 1)[-1].split("=")[0] == c for c in sus_cols)]
     for x in gaps:
         x["measured"] = x.get("gain") is not None
-    gaps.sort(key=lambda x: _rank_key({"delta": x["gain"] and x["gain"]["delta"], "suggested": x.get("suggested"),
-                                         "must": x.get("kind") == "label_review"}))
+    def _gap_key(x: dict[str, Any]) -> tuple[float, float]:
+        gn = x.get("gain") or {}
+        if x.get("kind") != "label_review" and gn.get("delta") is not None and not gn.get("simulated") and gn.get("ci") and gn["ci"][0] > 0:
+            return (0.5, -float(gn["delta"]))  # D5: a gain measured beyond noise and available now, before the simulated upper bounds
+        return _rank_key({"delta": gn.get("delta"), "suggested": x.get("suggested")})
+
+    gaps.sort(key=_gap_key)
+    lr_i = next((i for i, x in enumerate(gaps) if x["kind"] == "label_review"), None)
+    if lr_i is not None:  # the label check goes just before the first gap about the same segment (it is the cheaper test)
+        lr_g = gaps.pop(lr_i)
+        seg_i = next((i for i, x in enumerate(gaps) if x["id"].split(":", 1)[-1] == lr_g["id"].split(":", 1)[-1]), len(gaps))
+        gaps.insert(min(seg_i, lr_i), lr_g)
     for i, x in enumerate(gaps):
         x["rank"] = i + 1
     top = gaps[0] if gaps else None
     head = None
     if top:
-        head = f"{top['title']}: " + (f"worth up to {top['gain']['delta']:+.4f} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
+        head = f"{top['title']}: " + (f"worth up to {_sv(top['gain']['delta'])} {top['gain']['metric'] or ''}" if top.get("gain") else "not measured") + f". {top['request']}"
     return {"schema": "missing/1", "gaps": gaps, "headline": head, "served": served, "quick": g.get("quick"), "caveat": caveat,
             "irreducible": tw and {k: tw.get(k) for k in ("r_nn", "r_nn_ci", "lower", "lower_ci", "model_error", "explained", "explained_upper")},
-            "rules": {"rank": "measured potential gain first (Δ of the run's quick-model metric; an oracle is a simulation and an upper "
-                              "bound), then the unmeasured gaps",
+            "rules": {"rank": "a gain measured beyond noise (its 95 % CI above 0, not a simulation) first, then measured potential gain "
+                              "(Δ of the run's quick-model metric; an oracle is a simulation and an upper bound), then the unmeasured gaps",
                       "oracle": (g.get("oracle") or {}).get("rule"), "concentration": con.get("rule"), "thin": (g.get("thin") or {}).get("rule"),
                       "twins": tw and tw.get("method"), "confusion": (g.get("confusion") or {}).get("rule"),
                       "curve": (g.get("quick_curve") or {}).get("rule"), "clean": (g.get("clean_labels") or {}).get("rule")},

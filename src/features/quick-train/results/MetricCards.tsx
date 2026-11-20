@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import type { HoldoutPredictions, Run } from '@/shared/api/types'
 import { fmtScore, metricInfo } from '../wizard'
 import { toData, withInterval } from './stats'
+
+type Interval = NonNullable<ReturnType<typeof withInterval>>
 
 /** Which holdout metrics to show, primary first. */
 function pick(run: Run): string[] {
@@ -18,15 +21,29 @@ function pick(run: Run): string[] {
  */
 export function MetricCards({ run, preds }: { run: Run; preds: HoldoutPredictions | null }) {
   const h = run.holdout
-  if (!h) return null
   const keys = pick(run)
-  const data = preds ? toData(preds, run.positive_class) : null
+  const keyStr = keys.join(',')
+  // A1 #11: the intervals are computed once per predictions, after the page has painted, not on every render.
+  const [cis, setCis] = useState<Record<string, Interval | null>>({})
+  useEffect(() => {
+    setCis({})
+    if (!preds) return
+    let alive = true
+    const t = setTimeout(() => {
+      const data = toData(preds, run.positive_class)
+      const out: Record<string, Interval | null> = {}
+      for (const k of keyStr.split(',')) out[k] = withInterval(k, data)
+      if (alive) setCis(out)
+    }, 0)
+    return () => { alive = false; clearTimeout(t) }
+  }, [preds, run.positive_class, keyStr])
+  if (!h) return null
   return (
     <div className="metric-cards" data-testid="metric-cards">
       {keys.map((k, i) => {
         const info = metricInfo(k)
         const v = h.metrics[k]
-        const ci = data ? withInterval(k, data) : null
+        const ci = cis[k] ?? null
         return (
           <div key={k} className={`card mcard ${i === 0 ? 'primary' : ''}`} data-testid={`metric-card-${k}`}>
             <div className="mcard-top">

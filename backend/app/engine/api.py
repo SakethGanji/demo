@@ -49,7 +49,10 @@ class RunCreate(BaseModel):
     fit_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to TabularPredictor.fit unchanged.")
     predictor_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to TabularPredictor(...).")
     custom_text_models: bool = Field(True, description="Add TFIDF_LR and TFIDF_SVM when the data has a text column.")
-    drop_columns: list[str] | None = Field(None, description="Columns left out of training; default: ID columns.")
+    drop_columns: list[str] | None = Field(None, description="Columns left out of training, on top of the ID columns.")
+    keep_id_columns: bool = Field(False, description="A1 #10: the columns the profile types as row IDs (role ignored) "
+                                                     "are left out of training unless this is true or column_types "
+                                                     "gives them a type; the run records them as id_columns_dropped.")
     feature_importance: bool = Field(True, description="Compute permutation importance on the holdout after the fit.")
     column_types: dict[str, Literal["number", "category", "text"]] | None = Field(
         None, description="Override inferred column types; passed to AutoGluon as feature_metadata.")
@@ -242,7 +245,10 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     if label not in cols:
         raise HTTPException(400, f"Column '{label}' is not in the dataset.")
     if cols[label]["unique"] < 2:
-        raise HTTPException(400, f"Column '{label}' has fewer than two distinct values; there is nothing to learn.")
+        raise HTTPException(400, f"Column '{label}' is empty: every row is missing, so there is nothing to learn."
+                            if not cols[label]["unique"] else
+                            f"Column '{label}' has one value in every labelled row: a model needs at least two "
+                            "outcomes to learn from.")
     for k in ("label", "path"):
         if k in body.predictor_kwargs:
             raise HTTPException(400, f"predictor_kwargs.{k} is set by the run; use the run's '{k}' field instead."
@@ -250,14 +256,19 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     for k in ("train_data",):
         if k in body.fit_kwargs:
             raise HTTPException(400, "fit_kwargs.train_data is set by the run (the dataset minus its holdout).")
-    drop = body.drop_columns if body.drop_columns is not None else \
-        [c["name"] for c in profile["columns"] if c["type"] == "id" and c["name"] != label]
+    drop = list(body.drop_columns or [])
     unknown = [c for c in drop if c not in cols]
     if unknown:
         raise HTTPException(400, f"drop_columns: no column named {', '.join(map(repr, unknown))}.")
     if label in drop:
         raise HTTPException(400, "The label column can't be dropped.")
     types = body.column_types or {}
+    # A1 #10: the profile's row-ID columns never train by default, whatever drop_columns says (as in the UI);
+    # a column_types entry for one, or keep_id_columns, keeps it.
+    id_dropped = [] if body.keep_id_columns else \
+        [c["name"] for c in profile["columns"] if c["type"] == "id" and c["name"] != label
+         and c["name"] not in types and c["name"] not in drop]
+    drop = [*drop, *id_dropped]
     bad = [c for c in types if c not in cols]
     if bad:
         raise HTTPException(400, f"column_types: no column named {', '.join(map(repr, bad))}.")
@@ -321,7 +332,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         "decision_time": dt,
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
-        "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
+        "label": label, "drop_columns": drop, "id_columns_dropped": id_dropped, "text_columns": text_cols, "task": task,
         "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
         "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "predictor"),

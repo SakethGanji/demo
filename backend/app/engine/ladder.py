@@ -9,8 +9,8 @@
 
 No extra fit: every servable rung is a model of the run's own leaderboard, so `serve_model` registers it (F19).
 
-Scores are on the run's fixed holdout: AUC for binary runs (the ranking quality a decision threshold then uses), the
-run's eval metric otherwise. Each rung's gap to the best is a **paired bootstrap** over holdout rows (the same draw for
+Scores are on the run's fixed holdout, in the run's own eval metric (A1 #13: average precision for a fraud run, not
+AUC); a binary cost run by its expected cost per 1,000 decisions. Each rung's gap to the best is a **paired bootstrap** over holdout rows (the same draw for
 every rung). **Rule:** serve the simplest servable rung whose gap's interval includes 0. On small data (D1's
 `sample_size` finding, medium or high) the interval is 99 % instead of 95 %: a more complex rung has to win more clearly
 before it is worth its cost. Latency is the measured one-row p95 (pipeline pruned to what the model reads, as served),
@@ -32,6 +32,7 @@ FAMILY_NAMES = {"GBM": "LightGBM", "CAT": "CatBoost", "XGB": "XGBoost", "RF": "r
                 "NN_TORCH": "neural net", "FASTAI": "neural net", "LR": "linear model", "KNN": "k-nearest neighbours",
                 "SCORECARD": "scorecard"}
 B_AUC, B_OTHER = 1000, 300
+PLENTY_ROWS = 20_000  # at or above, a "medium" sample-size finding does not make the interval 99 %
 
 
 def _auc(y: np.ndarray, p: np.ndarray) -> float:
@@ -75,7 +76,8 @@ def pick_rungs(predictor) -> list[dict[str, Any]]:
         out.append({"rung": 1, "key": "linear", "name": "Linear model" + (" (TF-IDF)" if tfidf else ""),
                     "model": lr[0]["model"] if lr else None,
                     "why": "one weight per word and class" if tfidf else "one coefficient per feature",
-                    "missing": None if lr else "no linear (LR) model in this run's hyperparameters"})
+                    "missing": None if lr else ("not trained: AutoGluon's default models have no linear model (LR). "
+                                                "Add \"LR\": {} to fit_kwargs.hyperparameters to get this rung.")})
     # rung 2: one boosted-tree model, no stacking
     gbm = sorted([r for r in l1 if r["_family"] in GBM_FAMILIES], key=sv, reverse=True)
     if gbm:
@@ -113,10 +115,13 @@ def _metric(predictor, cost: dict[str, Any] | None = None):
             return -1000.0 * float(binary_row_costs(y, p > t, cost["c_fp"], cost["c_fn"], cost.get("g_tp") or 0).mean())
 
         return "expected_cost", "proba1", cost_score, (lambda s: -s), False
-    if pt == "binary":
-        return "roc_auc", "proba1", _auc, (lambda s: s), True
     em = predictor.eval_metric
-    needs = "proba" if getattr(em, "needs_proba", False) or getattr(em, "needs_threshold", False) else "pred"
+    if pt == "binary" and em.name == "roc_auc":
+        return "roc_auc", "proba1", _auc, (lambda s: s), True
+    proba = getattr(em, "needs_proba", False) or getattr(em, "needs_threshold", False)
+    # A1 #13: binary runs are ranked on their own eval metric (average precision, F1, log loss, …), on 0/1 labels:
+    # the positive class's probability, or the decision at the run's threshold.
+    needs = ("proba1" if proba else "pred01") if pt == "binary" else ("proba" if proba else "pred")
 
     def score(y, pred):
         return float(em(y, pred))  # AutoGluon scorers are higher-is-better (errors negated)
@@ -124,9 +129,28 @@ def _metric(predictor, cost: dict[str, Any] | None = None):
     return em.name, needs, score, (lambda s: float(em.convert_score_to_original(s))), int(getattr(em, "_sign", 1)) > 0
 
 
+METRIC_LABELS = {"roc_auc": "AUC", "expected_cost": "cost / 1,000", "average_precision": "average precision",
+                 "log_loss": "log loss", "f1": "F1", "balanced_accuracy": "balanced accuracy", "accuracy": "accuracy",
+                 "mcc": "MCC", "precision": "precision", "recall": "recall", "root_mean_squared_error": "RMSE",
+                 "mean_absolute_error": "MAE", "mean_squared_error": "MSE", "r2": "R²",
+                 "mean_absolute_percentage_error": "MAPE", "median_absolute_error": "median AE",
+                 "pinball_loss": "pinball loss"}
+
+
+def decimals(scale: float) -> int:
+    """Decimals for a score of this size: 3 significant digits after the point for scores below 1, fewer above
+    (an RMSE in dollars gets none)."""
+    a = abs(scale)
+    if not math.isfinite(a) or a == 0:
+        return 3
+    return int(min(4, max(0, 2 - math.floor(math.log10(a)))))
+
+
 def _predictions(predictor, model: str | None, X: pd.DataFrame, needs: str):
     if needs == "proba1":
         return predictor.predict_proba(X, model=model, as_multiclass=False).to_numpy(dtype=float)
+    if needs == "pred01":
+        return (predictor.predict(X, model=model) == predictor.positive_class).to_numpy().astype(int)
     if needs == "proba":
         return predictor.predict_proba(X, model=model).to_numpy(dtype=float)
     return predictor.predict(X, model=model).to_numpy()
@@ -135,7 +159,8 @@ def _predictions(predictor, model: str | None, X: pd.DataFrame, needs: str):
 def _baseline(predictor, train_y: pd.Series, n: int, needs: str):
     pt = predictor.problem_type
     if pt == "binary":
-        return np.full(n, float((train_y == predictor.positive_class).mean()))
+        share = float((train_y == predictor.positive_class).mean())
+        return np.full(n, int(share > 0.5)) if needs == "pred01" else np.full(n, share)
     if pt == "multiclass":
         if needs == "proba":
             pri = train_y.value_counts(normalize=True)
@@ -167,13 +192,14 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
     X = holdout[feats]
     y_raw = holdout[label]
     name, needs, score, natural, gib = _metric(predictor, cfg.get("cost"))
-    label_of = {"roc_auc": "AUC", "expected_cost": "cost / 1,000"}
-    if needs == "proba1":
+    label_of = METRIC_LABELS
+    if needs in ("proba1", "pred01"):
         y = (y_raw == predictor.positive_class).to_numpy().astype(int)
     else:
         y = y_raw.to_numpy()
     rungs = [{"rung": 0, "key": "baseline", "name": "Baseline", "model": None, "missing": None,
-              "why": "predicts the training " + ("event rate" if predictor.problem_type == "binary" else
+              "why": "predicts the training " + ("majority class" if needs == "pred01" else
+                                                 "event rate" if predictor.problem_type == "binary" else
                                                  "class shares" if predictor.problem_type == "multiclass" else "mean")
                      + " for everyone: the floor"}] + pick_rungs(predictor)
     preds: dict[int, Any] = {0: _baseline(predictor, train[label], len(X), needs)}
@@ -185,18 +211,21 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
     # paired bootstrap: one draw of rows, every rung scored on it
     rng = np.random.default_rng(seed)
     n = len(y)
-    B = B_AUC if needs == "proba1" else B_OTHER
+    B = B_AUC if name in ("roc_auc", "expected_cost") else B_OTHER
     S = []
     for _ in range(B):
         i = rng.integers(0, n, n)
-        if needs == "proba1" and name == "roc_auc" and y[i].min() == y[i].max():
+        if needs in ("proba1", "pred01") and name != "expected_cost" and y[i].min() == y[i].max():
             continue
         S.append([score(y[i], preds[k][i]) for k in present])
     S = np.asarray(S, dtype=float)
     col = {k: j for j, k in enumerate(present)}
     best = max(present, key=lambda k: (full[k], k))  # ties → the more complex rung counts as best
     small = _sample_size(train, holdout, label)
-    level = 0.99 if small and small["severity"] in ("high", "medium") else 0.95
+    # A1 B: on plentiful rows only a high finding (< 5 events per feature) widens the interval; "medium" there is
+    # not small data.
+    plenty = len(train) + len(holdout) >= PLENTY_ROWS
+    level = 0.99 if small and (small["severity"] == "high" or (small["severity"] == "medium" and not plenty)) else 0.95
     lo_q, hi_q = (1 - level) / 2, 1 - (1 - level) / 2
     for r in rungs:
         k = r["rung"]
@@ -211,6 +240,8 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
                     "ci95": [float(np.quantile(d, 0.025)), float(np.quantile(d, 0.975))],
                     "p_le_0": float((d <= 0).mean())} if k != best else {"delta": 0.0, "ci": [0.0, 0.0], "ci95": [0.0, 0.0], "p_le_0": 1.0}
         r["within"] = k == best or r["gap"]["ci"][0] <= 0
+        if k != best and np.array_equal(np.asarray(preds[k]), np.asarray(preds[best])):
+            r["same_predictions_as"] = best  # e.g. AutoGluon's best is a weighted ensemble of this one model
     # latency and size, as served
     root = Path(predictor.path) / "models"
     for r in rungs:
@@ -259,25 +290,36 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
         out["cost"] = {"c_fp": c["c_fp"], "c_fn": c["c_fn"], "g_tp": c.get("g_tp") or 0, "t": c["bayes_threshold"]}
         out["rule"] += (f" Cost run: the score is the expected cost per 1,000 decisions (c_FP {c['c_fp']:g}, c_FN {c['c_fn']:g}), "
                         f"every rung deciding by the Bayes rule p > t* = {c['bayes_threshold']:.3f}; lower is better.")
+    dp = decimals(next((r["score"] for r in rungs if r["rung"] == best), 0.0))
+    out["decimals"] = dp
+    f = lambda v, sign=False: f"{v:{'+' if sign else ''},.{dp}f}"  # noqa: E731
+    better = "higher" if out["greater_is_better"] else "lower"
     if small and level == 0.99:
-        ev = small["numbers"].get("events per feature")
-        out["small_data_note"] = (f"Small data ({small['title'].split(':')[0].lower()}: "
-                                  + (f"{ev:g} events per feature" if ev is not None else f"{small['numbers'].get('rows per feature')} rows per feature")
-                                  + "): the interval is 99 %, not 95 %, so a more complex rung must win more clearly.")
+        nums = small["numbers"]
+        ev = nums.get("events per feature")
+        per = f"{ev:g} events per feature" if ev is not None else f"{nums.get('rows per feature')} rows per feature"
+        out["small_data_note"] = ((f"Few events ({nums.get('events (smallest class)', 0):,} rows of the rarest class, {per})"
+                                   if plenty else f"Small data ({len(train) + len(holdout):,} rows; {per})")
+                                  + ": the interval is 99 %, not 95 %, so a more complex rung must win more clearly.")
     if rec:
         out["recommended"] = {"rung": rec["rung"], "name": rec["name"], "model": rec["model"],
                               "serve_model": None if rec["rung"] == 3 else rec["model"]}
         b = next(r for r in rungs if r["rung"] == best)
         if rec["rung"] == best:
-            out["sentence"] = f"{rec['name']} is the best rung ({out['metric_label']} {rec['score']:.3f}); no simpler rung is within the interval."
+            out["sentence"] = (f"{rec['name']} is the best rung ({out['metric_label']} {f(rec['score'])}, {better} is better); "
+                               "no simpler rung is within the interval.")
         else:
             g = rec["gap"]
             if name == "expected_cost":
                 out["sentence"] = (f"{rec['name']} costs {g['delta']:.1f} more per 1,000 decisions than {b['name']} "
                                    f"({level:.0%} CI [{g['ci'][0]:+.1f}, {g['ci'][1]:+.1f}]): serve it.")
+            elif rec.get("same_predictions_as") == best:
+                out["sentence"] = (f"{b['name']} makes exactly the same holdout predictions as {rec['name']}: in effect "
+                                   f"they are one model, so serve {rec['name']} (fewer parts).")
             else:
-                out["sentence"] = (f"{rec['name']} is {g['delta']:.3f} {out['metric_label']} below {b['name']} "
-                                   f"({level:.0%} CI [{g['ci'][0]:+.3f}, {g['ci'][1]:+.3f}]): serve it.")
+                out["sentence"] = (f"{rec['name']} is {f(g['delta'])} {out['metric_label']} worse than {b['name']} "
+                                   f"({better} is better; the {level:.0%} CI of the difference, [{f(g['ci'][0], True)}, "
+                                   f"{f(g['ci'][1], True)}], includes 0): serve it.")
             if rec.get("latency_ms_p95") and b.get("latency_ms_p95"):
                 x = b["latency_ms_p95"] / max(rec["latency_ms_p95"], 1e-6)
                 if x >= 1.5:
@@ -293,9 +335,9 @@ def compute(predictor, train: pd.DataFrame, holdout: pd.DataFrame, label: str, c
     if (stack and single and rec and rec["rung"] == 3 and stack["rung"] in col and single["rung"] in col and not single["within"]
             and not cfg.get("monotone") and predictor.problem_type != "quantile"):
         out["distill"] = {"available": True, "gap": single["gap"],
-                          "text": (f"The stack is clearly better than the single model (+{single['gap']['delta']:.3f} "
-                                   f"{out['metric_label']}, {level:.0%} CI [{single['gap']['ci'][0]:+.3f}, "
-                                   f"{single['gap']['ci'][1]:+.3f}]). Distillation trains one LightGBM on the stack's "
+                          "text": (f"The stack is clearly better than the single model ({f(single['gap']['delta'])} "
+                                   f"{out['metric_label']} better, {level:.0%} CI [{f(single['gap']['ci'][0], True)}, "
+                                   f"{f(single['gap']['ci'][1], True)}]). Distillation trains one LightGBM on the stack's "
                                    "predictions (Register → distill); the build reports how much of the gap it keeps.")}
     else:
         out["distill"] = {"available": False}

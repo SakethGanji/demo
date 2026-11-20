@@ -315,9 +315,15 @@ def rule_hypotheses(c: dict[str, Any], node: dict[str, Any], doctor: dict[str, A
     lab = gaps.get("labels")
     noisy = (checks.get("label_noise") or {}).get("status") == "finding"
     lab_gain = bool(lab and lab.get("gain") and lab["gain"].get("ci") and lab["gain"]["ci"][1] > 0)
+    d1 = next((f for f in c["data"]["findings"] if f["id"] == "label_quality"), None)
+    d1_noisy = bool(d1 and d1.get("severity") in ("medium", "high"))  # D5: the Data Doctor's labels that look wrong
+    if run["problem_type"] in ("binary", "multiclass") and d1_noisy:  # D5: labels that look wrong are fixed, not dropped
+        out.append({"title": "Wrong labels hold the model back: relabel them", "why": (d1 or {}).get("title") or "Data Doctor label finding",
+                    "expected": "better", "experiment": {"kind": "clean_labels", "mode": "relabel"},
+                    "source": "rule: Data Doctor labels that look wrong → relabel to cleanlab's suggestion"})
     lab_unmeas = bool(lab and lab.get("unmeasurable"))
-    if run["problem_type"] in ("binary", "multiclass") and (noisy or lab_gain) and not lab_unmeas:
-        out.append({"title": "Noisy labels hold the model back", "why": (lab or {}).get("finding") or "label-noise finding",
+    if run["problem_type"] in ("binary", "multiclass") and (noisy or lab_gain or d1_noisy) and not lab_unmeas:
+        out.append({"title": "Noisy labels hold the model back", "why": (lab or {}).get("finding") or (d1 or {}).get("title") or "label-noise finding",
                     "expected": "better", "experiment": {"kind": "clean_labels"}, "source": "rule: label quality → clean labels"})
     numeric = [col for col in c["data"]["columns"] if col["name"] in feats and col.get("type") == "number" and (col.get("unique") or 0) > 20]
     if "new_features" not in gaps and len(numeric) >= 2:
@@ -778,6 +784,9 @@ def journal_facts(rv: dict[str, Any]) -> dict[str, Any]:
                                                                              "verdict", "reason", "prepared")} for e in rv.get("journal") or []]}
 
 
+IMPROVING = ("budget", "preset", "monotone", "apply_data_fix", "add_features", "clean_labels", "segment")
+
+
 def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) -> dict[str, Any]:
     j = rv.get("journal") or []
     tried = [{"step": e["step"], "title": e["hypothesis"]["title"], "kind": e["experiment"]["kind"], "verdict": e.get("verdict"),
@@ -884,18 +893,26 @@ def compute_plan(rv: dict[str, Any], c: dict[str, Any], doctor: dict[str, Any]) 
     if kept:
         head = "; ".join(f"{e.get('title') or e['hypothesis']['title']} ({_fmt(e['result'])})" for e in kept)
         s = f"{len(j)} experiments; {len(kept)} improved the model beyond noise: {head}."
-    elif j:
-        open_q = [e for e in j if e.get("verdict") in ("leak-test", "unmeasurable")]
-        s = (f"{len(j)} experiments; none improved the model beyond noise."
-             + (" Some questions stay open (a leak to confirm, or a gain the noisy holdout cannot show): settle them before "
-                "concluding anything about new information." if open_q else
-                " Tuning or arithmetic on these columns will not help: the gain must come from new information (the data requests below)."))
+    elif (open_q := [e for e in j if e.get("verdict") in ("leak-test", "unmeasurable")]):
+        s = (f"{len(j)} experiments; none improved the model beyond noise. Some questions stay open (a leak to confirm, or a gain "
+             "the noisy holdout cannot show): settle them before concluding anything about new information.")
+    elif others := [e for e in j if e.get("verdict") != "kept-honest"]:
+        # D5: claim that tuning or arithmetic will not help only when such an experiment ran (a capped review may not get there)
+        lead = (f"{len(others)} {'other ' if honest else ''}experiment{'s' if len(others) != 1 else ''}: none improved the model "
+                "beyond noise.")
+        tk = sorted({e["experiment"]["kind"] for e in others if e["experiment"]["kind"] in IMPROVING})
+        s = (lead + f" What was tried on these columns ({', '.join(tk)}) did not help: the gain must come from new information "
+                    "(the data requests below)." if tk else
+             lead + f" No tuning, cleaning or feature experiment ran (stop: {rv.get('stop_reason') or 'the caps'}); the data "
+                    "requests below come from What's missing.")
+    elif honest:
+        s = ""
     else:
         s = "No experiment ran."
     if honest:
         e = honest[0]
         s = (f"The leak is confirmed: without {', '.join(e['experiment']['spec'].get('columns') or [])} the score is "
-             f"{e['result']['child']:.4f} instead of {e['result']['parent']:.4f} ({_fmt(e['result'])}); that is the honest model. ") + s
+             f"{e['result']['child']:.4f} instead of {e['result']['parent']:.4f} ({_fmt(e['result'])}); that is the honest model." + (" " + s if s else ""))
     return {"schema": SCHEMA, "summary": s, "summary_source": "computed", "tried": tried, "helped": helped, "next": nxt,
             "start_run": start, "best_run": best, "stop_reason": rv.get("stop_reason"), "rules": RULES}
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import hashlib
 import json
 from typing import Any
@@ -206,6 +208,28 @@ def _next_steps(request: Request, rec: dict[str, Any]) -> list[dict[str, Any]]:
     return D.next_steps(rec, found, ver)
 
 
+_doctor_locks: dict[str, asyncio.Lock] = {}
+
+
+async def warm_doctor(app, run_id: str) -> None:
+    """A1 #12: compute the Model Doctor (its measurements and the gap analysis, both cached in the run's result) as soon
+    as a fit succeeds, so the first page view reads the cache. Experiment children are skipped (the review reads them)."""
+    from starlette.requests import Request as _Req
+
+    rec = app.state.runs.get(run_id) or {}
+    cfg = rec.get("config") or {}
+    if cfg.get("source") in ("doctor-experiment", "split-twin") or cfg.get("kind") or cfg.get("import"):
+        return
+    try:
+        req = _Req({"type": "http", "app": app, "headers": [], "method": "GET", "path": f"/api/runs/{run_id}/doctor", "query_string": b""})
+        async with _doctor_locks.setdefault(run_id, asyncio.Lock()):
+            await run_doctor(req, run_id)
+    except Exception:  # noqa: BLE001 — a warm-up that fails leaves the page to compute it
+        import logging
+
+        logging.getLogger("ensemble.doctor").exception("warming the doctor for %s failed", run_id)
+
+
 @router.get("/runs/{run_id}/doctor")
 async def model_doctor(run_id: str, request: Request, latency_ms: float | None = None, measure_latency: bool = False,
                        served_p95_ms: float | None = None) -> dict[str, Any]:
@@ -215,13 +239,14 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
     (default: the run's infer_limit); `measure_latency=true` measures the served latency when it is missing (F3); `served_p95_ms` passes a served one-row p95 measured elsewhere (Autopilot does)."""
     if latency_ms is not None and latency_ms <= 0:
         raise HTTPException(422, "latency_ms must be > 0.")
-    return await run_doctor(request, run_id, latency_ms, measure_latency, served_p95_ms)
+    async with _doctor_locks.setdefault(run_id, asyncio.Lock()):  # a page view waits for a warm-up already running
+        return await run_doctor(request, run_id, latency_ms, measure_latency, served_p95_ms)
 
 
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments
 
 
-GAPS_PROCEDURE = "missing/4"
+GAPS_PROCEDURE = "missing/6"  # D5 + A1 (F-A1): the confusion rule and the gaps changed
 
 
 def _gaps_job(cfg, rec, hints):
@@ -365,11 +390,15 @@ async def _prepare(request: Request, rec: dict[str, Any], spec: dict[str, Any], 
         rows = fl_.get("rows") or []
         if len(rows) < 10:
             return None, {**{k: v for k, v in fl_.items() if k != "rows"}, "why": f"cleanlab flags {len(rows)} training rows: nothing to clean"}
-        out = await run_in_threadpool(_apply, request, ds, [{"op": "drop_rows", "rows": rows,
-                                                             "reason": "cleanlab label issues on the training rows (out of fold)"}], by)
-        return out["dataset"]["id"], {"dataset_id": out["dataset"]["id"], "flagged": len(rows), "of": fl_.get("of"),
+        relabel = spec.get("mode") == "relabel"
+        tf = ({"op": "relabel", "rows": rows, "labels": fl_.get("suggested") or [], "reason": "cleanlab's suggested label on the "
+               "training rows (out of fold)"} if relabel else
+              {"op": "drop_rows", "rows": rows, "reason": "cleanlab label issues on the training rows (out of fold)"})
+        out = await run_in_threadpool(_apply, request, ds, [tf], by)
+        return out["dataset"]["id"], {"dataset_id": out["dataset"]["id"], "flagged": len(rows), "of": fl_.get("of"), "mode": "relabel" if relabel else "drop",
                                       "model": fl_.get("model"), "method": fl_.get("method"),
-                                      "what": f"{len(rows):,} of {fl_.get('of'):,} training rows dropped",
+                                      "what": (f"{len(rows):,} of {fl_.get('of'):,} training labels set to cleanlab's suggestion" if relabel
+                                               else f"{len(rows):,} of {fl_.get('of'):,} training rows dropped"),
                                       "rows_before": out["rows_before"], "rows_after": out["rows_after"]}
     return None, {}
 

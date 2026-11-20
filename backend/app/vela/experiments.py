@@ -37,8 +37,9 @@ DESCRIBE = {
     "apply_data_fix": "{kind: apply_data_fix, transforms: [..]}: apply Data Doctor fixes (a new dataset version, same holdout rows), then retrain",
     "add_features": "{kind: add_features, candidates?: [typed Feature Lab transforms]}: Feature Lab scores them on the training "
                     "folds; the kept ones make a new version (same holdout rows), then retrain. Without candidates its heuristics propose",
-    "clean_labels": "{kind: clean_labels}: cleanlab on the training rows only (out of fold); the flagged training rows are dropped "
-                    "in a new version, the holdout untouched, then the full ensemble is retrained",
+    "clean_labels": "{kind: clean_labels, mode?: drop | relabel}: cleanlab on the training rows only (out of fold); the flagged "
+                    "training rows are dropped (drop, the default) or set to cleanlab's suggested label (relabel: keeps every row, "
+                    "for labels that look wrong) in a new version, the holdout untouched, then the full ensemble is retrained",
     "serve_rung": "{kind: serve_rung, rung: 1|2}: no retrain; a simpler rung of the model ladder (scorecard / linear, single GBM) "
                   "against the best on the same holdout",
     "segment": "{kind: segment, column}: one model per value of a category column (2–12 values) against one global model (G5), same holdout",
@@ -124,6 +125,11 @@ def validate(rec: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
     elif kind == "clean_labels":
         if pt not in ("binary", "multiclass"):
             raise ValueError("clean_labels is for classification runs.")
+        mode = spec.get("mode") or "drop"
+        if mode not in ("drop", "relabel"):
+            raise ValueError("clean_labels mode is drop (the flagged training rows are left out) or relabel (set to cleanlab's suggestion).")
+        if mode == "relabel":
+            out["mode"] = "relabel"
     elif kind == "serve_rung":
         try:
             rung = int(spec.get("rung"))
@@ -196,7 +202,7 @@ def body_for(rec: dict[str, Any], spec: dict[str, Any], dataset_id: str | None =
             raise ValueError(f"{kind} trains on a prepared dataset version.")
         b["dataset_id"] = dataset_id
         what = {"apply_data_fix": "Data Doctor fixes", "add_features": "Feature Lab features",
-                "clean_labels": "cleaned training labels"}[kind]
+                "clean_labels": "relabelled training labels" if spec.get("mode") == "relabel" else "cleaned training labels"}[kind]
         if prep and prep.get("what"):
             what += f" ({prep['what']})"
     b["parent_run_id"] = rec["id"]
@@ -226,8 +232,9 @@ def flag_training_labels(cfg: dict[str, Any], label: str) -> dict[str, Any]:
     out = dd.label_issues(sub, label, detect(sub)["columns"], all_rows=True)
     if out.get("status") != "done":
         return {"rows": [], "status": out.get("status"), "reason": out.get("reason")}
-    rows = sorted(int(tr[i]) for i in out["issue_rows"])
-    return {"rows": rows, "status": "done", "flagged": len(rows), "of": int(len(tr)), "model": out["model"],
+    pairs = sorted((int(tr[i]), lab) for i, lab in zip(out["issue_rows"], out["issue_suggested"]))
+    rows = [r for r, _ in pairs]
+    return {"rows": rows, "suggested": [lab for _, lab in pairs], "status": "done", "flagged": len(rows), "of": int(len(tr)), "model": out["model"],
             "method": out["method"] + " over the training rows only; the holdout is untouched"}
 
 
