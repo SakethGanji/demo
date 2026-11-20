@@ -94,8 +94,10 @@ PLANTED = {
                        "10 % of the TRAINING rows carry another intent's label (the texts of two training rows with different intents "
                        "swapped, so the label column and the stratified holdout are unchanged)",
                        "Data Doctor: label quality flags labels that look wrong · review: clean_labels kept (Δ CI above 0)"),
-    "taiwan_ratio": ("Taiwan", "default.payment.next.month",
-                     "for 40 % of the rows the label is redrawn from utilisation u = BILL_AMT1 ÷ LIMIT_BAL: p = σ(6 (u − 0.7))",
+    "taiwan_ratio": ("Taiwan, a 6,000-row sample", "default.payment.next.month",
+                     "for 60 % of the rows the label is redrawn from utilisation u = BILL_AMT1 ÷ LIMIT_BAL: p = σ(20 (u − 0.8)). A "
+                     "sample, because on all 30,000 rows the trees learn the ratio from the two raw columns (run 1: Feature Lab "
+                     "+0.0019, within noise: a correct 'no change')",
                      "review: add_features kept (Feature Lab finds BILL_AMT1 ÷ LIMIT_BAL)"),
     "taiwan_drift": ("Taiwan", "default.payment.next.month",
                      "application_month (24 months, random); in the newest 30 % the bills are 1.3× (inflation) and half the labels are "
@@ -182,13 +184,13 @@ def planted() -> dict[str, tuple[Path, str]]:
     else:
         out["banking77_flip"] = (PLANT / "banking77_flip.csv", "category")
 
-    # 3. a planted ratio signal
+    # 3. a planted ratio signal, on a sample: with 24,000 training rows the trees learn u from BILL_AMT1 and LIMIT_BAL
     if not (PLANT / "taiwan_ratio.csv").exists():
         rng = np.random.default_rng(13)
-        d = tw.copy()
+        d = tw.sample(n=6000, random_state=13).reset_index(drop=True)
         u = np.clip(d["BILL_AMT1"] / d["LIMIT_BAL"], -0.5, 1.5)
-        redraw = rng.random(len(d)) < 0.4
-        d[ty] = np.where(redraw, (rng.random(len(d)) < _sig(6 * (u - 0.7))).astype(int), d[ty])
+        redraw = rng.random(len(d)) < 0.6
+        d[ty] = np.where(redraw, (rng.random(len(d)) < _sig(20 * (u - 0.8))).astype(int), d[ty])
         write("taiwan_ratio", d, ty)
     else:
         out["taiwan_ratio"] = (PLANT / "taiwan_ratio.csv", ty)

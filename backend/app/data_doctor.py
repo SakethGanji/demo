@@ -170,6 +170,7 @@ class Ctx:
         self.y01, self.pos = (b if b else (None, None))
         self.excluded_roles = {"id", "constant"}
         self.coded: list[str] = []  # set by check_coded_values (rare codes skips them)
+        self.far_codes: dict[str, list[int]] = {}  # set by check_disguised_missing (rare codes skips those values)
 
     def role(self, c: str) -> str:
         return (self.cols.get(c) or {}).get("role", "feature")
@@ -312,6 +313,18 @@ def check_disguised_missing(cx: Ctx) -> list[dict[str, Any]]:
                 if far:
                     items.append({"column": c, "values": [v], "rows": int(m.sum()), "share": round(share, 4),
                                   "rest": f"{lo:g} … {hi:g}"})
+            # D5: codes in a small count, far beyond it (Give Me Some Credit's past-due counts hold 96 and 98 above
+            # 0 … 15): 1–3 values ≥ 90, each > 5 × the largest of the rest, ≥ 20 rows together, < 5 % of the column
+            if not any(i["column"] == c for i in items) and (nn == nn.round()).all():
+                uniq = np.sort(nn.unique())
+                rest_max = float(uniq[uniq < 90].max()) if (uniq < 90).any() else None
+                if rest_max and rest_max >= 1:
+                    far_v = [int(v) for v in uniq if v >= 90 and v > 5 * rest_max]
+                    m = nn.isin(far_v)
+                    if 1 <= len(far_v) <= 3 and m.sum() >= 20 and m.mean() < 0.05:
+                        cx.far_codes[c] = far_v
+                        items.append({"column": c, "values": far_v, "rows": int(m.sum()), "share": round(float(m.mean()), 4),
+                                      "rest": f"{float(uniq.min()):g} … {rest_max:g}"})
         elif s.dtype == object:
             low = nn.astype(str).str.strip().str.lower()
             hit = low.isin(STR_SENTINELS)
@@ -332,7 +345,8 @@ def check_disguised_missing(cx: Ctx) -> list[dict[str, Any]]:
 def _missing_finding(cx: Ctx, fid: str, sev: str, what: str, items: list[dict[str, Any]]) -> dict[str, Any]:
     big = max(items, key=lambda i: i["share"])
     cols = [i["column"] for i in items]
-    desc = ", ".join(f"{i['column']} = {i['values'][0]!r} ({i['share']:.0%})" for i in items[:4])
+    desc = ", ".join(f"{i['column']} = {' / '.join(repr(v) for v in i['values'][:3])} ({i['share']:.0%})" if i["share"] >= 0.01 else
+                     f"{i['column']} = {' / '.join(repr(v) for v in i['values'][:3])} ({i['share']:.1%})" for i in items[:4])
     mask = np.zeros(cx.n, bool)
     for i in items:
         s = cx.df[i["column"]]
@@ -340,7 +354,9 @@ def _missing_finding(cx: Ctx, fid: str, sev: str, what: str, items: list[dict[st
     return _finding(fid, sev, f"{what}: {desc}{'…' if len(items) > 4 else ''}",
                      {"columns": len(items), "largest share": big["share"], "rows affected": int(mask.sum())},
                      "Numbers: −1, −9, −99, −999, 99, 999, 9999, … on ≥ 0.5 % of rows and beyond the rest of the column's range "
-                     "(more than its own spread above the 99.9th percentile, or below 0 in a column that is otherwise ≥ 0). Words: "
+                     "(more than its own spread above the 99.9th percentile, or below 0 in a column that is otherwise ≥ 0); in a "
+                     "whole-number column, 1–3 values ≥ 90 above 5 × the largest of the rest on ≥ 20 rows (codes such as 96 / 98 "
+                     "after a count of 0 … 15). Words: "
                      "'unknown', '?', 'N/A', 'null', '-' on ≥ 0.5 % of rows. As a number, 999 days pulls every average "
                      "and split towards it.",
                      _rows(cx.df, mask, cols[:5] + ([cx.target] if cx.target else [])),
@@ -360,6 +376,7 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
         if not pd.api.types.is_integer_dtype(s) or c in coded:
             continue
         vc = s.dropna().value_counts()
+        vc = vc[~vc.index.isin(cx.far_codes.get(c, []))]  # D5: far codes are disguised missing, not undocumented codes
         if not 3 <= len(vc) <= 12:
             continue
         share = vc / vc.sum()
@@ -373,7 +390,7 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
         if not rare or float(share[rare].sum()) >= 0.05:
             continue
         above = [v for v in rare if v > main[-1]]
-        if rare == above and all(vc[a] >= vc[b] for a, b in zip(above, above[1:])):
+        if rare == above and all(vc[a] >= vc[b] or vc[b] <= 5 for a, b in zip(above, above[1:])):  # D5: ≤ 5-row blips allowed
             continue  # a count's thinning tail (previous = 3, 4, 5 …), not codes
         items.append({"column": c, "codes": rare, "documented": f"{main[0]}…{main[-1]}", "rows": int(vc[rare].sum()),
                       "share": round(float(share[rare].sum()), 4)})
@@ -388,7 +405,7 @@ def check_rare_codes(cx: Ctx) -> list[dict[str, Any]]:
                      {"columns": len(items), "rows affected": int(mask.sum()), "largest share": max(i["share"] for i in items)},
                      "An integer code column (3–12 values) whose common values (≥ 1 % each) form a run, plus values outside "
                      "the run holding < 5 % together: codes the data dictionary probably does not define. A thinning tail above the run (a count's "
-                     "large values: 3, 4, 5 … each rarer) is not flagged.",
+                     "large values: 3, 4, 5 … each rarer, blips of ≤ 5 rows allowed) is not flagged.",
                      _rows(cx.df, mask, cols + ([cx.target] if cx.target else [])),
                      _fix("transform", "Map them to missing ('unknown') with a flag; check the data dictionary.",
                           [{"op": "to_missing", "column": i["column"], "values": i["codes"], "flag": True} for i in items]),

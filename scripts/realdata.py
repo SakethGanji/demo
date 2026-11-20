@@ -27,7 +27,7 @@ from __future__ import annotations
 import argparse
 import builtins
 import functools
-import io
+import hashlib
 import json
 import sys
 import time
@@ -502,11 +502,13 @@ def main() -> int:
         it = its[name]
         o = res.get(name) or {}
         path, target = it["src"]
-        fresh = a.redo or not o.get("dataset") or c.get(f"/api/datasets/{o['dataset']}").status_code != 200
+        sha = hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+        fresh = (a.redo or not o.get("dataset") or c.get(f"/api/datasets/{o['dataset']}").status_code != 200
+                 or (o.get("src_sha") and o["src_sha"] != sha))  # the copy was planted again
         print(f"\n--- {name}: {path.name}" + (f" · planted: {rdd.PLANTED[name][2]}" if name in rdd.PLANTED else ""))
         t0 = time.time()
         if fresh:
-            o = {"started": time.strftime("%Y-%m-%d %H:%M:%S")}
+            o = {"started": time.strftime("%Y-%m-%d %H:%M:%S"), "src_sha": sha}
             ds = (res.get(it["dataset_of"]) or {}).get("dataset") if it.get("dataset_of") else None
             o["dataset"] = ds or upload(c, path, target)
         if fresh or a.recheck or not o.get("dd"):
