@@ -179,6 +179,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
         "kind": rec["config"].get("kind") or ("import" if rec["config"].get("import") else "tabular"),
         "predictor_path": rec["config"].get("predictor_path"), "n_events": store.count_events(rec["id"]),
         "split": rec["config"].get("split"),
+        "predictor_state": rec.get("predictor_state"),  # F-P2: present | slimmed | evicted | none
     }
     for key in ("problem_type", "eval_metric", "classes", "positive_class", "best_model", "fit_seconds",
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
@@ -473,17 +474,25 @@ def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: 
 def list_runs(request: Request, dataset_id: str | None = None, full: bool = False,
               kind: str = Query("tabular", description="tabular (includes imports) | forecast | anomaly | all"),
               project_id: str | None = None, light: bool = False, limit: int | None = Query(None, ge=1, le=5000),
-              offset: int = Query(0, ge=0)) -> dict[str, Any]:
+              offset: int = Query(0, ge=0), status: str | None = Query(None, description="comma-separated statuses"),
+              ids: str | None = Query(None, description="comma-separated run ids (at most 200)")) -> dict[str, Any]:
     """Runs, newest first. Forecast and anomaly runs are listed only with kind=forecast / anomaly / all, so pages
     built for tabular runs never see them. P1: the filters run in SQL on the indexed columns; light=true returns those
-    columns only (no config or result JSON), the list path for thousands of runs."""
+    columns only (no config or result JSON), the list path for thousands of runs. F-P2: `status` and `ids` filter too,
+    and every response says `total` (the rows matching, before limit / offset)."""
     store = _store(request)
     kinds = None if kind == "all" else (["tabular", "import"] if kind == "tabular" else [kind])
+    flt: dict[str, Any] = {"dataset_id": dataset_id, "project_id": project_id, "kind": kinds}
+    if status:
+        flt["status"] = [x for x in status.split(",") if x]
+    if ids:
+        idl = [x for x in ids.split(",") if x][:200]
+        flt["id"] = idl or ["-"]
+    total = store.count_where(**flt)
     if light:
-        return {"runs": store.list_light(limit=limit, offset=offset, dataset_id=dataset_id, project_id=project_id, kind=kinds),
-                "total": len(store.list_light(dataset_id=dataset_id, project_id=project_id, kind=kinds))}
-    recs = store.list(limit=limit, dataset_id=dataset_id, project_id=project_id, kind=kinds)
-    return {"runs": [run_out(r, store, full=full) for r in recs]}
+        return {"runs": store.list_light(limit=limit, offset=offset, **flt), "total": total}
+    recs = store.list(limit=limit, offset=offset, **flt)
+    return {"runs": [run_out(r, store, full=full) for r in recs], "total": total}
 
 
 @router.get("/runs/{run_id}")

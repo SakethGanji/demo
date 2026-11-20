@@ -80,13 +80,18 @@ class RunStore:
                 args.append(v)
         return (" WHERE " + " AND ".join(conds)) if conds else "", args
 
-    def list(self, limit: int | None = None, **filters: Any) -> list[dict[str, Any]]:
+    def count_where(self, **filters: Any) -> int:
+        w, args = self._where(**filters)
+        with self.db.connect() as con:
+            return int(con.execute(f"SELECT COUNT(*) FROM runs{w}", args).fetchone()[0])
+
+    def list(self, limit: int | None = None, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
         """Full rows (config and result parsed), newest first. P1: filters on the indexed columns (dataset_id, status,
         project_id, parent_run_id, source, kind; a list means IN) run in SQL, so callers parse only the rows they need."""
         w, args = self._where(**filters)
         with self.db.connect() as con:
             rows = con.execute(f"SELECT * FROM runs{w} ORDER BY created_at DESC, rowid DESC"
-                               + (f" LIMIT {int(limit)}" if limit is not None else ""), args).fetchall()
+                               + (f" LIMIT {int(limit)} OFFSET {int(offset)}" if limit is not None else ""), args).fetchall()
         return [self._row(r) for r in rows]
 
     def list_light(self, limit: int | None = None, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
@@ -148,6 +153,14 @@ class RunStore:
             q += " AND status IN ('queued', 'running')"
         with self.db.connect() as con:
             cur = con.execute(q, (status, error, now(), run_id))
+            if cur.rowcount > 0:  # F-P2: 'present' only once a predictor folder exists; 'none' otherwise (never 'evicted')
+                r = con.execute("SELECT json_extract(config, '$.predictor_path') AS pp, predictor_state FROM runs WHERE id = ?",
+                                (run_id,)).fetchone()
+                if r and r["predictor_state"] in (None, "none", "present"):
+                    from pathlib import Path
+
+                    has = bool(r["pp"]) and Path(r["pp"]).exists()
+                    con.execute("UPDATE runs SET predictor_state = ? WHERE id = ?", ("present" if has else "none", run_id))
             return cur.rowcount > 0
 
     @staticmethod
