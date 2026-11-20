@@ -49,6 +49,15 @@ RATIOS = (3, 5, 10)
 # --------------------------------------------------------------------------- the quick model
 
 
+def _threads() -> int:
+    """LightGBM threads for the quick models: the heavy pool runs two jobs at once on a few CPUs, often next to a fit,
+    and OpenMP threads on small data under contention spin instead of working (a 690-row fit took 9 s with 4 threads
+    against 0.1 s with one). One thread each; ENSEMBLE_GAP_THREADS overrides."""
+    import os
+
+    return int(os.environ.get("ENSEMBLE_GAP_THREADS", "1"))
+
+
 class Q:
     """The run's task as the quick model sees it."""
 
@@ -70,7 +79,7 @@ class Q:
         import lightgbm as lgb
 
         kw = dict(n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=20, subsample=1.0,
-                  colsample_bytree=1.0, random_state=seed, verbose=-1, n_jobs=4)
+                  colsample_bytree=1.0, random_state=seed, verbose=-1, n_jobs=_threads())
         return lgb.LGBMRegressor(**kw) if self.pt in ("regression", "quantile") else lgb.LGBMClassifier(**kw)
 
     def fit_predict(self, X: pd.DataFrame, tr: np.ndarray, ho: np.ndarray):
@@ -90,7 +99,7 @@ class Q:
         v = np.random.default_rng(2).random(len(tr)) < 0.15
         a, b = tr[~v], tr[v]
         kw = dict(n_estimators=3000, learning_rate=0.03, num_leaves=15, min_child_samples=40, subsample=0.8, subsample_freq=1,
-                  colsample_bytree=0.8, reg_lambda=1.0, random_state=0, verbose=-1, n_jobs=4)
+                  colsample_bytree=0.8, reg_lambda=1.0, random_state=0, verbose=-1, n_jobs=_threads())
         reg = self.pt in ("regression", "quantile")
         m = lgb.LGBMRegressor(**kw) if reg else lgb.LGBMClassifier(**kw)
         ya, yb = self.y[a], self.y[b]
@@ -679,9 +688,12 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
             orc = []
             rng = np.random.default_rng(3)
             if pt != "regression":
+                # noisy information: ORACLE_NOISE of the values replaced by a draw from the label's own distribution (a
+                # symmetric flip would turn 10 % of a rare class's negatives into positives and make the column harmful)
                 flip = rng.random(len(df)) < ORACLE_NOISE
-                ncls_o = 2 if pt == "binary" else len(q.classes)
-                alt = (np.nan_to_num(q.y, nan=0) + rng.integers(1, ncls_o, len(df))) % ncls_o
+                yk = q.y[~np.isnan(q.y)].astype(int)
+                prior = np.bincount(yk, minlength=2 if pt == "binary" else len(q.classes)) / max(len(yk), 1)
+                alt = rng.choice(len(prior), size=len(df), p=prior).astype(float)
             for s in segs:
                 m = s["mask"]
                 if m[ho].sum() < 20 or m[tr].sum() < 50:
@@ -720,8 +732,8 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                             "random": {"delta": dr["delta"], "ci": dr["ci"]}, "excess": {"delta": dx["delta"], "ci": dx["ci"]},
                             "beyond_noise": bool(dx["ci"][0] > 0)})
             out["oracle"] = {"segments": orc, "noise": ORACLE_NOISE,
-                             "rule": (f"SIMULATION. The quick model refit with one extra column: the label with {ORACLE_NOISE:.0%} "
-                                      "noise inside the segment and missing elsewhere (training and holdout rows alike). Δ holdout "
+                             "rule": (f"SIMULATION. The quick model refit with one extra column: the label, {ORACLE_NOISE:.0%} of it "
+                                      "replaced by draws from the label's own distribution, inside the segment and missing elsewhere (training and holdout rows alike). Δ holdout "
                                       "score with a paired bootstrap: an upper bound on what better information there is worth. Each is also run on a random "
                                       "segment of the same size: the excess over it is what the segment itself is worth; a gap whose "
                                       "excess is within noise (its 95 % interval reaches 0) is dropped.")}
@@ -889,7 +901,7 @@ def overlap(df: pd.DataFrame, cfg: dict[str, Any], res: dict[str, Any], label: s
         p = hp[f"p_{positive}"].to_numpy(dtype=float)
         sc = {}
         for name, m in (("all", np.ones(len(y), bool)), ("new", ~m_seen), ("seen", m_seen)):
-            if y[m].min() != y[m].max():
+            if min(int(y[m].sum()), int((1 - y[m]).sum())) >= 10:  # an AUC on a handful of positives is noise
                 a = float(auc(y[m], p[m]))
                 sc[name] = {"auc": a, "n": int(m.sum()), "pm": auc_halfwidth(a, int(y[m].sum()), int((1 - y[m]).sum()))}
         out["score"] = sc

@@ -79,8 +79,8 @@ RULES = {
              "prescription is then the retrain proposal",
     "label_noise": "classification: error floor (top-20 % confidence) Wilson lower bound ≥ 0.06, not overconfident, cleanlab rate ≥ 0.05 → "
                    "major (critical if the lower bound ≥ 0.12); or the annotators' consensus changes ≥ 5 % of labels (F14) → major; "
-                   "or retraining without cleanlab's flagged training rows gains beyond noise (95 % CI above 0; the full-model "
-                   "clean_labels experiment once it ran, else the quick model) → major: noise in the training labels only",
+                   "or retraining without cleanlab's flagged training rows gains beyond noise (95 % CI above 0): the full-model clean_labels "
+                   "experiment → major; the quick model only → minor (dropping hard rows can lift a quick model on clean labels too)",
     "overfit": "z = (train − holdout)/SE ≥ 3 and, for classification, overconfident (floor − expected ≥ 0.05 and expected < floor/3) → "
                "major (critical if z ≥ 8); Vela's validation-vs-holdout optimism alone → minor",
     "data_limited": "learning curve verdict data-limited (CI of the gain per doubling above ε) → major; "
@@ -429,7 +429,13 @@ def diagnose(ctx: dict[str, Any]) -> dict[str, Any]:
             # low) shows as a measured gain from dropping cleanlab's flagged training rows; the full-ensemble
             # experiment, once it ran, decides over the quick model.
             e.update(clean=lab["evidence"])
-            checks.append(_check("label_noise", "finding", base + lab["text"], e, "major", lab["rx"],
+            # F-A1: a quick model refit without the hardest rows gains on clean tables too (telco: +0.011 AUC with no
+            # planted noise), so the quick model alone is a hint (minor); the full-model experiment beyond noise is major.
+            quick = lab["source"] == "quick model"
+            txt_ = base + (lab["text"].replace(": the noise sits in the training labels.",
+                                               ": noisy training labels may hold the model back (dropping hard rows can also do "
+                                               "this on clean labels).") if quick else lab["text"])
+            checks.append(_check("label_noise", "finding", txt_, e, "minor" if quick else "major", lab["rx"],
                                  formula="Δ = score(fit without the flagged training rows) − score(fit with them), same holdout, paired bootstrap",
                                  source="cleanlab on the training rows + " + lab["source"]))
         else:
@@ -775,7 +781,7 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
     lift_ = (sc_["seen"]["auc"] - sc_["new"]["auc"]) if sc_.get("seen") and sc_.get("new") else None
     # overlap matters when it is there (≥ 1 % of holdout rows) and the seen rows score better than the new ones (or no score)
     ov_hit = ((ov.get("seen_share") or 0) >= 0.01 and (ov.get("seen_rows") or 0) >= 10
-              and (lift_ is None or lift_ > max(0.02, sc_["new"].get("pm") or 0)))
+              and (lift_ > max(0.02, sc_["new"].get("pm") or 0) if lift_ is not None else (ov.get("seen_share") or 0) >= 0.05))
     open_left = [c for c in d1 if not any(x["feature"] == c for x in sus)]
     if not sus and not contra and not ov_hit:
         why = "No feature dominates the permutation importance with a leak hint, none alone has AUC ≥ 0.97, no open Data Doctor suspect is among the top features, and no identifier is used."
@@ -836,7 +842,8 @@ def _leakage(ctx: dict[str, Any], vf: list[dict[str, Any]], rid: str) -> dict[st
                         if (ov['exact']['holdout_rows'] or ov['near']['holdout_rows']) else "")
                      + (f". Holdout AUC {sc['all']['auc']:.3f} on all rows vs {sc['new']['auc']:.3f} ± {sc['new']['pm']:.3f} on the new rows only"
                         if sc.get("all") and sc.get("new") else "")
-                     + ". A split that keeps each entity on one side gives the honest score.")
+                     + (". A split that keeps each entity on one side gives the honest score." if e0 else
+                        ". De-duplicating before the split gives the honest score."))
     txt = " ".join(parts)
     ev: dict[str, Any] = {"suspects": sus, "top": lk.get("top"), "below_bound": contra, "overlap": ov if ov_hit else None,
                           "open_suspects": opens + open_left}

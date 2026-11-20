@@ -246,7 +246,7 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments
 
 
-GAPS_PROCEDURE = "missing/6"  # D5 + A1 (F-A1): the confusion rule and the gaps changed
+GAPS_PROCEDURE = "missing/7"  # D5 + A1 (F-A1): the confusion rule and the gaps changed
 
 
 def _gaps_job(cfg, rec, hints):

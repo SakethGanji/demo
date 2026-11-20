@@ -129,7 +129,7 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
           <p className="helper dr-ask-rule">
             {saved ? <>Saved{dt.by ? ` by ${dt.by}` : ''}: {dropped.length ? <><span className="mono">{dropped.join(', ')}</span> left out of every run on this dataset.</> : 'no column dropped.'}</>
               : <>Not saved yet: runs keep every column. {dt.rule} Ticked fairness-only columns are left out too.</>}
-            {open.length > 0 && <span data-testid="dr-unanswered"> Not answered: <span className="mono">{open.join(', ')}</span> stay in every run as an open leak question.</span>}
+            {open.length > 0 && <span data-testid="dr-unanswered"> Not answered: <span className="mono">{open.join(', ')}</span> {open.length === 1 ? 'stays' : 'stay'} in every run as an open leak question.</span>}
             {(chosen.length > 0 || saved) && <button className="btn sm ghost" onClick={confirm} disabled={!!busy || saved} style={{ marginLeft: 8 }} data-testid="dr-save">{saved ? 'Saved' : 'Save answers'}</button>}
           </p>
         </div>

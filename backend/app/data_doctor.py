@@ -238,6 +238,8 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
     for s in items[:3]:
         if s["auc"] is not None:
             nums[f"AUC of {s['column']} alone"] = s["auc"]
+        if s.get("rho") is not None:
+            nums[f"rank correlation of {s['column']} with {cx.target}"] = s["rho"]
         x = cx.df[s["column"]]
         if cx.task == "binary" and pd.api.types.is_numeric_dtype(x) and not pd.api.types.is_bool_dtype(x):
             nums[f"median {s['column']} when {cx.target} = {cx.pos}"] = _jsonable(round(float(x[cx.y01 == 1].median()), 4))
