@@ -2,7 +2,6 @@ import { api } from '@/shared/api/client'
 import type { Ladder, LadderRung, Run } from '@/shared/api/types'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 import { useFetch } from '@/shared/hooks/useFetch'
-import { fix } from '@/shared/lib/format'
 import { bytes } from '@/features/registry/lib'
 
 const ms = (v: number | null | undefined) => (v == null ? '—' : v === 0 ? '0' : v < 1 ? `${v.toFixed(2)} ms` : `${v < 10 ? v.toFixed(1) : v.toFixed(0)} ms`)
@@ -64,7 +63,7 @@ function Row({ r, l, rec }: { r: LadderRung; l: Ladder; rec: boolean }) {
     <tr className={rec ? 'rec' : ''} data-testid={`ladder-rung-${r.rung}`} data-within={r.within ? '1' : '0'}>
       <td className="mono">{r.rung}</td>
       <td><b>{r.name}</b>{r.model && <span className="mono helper"> {r.model}</span>}<div className="helper">{r.why}</div></td>
-      <td className="num mono">{fix(r.score, d)}</td>
+      <td className="num mono">{r.score == null || !Number.isFinite(r.score) ? '—' : `${r.score < 0 ? '−' : ''}${num(r.score, d)}`}</td>
       <td className="num mono">{best ? 'best' : r.same_predictions_as != null ? <span className="helper">same predictions as rung {r.same_predictions_as}</span>
         : r.gap ? <>{num(r.gap.delta, d)} <span className="helper">[{signed(r.gap.ci[0], d)}, {signed(r.gap.ci[1], d)}]</span></> : '—'}</td>
       <td className="num mono">{ms(r.latency_ms_p95)}</td>
