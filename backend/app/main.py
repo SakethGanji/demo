@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
@@ -101,6 +103,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.autopilot = AutopilotManager(app, settings.data_dir / "autopilot")
         app.state.autopilot.resume_all()  # autopilots cut off by a restart continue from their saved state
         app.state.agent = AgentManager(app, settings.data_dir / "agent")  # G10: the Vela agent's conversations
+        from .vela.api import warm_doctor
+
+        loop = asyncio.get_running_loop()
+        app.state.runner.on_success = lambda rid: loop.call_soon_threadsafe(lambda: asyncio.ensure_future(warm_doctor(app, rid)))
         yield
         app.state.agent.shutdown()
         app.state.runner.shutdown()

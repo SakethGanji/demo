@@ -907,11 +907,18 @@ def _improve(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> list[dict[str
     if lk and lk["status"] == "finding":
         ab = lk["evidence"].get("ablation") or {}
         cols = [s["feature"] for s in lk["evidence"]["suspects"] if s["reason"] != "identifier"] or [s["feature"] for s in lk["evidence"]["suspects"]]
-        out.append({"id": "drop_leak", "title": f"Drop the leak ({', '.join(cols)})", "must": True,
+        if not cols:  # train/holdout overlap or an error below the bound, no column named: the prescription is the lever
+            out.append({"id": "drop_leak", "title": lk["prescription"]["title"] if lk.get("prescription") else "Remove the overlap",
+                        "must": True, "delta": None, "ci": None, "metric": None,
+                        "source": "not measured yet: " + ((lk.get("prescription") or {}).get("why") or ""), "action": lk.get("prescription")})
+            cols = None
+    if lk and lk["status"] == "finding" and cols:
+        out.append({"id": "drop_leak", "title": f"Settle the leak question ({', '.join(cols)})", "must": True,
                     "delta": ab.get("delta"), "ci": ab.get("ci"), "metric": ab.get("metric"),
                     "source": f"ablation {ab['run_id']}: same body and holdout without the column(s)" if ab.get("delta") is not None else
                               ("ablation running" if ab.get("run_id") else "not measured yet: run the ablation"),
-                    "note": "The score falls, and that is the point: the run without it is the honest score." if ab.get("delta") is not None else None,
+                    "note": ("If the column is not known at decision time, the run without it is the honest score; a fall is evidence the "
+                             "score leans on it.") if ab.get("delta") is not None else None,
                     "action": lk["prescription"]})
     mr = _more_rows(ctx)
     lc_missing = not ((run.get("result") or {}).get("learning_curve") or {}).get("verdict")
@@ -1111,14 +1118,15 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         lr = s.get("label_review")
         f = (f"Errors concentrate in {s['label']} ({s['n']:,} holdout rows): {s['rate']:.1%} of them are wrong vs {con['overall_rate']:.1%} "
              f"overall ({s['lift']:.2f}×, {s['excess']:.0f} more errors than an average group of that size).")
-        if lr:  # cleanlab flags concentrate here too: the labels may be the problem, not missing information
-            gaps.append({"id": f"labels:{s['column']}={s['value']}", "kind": "label_review", "title": f"Check the labels: {s['label']}",
-                         "finding": f + f" cleanlab flags {_pct(lr['rate_inside'])} of this group's errors as likely wrong labels vs {_pct(lr['rate_outside'])} "
-                                        f"for errors elsewhere ({lr['flagged']:,} rows): the model is confidently 'wrong' here more often than "
-                                        "anywhere else, which is what wrong labels there look like (a process, a form, a team).",
-                         "request": f"Review a sample of the {lr['flagged']:,} flagged labels where {s['label']} (Doctor → Labels). If many "
-                                    "are wrong, fix how the outcome is recorded there before collecting new information; the holdout "
-                                    "score cannot show the gain until its labels are reviewed too.",
+        if lr and not any(x["kind"] == "label_review" for x in gaps):  # the top such segment only
+            gaps.append({"id": f"labels:{s['column']}={s['value']}", "kind": "label_review", "title": f"Wrong labels or missing information? {s['label']}",
+                         "finding": f + f" cleanlab flags {_pct(lr['rate_inside'])} of the labels in this group vs {_pct(lr['rate_outside'])} "
+                                        f"elsewhere ({lr['flagged']:,} holdout rows). Two explanations fit: the outcome is recorded wrongly "
+                                        "here (a process, a form, a team), or the table lacks what separates these cases. The data alone "
+                                        "cannot tell them apart; a sample of reviewed labels can.",
+                         "request": f"First review a sample of the {lr['flagged']:,} flagged labels where {s['label']} (Doctor → Labels): "
+                                    "if many are wrong, fix how the outcome is recorded there (and the holdout labels, or no score can "
+                                    "show the gain); if they are right, the gap is missing information (below).",
                          "gain": None, "suggested": True, "evidence": {**lr, "column": s["column"], "value": s["value"]}})
         if o and o.get("excess") is not None and not o.get("beyond_noise"):
             continue  # what a random group of the same size would gain: not a property of this segment
@@ -1131,7 +1139,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         if s.get("top_features"):
             req += f"; the model already leans on {', '.join(s['top_features'][:2])} here, so a finer or historical version of those is a start"
         if lr:
-            req = "After the label check above: " + req[0].lower() + req[1:]
+            req = "If the labels check out: " + req[0].lower() + req[1:]
         gain = None
         if o:
             gain = {"delta": float(o["excess"]["delta"]), "ci": o["excess"]["ci"], "metric": o.get("metric"), "simulated": True,
@@ -1196,8 +1204,12 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         gaps = [x for x in gaps if not any(x["id"].split(":", 1)[-1].split("=")[0] == c for c in sus_cols)]
     for x in gaps:
         x["measured"] = x.get("gain") is not None
-    gaps.sort(key=lambda x: _rank_key({"delta": x["gain"] and x["gain"]["delta"], "suggested": x.get("suggested"),
-                                         "must": x.get("kind") == "label_review"}))
+    gaps.sort(key=lambda x: _rank_key({"delta": x["gain"] and x["gain"]["delta"], "suggested": x.get("suggested")}))
+    lr_i = next((i for i, x in enumerate(gaps) if x["kind"] == "label_review"), None)
+    if lr_i is not None:  # the label check goes just before the first gap about the same segment (it is the cheaper test)
+        lr_g = gaps.pop(lr_i)
+        seg_i = next((i for i, x in enumerate(gaps) if x["id"].split(":", 1)[-1] == lr_g["id"].split(":", 1)[-1]), len(gaps))
+        gaps.insert(min(seg_i, lr_i), lr_g)
     for i, x in enumerate(gaps):
         x["rank"] = i + 1
     top = gaps[0] if gaps else None

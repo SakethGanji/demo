@@ -507,13 +507,12 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
                     s["top_features"] = [feats[k] for k in np.argsort(-cc)[:3] if feats[k] != s["column"]][:2]
                 except Exception:  # noqa: BLE001
                     pass
-            em, eo_ = m & (err == 1), ~m & (err == 1)
-            if flags is not None and em.sum() >= 10 and eo_.sum() >= 10:
-                # flags follow errors anywhere; a labelling problem shows as errors here being flagged more often than
-                # errors elsewhere (the model is confidently "wrong" because the label is)
-                fi_, fo_ = float(flags[em].mean()), float(flags[eo_].mean())
-                if flags[em].sum() >= 10 and fi_ >= 1.3 * max(fo_, 1e-9) and fi_ - fo_ >= 0.1:
-                    s["label_review"] = {"flagged": int(flags[m].sum()), "rate_inside": fi_, "rate_outside": fo_, "basis": "errors",
+            if flags is not None and m.sum() and (~m).sum():
+                # cleanlab flags follow errors; where errors concentrate AND flags concentrate, wrong labels are one of the
+                # two explanations (the other: information the table lacks). The data alone cannot tell them apart.
+                fi_, fo_ = float(flags[m].mean()), float(flags[~m].mean())
+                if flags[m].sum() >= 10 and fi_ >= 1.5 * max(fo_, 1e-9):
+                    s["label_review"] = {"flagged": int(flags[m].sum()), "rate_inside": fi_, "rate_outside": fo_,
                                          "errors_flagged": int((flags[m] & (err[m] == 1)).sum()), "n": int(m.sum())}
         out["concentration"] = {"segments": segs, "overall_rate": float(err.mean()), "min_n": min_n,
                                 "missing_in_errors": missingness(Xh, err, feats),
