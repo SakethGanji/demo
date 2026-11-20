@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import logging
@@ -35,6 +36,65 @@ from . import splits as splits_mod
 from .splits import RANDOM_STRATIFIED, load_splits, make_splits, save_splits, split_key, summarize
 
 log = logging.getLogger("ensemble.datasets")
+
+
+def decode_upload(content: bytes) -> tuple[str, str]:
+    """A1 #15: the uploaded bytes as text and the encoding used. A BOM decides (UTF-8, UTF-16 LE/BE); UTF-16 without
+    one is recognised by its NUL bytes; otherwise UTF-8, then cp1252 (Windows/bank exports), then latin-1."""
+    for bom, enc in ((b"\xef\xbb\xbf", "utf-8"), (b"\xff\xfe", "utf-16-le"), (b"\xfe\xff", "utf-16-be")):
+        if content.startswith(bom):
+            try:
+                return content[len(bom):].decode(enc), enc.upper() if enc != "utf-8" else enc
+            except UnicodeDecodeError as e:
+                raise DatasetError(f"The file starts with a {enc.upper()} marker but is not valid {enc.upper()} text.") from e
+    head = content[:4096]
+    if head.count(b"\x00") > len(head) // 4:
+        enc = "utf-16-le" if head[1::2].count(b"\x00") > head[0::2].count(b"\x00") else "utf-16-be"
+        try:
+            return content.decode(enc), enc.upper()
+        except UnicodeDecodeError as e:
+            raise DatasetError("This looks like a binary file, not a CSV.") from e
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            text = content.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    ctrl = sum(1 for ch in text[:20000] if ord(ch) < 32 and ch not in "\t\r\n")
+    if ctrl > max(2, len(text[:20000]) // 100):
+        raise DatasetError("This looks like a binary file, not a CSV. Upload a .csv or .tsv text file.")
+    return text, enc
+
+
+def check_target(y: pd.Series, name: str) -> None:
+    """A1 #15: refuse a target with nothing to learn, saying which case it is."""
+    n = int(y.notna().sum())
+    if n == 0:
+        raise DatasetError(f"Column '{name}' is empty: every row is missing, so there is nothing to learn. "
+                           "Pick the column that holds the outcome.")
+    vals = y.dropna().unique()
+    if len(vals) < 2:
+        raise DatasetError(f"Column '{name}' has one value ({str(vals[0])!r}) in all {n:,} labelled rows: a model needs "
+                           "at least two outcomes to learn from. Add rows with the other outcome.")
+
+
+def sniff_sep(text: str) -> str:
+    """The separator: the one of , ; tab | that splits the header and the first rows into the same, largest number
+    of fields (outside quotes)."""
+    lines = [ln for ln in text.splitlines()[:20] if ln.strip()]
+    best, best_n = ",", 1
+    for sep in (",", ";", "\t", "|"):
+        try:
+            counts = [len(r) for r in csv.reader(lines, delimiter=sep)]
+        except csv.Error:
+            continue
+        if not counts:
+            continue
+        n = counts[0]
+        consistent = sum(c == n for c in counts) >= 0.8 * len(counts)
+        if n > best_n and consistent:
+            best, best_n = sep, n
+    return best
 
 
 def _generator_fingerprint(fn) -> str:
@@ -167,8 +227,7 @@ class DatasetStore:
         df = self.load_frame(dataset_id)
         if target not in df.columns:
             raise DatasetError(f"Column '{target}' is not in the dataset.")
-        if df[target].nunique(dropna=True) < 2:
-            raise DatasetError(f"Column '{target}' has fewer than two distinct values; there is nothing to learn.")
+        check_target(df[target], target)
         old = rec["profile"]
         try:
             profile = profile_frame(df, target)
@@ -290,17 +349,36 @@ class DatasetStore:
             raise DatasetError("The file is empty.")
         if not re.search(r"\.(csv|tsv|txt)$", filename or "", re.I):
             raise DatasetError(f"{filename or 'This file'} is not a CSV. Upload a .csv or .tsv file with a header row.")
-        sep = "\t" if filename.lower().endswith(".tsv") else ","
+        text, encoding = decode_upload(content)
+        sep = "\t" if filename.lower().endswith(".tsv") else sniff_sep(text)
+        header = next(csv.reader(io.StringIO(text), delimiter=sep), [])
+        names = [h.strip() for h in header]
+        dup = sorted({h for h in names if h and names.count(h) > 1})
+        if dup:
+            where = "; ".join(f"'{h}' is columns {', '.join(str(i + 1) for i, n in enumerate(names) if n == h)}"
+                              for h in dup)
+            raise DatasetError(f"The header repeats a column name ({where}). Rename or remove the duplicate and "
+                               "upload again, so no column is silently renamed.")
         try:
-            df = pd.read_csv(io.BytesIO(content), sep=sep)
-        except (pd.errors.ParserError, UnicodeDecodeError, pd.errors.EmptyDataError) as e:
+            # ';'-separated files are the European export: decimal commas.
+            df = pd.read_csv(io.StringIO(text), sep=sep, decimal="," if sep == ";" else ".")
+        except pd.errors.EmptyDataError as e:
+            raise DatasetError("The file has no header row.") from e
+        except pd.errors.ParserError as e:
+            m = re.search(r"Expected (\d+) fields in line (\d+), saw (\d+)", str(e))
+            if m:
+                raise DatasetError(f"Line {m[2]} has {m[3]} fields but the header has {m[1]}. Quote values that "
+                                   f"contain '{sep}' or fix that line, then upload again.") from e
             raise DatasetError(f"Could not read {filename} as CSV: {str(e).splitlines()[0]}") from e
         if df.shape[1] < 2:
-            raise DatasetError("No comma-separated columns found. Give a CSV with a header row and at least two columns.")
+            raise DatasetError("No separated columns found (tried comma, semicolon, tab, pipe). Give a CSV with a "
+                               "header row and at least two columns.")
         if len(df) < 2:
             raise DatasetError("This file has fewer than two data rows.")
         stem = re.sub(r"\.(csv|tsv|txt)$", "", Path(filename).name, flags=re.I)
-        return self.create_from_frame(df, name=stem, filename=Path(filename).name, note="Uploaded file", target=target)
+        note = "Uploaded file" + ("" if encoding in ("utf-8", "ascii") else f" (read as {encoding})") + \
+            ("" if sep == "," else f" (separator {'tab' if sep == chr(9) else repr(sep)})")
+        return self.create_from_frame(df, name=stem, filename=Path(filename).name, note=note, target=target)
 
     def create_from_frame(self, df: pd.DataFrame, *, name: str, filename: str, note: str, target: str | None = None,
                           lineage: dict[str, Any] | None = None) -> dict[str, Any]:

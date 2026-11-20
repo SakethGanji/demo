@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { HoldoutPredictions, ModelFamily, Run } from '@/shared/api/types'
 import { StatusPill } from '@/shared/primitives/StatusPill'
@@ -49,6 +49,9 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain, embedded }:
     return () => { alive = false }
   }, [runId, mockRun])
 
+  const ptype = run?.problem_type
+  const sd = useMemo(() => ((ptype === 'regression' || ptype === 'quantile') && preds ? residuals(preds).sd : null), [preds, ptype])
+
   if (err) return <ErrorCard inline={embedded} err={err} />
   if (!run) return <Loading inline={embedded}>Loading the results…</Loading>
   if (run.status !== 'succeeded') return <ErrorCard inline={embedded} err={`This run ${run.status}${run.error ? `: ${run.error}` : '.'}`} />
@@ -59,7 +62,6 @@ export function ResultsStep({ runId, mockRun, ds, live, go, onAgain, embedded }:
   const best = run.leaderboard?.find((r) => r.model === run.best_model) ?? run.leaderboard?.[0] ?? null
   const selRow = run.leaderboard?.find((r) => r.model === (sel ?? run.best_model)) ?? null
   const fam = families.find((f) => f.key === selRow?.family)
-  const sd = reg && preds ? residuals(preds).sd : null
   const predictModels = (run.leaderboard ?? []).filter((r) => r.can_infer !== false && r.score_test != null).map((r) => (r.predict_model as string | undefined) ?? r.model)
   const weights = run.ensemble?.weights ?? null
   // a refit model (…_FULL) has no validation score of its own: its bagged original's

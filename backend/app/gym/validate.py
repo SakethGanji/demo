@@ -482,8 +482,10 @@ def validate(body: dict[str, Any], ds: dict[str, Any] | None, unlabeled: dict[st
                "dynamic_stacking": bool(dyn), "use_bag_holdout": bool(ubh), "holdout_frac": hf, "refit_full": bool(rf),
                "source": "autogluon.get_validation_and_stacking_method"}
     except Exception as e:  # noqa: BLE001
-        k_ = resolved_fk.get("num_bag_folds") or 0
-        L_ = resolved_fk.get("num_stack_levels") or 0
+        def _int(v: Any) -> int:  # a malformed value is already an error above; estimate as if unset
+            return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e6 else 0
+        k_ = _int(resolved_fk.get("num_bag_folds"))
+        L_ = _int(resolved_fk.get("num_stack_levels"))
         eff.update({"num_bag_folds": k_, "num_stack_levels": L_, "error": f"{type(e).__name__}: {e}"})
         if L_ and not k_:
             _err(errors, "fit_kwargs.num_stack_levels", "Stacking (L ≥ 1) needs bagging: set num_bag_folds ≥ 2.")
