@@ -410,8 +410,8 @@ def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: di
                                    f"(Δ {d:+g}, unpaired): the random split overstated the score; the group split is the honest one")
         return "leak-test", f"no measurable optimism from shared {spec.get('column')} values (Δ {d:+g}, CI includes 0)"
     if kind == "clean_labels" and unmeasurable:
-        return "unmeasurable", (f"Δ {d:+g} against the holdout's own labels, which carry the same kind of noise: a cleaner model "
-                                "cannot show its gain there. Measure on reviewed holdout labels")
+        return "unmeasurable", (f"Δ {d:+g} against the holdout's own labels, which cleanlab flags at a rate like the training rows': "
+                                "if those are wrong labels, a cleaner model cannot show its gain there. Measure on reviewed holdout labels")
     if kind == "cost_ratio":
         return "info", "a sensitivity of the decision to the cost ratio, not a model change"
     if kind == "serve_rung":
