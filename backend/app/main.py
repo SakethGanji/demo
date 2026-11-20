@@ -23,6 +23,7 @@ from .vela import api as vela_api
 from .agent import api as agent_api
 from .agent.loop import AgentManager
 from . import llm, llm_api
+from . import data_doctor_api
 from .engine.runner import JobRunner
 from .engine import active_learning_api, annotations_api, learning_curve_api, shift_api, slices_api
 from .engine.pool import HeavyPool
@@ -191,10 +192,20 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
         dataset_or_404(request, dataset_id)
         try:
-            return {"dataset_id": dataset_id, **intake(store(request).load_frame(dataset_id), roles,
-                                                       versions=_binary_versions(request, dataset_id))}
+            df = store(request).load_frame(dataset_id)
+            out = {"dataset_id": dataset_id, **intake(df, roles, versions=_binary_versions(request, dataset_id))}
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
+        # D1: the Data Doctor's stored answers (not known at decision time, fairness only) join every pre-filled drop list.
+        drops = data_doctor_api.run_drops(store(request), dataset_id, list(df.columns))
+        if drops and drops["columns"]:
+            for s in out["suggestions"]:
+                p = s["prefill"]
+                if s["route"] == "quick-train":
+                    tgt = p.get("target")
+                    p["drop"] = list(dict.fromkeys([*(p.get("drop") or []), *[c for c in drops["columns"] if c != tgt]]))
+            out["decision_time_drops"] = drops
+        return out
 
     def _binary_versions(request: Request, dataset_id: str) -> list[dict[str, Any]]:
         """Ready binary registry versions trained on this dataset, newest first (G1's recourse suggestion opens one)."""
@@ -295,6 +306,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(autopilot_api.router)
     app.include_router(llm_api.router)
     app.include_router(agent_api.router)
+    app.include_router(data_doctor_api.router)  # D1
     return app
 
 

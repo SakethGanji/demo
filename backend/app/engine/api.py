@@ -66,6 +66,8 @@ class RunCreate(BaseModel):
     parent_run_id: str | None = Field(None, description="The run this one was derived from (Gym, Vela patch).")
     patch: dict[str, Any] | None = Field(None, description="The Vela patch applied to the parent's config, if any.")
     source: str | None = Field(None, description="Where the run was started: wizard, gym, client, vela.")
+    use_decision_time: bool = Field(True, description="D1: drop the columns the dataset's Data Doctor answers mark as not "
+                                                       "known at decision time or fairness-only (recorded in the run).")
     split_spec: dict[str, Any] | None = Field(
         None, description="F6: how the holdout is drawn. {strategy: random-stratified (default) | group | time | "
                           "time-group, group_column, time_column, cutoff (YYYY-MM-DD; default: the latest 20 % of rows), "
@@ -303,10 +305,20 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         if g != label and g not in drop:
             drop = [*drop, g]
 
+    # D1: the Data Doctor's decision-time answers for this dataset drop their columns by default; the run records it.
+    from ..data_doctor_api import run_drops
+    dt = run_drops(app.state.datasets, body.dataset_id, list(cols))
+    if dt:
+        added = [c for c in dt["columns"] if c != label and c not in drop] if body.use_decision_time else []
+        drop = [*drop, *added]
+        dt = {**dt, "applied": body.use_decision_time, "dropped": added}
+        text_cols = [c for c in text_cols if c not in drop]
+
     settings = app.state.settings
     run_id, run_dir = alloc_run(app)
     cfg = {
         **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone", "scorecard"}),
+        "decision_time": dt,
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "text_columns": text_cols, "task": task,
