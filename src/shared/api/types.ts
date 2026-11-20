@@ -1298,7 +1298,7 @@ export type MissingInfo = {
   quick?: { score: number; metric: string; rows: number; features: number; model: string } | null
   irreducible?: { r_nn: number; r_nn_ci: [number, number]; lower: number; lower_ci: [number, number]; model_error: number; explained: number | null; explained_upper: number | null } | null
   rules: Record<string, string | null | undefined>
-  domain_gaps: { status: string; source: string; label: string; items: { title: string; why: string }[] }
+  domain_gaps: { status: string; source: string; label: string; items: { title: string; why: string }[]; note?: string | null; review_id?: string; decider?: string | null }
   seconds?: number; errors: string[]
 }
 export type Lever = {
@@ -1522,3 +1522,63 @@ export interface FeatureLabJob {
   }
 }
 export interface FeatureLabList { dataset_id: string; jobs: { id: string; status: string; started_at: string; kept: number; tried: number; version?: { id: string; name: string } | null }[]; dsl: Record<string, { args: string[]; text: string }> }
+
+// --------------------------------------------------------------------------- D4 · review loop, post-deployment changes
+
+export type ReviewResult = {
+  metric: string; parent?: number | null; child?: number | null; delta: number; ci: [number, number]; rows?: number | null
+  sign?: string; versus?: string; rung?: { name: string; model: string; latency_ms_p95?: number | null; size_bytes?: number | null }
+  ratio?: { served: number; alternative: number }
+}
+export type ReviewVerdict = 'kept' | 'kept-honest' | 'equivalent' | 'info' | 'rejected' | 'request'
+export type JournalEntry = {
+  step: number; hypothesis: { id: string; title: string; why?: string; expected?: string; source?: string }
+  experiment: { kind: string; spec: Record<string, unknown> }; node: string; run_id: string | null; status: string
+  result: ReviewResult | null; verdict: ReviewVerdict | null; reason?: string; title?: string; reused?: boolean
+  prepared?: Record<string, unknown> | null; version_id?: string; change_id?: string
+}
+export type PlanAction = { kind: string; title: string; why: string; source: string; llm?: boolean; run_id?: string | null; serve_model?: string; version_id?: string; request?: string }
+export type ReviewPlan = {
+  schema: string; summary: string; summary_source: 'llm' | 'computed'; computed_summary?: string
+  tried: { step: number; title: string; kind: string; verdict: ReviewVerdict | null }[]
+  next: PlanAction[]; domain_gaps: { title: string; why: string }[]; start_run: string | null; best_run: string | null
+  stop_reason?: string | null; rules: Record<string, string>
+}
+export type ReviewRole = { role: string; status: string; decider?: string; model?: string | null; seconds?: number | null; prompt_sha256: string; error?: string | null; why?: string }
+export type Review = {
+  schema: string; id: string; run_id: string; status: 'queued' | 'running' | 'done' | 'failed' | 'interrupted'; by: string
+  started_at: string; finished_at: string | null; mode: 'llm' | 'offline'; mode_note?: string | null; decider: string | null; model: string | null
+  options: { max_experiments: number; max_minutes: number }; roles: ReviewRole[]
+  hypotheses: { id: string; title: string; why?: string; experiment: Record<string, unknown>; source: string; valid: boolean; invalid_reason?: string | null; round: number }[]
+  journal: JournalEntry[]; node: { start: string; best: string; path: string[] } | null; plan: ReviewPlan | null
+  domain_gaps: { title: string; why: string }[]; guard?: { checked: number; blocked: { field: string; numbers: string[]; text: string }[] }
+  progress?: string | null; stop_reason?: string | null; error?: string | null; audit_id?: number; inputs_sha256?: string; seconds?: number
+  analysis?: { perceive?: Record<string, unknown> | null; task?: { task?: string; decision_point?: string; error_costs?: string } | null; errors?: Record<string, unknown> | null }
+  rules: Record<string, string>
+}
+export type ReviewList = { run_id: string; reviews: { id: string; status: Review['status']; mode: string; decider: string | null; started_at: string; finished_at: string | null; experiments: number; kept: number; stop_reason?: string | null }[]; rules: Record<string, string> }
+
+export type ChangeOperating = { t: number | null; decline_rate: number; catch_rate: number | null; cost_per_1000: number }
+export type ChangeItem = {
+  id: string; kind: 'threshold' | 'recalibrate' | 'retrain_window' | 'drop_feature'; title: string; by: string; created_at: string
+  batch_id: string; batch: { filename: string; data_date?: string | null; labelled_rows: number }; status: string
+  run_id?: string; column?: string; psi?: number | null; error?: string
+  result: {
+    metric: string; current: number; proposed: number; delta: number; ci: [number, number]; rows: number
+    operating?: { current: ChangeOperating; proposed: ChangeOperating }; threshold?: Record<string, unknown>
+    cost?: { current: number; proposed: number; delta: number; ci: [number, number] }
+    auc?: { current: number; proposed: number; delta: number; ci: [number, number] }
+    calibration?: { observed_rate: number; mean_p_current: number; mean_p_calibrated: number }
+    proposal?: { decision_threshold?: number | null; run_id?: string } | null; sign?: string
+  } | null
+  verdict: 'better' | 'worse' | 'within noise' | 'no result' | null
+  request: { version_id: string; by: string; at: string; next: string } | null
+}
+export type ChangesState = {
+  version_id: string; label: string; stage: string; eligible: boolean; why: string | null
+  newest_batch: { batch_id: string; filename: string; data_date?: string | null; labelled_rows: number; label_date?: string | null } | null
+  older_batches: { batch_id: string; data_date?: string | null; labelled_rows: number }[]
+  cost: { c_fp: number; c_fn: number; source: string } | null; threshold: number | null
+  drifted: { feature: string; psi: number; band?: string }[]; suggested_drop: string | null
+  kinds: Record<string, string>; experiments: ChangeItem[]; rules: Record<string, string>
+}

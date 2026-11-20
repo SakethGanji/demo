@@ -6,6 +6,7 @@ import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { runView } from '../../tabs'
+import { ReviewPanel } from './ReviewPanel'
 
 type Patch = NonNullable<DoctorAction['patch']>
 export type DoctorLinks = {
@@ -146,6 +147,7 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
       {d.missing_info && <WhatsMissing m={d.missing_info} />}
       {d.improve && d.improve.length > 0 && <HowToImprove levers={d.improve} act={act} busy={busy} />}
       {noteEl}
+      <ReviewPanel run={run} go={links.go} />
       <div className="card navy explain-hero" data-testid="doctor-hero">
         <div className="eh-cell lead" style={{ minWidth: 260 }}><span className="micro-label">primary limiting factor</span>
           <b style={{ fontSize: 22, whiteSpace: 'normal', lineHeight: 1.25 }} data-testid="doctor-primary">{p ? p.title : 'None found'}</b>
@@ -280,7 +282,9 @@ function WhatsMissing({ m }: { m: MissingInfo }) {
             <td className="helper" style={{ fontSize: 12, whiteSpace: 'normal', maxWidth: 640 }}>{g.finding}<div style={{ marginTop: 4, color: 'var(--text-primary)' }}>→ {g.request}</div></td>
             <td className="r"><GainCell g={g.gain} /></td></tr>)}</tbody></table>
           : <p className="helper">{m.errors.length ? `Could not measure: ${m.errors.join('; ')}` : 'No gap measured.'}</p>}
-        <p className="helper" style={{ margin: 0, fontSize: 12 }} data-testid="missing-domain"><span className="micro-label">{m.domain_gaps.label}</span> {m.domain_gaps.items.length ? m.domain_gaps.items.map((x) => x.title).join(' · ') : 'not run yet (the review loop adds them).'}</p>
+        <div className="helper" style={{ margin: 0, fontSize: 12 }} data-testid="missing-domain" data-status={m.domain_gaps.status}><span className="micro-label">{m.domain_gaps.label}</span>
+          {m.domain_gaps.items.length ? <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{m.domain_gaps.items.map((x) => <li key={x.title}><b>{x.title}</b>: {x.why}</li>)}</ul>
+            : <> {m.domain_gaps.note ?? 'not run yet (the review loop adds them).'}</>}</div>
         <details className="an-adv"><summary className="micro-label">How it is measured</summary>
           <ul className="helper" style={{ fontSize: 11.5, margin: '6px 0 0', paddingLeft: 18 }}>
             {Object.entries(m.rules).filter(([, v]) => v).map(([k, v]) => <li key={k}><b>{k}</b>: {v}</li>)}

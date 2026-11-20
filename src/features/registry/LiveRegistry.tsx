@@ -7,6 +7,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { AuditTable } from './components/AuditTable'
 import { BatchDrift } from './components/BatchDrift'
+import { ChangesCard } from './components/ChangesCard'
 import { MonitoringPanel } from './components/MonitoringPanel'
 import { CreditReport } from './components/CreditReport'
 import { Lineage } from './components/Lineage'
@@ -205,6 +206,7 @@ export function LiveRegistry({ go }: { go: (r: string) => void }) {
           {detail.status === 'ready' && tab === 'Model Card' && <ModelCardView v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && tab === 'Reason Codes' && rowFlow(detail) && detail.result?.version?.problem_type === 'binary' && <ReasonCodes key={detail.id} v={detail} actor={actor} onEdited={bump} />}
           {detail.status === 'ready' && tab === 'Monitoring' && flowOf(detail) === 'tabular' && <MonitoringPanel key={detail.id} v={detail} actor={actor} versions={versions} onSelect={(id) => select(id, 'Overview')} onChanged={bump} />}
+          {detail.status === 'ready' && tab === 'Monitoring' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <ChangesCard key={`ch-${detail.id}`} v={detail} actor={actor} onRequested={bump} />}
           {detail.status === 'ready' && tab === 'Credit Report' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && <CreditReport key={detail.id} v={detail} actor={actor} />}
           {detail.status === 'ready' && tab === 'Fair Lending' && flowOf(detail) === 'tabular' && detail.result?.version?.problem_type === 'binary' && (
             <div className="card card-body" data-testid="fl-link"><p className="helper">Fair lending (BISG proxy groups, adverse impact ratios, the four-fifths rule) is read from the version's run: it lives in Models → Explain → Fairness, next to the other fairness checks.{' '}

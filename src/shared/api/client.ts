@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, Ladder, FeatureLabJob, FeatureLabList, FeatureTransform, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, Ladder, FeatureLabJob, FeatureLabList, FeatureTransform, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus, Review, ReviewList, ChangesState, ChangeItem } from './types'
 
 /** Who is acting (typed once in the Registry; there is no sign-in): recorded in the audit log. */
 const actor = () => { try { return localStorage.getItem('ensemble.actor') || undefined } catch { return undefined } }
@@ -131,6 +131,11 @@ export const api = {
       if (q.measure_latency) p.set('measure_latency', 'true')
       return request<Doctor>(`/runs/${encodeURIComponent(id)}/doctor${p.toString() ? `?${p}` : ''}`, { timeoutMs: 600_000 })
     },
+    /** D4: the review loop (roles → hypotheses → typed experiments → journal → improvement plan). */
+    reviews: (id: string) => request<ReviewList>(`/runs/${encodeURIComponent(id)}/review`, { timeoutMs: 30_000 }),
+    review: (id: string, rid: string) => request<Review>(`/runs/${encodeURIComponent(id)}/review/${encodeURIComponent(rid)}`, { timeoutMs: 30_000 }),
+    startReview: (id: string, body: { max_experiments?: number; max_minutes?: number; offline?: boolean } = {}) =>
+      json<Review>(`/runs/${encodeURIComponent(id)}/review`, 'POST', { by: actor(), ...body }, 60_000),
     /** F17: run one of the doctor's offers or prescriptions that is an API call (its endpoint, method and body). */
     doctorCall: (endpoint: string, method: 'GET' | 'POST' = 'POST', body?: Record<string, unknown>) =>
       request<Record<string, unknown>>(endpoint.replace(/^\/api/, ''), method === 'GET' ? { timeoutMs: 600_000 } : { method: 'POST', body: JSON.stringify(body ?? {}), headers: { 'Content-Type': 'application/json' }, timeoutMs: 600_000 }),
@@ -322,6 +327,12 @@ export const api = {
     },
     removeCreditTape: (id: string, actor: string) =>
       request<{ removed: boolean }>(`/registry/versions/${encodeURIComponent(id)}/credit-report/tape?actor=${encodeURIComponent(actor)}`, { method: 'DELETE' }),
+    /** D4: post-deployment changes on the newest labelled batch; a better result becomes a request (a new version). */
+    changes: (id: string) => request<ChangesState>(`/registry/versions/${encodeURIComponent(id)}/changes`, { timeoutMs: 300_000 }),
+    startChange: (id: string, actorName: string, kind: string, column?: string) =>
+      json<ChangeItem>(`/registry/versions/${encodeURIComponent(id)}/changes`, 'POST', { actor: actorName, kind, ...(column ? { column } : {}) }, 300_000),
+    requestChange: (id: string, cid: string, actorName: string) =>
+      json<{ change: ChangeItem; version: ModelVersion }>(`/registry/versions/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/request`, 'POST', { actor: actorName }, 120_000),
     /** F18: monitoring over time (series, alerts, challenger, retrain proposal). */
     monitoring: (id: string) => request<MonitoringState>(`/registry/versions/${encodeURIComponent(id)}/monitoring`, { timeoutMs: 60_000 }),
     putMonitoring: (model: string, body: { actor: string; thresholds?: Record<string, number>; challenger_version_id?: string; id_column?: string; label_column?: string; retrain_window_months?: number }) =>
