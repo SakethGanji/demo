@@ -178,7 +178,9 @@ def date_and_group_columns(df: pd.DataFrame, target: str | None = None) -> tuple
             continue
         if s.dtype == object:
             sample = nn.astype(str).head(500)
-            looks = sample.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}") | sample.str.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}")
+            # A2 M1: also "YYYY-MM" (a month) and compact ISO ("20141013", "20141013T000000")
+            looks = (sample.str.match(r"^\d{4}[-/]\d{1,2}[-/]\d{1,2}") | sample.str.match(r"^\d{1,2}[-/]\d{1,2}[-/]\d{4}")
+                     | sample.str.fullmatch(r"\d{4}[-/](0?[1-9]|1[0-2])") | sample.str.fullmatch(r"(19|20)\d{6}(T\d{4,6}(\.\d+)?Z?)?"))
             if looks.mean() >= 0.95:
                 t = time_values(s)
                 if t.notna().mean() >= 0.95 and t.nunique() >= 10:

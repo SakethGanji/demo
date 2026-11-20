@@ -149,6 +149,29 @@ def auc_halfwidth(auc: float, n_pos: int, n_neg: int) -> float:
     return 1.96 * math.sqrt(max(var, 0.0))
 
 
+ID_TIE_AUC, ID_TIE_RHO = 0.60, 0.30
+
+
+def id_tie(x: pd.Series, y: pd.Series | None) -> dict[str, float] | None:
+    """A2 M7: how strongly a column typed as an ID by its name is tied to the target. An ID (a counter, a reference)
+    carries no information about the outcome; a 'reference' that alone predicts it is a value, often one recorded with
+    the outcome. Binary: single-column AUC ≥ 0.60; regression: |Spearman ρ| ≥ 0.30. None when not tied (or not numeric)."""
+    if y is None or not pd.api.types.is_numeric_dtype(x) or pd.api.types.is_bool_dtype(x):
+        return None
+    k = int(y.nunique(dropna=True))
+    if k == 2:
+        b = _pos(y)
+        a = single_auc(x, b[0]) if b else None
+        return {"auc": round(a, 4)} if a is not None and a >= ID_TIE_AUC else None
+    if pd.api.types.is_numeric_dtype(y) and k > MAX_CLASSES:
+        ok = x.notna() & y.notna()
+        if ok.sum() < 50:
+            return None
+        rho = x[ok].corr(y[ok], method="spearman")
+        return {"rho": round(float(rho), 4)} if rho is not None and np.isfinite(rho) and abs(rho) >= ID_TIE_RHO else None
+    return None
+
+
 # ------------------------------------------------------------------------------------------------------- the checks
 
 class Ctx:
@@ -203,7 +226,18 @@ def check_leakage(cx: Ctx) -> list[dict[str, Any]]:
                 s["reasons"] += [e for e in r["evidence"] if e not in s["reasons"]]
     rule_auc = None
     for c in cx.features():
-        if cx.types[c] in ("id", "text"):
+        if cx.types[c] == "id" or _numeric_id(c, cx.df[c], cx.n):
+            tie = id_tie(cx.df[c], cx.y)
+            if tie:  # A2 M7: never drop silently as an ID what predicts the target: a leak question instead
+                s = sus.setdefault(c, {"column": c, "confidence": 0.0, "reasons": [], "auc": tie.get("auc")})
+                s["confidence"] = max(s["confidence"], 0.85)
+                s["reasons"].append(f"named like an ID or a reference, yet alone it predicts {cx.target} ("
+                                    + (f"AUC {tie['auc']:.3f}" if "auc" in tie else f"rank correlation {tie['rho']:+.3f}")
+                                    + "): an identifier cannot do that, a value recorded with the outcome can")
+                if "rho" in tie:
+                    s["rho"] = tie["rho"]
+            continue
+        if cx.types[c] == "text":
             continue
         x = cx.df[c]
         if cx.task == "binary":
@@ -465,15 +499,24 @@ def check_informative_missing(cx: Ctx) -> list[dict[str, Any]]:
                           "rate_present": round(float(b.mean()), 4), "p": p})
     if not items:
         return []
+    for i in items:  # A2 m3: the gap in outcome between missing and present rows, in outcome units (sd for regression)
+        sc_ = 1.0 if cx.task == "binary" else float(cx.y.std() or 1)
+        i["gap"] = round(abs(i["rate_missing"] - i["rate_present"]) / sc_, 4)
+    items.sort(key=lambda i: -i["gap"])
     it = items[0]
     what = f"{cx.pos!r} rate" if cx.task == "binary" else f"mean {cx.target}"
     cols = [i["column"] for i in items]
-    return [_finding("informative_missing", "low",
+    # severity scales with the gap: ≥ 0.20 (20 points, or 0.5 sd) is medium — a model that imputes the column loses
+    # a strong signal and the missingness often marks a capture process tied to the outcome
+    big = it["gap"] >= (0.20 if cx.task == "binary" else 0.5)
+    return [_finding("informative_missing", "medium" if big else "low",
                      f"Missing says something: where {it['column']} is missing, the {what} is {it['rate_missing']:.3g} vs {it['rate_present']:.3g}",
                      {"columns": len(items), f"{what} when missing": it["rate_missing"], f"{what} when present": it["rate_present"],
                       "missing share": it["missing_share"]},
                      "Missing 1–95 % of rows, and the outcome differs between rows with and without a value: two-sample z test "
-                     "p < 0.001 and a gap ≥ 5 points (regression: ≥ 0.05 standard deviations).",
+                     "p < 0.001 and a gap ≥ 5 points (regression: ≥ 0.05 standard deviations). Medium when the gap is ≥ 20 points "
+                     "(regression: ≥ 0.5 standard deviations): ask how the field is captured, the blanks may be recorded "
+                     "differently for one outcome.",
                      _rows(cx.df, cx.df[cols[0]].isna(), cols[:4] + [cx.target]),
                      _fix("transform", "Keep a 'was missing' flag for each, so the signal survives any imputation.",
                           [{"op": "add_missing_flag", "column": i["column"]} for i in items]),
@@ -493,36 +536,72 @@ def _content_cols(cx: Ctx) -> list[str]:
     return [c for c in cx.df.columns if c not in keys]
 
 
+NEAR_MAX_ROWS, NEAR_MAX_COLS = 120_000, 40
+
+
+def _norm_frame(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Numbers to 3 significant digits, text trimmed, lower-cased, single-spaced (the Model Doctor's overlap rule)."""
+    out = df[cols].copy()
+    for c in cols:
+        s = out[c]
+        if pd.api.types.is_float_dtype(s):
+            out[c] = s.map(lambda v: float(f"{v:.3g}") if pd.notna(v) else v)
+        elif s.dtype == object:
+            out[c] = s.astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True).where(s.notna())
+    return out.astype(str)
+
+
+def near_duplicate_mask(df: pd.DataFrame, cols: list[str], keep: np.ndarray | None = None) -> np.ndarray | None:
+    """A2 M4: rows identical to an earlier row on every column of `cols` but at most one (numbers to 3 significant
+    digits, text normalised), the definition the Model Doctor's train–holdout overlap uses. Exact duplicates are
+    included. None when the table is too large to check (> 120k rows or > 40 columns)."""
+    if len(df) > NEAR_MAX_ROWS or len(cols) > NEAR_MAX_COLS or len(cols) < 2:
+        return None
+    sub = df if keep is None else df[keep]
+    N = _norm_frame(sub, cols)
+    m = pd.util.hash_pandas_object(N, index=False).duplicated(keep="first").to_numpy()
+    for c in cols:
+        m |= pd.util.hash_pandas_object(N.drop(columns=[c]), index=False).duplicated(keep="first").to_numpy()
+    if keep is None:
+        return m
+    full = np.zeros(len(df), bool)
+    full[np.flatnonzero(keep)] = m
+    return full
+
+
 def check_duplicates(cx: Ctx) -> list[dict[str, Any]]:
-    """Exact duplicates (every column but row keys, which are unique per row) and near-duplicates (same after trimming and lower-casing text and rounding
-    numbers to 4 significant digits)."""
+    """Exact duplicates (every column but row keys, which are unique per row) and near-duplicates: identical to an
+    earlier row on every feature but one (numbers to 3 significant digits, text trimmed and lower-cased), the Model
+    Doctor's train–holdout overlap definition (A2 M4)."""
     cols = _content_cols(cx) or list(cx.df.columns)
     dup = cx.df.duplicated(subset=cols, keep="first")
     n_dup = int(dup.sum())
-    norm = cx.df[cols].copy()
-    for c in cols:
-        s = norm[c]
-        if pd.api.types.is_float_dtype(s):
-            norm[c] = s.map(lambda v: float(f"{v:.4g}") if pd.notna(v) else v)
-        elif s.dtype == object:
-            norm[c] = s.astype(str).str.strip().str.lower().str.replace(r"\s+", " ", regex=True)
-    near = norm.duplicated(keep="first") & ~dup
+    feats = [c for c in cols if c != cx.target]
+    nm = near_duplicate_mask(cx.df, feats)
+    near = (pd.Series(nm, index=cx.df.index) & ~dup) if nm is not None else pd.Series(False, index=cx.df.index)
     n_near = int(near.sum())
     if n_dup + n_near == 0:
         return []
     share = n_dup / max(cx.n, 1)
-    sev = "medium" if share >= 0.02 else "low"
+    share_all = (n_dup + n_near) / max(cx.n, 1)
+    sev = "medium" if share_all >= 0.02 else "low"
     first_dup = dup | near
-    title = (f"{n_dup:,} exact duplicate rows ({share:.1%})" + (f" and {n_near:,} near-duplicates" if n_near else "")) if n_dup \
-        else f"{n_near:,} near-duplicate rows (same after trimming, case and rounding)"
+    title = (f"{n_dup:,} exact duplicate rows ({share:.1%})" + (f" and {n_near:,} near-duplicates (identical but for one column)" if n_near else "")) if n_dup \
+        else f"{n_near:,} near-duplicate rows ({n_near / max(cx.n, 1):.1%}): identical to another row but for one column"
+    tr = ([{"op": "drop_near_duplicates"}] if n_near else []) or ([{"op": "drop_duplicates"}] if n_dup else [])
     return [_finding("duplicates", sev, title,
-                     {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near},
-                     "Medium when exact duplicates are ≥ 2 % of rows. Exact: the same values in every column except row keys (columns unique per row). Near: the same after trimming and lower-casing text "
-                     "and rounding numbers to 4 significant digits. A duplicate split across training and holdout makes the "
-                     "score optimistic.",
-                     _rows(cx.df, first_dup, cols[:6]),
-                     _fix("transform", "Drop the exact duplicates (keep the first)." + (" Near-duplicates are listed, not dropped." if n_near else ""),
-                          [{"op": "drop_duplicates"}] if n_dup else [], selected=True))]
+                     {"exact duplicates": n_dup, "share": round(share, 4), "near-duplicates": n_near,
+                      "near-duplicates checked": nm is not None},
+                     "Medium when exact and near-duplicates together are ≥ 2 % of rows. Exact: the same values in every column except row keys "
+                     "(columns unique per row). Near: identical to an earlier row on every feature but one, numbers to 3 "
+                     "significant digits and text trimmed and lower-cased (the Model Doctor's train–holdout overlap rule; "
+                     f"checked up to {NEAR_MAX_ROWS:,} rows and {NEAR_MAX_COLS} columns). A re-submitted application with one "
+                     "field edited is a near-duplicate. A copy split across training and holdout makes the score optimistic.",
+                     _rows(cx.df, first_dup.to_numpy(), cols[:6]),
+                     _fix("transform", ("Drop the exact and near-duplicates (keep the first of each)." if n_near else
+                                        "Drop the exact duplicates (keep the first).")
+                          + ("" if nm is not None else " Near-duplicates were not checked on a table this large."),
+                          tr, selected=True))]
 
 
 def check_repeated_entities(cx: Ctx) -> list[dict[str, Any]]:
@@ -792,19 +871,50 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
                 dev = max(np.abs(np.log(left / a_)).max(), np.abs(np.log(right / b_)).max())
                 if (r >= 3 or r <= 1 / 3) and dev <= np.log(2.0) and abs(np.log(r)) >= 2 * dev:
                     if best is None or abs(np.log(r)) > abs(np.log(best["factor"])) * 1.1:
-                        best = {"k": k + gap, "factor": float(r)}
+                        best = {"k": k + gap, "k0": k, "factor": float(r)}
         if not best:
             continue
         k = best["k"]
-        cut_row = bins[k][0]
-        cut = t.iloc[cut_row]
+        m_before, m_after = float(np.median(med[: best["k0"]])), float(np.median(med[k:]))
+        # A2 C2: the change point at row level, not the start of the mixed bin. Each row with a value is on the
+        # "before" or the "after" scale (the nearer median, in logs); the cut is the first date that best separates
+        # them: before-scale rows earlier, after-scale rows on or after it.
+        win = np.concatenate(bins[max(0, best["k0"] - 1): min(len(bins), k + 1)])
+        tw_ = t.iloc[win].to_numpy()
+        xv = pd.to_numeric(x.iloc[win], errors="coerce").abs().to_numpy(dtype=float)
+        has = np.isfinite(xv) & (xv > 0)
+        side = np.where(has, (np.abs(np.log(np.where(has, xv, 1) / m_after)) < np.abs(np.log(np.where(has, xv, 1) / m_before))).astype(int), -1)
+        o_ = np.argsort(tw_, kind="stable")
+        tw_, side = tw_[o_], side[o_]
+        cand = pd.unique(tw_)
+        a_cum = np.concatenate([[0], np.cumsum(side == 1)])  # after-scale rows before position i
+        b_cum = np.concatenate([[0], np.cumsum(side == 0)])
+        n_a, n_b = int((side == 1).sum()), int((side == 0).sum())
+        best_cut, best_err = None, None
+        for cv in cand:
+            i = int(np.searchsorted(tw_, cv, side="left"))
+            err_ = int(a_cum[i]) + (n_b - int(b_cum[i]))  # after-scale rows before the cut + before-scale rows from it on
+            if best_err is None or err_ < best_err:
+                best_cut, best_err = cv, err_
+        cut = pd.Timestamp(best_cut) if pd.api.types.is_datetime64_any_dtype(t) else best_cut
         near = min(UNIT_FACTORS, key=lambda f: abs(np.log(best["factor"] / f)))
         known = abs(np.log(best["factor"] / near)) <= np.log(1.25)
         after = (t >= cut).to_numpy() & ok
+        xa = pd.to_numeric(x, errors="coerce").abs().to_numpy(dtype=float)
+        hv = np.isfinite(xa) & (xa > 0)
+        on_after_scale = hv & (np.abs(np.log(np.where(hv, xa, 1) / m_after)) < np.abs(np.log(np.where(hv, xa, 1) / m_before)))
+        changed = after & on_after_scale
+        left = after & hv & ~on_after_scale
+        rf = round(1 / near, 6) if known else round(1 / best["factor"], 6)
+        prev_rows = np.concatenate([np.flatnonzero(changed)[:4], np.flatnonzero(left)[:2], np.flatnonzero(ok & ~after & hv)[-2:]])
+        preview = [{"row": int(r), "date": str(cx.df[date].iloc[r]), "before": _jsonable(x.iloc[r]),
+                    "after": _jsonable(round(float(x.iloc[r]) * rf, 6)) if changed[r] else _jsonable(x.iloc[r]),
+                    "changed": bool(changed[r])} for r in prev_rows]
         items.append({"column": c, "from": str(cut)[:10], "factor": round(best["factor"], 4),
                       "unit": UNIT_FACTORS[near] if known else None, "rows_after": int(after.sum()),
-                      "median_before": round(float(np.median(med[:k])), 4), "median_after": round(float(np.median(med[k:])), 4),
-                      "rescale": round(1 / near, 6) if known else round(1 / best["factor"], 6), "_mask": after})
+                      "rows_rescaled": int(changed.sum()), "rows_left": int(left.sum()), "misplaced": int(best_err or 0),
+                      "median_before": round(m_before, 4), "median_after": round(m_after, 4),
+                      "rescale": rf, "preview": preview, "_mask": after})
     if not items:
         return []
     it = items[0]
@@ -813,6 +923,7 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
         i.pop("_mask", None)
     cols = [i["column"] for i in items]
     desc = "; ".join(f"{i['column']} × {i['factor']:.3g} from {i['from']}" + (f" ({i['unit']})" if i["unit"] else "") for i in items[:3])
+    prev = "; ".join(f"{p['date']}: {p['before']} → {p['after']}" for p in it["preview"] if p["changed"])[:240]
     return [_finding("unit_change", "medium", f"The scale changes over time: {desc}",
                      {"columns": len(items), "rows after the change": it["rows_after"], "factor": it["factor"],
                       f"median {it['column']} before": it["median_before"], f"median {it['column']} after": it["median_after"]},
@@ -822,10 +933,16 @@ def check_unit_change(cx: Ctx) -> list[dict[str, Any]]:
                      "bin holding the change may be mixed. A model trained across the change mixes two units.",
                      _rows(cx.df, mask, [date] + cols[:4] + ([cx.target] if cx.target else [])),
                      _fix("transform", "Ask the data owner which unit each period uses; if the factor is a unit change, rescale the "
-                                       "later rows back (the fix below does that and keeps a flag).",
-                          [{"op": "rescale", "column": i["column"], "date_column": date, "from": i["from"], "factor": i["rescale"]}
+                                       f"later rows back (the fix below does that and keeps a flag). It changes {it['rows_rescaled']:,} "
+                                       f"{it['column']} values: rows dated on or after {it['from']} whose value is on the new scale "
+                                       f"(nearer {it['median_after']:,.6g} than {it['median_before']:,.6g}); "
+                                       f"{it['rows_left']:,} rows from that date already on the old scale are left as they are. "
+                                       f"Before → after: {prev}.",
+                          [{"op": "rescale", "column": i["column"], "date_column": date, "from": i["from"], "factor": i["rescale"],
+                            "scale": {"before": i["median_before"], "after": i["median_after"]}}
                            for i in items], selected=False),
-                     columns=cols) | {"items": items}]
+                     columns=cols) | {"items": items, "preview": {"column": it["column"], "rows": it["preview"],
+                                                                  "rows_rescaled": it["rows_rescaled"], "rows_left": it["rows_left"]}}]
 
 
 def check_ids_constants(cx: Ctx) -> list[dict[str, Any]]:
@@ -834,6 +951,8 @@ def check_ids_constants(cx: Ctx) -> list[dict[str, Any]]:
     for c in cx.features():
         s, t, r = cx.df[c], cx.types[c], cx.role(c)
         k = int(s.nunique(dropna=True))
+        if (r == "id" or t == "id" or _numeric_id(c, s, cx.n)) and id_tie(s, cx.y):
+            continue  # A2 M7: tied to the target: a leakage suspect (check_leakage), never dropped as an ID
         if r == "id" or t == "id":
             items.append({"column": c, "why": f"a row ID ({k:,} distinct)"})
         elif _numeric_id(c, s, cx.n):
@@ -975,8 +1094,9 @@ def report(df: pd.DataFrame, target: str | None, roles: list[dict[str, Any]], an
         "unanswered": [s["column"] for s in suspects if known.get(s["column"]) is None],
         "answered": bool(answers.get("answered_at")),
         "answered_at": answers.get("answered_at"), "by": answers.get("by"),
-        "fairness_only": answers.get("fairness_only") if answers.get("answered_at") else
-                         [p["column"] for p in (prot or {}).get("items", [])],
+        # A2 M9: never pre-ticked. Unanswered, a protected column stays in runs (the question stays open on screen)
+        "fairness_only": (answers.get("fairness_only") or []) if answers.get("answered_at") else [],
+        "fairness_answered": bool(answers.get("answered_at")),
         "protected": [p["column"] for p in (prot or {}).get("items", [])],
     }
     if leak and decision["answered"] and all(known.get(s["column"]) is not None for s in suspects):
@@ -1208,6 +1328,7 @@ TRANSFORMS = {
     "split_codes": "codes → fill in the column, and a new <column>_code column holding the code (or 'value')",
     "add_missing_flag": "a new <column>_was_missing 0/1 column",
     "drop_duplicates": "drop exact duplicate rows (row keys ignored), keep the first",
+    "drop_near_duplicates": "drop rows identical to an earlier row on every feature but one (numbers to 3 significant digits), keep the first",
     "drop_rows": "drop the listed row numbers",
     "drop_columns": "drop the listed columns",
     "merge_classes": "the listed classes of the column → one class",
@@ -1303,6 +1424,15 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             gone = np.flatnonzero(keep)[d.to_numpy()]
             keep[gone] = False
             effects.append({**t, "rows": int(len(gone))})
+        elif op == "drop_near_duplicates":
+            ids = set(_row_keys(out))
+            feats = [c for c in out.columns if c not in ids and c != target]
+            m = near_duplicate_mask(out, feats, keep)
+            if m is None:
+                raise ValueError(f"drop_near_duplicates checks up to {NEAR_MAX_ROWS:,} rows and {NEAR_MAX_COLS} columns.")
+            gone = np.flatnonzero(m & keep)
+            keep[gone] = False
+            effects.append({**t, "rows": int(len(gone))})
         elif op == "drop_rows":
             rows = [int(r) for r in t.get("rows") or [] if 0 <= int(r) < len(df)]
             before = int(keep.sum())
@@ -1330,6 +1460,12 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             c = t["column"]
             tv = time_values(out[t["date_column"]])
             m = (tv >= pd.Timestamp(t["from"]) if pd.api.types.is_datetime64_any_dtype(tv) else tv >= float(t["from"])).fillna(False).to_numpy()
+            sc = t.get("scale") or {}
+            if sc.get("before") and sc.get("after"):  # A2 C2: only rows on the new scale (rows already on the old one stay)
+                xa = pd.to_numeric(out[c], errors="coerce").abs().to_numpy(dtype=float)
+                hv = np.isfinite(xa) & (xa > 0)
+                lx = np.log(np.where(hv, xa, 1.0))
+                m = m & hv & (np.abs(lx - np.log(float(sc["after"]))) < np.abs(lx - np.log(float(sc["before"]))))
             out[c] = out[c].astype(float)
             out.loc[m, c] = out.loc[m, c] * float(t["factor"])
             out[f"{c}_rescaled"] = m.astype(int)
