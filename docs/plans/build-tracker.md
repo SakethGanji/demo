@@ -30,5 +30,7 @@
 | P04 | R | done (grep gate 0) | session_018upNdQ4YR8uygzkhyFodYa | ee570d0 |
 | P02 | D | done | session_018upNdMxLoGmBn2rfMZrStw | ab61873 |
 | P05 | D | done | session_018upNdR5aiQ2E9Luej6fmJ6 | 112b4d0 |
-| P06 | D | started | | |
+| P06 | D | done | session_018upNdPmVFDA7q7c2wULNRM | eb59e9c |
+| P07 | D | started | session_018upNdQzFyc3sTFn8F8WBVu | |
+| U1 | U | started | session_018upNdQpQQ3Pdy7XWP9nE4H | |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
