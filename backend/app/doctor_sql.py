@@ -289,7 +289,16 @@ def compile_fixes(con: Any, base_sql: str, ids: np.ndarray, transforms: list[dic
 def apply(store: Any, dataset_id: str, transforms: Any, *, by: str | None, acknowledge: Any, name: str,
           note: str) -> dict[str, Any]:
     """The fixes compiled and written as a new version (or the existing one, when the data is identical). Returns
-    {rec, effects, rows_before, rows_after, columns_before, columns_after, deduplicated?}."""
+    {rec, effects, rows_before, rows_after, columns_after} (or {noop: True, …})."""
+    op = "clean_labels" if any(isinstance(t, dict) and t.get("op") == "relabel" for t in transforms or []) else "data_doctor"
+    return write_chain(store, dataset_id, lambda con, sql, ids, target: compile_fixes(con, sql, ids, transforms, target),
+                       op=op, kind="data_doctor", by=by, acknowledge=acknowledge, name=name, note=note)
+
+
+def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, by: str | None, acknowledge: Any,
+                name: str, note: str, extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`build(con, parent_sql, ids, target) -> (chain, effects)` over the parent table, written as a new version through
+    the VersionWriter (dedupe on; a result identical to the parent writes nothing and returns {noop: True})."""
     from .catalog import governance as G
     from .catalog.schema import add_edge, audit
     from .datasets import DatasetError, guard_one_class_counts, now
@@ -302,7 +311,7 @@ def apply(store: Any, dataset_id: str, transforms: Any, *, by: str | None, ackno
         raise DatasetError(f"No dataset with id '{dataset_id}'.")
     by = by or G.current_actor()
     if not by:
-        raise DatasetError("Say who is making this data_doctor version: send by (or the X-Ensemble-Actor header).")
+        raise DatasetError(f"Say who is making this {kind} version: send by (or the X-Ensemble-Actor header).")
     reason = (G.current_reason() or "").strip()[:500]
     store.verify_for_edit(dataset_id, parent)
     lake = open_store(store.settings)
@@ -310,12 +319,11 @@ def apply(store: Any, dataset_id: str, transforms: Any, *, by: str | None, ackno
     if pr.fresh or pr.storage != "parquet":
         raise DatasetError("This version has no row mapping (CSV era): its fixes run on the whole frame.")
     target = parent["target"]
-    op = "clean_labels" if any(isinstance(t, dict) and t.get("op") == "relabel" for t in transforms or []) else "data_doctor"
     ids = np.asarray(pr.ids, dtype="int64")
     with VersionWriter(store.db, lake, op=op, by=by, parent_id=dataset_id, reason=reason, name=name,
                        primary_table=pr.table, dedupe=True) as w:
         try:
-            ch, effects = compile_fixes(w.con, pr.p.sql, ids, transforms, target)
+            ch, effects = build(w.con, pr.p.sql, ids, target)
         except ValueRefused:
             raise
         except ValueError as e:
@@ -338,8 +346,8 @@ def apply(store: Any, dataset_id: str, transforms: Any, *, by: str | None, ackno
         w.write(pr.table, f"SELECT * FROM {ch.cur} ORDER BY __row_id")
         LD.carry_rest(w, pr, store.db, pr.table, names)
         rows = w.con.execute(f"SELECT __row_id FROM {ch.cur} ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
-        extra = {"kind": "data_doctor", "fixes": effects, "applied_at": now(), "by": by, "columns_before": cols0,
-                 "columns_after": len(names), "how": "sql (F-X1: above config.doctor_rows() rows)",
+        extra = {"kind": kind, "fixes": effects, "applied_at": now(), "by": by, "columns_before": cols0,
+                 "columns_after": len(names), "how": "sql (F-X1: above config.doctor_rows() rows)", **(extra or {}),
                  **({"warnings": [one_class]} if one_class else {})}
         w.extra_ops.append(LD.no_floats({"op": op, "table": pr.table, "rows": {"kept": int(n1), "new": 0, "removed": int(n0 - n1)},
                                          "ids": "kept rows keep the parent's __row_id", "n_changes": len(effects),

@@ -47,9 +47,55 @@ def get_feature_lab(dataset_id: str, job_id: str, request: Request) -> dict[str,
     return j
 
 
+def _check_request(dataset_id: str, rec: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    """F-X1 C2: the route's checks, from the schema and one DuckDB count (no table read): the job reads the data."""
+    from .lake import duck
+    from .lake.pages import q, source
+
+    cols = frames.column_names(frames.table(dataset_id))
+    target = body.get("target") or rec["target"]
+    if not target or target not in cols:
+        raise HTTPException(400, "Name a target column (the dataset has none set).")
+    src = source(dataset_id)
+    with duck.job(threads=2) as con:
+        if src.arrow is not None:
+            con.register(src.rel, src.arrow)
+        k = con.execute(f"SELECT count(*) FROM (SELECT DISTINCT {q(target)} FROM {src.rel} WHERE {q(target)} IS NOT NULL LIMIT 2)").fetchall()[0][0]
+    if k < 2:
+        raise HTTPException(400, f"'{target}' has fewer than two values.")
+    return _check_args(cols, target, body)
+
+
+def _check_args(cols: list[str], target: str, body: dict[str, Any]) -> dict[str, Any]:
+    entity = body.get("entity")
+    if entity is not None and entity not in cols:
+        raise HTTPException(400, f"entity: no column named {entity!r}.")
+    if entity == target:
+        raise HTTPException(400, "entity: the target can't be the entity column.")
+    try:
+        max_c = int(body.get("max_candidates", 20))
+        limit = float(body.get("time_limit", 240))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "max_candidates and time_limit are numbers.") from None
+    if not 1 <= max_c <= 100 or not 5 <= limit <= 3600:
+        raise HTTPException(400, "max_candidates is 1–100 and time_limit 5–3600 seconds.")
+    cands = body.get("candidates")
+    if cands is not None:
+        if not isinstance(cands, list) or not cands:
+            raise HTTPException(400, "candidates is a non-empty list of typed transforms ({op, ...}).")
+        if any(not isinstance(c, dict) or c.get("op") not in fl.OPS for c in cands):
+            bad = next(c for c in cands if not isinstance(c, dict) or c.get("op") not in fl.OPS)
+            raise HTTPException(400, f"Not a typed transform: {json.dumps(bad)[:120]}. op is one of {', '.join(fl.OPS)}; free-form code is never run.")
+    return {"target": target, "entity": entity, "max_c": max_c, "limit": limit, "cands": cands}
+
+
 def _prepare(store, dataset_id: str, rec: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
-    """Validate a request and read what the search needs (the route checks; the worker reads it again to run)."""
-    df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (split masks)
+    """Worker side: read what the search needs. F-X1 C2: the version whole up to config.doctor_rows() rows, else its
+    recorded splitmix64 sample (doctor_frame); the holdout mask is the version's, taken at the sampled positions."""
+    from . import doctor_frame as DF
+
+    fr = DF.load(dataset_id)
+    df = fr.df
     target = body.get("target") or rec["target"]
     if not target or target not in df.columns:
         raise HTTPException(400, "Name a target column (the dataset has none set).")
@@ -78,14 +124,17 @@ def _prepare(store, dataset_id: str, rec: dict[str, Any], body: dict[str, Any]) 
         _, sp, _ = store.ensure_splits(dataset_id, target)
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
-    if len(sp["fold"]) != len(df):
+    if len(sp["fold"]) != fr.n_rows:
         raise HTTPException(400, "The dataset's split does not match its rows.")
+    hold = holdout_mask(sp, fr.n_rows)
+    if fr.positions is not None:
+        hold = hold[fr.positions]
     from .intake import detect
 
     roles = detect(df)["columns"]
     drops = run_drops(store, dataset_id, list(df.columns))
     return {"df": df, "target": target, "entity": entity, "max_c": max_c, "limit": limit, "cands": cands, "sp": sp,
-            "roles": roles, "drops": drops}
+            "roles": roles, "drops": drops, "hold": hold, "sample": fr.sample}
 
 
 @router.post("/datasets/{dataset_id}/feature-lab", status_code=202, dependencies=[require("data.version", path("dataset_id", "dataset"))])
@@ -93,7 +142,7 @@ def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | 
     body = body or {}
     rec = dataset_or_404(request, dataset_id)
     store = request.app.state.datasets
-    p = _prepare(store, dataset_id, rec, body)
+    p = _check_request(dataset_id, rec, body)  # F-X1 C2: no table read here; the job reads a bounded frame
     apply = body.get("apply", True) is not False
     from .catalog import governance as G
 
@@ -128,12 +177,15 @@ def run_job(ctx) -> dict[str, Any]:
 
     def work(job, progress):
         p = _prepare(store, dataset_id, rec, body)
-        res = fl.search(p["df"], p["target"], holdout_mask(p["sp"], len(p["df"])), roles=p["roles"], drops=p["drops"],
+        res = fl.search(p["df"], p["target"], p["hold"], roles=p["roles"], drops=p["drops"],
                         entity=p["entity"], candidates=p["cands"], max_candidates=p["max_c"], time_limit=p["limit"],
                         progress=progress)
+        if p["sample"]:
+            res["sample"] = p["sample"]  # F-X1 C2: the search ran on this recorded sample
         out: dict[str, Any] = {"result": res, "journal": res["journal"], "target": p["target"]}
         if pl["apply"] and res["kept"]:
-            out["version"] = _version(req, rec, p["df"], p["sp"], res, pl["by"])
+            out["version"] = (_version_sql(req, rec, res, pl["by"]) if p["sample"] else
+                              _version(req, rec, p["df"], p["sp"], res, pl["by"]))
         return out
 
     job = fl.execute(ds_dir, pl["job_id"], work)
@@ -175,3 +227,90 @@ def _version(request: Request, rec: dict[str, Any], df, sp: dict[str, Any], res:
     d = _detail(new)
     return {"id": new["id"], "name": new["name"], "columns_added": [t["name"] for t in res["kept"]], "rows": int(len(new_df)),
             "holdout_rows": int(len(sp["holdout"])), "profile_rows": d.get("rows")}
+
+
+def _feature_sql(t: dict[str, Any], types: dict[str, str]) -> str:
+    """F-X1 C2: featurelab.compute as a SQL expression over the parent table (alias s), the same values: numbers
+    are TRY_CAST to DOUBLE (pd.to_numeric), agg is a window over the whole table, bin uses the edges the search fitted
+    on its training rows, date_part follows pandas (dayofweek Monday = 0)."""
+    from .doctor_sql import _lit, q
+
+    def num(c: str) -> str:
+        return f"TRY_CAST(s.{q(c)} AS DOUBLE)"
+
+    op = t["op"]
+    if op == "ratio":
+        a, b = num(t["a"]), num(t["b"])
+        return f"CASE WHEN {b} = 0 OR NOT isfinite({a} / {b}) THEN NULL ELSE {a} / {b} END"
+    if op == "diff":
+        return f"{num(t['a'])} - {num(t['b'])}"
+    if op == "agg":
+        part = f"PARTITION BY s.{q(t['entity'])}"
+        if t["fn"] == "count":
+            return f"CAST(count(*) OVER ({part}) AS DOUBLE)"
+        fn = {"mean": "avg", "sum": "sum", "max": "max", "min": "min", "std": "stddev_samp"}[t["fn"]]
+        x = num(t["col"])
+        if t["fn"] == "sum":  # pandas: the sum of an all-missing group is 0
+            return f"CAST(COALESCE(sum({x}) OVER ({part}), 0) AS DOUBLE)"
+        return f"CAST({fn}({x}) OVER ({part}) AS DOUBLE)"
+    if op == "date_part":
+        d = f"TRY_CAST(s.{q(t['col'])} AS TIMESTAMP)"
+        part = {"year": "year", "quarter": "quarter", "month": "month", "dayofyear": "dayofyear", "hour": "hour"}.get(t["part"])
+        if t["part"] == "dayofweek":
+            return f"CAST(isodow({d}) - 1 AS DOUBLE)"
+        if part is None:
+            raise ValueError(f"date_part {t['part']!r} has no SQL form")
+        return f"CAST({part}({d}) AS DOUBLE)"
+    if op == "bin":
+        x = num(t["col"])
+        edges = [float(e) for e in t.get("edges") or []]
+        if not edges:
+            return f"CASE WHEN {x} IS NULL THEN NULL ELSE CAST(0 AS DOUBLE) END"
+        return f"CASE WHEN {x} IS NULL THEN NULL ELSE CAST({' + '.join(f'CAST({x} > {_lit(e)} AS INTEGER)' for e in edges)} AS DOUBLE) END"
+    if op == "log":
+        x = num(t["col"])
+        return f"sign({x}) * ln(1 + abs({x}))"
+
+    def txt(c: str) -> str:  # pandas astype(str): a missing cell reads 'nan'
+        return f"COALESCE(CAST(s.{q(c)} AS VARCHAR), 'nan')"
+    return f"{txt(t['a'])} || '|' || {txt(t['b'])}"
+
+
+def _version_sql(request: Any, rec: dict[str, Any], res: dict[str, Any], by: str) -> dict[str, Any]:
+    """F-X1 C2: the kept transforms added to every row of a version above config.doctor_rows() rows, as SQL columns
+    written through the VersionWriter (no full pandas read). Every row is kept, so the parent's split is carried as is."""
+    from . import doctor_sql
+    from .main import _detail
+
+    store = request.app.state.datasets
+    dataset_id = rec["id"]
+    effects = []
+
+    def build(con: Any, sql: str, ids: Any, target: Any):
+        ch = doctor_sql._Chain(con, sql)
+        add = {}
+        for t in res["kept"]:
+            add[t["name"]] = _feature_sql(t, dict(ch.cols))
+        ch.select(add=add)
+        for t in res["kept"]:
+            effects.append({"kind": "feature_lab", "transform": t, "text": fl.describe(t), "column": t["name"],
+                            "missing": ch.count(f"{doctor_sql.q(t['name'])} IS NULL")})
+        return ch, effects
+
+    root = (store.lineage(dataset_id) or {}).get("root") or dataset_id
+    base = rec["name"].split(" · features")[0]
+    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
+                and (d["profile"].get("lineage") or {}).get("kind") == "feature_lab") + 1
+    out = doctor_sql.write_chain(store, dataset_id, build, op="feature_lab", kind="feature_lab", by=by, acknowledge=None,
+                                 name=f"{base} · features v{n_ver}",
+                                 note=f"Feature Lab: {len(res['kept'])} feature{'s' if len(res['kept']) != 1 else ''} added to {dataset_id}",
+                                 extra={"transforms": res["kept"], "sample": res.get("sample"),
+                                        "search": {"metric": res["metric"], "improvement_oof": res["improvement_oof"],
+                                                   "holdout": res.get("holdout")}})
+    new = out["rec"]
+    a = answers(store, dataset_id)
+    if a and not new.get("deduplicated"):
+        (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))
+    d = _detail(new)
+    return {"id": new["id"], "name": new["name"], "columns_added": [t["name"] for t in res["kept"]], "rows": int(out["rows_after"]),
+            "profile_rows": d.get("rows"), "how": "sql", **({"deduplicated": new["deduplicated"]} if new.get("deduplicated") else {})}
