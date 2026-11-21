@@ -1156,3 +1156,25 @@ Triggered work adds 4 sessions (≈ 8 h) when needed.
     - `holdout_identity_loss` acknowledge threshold 1 %;
     - training frame budget 10 % of worker RAM;
     - upload cap 5 GB.
+
+---
+
+## 11. User decisions (2026-11-21), binding on all phases
+
+1. **MinIO is in the POC.** T1 (S3/MinIO + sha-keyed read cache) moves into the list as **P10b**, right after P10 (+1 session).
+   - LocalBlobStore stays for dev.
+   - MinIO is the default for the shared deployment.
+   - Object Lock in **governance** mode, so purge is still possible with a role.
+2. **Postgres is in the POC.** P23 is built, and Postgres is the default for the shared deployment. SQLite stays for local dev.
+3. **Retention is manual for now.** P24 builds the plan, dry-run and run endpoints, legal holds, GC and purge, but **no automatic timers and no default periods**. Every retention action is started by a person and audited.
+4. **Cross-team sharing is yes.** P21 is built in full: shares, certifications, `visible_teams()`, cross-team training.
+5. **Defaults accepted unless noted:**
+   - identity provider decided later (T3a stays triggered);
+   - native types for training later; `engine_v1` stays the default;
+   - recorded stratified sampling allowed and shown on the model card;
+   - packages `duckdb` and `python-calamine` assumed approved, with openpyxl as the fallback;
+   - no per-team buckets;
+   - purge sign-off = owners of every affected team + four eyes;
+   - NA tokens / ambiguous dates as text / 1 % ack / 10 % RAM budget / 5 GB cap as proposed.
+
+Total: **30 sessions** (25 build + 5 checks).
