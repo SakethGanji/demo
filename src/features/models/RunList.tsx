@@ -14,7 +14,8 @@ import { useFetch } from '@/shared/hooks/useFetch'
 import { activeRuns, catalog, runsByIds, runsPage } from '@/shared/api/catalog'
 import { api } from '@/shared/api/client'
 import { ProjectTree } from './components/ProjectTree'
-import { DataView } from './data/DataView'
+import { NewProject } from './data/DataView'
+import { useTeam } from '@/shared/lib/team'
 import { matchTab } from '@/shared/hooks/useHashParam'
 
 export const STATUS_PILL: Record<string, Status> = { succeeded: 'success', running: 'info', queued: 'neutral', failed: 'danger', cancelled: 'warning' }
@@ -37,7 +38,7 @@ const ago = (iso: string) => {
   return s < 60 ? `${Math.round(s)} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(iso).toLocaleDateString()
 }
 
-const TABS = ['Runs', 'Compare', 'Parameter Diff', 'Lineage', 'Data'] as const
+const TABS = ['Runs', 'Compare', 'Parameter Diff', 'Lineage'] as const
 type Tab = typeof TABS[number]
 const projectParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('project')
 type Filters = { dataset: string; type: string; status: string; q: string; min: string }
@@ -55,14 +56,14 @@ export function RunList({ go }: { go: (r: string) => void }) {
     const f = () => { const t = matchTab(TABS, new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')); if (t) setTabState(t) }
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f)
   }, [])
+  const { team } = useTeam()
   const projects = useFetch(() => catalog.projects(), [])
   const [sel, setSel] = useState<string[]>([])
   const { runs, total, err, more, loadingMore } = useRunPages(project, sel)
-  // DL1: ?tab=Data (from Build's version strip or the lineage tree) opens the datasets
   const [tab, setTabState] = useState<Tab>(() => matchTab(TABS, new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')) ?? 'Runs')
   const setTab = (t: Tab) => {
     setTabState(t)
-    const q = new URLSearchParams(location.hash.split('?')[1] ?? ''); if (t === 'Runs') q.delete('tab'); else q.set('tab', t); if (t !== 'Data') q.delete('dataset')
+    const q = new URLSearchParams(location.hash.split('?')[1] ?? ''); if (t === 'Runs') q.delete('tab'); else q.set('tab', t); 
     history.replaceState(null, '', `#/models${q.toString() ? `?${q}` : ''}`)
   }
   // ?type= (from a setup page's "earlier runs are in Models" link) preselects the problem filter.
@@ -96,21 +97,13 @@ export function RunList({ go }: { go: (r: string) => void }) {
   const selRuns = sel.map((id) => (runs ?? []).find((r) => r.id === id)).filter((r): r is Run => !!r && tabularLike(r))
   const selOther = (runs ?? []).filter((r) => sel.includes(r.id) && !tabularLike(r)).length
 
-  if (tab === 'Data') return (
-    <div className="page experiments" data-testid="experiments-live">
-      <div className="page-head"><div><h1 className="page-title">Models</h1><p className="helper sub">Data · every dataset, its versions and what used them</p></div>
-        <div className="row"><button className="btn primary" onClick={() => go('build')}>Build</button></div></div>
-      <Tabs tabs={TABS} value={tab} onChange={setTab} />
-      <DataView go={go} />
-    </div>
-  )
   if (err && !runs) return <ErrorCard err={err} />
   if (!runs) return <Loading>Reading the runs from the API: their scores, parameters and thresholds…</Loading>
   if (!runs.length) return (
     <div className="page experiments" data-testid="experiments-live">
       <div className="page-head"><div><h1 className="page-title">Models</h1><p className="helper sub" data-testid="exp-summary">0 runs · every run you train, forecast, score for anomalies or import lands here</p></div></div>
       <EmptyState testId="exp-empty" title="No runs yet"
-        actions={<><button className="btn primary" onClick={() => go('build')}>Build →</button> <button className="btn" onClick={() => setTab('Data')} data-testid="exp-empty-data">Data</button></>}>
+        actions={<><button className="btn primary" onClick={() => go('build')}>Build →</button> <button className="btn" onClick={() => go('build?view=data')} data-testid="exp-empty-data">Data</button></>}>
         <p>Each run becomes one row with its own metric s on held-out data, its parameters and its fit time; tabular runs on the same dataset and label are drawn as strings across parallel coordinates, compared side by side (ROC, PR, residuals, Δ on the same holdout) and diffed down to the exact <span className="mono">TabularPredictor(...).fit(...)</span> arguments.</p>
         <p>Six samples are ready: support tickets (text, 6 classes), account churn and credit default (binary, imbalanced), loan amount (regression), transaction volume (forecasting) and card transactions (anomalies).</p>
       </EmptyState>
@@ -133,7 +126,7 @@ export function RunList({ go }: { go: (r: string) => void }) {
               <option value="">All projects</option>
               {(projects.data ?? []).map((p) => <option key={p.id} value={p.id}>{p.name} ({p.n_runs}){p.champion ? ' ★' : ''}</option>)}
             </select></label>
-          <NewProject onMade={(id) => { projects.reload(); setProject(id) }} />
+          <NewProject team={team} onMade={(id) => { projects.reload(); setProject(id) }} />
           <button className="btn" disabled={sel.length !== 1} onClick={() => go(`models?run=${sel[0]}&tab=Explain`)} title="Select exactly one run">Explain</button>
           <button className="btn primary" onClick={() => go('build')}>Build</button>
         </div>
@@ -287,25 +280,6 @@ function MoveDataset({ project, onMoved }: { project: string; onMoved: () => voi
       <button className="btn" disabled={!pick || !by} title={by ? 'Moves the dataset, its versions and its runs (audited)' : 'Type your name in “acting as” first'} onClick={() => catalog.moveDataset(project, pick, by).then(onMoved).catch((e) => setMsg((e as Error).message))}>Move</button>
       {msg && <span className="helper" style={{ color: 'var(--status-danger)' }}>{msg}</span>}
     </div>
-  )
-}
-
-/** F-P2: make an empty project, then upload into it or move a dataset into it (Data). */
-function NewProject({ onMade }: { onMade: (id: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [by, setBy] = useState(() => { try { return localStorage.getItem('ensemble.actor') ?? '' } catch { return '' } })
-  const [msg, setMsg] = useState('')
-  if (!open) return <button className="btn" onClick={() => setOpen(true)} data-testid="project-new">New project…</button>
-  const go = () => catalog.createProject(name, by).then((p) => { setOpen(false); setName(''); setMsg(''); onMade(p.id) }).catch((e) => setMsg((e as Error).message))
-  return (
-    <span className="row" style={{ gap: 6 }} data-testid="project-new-form">
-      <input className="input" placeholder="project name" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} style={{ width: 160 }} />
-      <input className="input" placeholder="acting as" value={by} maxLength={80} onChange={(e) => setBy(e.target.value)} style={{ width: 110 }} title="Names, not authenticated identities: the name goes in the audit log" />
-      <button className="btn primary" disabled={!name.trim() || !by.trim()} onClick={go}>Create</button>
-      <button className="btn" onClick={() => setOpen(false)}>Cancel</button>
-      {msg && <span className="helper" style={{ color: 'var(--status-danger)' }}>{msg}</span>}
-    </span>
   )
 }
 

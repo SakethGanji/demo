@@ -7,7 +7,8 @@ const actor = () => { try { return localStorage.getItem('ensemble.actor') || und
 
 export class ApiError extends Error {
   /** 0 when the API could not be reached at all (network error, timeout, or the dev proxy's 503). */
-  constructor(message: string, readonly status: number) { super(message) }
+  /** U1: `detail` is the API's structured refusal ({code, message, …}) when it sent one. */
+  constructor(message: string, readonly status: number, readonly detail?: unknown) { super(message) }
   get unreachable() { return this.status === 0 }
 }
 
@@ -38,7 +39,7 @@ export async function request<T>(path: string, init: RequestInit & { timeoutMs?:
     const d = body?.detail
     const detail = typeof d === 'string' ? d : d && typeof d === 'object' && Array.isArray(d.blockers) ? JSON.stringify(d)
       : d && typeof d === 'object' && typeof d.message === 'string' ? d.message : `Request failed (${res.status}).`
-    throw new ApiError(detail, res.status)
+    throw new ApiError(detail, res.status, d)
   }
   return body as T
 }

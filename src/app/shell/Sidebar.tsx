@@ -2,6 +2,7 @@ import wordmark from '@/shared/assets/ensemble-wordmark-on-shell.svg'
 import { useApi } from '@/shared/api/mode'
 import { Icon } from '@/shared/primitives/Icon'
 import { NAV, NAV_PARENT, type Route } from '../routes'
+import { TeamSwitcher } from './TeamSwitcher'
 
 export function Sidebar({ route, collapsed, go, onToggle }: { route: Route; collapsed: boolean; go: (r: string) => void; onToggle: () => void }) {
   const { mode, status } = useApi()
@@ -12,6 +13,7 @@ export function Sidebar({ route, collapsed, go, onToggle }: { route: Route; coll
         <img className="mark" src={wordmark} alt="ENSEMBLE" height={26} />
         <span className="word">ENSEMBLE</span>
       </button>
+      {mode === 'live' && !collapsed && <TeamSwitcher />}
       <div className="nav">
         <div className="nav-group">
           {NAV.map((n) => {

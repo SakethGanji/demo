@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { catalog, data, type DsCard, type DsDiff, type DsHistory, type DsRow, type DsUploadPreview, type DsUsage, type DsVersion } from '@/shared/api/catalog'
+import { useEffect, useState } from 'react'
+import { catalog, data, type DsCard, type DsDiff, type DsHistory, type DsRow, type DsUsage, type DsVersion, type MyTeam } from '@/shared/api/catalog'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ErrorCard, Loading } from '@/shared/components/Status'
@@ -8,10 +8,11 @@ import { fmtScore } from '@/shared/lib/metrics'
 import { NotesStrip } from '../components/NotesStrip'
 import { ProjectTree } from '../components/ProjectTree'
 import { EditVersion } from './EditVersion'
+import { StagedUpload } from './StagedUpload'
+import { readActor, saveActor, useTeam } from '@/shared/lib/team'
 import './data.css'
 
-export const readActor = () => { try { return localStorage.getItem('ensemble.actor') || '' } catch { return '' } }
-export const saveActor = (s: string) => { try { localStorage.setItem('ensemble.actor', s) } catch { /* private mode */ } }
+export { readActor, saveActor }
 const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—')
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const pct = (v?: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
@@ -29,16 +30,38 @@ function setParam(name: string, v: string | null) {
   dispatchEvent(new HashChangeEvent('hashchange'))
 }
 
-/** Models → Data: every dataset (a root and its versions), searchable; with ?dataset= its page. */
+/** Build › Data (U1, C §2.9): the data catalog. Every dataset of the current team (or all), searchable; Upload (the
+ *  staged check → create flow) is the primary action; with ?dataset= its page. */
 export function DataView({ go }: { go: (r: string) => void }) {
   const sel = useHashParam('dataset')
+  const { actor, team } = useTeam()
+  const [scope, setScope] = useState<'team' | 'all'>('team')
   const [f, setF] = useState({ q: '', project: '', tag: '', owner: '', op: '', since: '', state: 'active' })
   const list = useFetch(() => data.search(f), [JSON.stringify(f)])
-  const projects = useFetch(() => catalog.projects(), [])
+  const [projTick, setProjTick] = useState(0)
+  const projects = useFetch(() => catalog.projects(scope === 'team' ? team?.id : null), [scope, team?.id, projTick])
+  const [uploading, setUploading] = useState(false)
+  const [made, setMade] = useState('')
   const ops = [...new Set((list.data ?? []).flatMap((d) => d.ops))].sort()
+  const rows = (list.data ?? []).filter((d) => scope === 'all' || !team || (d.team_id ?? 'tm_default') === team.id)
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-view">
       <div className="card">
+        <div className="card-head">
+          <div className="left"><h3 className="card-title">Data catalog</h3>
+            <div className="seg" role="group" aria-label="Whose datasets">
+              <button className={scope === 'team' ? 'on' : ''} onClick={() => setScope('team')} data-testid="data-scope-team">{team?.name ?? 'my team'}</button>
+              <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} data-testid="data-scope-all">all teams</button></div>
+            <span className="helper" style={{ fontSize: 12 }}>{rows.length} dataset{rows.length === 1 ? '' : 's'}</span></div>
+          <div className="data-tools">
+            <NewProject team={team} onMade={(p) => { setMade(`Project ${p} created in ${team?.name ?? 'your team'}.`); setProjTick((x) => x + 1) }} />
+            <button className="btn primary" disabled={!actor} onClick={() => setUploading(!uploading)} data-testid="data-upload"
+              title={actor ? 'Check a file, then create a dataset from it' : 'Type your name in the sidebar first'}>Upload…</button>
+          </div>
+        </div>
+        {made && <p className="helper data-msg ok" role="status" style={{ padding: '6px 16px', margin: 0 }}>✓ {made}</p>}
+        {uploading && <StagedUpload key={projTick} by={actor} team={team} onCancel={() => setUploading(false)}
+          onDone={(r, text) => { setUploading(false); setMade(text); list.reload(); setParam('dataset', r.root_id) }} />}
         <div className="card exp-filters data-filters" style={{ border: 0, boxShadow: 'none' }}>
           <label style={{ flex: 1 }}><span className="micro-label">search</span>
             <input className="input" placeholder="name, file, id, description, owner, tag…" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} data-testid="data-q" /></label>
@@ -56,16 +79,34 @@ export function DataView({ go }: { go: (r: string) => void }) {
         </div>
         {list.err && !list.data ? <ErrorCard inline err={list.err} /> : !list.data ? <Loading inline>Reading the datasets…</Loading> : (
           <div className="table-wrap data-list"><table className="table" data-testid="data-table">
-            <thead><tr><th>dataset</th><th>project</th><th className="r">versions</th><th className="r">default · rows × cols</th><th>owner</th><th className="r">runs</th><th className="data-when">last change</th></tr></thead>
+            <thead><tr><th>dataset</th><th>team · project</th><th className="r">versions</th><th className="r">default · rows × cols</th><th>owner</th><th className="r">runs</th><th className="data-when">last change</th></tr></thead>
             <tbody>
-              {list.data.map((d) => <DsListRow key={d.root_id} d={d} on={sel != null && (sel === d.root_id || sel === d.default_version_id)} pick={() => setParam('dataset', d.root_id)} />)}
-              {!list.data.length && <tr><td colSpan={7} className="helper" style={{ padding: 16 }}>No dataset matches. Upload one in Build.</td></tr>}
+              {rows.map((d) => <DsListRow key={d.root_id} d={d} on={sel != null && (sel === d.root_id || sel === d.default_version_id)} pick={() => setParam('dataset', d.root_id)} />)}
+              {!rows.length && <tr><td colSpan={7} className="helper" style={{ padding: 16 }}>No dataset{scope === 'team' && team ? ` of ${team.name}` : ''} matches. Upload one.</td></tr>}
             </tbody>
           </table></div>)}
       </div>
-      {sel ? <DatasetPage key={sel} id={sel} go={go} onChanged={list.reload} />
+      {sel ? <DatasetPage key={sel} id={sel} go={go} team={team} onChanged={list.reload} />
         : <p className="helper">Pick a dataset to see its versions, who made each one and how, what changed, and which runs and models used it.</p>}
     </div>
+  )
+}
+
+/** P18/U1: a project is made in the current team (team_id sent, so a person in 2+ teams gets no 400). */
+export function NewProject({ team, onMade }: { team: MyTeam | null; onMade: (id: string, name: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [msg, setMsg] = useState('')
+  const by = readActor()
+  if (!open) return <button className="btn" disabled={!by} onClick={() => setOpen(true)} data-testid="project-new" title={by ? `A new project in ${team?.name ?? 'your team'}` : 'Type your name in the sidebar first'}>New project…</button>
+  const go = () => catalog.createProject(name.trim(), by, team?.id ?? null).then((p) => { setOpen(false); setName(''); setMsg(''); onMade(p.id, p.name) }).catch((e) => setMsg((e as Error).message))
+  return (
+    <span className="row" style={{ gap: 6 }} data-testid="project-new-form">
+      <input className="input" placeholder={`project name in ${team?.name ?? 'your team'}`} value={name} maxLength={120} onChange={(e) => setName(e.target.value)} style={{ width: 200 }} data-testid="project-new-name" />
+      <button className="btn" disabled={!name.trim()} onClick={go} data-testid="project-new-create">Create</button>
+      <button className="btn ghost" onClick={() => setOpen(false)}>Cancel</button>
+      {msg && <span className="helper" style={{ color: 'var(--status-danger)' }}>{msg}</span>}
+    </span>
   )
 }
 
@@ -75,7 +116,7 @@ function DsListRow({ d, on, pick }: { d: DsRow; on: boolean; pick: () => void })
   return (
     <tr className={on ? 'sel' : ''} onClick={pick} style={{ cursor: 'pointer' }} data-testid={`data-row-${d.root_id}`}>
       <td className="data-ds-cell"><b>{d.name}</b>{d.tags.map((t) => <span key={t} className="pt-tag"> #{t}</span>)}<div className="mono muted" style={{ fontSize: 11 }}>{d.root_id}{d.versions_in_state?.length ? ` · ${f_state(d)}` : ''}</div>{d.description && <div className="helper ellip">{d.description}</div>}</td>
-      <td className="muted ellip-cell">{d.project ?? '—'}</td>
+      <td className="muted ellip-cell" title={d.team?.name}>{d.team?.name ?? 'Default team'}<div style={{ fontSize: 11 }}>{d.project ?? '—'}</div></td>
       <td className="r mono" title={`${d.n_live} live of ${d.n_versions}`}>{d.n_live}{d.n_versions !== d.n_live ? <span className="muted"> / {d.n_versions}</span> : ''}</td>
       <td className="r mono" title={`${d.default_version_id} · ${d.default_how}`}>{d.default_how === 'set' ? '★ ' : ''}{d.rows.toLocaleString()} × {d.n_cols ?? '—'}</td>
       <td className="ellip-cell">{d.owner || <span className="muted">{d.created_by ?? '—'}</span>}</td>
@@ -86,7 +127,7 @@ function DsListRow({ d, on, pick }: { d: DsRow; on: boolean; pick: () => void })
 }
 
 /** One dataset: its card, versions (history), diff, use, lineage, integrity, export, archive and delete. */
-function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => void; onChanged: () => void }) {
+function DatasetPage({ id, go, team, onChanged }: { id: string; go: (r: string) => void; team: MyTeam | null; onChanged: () => void }) {
   const h = useFetch(() => data.history(id), [id])
   const [by, setByState] = useState(readActor)
   const setBy = (s: string) => { setByState(s); saveActor(s) }
@@ -129,7 +170,7 @@ function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => voi
           <label className="row" style={{ gap: 6 }}><span className="micro-label">acting as</span>
             <input className="input" style={{ width: 120 }} value={by} maxLength={80} onChange={(e) => setBy(e.target.value)} data-testid="data-by" title="Names, not authenticated identities: every action records it in the audit log" /></label>
         </div>
-        <UploadVersion d={d} by={by} onDone={(vid, text) => { setMsg({ ok: true, text }); setPair([d.default_version_id ?? d.versions[d.versions.length - 1].id, vid]); reload() }} onErr={fail} />
+        <NextVersion d={d} by={by} team={team} onDone={(vid, text) => { setMsg({ ok: true, text }); setPair([d.default_version_id ?? d.versions[d.versions.length - 1].id, vid]); reload() }} />
         {msg && <div className={`card-body data-msg ${msg.ok ? 'ok' : 'bad'}`} role={msg.ok ? 'status' : 'alert'} data-testid="data-msg">{msg.ok ? '✓' : '✕'} {msg.text}
           {msg.blockers && <ul>{msg.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}</div>}
       </div>
@@ -162,76 +203,15 @@ function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => voi
   )
 }
 
-/** DL2: picking a file previews it (nothing written): matching summary, schema changes and contract warnings; then
- *  "Create version", and "Create and make default" only when there is no warning. */
-export function UploadVersion({ d, by, onDone, onErr, initialFile, onCancel }: { d: DsHistory; by: string; onDone: (vid: string, text: string) => void; onErr: (e: unknown) => void
-  /** DL4: Build hands over the file it matched: previewed at once, the same rules as picking it here */
-  initialFile?: File; onCancel?: () => void }) {
-  const ref = useRef<HTMLInputElement>(null)
-  const [key, setKey] = useState('')  // '' = guess an id column, else 'hash' or a column
-  const [busy, setBusy] = useState(false)
-  const [pv, setPv] = useState<{ file: File; p: DsUploadPreview } | null>(null)
-  const [reason, setReason] = useState('')
+/** U1: a new file as the next version of the default: the staged check, the row match with its counts, and Create. */
+function NextVersion({ d, by, team, onDone }: { d: DsHistory; by: string; team: MyTeam | null; onDone: (vid: string, text: string) => void }) {
+  const [open, setOpen] = useState(false)
   const parent = d.versions.find((v) => v.id === d.default_version_id)
-  useEffect(() => { if (initialFile && parent && by) void pick(initialFile) }, [initialFile, by]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!parent) return <div className="card-body helper data-upload">No active version to build on: every version is archived or deleted{d.state === 'archived' ? ' (unarchive the dataset below to add one)' : ''}.</div>
-  const pick = async (f?: File) => {
-    if (!f) return
-    setBusy(true); setPv(null)
-    try { setPv({ file: f, p: await data.previewVersion(parent.id, f, by, key || undefined) }) } catch (e) { onErr(e) } finally { setBusy(false); if (ref.current) ref.current.value = '' }
-  }
-  const create = async (makeDefault: 'auto' | 'no') => {
-    if (!pv) return
-    setBusy(true)
-    try {
-      const r = await data.uploadVersion(parent.id, pv.file, by, { rowKey: key || undefined, reason: reason.trim() || undefined, makeDefault })
-      const u = r.upload
-      onDone(r.id, `${pv.file.name} is v${pv.p.v} (${r.id}), from v${parent.v}: ${u.matched.toLocaleString()} matched, ${u.changed.toLocaleString()} changed, ${u.added.toLocaleString()} new, ${u.removed.toLocaleString()} gone. `
-        + (u.default.is_default ? 'It is now the default.' : `Not the default (${u.default.why}): review it, then Make v${pv.p.v} the default.`))
-      setPv(null); setReason('')
-    } catch (e) { onErr(e) } finally { setBusy(false) }
-  }
-  const p = pv?.p, ck = p?.checks
-  return (
-    <div className="card-body stack data-upload" style={{ gap: 8 }}>
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button className={`btn ${pv ? '' : 'primary'}`} disabled={!by || busy} onClick={() => ref.current?.click()} data-testid="data-upload-version"
-          title={by ? `Preview the file as the next version, with v${parent.v} as its parent (nothing is written yet)` : 'Type your name in “acting as” first'}>{busy && !pv ? 'Matching rows and profiling…' : pv ? 'Pick another file…' : 'Upload a new version…'}</button>
-        <input ref={ref} type="file" accept=".csv,.tsv,.txt" hidden onChange={(e) => pick(e.target.files?.[0])} data-testid="data-upload-file" />
-        <label className="row helper" style={{ gap: 6 }}>match rows by
-          <select className="select" value={key} onChange={(e) => setKey(e.target.value)} data-testid="data-row-key">
-            <option value="">an id column (guessed), else exact hash</option><option value="hash">exact row hash</option>
-          </select>
-          <input className="input" style={{ width: 120 }} placeholder="or a key column" value={key === 'hash' ? '' : key} onChange={(e) => setKey(e.target.value)} aria-label="Row key column" /></label>
-        <span className="helper">parent: v{parent.v} (the default). New rows get {Math.round(0.2 * 100)} % of the holdout. To change cells, use Edit on a version.</span>
-      </div>
-      {p && ck && <div className="data-preview" data-testid="data-preview">
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}><b>Preview: {p.filename} as v{p.v}</b><span className="helper">nothing is written until you create it · rows matched by {p.matched_by}</span></div>
-        <div className="data-hero data-hero-sm">
-          <div><span className="micro-label">matched</span><b data-testid="pv-matched">{p.matched.toLocaleString()}</b></div>
-          <div><span className="micro-label">changed</span><b data-testid="pv-changed">{p.changed.toLocaleString()}</b></div>
-          <div><span className="micro-label">added</span><b data-testid="pv-added">+{p.added.toLocaleString()}</b></div>
-          <div><span className="micro-label">removed</span><b data-testid="pv-removed">−{p.removed.toLocaleString()}</b></div>
-          <div><span className="micro-label">rows × cols</span><b>{p.rows.toLocaleString()} × {p.n_cols}</b></div>
-        </div>
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="pv-schema">
-          {ck.columns_added.map((c) => <span key={c} className="pt-chip data-add">+ {c}</span>)}
-          {ck.columns_removed.map((c) => <span key={c} className="pt-chip data-rm">− {c}</span>)}
-          {ck.type_changes.map((t) => <span key={t.column} className="pt-chip data-type">{t.column}: {t.kind_from} → {t.kind_to}</span>)}
-          {!ck.columns_added.length && !ck.columns_removed.length && !ck.type_changes.length && <span className="helper">same columns and types</span>}
-        </div>
-        {(p.kept_as_text?.length ?? 0) > 0 && <span className="helper" data-testid="pv-kept-text">Kept as text (codes with leading zeros): {p.kept_as_text!.join(', ')}</span>}
-        {ck.warnings.length > 0 ? <div className="data-warn" data-testid="data-warnings"><b>{ck.warnings.length} contract warning{ck.warnings.length === 1 ? '' : 's'}</b>: the version can be created, but it won't become the default until someone makes it so after review.{ck.warnings.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>
-          : <span className="helper data-ok-line">No contract warnings.</span>}
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-          <input className="input" style={{ flex: 1, minWidth: 220 }} maxLength={500} placeholder="reason or change ticket (optional, kept with the version)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="data-upload-reason" />
-          <button className="btn" disabled={busy} onClick={() => create('no')} data-testid="data-create-version">Create v{p.v}</button>
-          {!ck.warnings.length && <button className="btn primary" disabled={busy} onClick={() => create('auto')} data-testid="data-create-default">Create v{p.v} and make it the default</button>}
-          <button className="btn ghost" disabled={busy} onClick={() => { setPv(null); onCancel?.() }}>Cancel</button>
-        </div>
-      </div>}
-    </div>
-  )
+  return open ? <div className="data-upload"><StagedUpload by={by} team={team} parent={{ id: parent.id, v: parent.v, name: d.name, nextV: Math.max(...d.versions.map((v) => v.v)) + 1 }} onCancel={() => setOpen(false)} onDone={(r, text) => { setOpen(false); onDone(r.version_id, text) }} /></div>
+    : <div className="card-body row data-upload" style={{ gap: 8 }}>
+      <button className="btn primary" disabled={!by} onClick={() => setOpen(true)} data-testid="data-upload-version" title={by ? `Check a file as the next version, with v${parent.v} as its parent (nothing is written yet)` : 'Type your name in “acting as” first'}>Upload a new version…</button>
+      <span className="helper">parent: v{parent.v} (the default). You choose how its rows match; to change cells, use Edit on a version.</span></div>
 }
 
 function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, onVerifyAll, onArchive, onEdit, onAdopt, onRestoreSplits }: {

@@ -11,8 +11,11 @@ import { DataReport } from './DataReport'
 import { FeatureLab } from './FeatureLab'
 import { SqlLineageLine, SqlSource } from './SqlSource'
 import { VersionStrip } from './VersionStrip'
-import { data as dsApi, type DsHistory, type DsMatchCandidate } from '@/shared/api/catalog'
-import { readActor, saveActor, UploadVersion } from '../models/data/DataView'
+import { data as dsApi, type DsMatchCandidate, type UpCommitted } from '@/shared/api/catalog'
+import { Tabs } from '@/shared/primitives/Tabs'
+import { useTeam } from '@/shared/lib/team'
+import { DataView } from '../models/data/DataView'
+import { StagedUpload } from '../models/data/StagedUpload'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
 const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip', 'decision']  // G4: protected attributes, surname and zip are never model inputs; G7: nor the approve/decline decision
@@ -76,13 +79,27 @@ export function BuildPage({ go }: { go: (r: string) => void }) {
         <div className="card card-body" data-testid="build-mock"><p className="helper">▲ mock mode: Smart Intake reads your table on the API, which is offline. Start it with <span className="mono">make dev</span>. Meanwhile New Model plays a simulated run on built-in samples.</p>
           <button className="btn primary" onClick={() => go('quick-train')}>New Model (simulated) →</button></div></div>
     )}>
-      <BuildLive go={go} />
+      <BuildViews go={go} />
     </ApiOnly>
   )
 }
 
-function BuildHead({ go }: { go: (r: string) => void }) {
+const VIEWS = ['Start', 'Data'] as const
+/** U1 (C §2): Build is where data comes in and models start: Start (Smart Intake) · Data (the catalog, datasets). */
+function BuildViews({ go }: { go: (r: string) => void }) {
+  const view = useHashParam('view') === 'data' ? 'Data' : 'Start'
+  if (view === 'Start') return <BuildLive go={go} />
   return (
+    <div className="page build" data-testid="build-data">
+      <BuildHead go={go} />
+      <DataView go={go} />
+    </div>
+  )
+}
+
+function BuildHead({ go }: { go: (r: string) => void }) {
+  const view = useHashParam('view') === 'data' ? 'Data' : 'Start'
+  return (<>
     <div className="page-head">
       <div><h1 className="page-title">Build</h1><p className="helper sub">Upload a table or query a database → here is what we found → here is what you can build.</p></div>
       <div className="seg" role="tablist" aria-label="Mode">
@@ -90,7 +107,8 @@ function BuildHead({ go }: { go: (r: string) => void }) {
         <button role="tab" aria-selected={false} onClick={() => go('gym')} data-testid="build-advanced" title="Every AutoGluon fit() argument: the Training Gym">Advanced</button>
       </div>
     </div>
-  )
+    <Tabs tabs={VIEWS} value={view} onChange={(v) => go(v === 'Data' ? 'build?view=data' : 'build')} testIds={{ Start: 'build-tab-start', Data: 'build-tab-data' }} />
+  </>)
 }
 
 function BuildLive({ go }: { go: (r: string) => void }) {
@@ -109,14 +127,15 @@ function BuildLive({ go }: { go: (r: string) => void }) {
   const detail = useFetch(dsId ? () => api.datasets.get(dsId) : null, [dsId])
   const sqlDs = detail.data?.id === dsId && (detail.data?.profile.lineage as { source?: string } | undefined)?.source === 'sql' ? detail.data : null
 
-  // DL4 (#11): a CSV that looks like a dataset already here is offered as its next version first (one choice)
+  // DL4 (#11): a CSV that looks like a dataset already here is offered as its next version first (one choice);
+  // U1: either way the file goes through the staged check (POST /uploads → /check → /commit)
   const [match, setMatch] = useState<{ file: File; m: DsMatchCandidate } | null>(null)
-  const create = async (f: File) => {
-    setBusy('Uploading and profiling…'); setErr(''); setMatch(null)
-    try { const d = await api.datasets.upload(f); list.reload(); setDs(d.id) } catch (e) { setErr((e as Error).message) } finally { setBusy('') }
-  }
+  const [staging, setStaging] = useState<File | null>(null)
+  const { actor, team } = useTeam()
+  const create = (f: File) => { setErr(''); setMatch(null); setStaging(f) }
+  const created = (r: UpCommitted, text: string) => { setStaging(null); setMatch(null); setFixed({ id: r.version_id, msg: text }); list.reload(); setDs(r.version_id) }
   const upload = async (f: File) => {
-    setBusy('Reading the file…'); setErr(''); setMatch(null)
+    setBusy('Reading the file…'); setErr(''); setMatch(null); setStaging(null)
     let m: DsMatchCandidate | null = null
     try { m = (await dsApi.match(f)).match } catch { m = null }  // no match check: plain upload, as before
     setBusy('')
@@ -143,8 +162,10 @@ function BuildLive({ go }: { go: (r: string) => void }) {
       <BuildHead go={go} />
       {dsId && fixed?.id === dsId && <p className="helper dr-made" role="status" data-testid="dr-made">✓ {fixed.msg}</p>}
       {dsId && <DataReport dsId={dsId} onVersion={(id, msg) => { setFixed({ id, msg }); list.reload(); setDs(id) }} />}
-      {match && <MatchPrompt file={match.file} m={match.m} onNew={() => create(match.file)} onCancel={() => setMatch(null)}
-        onDone={(vid, text) => { setMatch(null); setFixed({ id: vid, msg: text }); list.reload(); setDs(vid) }} />}
+      {match && <MatchPrompt file={match.file} m={match.m} by={actor} onNew={() => create(match.file)} onCancel={() => setMatch(null)} onDone={created} />}
+      {staging && <div className="card build-match" data-testid="build-staged">
+        <div className="card-head"><div className="left"><h3 className="card-title">New dataset from {staging.name}</h3><span className="helper" style={{ fontSize: 12 }}>{team ? `team ${team.name}` : ''}{actor ? '' : ' · type your name in the sidebar to check it'}</span></div></div>
+        <StagedUpload key={staging.name + staging.size} by={actor} team={team} initialFile={staging} onCancel={() => setStaging(null)} onDone={created} /></div>}
       <div className="grid build-top">
         <div className="card">
           <div className="card-head"><h3 className="card-title">1 · Your table</h3><Segmented options={['CSV file', 'SQL query']} value={from} onChange={setFrom} /></div>
@@ -244,36 +265,23 @@ function Suggestions({ intake, onOpen, busy }: { intake: Intake; onOpen: (s: Int
   )
 }
 
-/** DL4 (#11): "this file looks like <dataset>": one primary choice, add it as the next version (the same preview, reason
- *  and rules as Data → Upload a new version), or create a new dataset. */
-function MatchPrompt({ file, m, onNew, onDone, onCancel }: { file: File; m: DsMatchCandidate; onNew: () => void; onDone: (vid: string, text: string) => void; onCancel: () => void }) {
+/** DL4 (#11): "this file looks like <dataset>": one primary choice, add it as the next version (U1: the staged check, the
+ *  row match with its counts, Create), or create a new dataset. */
+function MatchPrompt({ file, m, by, onNew, onDone, onCancel }: { file: File; m: DsMatchCandidate; by: string; onNew: () => void; onDone: (r: UpCommitted, text: string) => void; onCancel: () => void }) {
+  const { team } = useTeam()
   const [adding, setAdding] = useState(false)
-  const [h, setH] = useState<DsHistory | null>(null)
-  const [by, setByState] = useState(readActor)
-  const [err, setErr] = useState('')
-  const [done, setDone] = useState('')
-  const add = async () => {
-    setErr(''); setAdding(true)
-    try { setH(await dsApi.history(m.root_id)) } catch (e) { setErr((e as Error).message); setAdding(false) }
-  }
   return (
     <div className="card build-match" data-testid="build-match">
       <div className="card-body stack" style={{ gap: 8 }}>
         <div><b>{file.name}</b> looks like <b data-testid="match-name">{m.name}</b> <span className="mono muted">v{m.v} (its default) · {m.rows.toLocaleString()} rows</span></div>
         <span className="helper" data-testid="match-why">{m.reasons.join(' · ')}{m.columns_added.length ? ` · new: ${m.columns_added.join(', ')}` : ''}{m.columns_removed.length ? ` · missing: ${m.columns_removed.join(', ')}` : ''}</span>
         {!adding && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn primary" onClick={add} data-testid="match-add">Add as new version of {m.name} (v{m.next_v})</button>
+          <button className="btn primary" disabled={!by} onClick={() => setAdding(true)} data-testid="match-add" title={by ? undefined : 'Type your name in the sidebar first: every version records who made it'}>Add as new version of {m.name} (v{m.next_v})</button>
           <button className="btn" onClick={onNew} data-testid="match-new">Create a new dataset</button>
           <button className="btn ghost" onClick={onCancel}>Cancel</button>
         </div>}
-        {adding && !by && <label className="row" style={{ gap: 6 }}><span className="micro-label">acting as</span>
-          <input className="input" style={{ width: 140 }} maxLength={80} placeholder="your name" onBlur={(e) => { const v = e.target.value.trim(); if (v) { saveActor(v); setByState(v) } }} data-testid="match-by" />
-          <span className="helper">every version records who made it</span></label>}
-        {adding && h && by && <UploadVersion d={h} by={by} initialFile={file} onCancel={() => { setAdding(false); setH(null) }}
-          onDone={(vid, text) => { setDone(text); onDone(vid, text) }} onErr={(e) => setErr((e as Error).message)} />}
-        {done && <p className="helper" role="status">✓ {done}</p>}
-        {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
       </div>
+      {adding && <StagedUpload by={by} team={team} parent={{ id: m.version_id, v: m.v, name: m.name, nextV: m.next_v }} initialFile={file} onCancel={() => setAdding(false)} onDone={onDone} />}
     </div>
   )
 }

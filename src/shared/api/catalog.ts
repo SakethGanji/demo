@@ -2,7 +2,8 @@
 import { request } from './client'
 
 export type NodeKind = 'dataset' | 'run' | 'version' | 'project'
-export type Project = { id: string; name: string; root_dataset_id: string | null; created_by?: string; description: string; created_at: string; n_datasets: number; n_runs: number; last_run_at: string | null; champion: { version_id: string; run_id: string; decided_by: string; decided_at: string } | null }
+export type TeamRef = { id: string; slug: string; name: string }
+export type Project = { id: string; name: string; team_id?: string; team?: TeamRef; root_dataset_id: string | null; created_by?: string; description: string; created_at: string; n_datasets: number; n_runs: number; last_run_at: string | null; champion: { version_id: string; run_id: string; decided_by: string; decided_at: string } | null }
 export type ChampionRequest = { id: string; project_id: string; version_id: string; run_id: string; status: 'pending' | 'approved' | 'rejected' | 'superseded' | 'withdrawn'; requested_by: string; requested_at: string; decided_by: string | null; decided_at: string | null; comment: string }
 export type LNode = {
   kind: 'dataset' | 'run' | 'version'; id: string; depth: number; tags: string[]; notes: number
@@ -28,7 +29,7 @@ const json = <T,>(path: string, method: string, body: unknown, timeoutMs = 30_00
 const e = encodeURIComponent
 
 export const catalog = {
-  projects: () => request<{ projects: Project[] }>('/projects').then((r) => r.projects),
+  projects: (team?: string | null) => request<{ projects: Project[] }>(`/projects${team ? `?team=${e(team)}` : ''}`).then((r) => r.projects),
   project: (id: string) => request<Project & { champion: ChampionRequest | null; champion_requests: ChampionRequest[] }>(`/projects/${e(id)}`),
   lineage: (kind: NodeKind, id: string) => request<LineageTree>(`/lineage/${kind}/${e(id)}`, { timeoutMs: 30_000 }),
   compare: (a: string, b: string) => json<Compare>('/compare', 'POST', { a, b }, 60_000),
@@ -39,7 +40,8 @@ export const catalog = {
   untag: (kind: NodeKind, id: string, tag: string, by: string) => request<Notes>(`/annotations/${kind}/${e(id)}/tags/${tag.split('/').map(e).join('/')}?by=${e(by)}`, { method: 'DELETE' }),
   editNote: (kind: NodeKind, id: string, noteId: number, note: string, by: string) => json<Notes>(`/annotations/${kind}/${e(id)}/notes/${noteId}`, 'PATCH', { note, by }),
   deleteNote: (kind: NodeKind, id: string, noteId: number, by: string) => request<Notes>(`/annotations/${kind}/${e(id)}/notes/${noteId}?by=${e(by)}`, { method: 'DELETE' }),
-  createProject: (name: string, by: string, description = '') => json<Project>('/projects', 'POST', { name, by, description }),
+  /** P18/U1: a project lives in a team; the current team (the sidebar switcher) is sent, so 2+ teams never get a 400. */
+  createProject: (name: string, by: string, team_id: string | null, description = '') => json<Project>('/projects', 'POST', { name, by, description, ...(team_id ? { team_id } : {}) }),
   moveDataset: (project: string, dataset_id: string, by: string) => json<{ datasets: number; runs: number }>(`/projects/${e(project)}/datasets`, 'POST', { dataset_id, by }),
   requestChampion: (project: string, version_id: string, by: string, comment = '', override_reason = '') => json<ChampionRequest>(`/projects/${e(project)}/champion`, 'POST', { version_id, by, comment, ...(override_reason ? { override_reason } : {}) }),
   decideChampion: (id: string, approve: boolean, by: string, comment = '', override_reason = '') => json<ChampionRequest>(`/champions/${e(id)}/decide`, 'POST', { approve, by, comment, ...(override_reason ? { override_reason } : {}) }),
@@ -80,7 +82,7 @@ export type DsRequest = { id: string; dataset_id: string; root_id: string; actio
 export type DsAudit = { id: number; ts: string; actor: string; action: string; comment: string; details: Record<string, unknown> | null }
 export type DsHistory = { root_id: string; name: string; project: { id: string; name: string } | null; state: string | null; card: DsCard; default_version_id: string | null; default_how: string; versions: DsVersion[]; requests: DsRequest[]; audit: DsAudit[]; focus: string; admins_configured: boolean; retention_days: number
   retired_versions: { id: string; model_name: string; version: number; retired_at: string; retired_by: string; dataset_id: string }[] }
-export type DsRow = { root_id: string; name: string; source: string; state: string; project_id: string | null; project: string | null; owner: string; created_by: string | null; description: string; tags: string[]; n_versions: number; n_live: number; ops: string[]; default_version_id: string | null; default_how: string; rows: number; n_cols: number | null; target: string | null; created_at: string; last_change: string; n_runs: number; versions_in_state?: string[] }
+export type DsRow = { team_id?: string; team?: TeamRef; root_id: string; name: string; source: string; state: string; project_id: string | null; project: string | null; owner: string; created_by: string | null; description: string; tags: string[]; n_versions: number; n_live: number; ops: string[]; default_version_id: string | null; default_how: string; rows: number; n_cols: number | null; target: string | null; created_at: string; last_change: string; n_runs: number; versions_in_state?: string[] }
 export type DsColStat = { column: string; kind: string; in: 'both' | 'a' | 'b'; missing_a: number | null; missing_b: number | null; mean_a?: number | null; mean_b?: number | null; median_a?: number | null; median_b?: number | null; top_a?: { value: string; share: number }[] | null; top_b?: { value: string; share: number }[] | null; psi?: number | null; band?: string | null; note?: string }
 export type DsDiff = {
   a: { id: string; name: string; rows: number; target: string | null; sha256: string | null }; b: { id: string; name: string; rows: number; target: string | null; sha256: string | null }; same_dataset: boolean
@@ -100,7 +102,6 @@ export type DsEditPreview = DsEditSummary & { preview: true; v: number; parent: 
 export type DsUsage = { dataset_id: string; datasets: string[]; runs: { id: string; name: string; status: string; dataset_id: string; label: string; created_at: string; primary_metric: string | null; primary_score: number | null }[]; versions: { id: string; model_name: string; version: number; run_id: string; status: string; stage: string; approval: string; dataset_id: string; retired: boolean; retired_at: string | null }[]; champions: ChampionRequest[]; blocks_archive: string[]; blocks_archive_or_delete: string[] }
 export type DsUploadSummary = { matched_by: string; matched: number; changed: number; added: number; removed: number; reason?: string
   checks: { warnings: DsWarning[]; columns_added: string[]; columns_removed: string[]; type_changes: { column: string; kind_from: string; kind_to: string; from: string; to: string }[]; rows_before: number; rows_after: number } }
-export type DsUploadPreview = DsUploadSummary & { preview: true; v: number; parent: string; filename: string; rows: number; n_cols: number; sha256: string; would_be_default: boolean; note: string; kept_as_text?: string[] }
 /** DL4 (#11): the live dataset an uploaded CSV most looks like (POST /datasets/match writes nothing) */
 export type DsMatchCandidate = { root_id: string; name: string; version_id: string; v: number; next_v: number; target: string | null; rows: number; score: number
   columns_in_common: number; columns_added: string[]; columns_removed: string[]; same_target: boolean; name_similarity: number; sample: boolean; reasons: string[] }
@@ -113,22 +114,6 @@ export const data = {
     return request<{ datasets: DsRow[]; total: number }>(`/data/search?${p}`).then((r) => r.datasets)
   },
   history: (id: string) => request<DsHistory>(`/datasets/${e(id)}/history`, { timeoutMs: 30_000 }),
-  /** DL2: preview=true writes nothing; make_default 'auto' = the default when it has no contract warnings, 'no' = never. */
-  uploadVersion: (id: string, file: File, by: string, o: { rowKey?: string; preview?: boolean; reason?: string; makeDefault?: 'auto' | 'no' } = {}) => {
-    const form = new FormData()
-    form.append('file', file); form.append('by', by)
-    if (o.rowKey !== undefined) form.append('row_key', o.rowKey)
-    if (o.preview) form.append('preview', 'true')
-    if (o.reason) form.append('reason', o.reason)
-    if (o.makeDefault) form.append('make_default', o.makeDefault)
-    return request<import('./types').DatasetDetail & { upload: DsUploadSummary & { default: { is_default: boolean; why: string; how_to_promote?: string } } }>(`/datasets/${e(id)}/versions`, { method: 'POST', body: form, timeoutMs: 300_000 })
-  },
-  previewVersion: (id: string, file: File, by: string, rowKey?: string) => {
-    const form = new FormData()
-    form.append('file', file); form.append('by', by); form.append('preview', 'true')
-    if (rowKey !== undefined) form.append('row_key', rowKey)
-    return request<DsUploadPreview>(`/datasets/${e(id)}/versions`, { method: 'POST', body: form, timeoutMs: 300_000 })
-  },
   /** DL4: does this file look like a dataset already here? Nothing is written. */
   match: (file: File) => { const form = new FormData(); form.append('file', file); return request<DsMatch>('/datasets/match', { method: 'POST', body: form, timeoutMs: 120_000 }) },
   /** DL4 (M-d): write back split files changed outside the app, from the copy recorded when they were drawn */
@@ -149,4 +134,51 @@ export const data = {
   adoptDiskFile: (id: string, by: string, reason: string) => json<import('./types').DatasetDetail & { upload: DsUploadSummary }>(`/datasets/${e(id)}/adopt-disk-file`, 'POST', { by, reason }, 300_000),
   verify: (id: string, by: string, all = false) => json<DsVerify>(`/datasets/${e(id)}/verify`, 'POST', { by, all }, 120_000),
   exportUrl: (id: string, by: string, format: 'zip' | 'csv' = 'zip') => `/api/datasets/${e(id)}/export?format=${format}&by=${e(by)}`,
+}
+
+// P18: who am I and which teams (the sidebar's team switcher).
+export type MyTeam = TeamRef & { state: string; role: string }
+export type Me = { principal: { id: string; display_name: string } | null; teams: MyTeam[]; default_team: string | null; authz_mode: string; hint?: string }
+export const teams = {
+  me: () => request<Me>('/me'),
+}
+
+// P05/P06: staged uploads → check → commit (backend/app/lake/upload.py). The check writes nothing but tmp files.
+export type UpColumn = { name: string; type: string; nullable: boolean; reason: string; non_null?: number }
+export type UpIssue = { code: string; message: string; column?: string; examples?: unknown[]; n?: number }
+export type UpTable = { name: string; source_file: string; bytes: number; encoding?: string; separator?: string; n_rows: number; n_cols: number
+  schema: UpColumn[]; kept_as_text?: string[]; preview: { columns: string[]; rows: unknown[][] } }
+export type Upload = { upload_id: string; status: string; team_id: string; project_id: string | null; parent_version_id: string | null; root_id: string | null
+  files: { n: number; filename: string; bytes: number; sha256: string }[]; plan: Record<string, unknown>; check_sha256: string | null; committed_version_id: string | null }
+export type MatchSpec = { method: 'key' | 'declared' | 'row_hash' | 'none'; columns?: string[] }
+export type MatchWarning = { code: string; needs_ack: boolean; message: string; n?: number; of?: number; share?: string; columns?: string[] }
+export type MatchCandidate = { columns: string[]; score: number; uniqueness: number; non_null: number; overlap: number; id_like: boolean; declared: boolean; valid: boolean
+  parent: { rows: number; distinct: number; nulls: number; duplicates: number }; new: { rows: number; distinct: number; nulls: number; duplicates: number } }
+export type MatchMethod = MatchSpec & { label: string; valid: boolean; roles: string[]; problem?: { code: string; message: string }
+  matched?: number; changed?: number; unchanged?: number; added?: number; removed?: number; holdout_identity_lost?: number; parent_holdout?: number
+  holdout_identity_lost_share?: number; matched_share?: number; warnings: MatchWarning[]; needs_acknowledge: string[] }
+export type NextVersion = { parent_version_id: string; root_id: string; table: string; parent_rows: number; parent_target: string | null; parent_holdout?: number
+  candidates?: MatchCandidate[]; methods?: MatchMethod[]; preselect?: MatchSpec | null; chosen?: MatchMethod
+  contract?: { warnings: DsWarning[]; columns_added: string[]; columns_removed: string[]; type_changes: { column: string; from: string; to: string }[]; rows_before: number; rows_after: number }
+  commit_needs?: { acknowledge_token: string }; note?: string }
+export type UpCheck = { upload_id: string; kind: string; tables: UpTable[]; warnings: UpIssue[]; blocks: UpIssue[]; notes: string[]; check_sha256: string; seconds: number; next_version?: NextVersion }
+export type UpCommitted = { version_id: string; root_id: string; version_no: number; name: string; n_rows: number; n_cols: number; repeat: boolean; deduped?: string | null
+  default?: { is_default: boolean; why?: string }; match?: { matched: number; changed: number; added: number; removed: number; holdout_identity_lost: number; matched_by: string; acknowledged: string[] } }
+
+export const uploads = {
+  /** POST /uploads (multipart): stage one file; `parent_version_id` makes it that dataset's next version. */
+  stage: (file: File, o: { by: string; projectId?: string | null; parentVersionId?: string | null; name?: string }) => {
+    const form = new FormData()
+    form.append('file', file); form.append('by', o.by)
+    if (o.projectId) form.append('project_id', o.projectId)
+    if (o.name) form.append('name', o.name)
+    const q = o.parentVersionId ? `?parent_version_id=${e(o.parentVersionId)}` : ''
+    return request<Upload>(`/uploads${q}`, { method: 'POST', body: form, timeoutMs: 600_000 })
+  },
+  /** PATCH the plan (e.g. {match} to simulate another key): the next /check uses it. */
+  plan: (up: string, plan: Record<string, unknown>) => json<Upload>(`/uploads/${e(up)}`, 'PATCH', plan),
+  check: (up: string) => json<UpCheck>(`/uploads/${e(up)}/check`, 'POST', {}, 600_000),
+  commit: (up: string, b: { by: string; reason?: string; check_sha256: string; match?: MatchSpec; acknowledge?: string[]; make_default?: boolean }) =>
+    json<UpCommitted>(`/uploads/${e(up)}/commit`, 'POST', b, 600_000),
+  discard: (up: string) => request<unknown>(`/uploads/${e(up)}`, { method: 'DELETE' }),
 }

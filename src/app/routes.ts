@@ -28,6 +28,8 @@ const explainTo = (q: string) => {
   return run ? `models?run=${run}&tab=${to?.tab ?? 'Explain'}${to ? `&sub=${encodeURIComponent(to.sub)}` : ''}${rest ? `&${rest}` : ''}` : 'models'
 }
 /** A per-kind ?run= opens the run in Models; without it the route is the kind's setup (a Build choice). */
+/** U1: Data moved from a Models tab to Build › Data. */
+const dataTo = (q: string) => { const p = new URLSearchParams(q); if (p.get('tab') !== 'Data') return null; p.delete('tab'); p.set('view', 'data'); return `build?${p}` }
 const runTo = (q: string) => (new URLSearchParams(q).get('run') ? withQ('models', q) : null)
 /** Old routes that live on as one-line redirects (G10: Autopilot is Vela's "run it end to end" mode; G11: Experiments is
  *  Models, Explain is a run page tab, and every run opens in Models). */
@@ -35,6 +37,7 @@ const REDIRECTS: Record<string, (q: string) => string | null> = {
   autopilot: (q) => withQ('vela?mode=auto', q),
   experiments: (q) => withQ('models', q),
   explain: explainTo,
+  models: dataTo,
   ...Object.fromEntries(['forecast', 'anomaly', 'import', 'expected-loss', 'segmented', 'survival', 'reject-inference', 'multilabel'].map((r) => [r, runTo])),
 }
 

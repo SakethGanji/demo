@@ -16,7 +16,7 @@ export function VersionStrip({ dsId, onPick, go }: { dsId: string; onPick: (id: 
         <button key={v.id} className={`chip-btn ${v.id === dsId ? 'on' : ''}`} onClick={() => onPick(v.id)} data-testid={`build-v-${v.v}`}
           title={`${v.id} · ${v.op ?? ''} · ${v.created_by ?? ''} · ${v.rows.toLocaleString()} rows`}>v{v.v}{v.is_default ? ' ★' : ''}</button>
       ))}
-      <button className="chip-btn" onClick={() => go(`models?tab=Data&dataset=${h.root_id}`)} data-testid="build-data-link">History, diff, new version →</button>
+      <button className="chip-btn" onClick={() => go(`build?view=data&dataset=${h.root_id}`)} data-testid="build-data-link">History, diff, new version →</button>
       {cur?.state === 'archived' && <span className="helper" style={{ color: 'var(--status-warning)' }} data-testid="build-archived-note">▲ v{cur.v} is archived ({cur.state_by}): you can still train on it, and the run records that.</span>}
     </div>
   )
