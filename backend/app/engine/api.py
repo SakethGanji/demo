@@ -139,9 +139,16 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
               **queued: Any) -> RunStore:
     """Write the run's config, record it, emit run_queued (with `queued` as the event's fields) and hand it to the runner.
     DL3 (M1): a run that reads its dataset's data.csv carries the version's stored sha256; the worker hashes the bytes it
-    reads at fit start and refuses the fit on a mismatch (worker.data_gate)."""
+    reads at fit start and refuses the fit on a mismatch (worker.data_gate).
+    P05: a run on a Parquet version carries the table's committed `table_sha256` as the expected hash (`input_table`),
+    and its part files are re-hashed here first: a changed byte refuses the run now (409 data_integrity, the version
+    flagged), not minutes later in the worker. The worker hashes the bytes it parses again (worker.load_frames)."""
+    ref = frames.from_json(cfg.get("input_ref")) if cfg.get("input_ref") else None
+    if isinstance(ref, frames.Table) and frames.is_parquet(ref) and "data_sha256_expected" not in cfg:
+        _parquet_input(app, cfg, ref)
     try:
-        if cfg.get("csv_path") and str(frames.path_of(frames.table(dataset_id))) == str(cfg["csv_path"]) and "data_sha256_expected" not in cfg:
+        if cfg.get("csv_path") and not frames.is_parquet(dataset_id) and \
+                str(frames.path_of(frames.table(dataset_id))) == str(cfg["csv_path"]) and "data_sha256_expected" not in cfg:
             rec = app.state.db.get_dataset(dataset_id) or {}
             cfg["data_sha256_expected"] = rec.get("sha256")
             cfg.setdefault("dataset_id", dataset_id)
@@ -164,6 +171,47 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
     store.emit(run_id, "run_queued", **queued)
     app.state.runner.submit(run_id)
     return store
+
+
+def _parquet_input(app: Any, cfg: dict[str, Any], ref: Any) -> None:
+    """P05: the expected hashes of a run on a Parquet table, and the byte check before the run is queued."""
+    from ..catalog import dsets as DS
+    from ..catalog.schema import audit, now as _now
+
+    lt = frames.lake_table(ref)
+    cfg["dataset_id"] = cfg.get("dataset_id") or ref.version_id
+    cfg["data_sha256_expected"] = lt.table_sha256
+    cfg["input_table"] = {"version_id": ref.version_id, "table": lt.name, "table_sha256": lt.table_sha256, "n_rows": lt.n_rows,
+                          "parts": len(lt.parts), "read_mode": "engine_v1"}
+    if cfg.get("splits_path"):  # the (JSON) split drawn for this label: its hash at draw time, checked by the worker
+        st = app.state.datasets
+        rel = st.split_rel(ref.version_id, cfg["splits_path"])
+        cfg["splits_file"] = rel
+        cfg["splits_sha256_expected"] = st.split_hashes(ref.version_id).get(rel)
+    if not cfg.get("data_version_label"):
+        with app.state.db.connect() as con:
+            v = next((r["v"] for r in DS.tree_rows(con, DS.root_of(con, ref.version_id)) if r["id"] == ref.version_id), None)
+        cfg["data_version_label"] = f"v{v} ({ref.version_id})" if v else ref.version_id
+    read, exp, bad = frames.hash_table(ref)
+    if read == exp:
+        return
+    with app.state.db.connect() as con:
+        root = (con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (ref.version_id,)).fetchone() or [ref.version_id])[0]
+        con.execute("UPDATE datasets SET verified_at = ?, verified_ok = 0 WHERE id = ?", (_now(), ref.version_id))
+        audit(con, "system:run-queue hash", "dataset_integrity_failed",
+              details={"dataset_id": ref.version_id, "root_id": root, "table": lt.name, "stored": exp, "read": read,
+                       "parts": [lt.parts[i]["sha256"] for i in bad], "storage": "parquet", "at": "run queued"})
+        if not (cfg.get("data_integrity_override") or {}).get("by"):
+            audit(con, cfg.get("by") or "unknown", "training_refused", comment=f"table {lt.name} of {ref.version_id} differs",
+                  details={"dataset_id": ref.version_id, "root_id": root, "stored": exp, "read": read, "status": 409})
+    if (cfg.get("data_integrity_override") or {}).get("by"):
+        return  # an admin armed an override: the worker records it and trains (audited there)
+    raise HTTPException(409, {"code": "data_integrity", "message":
+                              f"Table {lt.name} of {cfg['data_version_label']} no longer has the bytes it was committed with "
+                              f"(table_sha256 {exp[:12]}… committed, {read[:12]}… now; {len(bad)} of {len(lt.parts)} file(s) "
+                              "differ). The run was refused. GET /api/datasets/" + ref.version_id + "/verify names the file; an "
+                              "admin may train anyway with integrity_override_reason (audited).",
+                              "dataset_id": ref.version_id, "table": lt.name, "stored": exp, "read": read})
 
 
 def _runner(request: Request) -> JobRunner:
@@ -308,7 +356,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         try:
             from ..data_doctor import id_tie
 
-            fr = frames.read(frames.table(ds["id"]))
+            fr = frames.read(frames.table(ds["id"]), columns=[*id_dropped, label])  # P05: only the columns compared
             tied = [c for c in id_dropped if c in fr.columns and label in fr.columns and id_tie(fr[c], fr[label])]
         except Exception:  # noqa: BLE001
             tied = []

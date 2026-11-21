@@ -228,6 +228,10 @@ async def export(dataset_id: str, request: Request, by: str = "", format: str = 
     who = _who(by)
     if format not in ("zip", "csv"):
         raise HTTPException(400, "format is zip or csv.")
+    from .. import frames
+
+    if frames.is_parquet(dataset_id):  # P05: a Parquet version is exported from its lake table
+        return await _export_parquet(request, dataset_id, who, format)
     man = await _thread(D.export_manifest, request.app, dataset_id, who)
     store = request.app.state.datasets
     fname = f"{man['name']}-v{man['v']}-{dataset_id}".replace("/", "_").replace(" ", "_")
@@ -241,6 +245,94 @@ async def export(dataset_id: str, request: Request, by: str = "", format: str = 
         z.writestr("manifest.json", json.dumps(man, indent=1))
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{fname}.zip"'})
+
+
+def _export_csv(request: Request, dataset_id: str) -> tuple[Any, Any, str]:
+    """(the lake table, the CSV path, its sha256): the table written as CSV by DuckDB in __row_id order, text as stored
+    (codes keep their zeros), cached under lake/exports/<version>/<table>.csv (re-creatable, never a blob)."""
+    import hashlib
+
+    from .. import frames
+    from ..lake import duck
+    from ..lake.writer import _lit, _q
+
+    lt = frames.lake_table(frames.table(dataset_id))
+    d = request.app.state.settings.lake_dir / "exports" / dataset_id
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"{lt.name}.csv"
+    if not out.exists():
+        tmp = d / f".{lt.name}.{__import__('secrets').token_hex(4)}.csv"
+        cols = ", ".join(_q(c["name"]) for c in lt.schema)
+        src = "read_parquet([" + ",".join(_lit(p["path"]) for p in lt.parts) + "])"
+        with duck.job() as con:
+            con.execute("SET preserve_insertion_order = true")
+            con.execute(f"COPY (SELECT {cols} FROM {src} ORDER BY __row_id) TO {_lit(tmp)} (FORMAT csv, HEADER true)")
+        tmp.replace(out)
+    h = hashlib.sha256()
+    with open(out, "rb") as f:
+        while b := f.read(8 * 1024 * 1024):
+            h.update(b)
+    return lt, out, h.hexdigest()
+
+
+async def _export_parquet(request: Request, dataset_id: str, who: str, format: str):
+    """P05: export of a Parquet version: data.csv from the table (format=csv), or a zip with data.csv, schema.json (the
+    manifest's tables and schemas), manifest.json (the stored lake manifest, verbatim) and export.json (the chain, the
+    committed table sha and the sha now). Audited as dataset_exported."""
+    from .. import frames
+    from ..lake import verify as LV
+    from . import schema as S
+
+    app = request.app
+
+    def build() -> dict[str, Any]:
+        lt, path, csv_sha = _export_csv(request, dataset_id)
+        read, exp, bad = frames.hash_table(frames.table(dataset_id))
+        with app.state.db.connect() as con:
+            root = D.root_of(con, dataset_id)
+            rows = {r["id"]: r for r in D.tree_rows(con, root)}
+            r = rows[dataset_id]
+            if r["state"] == D.DELETED:
+                raise D.DsError(410, f"{dataset_id} was deleted: only its tombstone and lineage are kept.")
+            chain, x = [], r
+            while x:
+                chain.append({k: x.get(k) for k in ("id", "v", "op", "created_by", "created_at", "rows", "n_cols", "sha256", "parent_id")})
+                x = rows.get(x["parent_id"]) if x.get("parent_id") else None
+            S.audit(con, who, "dataset_exported", {"dataset_id": dataset_id, "root_id": root, "v": r["v"], "storage": "parquet",
+                                                   "table": lt.name, "table_sha256": exp, "csv_sha256": csv_sha,
+                                                   "integrity_ok": read == exp, "format": format})
+        try:
+            _v, m, raw = LV.load_manifest(app.state.db, app.state.lake, dataset_id)
+        except Exception:  # noqa: BLE001
+            m, raw = None, None
+        return {"lt": lt, "path": path, "csv_sha": csv_sha, "name": r["name"], "v": r["v"], "root": root, "chain": chain,
+                "table_sha256": exp, "table_sha256_now": read, "integrity_ok": read == exp, "manifest": m, "manifest_raw": raw,
+                "target": r["target"], "rows": r["rows"]}
+
+    x = await _thread(build)
+    fname = f"{x['name']}-v{x['v']}-{dataset_id}".replace("/", "_").replace(" ", "_")
+    hdr = {"X-Ensemble-SHA256": x["csv_sha"], "X-Ensemble-Table-SHA256": x["table_sha256"]}
+    if format == "csv":
+        return FileResponse(x["path"], media_type="text/csv", filename=f"{fname}.csv", headers=hdr)
+    tables = (x["manifest"] or {}).get("data", {}).get("tables") or [{"name": x["lt"].name, "schema": x["lt"].schema}]
+    schema_json = {"format": "ensemble.export.schema/1", "dataset_id": dataset_id, "primary_table": x["lt"].name,
+                   "files": {"data.csv": x["lt"].name},
+                   "tables": [{"name": t["name"], "table_sha256": t.get("table_sha256"), "n_rows": t.get("n_rows"),
+                               "schema": t.get("schema")} for t in tables]}
+    info = {"dataset_id": dataset_id, "name": x["name"], "v": x["v"], "root_id": x["root"], "target": x["target"], "rows": x["rows"],
+            "storage": "parquet", "table": x["lt"].name, "table_sha256_stored": x["table_sha256"],
+            "table_sha256_now": x["table_sha256_now"], "integrity_ok": x["integrity_ok"], "csv_sha256": x["csv_sha"],
+            "lineage_chain": x["chain"], "exported_at": S.now(), "exported_by": who,
+            "how_to_check": "sha256sum data.csv must equal csv_sha256; the Parquet table is checked by GET /api/datasets/{id}/verify"}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.write(x["path"], "data.csv")
+        z.writestr("schema.json", json.dumps(schema_json, indent=1))
+        if x["manifest_raw"]:
+            z.writestr("manifest.json", x["manifest_raw"])
+        z.writestr("export.json", json.dumps(info, indent=1))
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{fname}.zip"', **hdr})
 
 
 # -- DL3: edit-as-version, the row grid, and a version from a file changed on disk ----------------------------------------
@@ -403,3 +495,256 @@ async def match_upload(request: Request, file: UploadFile = File(...)) -> dict[s
     if len(content) > config.MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
     return await _thread(D.match_upload, request.app, file.filename or "", content)
+
+
+# -- P05 (§5.1, R10): staged uploads → check → commit, a new single-table Parquet dataset ------------------------------
+
+def _lake_err(e) -> HTTPException:
+    return HTTPException(e.status, e.payload)
+
+
+async def _lthread(fn, *a, **k):
+    from ..lake.writer import LakeError
+
+    try:
+        return await run_in_threadpool(fn, *a, **k)
+    except LakeError as e:
+        raise _lake_err(e) from e
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+
+
+class _MultipartSink:
+    """A streaming multipart/form-data receiver: file parts go straight to lake/tmp/<up>/<n>.src (sha256 on the fly),
+    small text fields are kept. Fed from request.stream() in batches on a worker thread; nothing else is buffered."""
+
+    FIELD_MAX = 64 * 1024
+
+    def __init__(self, boundary: bytes, tmp, cap: int) -> None:
+        from python_multipart.multipart import MultipartParser
+
+        self.tmp, self.cap = tmp, cap
+        self.fields: dict[str, str] = {}
+        self.files: list[dict[str, Any]] = []
+        self._hdr_f, self._hdr_v = b"", b""
+        self._headers: dict[bytes, bytes] = {}
+        self._sink = None
+        self._field: tuple[str, bytearray] | None = None
+        self.parser = MultipartParser(boundary, {
+            "on_part_begin": self._begin, "on_header_field": self._hf, "on_header_value": self._hv,
+            "on_header_end": self._he, "on_headers_finished": self._hdone, "on_part_data": self._data, "on_part_end": self._end})
+
+    def _begin(self) -> None:
+        self._headers = {}
+
+    def _hf(self, d: bytes, s: int, e: int) -> None:
+        self._hdr_f += d[s:e]
+
+    def _hv(self, d: bytes, s: int, e: int) -> None:
+        self._hdr_v += d[s:e]
+
+    def _he(self) -> None:
+        self._headers[self._hdr_f.lower()] = self._hdr_v
+        self._hdr_f, self._hdr_v = b"", b""
+
+    def _hdone(self) -> None:
+        from python_multipart.multipart import parse_options_header
+
+        from ..lake.upload import SinkFile
+
+        _, opts = parse_options_header(self._headers.get(b"content-disposition", b""))
+        name = (opts.get(b"name") or b"").decode("utf-8", "replace")
+        fn = opts.get(b"filename")
+        if fn is not None:
+            n = len(self.files) + (1 if self._sink else 0)
+            self._sink = SinkFile(self.tmp / f"{n}.src", fn.decode("utf-8", "replace").replace("\\", "/").rsplit("/", 1)[-1], n, self.cap)
+            self._field = None
+        else:
+            self._field = (name, bytearray())
+
+    def _data(self, d: bytes, s: int, e: int) -> None:
+        if self._sink is not None:
+            self._sink.write(d[s:e])
+        elif self._field is not None:
+            buf = self._field[1]
+            if len(buf) + (e - s) > self.FIELD_MAX:
+                from ..lake.writer import LakeError
+
+                raise LakeError(400, "field_too_long", f"Form field {self._field[0]!r} is longer than 64 KB.")
+            buf += d[s:e]
+
+    def _end(self) -> None:
+        if self._sink is not None:
+            self.files.append(self._sink.close())
+            self._sink = None
+        elif self._field is not None:
+            self.fields[self._field[0]] = self._field[1].decode("utf-8", "replace")
+            self._field = None
+
+    def feed(self, data: bytes) -> None:
+        self.parser.write(data)
+
+    def close(self) -> None:
+        if self._sink is not None:  # an aborted part
+            self._sink.close()
+            self._sink = None
+
+
+@router.post("/uploads", status_code=201)
+async def create_upload(request: Request, filename: str | None = None, by: str | None = None, project_id: str | None = None,
+                        name: str | None = None, target: str | None = None) -> dict[str, Any]:
+    """Stage an upload (§5.1 step 1). multipart/form-data with one file part (`file`) and optional fields by, name,
+    target, project_id; or the raw file as the body (any other content type) with ?filename=…. The bytes stream to the
+    lake's tmp directory with sha256 on the fly; the cap is ENSEMBLE_MAX_UPLOAD_GB (5) and the disk must have 3x free."""
+    from python_multipart.multipart import parse_options_header
+
+    from ..lake import upload as U
+    from ..lake.writer import LakeError
+
+    db, lake = request.app.state.db, request.app.state.lake
+    ctype, opts = parse_options_header(request.headers.get("content-type", ""))
+    clen = int(request.headers.get("content-length") or 0)
+    cap = U.max_upload_bytes()
+    if clen and clen > cap + 1024 * 1024:
+        raise HTTPException(413, {"code": "too_large", "message": f"The upload is larger than {cap / 1024 ** 3:g} GB (ENSEMBLE_MAX_UPLOAD_GB)."})
+    is_mp = ctype == b"multipart/form-data"
+    who0 = (by or G.current_actor() or "").strip()
+    plan0 = {k: v for k, v in (("name", name), ("target", target)) if v}
+    try:
+        up, tmp = await run_in_threadpool(U.new_upload, db, lake, by=who0 or "unknown", project_id=project_id, plan=plan0)
+        await run_in_threadpool(U.disk_guard, tmp, clen)
+    except LakeError as e:
+        raise _lake_err(e) from e
+    batch, size = [], 0
+    try:
+        if is_mp:
+            if not opts.get(b"boundary"):
+                raise LakeError(400, "bad_multipart", "multipart/form-data without a boundary.")
+            sink = _MultipartSink(opts[b"boundary"], tmp, cap)
+            try:
+                async for chunk in request.stream():
+                    batch.append(chunk)
+                    size += len(chunk)
+                    if size >= 4 * 1024 * 1024:
+                        await run_in_threadpool(sink.feed, b"".join(batch))
+                        batch, size = [], 0
+                if batch:
+                    await run_in_threadpool(sink.feed, b"".join(batch))
+            finally:
+                sink.close()
+            files, fields = sink.files, sink.fields
+        else:
+            fn = (filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+            if not fn:
+                raise LakeError(400, "filename_required", "Send the file as multipart/form-data, or the raw body with ?filename=….")
+            f = U.SinkFile(tmp / "0.src", fn, 0, cap)
+            try:
+                async for chunk in request.stream():
+                    batch.append(chunk)
+                    size += len(chunk)
+                    if size >= 4 * 1024 * 1024:
+                        await run_in_threadpool(f.write, b"".join(batch))
+                        batch, size = [], 0
+                if batch:
+                    await run_in_threadpool(f.write, b"".join(batch))
+            finally:
+                info = f.close()
+            files, fields = [info], {}
+        if not files:
+            raise LakeError(400, "no_file", "The upload has no file part (send it as the form field 'file').")
+        who = _who((fields.get("by") or by or G.current_actor() or "").strip())
+        plan = {**plan0, **{k: fields[k].strip() for k in ("name", "target") if fields.get(k, "").strip()}}
+        pid = (fields.get("project_id") or project_id or "").strip() or None
+
+        def save() -> dict[str, Any]:
+            with db.connect() as con:
+                if pid and not con.execute("SELECT 1 FROM projects WHERE id = ?", (pid,)).fetchone():
+                    raise LakeError(404, "project_not_found", f"No project '{pid}'.")
+                from . import schema as S
+
+                con.execute("UPDATE uploads SET files_json = ?, plan_json = ?, created_by = ?, project_id = ?, team_id = ? WHERE id = ?",
+                            (json.dumps(files), json.dumps({**plan, **({"project_id": pid} if pid else {})}), who, pid or "",
+                             S.team_of_project(con, pid), up))
+                S.audit(con, who, "upload_staged", {"upload_id": up, "files": [{k: f[k] for k in ("filename", "bytes", "sha256")}
+                                                                                for f in files], "project_id": pid})
+            return U.public(U.get(db, up))
+
+        return await run_in_threadpool(save)
+    except BaseException as e:
+        await run_in_threadpool(U.discard, db, lake, up, "failed while receiving")
+        if isinstance(e, LakeError):
+            raise _lake_err(e) from e
+        raise
+
+
+@router.get("/uploads/{up}")
+async def get_upload(up: str, request: Request) -> dict[str, Any]:
+    from ..lake import upload as U
+
+    return await _lthread(lambda: U.public(U.get(request.app.state.db, up)))
+
+
+@router.patch("/uploads/{up}")
+async def patch_upload(up: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """The plan: {name?, target?, project_id?, table?, types?: {column: VARCHAR|BIGINT|DOUBLE|BOOLEAN|DATE|TIMESTAMP},
+    formats?: {column: strptime format}}. Declared types win over the import's choice. A changed plan needs a new check."""
+    from ..lake import upload as U
+
+    return await _lthread(lambda: U.public(U.patch_plan(request.app.state.db, up, body if isinstance(body, dict) else {})))
+
+
+@router.post("/uploads/{up}/check")
+async def check_upload(up: str, request: Request) -> dict[str, Any]:
+    """Detect and type the staged file (§5.1 steps 2–3, 6): per table the decided schema with a reason per column,
+    warnings (with examples), blocks, a preview, and check_sha256. Writes nothing but tmp files."""
+    from ..lake import upload as U
+
+    db, lake = request.app.state.db, request.app.state.lake
+    return await _lthread(U.check, db, lake, up)
+
+
+@router.post("/uploads/{up}/commit", status_code=201)
+async def commit_upload(up: str, request: Request, body: dict[str, Any] | None = None):
+    """{by?, reason?, check_sha256?, make_default?}: the checked upload becomes a new Parquet dataset through the
+    VersionWriter (job_id = the upload id). 201 with the version; a repeat returns the same version (200, repeat: true).
+    409 when it was not checked, the plan or check changed (check_stale), or the check blocks."""
+    from ..lake import upload as U
+    from ..lake.values import SafeJSONResponse
+
+    body = body if isinstance(body, dict) else {}
+    db, lake = request.app.state.db, request.app.state.lake
+    who = _who((body.get("by") or G.current_actor() or "").strip())
+    reason = str(body.get("reason") or G.current_reason() or "").strip()[:500]
+
+    def run() -> tuple[dict[str, Any], bool]:
+        ver, created = U.commit(db, lake, up, by=who, reason=reason, check_sha256=body.get("check_sha256"),
+                                make_default=body.get("make_default"))
+        rec0 = request.app.state.db.get_dataset(ver["version_id"]) or {}
+        if created or "label_candidates" not in (rec0.get("profile") or {}):  # (a repeat finishes an interrupted profile)
+            chk = U.get(db, up).get("check") or {}
+            rec = request.app.state.datasets.finish_lake_version(ver["version_id"], target=(U.get(db, up)["plan"] or {}).get("target"),
+                                                                 chk=chk, by=who)
+            ver["profile_target"] = rec.get("target")
+            ver["kind"] = rec.get("kind")
+        return ver, created
+
+    ver, created = await _lthread(run)
+    return SafeJSONResponse({**ver, "repeat": not created}, status_code=201 if created else 200)
+
+
+@router.delete("/uploads/{up}")
+async def discard_upload(up: str, request: Request) -> dict[str, Any]:
+    from ..lake import upload as U
+
+    db, lake = request.app.state.db, request.app.state.lake
+
+    def run() -> dict[str, Any]:
+        u = U.get(db, up)
+        if u["status"] == "committed":
+            from ..lake.writer import LakeError
+
+            raise LakeError(409, "upload_committed", f"Upload {up} is committed ({u['committed_version_id']}).")
+        U.discard(db, lake, up)
+        return U.public(U.get(db, up))
+
+    return await _lthread(run)

@@ -237,12 +237,14 @@ class DatasetStore:
             if sp is not None and sp.get("target") == target and sp.get("strategy", RANDOM_STRATIFIED) == strategy:
                 sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": "splits.json"}
             else:
-                df = self.load_frame(dataset_id)
+                # P05: a random split needs only the target (a 10M-row Parquet version is not read whole for it)
+                df = self.load_frame(dataset_id, None if strategy != RANDOM_STRATIFIED or target is None else [target])
                 if target is not None and target not in df.columns:
                     raise DatasetError(f"Column '{target}' is not in the dataset.")
                 y = df[target] if target is not None else None
+                n = len(df) if target is not None or strategy != RANDOM_STRATIFIED else self.n_rows(dataset_id)
                 try:
-                    sp = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy,
+                    sp = make_splits(y, n, config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy,
                                      frame=df if strategy != RANDOM_STRATIFIED else None, params=params)
                 except ValueError as e:
                     raise DatasetError(str(e)) from e
@@ -391,11 +393,27 @@ class DatasetStore:
         self.db.insert_dataset(rec)
         return rec
 
-    def load_frame(self, dataset_id: str) -> pd.DataFrame:
-        return FIO.read(self.csv_path(dataset_id))  # DL4 (m-e): with the version's schema (text stays text)
+    def load_frame(self, dataset_id: str, columns: Any = None) -> pd.DataFrame:
+        """The version's rows with its types. P05: a Parquet version is read from the lake through frames (engine_v1)."""
+        from . import frames
+
+        if frames.is_parquet(dataset_id):
+            return frames.read(frames.table(dataset_id), columns)
+        df = FIO.read(self.csv_path(dataset_id))  # DL4 (m-e): with the version's schema (text stays text)
+        return df if columns is None else df[[c for c in columns if c in df.columns]]
+
+    def n_rows(self, dataset_id: str) -> int:
+        from . import frames
+
+        return frames.n_rows(frames.table(dataset_id))
 
     def schema(self, dataset_id: str, df: pd.DataFrame | None = None) -> dict[str, Any]:
-        """DL4: the version's column schema (schema.json), or, for a version made before DL4, the types its file reads as."""
+        """DL4: the version's column schema (schema.json), or, for a version made before DL4, the types its file reads as.
+        P05: a Parquet version's kinds come from its committed table schema."""
+        from . import frames
+
+        if frames.is_parquet(dataset_id):
+            return {"columns": {c.name: c.kind for c in frames.columns(frames.table(dataset_id))}}
         return FIO.load(self.dir(dataset_id)) or FIO.schema_of(self.load_frame(dataset_id) if df is None else df)
 
     def _same_bytes(self, sha: str, root: str, schema: dict[str, Any]) -> str | None:
@@ -672,9 +690,143 @@ class DatasetStore:
         p = self.dir(dataset_id) / "lineage.json"
         return json.loads(p.read_text()) if p.exists() else None
 
-    def create_from_upload(self, filename: str, content: bytes, target: str | None = None, by: str | None = None) -> dict[str, Any]:
-        df, note, stem = read_upload(filename, content)
-        return self.create_from_frame(df, name=stem, filename=Path(filename).name, note=note, target=target, by=by)
+    def create_from_upload(self, filename: str, content: Any, target: str | None = None, by: str | None = None,
+                           project_id: str | None = None, lake: Any = None, size_hint: int | None = None) -> dict[str, Any]:
+        """P05: `POST /datasets` as a wrapper of the staged path: the file (bytes, a path or a binary file object) is
+        streamed into staging, checked (typed import, §5.1) and committed as a new Parquet dataset through the
+        VersionWriter. The response keeps the old shape: the record with its full profile and the drawn split."""
+        from .lake import upload as U
+        from .lake.writer import LakeError
+
+        if lake is None:
+            from .lake.store import open_store
+
+            lake = open_store(self.settings)
+        who = (by or "").strip()[:80] or "unknown"
+        if isinstance(content, (bytes, bytearray)):
+            chunks: Any = (bytes(content[i:i + U.CHUNK]) for i in range(0, len(content), U.CHUNK))
+            size_hint = len(content)
+        elif isinstance(content, (str, Path)):
+            fh = open(content, "rb")
+            chunks = iter(lambda: fh.read(U.CHUNK), b"")
+            size_hint = Path(content).stat().st_size
+        else:
+            chunks = iter(lambda: content.read(U.CHUNK), b"")
+        plan = {"target": target} if target else {}
+        try:
+            u = U.stage_stream(self.db, lake, by=who, filename=Path(filename or "").name, chunks=chunks, project_id=project_id,
+                               plan=plan, size_hint=size_hint)
+            up = u["id"]
+            try:
+                chk = U.check(self.db, lake, up)
+                if chk["blocks"]:
+                    raise DatasetError(" ".join(b["message"] for b in chk["blocks"]))
+                ver, _ = U.commit(self.db, lake, up, by=who)
+            except BaseException:
+                U.discard(self.db, lake, up, "the wrapper's check or commit failed")
+                raise
+        except LakeError as e:
+            if e.status in (413, 507):
+                raise
+            raise DatasetError(e.message) from e
+        return self.finish_lake_version(ver["version_id"], target=target, chk=chk, by=who)
+
+    #: P05: above this many rows the legacy profile is computed on a seeded sample (exact counts patched in from DuckDB)
+    PROFILE_FULL_ROWS = 1_000_000
+    PROFILE_SAMPLE_ROWS = 200_000
+
+    def finish_lake_version(self, dataset_id: str, *, target: str | None = None, chk: dict[str, Any] | None = None,
+                            by: str | None = None) -> dict[str, Any]:
+        """The legacy record of a new Parquet dataset (GET /datasets, POST /runs read it): profile_frame's shape, the
+        target, the kind, kept-as-text notes, and (≤ PROFILE_FULL_ROWS) the drawn holdout split."""
+        from . import frames
+
+        rec = self.db.get_dataset(dataset_id)
+        profile = self.lake_profile(dataset_id, target)
+        tgt = profile["target"]
+        t = ((chk or {}).get("tables") or [{}])[0]
+        kept = list(t.get("kept_as_text") or [])
+        profile["storage"] = "parquet"
+        profile["tables"] = [rec.get("primary_table")] if rec.get("primary_table") else profile.get("tables", [])
+        profile["schema"] = [{k: c.get(k) for k in ("name", "type", "nullable", "reason")} for c in t.get("schema") or []]
+        profile["target_source"] = "given" if target else "guessed"
+        if kept:
+            profile["kept_as_text"] = kept
+            profile.setdefault("warnings", []).append(
+                f"Kept as text (codes with leading zeros, e.g. ZIP or ID codes): {', '.join(kept)}. Cast to number in Data → Edit if they are amounts.")
+        for w in (chk or {}).get("warnings") or []:
+            profile.setdefault("warnings", []).append(w["message"])
+        n = frames.n_rows(frames.table(dataset_id))
+        if n <= self.PROFILE_FULL_ROWS:
+            try:
+                _, sp, _ = self.ensure_splits(dataset_id, tgt)
+                y = self.load_frame(dataset_id, [tgt])[tgt] if tgt else None
+                profile["splits"] = summarize(sp, y)
+            except DatasetError as e:  # too few rows for a split: drawn (and explained) on first use
+                profile["splits_note"] = str(e)
+        src = ((chk or {}).get("tables") or [{}])[0].get("source_file")
+        how = [n for n in (chk or {}).get("notes") or [] if n.startswith(("read as", "separator"))]
+        rec = {**rec, "target": tgt, "kind": profile["kind"], "profile": profile, "filename": src or rec["filename"],
+               "note": "Uploaded file" + "".join(f" ({n})" for n in how) if chk else rec.get("note") or "Uploaded file"}
+        self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
+                                                     "rows", "target", "kind", "profile")})
+        return self.db.get_dataset(dataset_id) or rec
+
+    def lake_profile(self, dataset_id: str, target: str | None) -> dict[str, Any]:
+        """profile_frame's shape for a Parquet version. Up to PROFILE_FULL_ROWS rows: the whole table. Above: a seeded
+        reservoir sample, with rows, missing, unique (approximate), duplicates unknown and the target's classes exact."""
+        from . import frames
+        from .lake import duck
+
+        ref = frames.table(dataset_id)
+        lt = frames.lake_table(ref)
+        if lt.n_rows <= self.PROFILE_FULL_ROWS:
+            try:
+                return profile_frame(frames.read(ref), target)
+            except ValueError as e:
+                raise DatasetError(str(e)) from e
+        src = "read_parquet([" + ",".join("'" + p["path"].replace("'", "''") + "'" for p in lt.parts) + "])"
+        names = [c["name"] for c in lt.schema]
+        q = lambda c: '"' + c.replace('"', '""') + '"'  # noqa: E731
+        with duck.job() as con:
+            sample = con.sql(f"SELECT * FROM {src} USING SAMPLE reservoir({self.PROFILE_SAMPLE_ROWS} ROWS) REPEATABLE (42)"
+                                 " ORDER BY __row_id").to_arrow_table()
+            exact = con.execute("SELECT " + ", ".join(f"count({q(c)}), approx_count_distinct({q(c)})" for c in names) +
+                                f" FROM {src}").fetchone()
+            df = pd.DataFrame({c: frames._v1_column(sample.column(c), c) for c in names}, columns=names)
+            try:
+                p = profile_frame(df, target)
+            except ValueError as e:
+                raise DatasetError(str(e)) from e
+            n = lt.n_rows
+            for i, col in enumerate(p["columns"]):
+                nn, nu = int(exact[2 * i]), int(exact[2 * i + 1])
+                col.update(missing=n - nn, missing_share=round((n - nn) / n, 6), unique=nu, unique_approximate=True)
+            cells = sum(n - int(exact[2 * i]) for i in range(len(names)))
+            p["rows"] = n
+            p["missing"].update(cells=cells, share=round(cells / (n * len(names)), 6),
+                                columns_with_missing=[c for i, c in enumerate(names) if int(exact[2 * i]) < n])
+            p["missing"]["rows_with_missing"] = None
+            p["duplicates"].update(rows=None, share=None, conflicting_labels=None)
+            p["warnings"] = [w for w in p["warnings"] if "duplicates" not in w and "no label" not in w]
+            tgt = p["target"]
+            if tgt and p.get("task") != "regression":
+                cnt = con.execute(f"SELECT CAST({q(tgt)} AS VARCHAR) AS v, count(*) FROM {src} WHERE {q(tgt)} IS NOT NULL"
+                                  " GROUP BY 1 ORDER BY 2 DESC, 1").fetchall()
+                tot = sum(r[1] for r in cnt) or 1
+                byname = {str(c["name"]): c for c in p["classes"]}
+                p["classes"] = [{**byname.get(str(v), {}), "name": byname.get(str(v), {}).get("name", v), "count": int(k),
+                                 "share": round(k / tot, 6)} for v, k in cnt]
+                p["n_classes"] = len(p["classes"])
+                counts = [c["count"] for c in p["classes"]]
+                p["imbalance_ratio"] = round(max(counts) / min(counts), 4) if counts else None
+                n_unl = n - tot
+                if n_unl:
+                    p["warnings"].append(f"{n_unl} rows have no label and will be dropped.")
+            p["sampled"] = {"rows": int(len(df)), "of": n, "seed": 42,
+                            "note": "types, examples and statistics from a seeded sample; rows, missing, distinct "
+                                    "(approximate) and classes from the whole table"}
+        return p
 
     def upload_version(self, parent_id: str, filename: str, content: bytes, *, by: str, row_key: str | None = None,
                        preview: bool = False, reason: str | None = None) -> dict[str, Any]:

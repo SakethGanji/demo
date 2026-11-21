@@ -681,9 +681,17 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
             if r["state"] == DELETED:
                 out.append({"id": r["id"], "v": r["v"], "ok": None, "status": "deleted (tombstone)", "stored": r["sha256"]})
                 continue
-            now_sha = file_sha256(store.csv_path(r["id"]))
-            data_ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
-            status = "ok" if data_ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
+            if r.get("storage") == "parquet":  # P05: a lake version is re-hashed part by part (lake/verify.py), not data.csv
+                from ..lake import verify as LV
+
+                lv = LV.verify_version(app.state.db, app.state.lake, r["id"])
+                data_ok = bool(lv["ok"])
+                now_sha = r["sha256"] if data_ok else None  # the version hash is recomputed from its parts; a part that differs breaks it
+                status = "ok" if data_ok else "MISMATCH: " + "; ".join(lv.get("problems") or [])[:300]
+            else:
+                now_sha = file_sha256(store.csv_path(r["id"]))
+                data_ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
+                status = "ok" if data_ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
             splits = store.check_splits(r["id"])  # DL4 (M-d): the holdout and folds are checked like data.csv
             bad_splits = [x for x in splits if x["status"] != "ok"]
             ok = data_ok and not bad_splits
@@ -691,7 +699,10 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
                 status = "SPLIT MISMATCH"
             con.execute("UPDATE datasets SET verified_at = ?, verified_ok = ? WHERE id = ?", (now(), int(ok), r["id"]))
             remedy = []
-            if status == "MISMATCH":
+            if status.startswith("MISMATCH") and r.get("storage") == "parquet":
+                remedy.append(f"A file of v{r['v']} in the lake no longer has the bytes it was committed with (GET /api/datasets/"
+                              f"{r['id']}/verify names it). Restore the blob from a backup; nothing reads it until then.")
+            elif status == "MISMATCH":
                 remedy.append(f"The file was changed outside the app and is not trusted. Create a new version from it "
                               f"(POST /api/datasets/{r['id']}/adopt-disk-file with by and reason), and restore v{r['v']}'s "
                               "file from an export or backup.")

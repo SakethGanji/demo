@@ -212,19 +212,19 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.post("/api/datasets", response_model=Dataset, status_code=201)
     async def upload_dataset(request: Request, file: UploadFile = File(...), target: str | None = Form(None),
                              project_id: str | None = Form(None), by: str | None = Form(None)) -> dict[str, Any]:
-        """A CSV upload. F-P2: `project_id` puts it in an existing project (default: a new project of its own)."""
+        """A CSV upload. F-P2: `project_id` puts it in an existing project (default: a new project of its own).
+        P05: a wrapper of /uploads → check → commit: the file streams into staging and becomes a Parquet dataset."""
+        from .lake.writer import LakeError
+
         if project_id and not request.app.state.catalog.project(project_id):
             raise HTTPException(404, f"No project '{project_id}'.")
-        content = await file.read(config.MAX_UPLOAD_BYTES + 1)
-        if len(content) > config.MAX_UPLOAD_BYTES:
-            raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
         try:
-            rec = await run_in_threadpool(store(request).create_from_upload, file.filename or "", content, target or None,
-                                           (by or "").strip()[:80] or None)
+            rec = await run_in_threadpool(store(request).create_from_upload, file.filename or "", file.file, target or None,
+                                           (by or "").strip()[:80] or None, project_id or None, request.app.state.lake, file.size)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
-        if project_id:
-            request.app.state.catalog.move_dataset_tree(rec["id"], project_id)
+        except LakeError as e:
+            raise HTTPException(e.status, e.message) from e
         return _detail(request.app.state.db.get_dataset(rec["id"]) or rec)  # DL1: with root, op, created_by
 
     @app.patch("/api/datasets/{dataset_id}", response_model=Dataset)

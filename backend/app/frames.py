@@ -13,6 +13,13 @@ exactly what the training worker has always read (`frame_io.read(raw, schema.jso
 index is the row's position in data.csv, which is what `__row_id` is for a CSV-era version (and what every split,
 holdout and SHAP row already names).
 
+**P05: Parquet versions.** A version with `storage = 'parquet'` (every new upload) is read from its lake table parts
+(`version_tables` / `table_files` → content-addressed blobs). `Table(v, "data")` names the version's primary table.
+`engine_v1` turns the Arrow types into what the same data read from a CSV gave the fit: ints without nulls → int64,
+ints with nulls → float64, DOUBLE / DECIMAL → float64, VARCHAR → object, DATE / TIMESTAMP → ISO text, BOOLEAN → bool.
+The index is `__row_id`. `hash_into=ReadHash()` hashes every part's bytes as they are parsed and gives the table's
+`table_sha256` (§3.3), so the worker's data gate compares exactly what it read with what the version committed.
+
 `read_artifact` reads files the app itself wrote next to a run (holdout_predictions.csv, scores.csv, reference
 tables): they are not datasets and have no schema. It exists so the grep gate (§6.5) has exactly one place to allow.
 """
@@ -20,7 +27,9 @@ tables): they are not datasets and have no schema. It exists so the grep gate (�
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,7 +103,8 @@ def _settings() -> config.Settings:
 
 
 def path_of(ref: InputRef) -> Path:
-    """The CSV-store file behind a ref (the only place that knows the layout `datasets/<id>/data.csv`)."""
+    """The CSV-store file behind a ref (the only place that knows the layout `datasets/<id>/data.csv`). For a Parquet
+    version it is the path data.csv *would* have; it does not exist (use `read`, `lake_table` or `is_parquet`)."""
     if isinstance(ref, LegacyPath):
         return Path(ref.path)
     if isinstance(ref, Table):
@@ -104,6 +114,199 @@ def path_of(ref: InputRef) -> Path:
             raise FrameError(f"Bad dataset id {ref.version_id!r}.")
         return _settings().datasets_dir / ref.version_id / "data.csv"
     raise FrameError("Saved joins are read from Parquet join frames (P14); there are none on the CSV store.")
+
+
+# --------------------------------------------------------------------------- P05: Parquet versions in the lake
+
+
+@dataclass(frozen=True)
+class LakeTable:
+    version_id: str
+    name: str
+    table_sha256: str
+    n_rows: int
+    schema: list[dict[str, Any]]
+    parts: list[dict[str, Any]]  # [{part, role, sha256, key, path, n_rows, bytes}] in table order
+
+
+def _db():
+    from .db import Database
+
+    return Database(_settings().db_path)
+
+
+def _store():
+    from .lake.store import LocalBlobStore
+
+    return LocalBlobStore(_settings().lake_dir)
+
+
+def storage(version_id: str) -> str | None:
+    """'parquet' for a lake version, 'csv' (or None) for a CSV-era one."""
+    try:
+        with _db().connect() as con:
+            r = con.execute("SELECT storage FROM datasets WHERE id = ?", (version_id,)).fetchone()
+    except Exception:  # noqa: BLE001 - no catalog (a scratch path): the CSV store
+        return None
+    return r[0] if r else None
+
+
+def is_parquet(ref: Any) -> bool:
+    if isinstance(ref, str):
+        ref = Table(ref)
+    return isinstance(ref, Table) and storage(ref.version_id) == "parquet"
+
+
+def lake_table(ref: Table) -> LakeTable:
+    """The committed table behind a ref: its sha, schema and parts (Table(v, 'data') = the primary table)."""
+    with _db().connect() as con:
+        v = con.execute("SELECT storage, primary_table FROM datasets WHERE id = ?", (ref.version_id,)).fetchone()
+        if not v or v["storage"] != "parquet":
+            raise FrameError(f"{ref.version_id} is not a Parquet version.")
+        name = ref.table
+        if name == PRIMARY_TABLE and not con.execute("SELECT 1 FROM version_tables WHERE version_id = ? AND table_name = ?",
+                                                    (ref.version_id, name)).fetchone():
+            name = v["primary_table"]
+        t = con.execute("SELECT table_sha256, n_rows, schema_json FROM version_tables WHERE version_id = ? AND table_name = ?",
+                        (ref.version_id, name)).fetchone()
+        if not t:
+            raise FrameError(f"{ref.version_id} has no table {ref.table!r}.")
+        parts = [dict(r) for r in con.execute(
+            "SELECT f.part, f.role, f.blob_sha256 AS sha256, b.key, f.n_rows, b.bytes FROM table_files f"
+            " JOIN blobs b ON b.sha256 = f.blob_sha256 WHERE f.version_id = ? AND f.table_name = ? ORDER BY f.part",
+            (ref.version_id, name))]
+    st = _store()
+    for p in parts:
+        p["path"] = st.uri(p["key"])
+    return LakeTable(ref.version_id, name, t["table_sha256"], int(t["n_rows"]), json.loads(t["schema_json"]), parts)
+
+
+class ReadHash:
+    """`hash_into` for `read`: on a Parquet table it collects each part's sha256 (of the exact bytes parsed) and its
+    `hexdigest()` is the table_sha256 recomputed from them (§3.3); on a CSV it is the sha256 of data.csv's bytes."""
+
+    def __init__(self) -> None:
+        self._h = hashlib.sha256()
+        self.parts: list[tuple[str, str]] = []  # (role, sha256)
+        self.expected_parts: list[str] = []
+        self.kind = "csv"
+
+    def update(self, b: bytes) -> None:
+        self._h.update(b)
+
+    def add_part(self, role: str, sha: str, expected: str) -> None:
+        self.kind = "parquet"
+        self.parts.append((role, sha))
+        self.expected_parts.append(expected)
+
+    @property
+    def bad_parts(self) -> list[int]:
+        return [i for i, ((_, s), e) in enumerate(zip(self.parts, self.expected_parts)) if s != e]
+
+    def hexdigest(self) -> str:
+        if self.kind == "parquet":
+            from .lake.manifest import table_sha256
+
+            return table_sha256(self.parts)
+        return self._h.hexdigest()
+
+
+def hash_table(ref: Table) -> tuple[str, str, list[int]]:
+    """(table_sha256 recomputed from the part bytes now, the committed one, indexes of parts that differ)."""
+    lt = lake_table(ref)
+    rh = ReadHash()
+    for p in lt.parts:
+        h = hashlib.sha256()
+        try:
+            with open(p["path"], "rb") as f:
+                while b := f.read(8 * 1024 * 1024):
+                    h.update(b)
+            sha = h.hexdigest()
+        except FileNotFoundError:
+            sha = "missing"
+        rh.add_part(p["role"], sha, p["sha256"])
+    return rh.hexdigest(), lt.table_sha256, rh.bad_parts
+
+
+_KIND_OF_TYPE = {"BIGINT": "integer", "INTEGER": "integer", "SMALLINT": "integer", "TINYINT": "integer", "HUGEINT": "integer",
+                 "UBIGINT": "integer", "UINTEGER": "integer", "USMALLINT": "integer", "UTINYINT": "integer",
+                 "DOUBLE": "number", "FLOAT": "number", "REAL": "number", "BOOLEAN": "bool"}
+
+
+def kind_of_type(t: str) -> str:
+    t = (t or "").upper()
+    if t.startswith("DECIMAL") or t.startswith("NUMERIC"):
+        return "number"
+    return _KIND_OF_TYPE.get(t, "text")
+
+
+def _v1_column(arr: Any, name: str) -> Any:
+    """One Arrow column as the fit saw the same values read from CSV (engine_v1)."""
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    t = arr.type
+    if pa.types.is_integer(t):
+        if arr.null_count == 0:
+            return pd.Series(arr.to_numpy(zero_copy_only=False).astype("int64"), name=name)
+        return pd.Series(pc.cast(arr, pa.float64()).to_numpy(zero_copy_only=False), name=name)
+    if pa.types.is_floating(t) or pa.types.is_decimal(t):
+        return pd.Series(pc.cast(arr, pa.float64()).to_numpy(zero_copy_only=False), name=name)
+    if pa.types.is_boolean(t):
+        if arr.null_count == 0:
+            return pd.Series(arr.to_numpy(zero_copy_only=False).astype(bool), name=name)
+        return pd.Series(arr.to_pandas(), name=name).astype(object)
+    if pa.types.is_date(t) or pa.types.is_timestamp(t):
+        if pa.types.is_date(t):
+            arr = pc.strftime(pc.cast(arr, pa.timestamp("s")), format="%Y-%m-%d")
+        else:
+            arr = pc.cast(arr, pa.string())
+    elif not (pa.types.is_string(t) or pa.types.is_large_string(t)):
+        arr = pc.cast(arr, pa.string())
+    v = arr.to_numpy(zero_copy_only=False)
+    if arr.null_count:
+        v = v.astype(object)
+        v[pd.isna(v)] = np.nan  # a missing text cell is NaN, as pandas reads it from CSV
+    return pd.Series(v, name=name, dtype=object)
+
+
+def _read_parquet(ref: Table, columns: Any, rows: range | None, mode: str, hash_into: Any) -> pd.DataFrame:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    lt = lake_table(ref)
+    names = [c["name"] for c in lt.schema]
+    keep = _cols_filter(columns)
+    want = [c for c in names if keep is None or keep(c)]
+    pieces = []
+    for p in lt.parts:
+        try:
+            if hash_into is not None:
+                buf = Path(p["path"]).read_bytes()  # hash exactly the bytes that are parsed (DL3)
+                sha = hashlib.sha256(buf).hexdigest()
+                if hasattr(hash_into, "add_part"):
+                    hash_into.add_part(p["role"], sha, p["sha256"])
+                else:
+                    hash_into.update(buf)
+                src: Any = pa.BufferReader(buf)
+            else:
+                src = p["path"]
+            pieces.append(pq.read_table(src, columns=["__row_id", *want]))
+        except FileNotFoundError as e:
+            raise FrameError(f"A file of {ref.version_id} ({p['sha256'][:12]}…) is missing from the lake.") from e
+    at = pa.concat_tables(pieces) if len(pieces) > 1 else pieces[0]
+    if rows is not None:
+        at = at.slice(rows.start, max(0, len(rows)))
+    idx = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False), name=None)
+    if mode == "native":
+        df = at.drop(["__row_id"]).to_pandas()
+        df.index = idx
+        return df
+    cols = {c: _v1_column(at.column(c), c) for c in want}
+    df = pd.DataFrame(cols, columns=want)
+    df.index = idx
+    return df
 
 
 def table(version_id: str, table: str = PRIMARY_TABLE) -> Table:
@@ -151,6 +354,12 @@ def read(ref: InputRef, columns: Iterable[str] | Callable[[str], bool] | None = 
     reads)."""
     if mode not in MODES:
         raise FrameError(f"mode is one of {', '.join(MODES)}, not {mode!r}.")
+    if isinstance(rows, slice):
+        rows = range(rows.start or 0, rows.stop if rows.stop is not None else 2 ** 62, rows.step or 1)
+    if rows is not None and (rows.step != 1 or rows.start < 0):
+        raise FrameError("rows is a contiguous, non-negative range.")
+    if isinstance(ref, Table) and is_parquet(ref):
+        return _read_parquet(ref, columns, rows, mode, hash_into)
     p = path_of(ref)
     if not p.exists():
         raise FrameError(f"No data file for {to_json(ref)}.")
@@ -161,10 +370,6 @@ def read(ref: InputRef, columns: Iterable[str] | Callable[[str], bool] | None = 
         kw["usecols"] = uc
     start = 0
     if rows is not None:
-        if isinstance(rows, slice):
-            rows = range(rows.start or 0, rows.stop if rows.stop is not None else 2 ** 62, rows.step or 1)
-        if rows.step != 1 or rows.start < 0:
-            raise FrameError("rows is a contiguous, non-negative range.")
         start = rows.start
         if start:
             kw["skiprows"] = range(1, start + 1)
@@ -186,6 +391,8 @@ def read_csv_path(path: str | Path, columns: Any = None) -> pd.DataFrame:
 
 
 def columns(ref: InputRef) -> list[ColumnInfo]:
+    if isinstance(ref, Table) and is_parquet(ref):
+        return [ColumnInfo(c["name"], kind_of_type(c["type"])) for c in lake_table(ref).schema]
     p = path_of(ref)
     kinds = FIO.columns(FIO.load(p.parent))
     head = FIO.read(p, FIO.load(p.parent), nrows=200)
@@ -198,6 +405,8 @@ def column_names(ref: InputRef) -> list[str]:
 
 
 def n_rows(ref: InputRef) -> int:
+    if isinstance(ref, Table) and is_parquet(ref):
+        return lake_table(ref).n_rows
     p = path_of(ref)
     with open(p, newline="", encoding="utf-8", errors="replace") as f:
         return max(0, sum(1 for _ in csv.reader(f)) - 1)

@@ -50,7 +50,7 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...)."""
     from .. import frames
 
-    h = hashlib.sha256()  # DL3 (M1): hash exactly the bytes this fit reads
+    h = frames.ReadHash()  # DL3 (M1): hash exactly the bytes this fit reads; P05: per Parquet part → table_sha256
     df = frames.read(frames.resolve(cfg), hash_into=h)  # P03: the typed reader, engine_v1 (text stays text)
     data_sha256 = h.hexdigest()
     split_raw = Path(cfg["splits_path"]).read_bytes()  # DL4 (M-d): hash exactly the split this fit uses
@@ -74,6 +74,8 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
         "dropped_columns": drop, "features": [c for c in train.columns if c != label], "label": label,
         "data_sha256": data_sha256, "splits_sha256": hashlib.sha256(split_raw).hexdigest(),
+        "read": {"kind": h.kind, "mode": "engine_v1", **({"table_sha256": data_sha256, "parts": len(h.parts),
+                                                         "parts_differing": h.bad_parts} if h.kind == "parquet" else {})},
     }
     if structured:
         info["tuning_rows"] = 0 if tuning is None else len(tuning)
@@ -572,16 +574,50 @@ class DataIntegrityError(RuntimeError):
     """DL3 (M1): the bytes on disk are not the version's: the fit is refused."""
 
 
-def data_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: str, emit, basis: str = "the bytes this fit read") -> None:
+def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str | None, ok: bool | None,
+                     info: dict[str, Any] | None = None) -> None:
+    """P05: what this run read, as one insert-only `run_inputs` row (role 'train'): the table and its committed
+    table_sha256 with the sha recomputed from the bytes read (Parquet), or the data.csv sha (CSV-era, legacy_csv_sha256);
+    the split file's hash; the read mode; rows and dropped columns. Written once per run (a re-run keeps the first)."""
+    import secrets as _secrets
+
+    from ..catalog.schema import now as _now
+
+    it = cfg.get("input_table") or {}
+    parquet = bool(it.get("table_sha256"))
+    try:
+        with store.db.connect() as con:
+            if con.execute("SELECT 1 FROM run_inputs WHERE run_id = ? AND role = 'train'", (run_id,)).fetchone():
+                return
+            con.execute(
+                "INSERT INTO run_inputs (id, run_id, role, version_id, table_name, table_sha256, read_sha256, match,"
+                " legacy_csv_sha256, split_legacy_sha256, read_mode, rows_total, rows_used, columns_dropped, created_at)"
+                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?)",
+                ("ri_" + _secrets.token_hex(6), run_id, cfg.get("dataset_id"), it.get("table") or "data",
+                 it.get("table_sha256") if parquet else None, sha, None if ok is None else int(ok),
+                 None if parquet else (cfg.get("data_sha256_expected") or sha), cfg.get("splits_sha256_expected"),
+                 (info or {}).get("rows"), (info or {}).get("train_rows"),
+                 json.dumps((info or {}).get("dropped_columns") or cfg.get("drop_columns") or []), _now()))
+    except Exception as e:  # noqa: BLE001 - the record must not cost the run; the gate below still decides
+        log.warning("run_inputs not recorded for %s: %s", run_id, e)
+
+
+def data_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: str, emit, basis: str = "the bytes this fit read",
+              info: dict[str, Any] | None = None) -> None:
     """DL3 (M1): record the sha256 of the data this run trains on (result, config, the trained_on edge) and compare it with
     the sha256 stored when the version was made. On a mismatch the fit is refused (audited, and the version is flagged as
-    failing its integrity check) unless an admin armed an override on the run (integrity_override_reason)."""
+    failing its integrity check) unless an admin armed an override on the run (integrity_override_reason).
+    P05: on a Parquet table the compared hash is the table's `table_sha256`, recomputed from the part bytes parsed."""
     from ..catalog.schema import audit, now as _now
 
     exp = cfg.get("data_sha256_expected")
     ok = None if not exp else (sha == exp)
     rec = {"data_sha256": sha, "expected": exp, "match": ok, "basis": basis, "dataset_id": cfg.get("dataset_id"),
            "version": cfg.get("data_version_label")}
+    it = cfg.get("input_table") or {}
+    if it.get("table_sha256"):
+        rec.update(storage="parquet", table=it.get("table"), table_sha256=it["table_sha256"])
+    record_run_input(cfg, store, run_id, sha, ok, info)
     store.merge_result(run_id, data_sha256=sha, data_integrity=rec)
     with store.db.connect() as con:
         con.execute("UPDATE runs SET config = json_set(config, '$.data_sha256', ?) WHERE id = ?", (sha, run_id))
@@ -676,7 +712,7 @@ def run(run_dir: Path) -> int:
     try:
         emit("run_started", pid=os.getpid())
         train, holdout, info, tuning = load_frames(cfg)
-        data_gate(cfg, info.get("data_sha256"), store, run_id, emit)  # DL3 (M1): before anything is fit
+        data_gate(cfg, info.get("data_sha256"), store, run_id, emit, info=info)  # DL3 (M1): before anything is fit
         splits_gate(cfg, info.get("splits_sha256"), store, run_id, emit)  # DL4 (M-d): the holdout and folds too
         emit("data_ready", **info)
         store.merge_result(run_id, data=info)
@@ -885,7 +921,12 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
 
     try:
         emit("run_started", pid=os.getpid(), kind=cfg["kind"])
-        if cfg.get("csv_path") and Path(cfg["csv_path"]).exists():  # DL3 (M1): the file this run reads, hashed at its start
+        if (cfg.get("input_table") or {}).get("table_sha256"):  # P05: a Parquet table, its parts hashed at the start
+            from .. import frames
+
+            sha, _, _ = frames.hash_table(frames.from_json(cfg["input_ref"]))
+            data_gate(cfg, sha, store, run_id, emit, basis="the table's files at the start of the run")
+        elif cfg.get("csv_path") and Path(cfg["csv_path"]).exists():  # DL3 (M1): the file this run reads, hashed at its start
             from ..catalog.schema import file_sha256
 
             data_gate(cfg, file_sha256(Path(cfg["csv_path"])), store, run_id, emit, basis="the file at the start of the run")
