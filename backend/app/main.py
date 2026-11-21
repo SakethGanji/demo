@@ -296,9 +296,12 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return sorted(out, key=lambda v: v["created_at"] or "", reverse=True)
 
     @app.get("/api/datasets/{dataset_id}/rows")
-    def dataset_rows(dataset_id: str, request: Request, value: str, column: str | None = None, limit: int = 3) -> dict[str, Any]:
+    def dataset_rows(dataset_id: str, request: Request, value: str, column: str | None = None, limit: int = 3, by: str = "") -> dict[str, Any]:
         """G10: rows where `column` equals `value` (as text), or where any text column does when no column is given. For
-        looking up one applicant or account by its id."""
+        looking up one applicant or account by its id. DL3 (m2): needs a name (by or the X-Ensemble-Actor header)."""
+        from .catalog import governance as G
+
+        who = G.reader(by)
         dataset_or_404(request, dataset_id)
         df = store(request).load_frame(dataset_id)
         if column is not None and column not in df.columns:
@@ -311,9 +314,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                 hit, column = df[m], c
                 break
         rows = [] if hit is None else hit.head(max(1, min(limit, 50))).astype(object).where(hit.head(max(1, min(limit, 50))).notna(), None).to_dict("records")
-        from .catalog import governance as G
-
-        G.read_audit(request.app.state.db, "row_lookup", dataset_id, {"column": column, "n": 0 if hit is None else int(len(hit))})
+        G.read_audit(request.app.state.db, "row_lookup", dataset_id, {"column": column, "n": 0 if hit is None else int(len(hit))}, by=who)
         return {"dataset_id": dataset_id, "column": column, "value": value, "n": 0 if hit is None else int(len(hit)), "rows": rows}
 
     @app.post("/api/datasets/{dataset_id}/splits")
@@ -334,14 +335,90 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, df[target] if target else None)}
 
-    @app.post("/api/admin/reset")
-    def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-        """Delete every run, registry entry, batch, autopilot and upload; regenerate the samples. Body {"confirm": "reset"}.
-        Refused while a run is queued or running."""
+    @app.post("/api/admin/reset-requests", status_code=201)
+    def reset_request(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """DL3 (C1): {by, reason}: ask for a reset while models or champions are live. Someone else approves
+        (POST /api/admin/reset-requests/{id}/decide); then an admin runs POST /api/admin/reset with its request_id."""
+        import secrets as _s
+
+        from . import reset as reset_mod
+        from .catalog import governance as G
+        from .catalog.api import _text, _who
+        from .catalog.schema import audit, now as _now
+
+        body = body if isinstance(body, dict) else {}
+        who = _who(body.get("by"))
+        reason = _text(body, "reason", 10, 500, True)
+        if not reset_mod.demo_mode():
+            G.refused(request.app.state.db, who, "admin_reset_request", 403, "reset is disabled (ENSEMBLE_DEMO_MODE is off)")
+            raise HTTPException(403, "Reset is disabled: on only when the API runs with ENSEMBLE_DEMO_MODE=1.")
+        rid = "arq_" + _s.token_hex(4)
+        with request.app.state.db.connect() as con:
+            if con.execute("SELECT 1 FROM admin_requests WHERE action = 'reset' AND status IN ('pending', 'approved')").fetchone():
+                raise HTTPException(409, "A reset request is already pending or approved and unused.")
+            con.execute("INSERT INTO admin_requests (id, action, status, requested_by, requested_at, reason) VALUES (?, 'reset', 'pending', ?, ?, ?)",
+                        (rid, who, _now(), reason))
+            audit(con, who, "admin_reset_requested", comment=reason, details={"request_id": rid, "live": reset_mod.live_governance(con)})
+            return dict(con.execute("SELECT * FROM admin_requests WHERE id = ?", (rid,)).fetchone())
+
+    @app.post("/api/admin/reset-requests/{rid}/decide")
+    def reset_decide(rid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """{by, approve, comment}: four eyes. The requester may withdraw (approve=false) but never approve, admin or not."""
+        from .catalog import governance as G
+        from .catalog.api import _who
+        from .catalog.schema import audit, now as _now
+
+        body = body if isinstance(body, dict) else {}
+        who = _who(body.get("by"))
+        approve = body.get("approve")
+        if not isinstance(approve, bool):
+            raise HTTPException(400, 'Send {"approve": true} or {"approve": false}.')
+        db = request.app.state.db
+        with db.connect() as con:
+            r = con.execute("SELECT * FROM admin_requests WHERE id = ?", (rid,)).fetchone()
+        if not r:
+            raise HTTPException(404, f"No reset request '{rid}'.")
+        if r["status"] != "pending":
+            raise HTTPException(409, f"This request is {r['status']}.")
+        mine = G.same_person(who, r["requested_by"])
+        if approve and mine:
+            msg = f"Four eyes: {r['requested_by']} asked for this reset, so someone else must approve it (admins included)."
+            G.refused(db, who, "admin_reset_decide", 403, msg, {"request_id": rid})
+            raise HTTPException(403, msg)
+        status = "approved" if approve else ("withdrawn" if mine else "rejected")
+        comment = str(body.get("comment") or "")[:500]
+        with db.connect() as con:
+            con.execute("UPDATE admin_requests SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
+                        (status, who, _now(), comment, rid))
+            audit(con, who, f"admin_reset_{status}", comment=comment, details={"request_id": rid, "requested_by": r["requested_by"]})
+            return dict(con.execute("SELECT * FROM admin_requests WHERE id = ?", (rid,)).fetchone())
+
+    @app.get("/api/admin/reset-requests")
+    def reset_requests(request: Request) -> dict[str, Any]:
         from . import reset as reset_mod
 
-        if (body or {}).get("confirm") != "reset":
-            raise HTTPException(400, 'Send {"confirm": "reset"} to delete all runs, models and uploads.')
+        with request.app.state.db.connect() as con:
+            return {"demo_mode": reset_mod.demo_mode(), "live": reset_mod.live_governance(con),
+                    "requests": [dict(r) for r in con.execute("SELECT * FROM admin_requests ORDER BY requested_at DESC LIMIT 20")]}
+
+    @app.post("/api/admin/reset")
+    def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Delete every run, registry entry, batch, autopilot and upload; regenerate the samples.
+        Body {"confirm": "reset", "by": <admin>, "request_id"?, "reason"?}. DL3 (C1): only with ENSEMBLE_DEMO_MODE=1, only by
+        an admin, and while models or champions are live only with an approved four-eyes request. The audit log is kept
+        and gets a row for the reset (who, counts). Refused while a run is queued or running."""
+        from . import reset as reset_mod
+        from .catalog import governance as G
+
+        body = body if isinstance(body, dict) else {}
+        if body.get("confirm") != "reset":
+            raise HTTPException(400, 'Send {"confirm": "reset", "by": "<admin>"} to delete all runs, models and uploads.')
+        who = str(body.get("by") or "").strip()[:80]
+        try:
+            reset_mod.check(request.app.state.db, who, body.get("request_id"))
+        except reset_mod.ResetRefused as e:
+            G.refused(request.app.state.db, who or G.current_actor("unknown"), "admin_reset", e.status, e.payload, {"via": "api"})
+            raise HTTPException(e.status, e.payload) from e
         st = request.app.state
         if st.runs.list_active():
             raise HTTPException(409, "A run is queued or running; cancel it first.")
@@ -354,7 +431,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(409, "The Vela agent is working on a conversation; stop it first.")
         st.predictors = PredictorCache()
         registry_api.clear_serving_caches()
-        out = reset_mod.reset(settings)
+        try:
+            out = reset_mod.reset(settings, by=who, request_id=body.get("request_id"), reason=str(body.get("reason") or ""), via="api")
+        except reset_mod.ResetRefused as e:
+            raise HTTPException(e.status, e.payload) from e
         st.autopilot.store.root.mkdir(parents=True, exist_ok=True)
         st.autopilot.threads.clear()
         st.agent.sessions.clear()

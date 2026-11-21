@@ -137,7 +137,22 @@ def alloc_run(app: Any) -> tuple[str, Path]:
 
 def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, label: str, cfg: dict[str, Any], /,
               **queued: Any) -> RunStore:
-    """Write the run's config, record it, emit run_queued (with `queued` as the event's fields) and hand it to the runner."""
+    """Write the run's config, record it, emit run_queued (with `queued` as the event's fields) and hand it to the runner.
+    DL3 (M1): a run that reads its dataset's data.csv carries the version's stored sha256; the worker hashes the bytes it
+    reads at fit start and refuses the fit on a mismatch (worker.data_gate)."""
+    try:
+        if cfg.get("csv_path") and str(app.state.datasets.csv_path(dataset_id)) == str(cfg["csv_path"]) and "data_sha256_expected" not in cfg:
+            rec = app.state.db.get_dataset(dataset_id) or {}
+            cfg["data_sha256_expected"] = rec.get("sha256")
+            cfg.setdefault("dataset_id", dataset_id)
+            if not cfg.get("data_version_label"):
+                from ..catalog import dsets as DS
+
+                with app.state.db.connect() as con:
+                    v = next((r["v"] for r in DS.tree_rows(con, DS.root_of(con, dataset_id)) if r["id"] == dataset_id), None)
+                cfg["data_version_label"] = f"v{v} ({dataset_id})" if v else dataset_id
+    except Exception:  # noqa: BLE001 - a dataset outside the catalog (none in practice): the run records its hash, unchecked
+        pass
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
     store = app.state.runs
     store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
@@ -188,7 +203,8 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
                 "elapsed_seconds", "data", "features", "ensemble", "ensembles", "holdout", "oof", "text_models",
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
                 "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels",
-                "learning_curve", "active_learning", "annotations", "shift", "slices", "doctor", "expected_loss", "segmented", "survival", "reject_inference", "multilabel"):
+                "learning_curve", "active_learning", "annotations", "shift", "slices", "doctor", "expected_loss", "segmented", "survival", "reject_inference", "multilabel",
+                "data_sha256", "data_integrity"):  # DL3 (M1): the sha256 of the bytes the fit read, and the check against its version
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     sc = res.get("scorecard")  # F11: the headline only; the table is GET /runs/{id}/scorecard
@@ -334,6 +350,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         split = split_record(app.state.datasets, body.dataset_id, label, spec)
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
+    _min_rows_check(app, body.dataset_id, label, split, task, body.problem_type)  # DL3 (m5)
     if body.drop_columns is None and (split.get("params") or {}).get("group_column"):
         # The entity id is what the split keeps apart; as a feature it can only memorise customers.
         g = split["params"]["group_column"]
@@ -354,7 +371,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     cfg = {
         **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone", "scorecard",
                                    "integrity_override_reason"}),
-        "decision_time": dt, "data_gate": data_gate,
+        "decision_time": dt, "data_gate": data_gate, "by": who,
+        **({"data_integrity_override": data_gate["override_armed"]} if data_gate.get("override_armed") else {}),
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "id_columns_dropped": id_dropped, "text_columns": text_cols, "task": task,
@@ -384,6 +402,39 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
                       problem_type=cfg["problem_type"], eval_metric=body.eval_metric, presets=body.presets,
                       time_limit=body.time_limit)
     return {**run_out(store.get(run_id), store), **({"notes": data_gate["notes"]} if data_gate.get("notes") else {})}
+
+
+#: DL3 (m5): the least a fit needs, checked before a run is queued (a fit on less fails minutes later, unexplained)
+MIN_TRAIN_ROWS = 20
+MIN_CLASS_TRAIN_ROWS = 2
+
+
+def _min_rows_check(app: Any, dataset_id: str, label: str, split: dict[str, Any], task: str | None, problem_type: str | None) -> None:
+    """Refuse (400, in plain words) a run whose training rows are too few, or (classification) whose classes are too thin."""
+    import numpy as np
+    import pandas as pd
+
+    from ..splits import load_splits
+
+    y = pd.read_csv(app.state.datasets.csv_path(dataset_id), usecols=[label])[label]
+    sp = load_splits(Path(split["path"]))
+    fold = np.asarray(sp["fold"], dtype=int)
+    hold = np.zeros(len(y), dtype=bool)
+    hold[[int(i) for i in sp.get("holdout") or [] if int(i) < len(y)]] = True
+    train = y[(~hold) & (fold > -2) & y.notna().to_numpy()]
+    if len(train) < MIN_TRAIN_ROWS:
+        raise HTTPException(400, f"This version has {int(y.notna().sum()):,} labelled rows, and {len(train):,} of them are left for "
+                                 f"training after the holdout: at least {MIN_TRAIN_ROWS} are needed. Add rows (upload a new version) "
+                                 "or pick a larger version.")
+    pt = problem_type if problem_type not in (None, "auto") else task
+    if pt in ("binary", "multiclass") or (pt is None and train.nunique() <= 20):
+        vc = train.astype(str).value_counts()
+        thin = vc[vc < MIN_CLASS_TRAIN_ROWS]
+        if len(vc) < 2:
+            raise HTTPException(400, f"Only one class ('{vc.index[0]}') is left in the training rows: a model needs at least two.")
+        if len(vc) - len(thin) < 2:
+            raise HTTPException(400, "Too few rows per class to learn from: " + ", ".join(f"class '{k}' has only {int(n)} training row(s)"
+                                for k, n in thin.items()) + f"; at least {MIN_CLASS_TRAIN_ROWS} per class are needed in at least two classes.")
 
 
 QUANTILE_METRICS = (None, "pinball_loss", "pinball")
@@ -891,14 +942,18 @@ async def feature_importance(run_id: str, request: Request,
 
 
 @router.get("/runs/{run_id}/holdout-predictions")
-async def holdout_predictions(run_id: str, request: Request) -> dict[str, Any]:
+async def holdout_predictions(run_id: str, request: Request, by: str = "") -> dict[str, Any]:
     """The best model's predictions on the holdout rows: data.csv row, true label, prediction and (classification)
-    one probability per class. Residuals and curves are computed from these."""
+    one probability per class. Residuals and curves are computed from these. DL3 (m2): audited as a read (needs a name)."""
+    from ..catalog import governance as G
+
+    G.reader(by)
     rec = run_or_404(request, run_id)
     _require_succeeded(rec)
     path = Path(rec["config"]["run_dir"]) / "holdout_predictions.csv"
     if not path.exists():
         raise HTTPException(404, "This run has no saved holdout predictions.")
+    G.run_read_audit(request.app, "holdout_predictions", run_id, by=by)
 
     def read():
         import pandas as pd

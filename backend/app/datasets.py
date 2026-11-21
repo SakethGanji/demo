@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from . import config
@@ -158,6 +159,16 @@ def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
     from .profiling import coerce_numeric
 
     return coerce_numeric(df)[0]
+
+
+#: DL3 (m3): background jobs that make versions with no person behind the request; recorded as "system:<op>"
+SYSTEM_OPS = ("autopilot", "autopilot_synthetic", "sample_regenerated")
+#: DL3 (m3): ops whose identical result returns the existing version instead of a duplicate
+DEDUPE_OPS = ("shift_weights", "edit", "anomaly_review", "feature_lab")
+
+
+class DatasetConflict(ValueError):
+    """DL3: the request is valid but the data refuses it (the file on disk no longer matches its version): a 409."""
 
 
 def now() -> str:
@@ -310,7 +321,10 @@ class DatasetStore:
             raise DatasetError(str(e)) from e
         tgt = profile["target"]
         y = df[tgt] if tgt else None
-        splits = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS)
+        try:
+            splits = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS)
+        except ValueError as e:  # DL3 (m4): too few rows, in words
+            raise DatasetError(str(e)) from e
         save_splits(self.legacy_splits_path(dataset_id), splits)
         for p in (self.dir(dataset_id) / "splits").glob("*.json"):  # a regenerated sample: its old splits are stale
             p.unlink()
@@ -344,6 +358,14 @@ class DatasetStore:
             if self.db.get_dataset(dataset_id) and self.csv_path(dataset_id).exists():
                 if current:
                     continue
+                # DL3 (m7): a sample that runs trained on (or that has versions) is never rewritten in place: the new
+                # generator's rows become a new version of it, with lineage and an audit row
+                if self._sample_in_use(dataset_id):
+                    try:
+                        made += self._sample_as_version(dataset_id, spec, fp)
+                    except Exception:  # noqa: BLE001 - never fail startup over a sample; the old one stays as it was
+                        log.exception("sample %s: could not write the regenerated rows as a new version", dataset_id)
+                    continue
                 # Stale, or made before stamps existed: regenerate (seeded, so an unchanged generator gives the same rows).
                 log.info("sample %s was made by an older generator: regenerating", dataset_id)
             log.info("generating sample dataset %s", dataset_id)
@@ -360,6 +382,35 @@ class DatasetStore:
             stamp.write_text(fp)
             made.append(dataset_id)
         return made
+
+    def _sample_in_use(self, dataset_id: str) -> bool:
+        with self.db.connect() as con:
+            return bool(con.execute("SELECT 1 FROM lineage_edges WHERE src_kind = 'dataset' AND src_id = ? AND relation IN"
+                                    " ('trained_on', 'derived_from') LIMIT 1", (dataset_id,)).fetchone())
+
+    def _sample_as_version(self, dataset_id: str, spec: dict[str, Any], fp: str) -> list[str]:
+        """DL3 (m7): the regenerated sample as a new version of the one in use (rows matched by key or exact hash)."""
+        from . import dataset_versions as DV
+
+        df, sidecar = spec["generate"](seed=config.SEED)
+        df = pd.read_csv(io.StringIO(df.to_csv(index=False)))
+        pdf = self.load_frame(dataset_id)
+        match = DV.match_rows(pdf, df, None)
+        checks = DV.contract_checks(pdf, df, (self.db.get_dataset(dataset_id) or {}).get("target"))
+        rec = self.derive(dataset_id, df, None, "sample_regenerated",
+                          [{"op": "rows_changed", "n": match["changed"]}, {"op": "rows_added", "n": match["added"]},
+                           {"op": "rows_removed", "n": match["removed"]}],
+                          name=spec["name"], note=f"The sample's generator changed ({fp}): its new rows, as a new version (the version "
+                                                  "runs trained on is kept as it was)",
+                          extra={"kind": "sample_regenerated", "generator": fp, "matched_by": match["matched_by"], "matched": match["matched"],
+                                 "changed": match["changed"], "added": match["added"], "removed": match["removed"], "checks": checks},
+                          by="system:sample generator", row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE,
+                          reason="the sample generator changed", dedupe=True)
+        if not rec.get("deduplicated"):
+            (self.dir(rec["id"]) / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
+        (self.dir(dataset_id) / ".generator").write_text(fp)
+        log.info("sample %s is in use: the regenerated rows are version %s", dataset_id, rec["id"])
+        return [rec["id"]]
 
     def create_version(self, parent_id: str, df: pd.DataFrame, splits: dict[str, Any], *, name: str, note: str,
                        lineage: dict[str, Any], op: str | None = None) -> dict[str, Any]:
@@ -393,14 +444,16 @@ class DatasetStore:
         rr = lineage.get("root_rows")
         self.catalog.record_version(parent_id, rec, self.csv_path(dataset_id), op=str(op or lineage.get("kind") or "derived"),
                                     actor=str(lineage.get("by") or lineage.get("created_by") or "system"),
-                                    meta={k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic", "reason")
+                                    meta={k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic", "reason", "duplicate_of",
+                                                                       "ops_summary")
                                           if lineage.get(k) is not None} | {"n_changes": len(lineage.get("changes") or [])},
                                     paired=bool(rr) and len(rr) == len(df))
         return rec
 
     def derive(self, parent_id: str, df: pd.DataFrame, keep_idx: Any, op: str, changes: list[Any], *, name: str, note: str,
                splits: dict[str, Any] | None = None, extra: dict[str, Any] | None = None, by: str | None = None,
-               new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0, reason: str | None = None) -> dict[str, Any]:
+               new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0, reason: str | None = None,
+               dedupe: bool | None = None) -> dict[str, Any]:
         """P1 step 2: the one way to make a dataset version. `df` is the new frame: the parent's rows `keep_idx` (positions
         in the parent, in order; a bool mask or ints; None = every row) followed by `new_rows` rows with no root row
         (synthetic: root -1-i). Writes data.csv, lineage.json {parent, root, root_rows, changes, op, …extra}, the version's
@@ -466,11 +519,37 @@ class DatasetStore:
         from .catalog import governance as G
 
         by = by or G.current_actor()  # DL2: the UI's "Acting as" header when the path passes no name
+        if not by:  # DL3 (m3): a version needs a name; only genuine background jobs are "system:<job>", labelled as such
+            if op not in SYSTEM_OPS:
+                raise DatasetError(f"Say who is making this {op} version: send by (or the X-Ensemble-Actor header); "
+                                   "every version records a name.")
+            by = f"system:{op}"
         reason = (reason or G.current_reason() or "").strip()[:500]  # DL2: an optional reason / change ticket
-        if by:
-            lineage["by"] = by
+        lineage["by"] = by
         if reason:
             lineage["reason"] = reason
+        # DL3 (m3): the same bytes as a version of this dataset that still exists: return it (dedupe), or flag it
+        import hashlib
+
+        sha = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()
+        root = plin.get("root") or parent.get("root_id") or parent_id
+        with self.db.connect() as con:
+            same = con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'"
+                               " ORDER BY created_at LIMIT 1", (sha, root, root)).fetchone()
+        if same and (dedupe if dedupe is not None else op in DEDUPE_OPS):
+            from .catalog.schema import audit
+
+            with self.db.connect() as con:
+                audit(con, by, "dataset_version_deduplicated", comment=reason,
+                      details={"dataset_id": same[0], "root_id": root, "parent": parent_id, "op": op, "sha256": sha,
+                               "note": "the same bytes as an existing version: no new version was made, the existing one is returned"})
+            rec = dict(self.db.get_dataset(same[0]) or {})
+            rec["deduplicated"] = {"existing": same[0], "sha256": sha}
+            return rec
+        if same and not any(w.get("code") == "identical_file" for w in (lineage.get("checks") or {}).get("warnings") or []):
+            lineage["duplicate_of"] = same[0]
+            lineage.setdefault("checks", {"warnings": []}).setdefault("warnings", []).append(
+                {"code": "identical_file", "message": f"The same rows as {same[0]} (sha256 {sha[:12]}…): this version adds nothing but a pointer."})
         return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op)
 
     def lineage(self, dataset_id: str) -> dict[str, Any] | None:
@@ -530,6 +609,79 @@ class DatasetStore:
         rec["upload"] = {k: v for k, v in extra.items() if k != "kind"}
         return rec
 
+
+    def edit_version(self, parent_id: str, ops: Any, *, by: str, reason: str, preview: bool = False) -> dict[str, Any]:
+        """DL3: typed edits (dataset_edit.OPS) applied to `parent_id`, committed as a NEW version through derive(): edited
+        rows keep their root row and holdout / fold, new rows get new root ids (and a seeded share of the holdout),
+        deleted rows are gone. The version edited is never changed. `preview` writes nothing. Refused (409) when the
+        parent's file on disk no longer matches its stored sha256 (an edit would carry an outside change forward)."""
+        import hashlib
+
+        from . import dataset_edit as DE
+        from . import dataset_versions as DV
+        from .catalog.schema import file_sha256
+
+        parent = self.db.get_dataset(parent_id)
+        if not parent:
+            raise DatasetError(f"No dataset with id '{parent_id}'.")
+        stored, on_disk = parent.get("sha256"), file_sha256(self.csv_path(parent_id))
+        if stored and on_disk != stored:
+            raise DatasetConflict(f"The data on disk differs from {parent_id} (stored sha256 {stored[:12]}…, file now "
+                                  f"{(on_disk or 'missing')[:12]}…): it was changed outside the app, so it can't be edited. "
+                                  "Restore the file, or create a new version from it (Data → the version → Create a new version "
+                                  "from this file).")
+        pdf = self.load_frame(parent_id)
+        try:
+            res = DE.apply_ops(pdf, ops, parent["target"])
+        except DE.EditError as e:
+            raise DatasetError(str(e)) from e
+        df = res["frame"]
+        df = pd.read_csv(io.StringIO(df.to_csv(index=False)))  # exactly what data.csv will read back as
+        if df.shape[1] < 2 or len(df) < 2:
+            raise DatasetError("A version needs at least two rows and two columns.")
+        sha = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()
+        rmap = np.asarray(res["row_map"], dtype=int)
+        ib = np.flatnonzero(rmap >= 0)
+        ia = rmap[ib]
+        changed = int(DV._changed(pdf, df, ia, ib).sum())
+        checks = DV.contract_checks(pdf, df, parent["target"])
+        for old, new in res["renamed"].items():  # a rename is not a loss: say so next to the warning it raises
+            for w in checks["warnings"]:
+                if w.get("column") == old and w["code"] == "column_removed":
+                    w["message"] = f"'{old}' was renamed to '{new}': runs that used '{old}' can't be re-fitted on this version as they were."
+                if w["code"] == "target_missing" and parent["target"] == old:
+                    w["message"] = f"The target '{old}' was renamed to '{new}': runs on this version use '{new}' as the target."
+        root = parent.get("root_id") or parent_id
+        with self.db.connect() as con:
+            same = con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'"
+                               " ORDER BY created_at LIMIT 1", (sha, root, root)).fetchone()
+        n_ver = 1 + len(self.catalog.tree_ids(parent_id))
+        summary = {"matched": int(len(ib)), "changed": changed, "added": int((rmap < 0).sum()), "removed": int(len(pdf) - len(ib)),
+                   "columns_before": int(pdf.shape[1]), "columns_after": int(df.shape[1]), "checks": checks,
+                   "renamed": res["renamed"], "edit_log": res["log"], "ops_summary": [e["summary"] for e in res["log"]],
+                   "n_ops": len(res["log"])}
+        if same:
+            summary["duplicate_of"] = same[0]
+        if preview:
+            cols = list(df.columns)
+            return {"preview": True, "v": n_ver, "parent": parent_id, "rows": int(len(df)), "n_cols": int(df.shape[1]), "sha256": sha,
+                    **summary, "would_be_default": not checks["warnings"] and not same,
+                    "columns": cols, "sample": json.loads(df.head(5).to_json(orient="records")),
+                    "note": "nothing was written: send the same operations without preview to create the version"}
+        changes = [{"op": e["op"], "n": e.get("cells") or e.get("rows") or 0, **({"column": e["column"]} if e.get("column") else {})}
+                   for e in res["log"]]
+        extra = {"kind": "edit", "matched_by": "edit (rows keep their identity)", **summary}
+        rec = self.derive(parent_id, df, None, "edit", changes, name=parent["name"],
+                          note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
+                               + ("…" if len(summary["ops_summary"]) > 4 else ""),
+                          extra=extra, by=by, row_map=res["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason)
+        if rec.get("deduplicated"):
+            return {**rec, "created": False, "edit": {k: v for k, v in summary.items() if k != "edit_log"}}
+        # the full list of operations as sent (every cell), beside lineage.json, whose log is capped
+        (self.dir(rec["id"]) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops}, default=str))
+        rec["edit"] = summary
+        rec["created"] = True
+        return rec
 
     def create_from_frame(self, df: pd.DataFrame, *, name: str, filename: str, note: str, target: str | None = None,
                           lineage: dict[str, Any] | None = None, by: str | None = None) -> dict[str, Any]:

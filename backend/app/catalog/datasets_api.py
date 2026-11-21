@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .. import config
-from ..datasets import DatasetError
+from ..datasets import DatasetConflict, DatasetError
 from . import dsets as D
 from . import governance as G
 from .api import _text, _who
@@ -38,6 +38,8 @@ async def _thread(fn, *a, **k):
         return await run_in_threadpool(fn, *a, **k)
     except D.DsError as e:
         raise HTTPException(e.status, e.payload) from e
+    except DatasetConflict as e:
+        raise HTTPException(409, str(e)) from e
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -101,13 +103,16 @@ async def upload_version(dataset_id: str, request: Request, file: UploadFile = F
 
 
 @router.get("/datasets/{a}/diff/{b}")
-async def diff(a: str, b: str, request: Request) -> dict[str, Any]:
+async def diff(a: str, b: str, request: Request, by: str = "") -> dict[str, Any]:
     """a → b: schema (added / removed columns, type changes), rows (added / removed / changed: by b's row map onto its
-    parent, the shared original rows, or an exact hash), per-column missing %, mean / median, top categories, PSI."""
+    parent, the shared original rows, or an exact hash), per-column missing %, mean / median, top categories, PSI.
+    DL3: when b was made by an edit of a, the operations and their cells (old → new) come with it (`edit`).
+    The diff shows cells: it needs a name (by or the X-Ensemble-Actor header) and is audited as a read."""
+    who = G.reader(by)
     out = await _thread(D.diff, request.app, a, b)
-    if out["rows"].get("changed_examples"):  # DL2: the diff shows rows cell by cell: a read of both versions
+    if out["rows"].get("changed_examples") or out.get("edit"):  # DL2: the diff shows rows cell by cell: a read of both versions
         for x in (a, b):
-            G.read_audit(request.app.state.db, "diff_rows", x, {"other": b if x == a else a})
+            G.read_audit(request.app.state.db, "diff_rows", x, {"other": b if x == a else a}, by=who)
     return out
 
 
@@ -185,10 +190,13 @@ def decide(rid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     body = body if isinstance(body, dict) else {}
     who = _who(body.get("by"))
     approve = body.get("approve")
+    withdraw = body.get("withdraw") is True  # DL3 (m6): the requester (or an admin) withdraws; a reviewer rejects
+    if withdraw:
+        approve = False
     if not isinstance(approve, bool):
-        raise HTTPException(400, 'Send {"approve": true} or {"approve": false}.')
-    return _call(D.decide_delete, request.app, rid, approve, who, str(body.get("comment") or "")[:500],
-                 _gov=(request.app, who, "dataset_delete_decide", {"request_id": rid, "approve": approve}))
+        raise HTTPException(400, 'Send {"approve": true}, {"approve": false} or {"withdraw": true}.')
+    return _call(D.decide_delete, request.app, rid, approve, who, str(body.get("comment") or "")[:500], withdraw=withdraw,
+                 _gov=(request.app, who, "dataset_delete_decide", {"request_id": rid, "approve": approve, "withdraw": withdraw}))
 
 
 @router.post("/datasets/{dataset_id}/verify")
@@ -231,3 +239,129 @@ async def export(dataset_id: str, request: Request, by: str = "", format: str = 
         z.writestr("manifest.json", json.dumps(man, indent=1))
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{fname}.zip"'})
+
+
+# -- DL3: edit-as-version, the row grid, and a version from a file changed on disk ----------------------------------------
+
+def _live(request: Request, dataset_id: str) -> dict[str, Any]:
+    rec = request.app.state.db.get_dataset(dataset_id)
+    if not rec:
+        raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+    if rec.get("state") == D.DELETED:
+        raise HTTPException(410, f"{dataset_id} was deleted.")
+    return rec
+
+
+@router.get("/datasets/{dataset_id}/grid")
+async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 50, q: str = "", by: str = "") -> dict[str, Any]:
+    """The rows of a version, a page at a time, for the editor: `_row` is the row's position (what an edit names).
+    `q` keeps rows where any column contains it (case-insensitive). A read of the rows: needs a name (by or the
+    X-Ensemble-Actor header) and is audited as dataset_read."""
+    who = G.reader(by)
+    _live(request, dataset_id)
+    limit = max(1, min(int(limit), 200))
+    offset = max(0, int(offset))
+
+    def page() -> dict[str, Any]:
+        import pandas as pd
+
+        from ..dataset_versions import kind
+
+        df = request.app.state.datasets.load_frame(dataset_id)
+        idx = pd.RangeIndex(len(df))
+        if q.strip():
+            m = pd.Series(False, index=df.index)
+            for c in df.columns:
+                m |= df[c].astype("string").str.contains(q.strip(), case=False, regex=False).fillna(False).astype(bool)
+            idx = df.index[m]
+        part = df.loc[idx[offset:offset + limit]]
+        rows = json.loads(part.to_json(orient="records"))
+        for r, i in zip(rows, part.index):
+            r["_row"] = int(i)
+        return {"dataset_id": dataset_id, "columns": [{"name": c, "kind": kind(df[c])} for c in df.columns], "rows": rows,
+                "total": int(len(df)), "matching": int(len(idx)), "offset": offset, "limit": limit, "q": q}
+
+    out = await _thread(page)
+    G.read_audit(request.app.state.db, "grid", dataset_id, {"q": q[:80] or None, "offset": offset}, by=who)
+    return out
+
+
+@router.post("/datasets/{dataset_id}/edit", status_code=201)
+async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
+    """{ops: [...], reason, by, preview?, make_default?}: typed operations (set_cells, delete_rows, add_rows, filter_rows,
+    rename_column, drop_column, add_column (constant or a safe formula), cast_column, replace_values, fill_missing) applied
+    to this version and committed as a NEW version (lineage, root rows and holdout carried over, a change log with old →
+    new values, an audit row). Nothing is modified in place. preview=true writes nothing. Like an upload, a version with
+    contract warnings is not made the default. The same bytes as an existing version return that version (created:
+    false)."""
+    from fastapi.responses import JSONResponse
+
+    body = body if isinstance(body, dict) else {}
+    who = _who(body.get("by"))
+    preview = bool(body.get("preview"))
+    reason = str(body.get("reason") or "").strip()
+    if not preview and not 3 <= len(reason) <= 500:
+        raise HTTPException(400, "An edit needs a reason (3–500 characters): it is kept with the version and in the audit log.")
+    make_default = body.get("make_default", "auto")
+    if make_default not in ("auto", "yes", "no"):
+        raise HTTPException(400, "make_default is auto, yes or no.")
+    _live(request, dataset_id)
+    store = request.app.state.datasets
+    if preview:
+        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True)
+        return JSONResponse(json.loads(json.dumps(out, default=str)), status_code=200)
+    before = await _thread(D.current_default, request.app, dataset_id)
+    try:
+        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason)
+    except HTTPException as e:
+        if e.status_code == 409:
+            G.refused(request.app.state.db, who, "dataset_edit", 409, e.detail, {"dataset_id": dataset_id})
+        raise
+    from ..main import _detail
+
+    if not out.get("created"):
+        return JSONResponse(json.loads(json.dumps({**_detail(out), "created": False, "duplicate_of": out["id"], "edit": out.get("edit"),
+                                                   "note": "the result has the same bytes as this existing version: nothing new was made"},
+                                                  default=str)), status_code=200)
+    warnings = out["edit"]["checks"]["warnings"]
+    dflt = await _thread(D.settle_default, request.app, out["id"], before, warnings, who,
+                         make_default)
+    return {**_detail(request.app.state.db.get_dataset(out["id"]) or out), "created": True,
+            "edit": {k: v for k, v in out["edit"].items()}, "default": dflt}
+
+
+@router.post("/datasets/{dataset_id}/adopt-disk-file", status_code=201)
+async def adopt_disk_file(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """{by, reason}: the remedy for a version whose data.csv was changed outside the app (verify says MISMATCH). The
+    bytes now on disk are committed as a NEW version of it (upload-as-version: rows matched by an exact hash, lineage,
+    audit), so they are trusted only as a new, named, reasoned version; the old version stays flagged. Its file must
+    still be restored (from an export or a backup) before it can train again without an admin override."""
+    body = body if isinstance(body, dict) else {}
+    who = _who(body.get("by"))
+    reason = _text(body, "reason", 5, 500, True)
+    rec = _live(request, dataset_id)
+    store = request.app.state.datasets
+    from .schema import file_sha256
+
+    p = store.csv_path(dataset_id)
+    now_sha = file_sha256(p)
+    if not now_sha:
+        raise HTTPException(409, f"{dataset_id}'s file is missing: there is nothing on disk to adopt.")
+    if now_sha == rec.get("sha256"):
+        raise HTTPException(409, f"{dataset_id}'s file matches its stored sha256: nothing changed on disk.")
+    content = p.read_bytes()
+    before = await _thread(D.current_default, request.app, dataset_id)
+    out = await _thread(store.upload_version, dataset_id, f"{dataset_id}-on-disk.csv", content, by=who, row_key="hash",
+                        reason=f"from the file changed on disk ({now_sha[:12]}…): {reason}")
+    with request.app.state.db.connect() as con:
+        from .schema import audit
+
+        audit(con, who, "dataset_disk_file_adopted", comment=reason,
+              details={"dataset_id": out["id"], "root_id": rec.get("root_id") or dataset_id, "from": dataset_id,
+                       "sha256_on_disk": now_sha, "sha256_stored": rec.get("sha256"),
+                       "note": "the parent's file still differs from its version: restore it, or train with an admin override"})
+    dflt = await _thread(D.settle_default, request.app, out["id"], before, [{"code": "adopted_from_disk"}], who, "no")
+    from ..main import _detail
+
+    return {**_detail(request.app.state.db.get_dataset(out["id"]) or out), "upload": out["upload"], "default": dflt,
+            "parent_still_mismatched": True}

@@ -109,7 +109,8 @@ async def apply_fixes(dataset_id: str, request: Request, body: dict[str, Any]) -
     """Apply typed fixes to a copy: a new dataset version whose lineage names the parent and the fixes. The holdout is
     the parent's holdout rows that were kept, so scores stay comparable. The decision-time answers carry over."""
     body = body or {}
-    return await run_in_threadpool(_apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "you"))
+    # DL3 (m3): a version records a real name: by, else the X-Ensemble-Actor header (derive() refuses neither)
+    return await run_in_threadpool(_apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "").strip()[:80] or None)
 
 
 def _apply(request: Request, dataset_id: str, transforms: Any, by: str) -> dict[str, Any]:

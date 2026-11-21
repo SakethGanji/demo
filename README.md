@@ -101,6 +101,10 @@ make smoke       # scripts/smoke.py: the UI's real calls end to end against the 
                  # ✓ / ✗ per step, exit 1 on any failure. The default runs every section (F19); pick some with
                  # SMOKE_ONLY=core,…,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset
 make reset       # delete every run, version, batch, autopilot, MLflow record and upload; regenerate the samples
+                 # DL3: governed. Needs the API (or this shell) started with ENSEMBLE_DEMO_MODE=1 and BY=<admin from
+                 # ENSEMBLE_ADMINS>; while a model or champion is live, also REQUEST=<an approved four-eyes reset request>
+                 # (POST /api/admin/reset-requests, someone else approves). The audit log is kept and records the reset.
+                 # Local dev: ENSEMBLE_DEMO_MODE=1 ENSEMBLE_ADMINS=me make dev, then make reset BY=me
 ```
 
 Open http://localhost:5190. On a fresh workbench Home lists the six samples; pick one and the first model trains in

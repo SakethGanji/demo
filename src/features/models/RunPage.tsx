@@ -83,7 +83,8 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
   return (
     <div className="page run-page" data-testid="run-page" data-run={run.id} data-status={run.status}>
       <div className="page-head">
-        <div><h1 className="page-title">{run.name}</h1><p className="helper sub"><span className="mono">{run.id}</span> · {problemLine(run)} · {run.dataset_id}{run.label ? <> · y = <span className="mono">{run.label}</span></> : null}</p></div>
+        <div><h1 className="page-title">{run.name}</h1><p className="helper sub"><span className="mono">{run.id}</span> · {problemLine(run)} · {run.dataset_id}{run.label ? <> · y = <span className="mono">{run.label}</span></> : null}
+          {run.data_sha256 && <> · <span className="mono" title={`sha256 of the bytes this run read at fit start: ${run.data_sha256}${run.data_integrity?.expected ? `\nthe version's stored sha256: ${run.data_integrity.expected}` : ''}`} data-testid="run-data-sha">data {run.data_sha256.slice(0, 12)}{run.data_integrity?.match === true ? ' ✓' : run.data_integrity?.match === false ? ' ✕ differs from its version' : ''}</span></>}</p></div>
         <StatusPill status={done ? 'success' : run.status === 'failed' ? 'danger' : 'info'}>{run.status}</StatusPill>
       </div>
       {kindOf(run) === 'import' && <ImportRun runId={run.id} />}

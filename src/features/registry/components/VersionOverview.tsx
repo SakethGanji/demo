@@ -204,7 +204,7 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
 }
 
 /** DL2: end of life for a registered version, four eyes: one person asks (the comment above is the reason), another
- *  approves (or an admin at once). Refused while it is champion or in Production. Once retired its training data can be
+ *  approves (DL3: a second person, admins included, unless ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1). Refused while it is champion or in Production. Once retired its training data can be
  *  archived, and deleted after the retention period. */
 function RetireBox({ v, actor, comment, onChanged }: { v: ModelVersion; actor: string; comment: string; onChanged: (v: ModelVersion) => void }) {
   const [reqs, setReqs] = useState<RetireRequest[]>([])
@@ -219,7 +219,8 @@ function RetireBox({ v, actor, comment, onChanged }: { v: ModelVersion; actor: s
   if (v.approval === 'rejected') return null
   return (
     <div className="retire-box" data-testid="retire-box">
-      {v.retired_at ? <span className="helper" data-testid="retired-line">⏹ Retired {new Date(v.retired_at).toLocaleDateString()} by {v.retired_by}: it stays Archived; its training data can be archived now and deleted after the retention period.</span>
+      {v.retired_at ? <span className="helper" data-testid="retired-line">⏹ Retired {new Date(v.retired_at).toLocaleDateString()} by {v.retired_by}: it stays Archived; its training data can be archived now and deleted after the retention period.
+        {reqs.some((r) => r.status === 'approved' && r.comment.startsWith('SELF-APPROVED')) && <span style={{ display: 'block', marginTop: 4, color: 'var(--status-danger)', fontWeight: 700 }} data-testid="retire-self-approved">⚠ Self-approved by admin {v.retired_by}: no second person decided (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1).</span>}</span>
         : pending ? <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <span className="helper">Retirement asked by <b>{pending.requested_by}</b>: “{pending.reason}”</span>
           {nameKey(actor) === nameKey(pending.requested_by)
@@ -229,7 +230,7 @@ function RetireBox({ v, actor, comment, onChanged }: { v: ModelVersion; actor: s
               <button className="btn sm ghost" disabled={!actor.trim()} onClick={() => run(api.registry.decideRetire(pending.id, false, actor, comment), 'Retirement rejected.')}>Reject</button></>}
         </div>
           : <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <button className="btn sm" disabled={!actor.trim() || comment.trim().length < 5} onClick={() => run(api.registry.retire(v.id, actor, comment), 'Retirement asked: someone else (or an admin) approves.')} data-testid="retire-ask"
+            <button className="btn sm" disabled={!actor.trim() || comment.trim().length < 5} onClick={() => run(api.registry.retire(v.id, actor, comment), 'Retirement asked: someone else approves (admins too, unless ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1).')} data-testid="retire-ask"
               title={comment.trim().length < 5 ? 'Write the reason in the comment box first' : 'Four eyes: someone else approves'}>Retire…</button>
             <span className="helper" style={{ fontSize: 12 }}>End of life, four eyes; the comment is the reason. Not while it is champion or in Production.</span></div>}
       {msg && <p className="helper" role={msg.ok ? 'status' : 'alert'} style={{ color: msg.ok ? 'var(--status-success)' : 'var(--status-danger)', margin: '4px 0 0' }} data-testid="retire-msg">{msg.ok ? '✓' : '✕'} {msg.text}</p>}

@@ -10,6 +10,8 @@ dropped columns (ID columns by default). The holdout is scored at the end. `fit_
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import logging
 import os
@@ -47,7 +49,9 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     F6: with a group / time / time + group split, rows of the tuning slice (fold -3) form `tuning` (given to
     fit(tuning_data=...)) and rows excluded by the split (fold -2) are in no frame. Group splits add their
     group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...)."""
-    df = pd.read_csv(cfg["csv_path"])
+    raw = Path(cfg["csv_path"]).read_bytes()  # DL3 (M1): hash exactly the bytes this fit reads
+    df = pd.read_csv(io.BytesIO(raw))
+    data_sha256 = hashlib.sha256(raw).hexdigest()
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     label = cfg["label"]
     fold = np.asarray(splits["fold"], dtype=int)
@@ -67,6 +71,7 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "dropped_missing_label_train": int((~is_holdout & ~has_label).sum()),
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
         "dropped_columns": drop, "features": [c for c in train.columns if c != label], "label": label,
+        "data_sha256": data_sha256,
     }
     if structured:
         info["tuning_rows"] = 0 if tuning is None else len(tuning)
@@ -558,6 +563,55 @@ def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit)
     return "default", None, None
 
 
+
+class DataIntegrityError(RuntimeError):
+    """DL3 (M1): the bytes on disk are not the version's: the fit is refused."""
+
+
+def data_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: str, emit, basis: str = "the bytes this fit read") -> None:
+    """DL3 (M1): record the sha256 of the data this run trains on (result, config, the trained_on edge) and compare it with
+    the sha256 stored when the version was made. On a mismatch the fit is refused (audited, and the version is flagged as
+    failing its integrity check) unless an admin armed an override on the run (integrity_override_reason)."""
+    from ..catalog.schema import audit, now as _now
+
+    exp = cfg.get("data_sha256_expected")
+    ok = None if not exp else (sha == exp)
+    rec = {"data_sha256": sha, "expected": exp, "match": ok, "basis": basis, "dataset_id": cfg.get("dataset_id"),
+           "version": cfg.get("data_version_label")}
+    store.merge_result(run_id, data_sha256=sha, data_integrity=rec)
+    with store.db.connect() as con:
+        con.execute("UPDATE runs SET config = json_set(config, '$.data_sha256', ?) WHERE id = ?", (sha, run_id))
+        con.execute("UPDATE lineage_edges SET meta = json_set(COALESCE(meta, '{}'), '$.data_sha256', ?, '$.data_sha256_match', json(?))"
+                    " WHERE relation = 'trained_on' AND dst_kind = 'run' AND dst_id = ?", (sha, "null" if ok is None else ("true" if ok else "false"), run_id))
+    emit("data_hashed", **rec)
+    if ok is not False:
+        return
+    ds = cfg.get("dataset_id")
+    label = cfg.get("data_version_label") or ds
+    ov = cfg.get("data_integrity_override") or {}
+    with store.db.connect() as con:
+        root = (con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (ds,)).fetchone() or [ds])[0]
+        con.execute("UPDATE datasets SET verified_at = ?, verified_ok = 0 WHERE id = ?", (_now(), ds))
+        audit(con, "system:train-time hash", "dataset_integrity_failed", run_id=run_id,
+              details={"dataset_id": ds, "root_id": root, "run_id": run_id, "stored": exp, "read": sha, "basis": basis,
+                       "remedy": "create a new version from this file (POST /api/datasets/{id}/adopt-disk-file), or restore the file"})
+        if ov.get("by"):
+            audit(con, ov["by"], "training_integrity_override", comment=str(ov.get("reason") or "")[:1000], run_id=run_id,
+                  details={"dataset_id": ds, "root_id": root, "run_id": run_id, "stored": exp, "read": sha, "at": "fit start"})
+        else:
+            audit(con, cfg.get("by") or "unknown", "training_refused", run_id=run_id,
+                  comment=f"data on disk differs from {label}",
+                  details={"dataset_id": ds, "root_id": root, "run_id": run_id, "stored": exp, "read": sha, "status": 409})
+    if ov.get("by"):
+        emit("log", level="warning", logger="ensemble",
+             message=f"data on disk differs from {label} (stored {exp[:12]}…, read {sha[:12]}…): training anyway on {ov['by']}'s override")
+        return
+    raise DataIntegrityError(
+        f"data on disk differs from version {label}: its sha256 was {exp[:12]}… when the version was made, the file read now "
+        f"is {sha[:12]}…. The file was changed outside the app, so this run was refused. Create a new version from this file "
+        "(Data → the version → Create a new version from this file), or restore the file; an admin may train anyway with "
+        "integrity_override_reason (audited).")
+
 # --------------------------------------------------------------------------- main
 
 
@@ -575,6 +629,7 @@ def run(run_dir: Path) -> int:
     try:
         emit("run_started", pid=os.getpid())
         train, holdout, info, tuning = load_frames(cfg)
+        data_gate(cfg, info.get("data_sha256"), store, run_id, emit)  # DL3 (M1): before anything is fit
         emit("data_ready", **info)
         store.merge_result(run_id, data=info)
 
@@ -782,6 +837,10 @@ def run_other(cfg: dict[str, Any], run_dir: Path, store: RunStore, emit, started
 
     try:
         emit("run_started", pid=os.getpid(), kind=cfg["kind"])
+        if cfg.get("csv_path") and Path(cfg["csv_path"]).exists():  # DL3 (M1): the file this run reads, hashed at its start
+            from ..catalog.schema import file_sha256
+
+            data_gate(cfg, file_sha256(Path(cfg["csv_path"])), store, run_id, emit, basis="the file at the start of the run")
         if cfg["kind"] == "forecast":
             from ..forecast import core
         elif cfg["kind"] == "expected_loss":  # G3: PD, LGD and EAD TabularPredictors chained

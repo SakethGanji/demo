@@ -7,6 +7,7 @@ import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
 import { fmtScore } from '@/shared/lib/metrics'
 import { NotesStrip } from '../components/NotesStrip'
 import { ProjectTree } from '../components/ProjectTree'
+import { EditVersion } from './EditVersion'
 import './data.css'
 
 const readActor = () => { try { return localStorage.getItem('ensemble.actor') || '' } catch { return '' } }
@@ -16,7 +17,7 @@ const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefi
 const pct = (v?: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
 const num = (v?: number | null) => (v == null ? '—' : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toPrecision(4).replace(/\.?0+$/, ''))
 const BAND: Record<string, Status> = { stable: 'success', watch: 'warning', shift: 'danger' }
-const OP: Record<string, string> = { upload: 'upload', sample: 'sample', upload_version: 'new file', data_doctor: 'Data Doctor', clean_labels: 'relabel', feature_lab: 'Feature Lab', 'monitoring-window': 'drift window', sql: 'SQL load', refresh: 'SQL refresh' }
+const OP: Record<string, string> = { edit: 'edit', sample_regenerated: 'sample regenerated', upload: 'upload', sample: 'sample', upload_version: 'new file', data_doctor: 'Data Doctor', clean_labels: 'relabel', feature_lab: 'Feature Lab', 'monitoring-window': 'drift window', sql: 'SQL load', refresh: 'SQL refresh' }
 const opName = (op?: string | null) => (op ? OP[op] ?? op.replace(/_/g, ' ') : '—')
 
 /** Set `?name=` in the hash route without a navigation (the other params stay). */
@@ -92,6 +93,7 @@ function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => voi
   const [msg, setMsg] = useState<{ ok: boolean; text: string; blockers?: string[] } | null>(null)
   const [pair, setPair] = useState<[string, string] | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)  // DL3: the version open in the editor
   const reload = () => { h.reload(); onChanged() }
   const fail = (e: unknown) => {
     const t = (e as Error).message
@@ -136,7 +138,12 @@ function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => voi
         onDefault={(v) => act(data.setDefault(d.root_id, v.id, by), (r) => `${r.rollback ? 'Rolled back' : 'Default set'} to v${r.v} (${v.id}). ${r.note}.`)}
         onVerify={(v) => act(data.verify(v.id, by), (r) => r.results.map((x) => `v${x.v}: ${x.status}`).join(' · '))}
         onVerifyAll={() => act(data.verify(d.root_id, by, true), (r) => `${r.ok ? 'Every file matches its hash' : 'A file does not match its hash'}: ${r.results.map((x) => `v${x.v} ${x.status}`).join(' · ')}`)}
-        onArchive={(v, a) => act(data.archive(v.id, a, by, '', v.id === d.root_id), (r) => `${r.ids.join(', ')}: ${r.state}.`)} />
+        onArchive={(v, a) => act(data.archive(v.id, a, by, '', v.id === d.root_id), (r) => `${r.ids.join(', ')}: ${r.state}.`)}
+        onEdit={(v) => { setMsg(null); setEditing(v.id) }}
+        onAdopt={(v, reason) => act(data.adoptDiskFile(v.id, by, reason), (r) => `The file on disk is now a new version (${r.id}) of v${v.v}, with its own hash. v${v.v} stays flagged until its file is restored.`)} />
+
+      {editing && vOf(editing) && <EditVersion key={editing} d={d} v={vOf(editing)!} by={by} onClose={() => setEditing(null)} onErr={fail}
+        onCreated={(vid, text) => { setMsg({ ok: true, text }); setEditing(null); setPair([editing, vid]); setFocus(vid); reload() }} />}
 
       {pair && pair.every((x) => vOf(x)?.state !== 'deleted') && <DiffCard key={pair.join('→')} a={pair[0]} b={pair[1]} name={(x) => { const v = vOf(x); return v ? `v${v.v}` : x }} />}
 
@@ -192,7 +199,7 @@ function UploadVersion({ d, by, onDone, onErr }: { d: DsHistory; by: string; onD
             <option value="">an id column (guessed), else exact hash</option><option value="hash">exact row hash</option>
           </select>
           <input className="input" style={{ width: 120 }} placeholder="or a key column" value={key === 'hash' ? '' : key} onChange={(e) => setKey(e.target.value)} aria-label="Row key column" /></label>
-        <span className="helper">parent: v{parent.v} (the default). New rows get {Math.round(0.2 * 100)} % of the holdout; no cell is edited by hand.</span>
+        <span className="helper">parent: v{parent.v} (the default). New rows get {Math.round(0.2 * 100)} % of the holdout. To change cells, use Edit on a version.</span>
       </div>
       {p && ck && <div className="data-preview" data-testid="data-preview">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}><b>Preview: {p.filename} as v{p.v}</b><span className="helper">nothing is written until you create it · rows matched by {p.matched_by}</span></div>
@@ -222,9 +229,10 @@ function UploadVersion({ d, by, onDone, onErr }: { d: DsHistory; by: string; onD
   )
 }
 
-function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, onVerifyAll, onArchive }: {
+function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, onVerifyAll, onArchive, onEdit, onAdopt }: {
   d: DsHistory; pair: [string, string] | null; setPair: (p: [string, string]) => void; focus: string | null; setFocus: (id: string) => void; by: string
   onDefault: (v: DsVersion) => void; onVerify: (v: DsVersion) => void; onVerifyAll: () => void; onArchive: (v: DsVersion, archived: boolean) => void
+  onEdit: (v: DsVersion) => void; onAdopt: (v: DsVersion, reason: string) => void
 }) {
   const def = d.versions.find((v) => v.id === d.default_version_id)
   return (
@@ -245,7 +253,7 @@ function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, 
                 <span className="muted"> · {opName(v.op)}{par ? ` from v${par.v}` : ''}{v.paired_with_parent === false ? ' ◇' : ''}</span>
                 <div className="muted mono" style={{ fontSize: 11 }}>{v.id}</div></td>
               <td>{v.created_by ?? '—'}<div className="muted" style={{ fontSize: 11 }}>{when(v.created_at)}</div></td>
-              <td className="data-changes">{changeLine(v)}{v.reason && <div className="muted" title="reason / change ticket" data-testid={`data-reason-${v.v}`}>“{v.reason}”</div>}{v.warnings.length > 0 && <div title={v.warnings.map((w) => w.message).join('\n')} style={{ color: 'var(--status-warning)' }}>⚠ {v.warnings.length} warning{v.warnings.length === 1 ? '' : 's'}</div>}</td>
+              <td className="data-changes">{changeLine(v)}{v.edit_ops?.length ? <div className="muted" title={v.edit_ops.map((o) => o.summary).join('\n')} data-testid={`data-ops-${v.v}`}>{v.edit_ops.length} edit{v.edit_ops.length === 1 ? '' : 's'}: {v.edit_ops.slice(0, 2).map((o) => o.summary).join('; ')}{v.edit_ops.length > 2 ? '…' : ''}</div> : null}{v.reason && <div className="muted" title="reason / change ticket" data-testid={`data-reason-${v.v}`}>“{v.reason}”</div>}{v.warnings.length > 0 && <div title={v.warnings.map((w) => w.message).join('\n')} style={{ color: 'var(--status-warning)' }}>⚠ {v.warnings.length} warning{v.warnings.length === 1 ? '' : 's'}</div>}</td>
               <td className="r mono">{v.rows.toLocaleString()} × {v.n_cols ?? '—'}</td>
               <td className="mono" title={v.sha256 ?? ''}>{v.sha256?.slice(0, 10) ?? '—'}{integrity(v)}</td>
               <td className="mono" style={{ fontSize: 12 }}>{v.used_by.runs} run{v.used_by.runs === 1 ? '' : 's'}{v.used_by.versions ? ` · ${v.used_by.versions} model${v.used_by.versions === 1 ? '' : 's'}` : ''}{v.used_by.champion && <div><span className="champ-badge">champion</span></div>}</td>
@@ -253,21 +261,31 @@ function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, 
           )
         })}</tbody>
       </table></div>
-      <VersionActions v={d.versions.find((v) => v.id === focus) ?? null} def={def} root={d.root_id} by={by} onDefault={onDefault} onVerify={onVerify} onArchive={onArchive} />
-      <p className="helper" style={{ fontSize: 12, padding: '6px 16px 10px' }}>Versions are made by transforms (Data Doctor, Feature Lab, relabel, the label queue, drift windows, SQL refresh) or by a new file; cells are never edited by hand. The default is a pointer: rolling back moves it and never changes or copies data. ◇ = new rows with no mapping to the original rows (never paired).</p>
+      <VersionActions v={d.versions.find((v) => v.id === focus) ?? null} def={def} root={d.root_id} by={by} onDefault={onDefault} onVerify={onVerify} onArchive={onArchive} onEdit={onEdit} onAdopt={onAdopt} />
+      <p className="helper" style={{ fontSize: 12, padding: '6px 16px 10px' }}>Versions are made by transforms (Data Doctor, Feature Lab, relabel, the label queue, drift windows, SQL refresh), by a new file, or by an edit; every change is a new version, nothing is modified in place, and a file changed on disk outside the app fails its hash check. The default is a pointer: rolling back moves it and never changes or copies data. ◇ = new rows with no mapping to the original rows (never paired).</p>
     </div>
   )
 }
 
 /** What can be done to the selected version: one bar under the table (the page's primary action stays Upload). */
-function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive }: { v: DsVersion | null; def?: DsVersion; root: string; by: string
-  onDefault: (v: DsVersion) => void; onVerify: (v: DsVersion) => void; onArchive: (v: DsVersion, archived: boolean) => void }) {
+function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEdit, onAdopt }: { v: DsVersion | null; def?: DsVersion; root: string; by: string
+  onDefault: (v: DsVersion) => void; onVerify: (v: DsVersion) => void; onArchive: (v: DsVersion, archived: boolean) => void
+  onEdit: (v: DsVersion) => void; onAdopt: (v: DsVersion, reason: string) => void }) {
+  const [adopt, setAdopt] = useState<string | null>(null)
   if (!v) return null
   const gone = v.state === 'deleted'
+  const bad = v.verified_ok === 0
   return (
     <div className="card-body row data-actions" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="data-actions">
       <b className="mono">v{v.v}</b>
       {gone ? <span className="muted">deleted {when(v.state_at)} by {v.state_by}: the files are gone; this row, lineage.json, the tombstone, every edge and the audit stay.</span> : <>
+        {!bad && <button className="btn sm" disabled={!by} onClick={() => onEdit(v)} data-testid={`data-edit-${v.v}`} title={by ? 'Edit cells, rows and columns; the changes are saved as a new version' : 'Type your name in “acting as” first'}>Edit v{v.v}…</button>}
+        {bad && <div className="data-warn" data-testid={`data-integrity-${v.v}`}><b>v{v.v}'s file was changed outside the app</b> (its sha256 no longer matches): it is not trusted, and training on it is refused.
+          Restore the file, or keep what is on disk as a new, named version:
+          {adopt == null ? <button className="btn sm" style={{ marginLeft: 6 }} disabled={!by} onClick={() => setAdopt('')} data-testid={`data-adopt-${v.v}`}>Create a new version from this file…</button>
+            : <span className="row" style={{ gap: 6, marginTop: 4 }}><input className="input" style={{ flex: 1 }} placeholder="why (required)" value={adopt} onChange={(e) => setAdopt(e.target.value)} data-testid="data-adopt-reason" />
+              <button className="btn sm" disabled={adopt.trim().length < 5} onClick={() => { onAdopt(v, adopt.trim()); setAdopt(null) }} data-testid="data-adopt-ok">Create version</button>
+              <button className="btn sm ghost" onClick={() => setAdopt(null)}>Cancel</button></span>}</div>}
         {!v.is_default && !v.state && <button className="btn sm" disabled={!by} onClick={() => onDefault(v)} data-testid={`data-default-${v.v}`} title="Moves the pointer only: no data changes">{def && v.v < def.v ? `Roll back to v${v.v}` : `Make v${v.v} the default`}</button>}
         <a className="btn sm" href={data.exportUrl(v.id, by || 'unknown')} title="data.csv + lineage.json + manifest.json (hashes, the chain to the root); audited" data-testid={`data-zip-${v.v}`}>Export with lineage (.zip)</a>
         <a className="btn sm ghost" href={data.exportUrl(v.id, by || 'unknown', 'csv')} data-testid={`data-csv-${v.v}`}>CSV only</a>
@@ -314,9 +332,12 @@ function DiffCard({ a, b, name }: { a: string; b: string; name: (id: string) => 
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="diff-schema">
           {s.columns_added.map((c) => <span key={c} className="pt-chip data-add">+ {c}</span>)}
           {s.columns_removed.map((c) => <span key={c} className="pt-chip data-rm">− {c}</span>)}
+          {s.renamed?.map((x) => <span key={x.from} className="pt-chip data-type">renamed {x.from} → {x.to}</span>)}
           {s.type_changes.map((t) => <span key={t.column} className="pt-chip data-type">{t.column}: {t.kind_from} → {t.kind_to}</span>)}
-          {!s.columns_added.length && !s.columns_removed.length && !s.type_changes.length && <span className="helper">same columns and types</span>}
+          {!s.columns_added.length && !s.columns_removed.length && !s.type_changes.length && !s.renamed?.length && <span className="helper">same columns and types</span>}
         </div>
+        {df.edit && <div className="data-preview" data-testid="diff-edit"><b>Edited by {df.edit.by}{df.edit.reason ? <span className="muted" style={{ fontWeight: 400 }}> · “{df.edit.reason}”</span> : null}</b>
+          <ol className="edit-ops">{df.edit.ops.map((o) => <li key={o.i}>{o.summary}{o.examples.length > 0 && <div className="helper" style={{ fontSize: 12 }}>{o.examples.slice(0, 4).map((x, i) => <span key={i} className="data-cell">row {String(x.row)}{x.column ? <> <span className="mono">{x.column}</span> {String(x.old ?? '—')} → <b>{String(x.new ?? '—')}</b></> : x.deleted ? ' deleted' : x.added ? ' added' : ''}</span>)}{o.examples_truncated ? '…' : ''}</div>}</li>)}</ol></div>}
         {df.checks.length > 0 && <div className="data-warn">{df.checks.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>}
         {r.changed_examples.length > 0 && <details><summary className="micro-label">{r.changed_examples.length} changed rows, cell by cell</summary>
           <table className="table"><tbody>{r.changed_examples.map((x) => <tr key={x.row_b}><td className="mono">{x.key != null ? String(x.key) : `row ${x.row_b}`}</td>
@@ -400,9 +421,9 @@ function RemoveCard({ d, by, act }: { d: DsHistory; by: string; act: <T>(p: Prom
             <div className="row" style={{ gap: 6, marginTop: 4 }}>
               <button className="btn sm" disabled={!by} onClick={() => act(data.decideDelete(r.id, true, by), () => `Deleted ${label(r.dataset_id)}: files removed, tombstone and lineage kept.`)} data-testid="data-req-approve">Approve delete</button>
               {me && me === r.requested_by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
-                ? <button className="btn sm ghost" onClick={() => act(data.decideDelete(r.id, false, by), () => 'Your delete request was withdrawn.')} data-testid="data-req-withdraw">Withdraw my request</button>
+                ? <button className="btn sm ghost" onClick={() => act(data.decideDelete(r.id, false, by, '', true), () => 'Your delete request was withdrawn.')} data-testid="data-req-withdraw">Withdraw my request</button>
                 : <button className="btn sm ghost" disabled={!by} onClick={() => act(data.decideDelete(r.id, false, by), () => 'Delete rejected.')}>Reject</button>}
-              <span className="helper">someone other than {r.requested_by}, or an admin</span></div></div>))}
+              <span className="helper">someone other than {r.requested_by} (admins too)</span></div></div>))}
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <select className="select" value={target} onChange={(e) => setTarget(e.target.value)} data-testid="data-remove-target">
             <option value={d.root_id}>the whole dataset</option>

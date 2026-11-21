@@ -85,7 +85,12 @@ def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | 
     roles = detect(df)["columns"]
     drops = run_drops(store, dataset_id, list(df.columns))
     apply = body.get("apply", True) is not False
-    by = str(body.get("by") or "you")
+    from .catalog import governance as G
+
+    # DL3 (m3): the version this job makes records a real name, taken now (the job runs on another thread)
+    by = str(body.get("by") or "").strip()[:80] or G.current_actor()
+    if not by and apply:
+        raise HTTPException(400, "Say who is running Feature Lab: send by (or the X-Ensemble-Actor header); the version it makes records the name.")
 
     def work(job, progress):
         res = fl.search(df, target, holdout_mask(sp, len(df)), roles=roles, drops=drops, entity=entity, candidates=cands,

@@ -124,6 +124,12 @@ def make_splits(y: pd.Series | None, n_rows: int, seed: int, holdout_share: floa
             raise ValueError(f"The {strategy} split needs the data frame.")
         return _structured_split(y, frame, seed, holdout_share, n_folds, strategy, params)
     idx = np.arange(n_rows)
+    n_train = n_rows - int(np.ceil(n_rows * holdout_share))
+    if n_train < n_folds or n_rows < 2:  # DL3 (m4): say it in words, not as sklearn's n_splits error
+        need = int(np.ceil(n_folds / (1 - holdout_share))) + 1
+        raise ValueError(f"This file has {n_rows} data row(s): after setting {holdout_share:.0%} aside as the holdout, {max(0, n_train)} "
+                         f"are left, and at least {n_folds} (one per cross-validation fold) are needed. Upload at least {need} rows "
+                         "(a model needs far more to be useful).")
     labels = None if y is None else y.astype(str).fillna("").to_numpy()
     # Stratify when every class can appear in the holdout and in each fold.
     stratified = labels is not None and pd.Series(labels).nunique() >= 2 and \

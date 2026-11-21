@@ -215,6 +215,10 @@ def history(app, dataset_id: str) -> dict[str, Any]:
         r["n_changes"] = (e.get("meta") or {}).get("n_changes")
         r["warnings"] = ((lin.get("checks") or {}).get("warnings")) or []
         r["reason"] = lin.get("reason") or None  # DL2: the reason / change ticket given when it was made
+        if lin.get("kind") == "edit":  # DL3: an in-app edit: each operation and what it touched
+            r["edit_ops"] = [{k: e.get(k) for k in ("i", "op", "summary", "rows", "cells", "column")} for e in lin.get("edit_log") or []]
+        if lin.get("duplicate_of"):
+            r["duplicate_of"] = lin["duplicate_of"]
         r["paired_with_parent"] = None if not r["parent_id"] else not e.get("inferred", True)
         r["is_default"] = r["id"] == default
         r["tags"] = sorted(tags.get(r["id"], []))
@@ -284,7 +288,20 @@ def diff(app, a: str, b: str) -> dict[str, Any]:
         pairs, how, key = (np.arange(len(fa)), np.arange(len(fb))), "identical files (the same sha256)", None
     else:
         pairs, how, key = _pairs(app, a, b)
+    lb = store.lineage(b) or {}
+    ren = (lb.get("renamed") or {}) if lb.get("kind") == "edit" and lb.get("parent") == a else {}
+    if ren:  # DL3: a column renamed by an edit of a is compared under its old name (its cells, not "removed + added")
+        fb = fb.rename(columns={v: k for k, v in ren.items()})
     out = DV.diff(fa, fb, pairs, how, key)
+    if ren:
+        out["schema"]["renamed"] = [{"from": k, "to": v} for k, v in ren.items()]
+        for c in out["columns"]:
+            if c.get("column") in ren:
+                c["column"] = f"{c['column']} → {ren[c['column']]}"
+        for e in out["rows"]["changed_examples"]:
+            for c in e["cells"]:
+                if c["column"] in ren:
+                    c["column"] = f"{c['column']} → {ren[c['column']]}"
     with db.connect() as con:
         same_root = root_of(con, a) == root_of(con, b)
     tgt = recs[a]["target"]
@@ -292,6 +309,8 @@ def diff(app, a: str, b: str) -> dict[str, Any]:
     out["b"] = {"id": b, "name": recs[b]["name"], "rows": len(fb), "target": recs[b]["target"], "sha256": recs[b].get("sha256")}
     out["same_dataset"] = same_root
     out["checks"] = DV.contract_checks(fa, fb, tgt)["warnings"]
+    if lb.get("kind") == "edit" and lb.get("parent") == a:  # DL3: an edit of a: the operations, their cells old → new
+        out["edit"] = {"by": lb.get("by"), "reason": lb.get("reason"), "ops": lb.get("edit_log") or [], "renamed": ren}
     return json.loads(json.dumps(out, default=lambda v: v.item() if hasattr(v, "item") else str(v)))
 
 
@@ -501,9 +520,10 @@ def request_delete(app, dataset_id: str, by: str, reason: str, only_version: boo
         audit(con, by, "dataset_delete_requested", comment=reason,
               details={"dataset_id": dataset_id, "root_id": root, "request_id": rid, "whole_dataset": whole, **opts,
                        "ids": [r["id"] for r in targets], "needs": "approval by someone other than " + by + " (or an admin)"})
-    if G.is_admin(by):
-        return decide_delete(app, rid, True, by, "admin: deleted at once", admin_self=True)
-    return get_request(app, rid)
+    if G.is_admin(by) and G.allow_admin_self_approve():  # DL3 (m1): only when the policy allows it, and said so in the audit
+        return decide_delete(app, rid, True, by, G.SELF_APPROVED, admin_self=True)
+    return {**get_request(app, rid), **({"note": "you are an admin, but a delete still needs a second person "
+                                                 "(ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off)"} if G.is_admin(by) else {})}
 
 
 def get_request(app, rid: str) -> dict[str, Any]:
@@ -514,21 +534,29 @@ def get_request(app, rid: str) -> dict[str, Any]:
     return dict(r)
 
 
-def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_self: bool = False) -> dict[str, Any]:
+def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_self: bool = False, withdraw: bool = False) -> dict[str, Any]:
     req = get_request(app, rid)
     if req["status"] != "pending":
         raise DsError(409, f"This request is {req['status']}.")
     opts = _j(req.get("options")) or {}
-    if not approve and G.same_person(by, req["requested_by"]):  # DL2 (B8): the requester withdraws their own request
+    mine = G.same_person(by, req["requested_by"])
+    if withdraw and not (mine or G.is_admin(by)):  # DL3 (m6): only the requester (identity key) or an admin withdraws
+        raise DsError(403, f"Only {req['requested_by']} (who asked) or an admin may withdraw this request; {by} may reject it "
+                           "as a reviewer instead (approve: false, with a comment).")
+    if withdraw or (not approve and mine):  # DL2 (B8): the requester withdraws their own request
         with app.state.db.connect() as con:
             con.execute("UPDATE dataset_requests SET status = 'withdrawn', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
                         (by, now(), comment, rid))
             audit(con, by, "dataset_delete_withdrawn", comment=comment,
                   details={"dataset_id": req["dataset_id"], "root_id": req["root_id"], "request_id": rid})
         return get_request(app, rid)
-    if G.same_person(by, req["requested_by"]) and not (admin_self or G.is_admin(by)):
-        raise DsError(403, f"Four eyes: {req['requested_by']} asked for this delete, so someone else (or an admin) must decide "
-                           "(names are compared on letters and digits only; names, not authenticated identities).")
+    self_admin = bool(mine and approve and G.is_admin(by) and G.allow_admin_self_approve())
+    if mine and approve and not self_admin:
+        raise DsError(403, f"Four eyes: {req['requested_by']} asked for this delete, so someone else must decide, admins included "
+                           "(ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off; names are compared on letters and digits only; names, not "
+                           "authenticated identities).")
+    if self_admin and G.SELF_APPROVED not in (comment or ""):
+        comment = G.SELF_APPROVED + (f": {comment}" if comment else "")
     store = app.state.datasets
     with app.state.db.connect() as con:
         root, targets, whole = _targets(con, req["dataset_id"], bool(opts.get("only_version")))
@@ -539,7 +567,7 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
         if not approve:
             audit(con, by, "dataset_delete_rejected", comment=comment,
                   details={"dataset_id": req["dataset_id"], "root_id": root, "request_id": rid, "requested_by": req["requested_by"]})
-            return get_request(app, rid)
+            return dict(con.execute("SELECT * FROM dataset_requests WHERE id = ?", (rid,)).fetchone())  # DL3: as committed
         gone = []
         for r in targets:
             if r["state"] == DELETED:
@@ -563,7 +591,8 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
             gone.append({"id": r["id"], "v": r["v"], "sha256": r["sha256"], **({"holdout_sample": frozen} if frozen else {})})
         audit(con, by, "dataset_deleted", comment=comment or req["reason"],
               details={"dataset_id": req["dataset_id"], "root_id": root, "request_id": rid, "requested_by": req["requested_by"],
-                       "approved_by": by, "admin": G.is_admin(by), "whole_dataset": whole, "deleted": gone})
+                       "approved_by": by, "admin": G.is_admin(by), "self_approved_by_admin": self_admin, "whole_dataset": whole,
+                       "deleted": gone})
     return {**get_request(app, rid), "deleted": gone}
 
 
@@ -608,7 +637,10 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
             ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
             status = "ok" if ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
             con.execute("UPDATE datasets SET verified_at = ?, verified_ok = ? WHERE id = ?", (now(), int(ok), r["id"]))
-            out.append({"id": r["id"], "v": r["v"], "ok": ok, "status": status, "stored": r["sha256"], "now": now_sha})
+            out.append({"id": r["id"], "v": r["v"], "ok": ok, "status": status, "stored": r["sha256"], "now": now_sha,
+                        **({"remedy": f"The file was changed outside the app and is not trusted. Create a new version from it "
+                                      f"(POST /api/datasets/{r['id']}/adopt-disk-file with by and reason), and restore v{r['v']}'s "
+                                      "file from an export or backup."} if status == "MISMATCH" else {})})
         bad = [x for x in out if x["ok"] is False]
         audit(con, by, "dataset_integrity_failed" if bad else "dataset_verified",
               details={"dataset_id": dataset_id, "root_id": root, "checked": len(out), "failed": [x["id"] for x in bad],
@@ -633,9 +665,17 @@ def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[
     if rec.get("state") == ARCHIVED:
         notes.append(f"{dataset_id} is archived (hidden from pickers by {rec.get('state_by')} on {str(rec.get('state_at'))[:10]}); "
                      "training on it is allowed and recorded.")
-    if rec.get("verified_ok") != 0:
-        return {"integrity": "ok" if rec.get("verified_ok") == 1 else "not verified", "notes": notes}
     reason = str(override or "").strip()
+    if rec.get("verified_ok") != 0:
+        out = {"integrity": "ok" if rec.get("verified_ok") == 1 else "not verified", "notes": notes,
+               "checked_at_fit": "the worker hashes the bytes it reads at fit start and refuses the fit if they differ"}
+        if reason:  # DL3 (M1): an admin may arm an override for the fit-time check (audited only if it is used)
+            if not G.is_admin(by):
+                raise DsError(403, f"Only an admin (ENSEMBLE_ADMINS) may override the integrity check; {by or 'nobody'} is not one.")
+            if len(reason) < 10:
+                raise DsError(400, "An override needs a reason of at least 10 characters (it goes in the audit log).")
+            out["override_armed"] = {"by": by, "reason": reason[:1000]}
+        return out
     msg = (f"{dataset_id}'s last integrity check ({str(rec.get('verified_at'))[:19]}) was a MISMATCH: data.csv no longer has the "
            "sha256 stored when the version was made. Restore the file and verify again (Data → Check every hash), or an admin "
            'sends {"integrity_override_reason": "…", "by": "<admin>"} to train on it anyway (audited).')
@@ -648,7 +688,8 @@ def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[
     with app.state.db.connect() as con:
         audit(con, by, "training_integrity_override", comment=reason[:1000],
               details={"dataset_id": dataset_id, "root_id": rec.get("root_id") or dataset_id, "verified_at": rec.get("verified_at")})
-    return {"integrity": "MISMATCH, overridden", "override_by": by, "override_reason": reason[:1000], "notes": notes}
+    return {"integrity": "MISMATCH, overridden", "override_by": by, "override_reason": reason[:1000], "notes": notes,
+            "override_armed": {"by": by, "reason": reason[:1000]}}
 
 
 def export_manifest(app, dataset_id: str, by: str) -> dict[str, Any]:

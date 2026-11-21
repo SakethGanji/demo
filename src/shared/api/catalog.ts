@@ -73,6 +73,8 @@ export type DsVersion = {
   verified_at: string | null; verified_ok: number | null; size_bytes: number; is_default: boolean; tags: string[]; n_changes: number | null; paired_with_parent: boolean | null
   changes: { matched_by?: string; matched?: number; changed?: number; added?: number; removed?: number; rows_before?: number; rows_after?: number; relabelled?: number; dropped?: number; synthetic?: number }
   warnings: DsWarning[]; used_by: { runs: number; versions: number; champion: boolean }; reason: string | null; state_scope?: 'dataset' | 'version' | null
+  /** DL3: an in-app edit: each operation and what it touched */
+  edit_ops?: { i: number; op: string; summary: string; rows: number | null; cells: number | null; column: string | null }[]; duplicate_of?: string
 }
 export type DsRequest = { id: string; dataset_id: string; root_id: string; action: 'delete'; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; requested_by: string; requested_at: string; reason: string; decided_by: string | null; decided_at: string | null; comment: string }
 export type DsAudit = { id: number; ts: string; actor: string; action: string; comment: string; details: Record<string, unknown> | null }
@@ -82,15 +84,24 @@ export type DsRow = { root_id: string; name: string; source: string; state: stri
 export type DsColStat = { column: string; kind: string; in: 'both' | 'a' | 'b'; missing_a: number | null; missing_b: number | null; mean_a?: number | null; mean_b?: number | null; median_a?: number | null; median_b?: number | null; top_a?: { value: string; share: number }[] | null; top_b?: { value: string; share: number }[] | null; psi?: number | null; band?: string | null; note?: string }
 export type DsDiff = {
   a: { id: string; name: string; rows: number; target: string | null; sha256: string | null }; b: { id: string; name: string; rows: number; target: string | null; sha256: string | null }; same_dataset: boolean
-  schema: { columns_added: string[]; columns_removed: string[]; type_changes: { column: string; from: string; to: string; kind_from: string; kind_to: string }[]; dtype_changes: { column: string; from: string; to: string }[]; n_columns: [number, number] }
+  schema: { columns_added: string[]; columns_removed: string[]; type_changes: { column: string; from: string; to: string; kind_from: string; kind_to: string }[]; dtype_changes: { column: string; from: string; to: string }[]; n_columns: [number, number]; renamed?: { from: string; to: string }[] }
   rows: { a: number; b: number; matched: number; unchanged: number; changed: number; added: number; removed: number; matched_by: string; note: string; changed_examples: { row_a: number; row_b: number; key?: unknown; cells: { column: string; a: unknown; b: unknown }[] }[] }
   columns: DsColStat[]; checks: DsWarning[]
+  /** DL3: b is an edit of a: its operations with their cells, old → new (capped per operation) */
+  edit?: { by: string; reason: string | null; ops: DsEditLog[]; renamed: Record<string, string> }
 }
+// DL3: edit-as-version (backend/app/dataset_edit.py)
+export type DsEditOp = { op: string; [k: string]: unknown }
+export type DsEditLog = { i: number; op: string; summary: string; rows?: number; cells?: number; column?: string; examples: { row: number | string; column?: string; old?: unknown; new?: unknown; deleted?: Record<string, unknown>; added?: Record<string, unknown> }[]; examples_truncated: boolean }
+export type DsGrid = { dataset_id: string; columns: { name: string; kind: string }[]; rows: Record<string, unknown>[]; total: number; matching: number; offset: number; limit: number; q: string }
+export type DsEditSummary = { matched: number; changed: number; added: number; removed: number; columns_before: number; columns_after: number; renamed: Record<string, string>
+  checks: DsUploadSummary['checks']; edit_log: DsEditLog[]; ops_summary: string[]; n_ops: number; duplicate_of?: string }
+export type DsEditPreview = DsEditSummary & { preview: true; v: number; parent: string; rows: number; n_cols: number; sha256: string; would_be_default: boolean; columns: string[]; sample: Record<string, unknown>[]; note: string }
 export type DsUsage = { dataset_id: string; datasets: string[]; runs: { id: string; name: string; status: string; dataset_id: string; label: string; created_at: string; primary_metric: string | null; primary_score: number | null }[]; versions: { id: string; model_name: string; version: number; run_id: string; status: string; stage: string; approval: string; dataset_id: string; retired: boolean; retired_at: string | null }[]; champions: ChampionRequest[]; blocks_archive: string[]; blocks_archive_or_delete: string[] }
 export type DsUploadSummary = { matched_by: string; matched: number; changed: number; added: number; removed: number; reason?: string
   checks: { warnings: DsWarning[]; columns_added: string[]; columns_removed: string[]; type_changes: { column: string; kind_from: string; kind_to: string; from: string; to: string }[]; rows_before: number; rows_after: number } }
 export type DsUploadPreview = DsUploadSummary & { preview: true; v: number; parent: string; filename: string; rows: number; n_cols: number; sha256: string; would_be_default: boolean; note: string }
-export type DsVerify = { root_id: string; ok: boolean; results: { id: string; v: number; ok: boolean | null; status: string; stored: string | null; now?: string | null }[] }
+export type DsVerify = { root_id: string; ok: boolean; results: { id: string; v: number; ok: boolean | null; status: string; stored: string | null; now?: string | null; remedy?: string }[] }
 
 export const data = {
   search: (f: { q?: string; project?: string; tag?: string; owner?: string; op?: string; since?: string; until?: string; state?: string }) => {
@@ -120,7 +131,14 @@ export const data = {
   editCard: (id: string, fields: Partial<DsCard> & { name?: string }, by: string) => json<DsCard>(`/datasets/${e(id)}/card`, 'PATCH', { ...fields, by }),
   archive: (id: string, archived: boolean, by: string, reason = '', only_version = false) => json<{ ids: string[]; state: string }>(`/datasets/${e(id)}/archive`, 'POST', { archived, by, reason, only_version }),
   requestDelete: (id: string, by: string, reason: string, only_version = false, freeze_holdout = false) => json<DsRequest & { deleted?: unknown[] }>(`/datasets/${e(id)}/delete`, 'POST', { by, reason, only_version, freeze_holdout }),
-  decideDelete: (rid: string, approve: boolean, by: string, comment = '') => json<DsRequest>(`/dataset-requests/${e(rid)}/decide`, 'POST', { approve, by, comment }),
+  decideDelete: (rid: string, approve: boolean, by: string, comment = '', withdraw = false) => json<DsRequest>(`/dataset-requests/${e(rid)}/decide`, 'POST', withdraw ? { withdraw: true, by, comment } : { approve, by, comment }),
+  grid: (id: string, o: { offset?: number; limit?: number; q?: string } = {}) =>
+    request<DsGrid>(`/datasets/${e(id)}/grid?offset=${o.offset ?? 0}&limit=${o.limit ?? 50}&q=${e(o.q ?? '')}`, { timeoutMs: 60_000 }),
+  /** DL3: typed operations → a NEW version (nothing modified in place). preview=true writes nothing. */
+  editPreview: (id: string, ops: DsEditOp[], by: string) => json<DsEditPreview>(`/datasets/${e(id)}/edit`, 'POST', { ops, by, preview: true }, 120_000),
+  edit: (id: string, ops: DsEditOp[], by: string, reason: string, make_default: 'auto' | 'no' = 'auto') =>
+    json<import('./types').DatasetDetail & { created: boolean; duplicate_of?: string; edit: DsEditSummary; default?: { is_default: boolean; why: string } }>(`/datasets/${e(id)}/edit`, 'POST', { ops, by, reason, make_default }, 300_000),
+  adoptDiskFile: (id: string, by: string, reason: string) => json<import('./types').DatasetDetail & { upload: DsUploadSummary }>(`/datasets/${e(id)}/adopt-disk-file`, 'POST', { by, reason }, 300_000),
   verify: (id: string, by: string, all = false) => json<DsVerify>(`/datasets/${e(id)}/verify`, 'POST', { by, all }, 120_000),
   exportUrl: (id: string, by: string, format: 'zip' | 'csv' = 'zip') => `/api/datasets/${e(id)}/export?format=${format}&by=${e(by)}`,
 }

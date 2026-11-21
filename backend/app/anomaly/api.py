@@ -146,10 +146,14 @@ def _run(request: Request, run_id: str, done: bool = True) -> dict[str, Any]:
 
 @router.get("/runs/{run_id}/top")
 def top(run_id: str, request: Request, contamination: float | None = Query(None, gt=0, lt=0.5),
-        limit: int = Query(100, ge=1, le=1000)) -> dict[str, Any]:
+        limit: int = Query(100, ge=1, le=1000), by: str = "") -> dict[str, Any]:
     """The most anomalous rows with their reasons; with `contamination`, the threshold and the flags at that share
-    (and, for the sample, precision@k against the hidden ground truth)."""
+    (and, for the sample, precision@k against the hidden ground truth). DL3 (m2): a read of rows, audited (needs a name)."""
+    from ..catalog import governance as G
+
+    G.reader(by)
     rec = _run(request, run_id)
+    G.run_read_audit(request.app, "anomaly_top", run_id, {"limit": limit}, by=by)
     d = Path(rec["config"]["run_dir"])
     a = (rec.get("result") or {}).get("anomaly") or {}
     rows = json.loads((d / "top.json").read_text())

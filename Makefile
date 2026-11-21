@@ -77,14 +77,20 @@ e2e:
 
 ## Reset the workbench: delete every run, registered model, batch, autopilot, MLflow record and uploaded dataset, and
 ## regenerate the (seeded) samples. Through the running API when it answers on :$(API_PORT) (POST /api/admin/reset; refused
-## while a run is active), else offline with python -m app.reset.
+## while a run is active), else offline with python -m app.reset. DL3: governed on both paths. It needs the API (or this
+## shell) to run with ENSEMBLE_DEMO_MODE=1 and BY=<an admin from ENSEMBLE_ADMINS>; while a registered model or a champion
+## is live it also needs REQUEST=<an approved four-eyes reset request> (POST /api/admin/reset-requests). The audit log is
+## kept and records the reset. Local dev: ENSEMBLE_DEMO_MODE=1 ENSEMBLE_ADMINS=you make dev, then make reset BY=you.
+comma := ,
+BY ?=
+REQUEST ?=
 reset:
 	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
-		curl -sf -X POST http://127.0.0.1:$(API_PORT)/api/admin/reset -H 'content-type: application/json' -d '{"confirm":"reset"}' \
-		| $(PY) -c 'import json,sys; d=json.load(sys.stdin); print("reset via the API:", d["deleted"], "· samples regenerated:", ", ".join(d["samples"]))' \
-		|| { echo "reset refused (is a run active?)"; exit 1; }; \
+		curl -s -X POST http://127.0.0.1:$(API_PORT)/api/admin/reset -H 'content-type: application/json' \
+			-d '{"confirm":"reset","by":"$(BY)"$(if $(REQUEST),$(comma)"request_id":"$(REQUEST)",)}' \
+		| $(PY) -c 'import json,sys; d=json.load(sys.stdin); print("reset via the API:", d["deleted"], "· samples regenerated:", ", ".join(d["samples"])) if "deleted" in d else (print("reset refused:", json.dumps(d.get("detail"), indent=1)), sys.exit(1))'; \
 	else \
-		cd backend && .venv/bin/python -m app.reset; \
+		cd backend && .venv/bin/python -m app.reset --by "$(BY)" $(if $(REQUEST),--request $(REQUEST),); \
 	fi
 
 ## Delete the local data folder (datasets, database). The samples are regenerated on the next start.

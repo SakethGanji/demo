@@ -325,15 +325,19 @@ def get_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/shift/{key}/rows")
-def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: int = 100000) -> dict[str, Any]:
+def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: int = 100000, by: str = "") -> dict[str, Any]:
     """Per row: its set, origin o, row number (in the dataset, or in the batch file) and the out-of-fold P(o = 1 | x);
-    reference rows also carry their weight w. Paged."""
+    reference rows also carry their weight w. Paged. DL3 (m2): audited as a read (needs a name)."""
+    from ..catalog import governance as G
+
+    G.reader(by)
     rec = run_or_404(request, run_id)
     if not re.fullmatch(r"[a-z0-9_-]+", key):
         raise HTTPException(400, "Bad key.")
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
     if not (d / "scores.csv").exists():
         raise HTTPException(404, "No finished shift check with this key.")
+    G.run_read_audit(request.app, "shift_rows", run_id, {"key": key}, by=by)
     sc = pd.read_csv(d / "scores.csv")
     w = pd.read_csv(d / "weights.csv")
     sc["w"] = np.nan

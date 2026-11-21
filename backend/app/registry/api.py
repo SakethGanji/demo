@@ -499,9 +499,10 @@ async def request_retire(vid: str, body: dict[str, Any], request: Request) -> di
                     " VALUES (?, ?, 'retire', 'pending', ?, ?, ?)", (rid, vid, who, now(), reason))
     _reg(request).audit(actor=who, action="retire_requested", version=v, comment=reason,
                         details={"request_id": rid, "needs": "approval by someone other than " + who + " (or an admin)"})
-    if G.is_admin(who):
-        return await _decide_retire(request, rid, True, who, "admin: retired at once", admin_self=True)
-    return _vreq(request, rid)
+    if G.is_admin(who) and G.allow_admin_self_approve():  # DL3 (m1): only when the policy allows it, and said so in the audit
+        return await _decide_retire(request, rid, True, who, G.SELF_APPROVED, admin_self=True)
+    return {**_vreq(request, rid), **({"note": "you are an admin, but a retirement still needs a second person "
+                                               "(ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off)"} if G.is_admin(who) else {})}
 
 
 @router.post("/registry/version-requests/{rid}/decide")
@@ -528,9 +529,13 @@ async def _decide_retire(request: Request, rid: str, approve: bool, who: str, co
     reg = _reg(request)
     v = _version(request, req["version_id"])
     mine = G.same_person(who, req["requested_by"])
-    if mine and approve and not (admin_self or G.is_admin(who)):
-        raise HTTPException(403, f"Four eyes: {req['requested_by']} asked to retire this version, so someone else (or an admin) must "
-                                 "approve (names are compared on letters and digits only; names, not authenticated identities).")
+    self_admin = mine and approve and G.is_admin(who) and G.allow_admin_self_approve()
+    if mine and approve and not self_admin:
+        raise HTTPException(403, f"Four eyes: {req['requested_by']} asked to retire this version, so someone else must approve, "
+                                 "admins included (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off; names are compared on letters and "
+                                 "digits only; names, not authenticated identities).")
+    if self_admin:
+        comment = G.SELF_APPROVED + (f": {comment}" if comment and comment != G.SELF_APPROVED else "")
     status = "approved" if approve else ("withdrawn" if mine else "rejected")
     if approve:
         _retire_check(request, v)  # re-checked: it may have become champion since
@@ -547,9 +552,9 @@ async def _decide_retire(request: Request, rid: str, approve: bool, who: str, co
     reg.audit(actor=who, action="retired", version=v2, from_stage=stage if stage != "Archived" else None,
               to_stage="Archived" if stage != "Archived" else None, comment=comment or req["reason"],
               details={"request_id": rid, "requested_by": req["requested_by"], "approved_by": who, "admin": G.is_admin(who),
-                       "reason": req["reason"]})
+                       "reason": req["reason"], "self_approved_by_admin": self_admin})
     await _sync(request, v2, {"retired_by": who})
-    return {**_vreq(request, rid), "version": version_out(v2, full=False)}
+    return {**_vreq(request, rid), "version": version_out(v2, full=False), "self_approved_by_admin": self_admin}
 
 
 @router.get("/registry/versions/{vid}/retire")

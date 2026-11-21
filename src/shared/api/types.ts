@@ -428,6 +428,9 @@ export type Holdout = {
 }
 
 export type Run = {
+  /** DL3 (M1): sha256 of the bytes the fit read, and the check against the version's stored hash */
+  data_sha256?: string | null
+  data_integrity?: { data_sha256: string; expected: string | null; match: boolean | null; basis: string; dataset_id: string; version: string | null } | null
   /** tabular | import | forecast | anomaly */
   kind?: string
   /** F4: the (label, strategy) split this run trained and scored on; absent on runs made before F4. */

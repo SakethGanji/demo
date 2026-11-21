@@ -149,7 +149,9 @@ class Pilot:
         self.store = mgr.store
         self.aid = aid
         self.st = self.store.get(aid)
-        self.c = httpx.Client(base_url=self.st["base_url"], timeout=httpx.Timeout(300, connect=10))
+        # DL3 (m2): a background job reads rows as itself, labelled as a system job
+        self.c = httpx.Client(base_url=self.st["base_url"], timeout=httpx.Timeout(300, connect=10),
+                              headers={"X-Ensemble-Actor": f"system:autopilot {aid}"})
         self._holdout_cache: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------ plumbing

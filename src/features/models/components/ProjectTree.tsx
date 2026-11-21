@@ -70,14 +70,15 @@ function DatasetNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
         <Tags n={n} />
         {!edge && <button className="chip-btn" onClick={() => ctx.go(`models?tab=Data&dataset=${n.id}`)} data-testid={`pt-data-${n.id}`} title="Versions, diff, what used each one, card, export">Data →</button>}</div>
       {(versions.length > 0 || runs.length > 0) && <ul>
-        {runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} /> : null })}
+        {runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} trained={e} /> : null })}
         {versions.map((e) => { const d = ctx.ix.node.get(`dataset:${e.dst.id}`); return d ? <DatasetNode key={d.id} n={d} ctx={ctx} edge={e} /> : null })}
       </ul>}
     </li>
   )
 }
 
-function RunNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
+function RunNode({ n, ctx, edge, trained }: { n: LNode; ctx: Ctx; edge?: LEdge; trained?: LEdge }) {
+  const sha = trained?.meta.data_sha256 as string | undefined
   const outs = ctx.ix.out.get(`run:${n.id}`) ?? []
   const branches = outs.filter((e) => e.relation === 'branched_from')
   const builds = outs.filter((e) => e.relation === 'built_from')
@@ -93,6 +94,7 @@ function RunNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
         <button className="linkish" onClick={() => ctx.go(`models?run=${n.id}`)}>{n.name}</button> <span className="mono muted">{n.id}</span>
         {edge?.meta.patch && <span className="pt-chip">{String(edge.meta.patch)}</span>}
         {v && <span className={`pt-v ${verdictClass(v)}`} data-testid={`pt-verdict-${n.id}`}>{v}</span>}
+        {sha && <span className={`pt-chip mono ${trained?.meta.data_sha256_match === false ? 'appr-rejected' : ''}`} title={`DL3: sha256 of the bytes this run read: ${sha}${trained?.meta.data_sha256_match === false ? ' (differs from its version)' : ''}`}>data {sha.slice(0, 8)}{trained?.meta.data_sha256_match === false ? ' ✕' : ''}</span>}
         <span className="mono pt-score">{n.status !== 'succeeded' ? n.status : n.primary_metric ? `${n.primary_metric} ${fmtScore(n.primary_score, 4)}` : ''}</span>
         {n.predictor_state && n.predictor_state !== 'present' && n.predictor_state !== 'none' && <span className={`pt-chip state-${n.predictor_state}`} title={n.predictor_state === 'evicted' ? 'predictor deleted by retention: scores and holdout predictions kept; re-fit from config to predict' : 'only the best model kept'}>{n.predictor_state}</span>}
         <Tags n={n} />

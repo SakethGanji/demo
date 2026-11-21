@@ -82,6 +82,15 @@ def is_admin(name: str | None) -> bool:
     return bool(k) and k in admins()
 
 
+def allow_admin_self_approve() -> bool:
+    """DL3 (m1): may an admin approve their own retire / delete request? Default no: a second person decides, admins
+    included (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1 allows it; the audit then says "self-approved by admin")."""
+    return os.environ.get("ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE", "").strip().lower() in ("1", "true", "yes")
+
+
+SELF_APPROVED = "SELF-APPROVED BY ADMIN (no second person; ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1)"
+
+
 def allow_self_promote() -> bool:
     """Policy: may the person who registered a version also move it to Production once someone else approved it?
     Default no (ENSEMBLE_ALLOW_SELF_PROMOTE=1 to allow; the audit records it as a self-promotion either way)."""
@@ -167,22 +176,45 @@ def refused(db: Any, by: str | None, action: str, status: int, message: Any, det
         pass
 
 
+def reader(by: str | None = None) -> str:
+    """DL3 (m2): the name behind a read of rows: `by`, else the X-Ensemble-Actor header. Anonymous reads are refused (400)."""
+    from fastapi import HTTPException
+
+    s = str(by or "").strip()[:80] or current_actor()
+    if not s or not identity_key(s):
+        raise HTTPException(400, "Say who is reading these rows: send by=<your name> or the X-Ensemble-Actor header "
+                                 "(reads of rows are audited; there is no sign-in).")
+    return s
+
+
 def read_audit(db: Any, what: str, dataset_id: str, details: dict[str, Any] | None = None, by: str | None = None) -> bool:
     """DL2: a read of a dataset's rows (row lookup, preview, export) is audited as dataset_read, once per person,
-    version and kind of read every READ_AUDIT_DEDUPE_S seconds. Returns True when a row was written."""
+    version and kind of read every READ_AUDIT_DEDUPE_S seconds. Returns True when a row was written. DL3 (m2): the
+    person is required (reader(): `by` or the header; anonymous → 400) and the dedupe compares identity keys, so
+    "Erin" and "e.rin" are one reader."""
     from datetime import datetime, timedelta, timezone
 
     from .schema import audit
 
-    who = by or current_actor("anonymous")
+    who = reader(by)
+    key = identity_key(who)
     since = (datetime.now(timezone.utc) - timedelta(seconds=READ_AUDIT_DEDUPE_S)).isoformat(timespec="seconds")
     with db.connect() as con:
         r = con.execute("SELECT root_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
         root = (r[0] if r else None) or dataset_id
-        if con.execute("SELECT 1 FROM audit_log WHERE action = 'dataset_read' AND actor = ? AND ts >= ?"
+        if con.execute("SELECT 1 FROM audit_log WHERE action = 'dataset_read' AND ts >= ? AND json_extract(details, '$.actor_key') = ?"
                        " AND json_extract(details, '$.dataset_id') = ? AND json_extract(details, '$.read') = ? LIMIT 1",
-                       (who, since, dataset_id, what)).fetchone():
+                       (since, key, dataset_id, what)).fetchone():
             return False
-        audit(con, who, "dataset_read", {"dataset_id": dataset_id, "root_id": root, "read": what,
+        audit(con, who, "dataset_read", {"dataset_id": dataset_id, "root_id": root, "read": what, "actor_key": key,
                                          "dedupe_seconds": READ_AUDIT_DEDUPE_S, **(details or {})})
     return True
+
+
+def run_read_audit(app: Any, what: str, run_id: str, details: dict[str, Any] | None = None, by: str | None = None) -> None:
+    """DL3 (m2): a read of a run's rows (anomaly top rows, shift rows, holdout predictions) is a read of its dataset."""
+    who = reader(by)
+    rec = app.state.runs.get(run_id) if hasattr(app.state, "runs") else None
+    ds = (rec or {}).get("dataset_id") or ((rec or {}).get("config") or {}).get("dataset_id")
+    if ds:
+        read_audit(app.state.db, what, ds, {"run_id": run_id, **(details or {})}, by=who)

@@ -117,6 +117,22 @@ CREATE TABLE IF NOT EXISTS version_requests (
 );
 CREATE INDEX IF NOT EXISTS ix_version_requests ON version_requests (version_id, status);
 
+-- DL3 (C1): an admin reset while models or champions are live needs four eyes: one person asks, another approves.
+-- Kept through a reset, like the audit log.
+CREATE TABLE IF NOT EXISTS admin_requests (
+    id            TEXT PRIMARY KEY,
+    action        TEXT NOT NULL CHECK (action IN ('reset')),
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'withdrawn', 'used')),
+    requested_by  TEXT NOT NULL,
+    requested_at  TEXT NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    decided_by    TEXT,
+    decided_at    TEXT,
+    comment       TEXT NOT NULL DEFAULT '',
+    used_at       TEXT,
+    used_by       TEXT
+);
+
 CREATE TABLE IF NOT EXISTS catalog_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL

@@ -40,3 +40,20 @@
 .data-versions td.mono { font-size: 12px; }
 .data-audit-line { font-size: 11px; white-space: normal; overflow-wrap: anywhere; max-width: 260px; }
 [data-testid="data-audit"] td { white-space: normal; overflow-wrap: anywhere; }
+/* DL3: edit-as-version */
+.edit-bar { gap: 8px; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--border-default); }
+.edit-sep { flex: 1; }
+.edit-grid-wrap { max-height: 420px; overflow: auto; }
+.edit-grid td, .edit-grid th { padding: 4px 8px; font-size: 12.5px; white-space: nowrap; }
+.edit-cell { cursor: text; }
+.edit-cell:hover { background: var(--status-info-bg); }
+.edit-pending { background: var(--status-warning-bg); font-weight: 700; }
+.edit-deleted td { text-decoration: line-through; opacity: .5; background: var(--status-danger-bg); }
+.edit-newrow td { background: var(--status-success-bg); }
+.edit-cell-input { height: 26px; padding: 2px 6px; font-size: 12.5px; min-width: 80px; }
+.edit-tools { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border-default); }
+.edit-form { gap: 6px; flex-wrap: wrap; align-items: center; }
+.edit-pending-box { border-top: 1px solid var(--border-default); display: flex; flex-direction: column; gap: 6px; }
+.edit-ops { margin: 0 0 0 18px; padding: 0; font-size: 12.5px; }
+.edit-ops li { margin: 2px 0; }
+.nowrap { white-space: nowrap; }
