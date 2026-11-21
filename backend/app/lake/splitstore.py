@@ -514,7 +514,10 @@ def integrity(db, store: BlobStore, row: dict[str, Any], *, exclude_run: str | N
         d3 = (f"audit #{a['id']} ({a['ts'][:19]}, {a['actor']}) records " +
               ("the same split_sha256 and blob" if c3 else f"split_sha256 {str(ad.get('split_sha256'))[:12]}…, blob "
                                                          f"{str(ad.get('blob_sha256'))[:12]}…"))
-        d3 += "; chain link: " + ("present (P19 verifies the chain)" if a.get("row_hash") else "not written yet (the chain starts in P19)")
+        with db.connect() as con:  # P19: the row's hash-chain link (re-hashes, and the team's next row links to it)
+            link_ok, link = S.audit_link(con, a["id"])
+        c3 = c3 and link_ok
+        d3 += "; chain link: " + link
     checks.append({"n": 3, "check": "audit", "ok": c3, "detail": d3})
     ev = [e for e in evidence_runs(db, row["version_id"], row["table_name"], row["split_key"], row["id"]) if e["run_id"] != exclude_run]
     differ = [e for e in ev if (e["split_sha256"] or None) not in (None, row["split_sha256"])

@@ -275,12 +275,174 @@ def add_edge(con: sqlite3.Connection, src: tuple[str, str], dst: tuple[str, str]
                       json.dumps(meta, default=str) if meta else None, int(inferred), created_at or now()))
 
 
-def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict[str, Any], comment: str = "",
-          run_id: str | None = None) -> None:
-    """DL1: an audit_log row written on the caller's connection (the registry's audit() opens its own). Dataset actions
-    carry details.dataset_id and details.root_id, so a dataset's history is one query."""
-    con.execute("INSERT INTO audit_log (ts, actor, action, run_id, comment, details) VALUES (?, ?, ?, ?, ?, ?)",
-                (now(), actor or "system", action, run_id, comment or "", json.dumps(details, default=str)))
+def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict[str, Any] | None = None, comment: str = "",
+          run_id: str | None = None, **cols: Any) -> int:
+    """DL1: an audit_log row written on the caller's connection. Dataset actions carry details.dataset_id and
+    details.root_id, so a dataset's history is one query.
+
+    P19 (C §1.7): every row is team-scoped and hash-chained. `cols` may set team_id, project_id, object_kind, object_id,
+    principal_id, auth, request_id, decision and the registry's columns (model_name, version, version_id, from_stage,
+    to_stage, model_hash). What is not given is filled: the team from the object (dataset → run → model version →
+    project → tm_default), the principal, auth and request id from the current request (authz.context). Then
+    row_hash = sha256(prev_hash + "\\n" + canonical(row)), prev_hash = the team's previous row_hash. Returns the id."""
+    d = details if isinstance(details, dict) else {}
+    row: dict[str, Any] = {c: None for c in AUDIT_CHAIN_COLS}
+    row.update({"ts": now(), "actor": actor or "system", "action": action, "run_id": run_id, "comment": comment or "",
+                "details": json.dumps(d, default=str)})
+    row.update({k: v for k, v in cols.items() if k in AUDIT_CHAIN_COLS and k not in ("prev_hash",)})
+    if isinstance(row["decision"], dict):
+        row["decision"] = json.dumps(row["decision"], sort_keys=True, default=str)
+    _audit_scope(con, row, d)
+    _audit_who(con, row)
+    key = f"audit_head:{row['team_id']}"
+    # the write lock first (a write statement), so two writers never chain onto the same head
+    con.execute("INSERT INTO catalog_meta (key, value) VALUES (?, '') ON CONFLICT (key) DO UPDATE SET value = value", (key,))
+    head = con.execute("SELECT value FROM catalog_meta WHERE key = ?", (key,)).fetchone()[0] or ""
+    row["prev_hash"] = head
+    h = audit_row_hash(row)
+    names = list(AUDIT_CHAIN_COLS) + ["row_hash"]
+    cur = con.execute(f"INSERT INTO audit_log ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
+                      [row[c] for c in AUDIT_CHAIN_COLS] + [h])
+    con.execute("UPDATE catalog_meta SET value = ? WHERE key = ?", (h, key))
+    return int(cur.lastrowid)
+
+
+#: the columns a row's hash covers (everything but id and row_hash), in this order
+AUDIT_CHAIN_COLS = ("ts", "actor", "action", "model_name", "version", "version_id", "run_id", "from_stage", "to_stage",
+                    "comment", "model_hash", "details", "team_id", "project_id", "object_kind", "object_id", "principal_id",
+                    "auth", "request_id", "decision", "prev_hash")
+
+
+def audit_row_hash(row: Any) -> str:
+    """sha256(prev_hash + "\\n" + canonical JSON of the chained columns): the same bytes on SQLite and Postgres."""
+    r = {c: row[c] for c in AUDIT_CHAIN_COLS}
+    body = json.dumps({k: v for k, v in r.items() if k != "prev_hash"}, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False, default=str)
+    return hashlib.sha256(f"{r['prev_hash'] or ''}\n{body}".encode()).hexdigest()
+
+
+def _audit_scope(con: sqlite3.Connection, row: dict[str, Any], d: dict[str, Any]) -> None:
+    def one(q: str, a: Any) -> Any:
+        try:
+            return con.execute(q, (a,)).fetchone()
+        except sqlite3.Error:  # an early start (before the P01 columns) audits into tm_default
+            return None
+
+    team, project = row.get("team_id") or d.get("team_id"), row.get("project_id") or d.get("project_id")
+    if not team:
+        for k in ("dataset_id", "root_id"):
+            if isinstance(d.get(k), str) and (r := one("SELECT COALESCE(d.team_id, p.team_id), d.project_id FROM datasets d"
+                                                     " LEFT JOIN projects p ON p.id = d.project_id WHERE d.id = ?", d[k])):
+                team, project = r[0], project or r[1]
+                break
+    rid = row.get("run_id") or d.get("run_id")
+    vid = row.get("version_id") or (d.get("version_id") if str(d.get("version_id") or "").startswith("mv_") else None)
+    if not team and vid and (r := one("SELECT run_id FROM model_versions WHERE id = ?", vid)):
+        rid = rid or r[0]
+    if not team and isinstance(rid, str) and (r := one("SELECT COALESCE(r.team_id, p.team_id), r.project_id FROM runs r"
+                                                    " LEFT JOIN projects p ON p.id = r.project_id WHERE r.id = ?", rid)):
+        team, project = r[0], project or r[1]
+    if not team and isinstance(project, str) and (r := one("SELECT team_id FROM projects WHERE id = ?", project)):
+        team = r[0]
+    if not team:  # a row that names no object (a refusal): the object this request was authorised against
+        try:
+            from ..authz.context import current
+            dec = [x for x in (current().decisions if current() else []) if x.get("team")]
+        except Exception:  # noqa: BLE001
+            dec = []
+        if dec:
+            team = dec[-1]["team"]
+            if not row.get("object_kind") and dec[-1].get("object_id"):
+                row["object_kind"], row["object_id"] = dec[-1].get("object_kind"), dec[-1]["object_id"]
+    row["team_id"] = team or DEFAULT_TEAM
+    row["project_id"] = project if isinstance(project, str) else None
+    if not row.get("object_kind"):
+        for kind, v in (("dataset", d.get("dataset_id")), ("run", rid), ("model_version", vid), ("project", project)):
+            if isinstance(v, str) and v:
+                row["object_kind"], row["object_id"] = kind, v
+                break
+
+
+def _audit_who(con: sqlite3.Connection, row: dict[str, Any]) -> None:
+    from .governance import identity_key
+
+    try:
+        from ..authz.context import current
+        ctx = current()
+    except Exception:  # noqa: BLE001 - no request (a job, a backfill)
+        ctx = None
+    if ctx is not None:
+        row["request_id"] = row.get("request_id") or ctx.request_id
+    k = identity_key(row["actor"])
+    p = ctx.principal if ctx is not None else None
+    if not row.get("principal_id") and p is not None and (identity_key(p.display_name) == k or p.auth == "agent"):
+        row["principal_id"], row["auth"] = p.id, row.get("auth") or p.auth  # the agent writes as "Vela agent on behalf of X"
+    if not row.get("principal_id") and k:
+        try:
+            r = con.execute("SELECT id, kind FROM principals WHERE identity_key = ?", (k,)).fetchone()
+        except sqlite3.Error:
+            r = None
+        if r:
+            row["principal_id"] = r[0]
+            row["auth"] = row.get("auth") or ("typed" if r[1] == "person" else r[1])
+    if not row.get("auth"):
+        row["auth"] = "system" if k in ("", "system") else "typed"
+
+
+def verify_audit_chain(con: sqlite3.Connection, team_id: str) -> dict[str, Any]:
+    """Walk a team's chain from its first hashed row: every row re-hashes to its row_hash, links to the previous one, no
+    unhashed row appears after the chain starts, and the last row is the recorded head (a deleted tail shows)."""
+    rows = con.execute("SELECT * FROM audit_log WHERE team_id = ? ORDER BY id", (team_id,)).fetchall()
+    head = con.execute("SELECT value FROM catalog_meta WHERE key = ?", (f"audit_head:{team_id}",)).fetchone()
+    head = head[0] if head else ""
+    prev, n, legacy, started = "", 0, 0, False
+    for r in rows:
+        if r["row_hash"] is None:
+            if not started:
+                legacy += 1
+                continue
+            return {"ok": False, "rows": n, "legacy_rows": legacy, "first_break": {
+                "id": r["id"], "ts": r["ts"], "action": r["action"], "problem": "a row without a hash after the chain started "
+                "(written outside the app)"}}
+        started = True
+        if (r["prev_hash"] or "") != prev:
+            return {"ok": False, "rows": n, "legacy_rows": legacy, "first_break": {
+                "id": r["id"], "ts": r["ts"], "action": r["action"], "problem": "prev_hash does not link to the previous row "
+                "(a row was removed or inserted before it)", "expected_prev": prev[:16], "found_prev": (r["prev_hash"] or "")[:16]}}
+        h = audit_row_hash(r)
+        if h != r["row_hash"]:
+            return {"ok": False, "rows": n, "legacy_rows": legacy, "first_break": {
+                "id": r["id"], "ts": r["ts"], "action": r["action"], "problem": "the row does not re-hash to its row_hash "
+                "(it was edited)", "row_hash": r["row_hash"][:16], "recomputed": h[:16]}}
+        prev, n = h, n + 1
+    if prev != head:
+        return {"ok": False, "rows": n, "legacy_rows": legacy, "first_break": {
+            "id": None, "problem": "the last row is not the recorded head (rows were removed from the end)",
+            "head": head[:16], "last": prev[:16]}}
+    return {"ok": True, "rows": n, "legacy_rows": legacy, "head": head}
+
+
+def audit_link(con: sqlite3.Connection, audit_id: int) -> tuple[bool, str]:
+    """One row's chain link (P09 split check 3): it re-hashes to its row_hash and the team's next row (or the head)
+    links to it. Rows from before the chain started are reported, not failed."""
+    r = con.execute("SELECT * FROM audit_log WHERE id = ?", (audit_id,)).fetchone()
+    if r is None:
+        return False, "no such audit row"
+    if r["row_hash"] is None:
+        later = con.execute("SELECT 1 FROM audit_log WHERE team_id IS ? AND id < ? AND row_hash IS NOT NULL LIMIT 1",
+                            (r["team_id"], audit_id)).fetchone()
+        return (False, "no chain link: the row was written outside the app (after the chain started)") if later else \
+            (True, "written before the chain started (P19)")
+    if audit_row_hash(r) != r["row_hash"]:
+        return False, "the row does not re-hash to its row_hash (edited)"
+    nxt = con.execute("SELECT prev_hash FROM audit_log WHERE team_id = ? AND id > ? AND row_hash IS NOT NULL ORDER BY id LIMIT 1",
+                      (r["team_id"], audit_id)).fetchone()
+    if nxt is None:
+        head = con.execute("SELECT value FROM catalog_meta WHERE key = ?", (f"audit_head:{r['team_id']}",)).fetchone()
+        ok = bool(head and head[0] == r["row_hash"])
+        return ok, "chain link ok (the team's head)" if ok else "the row is not linked from the team's head"
+    ok = nxt[0] == r["row_hash"]
+    return ok, "chain link ok" if ok else "the next row does not link to it"
 
 
 def ensure_project(con: sqlite3.Connection, root_id: str, name: str, created_at: str | None = None) -> str:
