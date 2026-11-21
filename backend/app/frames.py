@@ -450,6 +450,24 @@ def input_sha256(cfg: dict[str, Any]) -> str | None:
     return h.hexdigest()
 
 
+def data_identity(version_id: str, table: str = PRIMARY_TABLE) -> str:
+    """P08: a short, stable identity of a version table's rows, for caches keyed on content (table_stats, diff_cache,
+    the Data Doctor's label job): `table_sha256` for a Parquet table; for a CSV-era one, `csv:` + the stored data.csv
+    sha256 (else its size and mtime, for a version that was never hashed). Never opens a Parquet file."""
+    ref = Table(version_id, table)
+    if is_parquet(ref):
+        return lake_table(ref).table_sha256
+    try:
+        with _db().connect() as con:
+            r = con.execute("SELECT COALESCE(legacy_sha256, sha256) FROM datasets WHERE id = ?", (version_id,)).fetchone()
+    except Exception:  # noqa: BLE001
+        r = None
+    if r and r[0]:
+        return f"csv:{r[0]}"
+    st = path_of(ref).stat()
+    return f"csv:{st.st_size}:{int(st.st_mtime)}"
+
+
 def export_schema(version_id: str) -> dict[str, Any]:
     """§4.1: the `schema.json` written into every export zip: the version's tables and their column types, so the file
     reads back with the types it was trained on (a ZIP '02139' column is VARCHAR, not a number). On the CSV store there

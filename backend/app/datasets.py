@@ -438,7 +438,9 @@ class DatasetStore:
         10 distinct) and entity columns (ID-like name or a high-cardinality category whose values repeat: several
         rows per customer) are offered for time and group splits; a random split on data with either gets a
         warning, because it lets the same customer, or the future, into training."""
-        dates, groups = splits_mod.date_and_group_columns(frames.read_version(dataset_id), target)
+        from .lake import stats as lake_stats  # P08: a big table is never read whole for this
+
+        dates, groups, sampled = lake_stats.split_columns(dataset_id, target)
         warnings = []
         if dates:
             warnings.append(f"'{dates[0]['column']}' is a date: a random split trains on rows from after the holdout's "
@@ -459,7 +461,8 @@ class DatasetStore:
                 "tuning_share": splits_mod.DEFAULT_TUNING_SHARE,
                 "suggested_params": {"group_column": groups[0]["column"] if groups else None,
                                      "time_column": dates[0]["column"] if dates else None, "cutoff": None,
-                                     "tuning_share": splits_mod.DEFAULT_TUNING_SHARE}}
+                                     "tuning_share": splits_mod.DEFAULT_TUNING_SHARE},
+                **({"sampled": sampled} if sampled else {})}
 
     def set_target(self, dataset_id: str, target: str) -> dict[str, Any]:
         """Confirm the column to predict: re-profile for it (classes, task, conflicts), draw or reuse its split, and
