@@ -1,0 +1,21 @@
+## E1 Ben GET …/rows?limit=1 (masked view: viewer allowed) → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"], "unmasked": false}
+## E2 Ben GET …/rows?unmasked=1&reason=QA → HTTP 403 | raw PII values in the body: 0
+    {"detail": {"code": "forbidden", "message": "data.read_unmasked needs maintainer in tm_6e7c6f7d; you are viewer", "action": "data.read_unmasked", "team": "tm_6e7c6f7d", "needed": "maintainer"}}
+## E3 Ana GET …/rows?unmasked=1&reason=QA → HTTP 200 | raw PII values in the body: 6
+    {"masked_columns": [], "unmasked": true}
+## E4 anonymous GET …/rows?unmasked=1&reason=QA → HTTP 401 | raw PII values in the body: 0
+    {"detail": {"code": "unauthenticated", "action": "data.preview", "message": "no credentials (send X-Ensemble-Actor; sign-in comes with SSO)"}}
+## E5 Ben GET …/export?unmasked=1&reason=QA → HTTP 403 | raw PII values in the body: 0
+    {"detail": {"code": "forbidden", "action": "data.export", "team": "tm_6e7c6f7d", "needed": "member", "message": "data.export needs member in tm_6e7c6f7d; you are viewer"}}
+## E6 Ben PUT …/pii → HTTP 403 | raw PII values in the body: 0
+    {"detail": {"code": "forbidden", "action": "data.tag_pii", "team": "tm_6e7c6f7d", "needed": "maintainer", "message": "data.tag_pii needs maintainer in tm_6e7c6f7d; you are viewer"}}
+## E7 Ben GET …/grid?unmasked=1&reason=QA → HTTP 403 | raw PII values in the body: 0
+    {"detail": {"code": "forbidden", "message": "data.read_unmasked needs maintainer in tm_6e7c6f7d; you are viewer", "action": "data.read_unmasked", "team": "tm_6e7c6f7d", "needed": "maintainer"}}
+## E8 authz_denied rows: [('Ben', 'typed', 'data.read_unmasked'), ('Ben', 'typed', 'data.tag_pii'), ('Ben', 'typed', 'data.export'), ('anonymous', 'none', 'data.preview'), ('Ben', 'typed', 'data.read_unmasked')]
+## E9 GET /authz/coverage → mode enforce, routes 269, must 158, covered 160, uncovered 0
+    P20 routes: [('GET', '/api/datasets/{dataset_id}/pii', 'data.read_meta'), ('PUT', '/api/datasets/{dataset_id}/pii', 'data.tag_pii')]
+## E10 GET /teams/credit-risk/audit/verify → HTTP 200 | raw PII values in the body: 0
+    {"team_id": "tm_6e7c6f7d", "ok": true, "rows": 45, "legacy_rows": 0, "head": "e1a24a2383f85cae8f7834fc4bb1443e97f7d530a672427f09df44196f936cb2"}
+## E10 GET /teams/tm_default/audit/verify → HTTP 200 | raw PII values in the body: 0
+    {"team_id": "tm_default", "ok": true, "rows": 16, "legacy_rows": 0, "head": "49c9bb94b5fe2e5b7a5b941c219926305757c951d3e63e0166ddbdd7d6b04e20"}
