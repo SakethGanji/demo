@@ -51,7 +51,7 @@ def root_of(con, dataset_id: str) -> str:
 def tree_rows(con, root: str) -> list[dict[str, Any]]:
     rows = con.execute("SELECT id, name, filename, source, note, created_at, rows, target, kind, project_id, parent_id, root_id, sha256,"
                        " op, created_by, state, state_at, state_by, state_scope, verified_at, verified_ok, size_bytes,"
-                       " splits_sha256, version_no, team_id, storage,"
+                       " splits_sha256, version_no, team_id, storage, legacy_sha256,"
                        " COALESCE(n_cols, json_extract(profile, '$.n_cols')) AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
                        (root, root)).fetchall()
     out = [dict(r) for r in rows]
@@ -206,11 +206,11 @@ def _descendants(con, dataset_id: str) -> list[str]:
 
 
 _LIN_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
-_ROW_ARRAYS = (b'"root_rows":', b'"parent_rows":')
+from ..lake.migrate import LINEAGE_ROW_ARRAYS as _ROW_ARRAYS  # noqa: E402 - CSV-era lineage row maps (P10)
 
 
 def lineage_meta(store, dataset_id: str) -> dict[str, Any]:
-    """P08: a version's lineage.json without its row maps (`root_rows` / `parent_rows`, one int per row: 178 MB at 10M
+    """P08: a version's lineage.json without its row maps (one int per row: 178 MB at 10M
     rows) — what history and diff show (kind, parent, renamed, edit_log, reason, checks …). The arrays are cut out of
     the bytes before parsing; the result is cached by the file's size and mtime."""
     p = store.dir(dataset_id) / "lineage.json"
@@ -696,9 +696,12 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
         out = []
         for r in rows:
             if r["state"] == DELETED:
-                out.append({"id": r["id"], "v": r["v"], "ok": None, "status": "deleted (tombstone)", "stored": r["sha256"]})
+                out.append({"id": r["id"], "v": r["v"], "ok": None, "status": "deleted (tombstone)",
+                            "stored": r["legacy_sha256"] if r.get("storage") == "parquet" and r.get("legacy_sha256") else r["sha256"]})
                 continue
+            lake_info = None
             if r.get("storage") == "parquet":  # P05: a lake version is re-hashed part by part (lake/verify.py), not data.csv
+                from ..lake import migrate as MG
                 from ..lake import verify as LV
 
                 lv = LV.verify_version(app.state.db, app.state.lake, r["id"])
@@ -706,11 +709,27 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
                 now_sha = r["sha256"] if data_ok else None  # the version hash is recomputed from its parts; a part that differs breaks it
                 status = "ok" if data_ok else "MISMATCH: " + "; ".join(p for p in lv.get("problems") or []
                                                                         if not p.startswith("split "))[:300]
+                lake_info = {"kind": "parquet", "data_sha256": r["sha256"], "manifest_sha256": lv.get("manifest_sha256"),
+                             "data_ok": data_ok, "problems": lv.get("problems") or [],
+                             "files": [{k: f[k] for k in ("table", "part", "status")} for f in lv.get("files") or []],
+                             "splits": [{k: x.get(k) for k in ("id", "split_key", "status", "failed")} for x in lv["splits"]]}
+                mig = MG.legacy_verify(app.state.db, app.state.lake, r["id"], lv) if r.get("legacy_sha256") else None
+                if mig is not None:  # P10: a migrated version answers as it did while CSV-era: the data.csv hash, now its blob's
+                    stored_legacy = r["legacy_sha256"]
+                    lake_info["legacy"] = mig["legacy"]
+                    now_sha = mig["legacy"]["now"]
+                    data_ok = data_ok and now_sha == stored_legacy
+                    if not data_ok:
+                        status = ("legacy CSV blob missing" if not now_sha else "MISMATCH: " + "; ".join(
+                            [p for p in lv.get("problems") or [] if not p.startswith("split ")] +
+                            ([] if now_sha == stored_legacy else ["the legacy CSV blob does not re-hash"]))[:300])
             else:
                 now_sha = file_sha256(frames.version_file(r["id"]))
                 data_ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
                 status = "ok" if data_ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
-            if r.get("storage") == "parquet":  # P09: the five checks per Parquet split
+            if r.get("storage") == "parquet" and lake_info and lake_info.get("legacy") is not None:
+                splits = mig["splits"]  # P10: the DL4 files, each checked through its migrated split and its legacy blob
+            elif r.get("storage") == "parquet":  # P09: the five checks per Parquet split
                 splits = [{"file": f"{x['split_key']} ({x['id']})", "status": x["status"], "stored": None, "now": None,
                            "failed": x["failed"], "checks": x["checks"]} for x in lv["splits"]]
             else:
@@ -720,6 +739,7 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
             if data_ok and bad_splits:
                 status = "SPLIT MISMATCH"
             con.execute("UPDATE datasets SET verified_at = ?, verified_ok = ? WHERE id = ?", (now(), int(ok), r["id"]))
+            con.commit()  # P10: release the write lock before the next version's lake verify writes on its own connection
             remedy = []
             if status.startswith("MISMATCH") and r.get("storage") == "parquet":
                 remedy.append(f"A file of v{r['v']} in the lake no longer has the bytes it was committed with (GET /api/datasets/"
@@ -738,11 +758,13 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
                 remedy.append(f"{', '.join(x['file'] for x in bad_splits)} (which rows are held out, and the folds) changed outside the "
                               "app. Restore the split as it was drawn (POST /api/datasets/" + r["id"] + "/restore-splits with by and "
                               "reason: written back from the copy recorded when it was drawn, hash-checked).")
-            out.append({"id": r["id"], "v": r["v"], "ok": ok, "status": status, "stored": r["sha256"], "now": now_sha,
+            out.append({"id": r["id"], "v": r["v"], "ok": ok, "status": status,
+                        "stored": r["legacy_sha256"] if lake_info and lake_info.get("legacy") is not None else r["sha256"], "now": now_sha,
                         "data_ok": data_ok, "splits_sha256": r.get("splits_sha256"),
                         "splits": [{k: x.get(k) for k in ("file", "status", "stored", "now", "failed", "checks") if k in x}
                                    for x in splits],
-                        **({"remedy": " ".join(remedy)} if remedy else {})})
+                        **({"remedy": " ".join(remedy)} if remedy else {}),
+                        **({"storage": lake_info} if lake_info else {})})
         bad = [x for x in out if x["ok"] is False]
         audit(con, by, "dataset_integrity_failed" if bad else "dataset_verified",
               details={"dataset_id": dataset_id, "root_id": root, "checked": len(out), "failed": [x["id"] for x in bad],
@@ -757,7 +779,11 @@ def verify_all(app, by: str) -> dict[str, Any]:
         roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS NOT 'deleted'")]
     res = [verify(app, r, by, whole=True) for r in roots]
     failed = [{"root_id": x["root_id"], **y} for x in res for y in x["results"] if y["ok"] is False]
-    return {"datasets": len(roots), "checked": sum(len(x["results"]) for x in res), "failed": failed, "ok": not failed, "at": now()}
+    at = now()
+    from ..lake.migrate import record_verify_all
+
+    record_verify_all(app.state.db, not failed, at)  # P10: the migrated folders are deleted after two passes (§7 row 1)
+    return {"datasets": len(roots), "checked": sum(len(x["results"]) for x in res), "failed": failed, "ok": not failed, "at": at}
 
 
 def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[str, Any]:

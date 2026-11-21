@@ -484,7 +484,9 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         step("hash", "running")
         model_hash = dir_hash(dest)
         data_hash = frames.input_sha256(cfg)  # the bytes the fit read (P05: a Parquet table's table_sha256)
-        splits_hash = file_hash(Path(cfg["splits_path"]))
+        from ..lake.migrate import run_split_sha256
+
+        splits_hash = run_split_sha256(cfg) or file_hash(Path(cfg["splits_path"]))  # P10: a migrated run's DL4 JSON hash
         step("hash", "done", model_hash=model_hash[:12])
 
         mono_info = None

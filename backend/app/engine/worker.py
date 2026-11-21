@@ -3,7 +3,7 @@
 Reads <run_dir>/config.json (written by the API), fits a TabularPredictor into <run_dir>/predictor, and writes
 progress as run events and the final result into SQLite. The API process only starts, watches and cancels it.
 
-The training frame is data.csv minus the fixed holdout rows (splits.json), minus rows with no label, minus the
+The training frame is the version's table minus the fixed holdout rows (its split), minus rows with no label, minus the
 dropped columns (ID columns by default). The holdout is scored at the end. `fit_kwargs` are passed to
 `TabularPredictor.fit` unchanged; the only additions are documented in `resolve_fit_kwargs`.
 """

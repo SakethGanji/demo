@@ -731,19 +731,22 @@ class _Parent:
                 self.declared = [json.loads(k[0]) for k in con.execute(
                     "SELECT columns_json FROM table_keys WHERE version_id = ? AND table_name = ? AND valid = 1"
                     " ORDER BY kind, columns_json", (vid, lt.name))]
-            with duck.job() as c:
-                self.ids = c.execute(f"SELECT __row_id FROM ({self.sql}) ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
+            from . import splitstore as SS
+
+            self.ids = SS.table_row_ids(vid, lt.name)  # by read position (P10: a migrated table is in data.csv order)
         else:
-            # a CSV-era parent (P10 migrates it later with these same ids, §5.11 step 3): lineage root_rows, else
+            # a CSV-era parent not migrated yet (P10 gives it these same ids, §5.11 step 3): its lineage row map, else
             # 0..n-1 for a root; a version with no row mapping cannot be continued without breaking identity
             import numpy as np
             import pyarrow as pa
 
+            from .migrate import legacy_row_map
+
             df = frames.read_version(vid)
             lin = dstore.lineage(vid) if dstore is not None else None
-            rr = (lin or {}).get("root_rows")
-            if rr and len(rr) == len(df):
-                ids = np.asarray(rr, dtype="int64")
+            rr = legacy_row_map(lin, len(df))
+            if rr is not None:
+                ids = rr
             elif self.root == vid:
                 ids = np.arange(len(df), dtype="int64")
             else:

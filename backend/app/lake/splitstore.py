@@ -23,7 +23,7 @@ Its identity is `split_sha256` (§3.3, `manifest.SplitHasher`), independent of t
   For a Parquet version that file is a *view* written from the blob (`view_of`), never a source: the worker's gate
   re-derives it from the verified blob before a fit.
 
-CSV-era versions keep DL4's split JSON and its recorded hashes until P10 migrates them. A Parquet version made before
+CSV-era versions keep DL4's split JSON and its recorded hashes until P10 migrates them (lake/migrate.py). A Parquet version made before
 P09 (P05–P08 wrote DL4 JSON bridges) has its recorded JSON adopted on first use (`adopt_legacy`), hash-checked against
 the hash DL4 recorded first, with `legacy_sha256` = the JSON's sha256 (what its old runs recorded as `splits_sha256`).
 """
@@ -81,13 +81,31 @@ def primary_table(db, version_id: str) -> str:
 
 
 def table_row_ids(version_id: str, table: str | None = None) -> np.ndarray:
-    """The table's `__row_id`s in read order (sorted): position i of every positional consumer is row id ids[i]."""
+    """The table's `__row_id`s in read order: position i of every positional consumer is row id ids[i]. Read order is
+    the parts' file order (what `frames.read` returns): `__row_id` order for a table the writer made, data.csv order for
+    a migrated CSV-era table (P10, `row_id_sorted = 0` when its ids are not increasing)."""
+    import pyarrow.parquet as pq
+
     from .. import frames
-    from . import duck
 
     lt = frames.lake_table(frames.Table(version_id, table or frames.PRIMARY_TABLE))
-    with duck.job() as c:
-        return c.execute(f"SELECT {ROW_ID} FROM {frames.lake_sql(lt)} ORDER BY {ROW_ID}").fetchnumpy()[ROW_ID].astype("int64")
+    parts = [pq.read_table(p["path"], columns=[ROW_ID]).column(0).to_numpy(zero_copy_only=False) for p in lt.parts]
+    return (np.concatenate(parts) if parts else np.zeros(0)).astype("int64")
+
+
+def read_order_folds(db, row: dict[str, Any], ids: np.ndarray, folds: np.ndarray) -> np.ndarray:
+    """A split blob's folds (in `__row_id` order) by read position of its table: the same array for a sorted table; for
+    a migrated table in data.csv order (P10), permuted so fold i is the fold of the row read at position i."""
+    with db.connect() as con:
+        r = con.execute("SELECT row_id_sorted FROM version_tables WHERE version_id = ? AND table_name = ?",
+                        (row["version_id"], row["table_name"])).fetchone()
+    if not r or r[0]:
+        return folds
+    rid = table_row_ids(row["version_id"], row["table_name"])
+    pos = np.searchsorted(ids, rid)
+    if len(rid) != len(ids) or (pos >= len(ids)).any() or not np.array_equal(ids[np.minimum(pos, len(ids) - 1)], rid):
+        raise SplitError(409, "split_rows", f"The split {row['id']} does not cover the rows of {row['version_id']}.")
+    return folds[pos]
 
 
 def row_ids(db, dstore, version_id: str) -> np.ndarray | None:
@@ -95,13 +113,15 @@ def row_ids(db, dstore, version_id: str) -> np.ndarray | None:
     version's lineage row map (D1/D2, until P10), or 0..n-1 for a root; None when unmapped."""
     from .. import frames
 
+    from .migrate import legacy_row_map
+
     if is_lake(db, version_id):
         return table_row_ids(version_id)
     lin = dstore.lineage(version_id) if dstore is not None else None
     n = frames.n_rows(frames.table(version_id))
-    rr = (lin or {}).get("root_rows")
-    if rr and len(rr) == n:
-        return np.asarray(rr, dtype="int64")
+    rr = legacy_row_map(lin, n)
+    if rr is not None:
+        return rr
     with db.connect() as con:
         r = con.execute("SELECT parent_id FROM datasets WHERE id = ?", (version_id,)).fetchone()
     if (not r or not r[0]) and not (lin or {}).get("parent"):
@@ -173,7 +193,8 @@ def meta_of(sp: dict[str, Any]) -> dict[str, Any]:
 
 
 def view(row: dict[str, Any], folds: np.ndarray) -> dict[str, Any]:
-    """The DL4-shaped split (positions in read order) of a Parquet split: fold i is the row with the i-th smallest id."""
+    """The DL4-shaped split (positions in read order) of a Parquet split: `folds` by read position (`read_order_folds`;
+    for a table the writer made, fold i is the row with the i-th smallest id)."""
     extra = _floats_back(json.loads(row.get("params_json") or "{}"))
     fold = np.asarray(folds, dtype="int64")
     sp: dict[str, Any] = {"seed": int(row["seed"]), "target": row["target"], "strategy": row["strategy"], "key": row["split_key"],
@@ -198,8 +219,8 @@ def view_of_row(db, store: BlobStore, row: dict[str, Any]) -> dict[str, Any]:
     if not key or not store.exists(key):
         raise SplitError(409, "split_integrity", f"The split file of {row['split_key']} ({row['blob_sha256'][:12]}…) is missing "
                                                  "from the lake.", split_id=row["id"])
-    _, folds = read_blob(store, key)
-    return view(row, folds)
+    ids, folds = read_blob(store, key)
+    return view(row, read_order_folds(db, row, ids, folds))
 
 
 def write_view(path: Path, sp: dict[str, Any]) -> Path:
@@ -355,7 +376,7 @@ def commit_split(db, store: BlobStore, version_id: str, table: str, key: str, id
 
     ids = np.asarray(ids, dtype="int64")
     folds = np.asarray(folds, dtype="int64")
-    have = table_row_ids(version_id, table)
+    have = np.sort(table_row_ids(version_id, table))
     order = np.argsort(ids, kind="stable")
     ids, folds = ids[order], folds[order]
     if len(ids) != len(have) or not np.array_equal(ids, have):

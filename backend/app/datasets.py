@@ -1,9 +1,12 @@
 """Dataset storage: files under `data/datasets/<id>/`, records in SQLite.
 
-    data/datasets/<id>/data.csv        the rows, exactly as profiled (row positions are the IDs used by splits)
-    data/datasets/<id>/splits/<key>.json  holdout and folds per (target, strategy), drawn on first use (see splits.py)
-    data/datasets/<id>/splits.json     legacy: the split drawn on upload for the profiler's target (pre-F4 runs use it)
+    data/datasets/<id>/data.csv        CSV-era versions only (before P10): the rows (positions are the split IDs)
+    data/datasets/<id>/splits/<key>.json  holdout and folds per (target, strategy); for a Parquet version a positional
+                                       view of its `splits` row (lake/splitstore.py)
     data/datasets/<id>/<sidecar>.json  samples only: ground truth (label_noise.json, signal.json)
+
+P10: every version is written by the VersionWriter (Parquet in the lake); the CSV-era layout is migrated by
+lake/migrate.py, which also holds what is left of the CSV-era bookkeeping for versions not migrated yet.
 """
 
 from __future__ import annotations
@@ -221,7 +224,9 @@ class DatasetStore:
         return frames.version_file(dataset_id)
 
     def legacy_splits_path(self, dataset_id: str) -> Path:
-        return self.dir(dataset_id) / "splits.json"
+        from .lake.migrate import legacy_splits_path
+
+        return legacy_splits_path(self.dir(dataset_id))
 
     def split_path(self, dataset_id: str, target: str | None, strategy: str = RANDOM_STRATIFIED,
                    params: dict[str, Any] | None = None) -> Path:
@@ -238,7 +243,7 @@ class DatasetStore:
                       params: dict[str, Any] | None = None) -> tuple[Path, dict[str, Any], bool]:
         """(path, splits, created) of the (target, strategy, parameters) split. An existing split is never redrawn. A
         new one is drawn from data.csv with the fixed seed, so the same file and target always give the same holdout,
-        whichever target the profiler guessed. The legacy splits.json is adopted when it was drawn for this target (so
+        whichever target the profiler guessed. The legacy upload split (pre-F4) is adopted when it was drawn for this target (so
         the samples, Autopilot's derived datasets and pre-F4 runs keep their exact holdout). F6: group / time /
         time-group splits take `params` (group_column, time_column, cutoff, tuning_share); bad ones raise
         DatasetError."""
@@ -256,7 +261,7 @@ class DatasetStore:
             legacy = self.legacy_splits_path(dataset_id)
             sp = load_splits(legacy) if legacy.exists() and strategy == RANDOM_STRATIFIED else None
             if sp is not None and sp.get("target") == target and sp.get("strategy", RANDOM_STRATIFIED) == strategy:
-                sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": "splits.json"}
+                sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": legacy.name}
             else:
                 # P05: a random split needs only the target (a 10M-row Parquet version is not read whole for it)
                 df = frames.read_version(dataset_id, None if strategy != RANDOM_STRATIFIED or target is None else [target])
@@ -324,7 +329,7 @@ class DatasetStore:
                                      frame=df.reset_index(drop=True) if strategy != RANDOM_STRATIFIED else None, params=params)
                 except ValueError as e:
                     raise DatasetError(str(e)) from e
-                ids = SS.table_row_ids(dataset_id, table)  # position i of the draw is the i-th smallest __row_id
+                ids = SS.table_row_ids(dataset_id, table)  # position i of the draw is the row read at position i
                 row = SS.commit_split(self.db, lake, dataset_id, table, key, ids, np.asarray(sp["fold"]), sp, by=by)
                 created = True
             try:
@@ -337,73 +342,35 @@ class DatasetStore:
     # -- DL4 (M-d): split files are hashed when drawn, like data.csv ------------------------------------------------
 
     def split_rel(self, dataset_id: str, path: Path | str) -> str:
-        p = Path(path)
-        return f"splits/{p.name}" if p.parent.name == "splits" else p.name
+        from .lake.migrate import legacy_split_rel
+
+        return legacy_split_rel(path)
 
     def record_split_file(self, dataset_id: str, path: Path, basis: str = "drawn", only_new: bool = False) -> None:
-        import zlib
+        """DL4 (M-d), CSV-era versions only (until P10 migrates them): the split file's hash, recorded when drawn."""
+        from .lake.migrate import legacy_record_split
 
-        from .catalog.schema import file_sha256
-
-        sha = file_sha256(path)
-        if not sha:
-            return
-        rel = self.split_rel(dataset_id, path)
-        with self.db.connect() as con:
-            if only_new and con.execute("SELECT 1 FROM split_files WHERE dataset_id = ? AND file = ?", (dataset_id, rel)).fetchone():
-                return
-            con.execute("INSERT INTO split_files (dataset_id, file, sha256, recorded_at, basis, content) VALUES (?, ?, ?, ?, ?, ?)"
-                        " ON CONFLICT (dataset_id, file) DO UPDATE SET sha256 = excluded.sha256, recorded_at = excluded.recorded_at,"
-                        " basis = excluded.basis, content = excluded.content",
-                        (dataset_id, rel, sha, now(), basis, zlib.compress(path.read_bytes())))
-            self._refresh_splits_sha(con, dataset_id)
-
-    @staticmethod
-    def _refresh_splits_sha(con: Any, dataset_id: str) -> str | None:
-        import hashlib
-
-        rows = con.execute("SELECT file, sha256 FROM split_files WHERE dataset_id = ? ORDER BY file", (dataset_id,)).fetchall()
-        combined = hashlib.sha256("\n".join(f"{r[0]} {r[1]}" for r in rows).encode()).hexdigest() if rows else None
-        con.execute("UPDATE datasets SET splits_sha256 = ? WHERE id = ?", (combined, dataset_id))
-        return combined
+        legacy_record_split(self.db, dataset_id, path, basis, only_new)
 
     def split_hashes(self, dataset_id: str) -> dict[str, str]:
-        with self.db.connect() as con:
-            return {r[0]: r[1] for r in con.execute("SELECT file, sha256 FROM split_files WHERE dataset_id = ?", (dataset_id,))}
+        from .lake.migrate import legacy_split_hashes
+
+        return legacy_split_hashes(self.db, dataset_id)
 
     def check_splits(self, dataset_id: str) -> list[dict[str, Any]]:
-        """Each recorded split file: its stored sha256, the file's now, and ok / MISMATCH / file missing."""
-        from .catalog.schema import file_sha256
+        """Each recorded split file of a CSV-era version: its stored sha256, the file's now, and ok / MISMATCH / missing."""
+        from .lake.migrate import legacy_check_splits
 
-        out = []
-        for rel, stored in sorted(self.split_hashes(dataset_id).items()):
-            now_sha = file_sha256(self.dir(dataset_id) / rel)
-            out.append({"file": rel, "stored": stored, "now": now_sha,
-                        "status": "ok" if now_sha == stored else ("file missing" if not now_sha else "MISMATCH")})
-        return out
+        return legacy_check_splits(self.db, self.settings, dataset_id)
 
-    def restore_split_files(self, dataset_id: str) -> list[str]:
+    def restore_csv_splits(self, dataset_id: str) -> list[str]:
         """Write back every split file whose bytes differ from the copy recorded when it was drawn (hash-checked)."""
-        import hashlib
-        import zlib
+        from .lake.migrate import legacy_restore_splits
 
-        restored = []
-        with self.db.connect() as con:
-            rows = con.execute("SELECT file, sha256, content FROM split_files WHERE dataset_id = ?", (dataset_id,)).fetchall()
-        for rel, sha, blob in rows:
-            p = self.dir(dataset_id) / rel
-            if blob is None:
-                continue
-            raw = zlib.decompress(blob)
-            if hashlib.sha256(raw).hexdigest() != sha:
-                raise DatasetError(f"The recorded copy of {rel} does not match its own hash: it can't be restored from it.")
-            from .catalog.schema import file_sha256
-
-            if file_sha256(p) != sha:
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_bytes(raw)
-                restored.append(rel)
-        return restored
+        try:
+            return legacy_restore_splits(self.db, self.settings, dataset_id)
+        except ValueError as e:
+            raise DatasetError(str(e)) from e
 
     def list_splits(self, dataset_id: str) -> list[dict[str, Any]]:
         """Summaries of every split stored for the dataset (one per target and strategy used so far)."""
@@ -519,38 +486,60 @@ class DatasetStore:
 
     # -- create -----------------------------------------------------------
 
-    def _register(self, dataset_id: str, df: pd.DataFrame, *, name: str, filename: str, source: str, note: str,
-                  size_bytes: int, target: str | None = None, kind: str | None = None, by: str | None = None) -> dict[str, Any]:
+    def write_frame_version(self, df: pd.DataFrame, *, name: str, filename: str, note: str, source: str,
+                            target: str | None = None, by: str | None = None, parent_id: str | None = None,
+                            version_id: str | None = None, kind: str | None = None, hints: dict[str, str] | None = None,
+                            lineage: dict[str, Any] | None = None, profile_extra: dict[str, Any] | None = None) -> dict[str, Any]:
+        """P10: a frame (a sample, a SQL load, a monitoring window) as a Parquet version through the VersionWriter.
+        Without `parent_id`: a new dataset (its rows get __row_id 0..n-1; `version_id` fixes the id, for the samples).
+        With `parent_id`: a version of that dataset whose rows are all new (fresh ids from the root's counter, no row
+        mapping), so the derived_from edge is marked inferred and nothing pairs on it (a SQL refresh, a monitoring
+        window). `hints` are frame_io kinds (an upload's "kept as text"). The frame is written with its own types."""
+        from .catalog.schema import add_edge
+        from .lake import derive as LD
+        from .lake.store import open_store
+        from .lake.writer import LakeError, VersionWriter, reserve_row_ids
+
+        lake = open_store(self.settings)
+        who = (by or "").strip()[:80] or "system"
+        df = df.reset_index(drop=True)
+        df.columns = [str(c) for c in df.columns]
+        tgt = target if target in df.columns else None
         try:
-            profile = profile_frame(df, target)
-        except ValueError as e:
-            raise DatasetError(str(e)) from e
-        tgt = profile["target"]
-        y = df[tgt] if tgt else None
-        try:
-            splits = make_splits(y, len(df), config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS)
-        except ValueError as e:  # DL3 (m4): too few rows, in words
-            raise DatasetError(str(e)) from e
-        save_splits(self.legacy_splits_path(dataset_id), splits)
-        for p in (self.dir(dataset_id) / "splits").glob("*.json"):  # a regenerated sample: its old splits are stale
-            p.unlink()
-        with self.db.connect() as con:
-            con.execute("DELETE FROM split_files WHERE dataset_id = ?", (dataset_id,))
-        self.record_split_file(dataset_id, self.legacy_splits_path(dataset_id), "drawn with the version")
-        _, splits, _ = self.ensure_splits(dataset_id, tgt)
-        profile["splits"] = summarize(splits, y)
-        # "given": named on upload (or a sample's label); "guessed": the profiler's suggestion, to be confirmed.
+            kw: dict[str, Any] = dict(op=source, by=who, name=name, primary_table=frames.PRIMARY_TABLE, reason=note[:500])
+            w = VersionWriter(self.db, lake, parent_id=parent_id, dedupe=False, **kw) if parent_id else \
+                VersionWriter(self.db, lake, version_id=version_id, **kw)
+            with w:
+                start = reserve_row_ids(self.db, w.root_id, frames.PRIMARY_TABLE, 0, len(df)) if parent_id else 0
+                ids = start + np.arange(len(df), dtype="int64")
+                LD.write_frame(w, frames.PRIMARY_TABLE, df, ids, {}, hints or {}, source_file=filename)
+                out = w.commit(make_default=None if not parent_id else False, target=tgt, kind=kind or "tabular", note=note)
+        except LakeError as e:
+            raise DatasetError(e.message) from e
+        vid = out["version_id"]
+        if parent_id:
+            with self.db.connect() as con:  # all rows are new: never paired with the parent's (P1's paired=False)
+                con.execute("UPDATE lineage_edges SET inferred = 1 WHERE src_kind = 'dataset' AND src_id = ? AND dst_kind = 'dataset'"
+                            " AND dst_id = ? AND relation = 'derived_from'", (parent_id, vid))
+        if lineage:
+            lin = {**lineage, "root": out.get("root_id") or vid}
+            LD.lineage_summary(self, vid, lin)
+        rec = self.finish_lake_version(vid, target=tgt, by=who)
+        profile = dict(rec["profile"])
         profile["target_source"] = "given" if target else "guessed"
-        rec = {
-            "id": dataset_id, "name": name, "filename": filename, "source": source, "note": note,
-            "created_at": now(), "size_bytes": size_bytes, "rows": len(df), "target": tgt,
-            "kind": kind or profile["kind"], "profile": profile,
-        }
-        self.db.insert_dataset(rec)
-        self.catalog.record_root_dataset(rec, self.data_file(dataset_id), op=source, actor=by)
-        with self.db.connect() as con:
-            self._refresh_splits_sha(con, dataset_id)  # DL4 (M-d): stored with the version
-        return rec
+        if lineage:
+            profile["lineage"] = {k: v for k, v in lineage.items() if k != "changes"}
+        profile.update(profile_extra or {})
+        rec = {**rec, "name": name, "filename": filename, "source": "sample" if source == "sample" else "upload", "note": note,
+               "profile": profile,
+               "kind": kind or rec.get("kind")}
+        self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
+                                                     "rows", "target", "kind", "profile")})
+        if parent_id:
+            with self.db.connect() as con:
+                add_edge(con, ("dataset", parent_id), ("dataset", vid), "derived_from", actor=who,
+                         meta={"op": source, "storage": "parquet", "paired": False}, inferred=True, update_meta=True)
+        return self.db.get_dataset(vid) or rec
 
     def sidecar(self, dataset_id: str, name: str) -> dict[str, Any] | None:
         """A sample's ground-truth / spec file (forecast_spec.json, anomaly_truth.json, …), or None."""
@@ -566,30 +555,30 @@ class DatasetStore:
             fp = _generator_fingerprint(spec["generate"])
             stamp = self.dir(dataset_id) / ".generator"
             current = stamp.exists() and stamp.read_text().strip() == fp
-            if self.db.get_dataset(dataset_id) and self.data_file(dataset_id).exists():
+            rec = self.db.get_dataset(dataset_id)
+            if rec and (frames.is_parquet(dataset_id) or self.data_file(dataset_id).exists()):
                 if current:
                     continue
-                # DL3 (m7): a sample that runs trained on (or that has versions) is never rewritten in place: the new
+                # DL3 (m7): a sample is never rewritten in place (P10: a version's bytes are immutable): the new
                 # generator's rows become a new version of it, with lineage and an audit row
-                if self._sample_in_use(dataset_id):
-                    try:
-                        made += self._sample_as_version(dataset_id, spec, fp)
-                    except Exception:  # noqa: BLE001 - never fail startup over a sample; the old one stays as it was
-                        log.exception("sample %s: could not write the regenerated rows as a new version", dataset_id)
-                    continue
-                # Stale, or made before stamps existed: regenerate (seeded, so an unchanged generator gives the same rows).
-                log.info("sample %s was made by an older generator: regenerating", dataset_id)
+                try:
+                    made += self._sample_as_version(dataset_id, spec, fp)
+                except Exception:  # noqa: BLE001 - never fail startup over a sample; the old one stays as it was
+                    log.exception("sample %s: could not write the regenerated rows as a new version", dataset_id)
+                continue
+            if rec:  # a CSV-era sample whose data.csv is gone: left as it is (verify reports it)
+                log.warning("sample %s has no data file; not regenerated over its record", dataset_id)
+                continue
             log.info("generating sample dataset %s", dataset_id)
             df, sidecar = spec["generate"](seed=config.SEED)
             d = self.dir(dataset_id)
             d.mkdir(parents=True, exist_ok=True)
-            df.to_csv(self.data_file(dataset_id), index=False)
             (d / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
-            # Profile what was written, so row positions and dtypes match what the engine will read.
-            written = frames.read_version(dataset_id)
-            self._register(dataset_id, written, name=spec["name"], filename=spec["filename"], source="sample",
-                           note=spec["note"], size_bytes=self.data_file(dataset_id).stat().st_size,
-                           target=sidecar["label_column"], kind=spec.get("kind"))
+            # P10: written as Parquet with the types the engine read the sample's CSV with (what every run so far saw)
+            written = FIO.roundtrip(df, None)
+            self.write_frame_version(written, name=spec["name"], filename=spec["filename"], source="sample", note=spec["note"],
+                                     target=sidecar["label_column"], kind=spec.get("kind"), version_id=dataset_id,
+                                     by="system:samples")
             stamp.write_text(fp)
             made.append(dataset_id)
         return made
@@ -1275,38 +1264,30 @@ class DatasetStore:
         kept = list(df.attrs.get("kept_as_text") or [])
         held = {c: df[c] for c in kept if c in df.columns}
         df, coerced = coerce_numeric(df)  # A1 #5: '  ' / 'n/a' / '$12,000' in a number column must not make it a category or an ID
-        dataset_id = "ds_" + secrets.token_hex(4)
-        d = self.dir(dataset_id)
-        d.mkdir(parents=True, exist_ok=True)
         for c, v in held.items():  # DL4 (m-e): codes with leading zeros are not numbers
             df[c] = v
         coerced = [x for x in coerced if x.get("column") not in held]
-        schema = FIO.schema_of(df, force={c: "text" for c in kept})  # DL4 (m-e): types travel with the version
-        self.data_file(dataset_id).write_bytes(FIO.to_csv_bytes(df, schema))
-        FIO.save(d, schema)
-        if coerced:
-            (d / "coerced.json").write_text(json.dumps(coerced))
-        df = frames.read_version(dataset_id)  # profile exactly what the engine will read back
-        try:
-            rec = self._register(dataset_id, df, name=name, filename=filename, source="upload", note=note,
-                                 size_bytes=self.data_file(dataset_id).stat().st_size, target=target, by=by)
-        except DatasetError:
-            shutil.rmtree(d, ignore_errors=True)
-            raise
+        extra: dict[str, Any] = {}
         if kept:  # DL4 (m-e): say which columns were kept as text, and why
-            rec["profile"]["kept_as_text"] = kept
-            rec["profile"].setdefault("warnings", []).append(
+            extra["kept_as_text"] = kept
+        if coerced:
+            extra["coerced"] = coerced
+        parent = (lineage or {}).get("parent")
+        parent = parent if parent and self.db.get_dataset(parent) else None  # a SQL refresh: a version of new rows
+        lin = {**lineage, "root": lineage.get("root") or parent} if lineage else None
+        # P10: through the VersionWriter (Parquet); a refresh is a version of its parent with fresh row ids (unpaired)
+        rec = self.write_frame_version(df, name=name, filename=filename, note=note,
+                                       source=str((lineage or {}).get("source") or "refresh") if parent else "upload",
+                                       target=target, by=by, parent_id=parent, hints={c: "text" for c in kept},
+                                       lineage=lin, profile_extra=extra)
+        if kept:
+            prof = dict(rec["profile"])
+            prof.setdefault("warnings", []).append(
                 f"Kept as text (codes with leading zeros, e.g. ZIP or ID codes): {', '.join(kept)}. Cast to number in Data → Edit if they are amounts.")
-            self.db.insert_dataset(rec)
-        if lineage:
-            lineage = {**lineage, "root": lineage.get("root") or dataset_id}
-            (d / "lineage.json").write_text(json.dumps(lineage))
-            rec["profile"]["lineage"] = lineage
-            self.db.insert_dataset(rec)
-            if lineage.get("parent") and self.db.get_dataset(lineage["parent"]):  # a SQL refresh: a version of new rows
-                self.catalog.record_version(lineage["parent"], rec, self.data_file(dataset_id), op=str(lineage.get("source") or "refresh"),
-                                            meta={"version": lineage.get("version")}, paired=False)
-        return rec
+            rec = {**rec, "profile": prof}
+            self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
+                                                         "rows", "target", "kind", "profile")})
+        return self.db.get_dataset(rec["id"]) or rec
 
 
 def _n_added(ops: Any) -> int:

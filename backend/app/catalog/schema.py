@@ -5,7 +5,7 @@ Edges run downstream: src is the upstream node, dst the derived one, `relation` 
     dataset  → run       trained_on
     run      → run       branched_from   (meta: source, patch, review_id, hypothesis_id, verdict)
     run      → version   built_from
-`inferred` = 1 when the edge was reconstructed without root_rows (an old version or run): never claim a paired Δ
+`inferred` = 1 when the edge was reconstructed without a row map (an old version or run): never claim a paired Δ
 across it."""
 
 from __future__ import annotations
@@ -134,18 +134,6 @@ CREATE TABLE IF NOT EXISTS admin_requests (
     used_by       TEXT
 );
 
--- DL4 (M-d): the sha256 of every split file (holdout and folds) when it was drawn, and a compressed copy of its bytes,
--- so verify and the worker at fit start can refuse a split file changed outside the app, and restore it.
-CREATE TABLE IF NOT EXISTS split_files (
-    dataset_id    TEXT NOT NULL,
-    file          TEXT NOT NULL,
-    sha256        TEXT NOT NULL,
-    recorded_at   TEXT NOT NULL,
-    basis         TEXT NOT NULL DEFAULT 'drawn',
-    content       BLOB,
-    PRIMARY KEY (dataset_id, file)
-);
-
 CREATE TABLE IF NOT EXISTS catalog_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
@@ -164,7 +152,7 @@ DATASET_COLS = {"project_id": "TEXT", "parent_id": "TEXT", "root_id": "TEXT", "s
                 "verified_ok": "INTEGER",
                 # DL2: 'dataset' when a whole-dataset archive hid it (an unarchive of the dataset restores only those)
                 "state_scope": "TEXT",
-                # DL4 (M-d): one sha256 over the version's split files (each file's own hash is in split_files)
+                # DL4 (M-d): one sha256 over the version's split files (read-only since P10; kept for old rows)
                 "splits_sha256": "TEXT"}
 # DL2: a registered version retired (four eyes): its data may be archived, and deleted after the retention period
 MV_COLS = {"retired_at": "TEXT", "retired_by": "TEXT"}
@@ -209,6 +197,7 @@ def migrate(con: sqlite3.Connection) -> None:
                     " decided_at, comment FROM champions_old")
         con.execute("DROP TABLE champions_old")
     migrate_p01(con)
+    migrate_p10(con)
 
 
 def project_id_for(root_dataset_id: str) -> str:
@@ -513,10 +502,12 @@ def backfill(con: sqlite3.Connection, data_dir: Path, *, force: bool = False) ->
                     " root_id = COALESCE(root_id, ?), sha256 = COALESCE(sha256, ?), n_rows = COALESCE(n_rows, rows),"
                     " op = COALESCE(op, ?) WHERE id = ?", (pid, par, root, sha, op, i))
         if par:
-            rr = lj.get("root_rows")
+            from ..lake.migrate import legacy_row_map
+
+            mapped = legacy_row_map(lj, r["rows"]) is not None
             add_edge(con, ("dataset", par), ("dataset", i), "derived_from", actor=str(lj.get("by") or "system"),
                      meta={"op": op, "rows_before": lj.get("rows_before"), "rows_after": lj.get("rows_after") or r["rows"],
-                           "backfilled": True}, inferred=not (rr and len(rr) == r["rows"]), created_at=r["created_at"])
+                           "backfilled": True}, inferred=not mapped, created_at=r["created_at"])
         stats["datasets"] += 1
     # -- runs: indexed columns + trained_on + branched_from ---------------------------------------------------------
     ds_proj = {r[0]: r[1] for r in con.execute("SELECT id, project_id FROM datasets")}
@@ -639,7 +630,7 @@ def backfill_fp2(con: sqlite3.Connection, data_dir: Path, *, force: bool = False
 
 # == P01: the data-platform schema (docs/plans/data-platform-final.md §2.1) ==========================================
 # Tables are created with IF NOT EXISTS, columns only when missing, and every step id is recorded once in catalog_meta
-# ('step:p01_…'), so a second start changes nothing. The ds_hash_ro trigger is P10's (after its hash backfill).
+# ('step:p01_…'), so a second start changes nothing. P10 adds lake_migrations and the ds_hash_ro trigger (migrate_p10).
 
 P01_DDL = """
 CREATE TABLE IF NOT EXISTS principals (
@@ -875,6 +866,33 @@ IMMUTABLE_TRIGGERS = {
     "blobs_key_ro": "CREATE TRIGGER IF NOT EXISTS blobs_key_ro BEFORE UPDATE OF sha256, key, bytes ON blobs"
                     " BEGIN SELECT RAISE(ABORT, 'blob identity is immutable'); END",
 }
+#: P10 (§2.1): a version's hashes are written once. The WHEN clause lets the migration set manifest_sha256 / data_sha256
+#: the first time (a CSV-era row has only legacy_sha256), and nothing after that; legacy_sha256 never changes once set.
+DS_HASH_RO = ("CREATE TRIGGER IF NOT EXISTS ds_hash_ro BEFORE UPDATE OF manifest_sha256, data_sha256, legacy_sha256 ON datasets"
+              " WHEN (OLD.manifest_sha256 IS NOT NULL AND (NEW.manifest_sha256 IS NOT OLD.manifest_sha256"
+              " OR NEW.data_sha256 IS NOT OLD.data_sha256 OR NEW.legacy_sha256 IS NOT OLD.legacy_sha256))"
+              " OR (OLD.legacy_sha256 IS NOT NULL AND NEW.legacy_sha256 IS NOT OLD.legacy_sha256)"
+              " BEGIN SELECT RAISE(ABORT, 'version hashes are immutable'); END")
+#: P10: one row per CSV-era version the migration handled (migrated / skipped and why / failed), and its folder step
+P10_DDL = """
+CREATE TABLE IF NOT EXISTS lake_migrations (
+  version_id TEXT PRIMARY KEY, root_id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('migrated','skipped','failed')),
+  reason TEXT, message TEXT, detail TEXT, legacy_sha256 TEXT, manifest_sha256 TEXT,
+  folder_state TEXT, at TEXT NOT NULL, job_id TEXT, attempts INTEGER NOT NULL DEFAULT 1);
+CREATE INDEX IF NOT EXISTS ix_lake_migrations_status ON lake_migrations (status, at);
+"""
+
+
+def migrate_p10(con: sqlite3.Connection) -> None:
+    """P10: the migration's bookkeeping table, the CSV-era split-file table (read by the migration only), and ds_hash_ro."""
+    from ..lake.migrate import LEGACY_DDL
+
+    con.executescript(P10_DDL + LEGACY_DDL)
+    con.execute(DS_HASH_RO)
+    _step(con, "p10_ddl")
+
+
 #: created once the P01 backfill has written audit_log.team_id (the backfill is the last UPDATE audit_log ever gets)
 AUDIT_TRIGGERS = {
     "audit_ro_u": "CREATE TRIGGER IF NOT EXISTS audit_ro_u BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END",
@@ -1008,7 +1026,8 @@ def sync_version(con: sqlite3.Connection, dataset_id: str) -> None:
         con.execute("DELETE FROM dataset_roots WHERE id = ?", (r["id"],))
     ensure_root(con, root)
     n = r["version_no"] if r["version_no"] is not None else _alloc_version_no(con, root)
-    con.execute("UPDATE datasets SET version_no = ?, team_id = ?, legacy_sha256 = sha256,"
+    con.execute("UPDATE datasets SET version_no = ?, team_id = ?,"
+                " legacy_sha256 = CASE WHEN COALESCE(storage, 'csv') = 'csv' THEN sha256 ELSE legacy_sha256 END,"
                 " n_cols = CASE WHEN json_valid(profile) THEN CAST(json_extract(profile, '$.n_cols') AS INTEGER) ELSE n_cols END"
                 " WHERE id = ?", (n, team_of_project(con, r["project_id"]), dataset_id))
     con.execute("UPDATE dataset_roots SET state = ? WHERE id = ?", (root_state(con, root), root))
@@ -1110,7 +1129,7 @@ def backfill_p01(con: sqlite3.Connection, *, force: bool = False) -> dict[str, A
                     " WHERE id = ? OR root_id = ?) WHERE id = ?", (rt, rt, rt))
     out["roots_numbered"] = renumbered
     con.execute("UPDATE datasets SET team_id = COALESCE(team_id, (SELECT p.team_id FROM projects p WHERE p.id = datasets.project_id), ?),"
-                " legacy_sha256 = COALESCE(legacy_sha256, sha256),"
+                " legacy_sha256 = CASE WHEN COALESCE(storage, 'csv') = 'csv' THEN COALESCE(legacy_sha256, sha256) ELSE legacy_sha256 END,"
                 " n_cols = COALESCE(n_cols, CASE WHEN json_valid(profile) THEN CAST(json_extract(profile, '$.n_cols') AS INTEGER) END),"
                 " storage = COALESCE(storage, 'csv')", (DEFAULT_TEAM,))
     out["versions"] = con.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]

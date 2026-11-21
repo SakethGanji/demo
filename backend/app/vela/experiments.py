@@ -373,18 +373,30 @@ def _metric(pt: str, cost: dict[str, Any] | None):
 
 
 def _roots(rec: dict[str, Any]) -> np.ndarray:
-    """Row i of the run's dataset is row roots[i] of the root dataset (D1 / D2 versions keep `root_rows` in lineage).
-    P09: a Parquet run's holdout rows are already __row_ids (the root identity): identity over them."""
+    """Row i of the run's dataset is row roots[i] of the root dataset (D1 / D2 versions keep a row map in lineage).
+    P09: a Parquet run's holdout rows are already __row_ids (the root identity): identity over them. P10: a CSV-era run
+    on a migrated version keeps positions, mapped through the table's ids in data.csv order (its old row map)."""
+    from ..lake import migrate as MG
+
     ref = frames.resolve(rec["config"])  # P03: the run's input through the reader (lineage.json sits beside it)
     if isinstance(ref, frames.Table) and frames.is_parquet(ref):
         from ..lake import splitstore as SS
 
+        from .. import config
+        from ..db import Database
+
+        db = Database(config.load_settings().db_path)
+        if MG.positional_run(db, rec["id"], ref.version_id):
+            leg = MG.legacy_mapping(db, ref.version_id)
+            if leg and leg[1] == MG.HOW_ROW_MAP:
+                return leg[0].astype(int)
+            return np.arange(frames.n_rows(ref) + 1)
         ids = SS.table_row_ids(ref.version_id)
         return np.arange(int(ids.max()) + 2 if len(ids) else 1)
     lp = frames.path_of(ref).parent / "lineage.json"
-    rr = json.loads(lp.read_text()).get("root_rows") if lp.exists() else None
-    if rr:
-        return np.asarray(rr, dtype=int)
+    rr = MG.legacy_row_map(json.loads(lp.read_text()) if lp.exists() else None)
+    if rr is not None:
+        return rr.astype(int)
     return np.arange(frames.n_rows(ref) + 1)
 
 

@@ -266,10 +266,12 @@ def ensure_demo_db(data_dir: Path, store: Any) -> Path:
     applications + outcomes (credit-default, split in two so the demo query is a join), loans (loan-stream) and
     accounts (account-churn)."""
     path = data_dir / "demo" / "bank.sqlite"
-    srcs = {k: frames.version_file(k) for k in ("credit-default", "loan-stream", "account-churn")}  # stamped by mtime
-    if not all(p.exists() for p in srcs.values()):
+    # P10: stamped by each sample's content identity (a Parquet table's table_sha256, or a CSV-era file's hash)
+    try:
+        ids = [frames.data_identity(k) for k in ("credit-default", "loan-stream", "account-churn")]
+    except Exception:  # noqa: BLE001 - a sample is missing: no demo database
         return path
-    stamp = DEMO_VERSION + ":" + ",".join(f"{p.stat().st_mtime_ns}" for p in srcs.values())
+    stamp = DEMO_VERSION + ":" + ",".join(ids)
     mark = path.with_suffix(".stamp")
     if path.exists() and mark.exists() and mark.read_text() == stamp:
         return path

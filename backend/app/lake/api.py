@@ -113,6 +113,81 @@ async def run_gc(request: Request, dry_run: int = Query(1)) -> dict[str, Any]:
     return await run_in_threadpool(gc.plan, request.app.state.db, request.app.state.lake)
 
 
+# -- P10: the migration of CSV-era versions (§5.11), verify-all, a run's re-verify ---------------------------------
+
+@router.post("/admin/lake/migrate", dependencies=[require("admin.lake")])
+async def migrate(request: Request, dry_run: int = Query(1), body: dict[str, Any] | None = None) -> Any:
+    """`?dry_run=1` (the default): the plan, per CSV-era version (migrate / tombstone / skip and why), written nowhere.
+    `?dry_run=0`: queue the resumable `migrate` job (202 with its id; a job already running is returned instead)."""
+    from fastapi.responses import JSONResponse
+
+    from ..jobs import queue as Q
+    from . import migrate as MG
+
+    body = body if isinstance(body, dict) else {}
+    app = request.app
+    if dry_run:
+        return await run_in_threadpool(MG.plan, app.state.db, app.state.settings)
+    by = _admin(request, body.get("by"), "lake_migrate")
+    only = [str(x) for x in body.get("only") or []] or None
+    live = await run_in_threadpool(Q.active_of_kind, app.state.db, "migrate")
+    if live:
+        return JSONResponse({"job": live[0], "started": False, "note": "a migration job is already queued or running"}, status_code=202)
+    job = await run_in_threadpool(lambda: Q.enqueue(app.state.db, "migrate", {"by": by, "only": only}, resource="duck", by=by,
+                                                    ref_kind="lake", ref_id="migrate", max_attempts=3))
+    with app.state.db.connect() as con:
+        S.audit(con, by, "lake_migration_started", {"job_id": job["id"], "only": only})
+    return JSONResponse({"job": job, "started": True, "status_url": "/api/admin/lake/migrate"}, status_code=202)
+
+
+@router.get("/admin/lake/migrate", dependencies=[require("admin.lake")])
+async def migrate_status(request: Request) -> dict[str, Any]:
+    """The job's progress, and one row per version handled (migrated / skipped and why / failed, the folder step)."""
+    from ..jobs import queue as Q
+    from . import migrate as MG
+
+    db = request.app.state.db
+    out = await run_in_threadpool(MG.status, db)
+    prog = out.get("progress") or {}
+    out["job"] = await run_in_threadpool(Q.get, db, prog["job_id"]) if prog.get("job_id") else None
+    return out
+
+
+@router.post("/admin/lake/migrate/cleanup", dependencies=[require("admin.lake")])
+async def migrate_cleanup(request: Request, dry_run: int = Query(1), body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Delete the `<id>.migrated` folders: only after two verify-all passes since the migration finished (409 before)."""
+    from . import migrate as MG
+
+    body = body if isinstance(body, dict) else {}
+    by = _admin(request, body.get("by"), "lake_migrate_cleanup")
+    try:
+        return await run_in_threadpool(lambda: MG.cleanup(request.app.state.db, request.app.state.settings, dry_run=bool(dry_run), by=by))
+    except MG.MigrateError as e:
+        raise HTTPException(e.status, e.payload)
+
+
+@router.get("/admin/lake/verify-all", dependencies=[require("admin.lake")])
+async def verify_all(request: Request, by: str | None = None) -> dict[str, Any]:
+    """Re-hash every version that is not deleted (DL2's verify-all, lake versions part by part, migrated versions also
+    through their legacy blobs). A pass is recorded: GC (P24) and the migration cleanup wait for it."""
+    from ..catalog import dsets
+
+    who = _admin(request, by, "lake_verify_all")
+    return await run_in_threadpool(dsets.verify_all, request.app, who)
+
+
+@router.get("/admin/lake/runs/{run_id}/verify", dependencies=[require("admin.lake")])
+async def verify_run(run_id: str, request: Request) -> dict[str, Any]:
+    """Re-verify what a run trained on against the hashes it recorded: the data (a Parquet table's table_sha256, or the
+    data.csv bytes of a CSV-era run, from the legacy_csv blob once its version is migrated) and its split."""
+    from . import migrate as MG
+
+    try:
+        return await run_in_threadpool(MG.verify_run, request.app.state.db, request.app.state.lake, run_id)
+    except MG.MigrateError as e:
+        raise HTTPException(e.status, e.payload)
+
+
 # -- admin seed: a deterministic table written as a Parquet version ------------------------------------------------
 
 SEED_SQL = f"""

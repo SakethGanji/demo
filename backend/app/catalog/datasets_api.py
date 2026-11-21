@@ -847,7 +847,7 @@ async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]
     before = store.check_splits(dataset_id)
     if all(x["status"] == "ok" for x in before):
         raise HTTPException(409, f"{dataset_id}'s split files match the hashes recorded when they were drawn: nothing to restore.")
-    restored = await _thread(store.restore_split_files, dataset_id)
+    restored = await _thread(store.restore_csv_splits, dataset_id)
     with request.app.state.db.connect() as con:
         from .schema import audit
 

@@ -50,27 +50,37 @@ def _hp(run: dict[str, Any]) -> pd.DataFrame | None:
     return frames.read_artifact(p, dtype={"y_true": str, "y_pred": str})
 
 
-def root_info(app, dataset_id: str) -> tuple[str, np.ndarray | None, str]:
+def root_info(app, dataset_id: str, positional: bool = False) -> tuple[str, np.ndarray | None, str]:
     """(root dataset id, root row of every row by read position, or None, how). None: the rows can't be mapped to the
     root (a refresh or a monitoring window: new rows), so nothing on it is paired with another dataset.
     P09: a Parquet version's rows carry their identity (`__row_id`, shared by every version of the root); only a
-    CSV-era version (until P10 migrates it) is mapped through its lineage file."""
+    CSV-era version (until P10 migrates it) is mapped through its lineage file.
+    P10: `positional` = the run's holdout rows are read positions (a CSV-era run). On a migrated version they map
+    through the table's ids in data.csv order (= the CSV-era row map), reported as before."""
+    from ..lake import migrate as MG
+
     ds = app.state.datasets
     rec = app.state.db.get_dataset(dataset_id) or {}
     with app.state.db.connect() as con:
         r = con.execute("SELECT parent_id, root_id, storage FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
     parent, root = (r["parent_id"], r["root_id"]) if r else (None, None)
+    lin = ds.lineage(dataset_id) or {}
     if r and r["storage"] == "parquet":
         from ..lake import splitstore as SS
 
-        return root or dataset_id, SS.table_row_ids(dataset_id), "__row_id"
-    lin = ds.lineage(dataset_id) or {}
-    rr = lin.get("root_rows")
-    n = int(rec.get("rows") or 0)
-    if rr and len(rr) == n:
-        return root or lin.get("root") or dataset_id, np.asarray(rr, dtype=int), "root_rows"
-    if not parent and not lin.get("parent"):
-        return dataset_id, np.arange(n), "is the root"
+        leg = MG.legacy_mapping(app.state.db, dataset_id) if positional else None
+        if leg is None:
+            return root or dataset_id, SS.table_row_ids(dataset_id), "__row_id"
+        ids, how, is_root = leg
+        if ids is not None:
+            return (dataset_id if is_root else root or lin.get("root") or dataset_id), ids.astype(int), how
+    else:
+        n = int(rec.get("rows") or 0)
+        rr = MG.legacy_row_map(lin, n)
+        if rr is not None:
+            return root or lin.get("root") or dataset_id, rr.astype(int), MG.HOW_ROW_MAP
+        if not parent and not lin.get("parent"):
+            return dataset_id, np.arange(n), MG.HOW_ROOT
     with app.state.db.connect() as con:
         op = (con.execute("SELECT op FROM datasets WHERE id = ?", (dataset_id,)).fetchone() or [None])[0]
     why = "refresh" if op in ("sql", "refresh") or lin.get("source") == "sql" else (op or "new rows")
@@ -229,8 +239,10 @@ def compare(app, a_ref: str, b_ref: str, b: int = 1000) -> dict[str, Any]:
         return unpaired(f"different targets ('{ra['label']}' vs '{rb['label']}')", comparable=False)
     if A["problem_type"] != B["problem_type"]:
         return unpaired(f"different problem types ({A['problem_type']} vs {B['problem_type']})", comparable=False)
-    root_a, map_a, how_a = root_info(app, ra["dataset_id"])
-    root_b, map_b, how_b = root_info(app, rb["dataset_id"])
+    from ..lake.migrate import positional_run
+
+    root_a, map_a, how_a = root_info(app, ra["dataset_id"], positional_run(app.state.db, ra["id"], ra["dataset_id"]))
+    root_b, map_b, how_b = root_info(app, rb["dataset_id"], positional_run(app.state.db, rb["id"], rb["dataset_id"]))
     out["roots"] = {"a": {"root": root_a, "how": how_a}, "b": {"root": root_b, "how": how_b}}
     if root_a != root_b:
         return unpaired(f"different original datasets ({root_a} vs {root_b})")

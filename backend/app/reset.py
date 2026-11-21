@@ -21,6 +21,7 @@ from typing import Any
 
 from . import config
 from .db import Database
+from .lake.migrate import LEGACY_TABLES
 
 #: deleted by a reset (the audit_log, admin_requests and catalog_meta are kept)
 TABLES = ("run_events", "runs", "batch_jobs", "model_versions", "registered_models",
@@ -28,7 +29,7 @@ TABLES = ("run_events", "runs", "batch_jobs", "model_versions", "registered_mode
           "run_inputs", "join_frames", "joins", "splits", "table_relations", "table_keys", "table_files", "version_tables",
           "dataset_root_tables", "dataset_roots", "uploads", "certifications", "column_tags", "data_contracts", "datasets",
           "lineage_edges", "champions", "dataset_cards", "dataset_requests", "version_requests", "annotations", "projects",
-          "split_files")
+          "lake_migrations", *LEGACY_TABLES)
 FOLDERS = ("runs", "registry", "mlflow", "autopilot", "agent", "datasets")
 
 

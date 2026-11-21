@@ -58,6 +58,7 @@ HANDLERS: dict[str, str] = {
     "heavy": "app.engine.pool:run_job",
     "agent": "app.agent.loop:run_job",
     "profile": "app.lake.stats:run_job",
+    "migrate": "app.lake.migrate:run_job",  # P10
 }
 # Called by the janitor when a job ran out of attempts (its holder died every time): close what the job drives.
 DEAD_HOOKS: dict[str, str] = {

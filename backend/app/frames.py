@@ -60,7 +60,9 @@ class JoinFrame:
 
 @dataclass(frozen=True)
 class LegacyPath:
-    """A data.csv named by path: old run configs (`csv_path`). Read with the schema.json beside it."""
+    """A data.csv named by path: old run configs (`csv_path`). Read with the schema.json beside it. P10: once its
+    version is migrated, the path resolves to the version's Parquet table, read in engine_v1 mode with the CSV's
+    positional index (what that run's readers have always been given); see `legacy_version`."""
     path: str
 
 
@@ -330,11 +332,29 @@ def read_version(version_id: str, columns: Iterable[str] | Callable[[str], bool]
     return read(Table(version_id), columns, rows)
 
 
+def legacy_version(ref: Any) -> str | None:
+    """P10, the legacy path resolver: the migrated version a CSV-era path names (`…/datasets/<id>/data.csv` of a version
+    that is Parquet now), else None."""
+    if not isinstance(ref, LegacyPath):
+        return None
+    from .lake.migrate import version_of_legacy_path
+
+    vid = version_of_legacy_path(ref.path)
+    if vid is None or Path(ref.path).exists() or storage(vid) != "parquet":
+        return None
+    return vid
+
+
 def resolve(cfg: dict[str, Any]) -> InputRef:
     """A run config's input: `input_ref` (new configs), else `csv_path` (every config so far: the exact file the fit
-    read, so an old run re-reads what it trained on), else `dataset_id`."""
+    read, so an old run re-reads what it trained on), else `dataset_id`.
+    P10: a run that read a CSV-era version (no committed `input_table.table_sha256`) resolves to its `csv_path`, which
+    reads the migrated table with the positions that run's rows are named by."""
     ref = from_json(cfg.get("input_ref"))
     if ref is not None:
+        if (isinstance(ref, Table) and cfg.get("csv_path") and not (cfg.get("input_table") or {}).get("table_sha256")
+                and legacy_version(LegacyPath(str(cfg["csv_path"]))) == ref.version_id):
+            return LegacyPath(str(cfg["csv_path"]))
         return ref
     if cfg.get("csv_path"):
         return LegacyPath(str(cfg["csv_path"]))
@@ -377,6 +397,14 @@ def read(ref: InputRef, columns: Iterable[str] | Callable[[str], bool] | None = 
         raise FrameError("rows is a contiguous, non-negative range.")
     if isinstance(ref, Table) and is_parquet(ref):
         return _read_parquet(ref, columns, rows, mode, hash_into)
+    lv = legacy_version(ref)
+    if lv is not None:  # P10: a CSV-era run's path, migrated: the same frame, by position
+        if hash_into is not None:
+            hash_into.update(legacy_csv_bytes(lv))
+        df = _read_parquet(Table(lv), columns, rows, mode, None)
+        start = rows.start if rows is not None else 0
+        df.index = pd.RangeIndex(start, start + len(df))
+        return df
     p = path_of(ref)
     if not p.exists():
         raise FrameError(f"No data file for {to_json(ref)}.")
@@ -408,6 +436,8 @@ def read_csv_path(path: str | Path, columns: Any = None) -> pd.DataFrame:
 
 
 def columns(ref: InputRef) -> list[ColumnInfo]:
+    if legacy_version(ref):
+        ref = Table(legacy_version(ref))
     if isinstance(ref, Table) and is_parquet(ref):
         return [ColumnInfo(c["name"], kind_of_type(c["type"])) for c in lake_table(ref).schema]
     p = path_of(ref)
@@ -422,6 +452,8 @@ def column_names(ref: InputRef) -> list[str]:
 
 
 def n_rows(ref: InputRef) -> int:
+    if legacy_version(ref):
+        ref = Table(legacy_version(ref))
     if isinstance(ref, Table) and is_parquet(ref):
         return lake_table(ref).n_rows
     p = path_of(ref)
@@ -440,6 +472,12 @@ def input_sha256(cfg: dict[str, Any]) -> str | None:
     ref = resolve(cfg)
     if isinstance(ref, Table) and is_parquet(ref):
         return hash_table(ref)[0]
+    lv = legacy_version(ref)
+    if lv is not None:  # P10: an old run re-verifies against the data.csv bytes it read, kept as a legacy_csv blob
+        try:
+            return hashlib.sha256(legacy_csv_bytes(lv)).hexdigest()
+        except FrameError:
+            return None
     p = path_of(ref)
     if not p.exists():
         return None
@@ -448,6 +486,21 @@ def input_sha256(cfg: dict[str, Any]) -> str | None:
         while b := f.read(8 * 1024 * 1024):
             h.update(b)
     return h.hexdigest()
+
+
+def legacy_csv_bytes(version_id: str) -> bytes:
+    """P10: the data.csv bytes a migrated version was made from (its legacy_csv blob)."""
+    from .lake.migrate import legacy_blob
+
+    b = legacy_blob(_db(), version_id)
+    if not b:
+        raise FrameError(f"{version_id} has no legacy CSV blob.")
+    st = _store()
+    try:
+        with st.open(b["key"]) as f:
+            return f.read()
+    except FileNotFoundError as e:
+        raise FrameError(f"The legacy CSV of {version_id} ({b['sha256'][:12]}…) is missing from the lake.") from e
 
 
 def data_identity(version_id: str, table: str = PRIMARY_TABLE) -> str:

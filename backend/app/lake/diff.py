@@ -90,9 +90,11 @@ class Side:
             df = frames.read_version(vid).reset_index(drop=True)
             df.columns = [str(c) for c in df.columns]
             lin = (dstore.lineage(vid) if dstore is not None else None) or {}
-            rr = lin.get("root_rows")
-            if rr and len(rr) == len(df):
-                ids = np.asarray(rr, dtype="int64")
+            from .migrate import legacy_row_map
+
+            rr = legacy_row_map(lin, len(df))  # a CSV-era version not migrated yet (P10)
+            if rr is not None:
+                ids = rr
             elif self.root == vid:
                 ids = np.arange(len(df), dtype="int64")
             else:

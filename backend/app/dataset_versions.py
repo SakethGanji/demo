@@ -399,7 +399,7 @@ def parse_match(m: Any, table: str) -> dict[str, Any] | None:
 class Matcher:
     """Parent table vs the new file, in one DuckDB connection. Views: _p (`__row_id`, columns), _n (`__fr` = the new
     file's row number, columns), table _h (the parent's holdout `__row_id`s). `parent_sql` / `new_sql` are relations
-    (SELECT … or read_parquet(…)); `new_sql` must carry `__fr`."""
+    (a SELECT over a view or a Parquet scan); `new_sql` must carry `__fr`."""
 
     def __init__(self, con: Any, parent_sql: str, new_sql: str, holdout_ids: Any = None,
                  declared_keys: list[list[str]] | None = None) -> None:

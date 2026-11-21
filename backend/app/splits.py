@@ -1,6 +1,6 @@
 """The fixed holdout and the 5 folds every model trains on (plan §2: identical folds for a fair leaderboard).
 
-Stored per dataset in `splits.json`:
+A split, as JSON (the DL4 file; for a Parquet version a positional view of its `splits` row, P09):
 
     {"seed": 42, "target": "category", "stratified": true, "holdout_share": 0.2, "n_folds": 5,
      "holdout": [row, ...],                 # sorted row positions held out for the final score
@@ -22,8 +22,8 @@ F6 adds three strategies, each keyed by its parameters too (`split_key`):
   time-group  forward in time and new customers only: holdout = rows after the cut-off of customers with no row
               before it (rows after the cut-off of known customers are excluded), tuning likewise inside the
               training period, bagging folds group-disjoint.
-`fold` codes: 0..4 train fold, -1 holdout, -2 excluded, -3 tuning. The legacy `splits.json` (the split drawn on
-upload for the profiler's target) is kept unchanged, because runs made before F4 point at it.
+`fold` codes: 0..4 train fold, -1 holdout, -2 excluded, -3 tuning. The pre-F4 split drawn on upload for the profiler's
+target is kept unchanged, because runs made before F4 point at it (P10 migrates it with its version).
 """
 
 from __future__ import annotations

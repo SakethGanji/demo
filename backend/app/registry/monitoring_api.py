@@ -551,22 +551,19 @@ def _window_dataset(request: Request, v: dict[str, Any], run: dict[str, Any], pr
     src = df.pop("_source_batch")
     store = request.app.state.datasets
     stem = f"{v['model_name']}_window_{prop['window']['start'][:7]}_{prop['window']['end'][:7]}"
-    rec = store.create_from_upload(f"{stem}.csv", df.to_csv(index=False).encode(), target=label)
     lineage = {"kind": "monitoring-window", "parent": run["dataset_id"], "root": run["dataset_id"],
                "champion_version_id": v["id"], "champion_run_id": run["id"], "window": prop["window"],
                "batches": prop["batches"], "include_reference": prop["include_reference"], "created_by": actor,
                "rows_by_source": {str(k): int(n) for k, n in src.value_counts().items()},
                "changes": [f"{len(df):,} rows: the labelled rows of {len(prop['batches'])} scored batches"
                            + (" and the champion's training data" if prop["include_reference"] else "")]}
-    d = store.dir(rec["id"])
-    (d / "lineage.json").write_text(json.dumps(lineage))
-    prof = dict(rec["profile"])
-    prof["lineage"] = {k: val for k, val in lineage.items() if k not in ("changes",)}
-    with request.app.state.db.connect() as con:
-        con.execute("UPDATE datasets SET profile = ?, note = ? WHERE id = ?",
-                    (json.dumps(prof), f"Monitoring window of {_label(v)} · {prop['window']['start']} … {prop['window']['end']}", rec["id"]))
-    store.catalog.record_version(run["dataset_id"], rec, store.data_file(rec["id"]), op="monitoring-window", actor=actor,
-                                 meta={"champion_version_id": v["id"]}, paired=False)  # P1: new rows, no root-row mapping
+    # P10: a version of the champion's dataset written by the VersionWriter (Parquet). Its rows are new (no row mapping
+    # to the parent's), so it gets fresh row ids and the derived_from edge is inferred: nothing pairs on it.
+    df = frames.read_upload(df.to_csv(index=False).encode(), filename=f"{stem}.csv")  # the typed import rules of an upload
+    rec = store.write_frame_version(df, name=f"{stem}", filename=f"{stem}.csv", source="monitoring-window", target=label,
+                                    by=actor, parent_id=run["dataset_id"], lineage=lineage,
+                                    hints={c: "text" for c in df.attrs.get("kept_as_text") or []},
+                                    note=f"Monitoring window of {_label(v)} · {prop['window']['start']} … {prop['window']['end']}")
     return request.app.state.db.get_dataset(rec["id"])
 
 
