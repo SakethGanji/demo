@@ -68,7 +68,7 @@ function DatasetNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
         {edge?.inferred && <span className="mono muted" title="no root-row mapping: never paired with its parent">◇</span>}
         {n.state && <span className={`pt-chip ${n.state === 'deleted' ? 'appr-rejected' : ''}`} title={n.state === 'deleted' ? 'files removed; this record, its lineage and the audit are kept' : 'hidden from Build and the pickers'}>{n.state}</span>}
         <Tags n={n} />
-        {!edge && <button className="chip-btn" onClick={() => ctx.go(`models?tab=Data&dataset=${n.id}`)} data-testid={`pt-data-${n.id}`} title="Versions, diff, what used each one, card, export">Data →</button>}</div>
+        {!edge && <button className="chip-btn" onClick={() => ctx.go(`build?view=data&dataset=${n.id}`)} data-testid={`pt-data-${n.id}`} title="Versions, diff, what used each one, card, export">Data →</button>}</div>
       {(versions.length > 0 || runs.length > 0) && <ul>
         {runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} trained={e} /> : null })}
         {versions.map((e) => { const d = ctx.ix.node.get(`dataset:${e.dst.id}`); return d ? <DatasetNode key={d.id} n={d} ctx={ctx} edge={e} /> : null })}

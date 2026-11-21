@@ -87,3 +87,10 @@
 
 /* Small screens: the status bar keeps the run and registry state and drops machine details. */
 @media (max-width: 1500px) { .statusbar .sb-wide { display: none; } }
+
+/* U1: the team switcher under the lockup (C §2.1) */
+.team-switch { flex: none; display: flex; flex-direction: column; gap: 3px; padding: var(--space-8) var(--space-20) var(--space-12); border-bottom: 1px solid var(--border-shell); }
+.team-switch .eyebrow { font-size: 8px; line-height: 10px; font-weight: 600; letter-spacing: 0.36em; color: var(--text-on-shell-muted); }
+.team-switch select, .team-switch .team-name { height: 28px; border-radius: var(--radius-control); border: 1px solid var(--border-shell); background: rgba(255,255,255,.06); color: var(--text-on-shell, #fff); font-size: 13px; font-weight: 600; padding: 0 6px; min-width: 0; }
+.team-switch select option { color: #0F172A; }
+.team-switch small { font-size: 11px; color: var(--text-on-shell-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

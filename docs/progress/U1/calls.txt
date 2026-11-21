@@ -1,0 +1,88 @@
+
+## 0. who and which team (sidebar)
+GET /api/me → 200 {teams [default member, credit-risk owner], default_team null}
+GET /api/datasets → 200
+GET /api/datasets → 200
+
+## 1. Build › Data: New project (in the current team)
+GET /api/projects?team=tm_aa250e2c → 200 {0 projects: }
+GET /api/data/search?state=active → 200
+GET /api/data/search?state=active → 200
+GET /api/projects → 200
+GET /api/projects → 200
+POST /api/projects {"name":"PD 2026","by":"Ana","description":"","team_id":"tm_aa250e2c"} → 201 {id prj_e811812c, name PD 2026, team_id tm_aa250e2c}
+GET /api/projects?team=tm_aa250e2c → 200 {1 projects: PD 2026}
+
+## 2. Build › Start: drop pd_accounts.csv → match check → staged upload → /check → /commit
+GET /api/datasets → 200
+GET /api/datasets → 200
+POST /api/datasets/match (multipart: ) → 200 {match null}
+GET /api/projects?team=tm_aa250e2c → 200 {1 projects: PD 2026}
+GET /api/projects?team=tm_aa250e2c → 200 {1 projects: PD 2026}
+POST /api/uploads (multipart: ) → 201 {upload_id up_d953825258f0, status staged, parent_version_id null, project_id prj_e811812c, team_id tm_aa250e2c}
+POST /api/uploads/up_d953825258f0/check {} → 200 {table pd_accounts 1000×8, schema [acct VARCHAR "text"; zip VARCHAR "leading zeros: kept as text"; opened VARCHAR "ambiguous day/month order: kept as text; declare the format"; income DOUBLE "numbers"; age BIGINT "whole numbers"; segment VARCHAR "text"; utilisation DOUBLE "numbers"; defaulted BIGINT "whole numbers"], warnings [date_ambiguous:opened], blocks 0, check_sha256 f1e6817075f5…}
+POST /api/uploads/up_d953825258f0/commit {"by":"Ana","check_sha256":"f1e6817075f575a2494d173112d549a89bd0a0b4f6a2d8db3bf190038afc3706"} → 201 {version_id ds_f0db3c5f, version_no 1, root ds_f0db3c5f, n_rows 1000, team_id tm_aa250e2c, project_id prj_e811812c, default {"is_default":true}, repeat false}
+GET /api/datasets/ds_f0db3c5f → 200
+GET /api/datasets → 200
+GET /api/datasets/ds_f0db3c5f/history → 200
+GET /api/datasets/ds_f0db3c5f/history → 200
+GET /api/datasets/ds_f0db3c5f/intake → 200
+GET /api/datasets/ds_f0db3c5f/data-doctor → 200
+GET /api/datasets/ds_f0db3c5f/feature-lab → 200
+GET /api/datasets/ds_f0db3c5f/feature-lab → 200
+GET /api/datasets/ds_f0db3c5f/data-doctor → 200
+
+## 3. run: the top suggestion → New Model → Start Training
+GET /api/datasets/ds_f0db3c5f → 200
+PATCH /api/datasets/ds_f0db3c5f {"target":"defaulted"} → 200
+GET /api/datasets/ds_f0db3c5f → 200
+GET /api/datasets/ds_f0db3c5f/splits → 200
+GET /api/datasets/ds_f0db3c5f/split-options?target=defaulted → 200
+GET /api/datasets/ds_f0db3c5f/splits → 200
+GET /api/datasets/ds_f0db3c5f/split-options?target=defaulted → 200
+POST /api/runs {"dataset_id":"ds_f0db3c5f","label":"defaulted","problem_type":"binary","eval_metric":null,"presets":"medium_quality","time_limit":120,"fit_kwargs":{},"column_types":{"opened":"category"},"drop_columns":["acct","zip"],"feature_importance":false,"calibrate_threshold":"expected_cost","split_spec":{"st → 201 {id run_d1be7194, status queued, dataset_id ds_f0db3c5f, label defaulted}
+
+## 4. Build: drop pd_accounts_dec.csv → "looks like" → Add as new version → /uploads?parent_version_id → /check → /commit {match}
+GET /api/datasets → 200
+GET /api/datasets → 200
+POST /api/datasets/match (multipart: ) → 200 {match pd_accounts v1 (ds_f0db3c5f)}
+POST /api/uploads?parent_version_id=ds_f0db3c5f (multipart: ) → 201 {upload_id up_ccab9c5e5a86, status staged, parent_version_id ds_f0db3c5f, project_id prj_e811812c, team_id tm_aa250e2c}
+POST /api/uploads/up_ccab9c5e5a86/check {} → 200 {table pd_accounts 1000×8, schema [acct VARCHAR "text"; zip VARCHAR "leading zeros: kept as text"; opened VARCHAR "ambiguous day/month order: kept as text; declare the format"; income DOUBLE "numbers"; age BIGINT "whole numbers"; segment VARCHAR "text"; utilisation DOUBLE "numbers"; defaulted BIGINT "whole numbers"], warnings [date_ambiguous:opened], blocks 0, check_sha256 b5218b3a303e…, next_version {candidates [acct score 1 overlap 1; zip score 0.994009 overlap 1; income score 0.983016 overlap 0.984985], methods [key acct: matched 1000 changed 15 added 0 removed 0 holdout_identity_lost 0/200 needs_ack []; row content (exact row hash): matched 985 changed 0 added 15 removed 15 holdout_identity_lost 3/200 needs_ack ["holdout_identity_loss"]], preselect {"method":"key","columns":["acct"]}}}
+POST /api/uploads/up_ccab9c5e5a86/commit {"by":"Ana","check_sha256":"b5218b3a303e788438c95f38144fc9befa1c1d2d26b8fdeb04791bcbe895017b","match":{"method":"key","columns":["acct"]}} → 201 {version_id ds_4494b1b3, version_no 2, root ds_f0db3c5f, n_rows 1000, team_id tm_aa250e2c, project_id prj_e811812c, default {"is_default":false,"default_stays":"ds_f0db3c5f"}, match {key acct: matched 1000 changed 15 added 0 removed 0 holdout_identity_lost 0 acknowledged []}, repeat false}
+GET /api/datasets/ds_4494b1b3 → 200
+GET /api/datasets → 200
+GET /api/datasets/ds_4494b1b3/history → 200
+GET /api/datasets/ds_4494b1b3/history → 200
+GET /api/datasets/ds_4494b1b3/intake → 200
+GET /api/datasets/ds_4494b1b3/feature-lab → 200
+GET /api/datasets/ds_4494b1b3/feature-lab → 200
+GET /api/datasets/ds_4494b1b3/data-doctor → 200
+GET /api/datasets/ds_4494b1b3/data-doctor → 200
+
+## 5. Build › Data › dataset: Upload a new version (pd_accounts_jan.csv) → row hash → acknowledge → /commit {match, acknowledge}
+GET /api/projects?team=tm_aa250e2c → 200 {1 projects: PD 2026}
+GET /api/data/search?state=active → 200
+GET /api/projects → 200
+GET /api/data/search?state=active → 200
+GET /api/projects → 200
+GET /api/datasets/ds_f0db3c5f/history → 200
+GET /api/datasets/ds_f0db3c5f/history → 200
+GET /api/datasets/ds_f0db3c5f/usage → 200
+GET /api/lineage/dataset/ds_f0db3c5f → 200
+GET /api/datasets/ds_f0db3c5f/usage → 200
+GET /api/lineage/dataset/ds_f0db3c5f → 200
+GET /api/datasets/ds_f0db3c5f/diff/ds_4494b1b3 → 200
+GET /api/datasets/ds_f0db3c5f/diff/ds_4494b1b3 → 200
+POST /api/uploads?parent_version_id=ds_f0db3c5f (multipart: ) → 201 {upload_id up_60419a404580, status staged, parent_version_id ds_f0db3c5f, project_id prj_e811812c, team_id tm_aa250e2c}
+POST /api/uploads/up_60419a404580/check {} → 200 {table pd_accounts 1000×8, schema [acct VARCHAR "text"; zip VARCHAR "leading zeros: kept as text"; opened VARCHAR "ambiguous day/month order: kept as text; declare the format"; income DOUBLE "numbers"; age BIGINT "whole numbers"; segment VARCHAR "text"; utilisation DOUBLE "numbers"; defaulted BIGINT "whole numbers"], warnings [date_ambiguous:opened], blocks 0, check_sha256 dcbcaff3e8de…, next_version {candidates [acct score 1 overlap 1; zip score 0.994009 overlap 1; income score 0.983016 overlap 0.984985], methods [key acct: matched 1000 changed 54 added 0 removed 0 holdout_identity_lost 0/200 needs_ack []; row content (exact row hash): matched 946 changed 0 added 54 removed 54 holdout_identity_lost 13/200 needs_ack ["holdout_identity_loss"]], preselect {"method":"key","columns":["acct"]}}}
+POST /api/uploads/up_60419a404580/commit {"by":"Ana","check_sha256":"dcbcaff3e8de12fb5be9d1854989e31c8243c8068479d1dd73f4e9c9da19acb6","match":{"method":"row_hash"},"acknowledge":["holdout_identity_loss"]} → 201 {version_id ds_3e757861, version_no 3, root ds_f0db3c5f, n_rows 1000, team_id tm_aa250e2c, project_id prj_e811812c, default {"is_default":false,"default_stays":"ds_f0db3c5f"}, match {row content (exact row hash): matched 946 changed 0 added 54 removed 54 holdout_identity_lost 13 acknowledged ["identity_loss","better_key_available"]}, repeat false}
+GET /api/data/search?state=active → 200
+GET /api/datasets/ds_f0db3c5f/history → 200
+GET /api/datasets/ds_f0db3c5f/diff/ds_3e757861 → 200
+GET /api/datasets/ds_f0db3c5f/diff/ds_3e757861 → 200
+
+## 6. the old Models › Data link redirects to Build › Data
+redirected to /#/build?view=data
+
+console errors: 0
+
