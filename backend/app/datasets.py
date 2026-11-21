@@ -38,6 +38,7 @@ from .samples_g5 import SAMPLES_G5  # G5: loans from customer types that behave 
 from .samples_g6 import SAMPLES_G6  # G6: accounts followed until they close or the data ends (censoring)
 from .samples_g7 import SAMPLES_G7  # G7: applications with declines (outcomes only for the approved)
 from .samples_g8 import SAMPLES_G8  # G8: complaints with overlapping topics (multi-label)
+from .samples_p12 import SAMPLES_P12  # P12: a credit book in three tables (keys, relations)
 from . import splits as splits_mod
 from .splits import RANDOM_STRATIFIED, load_splits, make_splits, save_splits, split_key, summarize
 
@@ -156,6 +157,8 @@ def read_upload(filename: str, content: bytes) -> tuple[pd.DataFrame, str, str]:
     """The uploaded bytes as a frame, the note on how it was read, and the file's stem (A1 #15 checks, in order)."""
     if not content.strip():
         raise DatasetError("The file is empty.")
+    if re.search(r"\.(xlsx|xlsm)$", filename or "", re.I) or content[:2] == b"PK":
+        content, filename = _one_sheet_csv(filename, content)  # P12: a workbook with one sheet of data
     if not re.search(r"\.(csv|tsv|txt)$", filename or "", re.I):
         raise DatasetError(f"{filename or 'This file'} is not a CSV. Upload a .csv or .tsv file with a header row.")
     text, encoding = decode_upload(content)
@@ -180,6 +183,32 @@ def read_upload(filename: str, content: bytes) -> tuple[pd.DataFrame, str, str]:
     note = "Uploaded file" + ("" if encoding in ("utf-8", "ascii") else f" (read as {encoding})") + \
         ("" if sep == "," else f" (separator {'tab' if sep == chr(9) else repr(sep)})")
     return df, note, stem
+
+
+def _one_sheet_csv(filename: str, content: bytes) -> tuple[bytes, str]:
+    """P12: the legacy single-file routes take a workbook when it holds one sheet of data (read by lake/excel: calamine,
+    openpyxl as the fallback), as that sheet's CSV. Several sheets are several tables: POST /api/uploads."""
+    import tempfile
+
+    from .lake import excel as X
+    from .lake.writer import LakeError
+
+    with tempfile.TemporaryDirectory() as d:
+        src = Path(d) / "book.xlsx"
+        src.write_bytes(content)
+        try:
+            sheets = [s_ for s_ in X.read_workbook(src, Path(d), "0", filename=filename or "the workbook")
+                      if not s_["empty"] and not s_["hidden"]]
+        except LakeError as e:
+            raise DatasetError(e.message) from None
+        if not sheets:
+            raise DatasetError(f"{filename or 'The workbook'} has no sheet with data.")
+        if len(sheets) > 1:
+            raise DatasetError(f"{filename or 'The workbook'} has {len(sheets)} sheets with data "
+                               f"({', '.join(s_['sheet'] for s_ in sheets)}): upload it with POST /api/uploads, where each "
+                               "sheet becomes a table.")
+        stem = re.sub(r"\.(xlsx|xlsm)$", "", Path(filename or "book").name, flags=re.I)
+        return (Path(d) / sheets[0]["csv"]).read_bytes(), f"{stem}.csv"
 
 
 def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -230,7 +259,42 @@ class DatasetStore:
 
     def split_path(self, dataset_id: str, target: str | None, strategy: str = RANDOM_STRATIFIED,
                    params: dict[str, Any] | None = None) -> Path:
+        t = self._request_table(dataset_id)
+        if t:  # P12: the split of a table other than the primary has its own view file
+            return self.dir(dataset_id) / "splits" / "tables" / t / f"{split_key(target, strategy, params)}.json"
         return self.dir(dataset_id) / "splits" / f"{split_key(target, strategy, params)}.json"
+
+    def _request_table(self, dataset_id: str) -> str | None:
+        """P12: the table a request names (frames.use_table) when it is not the version's primary table, else None."""
+        t = frames.current_table()
+        if not t or not frames.is_parquet(dataset_id):
+            return None
+        from .lake import splitstore as SS
+
+        return None if t == SS.primary_table(self.db, dataset_id) else t
+
+    def table_profile(self, dataset_id: str, table: str, target: str | None) -> dict[str, Any]:
+        """P12: profile_frame's shape for one table of a multi-table version (what POST /runs {table} checks the
+        label, ID columns and task against), cached beside the version (versions are immutable)."""
+        from .lake import splitstore as SS
+
+        if table == SS.primary_table(self.db, dataset_id):
+            rec = self.db.get_dataset(dataset_id) or {}
+            if rec.get("profile") and (target is None or target == rec.get("target")):
+                return rec["profile"]
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{table}.{target or ''}")
+        cache = self.dir(dataset_id) / "profiles" / f"{safe}.json"
+        if cache.exists():
+            try:
+                return json.loads(cache.read_text())
+            except ValueError:
+                pass
+        with frames.use_table(table):
+            p = self.lake_profile(dataset_id, target)
+        p["table"] = table
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(p, default=str))
+        return p
 
     def splits_path(self, dataset_id: str, target: str | None = None) -> Path:
         """The split file for `target` (default: the dataset's current target), drawn if it doesn't exist yet."""
@@ -294,7 +358,7 @@ class DatasetStore:
 
         lake = open_store(self.settings)
         key = split_key(target, strategy, params)
-        table = SS.primary_table(self.db, dataset_id)
+        table = self._request_table(dataset_id) or SS.primary_table(self.db, dataset_id)  # P12: POST /runs {table}
         by = None
         try:
             from .catalog import governance as G
@@ -581,7 +645,55 @@ class DatasetStore:
                                      by="system:samples")
             stamp.write_text(fp)
             made.append(dataset_id)
+        for dataset_id, spec in SAMPLES_P12.items():  # P12: multi-table samples
+            fp = _generator_fingerprint(spec["generate"])
+            stamp = self.dir(dataset_id) / ".generator"
+            if self.db.get_dataset(dataset_id):
+                if not (stamp.exists() and stamp.read_text().strip() == fp):
+                    log.info("multi-table sample %s: its generator changed; the version in use is kept as it is", dataset_id)
+                continue
+            try:
+                self._write_multi_sample(dataset_id, spec)
+            except Exception:  # noqa: BLE001 - never fail startup over a sample
+                log.exception("multi-table sample %s could not be written", dataset_id)
+                continue
+            stamp.write_text(fp)
+            made.append(dataset_id)
         return made
+
+    def _write_multi_sample(self, dataset_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+        """P12: a sample of several tables as one Parquet version: each table written with the types its CSV read
+        gives (as the single-table samples), the keys and relations of its sidecar declared."""
+        from .lake import derive as LD
+        from .lake.store import open_store
+        from .lake.writer import VersionWriter
+
+        tables, sidecar = spec["generate"](seed=config.SEED)
+        d = self.dir(dataset_id)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
+        label = sidecar["label_column"]
+        who = "system:samples"
+        w = VersionWriter(self.db, open_store(self.settings), version_id=dataset_id, op="sample", by=who, name=spec["name"],
+                          primary_table=sidecar["primary_table"], reason=spec["note"][:500])
+        with w:
+            for name, df in tables.items():
+                written = FIO.roundtrip(df, None).reset_index(drop=True)
+                LD.write_frame(w, name, written, np.arange(len(written), dtype="int64"), {}, {},
+                               source_file=f"{spec['filename']}#{name}")
+            for t, cols in sidecar["keys"].items():
+                w.key(t, cols, declared_by=who)
+            for r in sidecar["relations"]:
+                w.relation(r["name"], r["from"]["table"], r["from"]["columns"], r["to"]["table"], r["to"]["columns"],
+                           cardinality=r["cardinality"], declared_by=who)
+            w.commit(target=label, kind="tabular", note=spec["note"])
+        rec = self.finish_lake_version(dataset_id, target=label, by=who)
+        profile = {**rec["profile"], "target_source": "given"}
+        rec = {**rec, "name": spec["name"], "filename": spec["filename"], "source": "sample", "note": spec["note"],
+               "profile": profile}
+        self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
+                                                     "rows", "target", "kind", "profile")})
+        return rec
 
     def _sample_in_use(self, dataset_id: str) -> bool:
         with self.db.connect() as con:
@@ -844,15 +956,25 @@ class DatasetStore:
                             by: str | None = None) -> dict[str, Any]:
         """The legacy record of a new Parquet dataset (GET /datasets, POST /runs read it): profile_frame's shape, the
         target, the kind, kept-as-text notes, and (≤ PROFILE_FULL_ROWS) the drawn holdout split."""
-        from . import frames
-
         rec = self.db.get_dataset(dataset_id)
+        with frames.use_table(rec.get("primary_table")):  # P12: the legacy record describes the primary table
+            return self._finish_lake_version(dataset_id, rec, target=target, chk=chk)
+
+    def _finish_lake_version(self, dataset_id: str, rec: dict[str, Any], *, target: str | None,
+                             chk: dict[str, Any] | None) -> dict[str, Any]:
         profile = self.lake_profile(dataset_id, target)
         tgt = profile["target"]
-        t = ((chk or {}).get("tables") or [{}])[0]
+        ctabs = (chk or {}).get("tables") or [{}]
+        t = next((x for x in ctabs if x.get("name") == rec.get("primary_table")), ctabs[0])  # P12: the primary's check
         kept = list(t.get("kept_as_text") or [])
         profile["storage"] = "parquet"
-        profile["tables"] = [rec.get("primary_table")] if rec.get("primary_table") else profile.get("tables", [])
+        with self.db.connect() as con:  # P12: every table of the version, the primary first
+            names = [r[0] for r in con.execute("SELECT table_name FROM version_tables WHERE version_id = ? ORDER BY ordinal",
+                                               (dataset_id,))]
+        prim = rec.get("primary_table")
+        profile["tables"] = ([prim] if prim else []) + [n for n in names if n != prim] if (prim or names) else profile.get("tables", [])
+        if len(names) > 1:
+            profile["primary_table"] = prim
         profile["schema"] = [{k: c.get(k) for k in ("name", "type", "nullable", "reason")} for c in t.get("schema") or []]
         profile["target_source"] = "given" if target else "guessed"
         if kept:
@@ -860,7 +982,7 @@ class DatasetStore:
             profile.setdefault("warnings", []).append(
                 f"Kept as text (codes with leading zeros, e.g. ZIP or ID codes): {', '.join(kept)}. Cast to number in Data → Edit if they are amounts.")
         for w in (chk or {}).get("warnings") or []:
-            profile.setdefault("warnings", []).append(w["message"])
+            profile.setdefault("warnings", []).append((f"{w['table']}: " if w.get("table") and len(names) > 1 else "") + w["message"])
         n = frames.n_rows(frames.table(dataset_id))
         if n <= self.PROFILE_FULL_ROWS:
             try:
@@ -869,7 +991,7 @@ class DatasetStore:
                 profile["splits"] = summarize(sp, y)
             except DatasetError as e:  # too few rows for a split: drawn (and explained) on first use
                 profile["splits_note"] = str(e)
-        src = ((chk or {}).get("tables") or [{}])[0].get("source_file")
+        src = t.get("source_file")
         how = [n for n in (chk or {}).get("notes") or [] if n.startswith(("read as", "separator"))]
         rec = {**rec, "target": tgt, "kind": profile["kind"], "profile": profile, "filename": src or rec["filename"],
                "note": "Uploaded file" + "".join(f" ({n})" for n in how) if chk else rec.get("note") or "Uploaded file"}
@@ -1185,12 +1307,18 @@ class DatasetStore:
                     "note": "nothing was written: send the same operations without preview to create the version"}
         try:
             pr.reserve(self.db, _n_added(ops))  # F-X1 M1: add_rows ids, taken atomically on the root counter
+            from .lake import splitstore as _SS
+
             with VersionWriter(self.db, lake, op="edit", by=by, parent_id=parent_id, reason=reason, name=parent["name"],
-                               primary_table=pr.table, dedupe=True) as w:
+                               primary_table=(_SS.primary_table(self.db, parent_id) if pr.storage == "parquet" else None) or pr.table,
+                               dedupe=True) as w:  # P12: an edit of another table keeps the version's primary table
                 comp, summary = self._edit_compile(w.con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
                 w.write(pr.table, f"SELECT * FROM {comp.view}")
                 names = [n for n, _ in comp.cols]
                 LD.carry_rest(w, pr, self.db, pr.table, names)
+                for other in w.tables:  # P12: a carried table keeps its splits (an edit of another table)
+                    if other != pr.table:
+                        w.carry_splits(other)
                 rows = w.con.execute(f"SELECT __row_id FROM {comp.view} ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
                 w.extra_ops.append(LD.no_floats(
                     {"op": "edit", "table": pr.table, "n_ops": len(comp.log), "ops_summary": summary["ops_summary"][:50],

@@ -43,6 +43,31 @@ from . import frame_io as FIO
 MODES = ("engine_v1", "native")
 PRIMARY_TABLE = "data"  # the one table of every CSV-era version
 
+#: P12: the table a request works on in a multi-table version (`POST /runs {table}`, `?table=` on diff / edit). Unset,
+#: `Table(v)` / `table(v)` name the version's primary table, as before. Set with `use_table(name)` for one request: the
+#: profile, the split, the run's input ref and every `table(v)` / `read_version(v)` below it then name that table.
+import contextvars  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+
+CURRENT_TABLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("ensemble_table", default=None)
+
+
+def current_table() -> str | None:
+    return CURRENT_TABLE.get()
+
+
+@contextmanager
+def use_table(name: str | None):
+    """`with use_table("bureau"):` every primary-table read of a version below it reads `bureau` (None: no change)."""
+    if not name:
+        yield
+        return
+    tok = CURRENT_TABLE.set(str(name))
+    try:
+        yield
+    finally:
+        CURRENT_TABLE.reset(tok)
+
 
 # --------------------------------------------------------------------------- refs
 
@@ -111,7 +136,12 @@ def path_of(ref: InputRef) -> Path:
         return Path(ref.path)
     if isinstance(ref, Table):
         if ref.table != PRIMARY_TABLE:
-            raise FrameError(f"{ref.version_id} has one table ('{PRIMARY_TABLE}'), not '{ref.table}'.")
+            if storage(ref.version_id) != "parquet":
+                raise FrameError(f"{ref.version_id} has one table ('{PRIMARY_TABLE}'), not '{ref.table}'.")
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", ref.version_id + ref.table) or ".." in ref.version_id + ref.table:
+                raise FrameError(f"Bad dataset id or table {ref.version_id!r} / {ref.table!r}.")
+            # P12: a named table of a multi-table version: a path that never exists (runs read input_ref, not this)
+            return _settings().datasets_dir / ref.version_id / "tables" / f"{ref.table}.csv"
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", ref.version_id) or ".." in ref.version_id:
             raise FrameError(f"Bad dataset id {ref.version_id!r}.")
         return _settings().datasets_dir / ref.version_id / "data.csv"
@@ -166,6 +196,8 @@ def lake_table(ref: Table) -> LakeTable:
         if not v or v["storage"] != "parquet":
             raise FrameError(f"{ref.version_id} is not a Parquet version.")
         name = ref.table
+        if name == PRIMARY_TABLE and current_table():  # P12: the request's table (use_table)
+            name = current_table()
         if name == PRIMARY_TABLE and not con.execute("SELECT 1 FROM version_tables WHERE version_id = ? AND table_name = ?",
                                                     (ref.version_id, name)).fetchone():
             name = v["primary_table"]
@@ -319,8 +351,9 @@ def _read_parquet(ref: Table, columns: Any, rows: range | None, mode: str, hash_
     return df
 
 
-def table(version_id: str, table: str = PRIMARY_TABLE) -> Table:
-    return Table(version_id, table)
+def table(version_id: str, table: str | None = None) -> Table:
+    """The ref of a version's table: `table`, else the request's table (`use_table`), else the primary table."""
+    return Table(version_id, table or current_table() or PRIMARY_TABLE)
 
 
 def version_file(version_id: str) -> Path:
@@ -370,7 +403,7 @@ def resolve(cfg: dict[str, Any]) -> InputRef:
 
 def input_ref_for(dataset_id: str) -> dict[str, Any]:
     """The `input_ref` a new run config carries (`csv_path` is kept beside it for old readers)."""
-    return to_json(Table(dataset_id))
+    return to_json(table(dataset_id))  # P12: the request's table (POST /runs {table}), else the primary
 
 
 # --------------------------------------------------------------------------- reads

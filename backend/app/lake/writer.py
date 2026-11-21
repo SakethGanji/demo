@@ -383,6 +383,8 @@ class VersionWriter:
                    from_table=table, source_file=kw.get("source_file"))
         self.tables[table] = t
         self.op_log.append({"op": "append", "table": table, "n_rows_added": n, "from_version": base.from_version})
+        for k in base.keys:  # P12: the parent's keys are checked again over the parts plus the new rows
+            self.key(table, k["columns"], kind=k["kind"], declared_by=k["declared_by"])
         return t.manifest()
 
     # -- keys, relations, splits ------------------------------------------------------------------------------------
@@ -413,11 +415,31 @@ class VersionWriter:
 
     def relation(self, name: str, from_table: str, from_cols: list[str], to_table: str, to_cols: list[str], *,
                  cardinality: str = "n:1", declared_by: str | None = None) -> dict[str, Any]:
+        """P12: a declared relation (n:1 or 1:1) between two tables of this version. The `to` columns must be unique
+        (they are what each `from` row points at: 400 relation_to_not_unique otherwise); `n_orphans` counts `from` rows
+        whose (non-missing) value matches no `to` row."""
         if cardinality not in ("n:1", "1:1") or len(from_cols) != len(to_cols) or not from_cols:
             raise LakeError(400, "bad_relation", "A relation maps the same number of columns, n:1 or 1:1.")
+        for tb, cols in ((from_table, from_cols), (to_table, to_cols)):
+            t = self.tables.get(tb)
+            if not t:
+                raise LakeError(400, "unknown_table", f"No table {tb!r} in this version.")
+            miss = [c for c in cols if c not in {x["name"] for x in t.schema}]
+            if miss:
+                raise LakeError(400, "relation_column_missing", f"{tb!r} has no column(s) {miss}.")
         on = " AND ".join(f"f.{_q(a)} = t.{_q(b)}" for a, b in zip(from_cols, to_cols))
-        orphans = self.con.execute(f"SELECT count(*) FROM {self._rel(from_table)} f ANTI JOIN {self._rel(to_table)} t ON {on}"
-                                   ).fetchone()[0]
+        nn = " AND ".join(f"f.{_q(a)} IS NOT NULL" for a in from_cols)
+        ts = ", ".join(_q(c) for c in to_cols)
+        try:
+            n_to, n_dist = self.con.execute(f"SELECT count(*), count(DISTINCT ({ts})) FROM {self._rel(to_table)}").fetchone()
+            orphans = self.con.execute(f"SELECT count(*) FROM (SELECT * FROM {self._rel(from_table)} f WHERE {nn}) f"
+                                       f" ANTI JOIN {self._rel(to_table)} t ON {on}").fetchone()[0]
+        except duck.duckdb.Error as e:  # e.g. a text column against a number column
+            raise LakeError(400, "relation_types", f"Relation {name}: the columns cannot be compared ({type(e).__name__}).") from None
+        if n_dist != n_to:
+            raise LakeError(400, "relation_to_not_unique", f"Relation {name}: {to_table}.{', '.join(to_cols)} repeats "
+                                                           f"({n_to - n_dist:,} repeated values), so it is not {cardinality}.",
+                            to_duplicates=int(n_to - n_dist))
         r = {"name": name, "from": {"table": from_table, "columns": list(from_cols)},
              "to": {"table": to_table, "columns": list(to_cols)}, "cardinality": cardinality, "n_orphans": int(orphans),
              "declared_by": declared_by or self.by}
@@ -451,6 +473,38 @@ class VersionWriter:
         M.canonical(s.params)  # params are hashed elsewhere: refuse floats now
         self.splits.append(s)
         return {"id": s.id, "split_sha256": sha, "blob_sha256": part.sha256, "n_rows": n, "n_holdout": s.n_holdout}
+
+    def carry_splits(self, table: str) -> list[dict[str, Any]]:
+        """P12: the parent's splits of a carried table, carried unchanged (the same rows keep the same folds; each new
+        splits row names the one it came from in `carried_from`), so a version made only to declare a key or a relation,
+        or one that uploads other tables, keeps its holdout instead of drawing it again."""
+        import pyarrow as pa
+
+        from . import splitstore as SS
+
+        t = self.tables.get(table)
+        if not t or t.change != "carried" or not t.from_version:
+            return []
+        out = []
+        for r in SS.rows_of_version(self.db, t.from_version):
+            if r["table_name"] != (t.from_table or table) or not r.get("blob_key"):
+                continue
+            ids, folds = SS.read_blob(self.store, r["blob_key"])
+            view = "_cs_" + secrets.token_hex(4)
+            self.con.execute("SELECT 1").fetchall()  # DuckDB 2.0: an open fetchone() result blocks register()
+            self.con.register(view, pa.table({ROW_ID: pa.array(ids, pa.int64()), "fold": pa.array(folds, pa.int8())}))
+            try:
+                out.append(self.split(table, r["split_key"], f"SELECT {ROW_ID}, fold FROM {view}", strategy=r["strategy"],
+                                      seed=int(r["seed"]), holdout_share=str(r["holdout_share"]), n_folds=int(r["n_folds"]),
+                                      target=r["target"], params_json=json.loads(r["params_json"] or "{}"),
+                                      carried_from=r["id"]))
+            except (LakeError, ValueError) as e:
+                self.op_log.append({"op": "split_not_carried", "table": table, "split_key": r["split_key"],
+                                    "why": getattr(e, "code", type(e).__name__)})
+            finally:
+                self.con.execute("SELECT 1").fetchall()
+                self.con.unregister(view)
+        return out
 
     # -- commit -------------------------------------------------------------------------------------------------------
 
@@ -496,6 +550,8 @@ class VersionWriter:
         """Write the manifest blob, then ONE transaction (§5.2). Returns {version_id, …, deduped}. Idempotent on job_id;
         returns the existing version when `op` is a dedupe op and the data is the same."""
         try:
+            self._parent_order()
+            self._carry_relations()
             for attempt in range(4):
                 out = self._try_commit(make_default=make_default, target=target, kind=kind, note=note, regone_ok=attempt == 0)
                 if out is not None:
@@ -660,6 +716,39 @@ class VersionWriter:
         default = self._settle_default(version_id, root, before_default, make_default)
         return self._result(version_id, deduped=None, default=default)
 
+    def _parent_order(self) -> None:
+        """P12: the parent's tables keep their order (ordinal) whatever order they were written or carried in; new
+        tables follow in the order they were added. The manifest lists tables in this order."""
+        if not self.parent or self.parent.get("storage") != "parquet" or len(self.tables) < 2:
+            return
+        with self.db.connect() as con:
+            order = [r[0] for r in con.execute("SELECT table_name FROM version_tables WHERE version_id = ? ORDER BY ordinal",
+                                               (self.parent["id"],))]
+        rank = {n: i for i, n in enumerate(order)}
+        names = sorted(self.tables, key=lambda n: (rank.get(n, len(order)), list(self.tables).index(n)))
+        self.tables = {n: self.tables[n] for n in names}
+
+    def _carry_relations(self) -> None:
+        """P12: the parent's relations stay declared on the new version while both tables are still in it (orphans
+        counted again on the new data). One that no longer holds (a column gone, the `to` side no longer unique) is
+        left out and the op log says why; `keep_relations = False` (or naming it in `drop_relations`) leaves them out."""
+        if not self.parent or self.parent.get("storage") != "parquet" or not getattr(self, "keep_relations", True):
+            return
+        have = {r["name"] for r in self.relations} | set(getattr(self, "drop_relations", ()) or ())
+        with self.db.connect() as con:
+            rows = [dict(r) for r in con.execute("SELECT * FROM table_relations WHERE version_id = ? ORDER BY name",
+                                                 (self.parent["id"],))]
+        for r in rows:
+            if r["name"] in have or r["from_table"] not in self.tables or r["to_table"] not in self.tables:
+                if r["name"] not in have:
+                    self.op_log.append({"op": "relation_dropped", "name": r["name"], "why": "a table is no longer in the version"})
+                continue
+            try:
+                self.relation(r["name"], r["from_table"], json.loads(r["from_cols_json"]), r["to_table"],
+                              json.loads(r["to_cols_json"]), cardinality=r["cardinality"], declared_by=r["declared_by"])
+            except LakeError as e:
+                self.op_log.append({"op": "relation_dropped", "name": r["name"], "why": e.code})
+
     def committed_for_job(self) -> str | None:
         """The version this writer's job_id already committed (check before doing the work of a re-run)."""
         if not self.job_id:
@@ -735,3 +824,54 @@ class VersionWriter:
 
 def for_app(app, **kw: Any) -> VersionWriter:
     return VersionWriter(app.state.db, app.state.lake, **kw)
+
+
+def declare_version(db, store, version_id: str, *, by: str, reason: str = "", key: dict[str, Any] | None = None,
+                    relation: dict[str, Any] | None = None, drop_relation: str | None = None,
+                    job_id: str | None = None) -> dict[str, Any]:
+    """P12: a key or a relation declared on a version is part of its data (`data_sha256` covers both), and versions are
+    immutable, so the declaration makes a NEW version: every table carried by reference (zero bytes written), the key
+    checked (400 key_invalid when not unique and present) or the relation's orphans counted, the parent's other keys
+    and relations kept. Declaring what the version already says returns it (dedupe by data). The new version becomes the
+    default when its parent was the default."""
+    with db.connect() as con:
+        v = con.execute("SELECT id, root_id, storage, state FROM datasets WHERE id = ?", (version_id,)).fetchone()
+        if not v:
+            raise LakeError(404, "version_not_found", f"No dataset version {version_id}.")
+        if v["state"] == "deleted":
+            raise LakeError(410, "version_deleted", f"{version_id} was deleted.")
+        if v["storage"] != "parquet":
+            raise LakeError(409, "not_parquet", f"{version_id} is a CSV-era version; keys and relations are declared on "
+                                                "Parquet versions (migrate it first, P10).")
+        root = v["root_id"] or v["id"]
+        d = con.execute("SELECT default_version_id FROM dataset_roots WHERE id = ?", (root,)).fetchone()
+        was_default = bool(d and d[0] == version_id)
+        tables = [r[0] for r in con.execute("SELECT table_name FROM version_tables WHERE version_id = ? ORDER BY ordinal",
+                                            (version_id,))]
+        prim = con.execute("SELECT primary_table, target FROM datasets WHERE id = ?", (version_id,)).fetchone()
+    op = "declare_key" if key else "declare_relation" if relation else "drop_relation"
+    w = VersionWriter(db, store, op=op, by=by, parent_id=version_id, reason=reason, job_id=job_id, dedupe=True,
+                      primary_table=prim["primary_table"])
+    with w:
+        for t in tables:
+            w.carry(t)
+            w.carry_splits(t)
+        if key:
+            if key["table"] not in w.tables:
+                raise LakeError(404, "table_not_found", f"{version_id} has no table {key['table']!r}.")
+            k = w.key(key["table"], key["columns"], kind=key.get("kind") or "primary", declared_by=by)
+            if not k["valid"]:
+                raise LakeError(400, "key_invalid", f"{', '.join(key['columns'])} is not a key of {key['table']!r}: "
+                                                    f"{k['n_duplicates']:,} repeated value(s), {k['n_nulls']:,} missing.",
+                                table=key["table"], columns=key["columns"], n_duplicates=k["n_duplicates"], n_nulls=k["n_nulls"])
+            w.extra_ops.append({"op": "declare_key", "table": key["table"], "columns": list(key["columns"]),
+                                "kind": key.get("kind") or "primary"})
+        if relation:
+            r = w.relation(relation["name"], relation["from"]["table"], relation["from"]["columns"], relation["to"]["table"],
+                           relation["to"]["columns"], cardinality=relation["cardinality"], declared_by=by)
+            w.extra_ops.append({"op": "declare_relation", "name": r["name"], "n_orphans": r["n_orphans"]})
+        if drop_relation:
+            w.drop_relations = {drop_relation}
+            w.extra_ops.append({"op": "drop_relation", "name": drop_relation})
+        out = w.commit(make_default=was_default, target=prim["target"], note=f"{op} on {version_id}")
+    return out

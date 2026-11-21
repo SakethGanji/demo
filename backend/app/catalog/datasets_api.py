@@ -252,20 +252,44 @@ def _legacy_preview(ds, dataset_id: str, fname: str, chk: dict[str, Any], nv: di
 
 
 @router.get("/datasets/{a}/diff/{b}", dependencies=[require("data.preview", path("a", "dataset"), also=[("data.preview", path("b", "dataset"))])])
-async def diff(a: str, b: str, request: Request, by: str = "", key: str = "", wait: float = 0) -> dict[str, Any]:
+async def diff(a: str, b: str, request: Request, by: str = "", key: str = "", wait: float = 0, table: str = "") -> dict[str, Any]:
     """a → b (P08: the two-pass DuckDB diff, cached): tables (unchanged by sha, changed, added, removed, renamed),
     schema (added / removed columns, type and dtype changes), rows (matched / changed / added / removed on `__row_id`
     in one dataset, on `key=col[,col]` (a confirmed business key) across datasets, else by row content), per-column
     changed cells, samples, missing %, mean / median, top categories and PSI from table_stats.
     DL3: when b was made by an edit of a, the operations and their cells (old → new) come with it (`edit`).
-    The diff shows cells: it needs a name (by or the X-Ensemble-Actor header) and is audited as a read."""
-    return await diff_q(request, a, b, by, key, wait)
+    The diff shows cells: it needs a name (by or the X-Ensemble-Actor header) and is audited as a read.
+    P12: `table=` compares that table of two multi-table versions (default: the primary table)."""
+    return await diff_q(request, a, b, by, key, wait, table=table)
 
 
-async def diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", wait: float = 0) -> dict[str, Any]:
+async def diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", wait: float = 0, *,
+                 table: str = "") -> dict[str, Any]:
     """GET /datasets/diff?a=&b=&key= (main.py routes it before /datasets/{id}) and the path form above."""
     if not a or not b:
         raise HTTPException(400, "Send a and b (two dataset version ids).")
+    table = table or request.query_params.get("table") or ""
+    if table:
+        await _thread(_need_table, request, a, table)
+        await _thread(_need_table, request, b, table)
+        with frames.use_table(table):
+            return await _diff_q(request, a, b, by, key, wait)
+    return await _diff_q(request, a, b, by, key, wait)
+
+
+def _need_table(request: Request, vid: str, table: str) -> None:
+    """P12: 400 (not a 500 from deep inside a read) when a version has no table of that name."""
+    with request.app.state.db.connect() as con:
+        r = con.execute("SELECT storage FROM datasets WHERE id = ?", (vid,)).fetchone()
+        if not r:
+            raise HTTPException(404, f"No dataset with id '{vid}'.")
+        names = [x[0] for x in con.execute("SELECT table_name FROM version_tables WHERE version_id = ? ORDER BY ordinal", (vid,))]
+    if table not in names:
+        raise HTTPException(400, {"code": "table_unknown", "message": f"{vid} has no table {table!r}"
+                                  + (f" (its tables: {', '.join(names)})." if names else ".")})
+
+
+async def _diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", wait: float = 0) -> dict[str, Any]:
     from ..lake import diff as LD
     from ..lake import mask as M
 
@@ -737,10 +761,22 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     to this version and committed as a NEW version (lineage, root rows and holdout carried over, a change log with old →
     new values, an audit row). Nothing is modified in place. preview=true writes nothing. Like an upload, a version with
     contract warnings is not made the default. The same bytes as an existing version return that version (created:
-    false)."""
+    false). P12: `table` edits that table of a multi-table version (default: the primary); the others are carried."""
+    body = body if isinstance(body, dict) else {}
+    if body.get("table"):  # P12: edit one table of a multi-table version; the others are carried
+        tbl = str(body["table"])
+        await _thread(_need_table, request, dataset_id, tbl)
+        with frames.use_table(tbl):
+            out = await _edit(dataset_id, request, body)
+        if isinstance(out, dict):
+            out["table"] = tbl
+        return out
+    return await _edit(dataset_id, request, body)
+
+
+async def _edit(dataset_id: str, request: Request, body: dict[str, Any]):
     from ..lake.values import SafeJSONResponse
 
-    body = body if isinstance(body, dict) else {}
     who = _who(body.get("by"))
     preview = bool(body.get("preview"))
     reason = str(body.get("reason") or "").strip()
@@ -1202,3 +1238,187 @@ async def discard_upload(up: str, request: Request) -> dict[str, Any]:
         return U.public(U.get(db, up))
 
     return await _lthread(run)
+
+
+# --------------------------------------------------------------------------- P12: tables, keys and relations of a version
+
+
+def _version_detail(request: Request, root: str, vid: str) -> dict[str, Any]:
+    db = request.app.state.db
+    with db.connect() as con:
+        v = con.execute("SELECT id, root_id, version_no, storage, manifest_sha256, data_sha256, n_tables, n_rows, n_cols,"
+                        " primary_table, target, op, created_by, created_at, reason, parent_id, state FROM datasets WHERE id = ?",
+                        (vid,)).fetchone()
+        if not v:
+            raise HTTPException(404, f"No dataset version {vid}.")
+        rr = con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (root,)).fetchone()
+        if not rr or rr[0] != (v["root_id"] or v["id"]):
+            raise HTTPException(404, f"{vid} is not a version of {root}.")
+        tables = [dict(t) for t in con.execute(
+            "SELECT table_name, ordinal, table_sha256, n_rows, n_cols, bytes, schema_json, schema_sha256, row_id_min, row_id_max,"
+            " change, from_version, from_table, source_file FROM version_tables WHERE version_id = ? ORDER BY ordinal", (vid,))]
+        keys = [dict(k) for k in con.execute("SELECT table_name, columns_json, kind, declared_by, valid, n_duplicates, n_nulls"
+                                             " FROM table_keys WHERE version_id = ? ORDER BY table_name, kind, columns_json", (vid,))]
+        rels = [dict(r) for r in con.execute("SELECT * FROM table_relations WHERE version_id = ? ORDER BY name", (vid,))]
+        parts = {}
+        for f in con.execute("SELECT table_name, part, blob_sha256, role, n_rows FROM table_files WHERE version_id = ?"
+                             " ORDER BY table_name, part", (vid,)):
+            parts.setdefault(f[0], []).append({"part": f[1], "sha256": f[2], "role": f[3], "n_rows": f[4]})
+        splits = [dict(s) for s in con.execute("SELECT id, table_name, split_key, split_sha256, n_holdout, carried_from FROM splits"
+                                               " WHERE version_id = ? ORDER BY table_name, split_key", (vid,))]
+    for t in tables:
+        t["schema"] = json.loads(t.pop("schema_json"))
+        t["name"] = t["table_name"]
+        t["primary"] = t["table_name"] == v["primary_table"]
+        t["keys"] = [{"columns": json.loads(k["columns_json"]), "kind": k["kind"], "valid": bool(k["valid"]),
+                      "declared_by": k["declared_by"], "n_duplicates": k["n_duplicates"], "n_nulls": k["n_nulls"]}
+                     for k in keys if k["table_name"] == t["table_name"]]
+        t["files"] = parts.get(t["table_name"], [])
+        t["splits"] = [{k: s[k] for k in ("id", "split_key", "split_sha256", "n_holdout", "carried_from")}
+                       for s in splits if s["table_name"] == t["table_name"]]
+    return {**{k: v[k] for k in v.keys()}, "version_id": vid, "tables": tables,
+            "relations": [_rel_out(r) for r in rels]}
+
+
+def _rel_out(r: dict[str, Any]) -> dict[str, Any]:
+    return {"name": r["name"], "from": {"table": r["from_table"], "columns": json.loads(r["from_cols_json"])},
+            "to": {"table": r["to_table"], "columns": json.loads(r["to_cols_json"])}, "cardinality": r["cardinality"],
+            "n_orphans": r["n_orphans"], "declared_by": r["declared_by"]}
+
+
+@router.get("/datasets/{root_id}/versions/{version_id}", dependencies=[require("data.read_meta", path("version_id", "dataset"))])
+async def version_detail(root_id: str, version_id: str, request: Request) -> dict[str, Any]:
+    """P12: one version of a dataset: every table with its table_sha256, rows, columns, schema, parts, change (new /
+    carried / appended / rewritten, and from which version), keys and splits; the declared relations; the hashes."""
+    return await _thread(_version_detail, request, root_id, version_id)
+
+
+@router.put("/datasets/{dataset_id}/tables/{table}/key", status_code=201,
+            dependencies=[require("data.version", path("dataset_id", "dataset"))])
+async def put_key(dataset_id: str, table: str, request: Request, body: dict[str, Any]) -> Any:
+    """P12: {columns: [...] | "col", kind?: primary|unique, reason?, by?}: declare a key of one table. A key is part of the
+    version's data (its data_sha256), so this makes a NEW version with every table carried (zero bytes written) and
+    the key checked: 400 key_invalid with the counts when it repeats or is missing. Declaring the same key again returns
+    the version that has it (200, deduped)."""
+    from ..lake.values import SafeJSONResponse
+    from ..lake.writer import declare_version
+
+    body = body if isinstance(body, dict) else {}
+    cols = body.get("columns")
+    cols = [cols] if isinstance(cols, str) else cols
+    if not isinstance(cols, list) or not cols or not all(isinstance(c, str) and c for c in cols):
+        raise HTTPException(400, {"code": "bad_key", "message": 'Send {"columns": ["col", ...]} (one or more columns of the table).'})
+    kind = body.get("kind") or "primary"
+    if kind not in ("primary", "unique"):
+        raise HTTPException(400, {"code": "bad_key", "message": "kind is primary or unique."})
+    who = _who((body.get("by") or G.current_actor() or "").strip())
+    reason = str(body.get("reason") or G.current_reason() or f"declare key {table}({', '.join(cols)})").strip()[:500]
+    _live(request, dataset_id)
+    await _thread(_need_table, request, dataset_id, table)
+    out = await _lthread(declare_version, request.app.state.db, request.app.state.lake, dataset_id, by=who, reason=reason,
+                         key={"table": table, "columns": cols, "kind": kind})
+    created = not out.get("deduped")
+    if created:
+        await _thread(_finish_meta_version, request, out["version_id"], dataset_id)
+    key = next((k for k in (await _thread(_version_detail, request, out["root_id"], out["version_id"]))["tables"]
+                if k["name"] == table), {}).get("keys")
+    return SafeJSONResponse({**out, "table": table, "keys": key, "created": created}, status_code=201 if created else 200)
+
+
+def _finish_meta_version(request: Request, vid: str, parent: str) -> None:
+    """The legacy record of a version that only declares metadata: the parent's profile (the primary table is the
+    same bytes), plus its edge and the tables list."""
+    db = request.app.state.db
+    p = db.get_dataset(parent) or {}
+    rec = db.get_dataset(vid) or {}
+    prof = dict(p.get("profile") or {})
+    if prof:
+        db.insert_dataset({**{k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes", "rows")},
+                           "target": p.get("target"), "kind": p.get("kind") or rec.get("kind"), "profile": prof})
+
+
+@router.get("/datasets/{dataset_id}/relations", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
+async def get_relations(dataset_id: str, request: Request) -> dict[str, Any]:
+    """P12: the relations declared on this version (each with its orphan count: rows of the `from` table whose value
+    matches no row of the `to` table) and relations suggested by shared key-like columns (not stored; declare one with
+    PUT …/relations/{name})."""
+    return await _thread(_relations, request, dataset_id)
+
+
+def _relations(request: Request, vid: str) -> dict[str, Any]:
+    from ..lake import duck
+    from ..lake import upload as U
+
+    db = request.app.state.db
+    with db.connect() as con:
+        v = con.execute("SELECT storage, root_id FROM datasets WHERE id = ?", (vid,)).fetchone()
+        if not v:
+            raise HTTPException(404, f"No dataset {vid}.")
+        rels = [_rel_out(dict(r)) for r in con.execute("SELECT * FROM table_relations WHERE version_id = ? ORDER BY name", (vid,))]
+        tabs = [dict(t) for t in con.execute("SELECT table_name, n_rows, schema_json FROM version_tables WHERE version_id = ?"
+                                             " ORDER BY ordinal", (vid,))]
+        keys: dict[str, list[list[str]]] = {}
+        for k in con.execute("SELECT table_name, columns_json FROM table_keys WHERE version_id = ? AND valid = 1", (vid,)):
+            keys.setdefault(k[0], []).append(json.loads(k[1]))
+    out = {"version_id": vid, "relations": rels, "suggested": [], "tables": [t["table_name"] for t in tabs]}
+    if v["storage"] != "parquet" or len(tabs) < 2:
+        return out
+    rel = {t["table_name"]: f"({'SELECT * FROM ' + frames.lake_sql(frames.lake_table(frames.Table(vid, t['table_name'])))})"
+           for t in tabs}
+    cols_of = {t["table_name"]: [c["name"] for c in json.loads(t["schema_json"])] for t in tabs}
+    declared = {(r["from"]["table"], tuple(r["from"]["columns"]), r["to"]["table"]) for r in rels}
+    with duck.job() as con:
+        for r in rels:  # the share of from-rows that find their row (orphans are stored; coverage is read here)
+            try:
+                st = U._relation_stats(con, rel[r["from"]["table"]], r["from"]["columns"], rel[r["to"]["table"]], r["to"]["columns"])
+                r.update({k: st[k] for k in ("n_from_rows", "n_from_missing", "coverage", "to_unique")})
+            except Exception:  # noqa: BLE001 - a stored relation is reported as stored
+                pass
+        out["suggested"] = U._suggest_relations(con, rel, cols_of, keys, declared)
+    return out
+
+
+@router.put("/datasets/{dataset_id}/relations/{name}", status_code=201,
+            dependencies=[require("data.version", path("dataset_id", "dataset"))])
+async def put_relation(dataset_id: str, name: str, request: Request, body: dict[str, Any]) -> Any:
+    """P12: {from: {table, columns}, to: {table, columns}, cardinality?: n:1|1:1, reason?, by?}: declare a relation
+    between two tables of this version (a NEW version, every table carried; the `to` columns must be unique, 400
+    relation_to_not_unique otherwise). The new version stores the orphan count."""
+    from ..lake import upload as U
+    from ..lake.values import SafeJSONResponse
+    from ..lake.writer import LakeError, declare_version
+
+    body = body if isinstance(body, dict) else {}
+    try:
+        r = U.norm_relation(body, name)
+    except LakeError as e:
+        raise _lake_err(e) from e
+    who = _who((body.get("by") or G.current_actor() or "").strip())
+    reason = str(body.get("reason") or G.current_reason() or f"declare relation {name}").strip()[:500]
+    _live(request, dataset_id)
+    out = await _lthread(declare_version, request.app.state.db, request.app.state.lake, dataset_id, by=who, reason=reason,
+                         relation=r)
+    created = not out.get("deduped")
+    if created:
+        await _thread(_finish_meta_version, request, out["version_id"], dataset_id)
+    rels = (await _thread(_relations, request, out["version_id"]))["relations"]
+    return SafeJSONResponse({**out, "relation": next((x for x in rels if x["name"] == name), None), "created": created},
+                            status_code=201 if created else 200)
+
+
+@router.delete("/datasets/{dataset_id}/relations/{name}", status_code=201,
+               dependencies=[require("data.version", path("dataset_id", "dataset"))])
+async def delete_relation(dataset_id: str, name: str, request: Request, by: str = "", reason: str = "") -> Any:
+    """P12: a NEW version without the relation (every table carried)."""
+    from ..lake.writer import declare_version
+
+    with request.app.state.db.connect() as con:
+        if not con.execute("SELECT 1 FROM table_relations WHERE version_id = ? AND name = ?", (dataset_id, name)).fetchone():
+            raise HTTPException(404, f"{dataset_id} has no relation {name!r}.")
+    who = _who((by or G.current_actor() or "").strip())
+    _live(request, dataset_id)
+    out = await _lthread(declare_version, request.app.state.db, request.app.state.lake, dataset_id, by=who,
+                         reason=(reason or f"drop relation {name}")[:500], drop_relation=name)
+    if not out.get("deduped"):
+        await _thread(_finish_meta_version, request, out["version_id"], dataset_id)
+    return out
