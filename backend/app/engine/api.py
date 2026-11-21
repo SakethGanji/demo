@@ -17,6 +17,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from ..authz import body, path, require, with_team  # P19
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -343,7 +344,7 @@ def engine_info() -> dict[str, Any]:
     return {"name": "AutoGluon", "version": v("autogluon.tabular"), "timeseries": v("autogluon.timeseries")}
 
 
-@router.post("/runs", status_code=201)
+@router.post("/runs", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
 async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     from ..gym.api import check_run_body
 
@@ -666,9 +667,9 @@ def list_runs(request: Request, dataset_id: str | None = None, full: bool = Fals
         flt["id"] = idl or ["-"]
     total = store.count_where(**flt)
     if light:
-        return {"runs": store.list_light(limit=limit, offset=offset, **flt), "total": total}
+        return with_team(request, {"runs": store.list_light(limit=limit, offset=offset, **flt), "total": total}, "runs")
     recs = store.list(limit=limit, offset=offset, **flt)
-    return {"runs": [run_out(r, store, full=full) for r in recs], "total": total}
+    return with_team(request, {"runs": [run_out(r, store, full=full) for r in recs], "total": total}, "runs")
 
 
 @router.get("/runs/{run_id}")
@@ -686,7 +687,7 @@ FAIR_KEYS = ("presets", "time_limit", "fit_kwargs", "predictor_kwargs", "eval_me
              "scorecard")
 
 
-@router.post("/runs/{run_id}/split-twin", status_code=201)
+@router.post("/runs/{run_id}/split-twin", status_code=201, dependencies=[require("run.train", path("run_id", "run"))])
 async def split_twin(run_id: str, body: SplitTwin, request: Request) -> dict[str, Any]:
     """F6: the same run again under another split: the body that started it (presets, budget, hyperparameters, metric,
     dropped columns: kept explicitly, so the features are identical) with `split_spec` replaced. Compare the two
@@ -759,7 +760,7 @@ def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
                                    if not any(x["strategy"] == k and (x["same_config"] or x["this_run"]) for x in rows)]}
 
 
-@router.post("/runs/{run_id}/cancel")
+@router.post("/runs/{run_id}/cancel", dependencies=[require("run.manage", path("run_id", "run"))])
 def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     if not _runner(request).cancel(run_id):
@@ -767,7 +768,7 @@ def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
     return {"id": run_id, "cancelling": True}
 
 
-@router.delete("/runs/{run_id}", status_code=204)
+@router.delete("/runs/{run_id}", status_code=204, dependencies=[require("run.manage", path("run_id", "run"))])
 def delete_run(run_id: str, request: Request, by: str = "", reason: str = "") -> None:
     """DL2 (B1): `by` is required and the delete is audited (run_deleted). Refused (409) while the run is the source of a
     registered version that is not rejected, failed or retired, or of a pending or approved champion: the lineage edges
@@ -859,7 +860,7 @@ def _require_succeeded(rec: dict[str, Any]) -> None:
         raise HTTPException(409, f"Run {rec['id']} is {rec['status']}; it needs to finish first.")
 
 
-@router.post("/runs/{run_id}/predict")
+@router.post("/runs/{run_id}/predict", dependencies=[require("run.use", path("run_id", "run"))])
 async def predict(run_id: str, body: PredictRequest, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     _require_succeeded(rec)
@@ -947,7 +948,7 @@ def scorecard_report(run_id: str, request: Request) -> dict[str, Any]:
             "export": f"/api/runs/{run_id}/scorecard.csv"}
 
 
-@router.get("/runs/{run_id}/scorecard.csv")
+@router.get("/runs/{run_id}/scorecard.csv", dependencies=[require("run.read", path("run_id", "run"))])
 def scorecard_csv(run_id: str, request: Request):
     """F11: the exported scorecard: feature, bin, points (rounded and exact), WoE, counts, event rate, IV, coefficient;
     a last `_scaling` row with PDO, base score / odds, factor, offset and intercept."""
@@ -967,7 +968,7 @@ class ScorecardScore(BaseModel):
     top_k: int = Field(4, ge=1, le=10)
 
 
-@router.post("/runs/{run_id}/scorecard/score")
+@router.post("/runs/{run_id}/scorecard/score", dependencies=[require("run.use", path("run_id", "run"))])
 async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -> dict[str, Any]:
     """F11: score rows with the deployable scorecard: points per feature (and the bin), the total score, P(event), and
     the scorecard's own reason codes: features ranked by points lost against their best bin."""
@@ -1007,7 +1008,7 @@ async def model_ladder(run_id: str, request: Request, refresh: bool = False) -> 
     return {"run_id": run_id, "registrable": True, **lad}
 
 
-@router.get("/runs/{run_id}/oof")
+@router.get("/runs/{run_id}/oof", dependencies=[require("run.read", path("run_id", "run"))])
 async def out_of_fold(run_id: str, request: Request, model: str | None = None) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     _require_succeeded(rec)
@@ -1042,7 +1043,7 @@ async def feature_importance(run_id: str, request: Request,
                       "(AutoGluon's predictor.feature_importance)", "eval_metric": (res.get("eval_metric") or {}).get("name")}
 
 
-@router.get("/runs/{run_id}/holdout-predictions")
+@router.get("/runs/{run_id}/holdout-predictions", dependencies=[require("run.read", path("run_id", "run"))])
 async def holdout_predictions(run_id: str, request: Request, by: str = "") -> dict[str, Any]:
     """The best model's predictions on the holdout rows: data.csv row, true label, prediction and (classification)
     one probability per class. Residuals and curves are computed from these. DL3 (m2): audited as a read (needs a name)."""
@@ -1124,7 +1125,7 @@ def _fit_custom_ensemble(app, rec: dict[str, Any], models: list[str]) -> dict[st
         return res
 
 
-@router.post("/runs/{run_id}/ensemble", status_code=201)
+@router.post("/runs/{run_id}/ensemble", status_code=201, dependencies=[require("run.train", path("run_id", "run"))])
 async def custom_ensemble(run_id: str, body: EnsembleRequest, request: Request) -> dict[str, Any]:
     """Fit a weighted ensemble on the models you choose: `TabularPredictor.fit_weighted_ensemble(base_models=...)`.
     The result has its weights, its validation and holdout scores, and whether it beats the best single model."""
@@ -1258,7 +1259,7 @@ class MetricTwin(BaseModel):
     name: str | None = None
 
 
-@router.post("/runs/{run_id}/metric-twin", status_code=201)
+@router.post("/runs/{run_id}/metric-twin", status_code=201, dependencies=[require("run.train", path("run_id", "run"))])
 async def metric_twin(run_id: str, body: MetricTwin, request: Request) -> dict[str, Any]:
     """F7: the same run (data, split, presets, budget, hyperparameters, dropped columns) trained to another metric or
     cost, so the cost-optimised run can be compared with, say, the ROC-AUC-optimised one on the same holdout rows."""
@@ -1371,7 +1372,7 @@ class ThresholdRequest(BaseModel):
     value: float | None = Field(None, ge=0, le=1, description="Or set this threshold directly.")
 
 
-@router.post("/runs/{run_id}/threshold")
+@router.post("/runs/{run_id}/threshold", dependencies=[require("run.train", path("run_id", "run"))])
 async def set_threshold(run_id: str, body: ThresholdRequest, request: Request) -> dict[str, Any]:
     """Calibrate (`metric`) or set (`value`) the decision threshold and persist it in the predictor
     (`set_decision_threshold` + `save`), so every later prediction uses it. The holdout is re-scored at it."""
@@ -1410,7 +1411,7 @@ async def set_threshold(run_id: str, body: ThresholdRequest, request: Request) -
     return {"run_id": run_id, **out}
 
 
-@router.get("/runs/{run_id}/explain")
+@router.get("/runs/{run_id}/explain", dependencies=[require("run.read", path("run_id", "run"))])
 async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
     """Classification: confusion matrix, per-class precision/recall/F1, ROC and PR curves (one-vs-rest for
     multiclass) with AUC and average precision, the reliability curve with the Brier score and ECE, and the worst
@@ -1470,7 +1471,7 @@ async def fairness(run_id: str, request: Request, group: str = Query(..., min_le
     return {"run_id": run_id, "model": res.get("best_model"), **out}
 
 
-@router.get("/runs/{run_id}/shap")
+@router.get("/runs/{run_id}/shap", dependencies=[require("run.read", path("run_id", "run"))])
 async def shap_values(run_id: str, request: Request, row: int = Query(..., ge=0), target: str | None = None) -> dict[str, Any]:
     """Kernel SHAP for one holdout row (data.csv row number) on the best model: f(x) = φ₀ + Σᵢ φᵢ, where f is
     predict_proba of `target` (default: the positive class, or the predicted class for multiclass) or the predicted

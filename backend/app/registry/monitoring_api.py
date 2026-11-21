@@ -24,6 +24,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import config, frames
+from ..authz import path, require  # P19
 from ..http import batch_or_404, version_or_404
 from . import monitoring as M
 from .scoring import read_batch
@@ -84,7 +85,7 @@ class MonitoringConfig(BaseModel):
     retrain_window_months: int | None = Field(None, ge=1, le=36)
 
 
-@router.put("/registry/models/{name}/monitoring")
+@router.put("/registry/models/{name}/monitoring", dependencies=[require("model.card", path("name", "model"))])
 def put_config(name: str, body: MonitoringConfig, request: Request) -> dict[str, Any]:
     reg = _reg(request)
     if not reg.get_model(name):
@@ -169,7 +170,7 @@ def shadow_for(request: Request, v: dict[str, Any]) -> dict[str, Any] | None:
     return {"version_id": c["id"], "path": c["path"], "label": _label(c)}
 
 
-@router.post("/registry/batches/{bid}/labels")
+@router.post("/registry/batches/{bid}/labels", dependencies=[require("model.use", path("bid", "batch"))])
 async def upload_labels(bid: str, request: Request, file: UploadFile = File(...), created_by: str = Form(""),
                         id_column: str | None = Form(None), label_column: str | None = Form(None),
                         label_date: str | None = Form(None)) -> dict[str, Any]:
@@ -500,7 +501,7 @@ class RetrainBody(BaseModel):
     time_limit: float | None = Field(None, gt=0, description="Override the champion's time limit (seconds).")
 
 
-@router.post("/registry/versions/{vid}/monitoring/retrain", status_code=201)
+@router.post("/registry/versions/{vid}/monitoring/retrain", status_code=201, dependencies=[require("run.train", path("vid", "model_version"))])
 async def launch_retrain(vid: str, body: RetrainBody, request: Request) -> dict[str, Any]:
     """Launch the proposal: a dataset of the window's labelled rows (lineage: the batches and label files), then a run
     with the champion's config on it. Returns the dataset and the run."""
@@ -587,7 +588,7 @@ class StreamFeed(BaseModel):
     deliver_labels: bool = Field(True, description="Also attach every label file due by the end of this month.")
 
 
-@router.post("/registry/versions/{vid}/monitoring/stream", status_code=202)
+@router.post("/registry/versions/{vid}/monitoring/stream", status_code=202, dependencies=[require("model.use", path("vid", "model_version"))])
 async def feed_stream(vid: str, body: StreamFeed, request: Request) -> dict[str, Any]:
     """Feed month m of the simulated stream to this version: the month's applications are scored as a batch dated the
     month's last day; then each earlier month's labels whose arrival date (end of month + 3) is on or before that day

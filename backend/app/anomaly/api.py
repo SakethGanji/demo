@@ -13,6 +13,7 @@ import pandas as pd
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from ..authz import body, path, require  # P19
 from pydantic import BaseModel, Field
 
 from ..engine.store import now
@@ -54,7 +55,7 @@ class AnomalyCreate(BaseModel):
     source: str | None = None
 
 
-@router.post("/runs", status_code=201)
+@router.post("/runs", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
 async def create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     return await run_in_threadpool(_create, body, request)
 
@@ -146,7 +147,7 @@ def _run(request: Request, run_id: str, done: bool = True) -> dict[str, Any]:
     return rec
 
 
-@router.get("/runs/{run_id}/top")
+@router.get("/runs/{run_id}/top", dependencies=[require("run.read", path("run_id", "run"))])
 def top(run_id: str, request: Request, contamination: float | None = Query(None, gt=0, lt=0.5),
         limit: int = Query(100, ge=1, le=1000), by: str = "") -> dict[str, Any]:
     """The most anomalous rows with their reasons; with `contamination`, the threshold and the flags at that share
@@ -212,7 +213,7 @@ def get_labels(run_id: str, request: Request) -> dict[str, Any]:
     return _labels_out(request, rec, review.load(request.app.state.datasets.dir(rec["dataset_id"])))
 
 
-@router.post("/runs/{run_id}/labels")
+@router.post("/runs/{run_id}/labels", dependencies=[require("run.train", path("run_id", "run"))])
 def set_labels(run_id: str, body: ReviewBody, request: Request) -> dict[str, Any]:
     """Confirm (fraud) or dismiss (not fraud) flagged rows; the labels are stored with the dataset and audited."""
     rec = _run(request, run_id)
@@ -251,7 +252,7 @@ class SupervisedCreate(BaseModel):
     by: str = "Analyst"
 
 
-@router.post("/runs/{run_id}/supervised", status_code=201)
+@router.post("/runs/{run_id}/supervised", status_code=201, dependencies=[require("run.train", path("run_id", "run"))])
 async def create_supervised(run_id: str, body: SupervisedCreate, request: Request) -> dict[str, Any]:
     return await run_in_threadpool(_create_supervised, run_id, body, request)
 
@@ -423,7 +424,7 @@ def compare(rec: dict[str, Any], entry: dict[str, Any], sup: dict[str, Any], oof
     return out
 
 
-@router.get("/runs/{run_id}/scores")
+@router.get("/runs/{run_id}/scores", dependencies=[require("run.read", path("run_id", "run"))])
 def scores(run_id: str, request: Request, bins: int = Query(60, ge=5, le=400)) -> dict[str, Any]:
     rec = _run(request, run_id)
     s = frames.read_artifact(Path(rec["config"]["run_dir"]) / "scores.csv")
@@ -435,13 +436,13 @@ def scores(run_id: str, request: Request, bins: int = Query(60, ge=5, le=400)) -
     return out
 
 
-@router.get("/runs/{run_id}/scores.csv")
+@router.get("/runs/{run_id}/scores.csv", dependencies=[require("run.read", path("run_id", "run"))])
 def scores_csv(run_id: str, request: Request):
     rec = _run(request, run_id)
     return FileResponse(Path(rec["config"]["run_dir"]) / "scores.csv", media_type="text/csv", filename=f"{run_id}_scores.csv")
 
 
-@router.post("/runs/{run_id}/score")
+@router.post("/runs/{run_id}/score", dependencies=[require("run.use", path("run_id", "run"))])
 async def score_batch(run_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     """Score a new batch with the run's model: s(x,n), E[h(x)], the percentile among the fitted rows, the flag at
     the saved threshold, reasons for the top rows; the scored CSV to download."""
@@ -456,7 +457,7 @@ async def score_batch(run_id: str, request: Request, file: UploadFile = File(...
             "download": f"/api/anomaly/runs/{run_id}/batches/{bid}.csv"}
 
 
-@router.get("/runs/{run_id}/batches/{bid}.csv")
+@router.get("/runs/{run_id}/batches/{bid}.csv", dependencies=[require("run.read", path("run_id", "run"))])
 def batch_csv(run_id: str, bid: str, request: Request):
     rec = _run(request, run_id)
     if not re.fullmatch(r"ab_[0-9a-f]{8}", bid):

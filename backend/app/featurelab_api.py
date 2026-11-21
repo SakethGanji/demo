@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from . import featurelab as fl
 from . import frames
+from .authz import path, require  # P19
 from .data_doctor_api import answers, run_drops
 from .datasets import DatasetError, now
 from .http import dataset_or_404
@@ -45,7 +46,7 @@ def get_feature_lab(dataset_id: str, job_id: str, request: Request) -> dict[str,
     return j
 
 
-@router.post("/datasets/{dataset_id}/feature-lab", status_code=202)
+@router.post("/datasets/{dataset_id}/feature-lab", status_code=202, dependencies=[require("data.version", path("dataset_id", "dataset"))])
 def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     body = body or {}
     rec = dataset_or_404(request, dataset_id)

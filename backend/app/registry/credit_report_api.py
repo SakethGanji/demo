@@ -21,6 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from .. import config, frames
+from ..authz import path, require  # P19
 from ..http import version_or_404
 from . import credit_report as C
 from .scoring import read_batch
@@ -308,7 +309,7 @@ async def credit_report(vid: str, request: Request, on: Literal["holdout", "batc
     return rep
 
 
-@router.post("/registry/versions/{vid}/credit-report/tape")
+@router.post("/registry/versions/{vid}/credit-report/tape", dependencies=[require("model.use", path("vid", "model_version"))])
 async def upload_tape(vid: str, request: Request, file: UploadFile = File(...), actor: str = Form("")) -> dict[str, Any]:
     """A performance tape for the vintage curves: one row per loan with an origination date and a default date (blank
     when it has not defaulted), optionally an id and an as-of date. Columns are found from G0's roles and names."""
@@ -350,7 +351,7 @@ def card_section(v: dict[str, Any]) -> dict[str, Any]:
 
 
 
-@router.delete("/registry/versions/{vid}/credit-report/tape")
+@router.delete("/registry/versions/{vid}/credit-report/tape", dependencies=[require("model.use", path("vid", "model_version"))])
 def delete_tape(vid: str, request: Request, actor: str = "") -> dict[str, Any]:
     """Remove the uploaded tape: the vintage goes back to the detected source (the sample's tape, or none)."""
     v, _, _ = _ctx(request, vid)

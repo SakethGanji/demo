@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from ..authz import body, require  # P19
 
 from .. import config, frames
 from ..http import dataset_or_404
@@ -62,7 +63,7 @@ def inspect_predictor(path: str) -> dict[str, Any]:
             "models": lb[["model", "score_val", "stack_level"]].astype({"score_val": float}).to_dict(orient="records")}
 
 
-@router.post("/runs/import", status_code=201)
+@router.post("/runs/import", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
 async def import_run(request: Request, dataset_id: str = Form(...), file: UploadFile | None = File(None),
                      path: str | None = Form(None), name: str | None = Form(None),
                      created_by: str = Form("")) -> dict[str, Any]:

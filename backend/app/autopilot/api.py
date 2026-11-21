@@ -6,6 +6,7 @@ import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
+from ..authz import body, path, require  # P19
 from pydantic import BaseModel, Field
 
 from .. import llm
@@ -86,7 +87,7 @@ def out(st: dict[str, Any], full: bool = True) -> dict[str, Any]:
     return o
 
 
-@router.post("/autopilot", status_code=201)
+@router.post("/autopilot", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
 def start(body: Brief, request: Request) -> dict[str, Any]:
     ds = dataset_or_404(request, body.dataset_id)
     label = body.label or ds["target"]
@@ -137,7 +138,7 @@ def _editable(st: dict[str, Any]) -> dict[str, Any]:
     return ib
 
 
-@router.post("/autopilot/{aid}/inbox/answer")
+@router.post("/autopilot/{aid}/inbox/answer", dependencies=[require("run.train", path("aid", "autopilot"))])
 def answer(aid: str, body: Answers, request: Request) -> dict[str, Any]:
     mgr = _mgr(request)
     with mgr.store.lock:
@@ -162,7 +163,7 @@ def answer(aid: str, body: Answers, request: Request) -> dict[str, Any]:
     return {"answered": len(body.answers), "inbox": _inbox_summary(ib)}
 
 
-@router.post("/autopilot/{aid}/inbox/bulk")
+@router.post("/autopilot/{aid}/inbox/bulk", dependencies=[require("run.train", path("aid", "autopilot"))])
 def bulk(aid: str, body: Bulk, request: Request) -> dict[str, Any]:
     mgr = _mgr(request)
     with mgr.store.lock:
@@ -186,7 +187,7 @@ def bulk(aid: str, body: Bulk, request: Request) -> dict[str, Any]:
     return {"answered": n, "inbox": _inbox_summary(ib)}
 
 
-@router.post("/autopilot/{aid}/resume")
+@router.post("/autopilot/{aid}/resume", dependencies=[require("run.train", path("aid", "autopilot"))])
 def resume(aid: str, request: Request) -> dict[str, Any]:
     """Submit the inbox (open items count as skipped) and let the autopilot continue."""
     mgr = _mgr(request)
@@ -201,7 +202,7 @@ def resume(aid: str, request: Request) -> dict[str, Any]:
     return out(st)
 
 
-@router.post("/autopilot/{aid}/cancel")
+@router.post("/autopilot/{aid}/cancel", dependencies=[require("run.train", path("aid", "autopilot"))])
 def cancel(aid: str, request: Request) -> dict[str, Any]:
     st = _get(request, aid)
     _mgr(request).stop(aid)
@@ -248,7 +249,7 @@ def _run_facts(request: Request, run_id: str) -> dict[str, Any]:
             "ensemble": res.get("ensemble")}
 
 
-@router.post("/vela/ask")
+@router.post("/vela/ask", dependencies=[require("run.read", body("run_id", "run"), body("autopilot_id", "autopilot"))])
 async def ask(body: Ask, request: Request) -> dict[str, Any]:
     facts: dict[str, Any] = {}
     if body.autopilot_id:

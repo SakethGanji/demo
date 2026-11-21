@@ -13,6 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .. import config, frames
+from ..authz import path, query, require, with_team  # P19
 from ..datasets import DatasetConflict, DatasetError
 from . import dsets as D
 from . import governance as G
@@ -61,7 +62,7 @@ def search(request: Request, q: str = "", project: str | None = None, tag: str |
             except ValueError:
                 raise HTTPException(400, f"{k} is a date (YYYY-MM-DD) or an ISO date-time, not {v[:40]!r}.") from None
     out = D.search(request.app, q=q, project=project, tag=tag, owner=owner, op=op, since=since, until=until, state=state)
-    return {"datasets": out, "total": len(out)}
+    return with_team(request, {"datasets": out, "total": len(out)}, "search")
 
 
 @router.get("/datasets/{dataset_id}/history")
@@ -71,7 +72,7 @@ async def history(dataset_id: str, request: Request) -> dict[str, Any]:
     return await _thread(D.history, request.app, dataset_id)
 
 
-@router.post("/datasets/{dataset_id}/versions", status_code=201)
+@router.post("/datasets/{dataset_id}/versions", status_code=201, dependencies=[require("data.version", path("dataset_id", "dataset"))])
 async def upload_version(dataset_id: str, request: Request, file: UploadFile = File(...), by: str = Form(""),
                          row_key: str | None = Form(None), preview: bool = Form(False), reason: str = Form(""),
                          make_default: str = Form("auto"), acknowledge: str = Form("")) -> dict[str, Any]:
@@ -211,7 +212,7 @@ def _legacy_preview(ds, dataset_id: str, fname: str, chk: dict[str, Any], nv: di
             "note": "nothing was written: send the file again without preview (with a row key) to create the version"}
 
 
-@router.get("/datasets/{a}/diff/{b}")
+@router.get("/datasets/{a}/diff/{b}", dependencies=[require("data.preview", path("a", "dataset"), also=[("data.preview", path("b", "dataset"))])])
 async def diff(a: str, b: str, request: Request, by: str = "", key: str = "", wait: float = 0) -> dict[str, Any]:
     """a → b (P08: the two-pass DuckDB diff, cached): tables (unchanged by sha, changed, added, removed, renamed),
     schema (added / removed columns, type and dtype changes), rows (matched / changed / added / removed on `__row_id`
@@ -247,7 +248,7 @@ def usage(dataset_id: str, request: Request, descendants: bool = True) -> dict[s
                 "blocks_archive_or_delete": D.blockers(con, [dataset_id], "delete")}
 
 
-@router.post("/datasets/{dataset_id}/default")
+@router.post("/datasets/{dataset_id}/default", dependencies=[require("data.set_default", path("dataset_id", "dataset"))])
 def set_default(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{version_id, by, reason}: the version Build opens. Moving it to an older version is a rollback (audited as
     dataset_rolled_back); no data is changed either way."""
@@ -260,7 +261,7 @@ def set_default(dataset_id: str, request: Request, body: dict[str, Any]) -> dict
                  _gov=(request.app, who, "dataset_default_set", {"dataset_id": vid}))
 
 
-@router.patch("/datasets/{dataset_id}/card")
+@router.patch("/datasets/{dataset_id}/card", dependencies=[require("data.card", path("dataset_id", "dataset"))])
 def edit_card(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by, name?, description?, owner?, source?, label_definition?, known_issues?}. The name renames every version."""
     body = body if isinstance(body, dict) else {}
@@ -278,7 +279,7 @@ def edit_card(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[s
     return _call(D.update_card, request.app, dataset_id, fields, who)
 
 
-@router.post("/datasets/{dataset_id}/archive")
+@router.post("/datasets/{dataset_id}/archive", dependencies=[require("data.archive", path("dataset_id", "dataset"))])
 def archive(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by, archived: true|false, reason, only_version?}: hide (or show again) a version, or the whole dataset when the id
     is its root (only_version: v1 alone). Refused while a champion, or a registered version that is not rejected,
@@ -292,7 +293,7 @@ def archive(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str
                  _gov=(request.app, who, "dataset_archive" if arch else "dataset_unarchive", {"dataset_id": dataset_id}))
 
 
-@router.post("/datasets/{dataset_id}/delete", status_code=201)
+@router.post("/datasets/{dataset_id}/delete", status_code=201, dependencies=[require("data.delete", path("dataset_id", "dataset"))])
 def request_delete(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by, reason}: ask to delete a version, or the whole dataset when the id is its root. Someone else approves
     (POST /api/dataset-requests/{id}/decide); an admin (ENSEMBLE_ADMINS) deletes at once. The files go; the datasets
@@ -304,7 +305,7 @@ def request_delete(dataset_id: str, request: Request, body: dict[str, Any]) -> d
                  irreproducible=body.get("irreproducible"), _gov=(request.app, who, "dataset_delete", {"dataset_id": dataset_id}))
 
 
-@router.post("/dataset-requests/{rid}/decide")
+@router.post("/dataset-requests/{rid}/decide", dependencies=[require("data.delete_decide", path("rid", "dataset_request"))])
 def decide(rid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     body = body if isinstance(body, dict) else {}
     who = _who(body.get("by"))
@@ -318,7 +319,7 @@ def decide(rid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
                  _gov=(request.app, who, "dataset_delete_decide", {"request_id": rid, "approve": approve, "withdraw": withdraw}))
 
 
-@router.post("/datasets/{dataset_id}/verify")
+@router.post("/datasets/{dataset_id}/verify", dependencies=[require("data.verify", path("dataset_id", "dataset"))])
 async def verify(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by, all?}: re-hash the file(s) and compare with the sha256 stored when each version was made."""
     body = body if isinstance(body, dict) else {}
@@ -326,7 +327,7 @@ async def verify(dataset_id: str, request: Request, body: dict[str, Any]) -> dic
     return await _thread(D.verify, request.app, dataset_id, who, bool(body.get("all")))
 
 
-@router.post("/data/verify-all")
+@router.post("/data/verify-all", dependencies=[require("admin.config")])
 async def verify_all(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by}: an admin (ENSEMBLE_ADMINS) re-hashes every version of every dataset that is not deleted. Also runs on a
     timer when ENSEMBLE_VERIFY_EVERY_HOURS is set (no default)."""
@@ -338,7 +339,7 @@ async def verify_all(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     return await _thread(D.verify_all, request.app, who)
 
 
-@router.get("/datasets/{dataset_id}/export")
+@router.get("/datasets/{dataset_id}/export", dependencies=[require("data.export", path("dataset_id", "dataset"))])
 async def export(dataset_id: str, request: Request, by: str = "", format: str = "zip"):
     """format=zip: data.csv + schema.json (the tables and their column types, §4.1) + lineage.json + manifest.json (the
     chain to the root, the stored and current sha256). format=csv: the file alone. Audited."""
@@ -483,7 +484,7 @@ def _src_where(dataset_id: str, table: str | None, q: str, flt: str | None):
     return src, " AND ".join(f"({c})" for c in conds) or "true", searched
 
 
-@router.get("/datasets/{dataset_id}/grid")
+@router.get("/datasets/{dataset_id}/grid", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 50, q: str = "", by: str = "",
                after: int | None = None, filter: str | None = None, sort: str | None = None, desc: bool = False,
                table: str | None = None) -> dict[str, Any]:
@@ -516,7 +517,7 @@ async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 
     return out
 
 
-@router.get("/datasets/{dataset_id}/rows/count")
+@router.get("/datasets/{dataset_id}/rows/count", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 async def rows_count(dataset_id: str, request: Request, q: str = "", filter: str | None = None, table: str | None = None,
                      budget: float = 3.0) -> dict[str, Any]:
     """P08 (R5): how many rows match a search / filter, as its own cancellable call: stopped after `budget` seconds
@@ -536,7 +537,7 @@ async def rows_count(dataset_id: str, request: Request, q: str = "", filter: str
     return await _thread(run)
 
 
-@router.post("/datasets/{dataset_id}/rows/preview")
+@router.post("/datasets/{dataset_id}/rows/preview", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 async def filter_preview(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """P08: filter preview: {filter (the edit filter AST), q?, limit?, by} → the first rows that match and how many
     (counted within 3 s). Nothing is written; what a `filter_rows` / `delete_rows` edit with this filter would touch."""
@@ -563,7 +564,7 @@ async def filter_preview(dataset_id: str, request: Request, body: dict[str, Any]
     return out
 
 
-@router.get("/datasets/{dataset_id}/stats")
+@router.get("/datasets/{dataset_id}/stats", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 async def table_stats(dataset_id: str, request: Request, table: str | None = None, wait: float = 0) -> dict[str, Any]:
     """P08: the table's column statistics (table_stats, keyed by table_sha256): rows, nulls, distinct, min / max /
     mean / std / quantiles / histogram for numbers, length and top values for text, ... `status` is `running` while the
@@ -584,7 +585,7 @@ async def table_stats(dataset_id: str, request: Request, table: str | None = Non
     return await _thread(run)
 
 
-@router.post("/datasets/{dataset_id}/edit", status_code=201)
+@router.post("/datasets/{dataset_id}/edit", status_code=201, dependencies=[require("data.version", path("dataset_id", "dataset"))])
 async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     """{ops: [...], reason, by, preview?, make_default?}: typed operations (set_cells, delete_rows, add_rows, filter_rows,
     rename_column, drop_column, add_column (constant or a safe formula), cast_column, replace_values, fill_missing) applied
@@ -630,7 +631,7 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
             "edit": {k: v for k, v in out["edit"].items()}, "default": dflt}
 
 
-@router.post("/datasets/{dataset_id}/adopt-disk-file", status_code=201)
+@router.post("/datasets/{dataset_id}/adopt-disk-file", status_code=201, dependencies=[require("data.restore", path("dataset_id", "dataset"))])
 async def adopt_disk_file(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by, reason}: the remedy for a version whose data.csv was changed outside the app (verify says MISMATCH). The
     bytes now on disk are committed as a NEW version of it (upload-as-version: rows matched by an exact hash, lineage,
@@ -667,7 +668,7 @@ async def adopt_disk_file(dataset_id: str, request: Request, body: dict[str, Any
             "parent_still_mismatched": True}
 
 
-@router.post("/datasets/{dataset_id}/restore-splits")
+@router.post("/datasets/{dataset_id}/restore-splits", dependencies=[require("data.restore", path("dataset_id", "dataset"))])
 async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """DL4 (M-d): {by, reason}: the remedy for a split file (holdout, folds) changed outside the app. Every split file of
     this version whose bytes differ from the copy recorded when it was drawn is written back (the copy is hash-checked
@@ -720,7 +721,7 @@ async def _restore_lake_splits(dataset_id: str, request: Request, body: dict[str
     return {"dataset_id": dataset_id, "applied": True, **res, "verify": check}
 
 
-@router.post("/datasets/match")
+@router.post("/datasets/match", dependencies=[require("data.upload", query("project_id", "project"))])
 async def match_upload(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     """DL4 (#11): does this CSV look like a dataset already here? Nothing is written. Compares the file's columns,
     its likely target and its name with every live dataset (its default version); answers the best match (or none)
@@ -824,7 +825,7 @@ class _MultipartSink:
             self._sink = None
 
 
-@router.post("/uploads", status_code=201)
+@router.post("/uploads", status_code=201, dependencies=[require("data.upload", query("parent_version_id", "dataset"), query("root_id", "dataset"), query("project_id", "project"))])
 async def create_upload(request: Request, filename: str | None = None, by: str | None = None, project_id: str | None = None,
                         name: str | None = None, target: str | None = None, parent_version_id: str | None = None,
                         root_id: str | None = None) -> dict[str, Any]:
@@ -931,7 +932,7 @@ async def get_upload(up: str, request: Request) -> dict[str, Any]:
     return await _lthread(lambda: U.public(U.get(request.app.state.db, up)))
 
 
-@router.patch("/uploads/{up}")
+@router.patch("/uploads/{up}", dependencies=[require("data.upload", path("up", "upload"))])
 async def patch_upload(up: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """The plan: {name?, target?, project_id?, table?, types?: {column: VARCHAR|BIGINT|DOUBLE|BOOLEAN|DATE|TIMESTAMP},
     formats?: {column: strptime format}, parent_version_id? | root_id? (P06: the next version of that dataset),
@@ -942,7 +943,7 @@ async def patch_upload(up: str, request: Request, body: dict[str, Any]) -> dict[
     return await _lthread(lambda: U.public(U.patch_plan(request.app.state.db, up, body if isinstance(body, dict) else {})))
 
 
-@router.post("/uploads/{up}/check")
+@router.post("/uploads/{up}/check", dependencies=[require("data.upload", path("up", "upload"))])
 async def check_upload(up: str, request: Request) -> dict[str, Any]:
     """Detect and type the staged file (§5.1 steps 2–3, 6): per table the decided schema with a reason per column,
     warnings (with examples), blocks, a preview, and check_sha256. Writes nothing but tmp files."""
@@ -952,7 +953,7 @@ async def check_upload(up: str, request: Request) -> dict[str, Any]:
     return await _lthread(U.check, db, lake, up, request.app.state.datasets)
 
 
-@router.post("/uploads/{up}/commit", status_code=201)
+@router.post("/uploads/{up}/commit", status_code=201, dependencies=[require("data.upload", path("up", "upload"))])
 async def commit_upload(up: str, request: Request, body: dict[str, Any] | None = None):
     """{by?, reason?, check_sha256?, make_default?, match?, acknowledge?}: the checked upload becomes a new Parquet
     dataset (or, with a parent, its next version) through the VersionWriter (job_id = the upload id). 201 with the
@@ -985,7 +986,7 @@ async def commit_upload(up: str, request: Request, body: dict[str, Any] | None =
     return SafeJSONResponse({**ver, "repeat": not created and not ver.get("deduped")}, status_code=201 if created else 200)
 
 
-@router.delete("/uploads/{up}")
+@router.delete("/uploads/{up}", dependencies=[require("data.upload", path("up", "upload"))])
 async def discard_upload(up: str, request: Request) -> dict[str, Any]:
     from ..lake import upload as U
 

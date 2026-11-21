@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 from .. import frames
+from ..authz import path, require  # P19
 from ..datasets import now
 from ..http import version_or_404
 from . import changes as C
@@ -211,7 +212,7 @@ async def get_changes(vid: str, request: Request) -> dict[str, Any]:
                       "cost": (c.get("cost") or {}).get("source")}}
 
 
-@router.post("/registry/versions/{vid}/changes", status_code=201)
+@router.post("/registry/versions/{vid}/changes", status_code=201, dependencies=[require("model.card", path("vid", "model_version"))])
 async def start_change(vid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     from ..engine.api import RunCreate, _create_run
     from ..gym.api import check_run_body, run_body
@@ -277,7 +278,7 @@ async def start_change(vid: str, request: Request, body: dict[str, Any]) -> dict
     return it
 
 
-@router.post("/registry/versions/{vid}/changes/{cid}/request", status_code=201)
+@router.post("/registry/versions/{vid}/changes/{cid}/request", status_code=201, dependencies=[require("model.register", path("vid", "model_version"))])
 async def request_change(vid: str, cid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     from .api import RegisterRequest, register
 

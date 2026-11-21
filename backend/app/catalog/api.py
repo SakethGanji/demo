@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
+from ..authz import body, path, query, require, with_team  # P19
 from . import compare as C
 from . import governance as G
 from . import lineage as L
@@ -71,7 +72,7 @@ def list_projects(request: Request, team: str | None = None) -> dict[str, Any]:
         ch = cat.champion(p["id"])
         out.append({**p, "team": refs.get(p.get("team_id") or S.DEFAULT_TEAM),
                     "champion": ch and {k: ch[k] for k in ("version_id", "run_id", "decided_by", "decided_at")}})
-    return {"projects": out}
+    return with_team(request, {"projects": out}, "projects")
 
 
 @router.get("/projects/{project_id}")
@@ -98,7 +99,7 @@ def _text(body: dict[str, Any], key: str, lo: int, hi: int, required: bool) -> s
     return v
 
 
-@router.post("/projects", status_code=201)
+@router.post("/projects", status_code=201, dependencies=[require("project.create", body("team_id", "team"))])
 def create_project(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{name, description?, team_id?, by}: a new, empty project in a team. P18: `team_id` (id or slug) defaults to the
     caller's only team; a caller in several teams must name one (400). Upload into it (POST /api/datasets with
@@ -130,7 +131,7 @@ def create_project(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     return {**proj, "team": team, "n_datasets": 0, "n_runs": 0, "champion": None}
 
 
-@router.patch("/projects/{project_id}")
+@router.patch("/projects/{project_id}", dependencies=[require("project.manage", path("project_id", "project"))])
 def rename_project(project_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     cat = request.app.state.catalog
     if not cat.project(project_id):
@@ -144,7 +145,7 @@ def rename_project(project_id: str, request: Request, body: dict[str, Any]) -> d
     return cat.project(project_id)
 
 
-@router.post("/projects/{project_id}/datasets")
+@router.post("/projects/{project_id}/datasets", dependencies=[require("data.upload", path("project_id", "project"))])
 def move_dataset(project_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{dataset_id, by}: move an original dataset, every version derived from it and every run on them into this
     project. Only a root moves (a version goes with its root). Audited."""
@@ -188,7 +189,7 @@ def run_children(run_id: str, request: Request, source: str | None = None) -> di
 
 # -- compare -----------------------------------------------------------------------------------------------------------
 
-@router.post("/compare")
+@router.post("/compare", dependencies=[require("run.read", body("a", "run"), also=[("run.read", body("b", "run"))])])
 async def compare(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{a, b}: run or version ids. Paired Δ + CI on the shared original holdout rows when both descend from the same
     root with root-row mappings; otherwise a labelled 'different holdout, not paired' table."""
@@ -219,7 +220,7 @@ def get_annotations(kind: str, node_id: str, request: Request) -> dict[str, Any]
     return request.app.state.catalog.annotations(kind, node_id)
 
 
-@router.post("/annotations/{kind}/{node_id}", status_code=201)
+@router.post("/annotations/{kind}/{node_id}", status_code=201, dependencies=[require("annotate", path("node_id", "node"))])
 def add_annotation(kind: str, node_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{tag} or {note}, with {by}. Tags: letters, digits, space . _ : / -, up to 40 characters ('keep' pins a run
     against retention). Notes: up to 2,000 characters."""
@@ -249,7 +250,7 @@ def _ds_audit(request: Request, kind: str, node_id: str, by: str, action: str, *
                                                                        **details})
 
 
-@router.delete("/annotations/{kind}/{node_id}/tags/{tag:path}")
+@router.delete("/annotations/{kind}/{node_id}/tags/{tag:path}", dependencies=[require("annotate", path("node_id", "node"))])
 def remove_tag(kind: str, node_id: str, tag: str, request: Request, by: str = "") -> dict[str, Any]:
     """Remove a tag (case-insensitive; a tag may contain '/')."""
     _exists(request, kind, node_id)
@@ -268,7 +269,7 @@ def _note_or_404(request: Request, kind: str, node_id: str, note_id: int) -> dic
     return n
 
 
-@router.patch("/annotations/{kind}/{node_id}/notes/{note_id}")
+@router.patch("/annotations/{kind}/{node_id}/notes/{note_id}", dependencies=[require("annotate", path("node_id", "node"))])
 def edit_note(kind: str, node_id: str, note_id: int, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{note, by}: edit a note. The old text is kept (soft-deleted) and the edit is audited."""
     n = _note_or_404(request, kind, node_id, note_id)
@@ -282,7 +283,7 @@ def edit_note(kind: str, node_id: str, note_id: int, request: Request, body: dic
     return st.catalog.annotations(kind, node_id)
 
 
-@router.delete("/annotations/{kind}/{node_id}/notes/{note_id}")
+@router.delete("/annotations/{kind}/{node_id}/notes/{note_id}", dependencies=[require("annotate", path("node_id", "node"))])
 def delete_note(kind: str, node_id: str, note_id: int, request: Request, by: str = "") -> dict[str, Any]:
     n = _note_or_404(request, kind, node_id, note_id)
     who = _who(by)
@@ -295,7 +296,7 @@ def delete_note(kind: str, node_id: str, note_id: int, request: Request, by: str
 
 # -- champions -----------------------------------------------------------------------------------------------------------
 
-@router.post("/projects/{project_id}/champion", status_code=201)
+@router.post("/projects/{project_id}/champion", status_code=201, dependencies=[require("champion.request", path("project_id", "project"))])
 def request_champion(project_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{version_id, by, comment}: ask for a registered, ready, approved version to become the project's champion. It
     takes effect only when someone else approves it (POST /api/champions/{id}/decide). Audited."""
@@ -329,7 +330,7 @@ def request_champion(project_id: str, request: Request, body: dict[str, Any]) ->
     return req
 
 
-@router.post("/champions/{request_id}/decide")
+@router.post("/champions/{request_id}/decide", dependencies=[require("champion.decide", path("request_id", "champion"))])
 def decide_champion(request_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{approve: true|false, by, comment}: four eyes, the approver is not the requester. Audited."""
     st = request.app.state
@@ -369,7 +370,7 @@ def decide_champion(request_id: str, request: Request, body: dict[str, Any]) -> 
 
 # -- retention -----------------------------------------------------------------------------------------------------------
 
-@router.get("/retention/plan")
+@router.get("/retention/plan", dependencies=[require("retention.plan", query("team_id", "team"), default="global")])
 async def retention_plan(request: Request) -> dict[str, Any]:
     """Dry run: what the policy would slim and evict, the bytes it would free, and why each pinned run is kept."""
     out = await run_in_threadpool(RT.plan, request.app)
@@ -377,7 +378,7 @@ async def retention_plan(request: Request) -> dict[str, Any]:
                               "note": "names, not authenticated identities: there is no sign-in"}}
 
 
-@router.post("/retention/run")
+@router.post("/retention/run", dependencies=[require("retention.run", body("team_id", "team"), default="global")])
 async def retention_run(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Admins only ({by} in ENSEMBLE_ADMINS). {confirm: "retention"}, optional {run_ids, tier: slim|evict} to apply a tier
     to chosen runs; pinned runs are refused either way. Every action is audited."""

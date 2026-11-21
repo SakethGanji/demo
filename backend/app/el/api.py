@@ -13,6 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from ..authz import body, path, require  # P19
 from pydantic import BaseModel, Field
 
 from ..engine.api import alloc_run, queue_run, run_out, split_record
@@ -88,7 +89,7 @@ def detect_route(dataset_id: str, request: Request) -> dict[str, Any]:
     return {"dataset_id": dataset_id, **detect(frames.read_version(dataset_id))}
 
 
-@router.post("/runs", status_code=201)
+@router.post("/runs", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
 async def create(body: ElCreate, request: Request) -> dict[str, Any]:
     return await run_in_threadpool(_create, body, request)
 
@@ -193,7 +194,7 @@ class StressBody(BaseModel):
     save: bool = True
 
 
-@router.post("/runs/{run_id}/stress")
+@router.post("/runs/{run_id}/stress", dependencies=[require("run.train", path("run_id", "run"))])
 async def stress(run_id: str, body: StressBody, request: Request) -> dict[str, Any]:
     """Shock the holdout loans, re-score all three models, and compare EL overall and by segment."""
     rec = _run(request, run_id)

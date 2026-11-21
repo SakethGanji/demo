@@ -15,6 +15,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
+from ..authz import path, require  # P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -171,7 +172,7 @@ def _pending(run_dir: Path, st: dict[str, Any]) -> bool:
     return qr is not None and not q.get("done") and str(qr) in (al.read_answers(run_dir).get("submitted") or {})
 
 
-@router.post("/runs/{run_id}/active-learning", status_code=202)
+@router.post("/runs/{run_id}/active-learning", status_code=202, dependencies=[require("run.train", path("run_id", "run"))])
 def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dict[str, Any]:
     """F13: start a labelling queue on the run: fit its exact call on the seed labels, pick the first batch by
     uncertainty + diversity, and (pool = hide) simulate active vs random with the hidden labels as the oracle."""
@@ -272,7 +273,7 @@ def _open_queue(rec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any], in
     return st, ans, qr
 
 
-@router.post("/runs/{run_id}/active-learning/answer")
+@router.post("/runs/{run_id}/active-learning/answer", dependencies=[require("run.train", path("run_id", "run"))])
 def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
     """Answer queue items: confirm (the model's guess is right), relabel (give the label), skip (can't tell; the row
     leaves the pool), or null (clear). Stored per item with the reviewer's name."""
@@ -297,7 +298,7 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
     return {"answered": len(body.answers), "round": qr, "queue_answered": n, "queue_items": len(items)}
 
 
-@router.post("/runs/{run_id}/active-learning/simulate")
+@router.post("/runs/{run_id}/active-learning/simulate", dependencies=[require("run.train", path("run_id", "run"))])
 def simulate(run_id: str, request: Request) -> dict[str, Any]:
     """Fill the open queue's unanswered items from the hidden labels (pool = hide only), as reviewer
     'simulated-oracle': a stand-in for a person, marked as such everywhere it is shown."""
@@ -394,7 +395,7 @@ def al_train_rows(cfg: dict[str, Any]) -> list[int]:
     return [i for i in range(len(fold)) if i not in hold and not (structured and fold[i] in (-2, -3))]
 
 
-@router.post("/runs/{run_id}/active-learning/submit")
+@router.post("/runs/{run_id}/active-learning/submit", dependencies=[require("data.version", path("run_id", "run"))])
 def submit(run_id: str, request: Request) -> dict[str, Any]:
     """Close the round: answered rows join the labelled set (open items count as skipped), a dataset version with
     lineage is made, and the run's call is refitted; the next queue follows."""
@@ -418,7 +419,7 @@ def submit(run_id: str, request: Request) -> dict[str, Any]:
     return {"round": qr, "dataset_version": ver, "status": "refitting"}
 
 
-@router.post("/runs/{run_id}/active-learning/cancel")
+@router.post("/runs/{run_id}/active-learning/cancel", dependencies=[require("run.train", path("run_id", "run"))])
 def cancel(run_id: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     run_dir = Path(rec["config"]["run_dir"])

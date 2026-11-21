@@ -12,6 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
+from ..authz import body, path, require  # P19
 from pydantic import BaseModel, Field
 
 from . import core
@@ -115,7 +116,7 @@ def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
     return suggest_mapping(request, dataset_id)
 
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[require("data.read_meta", body("dataset_id", "dataset"))])
 async def preview(body: PreviewRequest, request: Request) -> dict[str, Any]:
     dataset_or_404(request, body.dataset_id)
     try:
@@ -127,7 +128,7 @@ async def preview(body: PreviewRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(400, f"{type(e).__name__}: {e}") from e
 
 
-@router.post("/runs", status_code=201)
+@router.post("/runs", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
 async def create(body: ForecastCreate, request: Request) -> dict[str, Any]:
     return await run_in_threadpool(_create, body, request)
 
@@ -180,7 +181,7 @@ def chart(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, **json.loads(p.read_text())}
 
 
-@router.get("/runs/{run_id}/forecast.csv")
+@router.get("/runs/{run_id}/forecast.csv", dependencies=[require("run.read", path("run_id", "run"))])
 def download(run_id: str, request: Request, which: str = "future"):
     rec = _run(request, run_id)
     # which = future | holdout (recalibrated when the run recalibrated) | future_raw | holdout_raw (AutoGluon's quantiles)
@@ -192,7 +193,7 @@ def download(run_id: str, request: Request, which: str = "future"):
     return FileResponse(p, media_type="text/csv", filename=f"{run_id}_{name}")
 
 
-@router.post("/runs/{run_id}/predict")
+@router.post("/runs/{run_id}/predict", dependencies=[require("run.use", path("run_id", "run"))])
 async def predict_new(run_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
     """Forecast from a new history file (same columns as the training data): the saved predictor, no refit."""
     rec = _run(request, run_id)
@@ -209,7 +210,7 @@ async def predict_new(run_id: str, request: Request, file: UploadFile = File(...
     return {"run_id": run_id, "id": pid, **out, "download": f"/api/forecast/runs/{run_id}/predictions/{pid}.csv"}
 
 
-@router.get("/runs/{run_id}/predictions/{pid}.csv")
+@router.get("/runs/{run_id}/predictions/{pid}.csv", dependencies=[require("run.read", path("run_id", "run"))])
 def download_prediction(run_id: str, pid: str, request: Request):
     rec = _run(request, run_id)
     if not re.fullmatch(r"fc_[0-9a-f]{8}", pid):

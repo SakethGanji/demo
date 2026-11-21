@@ -24,6 +24,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
+from ..authz import path, require  # P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -326,7 +327,7 @@ def get_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, **_public(st), "summary": sh.summary(st), "actions": actions(request, rec, st)}
 
 
-@router.get("/runs/{run_id}/shift/{key}/rows")
+@router.get("/runs/{run_id}/shift/{key}/rows", dependencies=[require("run.read", path("run_id", "run"))])
 def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: int = 100000, by: str = "") -> dict[str, Any]:
     """Per row: its set, origin o, row number (in the dataset, or in the batch file) and the out-of-fold P(o = 1 | x);
     reference rows also carry their weight w. Paged. DL3 (m2): audited as a read (needs a name)."""
@@ -395,14 +396,14 @@ def start(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str
     return get_shift(rec["id"], p["key"], request)
 
 
-@router.post("/runs/{run_id}/shift", status_code=202)
+@router.post("/runs/{run_id}/shift", status_code=202, dependencies=[require("run.train", path("run_id", "run"))])
 def start_shift(run_id: str, body: ShiftRequest, request: Request) -> dict[str, Any]:
     """F15: start a shift check: an AutoGluon classifier (bagged, scored out of fold) tells the reference rows from the
     new rows. Poll GET …/shift/{key}. A new check of the same source replaces the old one."""
     return start(request, run_or_404(request, run_id), body)
 
 
-@router.post("/runs/{run_id}/shift/{key}/cancel")
+@router.post("/runs/{run_id}/shift/{key}/cancel", dependencies=[require("run.manage", path("run_id", "run"))])
 def cancel_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
@@ -421,7 +422,7 @@ def cancel_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, "key": key, "cancelled": True}
 
 
-@router.post("/runs/{run_id}/shift/{key}/weights-version", status_code=201)
+@router.post("/runs/{run_id}/shift/{key}/weights-version", status_code=201, dependencies=[require("data.version", path("run_id", "run"))])
 def weights_version(run_id: str, key: str, request: Request, by: str = "") -> dict[str, Any]:
     """Importance weighting: the run's dataset with a `shift_weight` column (w(x) for each reference row, 1 for every
     other row) as a dataset version with the same split (holdout untouched), plus the Gym patch that trains on it with
@@ -482,7 +483,7 @@ def weights_version(run_id: str, key: str, request: Request, by: str = "") -> di
     return {"dataset_version": ver, "patch": patch}
 
 
-@router.post("/registry/batches/{bid}/shift", status_code=202)
+@router.post("/registry/batches/{bid}/shift", status_code=202, dependencies=[require("model.use", path("bid", "batch"))])
 def start_batch_shift(bid: str, request: Request, body: ShiftRequest | None = None) -> dict[str, Any]:
     """F15: a shift check of a scored batch against the training rows of the run behind its version."""
     reg = request.app.state.registry

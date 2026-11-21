@@ -1,6 +1,6 @@
 """P18 (plan §6.1, C §1.1–1.2, §5.1): teams, principals and members, `/me`, and the team on every list row.
 
-Mode `off` (until P19): nothing here refuses on role. The data rules are enforced now: a team keeps at least one
+P19: routes carry require() (mode `audit` by default: would-be denials are audited, not refused). The data rules are enforced now: a team keeps at least one
 owner once it has one, roles come from the fixed set, slugs are unique, a system principal is never a member.
 
 Principals are created on first sight (the P01 backfill made them only for names the database already knew):
@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import secrets
 import time
@@ -23,12 +22,14 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import Response
 
+from ..authz import path, require, variant
 from . import governance as G
 from . import schema as S
 
 router = APIRouter(prefix="/api")
+#: P19: making someone owner or maintainer is a team setting (owners only); members below that are team.manage
+OWNERS = variant("role", {"owner": "team.settings", "maintainer": "team.settings"})
 log = logging.getLogger(__name__)
 
 ROLES = ("viewer", "member", "maintainer", "owner", "risk_reviewer")
@@ -39,8 +40,9 @@ _seen: dict[tuple[str, str], float] = {}
 
 
 def authz_mode() -> str:
-    m = os.environ.get("ENSEMBLE_AUTHZ", "off").strip().lower()
-    return m if m in ("off", "audit", "enforce") else "off"
+    from ..authz import mode
+
+    return mode()  # P19: audit by default
 
 
 # -- principals ---------------------------------------------------------------------------------------------------------
@@ -122,10 +124,9 @@ def _teams_of(con, principal_id: str) -> list[dict[str, Any]]:
 
 def _audit(con, actor: str, action: str, team_id: str, object_kind: str, object_id: str, details: dict[str, Any],
            principal_id: str | None = None) -> None:
-    """A team-scoped audit row (team_id and object columns set; P19 adds the hash chain in schema.audit)."""
-    con.execute("INSERT INTO audit_log (ts, actor, action, comment, details, team_id, object_kind, object_id, principal_id, auth)"
-                " VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, 'typed')",
-                (S.now(), actor or "system", action, json.dumps(details, default=str), team_id, object_kind, object_id, principal_id))
+    """A team-scoped audit row (P19: hash-chained by schema.audit)."""
+    S.audit(con, actor or "system", action, details, team_id=team_id, object_kind=object_kind, object_id=object_id,
+            principal_id=principal_id)
 
 
 def audit(app: Any, actor: str, action: str, team_id: str, object_kind: str, object_id: str, details: dict[str, Any]) -> None:
@@ -241,7 +242,7 @@ def list_teams(request: Request, all: bool = False, mine: bool = False) -> dict[
     return {"teams": out}
 
 
-@router.post("/teams", status_code=201)
+@router.post("/teams", status_code=201, dependencies=[require("team.create")])
 def create_team(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{name, slug?, description?, by}: a new team. Its creator becomes its owner. The slug defaults to the name in
     lower case with dashes. Audited (team_created)."""
@@ -283,7 +284,7 @@ def get_team(team: str, request: Request) -> dict[str, Any]:
     return out
 
 
-@router.patch("/teams/{team}")
+@router.patch("/teams/{team}", dependencies=[require("team.settings", path("team", "team"))])
 def update_team(team: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{name?, description?, policy?, by}: rename, describe or set the team policy (a JSON object; §6.4 keys). Audited
     with the before and after of every changed field (team_updated)."""
@@ -322,7 +323,7 @@ def list_members(team: str, request: Request) -> dict[str, Any]:
         return {"team_id": r["id"], "members": _members(con, r["id"])}
 
 
-@router.post("/teams/{team}/members", status_code=201)
+@router.post("/teams/{team}/members", status_code=201, dependencies=[require("team.manage", path("team", "team"), when=OWNERS)])
 def add_member(team: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{principal | name | email, role, by}: add a person to the team. A name not seen before gets a principal now.
     An email must belong to a known principal. Audited (team_member_added). Returns the member list."""
@@ -380,7 +381,7 @@ def _keep_an_owner(con, t: Any, p: Any, role_before: str) -> None:
         raise HTTPException(409, f"{p['display_name']} is the last owner of {t['name']}: make someone else owner first.")
 
 
-@router.patch("/teams/{team}/members/{principal}")
+@router.patch("/teams/{team}/members/{principal}", dependencies=[require("team.manage", path("team", "team"), when=OWNERS)])
 def change_member(team: str, principal: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{role, by}: change a member's role (principal by id or name). The last owner cannot be demoted. Audited."""
     body = body if isinstance(body, dict) else {}
@@ -400,7 +401,7 @@ def change_member(team: str, principal: str, request: Request, body: dict[str, A
         return {"team_id": t["id"], "members": _members(con, t["id"])}
 
 
-@router.delete("/teams/{team}/members/{principal}")
+@router.delete("/teams/{team}/members/{principal}", dependencies=[require("team.manage", path("team", "team"))])
 def remove_member(team: str, principal: str, request: Request, by: str = "") -> dict[str, Any]:
     """?by=: remove a member. The last owner cannot be removed. Audited (team_member_removed)."""
     who = _who(by)
@@ -443,7 +444,7 @@ def get_principal(principal: str, request: Request) -> dict[str, Any]:
         return {**_principal_out(p), "teams": _teams_of(con, p["id"])}
 
 
-@router.patch("/principals/{principal}")
+@router.patch("/principals/{principal}", dependencies=[require("principal.manage", path("principal", "principal"))])
 def update_principal(principal: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{email?, display_name?, by}: set the email (for adding members by email) or re-spell the display name. A new
     display name must fold to the same identity key (the four-eyes key never changes). Audited."""
@@ -474,69 +475,3 @@ def update_principal(principal: str, request: Request, body: dict[str, Any]) -> 
                        actor["id"])
         p = _principal_or_404(con, p["id"])
         return {**_principal_out(p), "teams": _teams_of(con, p["id"])}
-
-
-# -- the team on every list row --------------------------------------------------------------------------------------------
-
-#: list path → (list key, what the row's id names, the row field holding it). /api/projects does this in its handler.
-LIST_ROWS: dict[str, list[tuple[str, str, str]]] = {
-    "/api/datasets": [("datasets", "dataset", "id")],
-    "/api/data/search": [("datasets", "project", "project_id")],
-    "/api/runs": [("runs", "run", "id")],
-    "/api/registry": [("versions", "run", "run_id")],
-    "/api/registry/versions": [("versions", "run", "run_id")],
-    "/api/registry/summary": [("production", "run", "run_id")],
-}
-
-_RESOLVE = {
-    "dataset": "SELECT d.id, COALESCE(d.team_id, p.team_id) FROM datasets d LEFT JOIN projects p ON p.id = d.project_id WHERE d.id IN ({})",
-    "run": "SELECT r.id, COALESCE(r.team_id, p.team_id) FROM runs r LEFT JOIN projects p ON p.id = r.project_id WHERE r.id IN ({})",
-    "project": "SELECT id, team_id FROM projects WHERE id IN ({})",
-}
-
-
-def annotate(app: Any, path: str, data: Any) -> Any:
-    """Add `team_id` and `team: {id, slug, name}` to every row of a list response. Rows whose owner is unknown are in
-    tm_default (everything made before teams). Lists are not filtered (mode off / audit, plan §6.2)."""
-    spec = LIST_ROWS.get(path)
-    if not spec or not isinstance(data, dict):
-        return data
-    with app.state.db.connect() as con:
-        refs = team_refs(con)
-        for key, kind, field in spec:
-            rows = [r for r in data.get(key) or [] if isinstance(r, dict)]
-            ids = list({str(r.get(field)) for r in rows if r.get(field)})
-            owner: dict[str, str] = {}
-            for i in range(0, len(ids), 500):
-                chunk = ids[i:i + 500]
-                owner.update({a: b for a, b in con.execute(_RESOLVE[kind].format(",".join("?" * len(chunk))), chunk) if b})
-            for r in rows:
-                tid = owner.get(str(r.get(field))) or S.DEFAULT_TEAM
-                r["team_id"] = tid
-                r["team"] = refs.get(tid)
-    if path == "/api/registry":  # a model's team is that of its newest version (versions are listed newest first)
-        first: dict[str, Any] = {}
-        for v in data.get("versions") or []:
-            first.setdefault(v.get("model_name"), v)
-        for m in data.get("models") or []:
-            v = first.get(m.get("name"))
-            m["team_id"] = v["team_id"] if v else None
-            m["team"] = v["team"] if v else None
-    return data
-
-
-async def team_rows(request: Request, call_next):
-    """Middleware: the list routes of other routers get their `team` here (P19 moves this into the handlers)."""
-    resp = await call_next(request)
-    path = request.url.path
-    if request.method != "GET" or path not in LIST_ROWS or resp.status_code != 200 \
-            or not resp.headers.get("content-type", "").startswith("application/json"):
-        return resp
-    raw = b"".join([c async for c in resp.body_iterator])
-    headers = {k: v for k, v in resp.headers.items() if k.lower() != "content-length"}
-    try:
-        data = await run_in_threadpool(annotate, request.app, path, json.loads(raw))
-        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":")).encode()
-    except Exception:  # never lose the list because the annotation failed
-        log.exception("P18: could not add teams to %s", path)
-    return Response(raw, status_code=resp.status_code, headers=headers, media_type="application/json")

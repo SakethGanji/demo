@@ -21,6 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from . import data_doctor as dd
 from . import frames
+from .authz import path, require  # P19
 from .datasets import DatasetError, DatasetStore, now
 from .http import dataset_or_404
 
@@ -104,7 +105,7 @@ async def data_doctor(dataset_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/datasets/{dataset_id}/data-doctor/apply", status_code=201)
+@router.post("/datasets/{dataset_id}/data-doctor/apply", status_code=201, dependencies=[require("data.version", path("dataset_id", "dataset"))])
 async def apply_fixes(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Apply typed fixes to a copy: a new dataset version whose lineage names the parent and the fixes. The holdout is
     the parent's holdout rows that were kept, so scores stay comparable. The decision-time answers carry over."""
@@ -176,7 +177,7 @@ def get_decision_time(dataset_id: str, request: Request) -> dict[str, Any]:
     return {"dataset_id": dataset_id, **answers(_store(request), dataset_id)}
 
 
-@router.post("/datasets/{dataset_id}/decision-time")
+@router.post("/datasets/{dataset_id}/decision-time", dependencies=[require("data.card", path("dataset_id", "dataset"))])
 def set_decision_time(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Store the answers: {known: {column: true|false}, fairness_only: [column], by}. Columns with known = false and the
     fairness-only columns are dropped from later runs on this dataset."""

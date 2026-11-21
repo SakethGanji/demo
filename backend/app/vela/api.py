@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from ..authz import path, require  # P19
 
 from ..gym.api import run_body
 from ..http import run_or_404
@@ -69,7 +70,7 @@ async def vela_findings(run_id: str, request: Request) -> dict[str, Any]:
             "base": run_body(rec), "wording": wording, "key": key}
 
 
-@router.post("/runs/{run_id}/vela/wording")
+@router.post("/runs/{run_id}/vela/wording", dependencies=[require("run.read", path("run_id", "run"))])
 async def vela_wording(run_id: str, request: Request) -> dict[str, Any]:
     """Word the findings through the F5 router (Anthropic SDK, else the claude CLI, else the computed text); awaited on
     the event loop, cached by (prompt hash, facts hash)."""
@@ -532,7 +533,7 @@ async def start_experiment_impl(request: Request, run_id: str, body: dict[str, A
             "prepared": prep, "dataset_id": b["dataset_id"]}
 
 
-@router.post("/runs/{run_id}/experiments", status_code=201)
+@router.post("/runs/{run_id}/experiments", status_code=201, dependencies=[require("run.train", path("run_id", "run"))])
 async def start_experiment(run_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """D3 + D4: a typed experiment on a finished run (`experiments.KINDS`, the whitelist; never free-form):
     - a child run with one change (ablate, budget, preset, monotone), or on a prepared dataset version with the parent's
@@ -557,7 +558,7 @@ async def list_experiments(run_id: str, request: Request) -> dict[str, Any]:
 # --------------------------------------------------------------------------- D4 · Review
 
 
-@router.post("/runs/{run_id}/review", status_code=202)
+@router.post("/runs/{run_id}/review", status_code=202, dependencies=[require("run.train", path("run_id", "run"))])
 async def start_review(run_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     """D4: start the review loop on a finished run: the four LLM roles (perceive → task → errors → propose), each
     hypothesis proved or rejected by a typed experiment on the same holdout, the journal, the improvement plan. Body:

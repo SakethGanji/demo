@@ -39,6 +39,8 @@ from .catalog import api as catalog_api
 from .catalog import datasets_api as catalog_datasets_api
 from .catalog import teams_api
 from .catalog.retention import EvictedError
+from .authz import api as authz_api
+from .authz import body, path, query, require, with_team
 
 log = logging.getLogger("ensemble.main")
 from .http import dataset_or_404
@@ -207,12 +209,13 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         if limit is not None:
             page = request.app.state.db.list_datasets_page(limit=max(1, min(int(limit), 500)), after=after, include_hidden=all,
                                                            pinned=order, project_id=project_id, root_id=root_id)
-            return {"datasets": [_summary(r) for r in page["rows"]], "next_after": page["next_after"], "total": page["total"]}
+            return with_team(request, {"datasets": [_summary(r) for r in page["rows"]], "next_after": page["next_after"],
+                                       "total": page["total"]}, "datasets")
         recs = sorted([r for r in request.app.state.db.list_datasets(light=True) if all or not r.get("state")],
                       key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
-        return {"datasets": [_summary(r) for r in recs]}
+        return with_team(request, {"datasets": [_summary(r) for r in recs]}, "datasets")
 
-    @app.get("/api/datasets/diff")
+    @app.get("/api/datasets/diff", dependencies=[require("data.preview", query("a", "dataset"), also=[("data.preview", query("b", "dataset"))])])
     async def datasets_diff(request: Request, a: str = "", b: str = "", key: str = "", by: str = "", wait: float = 0) -> dict[str, Any]:
         """P08: GET /datasets/diff?a=&b=[&key=col,col] — the two-pass diff of version a → b (see GET …/{a}/diff/{b})."""
         from .catalog.datasets_api import diff_q
@@ -224,7 +227,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         rec = dataset_or_404(request, dataset_id)
         return _detail(rec)
 
-    @app.post("/api/datasets", response_model=Dataset, status_code=201)
+    @app.post("/api/datasets", response_model=Dataset, status_code=201,
+               dependencies=[require("data.upload", body("project_id", "project"))])
     async def upload_dataset(request: Request, file: UploadFile = File(...), target: str | None = Form(None),
                              project_id: str | None = Form(None), by: str | None = Form(None)) -> dict[str, Any]:
         """A CSV upload. F-P2: `project_id` puts it in an existing project (default: a new project of its own).
@@ -242,7 +246,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(e.status, e.message) from e
         return _detail(request.app.state.db.get_dataset(rec["id"]) or rec)  # DL1: with root, op, created_by
 
-    @app.patch("/api/datasets/{dataset_id}", response_model=Dataset)
+    @app.patch("/api/datasets/{dataset_id}", response_model=Dataset, dependencies=[require("run.train", path("dataset_id", "dataset"))])
     def confirm_target(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Confirm the column to predict (F4). Body {"target": column}. Re-profiles for that target and draws (or
         reuses) its own holdout and folds, keyed by the target; the profile's `splits` describe that split."""
@@ -278,7 +282,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         and what can be built from the table, best first, each with a reason and the pre-fill for its flow."""
         return _intake(request, dataset_id, None)
 
-    @app.post("/api/datasets/{dataset_id}/intake")
+    @app.post("/api/datasets/{dataset_id}/intake", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
     def dataset_intake_edit(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """The same with the user's role edits, body {"roles": {"column": "role"}}: the suggestions follow them."""
         roles = (body or {}).get("roles") or {}
@@ -331,7 +335,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                                 "stage": v.get("stage"), "created_at": v.get("created_at")})
         return sorted(out, key=lambda v: v["created_at"] or "", reverse=True)
 
-    @app.get("/api/datasets/{dataset_id}/rows")
+    @app.get("/api/datasets/{dataset_id}/rows", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
     def dataset_rows(dataset_id: str, request: Request, value: str | None = None, column: str | None = None, limit: int | None = None,
                      by: str = "", after: int | None = None, offset: int | None = None, q: str = "", filter: str | None = None,
                      columns: str | None = None, sort: str | None = None, desc: bool = False, table: str | None = None) -> dict[str, Any]:
@@ -364,7 +368,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return {"dataset_id": dataset_id, "table": src.table, "total": src.n_rows, "after": after, "limit": limit or 50, "q": q,
                 **({"searched_columns": searched} if q.strip() else {}), **pg}
 
-    @app.post("/api/datasets/{dataset_id}/splits")
+    @app.post("/api/datasets/{dataset_id}/splits", dependencies=[require("run.train", path("dataset_id", "dataset"))])
     def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """F6: draw (or reuse) the split for {target, strategy, group_column?, time_column?, cutoff?, tuning_share?}
         and describe it: rows, groups and dates per role (train, tuning, holdout, excluded), shared groups, and rows
@@ -382,7 +386,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, y)}
 
-    @app.post("/api/admin/reset-requests", status_code=201)
+    @app.post("/api/admin/reset-requests", status_code=201, dependencies=[require("admin.reset")])
     def reset_request(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """DL3 (C1): {by, reason}: ask for a reset while models or champions are live. Someone else approves
         (POST /api/admin/reset-requests/{id}/decide); then an admin runs POST /api/admin/reset with its request_id."""
@@ -408,7 +412,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             audit(con, who, "admin_reset_requested", comment=reason, details={"request_id": rid, "live": reset_mod.live_governance(con) + reset_mod.user_data(con)})
             return dict(con.execute("SELECT * FROM admin_requests WHERE id = ?", (rid,)).fetchone())
 
-    @app.post("/api/admin/reset-requests/{rid}/decide")
+    @app.post("/api/admin/reset-requests/{rid}/decide", dependencies=[require("admin.reset")])
     def reset_decide(rid: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """{by, approve, comment}: four eyes. The requester may withdraw (approve=false) but never approve, admin or not."""
         from .catalog import governance as G
@@ -448,7 +452,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             return {"demo_mode": reset_mod.demo_mode(), "live": reset_mod.live_governance(con) + reset_mod.user_data(con),
                     "requests": [dict(r) for r in con.execute("SELECT * FROM admin_requests ORDER BY requested_at DESC LIMIT 20")]}
 
-    @app.post("/api/admin/reset")
+    @app.post("/api/admin/reset", dependencies=[require("admin.reset")])
     def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Delete every run, registry entry, batch, autopilot and upload; regenerate the samples.
         Body {"confirm": "reset", "by": <admin>, "request_id"?, "reason"?}. DL3 (C1): only with ENSEMBLE_DEMO_MODE=1, only by
@@ -496,7 +500,6 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.add_exception_handler(EvictedError, catalog_api.evicted_handler)
     app.include_router(teams_api.router)  # P18: /me, teams, members, principals
     app.middleware("http")(teams_api.see_actor)  # P18: a principal on first sight of an X-Ensemble-Actor name
-    app.middleware("http")(teams_api.team_rows)  # P18: `team` on every list row of the other routers
     for mod, _ in JOB_MODULES:
         app.include_router(mod.router)
     app.include_router(slices_api.router)
@@ -520,6 +523,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(agent_api.router)
     app.include_router(data_doctor_api.router)  # D1
     app.include_router(featurelab_api.router)  # D2
+    authz_api.install(app)  # P19: /authz, team audit + verify, the middleware (outermost), the coverage gate
     return app
 
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from ..authz import path, require  # P19
 from pydantic import BaseModel, Field
 
 from . import learning_curve as lc
@@ -80,7 +81,7 @@ def get_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, **st, "defaults": defaults(rec)}
 
 
-@router.post("/runs/{run_id}/learning-curve", status_code=202)
+@router.post("/runs/{run_id}/learning-curve", status_code=202, dependencies=[require("run.train", path("run_id", "run"))])
 def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Request) -> dict[str, Any]:
     """F12: fit the run's exact config on nested subsamples of its training rows (default 10 / 25 / 50 %, 3 seeds each;
     100 % is the run itself), each scored on the run's holdout, in a separate process. Poll GET …/learning-curve."""
@@ -147,7 +148,7 @@ def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Reque
     return get_learning_curve(run_id, request)
 
 
-@router.post("/runs/{run_id}/learning-curve/cancel")
+@router.post("/runs/{run_id}/learning-curve/cancel", dependencies=[require("run.manage", path("run_id", "run"))])
 def cancel_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     with _LOCK:

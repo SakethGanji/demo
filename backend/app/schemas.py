@@ -35,6 +35,8 @@ class DatasetSummary(BaseModel):
     parent_id: str | None = None
     op: str | None = None
     state: str | None = None
+    team_id: str | None = None  # P19: the owning team on every list row
+    team: dict[str, str] | None = None
 
 
 class Dataset(DatasetSummary):

@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from ..authz import path, require  # P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -157,7 +158,7 @@ def _latest(request: Request, rec: dict[str, Any]) -> dict[str, Any]:
     return compute(request, rec, body)
 
 
-@router.post("/runs/{run_id}/slices")
+@router.post("/runs/{run_id}/slices", dependencies=[require("run.train", path("run_id", "run"))])
 async def search_slices(run_id: str, body: SliceRequest, request: Request) -> dict[str, Any]:
     """F16: search the holdout for feature-value slices (single values and pairs, numbers binned) whose loss is
     significantly worse than the rest: Welch t per slice, Benjamini–Hochberg over all slices tested, Δ with its 95%
@@ -181,7 +182,7 @@ def _slice(request: Request, rec: dict[str, Any], sid: str) -> tuple[dict[str, A
     return out, s
 
 
-@router.get("/runs/{run_id}/slices/{sid}/rows")
+@router.get("/runs/{run_id}/slices/{sid}/rows", dependencies=[require("run.read", path("run_id", "run"))])
 async def slice_rows(run_id: str, sid: str, request: Request, limit: int | None = Query(None, ge=1),
                      offset: int = Query(0, ge=0)) -> dict[str, Any]:
     """The slice's holdout rows (data.csv row numbers) with their features, truth, prediction and per-row loss,
@@ -210,7 +211,7 @@ async def slice_rows(run_id: str, sid: str, request: Request, limit: int | None 
     return await run_in_threadpool(work)
 
 
-@router.post("/runs/{run_id}/slices/{sid}/shap")
+@router.post("/runs/{run_id}/slices/{sid}/shap", dependencies=[require("run.train", path("run_id", "run"))])
 async def slice_shap(run_id: str, sid: str, body: ShapRequest, request: Request) -> dict[str, Any]:
     """Kernel SHAP (the S4 worker, cached per row) for `rows` rows sampled from the slice and as many from the rest of
     the holdout (seeded): the mean φᵢ per feature in each, and the difference. What pushes the model differently
@@ -257,7 +258,7 @@ async def slice_shap(run_id: str, sid: str, body: ShapRequest, request: Request)
             "method": first["method"]}
 
 
-@router.get("/runs/{run_id}/slices/{sid}/pool")
+@router.get("/runs/{run_id}/slices/{sid}/pool", dependencies=[require("run.read", path("run_id", "run"))])
 async def slice_pool(run_id: str, sid: str, request: Request) -> dict[str, Any]:
     """The run's training rows (outside the holdout) inside the slice: what the F13 labelling queue can pick from when
     it is pre-filtered to this slice."""
