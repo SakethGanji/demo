@@ -838,6 +838,9 @@ def sync_version(con: sqlite3.Connection, dataset_id: str) -> None:
         return
     root = r["root_id"] or r["id"]
     if root != r["id"]:  # it was its own root before it became a version of another: that root is gone (nothing refers to it yet)
+        dep = root_has_dependants(con, r["id"])
+        if dep:  # P02: never drop a root row that lake rows hang off (the VersionWriter never re-roots; legacy paths must not)
+            raise ValueError(f"{r['id']} cannot become a version of {root}: its dataset root has {dep}")
         con.execute("DELETE FROM dataset_roots WHERE id = ?", (r["id"],))
     ensure_root(con, root)
     n = r["version_no"] if r["version_no"] is not None else _alloc_version_no(con, root)
@@ -845,6 +848,22 @@ def sync_version(con: sqlite3.Connection, dataset_id: str) -> None:
                 " n_cols = CASE WHEN json_valid(profile) THEN CAST(json_extract(profile, '$.n_cols') AS INTEGER) ELSE n_cols END"
                 " WHERE id = ?", (n, team_of_project(con, r["project_id"]), dataset_id))
     con.execute("UPDATE dataset_roots SET state = ? WHERE id = ?", (root_state(con, root), root))
+
+
+#: P02: rows that refer to a dataset root (or mark it as a lake dataset); sync_version refuses to delete such a root row
+ROOT_DEPENDANTS = (("dataset_root_tables", "SELECT 1 FROM dataset_root_tables WHERE root_id = ?"),
+                   ("joins", "SELECT 1 FROM joins WHERE root_id = ?"),
+                   ("column_tags", "SELECT 1 FROM column_tags WHERE root_id = ?"),
+                   ("data_contracts", "SELECT 1 FROM data_contracts WHERE root_id = ?"),
+                   ("certifications", "SELECT 1 FROM certifications WHERE root_id = ?"),
+                   ("parquet versions", "SELECT 1 FROM datasets WHERE (id = ? OR root_id = ?) AND storage = 'parquet'"))
+
+
+def root_has_dependants(con: sqlite3.Connection, root: str) -> str | None:
+    for what, q in ROOT_DEPENDANTS:
+        if con.execute(q + " LIMIT 1", (root,) * q.count("?")).fetchone():
+            return what
+    return None
 
 
 def sync_root_state(con: sqlite3.Connection, root: str) -> None:

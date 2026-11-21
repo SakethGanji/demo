@@ -162,6 +162,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     # P03 (§4.4): every JSON response through one encoder (non-finite → null + "non_finite": true, allow_nan=False)
     app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan, default_response_class=SafeJSONResponse)
+    from .lake import api as lake_api
+
+    lake_api.install(app, settings)  # P02: the lake self-check (refuses to start on a hash mismatch), the store, /lake routes
 
     @app.exception_handler(ValueRefused)
     async def value_refused(request: Request, exc: ValueRefused):
