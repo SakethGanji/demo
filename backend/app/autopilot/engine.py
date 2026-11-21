@@ -589,7 +589,7 @@ class Pilot:
             self.finish(s, status="skipped", relabelled=0, dropped=0, confirmed=confirmed, skipped=skipped)
             self.note(f"No label changed ({confirmed} confirmed, {skipped} skipped), so there is nothing to retrain on.")
             return False
-        df = frames.read_version(src)
+        df = frames.read_version(src).reset_index(drop=True)  # P07: rows by position
         sp = json.loads(ds.splits_path(src, self.st["facts"]["label"]).read_text())
         roots = self._lineage_rows(src)
         changes = []
@@ -939,7 +939,7 @@ class Pilot:
         s = self.step("synthesize", f"Write synthetic {cls} examples", decision=d)
         ds = self.mgr.app.state.datasets
         src = self.st["truth_dataset"]
-        df = frames.read_version(src)
+        df = frames.read_version(src).reset_index(drop=True)  # P07: rows by position
         sp = json.loads(ds.splits_path(src, self.st["facts"]["label"]).read_text())
         mine = df[df[f["label"]].astype(str) == cls]
         hold = set(sp["holdout"])

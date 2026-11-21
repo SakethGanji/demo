@@ -1,0 +1,57 @@
+## 1. v1: POST /uploads → check → commit
+v1 ds_a5443e0f
+  manifest op upload | tables [('accounts', '852ad92cac7c', 1000)]
+  ops [('write', 'accounts', 'new', None)]
+  schema [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('income', 'DOUBLE'), ('age', 'BIGINT'), ('segment', 'VARCHAR'), ('opened', 'DATE'), ('note', 'VARCHAR'), ('y', 'BIGINT')]
+## 2. POST …/edit set_cells + drop_column: preview, then commit
+preview HTTP 200 {'rows': 1000, 'n_cols': 7, 'matched': 1000, 'changed': 3, 'added': 0, 'removed': 0, 'ops_summary': ['set 3 cell(s) in 3 row(s)', "dropped 'note'"], 'would_be_default': False}
+  examples [{'row_id': 3, 'column': 'income', 'old': 99703.49, 'new': 51000.0}, {'row_id': 10, 'column': 'age', 'old': 66, 'new': 44}, {'row_id': 5, 'column': 'zip', 'old': '74868', 'new': '00042'}]
+  sample row 5 {'acct': 'A00003', 'zip': '51993', 'income': 51000.0, 'age': 58, 'segment': 'retail', 'opened': '2013-01-02', 'y': 1}
+commit HTTP 201 ds_38df8b31 created True default False 1 contract warning(s): column_removed
+  manifest op edit | tables [('accounts', '2a260dcc7cde', 1000)]
+  ops [('write', 'accounts', 'rewritten', None), ('edit', 'accounts', None, None)]
+  schema [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('income', 'DOUBLE'), ('age', 'BIGINT'), ('segment', 'VARCHAR'), ('opened', 'DATE'), ('y', 'BIGINT')]
+  diff {'a': 1000, 'b': 1000, 'matched': 1000, 'changed': 3, 'added': 0, 'removed': 0, 'matched_by': "ds_38df8b31's row map onto its parent (edit (rows keep their __row_id))"}
+  split random-stratified__y-95cb0bfd holdout 200 sha be3994db56bd5410 carried None
+  split random-stratified__y-95cb0bfd holdout 200 sha be3994db56bd5410 carried {'from': 'ds_a5443e0f', 'by': '__row_id', 'kept_holdout': 200, 'new_rows': 0, 'new_holdout': 0}
+## 3. the same edit again → the existing version (dedupe by data_sha256)
+HTTP 200 {'id': 'ds_38df8b31', 'created': False, 'duplicate_of': 'ds_38df8b31'}
+## 4. DL3 / DL4 guards
+HTTP 400 None | Operation 1 drops the target 'y'. Runs on this version would predict something else, so this is refused. Leave the target alone, or say what the new version predicts: send "set_target": {"column": "<column>", "reason": "<why the target changes>"} with the edit.
+HTTP 400 None | Operation 1 renames (to 'label') the target 'y'. Runs on this version would predict something else, so this is refused. Leave the target alone, or say what the new version predicts: send "set_target": {"column": "<column>", "reason": "<why the target changes>"} with the edit.
+HTTP 400 None | Operation 1 casts (to text) the target 'y'. Runs on this version would predict something else, so this is refused. Leave the target alone, or say what the new version predicts: send "set_target": {"column": "<column>", "reason": "<why the target changes>"} with the edit.
+HTTP 400 None | Changing the target needs its own reason (set_target.reason, at least 10 characters): models trained on the old target can't be compared with ones trained on the new.
+HTTP 400 target_one_class | This edit leaves the target 'y' with one class ('0') (it had 2): no model can learn from it on this version. Send "acknowledge": ["target_one_class"] to make the version anyway.
+HTTP 400 None | At most 5,000 cell edits per version; for more, use replace_values, fill_missing or upload the file as a new version.
+HTTP 400 value_out_of_range | Operation 1 (set_cells), row 0, 'age': 1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+HTTP 400 value_out_of_range | Operation 1 (set_cells), row 0, 'age': 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+HTTP 400 value_out_of_range | Operation 1, 'income': the column's values add up to more than a number can hold (±1.798e+308), so its sum and mean overflow; use smaller values.
+HTTP 400 non_finite_result | Operation 1 (add_column): 'income * 1e308' is not a finite number in 1000 row(s) (it overflows); use smaller values or another formula.
+HTTP 400 value_out_of_range | Operation 1 (fill_missing): 18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+HTTP 400 value_out_of_range | Operation 1 (replace_values): 1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+HTTP 400 value_invalid | Operation 1 (set_cells), row 0, 'age': 'forty' is not a whole number, and 'age' is a whole-number column (cast it to text first if it should hold text).
+set_target preview HTTP 200 {'before': 'y', 'after': 'label', 'set_by_edit': True, 'reason': 'the label column is renamed for the bureau'} ['column_removed', 'target_changed']
+## 5. Data Doctor apply (relabel, labels sent as text) → new version, __row_id kept, kinds kept
+HTTP 201 [{'op': 'relabel', 'reason': 'reviewed', 'rows': 3, 'changed': 2}]
+  manifest op clean_labels | tables [('accounts', '1386365a9077', 1000)]
+  ops [('write', 'accounts', 'rewritten', None), ('clean_labels', 'accounts', None, None)]
+  schema [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('income', 'DOUBLE'), ('age', 'BIGINT'), ('segment', 'VARCHAR'), ('opened', 'DATE'), ('y', 'BIGINT')]
+  diff {'a': 1000, 'b': 1000, 'matched': 1000, 'changed': 2, 'added': 0, 'removed': 0, 'matched_by': "ds_b3ba8620's row map onto its parent (clean_labels (rows keep their __row_id))"}
+  split random-stratified__y-95cb0bfd holdout 200 sha be3994db56bd5410 carried {'from': 'ds_38df8b31', 'by': '__row_id', 'kept_holdout': 200, 'new_rows': 0, 'new_holdout': 0}
+## 6. a two-table version (seed), then Feature Lab adds a column → only that table is rewritten
+v4 ds_b410469f
+  manifest op seed | tables [('accounts', '1386365a9077', 1000), ('bureau', '01069f7e4030', 1000)]
+  ops [('carry', 'accounts', None, 'ds_b3ba8620'), ('write', 'bureau', 'new', None)]
+  schema [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('income', 'DOUBLE'), ('age', 'BIGINT'), ('segment', 'VARCHAR'), ('opened', 'DATE'), ('y', 'BIGINT')]
+succeeded kept ['opened_month'] oof 0.4659 → 0.8329 version {'id': 'ds_913ebc04', 'name': 'p07 accounts · fixed v1 · features v1', 'columns_added': ['opened_month'], 'rows': 1000, 'holdout_rows': 200, 'profile_rows': 1000}
+  manifest op feature_lab | tables [('accounts', 'b3eb94d77da9', 1000), ('bureau', '01069f7e4030', 1000)]
+  ops [('write', 'accounts', 'rewritten', None), ('carry', 'bureau', None, 'ds_b410469f'), ('feature_lab', 'accounts', None, None)]
+  schema [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('income', 'DOUBLE'), ('age', 'BIGINT'), ('segment', 'VARCHAR'), ('opened', 'DATE'), ('y', 'BIGINT'), ('opened_month', 'DOUBLE')]
+  diff {'a': 1000, 'b': 1000, 'matched': 1000, 'changed': 0, 'added': 0, 'removed': 0, 'matched_by': "ds_913ebc04's row map onto its parent (feature_lab (rows keep their __row_id))"}
+## 7. an edit of a CSV-era version (the credit-default sample) → a Parquet version of the same root
+HTTP 201 ds_84aa7b36 12000 ['set 1 cell(s) in 1 row(s)', 'added 1 row(s)', '1 row(s) by id']
+  manifest op edit | tables [('data', '4093b82fbd75', 12000)]
+  ops [('write', 'data', 'new', None), ('edit', 'data', None, None)]
+  schema [('applicant_id', 'VARCHAR'), ('customer_id', 'VARCHAR'), ('application_date', 'VARCHAR'), ('age', 'BIGINT'), ('employment', 'VARCHAR'), ('income_usd', 'DOUBLE'), ('home_ownership', 'VARCHAR'), ('loan_purpose', 'VARCHAR'), ('region', 'VARCHAR'), ('loan_amount_usd', 'DOUBLE'), ('credit_score', 'BIGINT'), ('debt_to_income', 'DOUBLE'), ('utilization', 'DOUBLE'), ('delinquencies_2y', 'BIGINT'), ('months_employed', 'DOUBLE'), ('defaulted', 'VARCHAR')]
+  diff {'a': 12000, 'b': 12000, 'matched': 11999, 'changed': 1, 'added': 1, 'removed': 1, 'matched_by': "ds_84aa7b36's row map onto its parent (edit (rows keep their __row_id))"}
+  split random-stratified__defaulted-883cb8a7 holdout 2399 sha 0794a3fd98c6f62f carried {'from': 'credit-default', 'by': '__row_id', 'kept_holdout': 2399, 'new_rows': 1, 'new_holdout': 0}

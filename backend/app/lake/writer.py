@@ -38,6 +38,7 @@ from .store import BlobStore
 #: (today's datasets.DEDUPE_OPS, plus a pure carry). P06: an upload as the next version whose data (row ids, values,
 #: keys) equals a version of the root returns that version; a new dataset's first upload still makes a version.
 DEDUPE_OPS = ("shift_weights", "edit", "anomaly_review", "feature_lab", "carry", "upload_version")
+#: P07: derive() ops are written by the writer too; their dedupe follows datasets.DEDUPE_OPS unless the caller says
 ROW_ID = "__row_id"
 
 
@@ -137,8 +138,10 @@ class VersionWriter:
                  reason: str = "", job_id: str | None = None, name: str | None = None, project_id: str | None = None,
                  primary_table: str | None = None, ops: list[dict[str, Any]] | None = None,
                  sources: list[dict[str, Any]] | None = None, warnings: list[dict[str, Any]] | None = None,
-                 duck_kw: dict[str, Any] | None = None) -> None:
+                 duck_kw: dict[str, Any] | None = None, dedupe: bool | None = None) -> None:
         self.db, self.store = db, store
+        #: P07: dedupe by data_sha256 (None = when `op` is in DEDUPE_OPS); derive() callers can turn it on or off
+        self.dedupe = (op in DEDUPE_OPS) if dedupe is None else bool(dedupe)
         self.op, self.by, self.reason, self.job_id = op, (by or "system"), reason or "", job_id
         self.name, self.project_id, self.primary_table = name, project_id, primary_table
         self.extra_ops, self.sources, self.warnings = list(ops or []), list(sources or []), list(warnings or [])
@@ -517,7 +520,7 @@ class VersionWriter:
                 if rr["state"] == "deleted":
                     con.rollback()
                     raise LakeError(409, "root_deleted", f"Dataset {root} is deleted.")
-                if self.op in DEDUPE_OPS:
+                if self.dedupe:
                     r = con.execute("SELECT id FROM datasets WHERE (id = ? OR root_id = ?) AND data_sha256 = ? AND storage = 'parquet'"
                                     " AND state IS NOT 'deleted' ORDER BY version_no LIMIT 1", (root, root, dsha)).fetchone()
                     if r:
@@ -629,7 +632,7 @@ class VersionWriter:
         j = self.committed_for_job()
         if j:
             return j, "job"
-        if self.root_id and self.op in DEDUPE_OPS:
+        if self.root_id and self.dedupe:
             with self.db.connect() as con:
                 r = con.execute("SELECT id FROM datasets WHERE (id = ? OR root_id = ?) AND data_sha256 = ? AND storage = 'parquet'"
                                 " AND state IS NOT 'deleted' ORDER BY version_no LIMIT 1", (root, root, dsha)).fetchone()

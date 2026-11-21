@@ -328,7 +328,7 @@ def _make_version(request: Request, rec: dict[str, Any], st: dict[str, Any], ans
     cfg = rec["config"]
     ds = request.app.state.datasets
     label = cfg["label"]
-    df = frames.read(frames.resolve(cfg))
+    df = frames.read(frames.resolve(cfg)).reset_index(drop=True)  # rows by position (queue rows, split positions)
     q = st["arms"]["queue"]
     answered = {it["row"]: ans["answers"][it["id"]] for it in q["queue"] if it["id"] in ans["answers"]}
     new = {r: a["label"] for r, a in answered.items() if a["answer"] in ("confirm", "relabel")}
@@ -336,15 +336,34 @@ def _make_version(request: Request, rec: dict[str, Any], st: dict[str, Any], ans
     labelled = set(q["labelled"]) | set(new)
     src = rec["dataset_id"]
     changes = []
+    # P07 (P04's handoff): the label keeps its kind. An integer label stays a number column (float while cells are
+    # empty; derive() writes it back as the parent's BIGINT), and an answer given as text ("1") becomes the class value.
+    num = pd.api.types.is_numeric_dtype(df[label]) and not pd.api.types.is_bool_dtype(df[label])
+    cmap: dict[str, Any] = {}
+    for c in pd.unique(df[label].dropna()):
+        cmap[str(c)] = c
+        if isinstance(c, (float, np.floating)) and float(c).is_integer():
+            cmap.setdefault(str(int(c)), c)
+
+    def as_label(v: Any) -> Any:
+        if str(v) in cmap:
+            return cmap[str(v)]
+        if num:
+            try:
+                f = float(str(v).strip())
+                return int(f) if f.is_integer() else f
+            except ValueError:
+                return v
+        return v
+
     if (st.get("pool") or {}).get("source") == "hide":  # the hidden labels that are still unlabelled stay empty
         hidden = [r for r in al_train_rows(cfg) if r not in labelled]
-        df[label] = df[label].astype(object)
+        df[label] = df[label].astype("float64") if num else df[label].astype(object)
         df.loc[hidden, label] = np.nan
         changes.append({"op": "hide", "rows": len(hidden), "share": st["pool"]["hide_share"]})
-    cmap = {str(c): c for c in pd.unique(df[label].dropna())}
     for r, v in sorted(labels.items()):
         a = answered.get(r)
-        df.at[r, label] = cmap.get(str(v), v)
+        df.at[r, label] = as_label(v)
         changes.append({"op": "label", "row": int(r), "root_row": int(r), "label": str(v),
                         "by": (a or {}).get("by"), "round": qr if a else None})
     sp = json.loads(Path(cfg["splits_path"]).read_text())

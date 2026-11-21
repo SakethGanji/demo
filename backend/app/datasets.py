@@ -86,14 +86,20 @@ def guard_one_class(before: pd.Series | None, after: pd.Series | None, name: str
     """§4.4 (DLA4): an edit that leaves the target with one class (it had two or more) is blocked with
     `400 target_one_class` unless the request sends `"acknowledge": ["target_one_class"]`. Returns the warning to
     record when it was acknowledged, else None."""
-    from .lake.values import ValueRefused
-
     if before is None or after is None or not name:
         return None
     nb, na = int(before.dropna().nunique()), int(after.dropna().nunique())
+    return guard_one_class_counts(nb, na, [str(v) for v in after.dropna().unique()[:1]], name, acknowledge, what=what)
+
+
+def guard_one_class_counts(nb: int, na: int, left: list[str], name: str, acknowledge: Any, *,
+                           what: str = "This edit leaves") -> dict[str, Any] | None:
+    """guard_one_class from counts (P07: the edit compiler counts classes in DuckDB): `nb` / `na` distinct target values
+    before / after, `left` the value that remains."""
+    from .lake.values import ValueRefused
+
     if nb < 2 or na >= 2:
         return None
-    left = [str(v) for v in after.dropna().unique()[:1]]
     msg = (f"{what} the target '{name}' with {'one class (' + repr(left[0]) + ')' if left else 'no labelled rows'} "
            f"(it had {nb}): no model can learn from it on this version. Send \"acknowledge\": [\"target_one_class\"] to "
            "make the version anyway.")
@@ -101,6 +107,12 @@ def guard_one_class(before: pd.Series | None, after: pd.Series | None, name: str
     if "target_one_class" not in acks:
         raise ValueRefused("target_one_class", msg, column=name, classes_before=nb, classes_after=na)
     return {"code": "target_one_class", "column": name, "message": msg.split(" Send")[0] + " (acknowledged)."}
+
+
+def _actor_now() -> str:
+    from .catalog import governance as G
+
+    return G.current_actor() or "system"
 
 
 def sniff_sep(text: str) -> str:
@@ -509,23 +521,49 @@ class DatasetStore:
                                     " ('trained_on', 'derived_from') LIMIT 1", (dataset_id,)).fetchone())
 
     def _sample_as_version(self, dataset_id: str, spec: dict[str, Any], fp: str) -> list[str]:
-        """DL3 (m7): the regenerated sample as a new version of the one in use (rows matched by key or exact hash)."""
-        from . import dataset_versions as DV
+        """DL3 (m7): the regenerated sample as a new version of the one in use. P07: rows are matched by the Matcher
+        with an explicit method (P06), never guessed: the parent's confirmed key when it has one, else exact row hash,
+        and the method is recorded."""
+        import pyarrow as pa
+
+        from .dataset_versions import Matcher
+        from .lake import duck
+        from .lake.derive import ParentRows
+        from .lake.store import open_store
 
         df, sidecar = spec["generate"](seed=config.SEED)
         df = FIO.roundtrip(df, None)  # as the engine reads it back
-        pdf = frames.read_version(dataset_id)
-        match = DV.match_rows(pdf, df, None)
-        checks = DV.contract_checks(pdf, df, (self.db.get_dataset(dataset_id) or {}).get("target"))
+        lake = open_store(self.settings)
+        pr = ParentRows(self.db, lake, self, dataset_id)
+        p = pr.p
+        method = {"method": "declared", "columns": p.declared[0]} if getattr(p, "declared", None) else {"method": "row_hash"}
+        with duck.job() as con:
+            p.attach(con)
+            nf = df.reset_index(drop=True).copy()
+            nf.insert(0, "__fr", np.arange(len(nf), dtype="int64"))
+            con.register("_sample_new", pa.Table.from_pandas(nf, preserve_index=False))
+            mt = Matcher(con, p.sql, "SELECT * FROM _sample_new", p.holdout_ids, getattr(p, "declared", None))
+            sim = mt.simulate(method)
+            mt.materialise(method, "_m")
+            pairs = con.execute("SELECT __fr, pid FROM _m").fetchall()
+            checks = mt.contract((self.db.get_dataset(dataset_id) or {}).get("target"))
+        pos_of = {int(r): i for i, r in enumerate(pr.ids.tolist())}
+        rmap = np.full(len(df), -1, dtype=int)
+        for fr, pid in pairs:
+            rmap[int(fr)] = pos_of.get(int(pid), -1)
+        match = {"method": method["method"], **({"columns": method["columns"]} if method.get("columns") else {}),
+                 "matched_by": sim.get("label"), "confirmed_by": "system:sample generator",
+                 **{k: sim.get(k) for k in ("matched", "changed", "added", "removed", "holdout_identity_lost")}}
         rec = self.derive(dataset_id, df, None, "sample_regenerated",
                           [{"op": "rows_changed", "n": match["changed"]}, {"op": "rows_added", "n": match["added"]},
                            {"op": "rows_removed", "n": match["removed"]}],
                           name=spec["name"], note=f"The sample's generator changed ({fp}): its new rows, as a new version (the version "
                                                   "runs trained on is kept as it was)",
-                          extra={"kind": "sample_regenerated", "generator": fp, "matched_by": match["matched_by"], "matched": match["matched"],
-                                 "changed": match["changed"], "added": match["added"], "removed": match["removed"], "checks": checks},
-                          by="system:sample generator", row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE,
-                          reason="the sample generator changed", dedupe=True)
+                          extra={"kind": "sample_regenerated", "generator": fp, "matched_by": match["matched_by"],
+                                 "matched": match["matched"], "changed": match["changed"], "added": match["added"],
+                                 "removed": match["removed"], "checks": {"warnings": checks["warnings"]}, "match": match},
+                          by="system:sample generator", row_map=rmap, new_holdout_share=config.HOLDOUT_SHARE,
+                          reason="the sample generator changed", dedupe=True, ops_record={"match": match})
         if not rec.get("deduplicated"):
             (self.dir(rec["id"]) / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
         (self.dir(dataset_id) / ".generator").write_text(fp)
@@ -535,73 +573,55 @@ class DatasetStore:
     def create_version(self, parent_id: str, df: pd.DataFrame, splits: dict[str, Any], *, name: str, note: str,
                        lineage: dict[str, Any], op: str | None = None, schema: dict[str, Any] | None = None,
                        target: str | None = None) -> dict[str, Any]:
-        """A new dataset derived from `parent_id` (Autopilot: relabelled / dropped / synthetic rows). The splits are
-        given, not drawn: the holdout is the parent's holdout rows that were kept, so scores stay comparable.
-        `lineage` (parent, root, root row of every row, the changes) goes to lineage.json and a summary to the profile."""
-        parent = self.db.get_dataset(parent_id)
-        if not parent:
-            raise DatasetError(f"No dataset with id '{parent_id}'.")
-        dataset_id = "ds_" + secrets.token_hex(4)
-        d = self.dir(dataset_id)
-        d.mkdir(parents=True, exist_ok=True)
-        if schema is None:  # DL4: the parent's schema as the hint (an int column stays int, text stays text)
-            schema = FIO.schema_of(df, FIO.columns(FIO.load(self.dir(parent_id))))
-        self.data_file(dataset_id).write_bytes(FIO.to_csv_bytes(df, schema))
-        FIO.save(d, schema)
-        df = frames.read_version(dataset_id)
-        tgt0 = target if target is not None else parent["target"]  # DL4 (M-c): an edit that names a new target sets it
-        profile = profile_frame(df, tgt0 if tgt0 in df.columns else None)
-        save_splits(self.legacy_splits_path(dataset_id), splits)
-        self.record_split_file(dataset_id, self.legacy_splits_path(dataset_id), "drawn with the version")
-        tgt = profile["target"]
-        # The given split is stored under its own target (adopted from splits.json, rows unchanged).
-        st = splits.get("target") if splits.get("target") in df.columns else tgt
-        _, splits, _ = self.ensure_splits(dataset_id, st if st in df.columns else None)
-        profile["target_source"] = "confirmed" if target is not None else parent["profile"].get("target_source", "given")
-        profile["splits"] = summarize(splits, df[st] if st in df.columns else None)
-        (d / "lineage.json").write_text(json.dumps(lineage))
-        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes")}
-        rec = {
-            "id": dataset_id, "name": name, "filename": f"{dataset_id}.csv", "source": "upload", "note": note,
-            "created_at": now(), "size_bytes": self.data_file(dataset_id).stat().st_size, "rows": len(df), "target": tgt,
-            "kind": profile["kind"], "profile": profile,
-        }
-        self.db.insert_dataset(rec)
-        with self.db.connect() as con:
-            self._refresh_splits_sha(con, dataset_id)  # DL4 (M-d): stored with the version
-        rr = lineage.get("root_rows")
-        self.catalog.record_version(parent_id, rec, self.data_file(dataset_id), op=str(op or lineage.get("kind") or "derived"),
-                                    actor=str(lineage.get("by") or lineage.get("created_by") or "system"),
-                                    meta={k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic", "reason", "duplicate_of",
-                                                                       "ops_summary")
-                                          if lineage.get(k) is not None} | {"n_changes": len(lineage.get("changes") or [])},
-                                    paired=bool(rr) and len(rr) == len(df))
-        return rec
+        """A new version derived from `parent_id` with the given splits. P07: a thin wrapper of derive() (every writer
+        goes through the VersionWriter); `lineage` keeps its parent_rows / root_rows meaning when it has them."""
+        rm = lineage.get("parent_rows")
+        return self.derive(parent_id, df, None, str(op or lineage.get("kind") or "derived"), list(lineage.get("changes") or []),
+                           name=name, note=note, splits=splits,
+                           extra={k: v for k, v in lineage.items() if k not in ("root_rows", "parent_rows", "changes")},
+                           by=lineage.get("by"), row_map=rm if rm and len(rm) == len(df) else None,
+                           new_rows=0 if rm else max(0, len(df) - int((self.db.get_dataset(parent_id) or {}).get("rows") or 0)),
+                           reason=lineage.get("reason"), schema=schema, target=target)
 
     def derive(self, parent_id: str, df: pd.DataFrame, keep_idx: Any, op: str, changes: list[Any], *, name: str, note: str,
                splits: dict[str, Any] | None = None, extra: dict[str, Any] | None = None, by: str | None = None,
                new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0, reason: str | None = None,
-               dedupe: bool | None = None, schema: dict[str, Any] | None = None, target: str | None = None) -> dict[str, Any]:
-        """P1 step 2: the one way to make a dataset version. `df` is the new frame: the parent's rows `keep_idx` (positions
-        in the parent, in order; a bool mask or ints; None = every row) followed by `new_rows` rows with no root row
-        (synthetic: root -1-i). Writes data.csv, lineage.json {parent, root, root_rows, changes, op, …extra}, the version's
-        columns and a derived_from edge. `splits` defaults to the parent's split mapped through keep_idx (the holdout is the
-        parent's holdout rows that were kept, so scores stay paired).
+               dedupe: bool | None = None, schema: dict[str, Any] | None = None, target: str | None = None,
+               ops_record: dict[str, Any] | None = None) -> dict[str, Any]:
+        """The one way to make a derived dataset version (P1 step 2; P07: through the VersionWriter, as Parquet).
 
-        DL1: `row_map` (one entry per row of `df`: its position in the parent, or -1 for a new row) replaces keep_idx /
-        new_rows when the rows are not "kept rows, then new ones" (an uploaded version: matched rows anywhere, in the
-        file's own order). Matched rows keep their root row and their parent's holdout / fold; new rows get root ids
-        below the parent's lowest, and a seeded `new_holdout_share` of them go to the holdout (0 = none, as for
-        synthetic rows)."""
-        import numpy as np
+        `df` is the new frame: the parent's rows `keep_idx` (positions in the parent as read, in order; a bool mask or
+        ints; None = every row) followed by `new_rows` rows with no parent row. DL1: `row_map` (one entry per row of
+        `df`: its position in the parent, or -1 for a new row) replaces keep_idx / new_rows when rows are not "kept,
+        then new". A kept row keeps the parent's `__row_id`; a new row gets `next_row_id + k`. Columns the parent has
+        keep the parent's type when the values fit it (lake.derive). `splits` (by position in `df`) defaults to the
+        parent's split carried by `__row_id`: the holdout is the parent's holdout rows that were kept, and a seeded
+        `new_holdout_share` of the new rows (splitmix64, §5.7). Only the primary table is written; the parent's other
+        tables are carried. `dedupe` (default: op in DEDUPE_OPS) returns an existing version with the same data."""
+        from .catalog import governance as G
+        from .catalog.schema import add_edge, audit
+        from .lake import derive as LD
+        from .lake.store import open_store
+        from .lake.writer import LakeError, VersionWriter
 
         parent = self.db.get_dataset(parent_id)
         if not parent:
             raise DatasetError(f"No dataset with id '{parent_id}'.")
-        plin = self.lineage(parent_id) or {}
-        n_parent = int(parent["rows"])
-        proots = plin.get("root_rows")
-        proots = np.asarray(proots, dtype=int) if proots and len(proots) == n_parent else np.arange(n_parent)
+        by = by or G.current_actor()  # DL2: the UI's "Acting as" header when the path passes no name
+        if not by:  # DL3 (m3): a version needs a name; only genuine background jobs are "system:<job>", labelled as such
+            if op not in SYSTEM_OPS:
+                raise DatasetError(f"Say who is making this {op} version: send by (or the X-Ensemble-Actor header); "
+                                   "every version records a name.")
+            by = f"system:{op}"
+        reason = (reason or G.current_reason() or "").strip()[:500]  # DL2: an optional reason / change ticket
+        lake = open_store(self.settings)
+        try:
+            pr = LD.ParentRows(self.db, lake, self, parent_id)
+        except LakeError as e:
+            raise DatasetError(e.message) from e
+        n_parent = len(pr.ids)
+        df = df.reset_index(drop=True)
+        df.columns = [str(c) for c in df.columns]
         if row_map is None:
             if keep_idx is None:
                 keep = np.arange(n_parent)
@@ -610,76 +630,103 @@ class DatasetStore:
                 keep = np.flatnonzero(keep) if keep.dtype == bool else keep.astype(int)
             if len(keep) + new_rows != len(df):
                 raise DatasetError(f"derive: {len(keep)} kept + {new_rows} new rows ≠ {len(df)} rows in the frame.")
-            rmap = np.concatenate([keep, np.full(new_rows, -1, dtype=int)])
+            rmap = np.concatenate([keep, np.full(new_rows, -1, dtype=int)]).astype(int)
         else:
             rmap = np.asarray(row_map, dtype=int)
             if len(rmap) != len(df) or (rmap >= n_parent).any():
                 raise DatasetError(f"derive: row_map has {len(rmap)} entries for {len(df)} rows, or points past the parent's {n_parent}.")
-        new_pos = np.flatnonzero(rmap < 0)
-        neg0 = min(0, int(proots.min()) if len(proots) else 0)  # new rows never reuse a root id the parent's new rows hold
-        root_rows = [int(proots[p]) if p >= 0 else 0 for p in rmap]
-        for i, j in enumerate(new_pos):
-            root_rows[j] = neg0 - 1 - i
-        if schema is None:  # DL4: the parent's schema as the hint (an int column stays int, text stays text)
-            schema = FIO.schema_of(df, FIO.columns(self.schema(parent_id)))
+        kept = rmap >= 0
+        if len(set(rmap[kept].tolist())) != int(kept.sum()):
+            raise DatasetError("derive: a parent row appears twice in the new version.")
+        if pr.fresh:  # a CSV-era version with no row mapping: every row is new (unpaired)
+            kept = np.zeros(len(df), dtype=bool)
+        ids = np.empty(len(df), dtype="int64")
+        ids[kept] = pr.ids[rmap[kept]]
+        ids[~kept] = int(pr.next_row_id) + np.arange(int((~kept).sum()), dtype="int64")
+        prow = np.where(kept, rmap, -1)
+        order = LD.order_rows(ids)  # the table is read back in __row_id order: splits and lineage follow it
+        ids_r, prow_r = ids[order], prow[order]
         if splits is None:
-            st = parent["target"] if parent["target"] in df.columns else None
-            _, sp, _ = self.ensure_splits(parent_id, parent["target"])
-            k = int(sp.get("n_folds") or config.N_FOLDS)
-            ph = set(int(h) for h in sp["holdout"])
-            rng = np.random.default_rng(config.SEED + len(df))
-            new_hold = set(int(j) for j in new_pos[rng.random(len(new_pos)) < new_holdout_share]) if new_holdout_share else set()
-            fold, hold = [], []
-            for i, p in enumerate(rmap):
-                if p >= 0:
-                    fold.append(int(sp["fold"][p]))
-                    if int(p) in ph:
-                        hold.append(i)
-                elif i in new_hold:
-                    fold.append(-1)
-                    hold.append(i)
-                else:
-                    fold.append(i % k)
-            splits = {**sp, "holdout": hold, "fold": fold, **({} if st else {"target": None})}
-        splits = {**splits, "derived_from": parent_id}
-        lineage = {**(extra or {}), "parent": parent_id, "root": plin.get("root") or parent_id, "kind": (extra or {}).get("kind") or op,
+            splits = LD.carry_split(pr, prow_r, ids_r, new_holdout_share)
+            if splits is not None and not (parent["target"] in df.columns):
+                splits = {**splits, "target": None}
+        elif not np.array_equal(order, np.arange(len(order))):
+            splits = LD.reorder_split(splits, order)
+        if splits is not None:
+            splits = {**splits, "derived_from": parent_id}
+        hints: dict[str, str] = {}
+        if schema:  # DL4 schema.json kinds of the frame (an upload's "kept as text") are honoured
+            hints = {c: k for c, k in FIO.columns(schema).items() if c in df.columns}
+        tgt0 = target if target is not None else parent["target"]
+        tgt0 = tgt0 if tgt0 in df.columns else None
+        removed = n_parent - int(kept.sum())
+        lineage = {"matched_by": f"{op} (rows keep their __row_id)", **(extra or {}), "parent": parent_id, "root": pr.root,
+                   "kind": (extra or {}).get("kind") or op,
                    "op": op, "rows_before": (extra or {}).get("rows_before", n_parent), "rows_after": int(len(df)),
-                   "root_rows": root_rows, "changes": changes,
-                   **({"parent_rows": [int(x) for x in rmap]} if row_map is not None else {})}
-        from .catalog import governance as G
-
-        by = by or G.current_actor()  # DL2: the UI's "Acting as" header when the path passes no name
-        if not by:  # DL3 (m3): a version needs a name; only genuine background jobs are "system:<job>", labelled as such
-            if op not in SYSTEM_OPS:
-                raise DatasetError(f"Say who is making this {op} version: send by (or the X-Ensemble-Actor header); "
-                                   "every version records a name.")
-            by = f"system:{op}"
-        reason = (reason or G.current_reason() or "").strip()[:500]  # DL2: an optional reason / change ticket
-        lineage["by"] = by
-        if reason:
-            lineage["reason"] = reason
-        # DL3 (m3): the same bytes as a version of this dataset that still exists: return it (dedupe), or flag it
-        import hashlib
-
-        sha = hashlib.sha256(FIO.to_csv_bytes(df, schema)).hexdigest()
-        root = plin.get("root") or parent.get("root_id") or parent_id
-        same = self._same_bytes(sha, root, schema)
-        same = (same,) if same else None
-        if same and (dedupe if dedupe is not None else op in DEDUPE_OPS):
-            from .catalog.schema import audit
-
+                   "changes": changes, "by": by, **({"reason": reason} if reason else {})}
+        warnings = [w for w in ((extra or {}).get("checks") or {}).get("warnings") or [] if isinstance(w, dict)] + \
+            [w for w in (extra or {}).get("warnings") or [] if isinstance(w, dict)]
+        w = VersionWriter(self.db, lake, op=op, by=by, parent_id=parent_id, reason=reason, name=name, primary_table=pr.table,
+                          dedupe=dedupe if dedupe is not None else op in DEDUPE_OPS)
+        try:
+            with w:
+                notes = LD.write_frame(w, pr.table, df, ids, pr.types, hints)
+                LD.carry_rest(w, pr, self.db, pr.table, list(df.columns))
+                rec_op = {"op": op, "table": pr.table,
+                          "rows": {"kept": int(kept.sum()), "new": int((~kept).sum()), "removed": int(removed)},
+                          "ids": "fresh: the parent has no row mapping" if pr.fresh else
+                                 "kept rows keep the parent's __row_id; new rows get next_row_id + k",
+                          "next_row_id": int(pr.next_row_id), "n_changes": len(changes or []),
+                          "changes": [c for c in (changes or [])[:50] if isinstance(c, dict)],
+                          **({"types": notes} if notes else {}), **(ops_record or {})}
+                w.extra_ops.append(LD.no_floats(rec_op))
+                type_warn = [{"code": "type_changed", "column": n["column"],
+                              "message": f"'{n['column']}' changed type: {n['from']} → {n['to']} (its values no longer fit {n['from']})."}
+                             for n in notes if not n["kept"]]
+                w.warnings = LD.no_floats([{k: v for k, v in x.items() if k not in ("values", "examples")} for x in warnings + type_warn])
+                out = w.commit(make_default=False, target=tgt0, note=note)
+        except LakeError as e:
+            raise DatasetError(e.message) from e
+        vid = out["version_id"]
+        if out.get("deduped"):
             with self.db.connect() as con:
                 audit(con, by, "dataset_version_deduplicated", comment=reason,
-                      details={"dataset_id": same[0], "root_id": root, "parent": parent_id, "op": op, "sha256": sha,
-                               "note": "the same bytes as an existing version: no new version was made, the existing one is returned"})
-            rec = dict(self.db.get_dataset(same[0]) or {})
-            rec["deduplicated"] = {"existing": same[0], "sha256": sha}
+                      details={"dataset_id": vid, "root_id": pr.root, "parent": parent_id, "op": op, "data_sha256": out["data_sha256"],
+                               "note": "the same data as an existing version: no new version was made, the existing one is returned"})
+            rec = dict(self.db.get_dataset(vid) or {})
+            rec["deduplicated"] = {"existing": vid, "data_sha256": out["data_sha256"], "sha256": out["data_sha256"]}
             return rec
-        if same and not any(w.get("code") == "identical_file" for w in (lineage.get("checks") or {}).get("warnings") or []):
-            lineage["duplicate_of"] = same[0]
+        with self.db.connect() as con:
+            dup = con.execute("SELECT id FROM datasets WHERE (id = ? OR root_id = ?) AND data_sha256 = ? AND id <> ?"
+                              " AND state IS NOT 'deleted' ORDER BY version_no LIMIT 1", (pr.root, pr.root, out["data_sha256"], vid)).fetchone()
+        if dup:
+            lineage["duplicate_of"] = dup[0]
             lineage.setdefault("checks", {"warnings": []}).setdefault("warnings", []).append(
-                {"code": "identical_file", "message": f"The same rows as {same[0]} (sha256 {sha[:12]}…): this version adds nothing but a pointer."})
-        return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op, schema=schema, target=target)
+                {"code": "identical_file", "message": f"The same data as {dup[0]}: this version adds nothing but a pointer."})
+        LD.legacy_bridge(self, vid, ids_r, prow_r, lineage, splits)
+        st = (splits or {}).get("target") if (splits or {}).get("target") in df.columns else tgt0
+        if splits is not None:
+            try:  # the given split is stored under its own target (adopted from splits.json, rows unchanged)
+                self.ensure_splits(vid, st)
+            except DatasetError:
+                pass
+        rec = self.finish_lake_version(vid, target=tgt0, by=by)
+        profile = rec["profile"]
+        profile["target_source"] = "confirmed" if target is not None else parent["profile"].get("target_source", "given")
+        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes", "parent_rows")}
+        if notes:
+            profile["types_kept"] = notes
+        rec = {**rec, "name": name, "note": note, "profile": profile}
+        self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
+                                                     "rows", "target", "kind", "profile")})
+        with self.db.connect() as con:
+            meta = {"op": op, "storage": "parquet",
+                    **{k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic", "reason",
+                                                   "duplicate_of", "ops_summary") if lineage.get(k) is not None},
+                    "n_changes": len(changes or [])}
+            add_edge(con, ("dataset", parent_id), ("dataset", vid), "derived_from", actor=by, meta=meta, inferred=pr.fresh,
+                     update_meta=True)
+        return self.db.get_dataset(vid) or rec
 
     def lineage(self, dataset_id: str) -> dict[str, Any] | None:
         p = self.dir(dataset_id) / "lineage.json"
@@ -889,31 +936,164 @@ class DatasetStore:
         return rec
 
 
+    #: §5.5: a parent table re-hashed less than this long ago is trusted for an edit
+    REHASH_HOURS = 24
+
+    def verify_for_edit(self, parent_id: str, parent: dict[str, Any]) -> None:
+        """§5.5: the parent's bytes are re-hashed before an edit carries them forward, unless every part was verified
+        within REHASH_HOURS. 409 (DatasetConflict) when they no longer match what was committed."""
+        from datetime import timedelta
+
+        from .catalog.schema import audit, file_sha256
+
+        if not frames.is_parquet(parent_id):
+            stored, on_disk = parent.get("sha256"), file_sha256(self.data_file(parent_id))
+            if stored and on_disk != stored:
+                raise DatasetConflict(f"The data on disk differs from {parent_id} (stored sha256 {stored[:12]}…, file now "
+                                      f"{(on_disk or 'missing')[:12]}…): it was changed outside the app, so it can't be edited. "
+                                      "Restore the file, or create a new version from it (Data → the version → Create a new version "
+                                      "from this file).")
+            return
+        lt = frames.lake_table(frames.table(parent_id))
+        shas = [p["sha256"] for p in lt.parts]
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=self.REHASH_HOURS)).strftime("%Y-%m-%dT%H:%M:%S")
+        q = ",".join("?" * len(shas))
+        with self.db.connect() as con:
+            fresh = con.execute(f"SELECT count(*) FROM blobs WHERE sha256 IN ({q}) AND verified_ok = 1 AND verified_at >= ?",
+                                [*shas, cutoff]).fetchone()[0]
+        if fresh == len(set(shas)):
+            return
+        now_sha, stored, bad = frames.hash_table(frames.table(parent_id))
+        with self.db.connect() as con:
+            if now_sha != stored:
+                bad_shas = [shas[i] for i in bad]
+                if bad_shas:
+                    con.execute(f"UPDATE blobs SET verified_at = ?, verified_ok = 0 WHERE sha256 IN ({','.join('?' * len(bad_shas))})",
+                                [now(), *bad_shas])
+                audit(con, _actor_now(), "dataset_integrity_failed", {"dataset_id": parent_id, "table": lt.name, "stored": stored,
+                                                                  "read": now_sha, "parts_differing": bad, "during": "edit"})
+                raise DatasetConflict(f"Table {lt.name} of {parent_id} no longer has the bytes it was committed with (table_sha256 "
+                                      f"{stored[:12]}… committed, {now_sha[:12]}… now; {len(bad)} of {len(shas)} file(s) differ): "
+                                      "it can't be edited. Restore the file from a backup.")
+            con.execute(f"UPDATE blobs SET verified_at = ?, verified_ok = 1 WHERE sha256 IN ({q})", [now(), *shas])
+
+    def _edit_base(self, con: Any, pr: Any) -> None:
+        """View _e0 on `con`: the parent table (`__row_id`, columns). A CSV-era parent is registered from its typed read,
+        with its schema's kinds restored (an integer column with missing cells is BIGINT again, not float)."""
+        from .lake import derive as LD
+
+        if pr.storage == "parquet":
+            con.execute(f"CREATE OR REPLACE TEMP VIEW _e0 AS SELECT * FROM ({pr.p.sql})")
+            return
+        pr.p.attach(con)
+        sql, _ = LD.typed_select(con, "_parent_csv", pr.types)
+        con.execute(f"CREATE OR REPLACE TEMP VIEW _e0 AS SELECT {sql} FROM _parent_csv")
+
+    def _edit_compile(self, con: Any, pr: Any, parent: dict[str, Any], ops: Any, st_col: str | None, st_reason: str,
+                      acknowledge: Any, by: str, parent_id: str) -> tuple[Any, dict[str, Any]]:
+        """Compile the ops over _e0 and check the result: DL4 target guards, set_target, the one-class block (§4.4),
+        at least two rows and columns, and the summary (= the diff against the parent, on __row_id)."""
+        from . import dataset_edit as DE
+        from .catalog.schema import audit
+        from .dataset_versions import Matcher, type_family
+
+        self._edit_base(con, pr)
+        old_t = parent["target"]
+        try:
+            comp = DE.compile_ops(con, "_e0", ops, target=old_t, next_row_id=pr.next_row_id)
+        except DE.EditError as e:
+            raise DatasetError(str(e)) from e
+        if comp.target_touched and st_col is None:  # DL4 (M-c): never re-target silently
+            t = comp.target_touched
+            msg = (f"Operation {t['i']} {t['what']} the target '{old_t}'. Runs on this version would predict something else, so "
+                   "this is refused. Leave the target alone, or say what the new version predicts: send "
+                   '"set_target": {"column": "<column>", "reason": "<why the target changes>"} with the edit.')
+            with self.db.connect() as con2:
+                audit(con2, by, "dataset_edit_refused", comment=msg[:500],
+                      details={"dataset_id": parent_id, "root_id": parent.get("root_id") or parent_id, "status": 400,
+                               "target": old_t, "op": t})
+            raise DatasetError(msg)
+        v = comp.view
+        names = [n for n, _ in comp.cols]
+        ptypes = {r[0]: r[1] for r in con.execute("DESCRIBE SELECT * FROM _e0").fetchall() if r[0] != "__row_id"}
+        if st_col is not None and st_col not in names:
+            raise DatasetError(f"set_target: no column {st_col!r} in the edited version (columns: {', '.join(names[:12])}).")
+        n0 = int(con.execute("SELECT count(*) FROM _e0").fetchone()[0])
+        n1 = int(con.execute(f"SELECT count(*) FROM {v}").fetchone()[0])
+        if len(names) < 2 or n1 < 2:
+            raise DatasetError("A version needs at least two rows and two columns.")
+        if st_col is not None:
+            k, nn = con.execute(f"SELECT count(DISTINCT {DE.q(st_col)}), count({DE.q(st_col)}) FROM {v}").fetchone()
+            if not nn:
+                raise DatasetError(f"Column '{st_col}' is empty: every row is missing, so there is nothing to learn. "
+                                   "Pick the column that holds the outcome.")
+            if k < 2:
+                one = con.execute(f"SELECT {DE.q(st_col)}::VARCHAR FROM {v} WHERE {DE.q(st_col)} IS NOT NULL LIMIT 1").fetchone()[0]
+                raise DatasetError(f"Column '{st_col}' has one value ({one!r}) in all {nn:,} labelled rows: a model needs "
+                                   "at least two outcomes to learn from. Add rows with the other outcome.")
+        one_class = None
+        if st_col is None and old_t and old_t in ptypes and comp.target == old_t:  # §4.4: blocked unless acknowledged
+            nb = con.execute(f"SELECT count(DISTINCT {DE.q(old_t)}) FROM _e0").fetchone()[0]
+            na, left = con.execute(f"SELECT count(DISTINCT {DE.q(old_t)}), min({DE.q(old_t)})::VARCHAR FROM {v}").fetchone()
+            one_class = guard_one_class_counts(int(nb), int(na), [left] if left is not None else [], old_t, acknowledge)
+        inv = {new: old for old, new in comp.renamed.items()}
+        # the diff on __row_id: matched / changed (a shared column of the same type family differs) / added / removed
+        shared = [(n, inv.get(n, n)) for n, t in comp.cols
+                  if inv.get(n, n) in ptypes and type_family(ptypes[inv.get(n, n)]) == type_family(t)]
+        diffx = " OR ".join(f"a.{DE.q(o)} IS DISTINCT FROM b.{DE.q(n)}" for n, o in shared) or "false"
+        matched, changed = con.execute(f"SELECT count(*), count(*) FILTER (WHERE {diffx}) FROM _e0 a JOIN {v} b USING (__row_id)").fetchone()
+        sel = ", ".join(f"{DE.q(n)} AS {DE.q(inv.get(n, n))}" for n in names)
+        mt = Matcher(con, "SELECT * FROM _e0", f"SELECT __row_id AS __fr, {sel} FROM {v}")
+        checks = mt.contract(old_t if st_col is None or st_col == old_t else None)
+        checks = {k: checks[k] for k in ("warnings", "columns_added", "columns_removed", "type_changes", "rows_before",
+                                         "rows_after", "renamed_maybe")}
+        for old, new in comp.renamed.items():  # a rename is not a loss: say so (the version is still not the default)
+            if old in ptypes and new in names:
+                checks["warnings"].append({"code": "column_removed", "column": old,
+                                           "message": f"'{old}' was renamed to '{new}': runs that used '{old}' can't be re-fitted on this version as they were."})
+        if comp.renamed:
+            checks["columns_removed"] = sorted(set(checks["columns_removed"]) | {o for o, n in comp.renamed.items() if o in ptypes and n in names})
+            checks["columns_added"] = sorted(set(checks["columns_added"]) | {n for o, n in comp.renamed.items() if n in names and o in ptypes})
+        if one_class:
+            checks["warnings"].append(one_class)
+        if st_col is not None and st_col != old_t:
+            checks["warnings"].append({"code": "target_changed", "column": st_col,
+                                       "message": f"The target changes from '{old_t}' to '{st_col}' ({st_reason}): runs on this version "
+                                                  "predict something else, and are not compared with runs on the old target."})
+        kind = lambda t: DE.KIND_OF.get(DE.vtype(t), "text")  # noqa: E731
+        schema = {n: kind(t) for n, t in comp.cols}
+        types_changed = [{"column": n, "from": kind(ptypes[inv.get(n, n)]), "to": kind(t)} for n, t in comp.cols
+                         if inv.get(n, n) in ptypes and kind(ptypes[inv.get(n, n)]) != kind(t)]
+        new_t = st_col if st_col is not None else comp.target
+        summary = {"matched": int(matched), "changed": int(changed), "added": n1 - int(matched), "removed": n0 - int(matched),
+                   "columns_before": len(ptypes), "columns_after": len(names), "checks": checks,
+                   "renamed": comp.renamed, "edit_log": comp.log, "ops_summary": [e["summary"] for e in comp.log],
+                   "n_ops": len(comp.log), "schema": schema, "types_changed": types_changed,
+                   "target": {"before": old_t, "after": new_t, **({"set_by_edit": True, "reason": st_reason} if st_col is not None else {})}}
+        return comp, summary
+
     def edit_version(self, parent_id: str, ops: Any, *, by: str, reason: str, preview: bool = False,
                      set_target: Any = None, acknowledge: Any = None) -> dict[str, Any]:
-        """DL3: typed edits (dataset_edit.OPS) applied to `parent_id`, committed as a NEW version through derive(): edited
-        rows keep their root row and holdout / fold, new rows get new root ids (and a seeded share of the holdout),
-        deleted rows are gone. The version edited is never changed. `preview` writes nothing. Refused (409) when the
-        parent's file on disk no longer matches its stored sha256 (an edit would carry an outside change forward).
+        """DL3 / P07 (§5.5): typed edits (dataset_edit.OPS) compiled into one DuckDB query over the parent table and
+        committed as a NEW version through the VersionWriter: edited rows keep their `__row_id` (and so their holdout /
+        fold), added rows get new ids (and a seeded share of the holdout), deleted rows are gone. Only the edited table is
+        rewritten; the parent's other tables are carried. The version edited is never changed. `preview` writes nothing.
+        The parent's bytes are re-hashed first (409 when they changed outside the app).
 
-        DL4: column types are kept (schema.json: an int stays int, text stays text; a cast changes the schema and makes a
-        real version). An op that drops, renames or casts the target is refused unless `set_target` {column, reason}
-        names the target of the new version explicitly (audited either way)."""
-        import hashlib
-
+        DL4: column types are kept (an int stays int, text stays text; a cast changes the schema). An op that drops,
+        renames or casts the target is refused unless `set_target` {column, reason} names the target of the new version
+        explicitly (audited either way). §4.4: an edit that leaves the target with one class is blocked (400
+        target_one_class) unless acknowledged. Repeating an edit returns the existing version (dedupe by data)."""
         from . import dataset_edit as DE
-        from . import dataset_versions as DV
-        from .catalog.schema import audit, file_sha256
+        from .catalog.schema import add_edge, audit
+        from .lake import derive as LD
+        from .lake import duck
+        from .lake.store import open_store
+        from .lake.writer import LakeError, VersionWriter
 
         parent = self.db.get_dataset(parent_id)
         if not parent:
             raise DatasetError(f"No dataset with id '{parent_id}'.")
-        stored, on_disk = parent.get("sha256"), file_sha256(self.data_file(parent_id))
-        if stored and on_disk != stored:
-            raise DatasetConflict(f"The data on disk differs from {parent_id} (stored sha256 {stored[:12]}…, file now "
-                                  f"{(on_disk or 'missing')[:12]}…): it was changed outside the app, so it can't be edited. "
-                                  "Restore the file, or create a new version from it (Data → the version → Create a new version "
-                                  "from this file).")
         st_col, st_reason = None, ""
         if set_target is not None:
             if not isinstance(set_target, dict) or not isinstance(set_target.get("column"), str) or not set_target["column"].strip():
@@ -922,106 +1102,84 @@ class DatasetStore:
             if len(st_reason) < 10:
                 raise DatasetError("Changing the target needs its own reason (set_target.reason, at least 10 characters): "
                                    "models trained on the old target can't be compared with ones trained on the new.")
-        pdf = frames.read_version(parent_id)
-        pschema = FIO.columns(self.schema(parent_id, pdf))
+        self.verify_for_edit(parent_id, parent)
+        lake = open_store(self.settings)
         try:
-            res = DE.apply_ops(pdf, ops, parent["target"], pschema)  # P03: values checked against the schema's types
-        except DE.EditError as e:
-            raise DatasetError(str(e)) from e
-        old_t = parent["target"]
-        if res["target_touched"] and st_col is None:  # DL4 (M-c): never re-target silently
-            t = res["target_touched"]
-            msg = (f"Operation {t['i']} {t['what']} the target '{old_t}'. Runs on this version would predict something else, so "
-                   "this is refused. Leave the target alone, or say what the new version predicts: send "
-                   '"set_target": {"column": "<column>", "reason": "<why the target changes>"} with the edit.')
-            with self.db.connect() as con:
-                audit(con, by, "dataset_edit_refused", comment=msg[:500],
-                      details={"dataset_id": parent_id, "root_id": parent.get("root_id") or parent_id, "status": 400,
-                               "target": old_t, "op": t})
-            raise DatasetError(msg)
-        df = res["frame"]
-        if st_col is not None and st_col not in df.columns:
-            raise DatasetError(f"set_target: no column {st_col!r} in the edited version (columns: {', '.join(map(str, df.columns[:12]))}).")
-        if st_col is not None:
-            check_target(df[st_col].dropna(), st_col)
-        # §4.4: a target left with one class is blocked unless acknowledged (an explicit set_target is checked above)
-        one_class = guard_one_class(pdf[old_t] if old_t in pdf.columns else None,
-                                    df[old_t] if st_col is None and old_t in df.columns else None, old_t, acknowledge)
-        # the schema of the new version: the parent's, through renames and drops; casts set their column's kind
-        inv = {}
-        for old, new in res["renamed"].items():
-            inv[new] = inv.pop(old, old)
-        hint = {c: pschema.get(inv.get(c, c)) for c in df.columns if pschema.get(inv.get(c, c))}
-        schema = FIO.schema_of(df, hint, res["casts"])
-        try:  # P03 (§4.4): a value the writer can't hold is a typed 400 (the engine text is logged), never a 500
-            df = FIO.roundtrip(df, schema)  # exactly what data.csv will read back as
-            csv_bytes = FIO.to_csv_bytes(df, schema)
-        except (ArithmeticError, ValueError, TypeError) as e:
-            logging.getLogger("ensemble.edit").warning("edit of %s: the writer refused the result: %s: %s", parent_id, type(e).__name__, str(e)[:500])
-            raise DE.edit_invalid(None, None, None) from None
-        if df.shape[1] < 2 or len(df) < 2:
-            raise DatasetError("A version needs at least two rows and two columns.")
-        sha = hashlib.sha256(csv_bytes).hexdigest()
-        rmap = np.asarray(res["row_map"], dtype=int)
-        ib = np.flatnonzero(rmap >= 0)
-        ia = rmap[ib]
-        # DL4 (m-g): compare renamed columns under their old name, as the diff does
-        changed = int(DV._changed(pdf, df.rename(columns=inv), ia, ib).sum())
-        new_t = st_col if st_col is not None else res["target"]
-        checks = DV.contract_checks(pdf, df.rename(columns=inv), old_t if st_col is None or st_col == old_t else None)
-        for old, new in res["renamed"].items():  # a rename is not a loss: say so next to the warning it raises
-            for w in checks["warnings"]:
-                if w.get("column") == old and w["code"] == "column_removed":
-                    w["message"] = f"'{old}' was renamed to '{new}': runs that used '{old}' can't be re-fitted on this version as they were."
-        if res["renamed"]:  # contract_checks saw the renamed columns under their old names: report the rename itself
-            for old, new in res["renamed"].items():
-                if old in pdf.columns:
-                    checks["warnings"].append({"code": "column_removed", "column": old,
-                                               "message": f"'{old}' was renamed to '{new}': runs that used '{old}' can't be re-fitted on this version as they were."})
-            checks["columns_removed"] = sorted(set(checks.get("columns_removed") or []) | {o for o in res["renamed"] if o in pdf.columns})
-            checks["columns_added"] = sorted(set(checks.get("columns_added") or []) | {n for n in res["renamed"].values() if n in df.columns})
-        if one_class:
-            checks["warnings"].append(one_class)
-        if st_col is not None and st_col != old_t:
-            checks["warnings"].append({"code": "target_changed", "column": st_col,
-                                       "message": f"The target changes from '{old_t}' to '{st_col}' ({st_reason}): runs on this version "
-                                                  "predict something else, and are not compared with runs on the old target."})
-        kinds_changed = [{"column": c, "from": pschema.get(inv.get(c, c)), "to": k} for c, k in FIO.columns(schema).items()
-                         if pschema.get(inv.get(c, c)) and pschema.get(inv.get(c, c)) != k]
-        root = parent.get("root_id") or parent_id
-        same = self._same_bytes(sha, root, schema)
+            pr = LD.ParentRows(self.db, lake, self, parent_id)
+        except LakeError as e:
+            raise DatasetError(e.message) from e
         n_ver = 1 + len(self.catalog.tree_ids(parent_id))
-        summary = {"matched": int(len(ib)), "changed": changed, "added": int((rmap < 0).sum()), "removed": int(len(pdf) - len(ib)),
-                   "columns_before": int(pdf.shape[1]), "columns_after": int(df.shape[1]), "checks": checks,
-                   "renamed": res["renamed"], "edit_log": res["log"], "ops_summary": [e["summary"] for e in res["log"]],
-                   "n_ops": len(res["log"]), "schema": FIO.columns(schema), "types_changed": kinds_changed,
-                   "target": {"before": old_t, "after": new_t, **({"set_by_edit": True, "reason": st_reason} if st_col is not None else {})}}
-        if same:
-            summary["duplicate_of"] = same
         if preview:
-            cols = list(df.columns)
-            return {"preview": True, "v": n_ver, "parent": parent_id, "rows": int(len(df)), "n_cols": int(df.shape[1]), "sha256": sha,
-                    **summary, "would_be_default": not checks["warnings"] and not same,
-                    "columns": cols, "sample": json.loads(df.head(5).to_json(orient="records")),
+            with duck.job() as con:
+                comp, summary = self._edit_compile(con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
+                cols = [n for n, _ in comp.cols]
+                rows = con.execute(f"SELECT * EXCLUDE (__row_id) FROM {comp.view} ORDER BY __row_id LIMIT 5").fetchall()
+                n1 = int(con.execute(f"SELECT count(*) FROM {comp.view}").fetchone()[0])
+            sample = [{c: DE._jsonable(x) for c, x in zip(cols, r)} for r in rows]
+            return {"preview": True, "v": n_ver, "parent": parent_id, "rows": n1, "n_cols": len(cols), "sha256": None,
+                    **summary, "would_be_default": not summary["checks"]["warnings"],
+                    "columns": cols, "sample": sample,
                     "note": "nothing was written: send the same operations without preview to create the version"}
-        changes = [{"op": e["op"], "n": e.get("cells") or e.get("rows") or 0, **({"column": e["column"]} if e.get("column") else {})}
-                   for e in res["log"]]
-        extra = {"kind": "edit", "matched_by": "edit (rows keep their identity)", **summary}
-        rec = self.derive(parent_id, df, None, "edit", changes, name=parent["name"],
-                          note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
-                               + ("…" if len(summary["ops_summary"]) > 4 else ""),
-                          extra=extra, by=by, row_map=res["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason,
-                          schema=schema, target=new_t if st_col is not None else None)
-        if rec.get("deduplicated"):
-            return {**rec, "created": False, "edit": {k: v for k, v in summary.items() if k != "edit_log"}}
-        # the full list of operations as sent (every cell), beside lineage.json, whose log is capped
-        (self.dir(rec["id"]) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops,
-                                                                        **({"set_target": set_target} if set_target else {})}, default=str))
-        if st_col is not None:
+        try:
+            with VersionWriter(self.db, lake, op="edit", by=by, parent_id=parent_id, reason=reason, name=parent["name"],
+                               primary_table=pr.table, dedupe=True) as w:
+                comp, summary = self._edit_compile(w.con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
+                w.write(pr.table, f"SELECT * FROM {comp.view}")
+                names = [n for n, _ in comp.cols]
+                LD.carry_rest(w, pr, self.db, pr.table, names)
+                rows = w.con.execute(f"SELECT __row_id FROM {comp.view} ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
+                w.extra_ops.append(LD.no_floats(
+                    {"op": "edit", "table": pr.table, "n_ops": len(comp.log), "ops_summary": summary["ops_summary"][:50],
+                     "rows": {k: summary[k] for k in ("matched", "changed", "added", "removed")},
+                     "renamed": comp.renamed, "types_changed": summary["types_changed"], "target": summary["target"],
+                     "next_row_id": int(pr.next_row_id)}))
+                w.warnings = LD.no_floats([{k: v for k, v in x.items() if k not in ("values", "examples")} for x in summary["checks"]["warnings"]])
+                new_t = summary["target"]["after"]
+                out = w.commit(make_default=False, target=new_t,
+                               note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
+                                    + ("…" if len(summary["ops_summary"]) > 4 else ""))
+        except LakeError as e:
+            raise DatasetError(e.message) from e
+        vid = out["version_id"]
+        root = pr.root
+        if out.get("deduped"):
             with self.db.connect() as con:
+                audit(con, by, "dataset_version_deduplicated", comment=reason,
+                      details={"dataset_id": vid, "root_id": root, "parent": parent_id, "op": "edit", "data_sha256": out["data_sha256"],
+                               "note": "the same data as an existing version: no new version was made, the existing one is returned"})
+            rec = dict(self.db.get_dataset(vid) or {})
+            summary["duplicate_of"] = vid
+            return {**rec, "created": False, "deduplicated": {"existing": vid, "data_sha256": out["data_sha256"]},
+                    "edit": {k: v for k, v in summary.items() if k != "edit_log"}}
+        pos_of = {int(r): i for i, r in enumerate(pr.ids.tolist())}
+        prow = np.asarray([pos_of.get(int(r), -1) for r in rows.tolist()], dtype="int64")
+        splits = LD.carry_split(pr, prow, rows, config.HOLDOUT_SHARE)
+        if splits is not None and new_t != parent["target"]:
+            splits = None  # a split for another target is drawn on first use
+        changes = [{"op": e["op"], "n": e.get("cells") or e.get("rows") or 0, **({"column": e["column"]} if e.get("column") else {})}
+                   for e in comp.log]
+        lineage = {"kind": "edit", "matched_by": "edit (rows keep their __row_id)", **summary, "parent": parent_id, "root": root,
+                   "op": "edit", "rows_before": len(pr.ids), "rows_after": int(len(rows)), "changes": changes, "by": by,
+                   **({"reason": reason} if reason else {})}
+        LD.legacy_bridge(self, vid, rows, prow, lineage, splits)
+        (self.dir(vid) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops,
+                                                                 **({"set_target": set_target} if set_target else {})}, default=str))
+        rec = self.finish_lake_version(vid, target=new_t, by=by)
+        profile = rec["profile"]
+        profile["target_source"] = "confirmed" if st_col is not None else parent["profile"].get("target_source", "given")
+        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes", "parent_rows", "edit_log")}
+        rec = {**rec, "note": out.get("note") or rec.get("note"), "profile": profile}
+        self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
+                                                     "rows", "target", "kind", "profile")})
+        with self.db.connect() as con:
+            add_edge(con, ("dataset", parent_id), ("dataset", vid), "derived_from", actor=by, update_meta=True,
+                     meta={"op": "edit", "storage": "parquet", "rows_before": len(pr.ids), "rows_after": int(len(rows)),
+                           "ops_summary": summary["ops_summary"][:20], "n_changes": len(changes), **({"reason": reason} if reason else {})})
+            if st_col is not None:
                 audit(con, by, "dataset_target_changed", comment=st_reason[:500],
-                      details={"dataset_id": rec["id"], "root_id": root, "parent": parent_id, "from": old_t, "to": st_col,
+                      details={"dataset_id": vid, "root_id": root, "parent": parent_id, "from": parent["target"], "to": st_col,
                                "edit_reason": reason})
+        rec = self.db.get_dataset(vid) or rec
         rec["edit"] = summary
         rec["created"] = True
         return rec

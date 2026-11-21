@@ -1,0 +1,32 @@
+## 8. POST /runs on the edited version v2 (ds_38df8b31)
+run run_f5b12d26
+status succeeded
+  event data_hashed {'match': True, 'storage': 'parquet', 'table': 'accounts', 'table_sha256': '2a260dcc7cde4c7ddc98f4b67428ab9b40daf6ce0a619a884834e872bac515b8'}
+  event splits_hashed {'match': True}
+  event data_ready {'rows': 1000, 'train_rows': 800, 'holdout_rows': 200}
+## 9. active learning on that run: start (pool hide) → simulated oracle answers (text labels) → submit → a version
+start HTTP 202 queued
+  queue status awaiting_labels
+simulate HTTP 200 {'answered': 20, 'round': 1, 'reviewer': 'simulated-oracle'}
+submit HTTP 500 {'detail': 'Could not make the dataset version: CanonicalError: $.provenance.ops[1].changes[0].share: float 0.5 in hashed JSON (write shares, thresholds and params as decimal strings)'}
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys,json;t=sys.stdin.read();b,h=(t.rsplit(' HTTP',1)+[''])[:2];d=json.loads(b);m=d.get('manifest',d);t=m['data']['tables'][0];print('  manifest op',m['provenance']['op'],'| y type',[c['type'] for c in t['schema'] if c['name']=='y'],'| types kept',[o.get('types') for o in m['provenance']['ops'] if o['op']=='active_learning'])
+                                                                                                                  ~^^^^^^^^
+KeyError: 'data'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys,json;t=sys.stdin.read();b,h=(t.rsplit(' HTTP',1)+[''])[:2];d=json.loads(b);r=d['rows'];print('  diff',{k:r.get(k) for k in ('matched','changed','added','removed')})
+                                                                                            ~^^^^^^^^
+KeyError: 'rows'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import sys,json;t=sys.stdin.read();b,h=(t.rsplit(' HTTP',1)+[''])[:2];d=json.loads(b);print('  profile y classes',d['profile'].get('classes'),'| task',d['profile'].get('task'))
+                                                                                                                      ~^^^^^^^^^^^
+KeyError: 'profile'
+submit HTTP 200 {'id': 'ds_8c7f0479', 'name': 'p07 accounts · labelled r1', 'round': 1, 'labelled_this_round': 20, 'labelled_total': 420, 'rows': 1000, 'created_at': '2026-11-21T19:51:38+00:00'}
+  manifest op active_learning | y type ['BIGINT'] | types kept [[{'column': 'age', 'from': 'DOUBLE', 'kept': True, 'to': 'BIGINT'}, {'column': 'opened', 'from': 'VARCHAR', 'kept': True, 'to': 'DATE'}, {'column': 'y', 'from': 'DOUBLE', 'kept': True, 'to': 'BIGINT'}]]
+  diff {'matched': 1000, 'changed': 0, 'added': 0, 'removed': 0}
+  profile y classes [{'name': '0.0', 'count': 444, 'share': 0.716129}, {'name': '1.0', 'count': 176, 'share': 0.283871}] | task binary
+   fl_6e4f18df version ds_913ebc04
+   fl_1c2cd0a2 version ds_913ebc04

@@ -72,7 +72,7 @@ def _roles(store: DatasetStore, dataset_id: str, df) -> list[dict[str, Any]]:
 def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     rec = dataset_or_404(request, dataset_id)
     store = _store(request)
-    df = frames.read_version(dataset_id)
+    df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (issues, keep masks)
     roles = _roles(store, dataset_id, df)
     target = rec["target"]
     csv = frames.version_file(dataset_id)  # keys the label job; read typed by frames
@@ -120,7 +120,7 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowle
 
     rec = dataset_or_404(request, dataset_id)
     store = _store(request)
-    df = frames.read_version(dataset_id)
+    df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (keep mask → derive)
     target = rec["target"]
     from . import frame_io as FIO
     from .datasets import guard_one_class

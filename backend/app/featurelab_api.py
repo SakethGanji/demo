@@ -50,7 +50,7 @@ def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | 
     body = body or {}
     rec = dataset_or_404(request, dataset_id)
     store = request.app.state.datasets
-    df = frames.read_version(dataset_id)
+    df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (split masks)
     target = body.get("target") or rec["target"]
     if not target or target not in df.columns:
         raise HTTPException(400, "Name a target column (the dataset has none set).")
