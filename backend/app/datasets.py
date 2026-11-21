@@ -393,14 +393,14 @@ class DatasetStore:
         rr = lineage.get("root_rows")
         self.catalog.record_version(parent_id, rec, self.csv_path(dataset_id), op=str(op or lineage.get("kind") or "derived"),
                                     actor=str(lineage.get("by") or lineage.get("created_by") or "system"),
-                                    meta={k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic")
+                                    meta={k: lineage.get(k) for k in ("rows_before", "rows_after", "relabelled", "dropped", "synthetic", "reason")
                                           if lineage.get(k) is not None} | {"n_changes": len(lineage.get("changes") or [])},
                                     paired=bool(rr) and len(rr) == len(df))
         return rec
 
     def derive(self, parent_id: str, df: pd.DataFrame, keep_idx: Any, op: str, changes: list[Any], *, name: str, note: str,
                splits: dict[str, Any] | None = None, extra: dict[str, Any] | None = None, by: str | None = None,
-               new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0) -> dict[str, Any]:
+               new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0, reason: str | None = None) -> dict[str, Any]:
         """P1 step 2: the one way to make a dataset version. `df` is the new frame: the parent's rows `keep_idx` (positions
         in the parent, in order; a bool mask or ints; None = every row) followed by `new_rows` rows with no root row
         (synthetic: root -1-i). Writes data.csv, lineage.json {parent, root, root_rows, changes, op, …extra}, the version's
@@ -463,8 +463,14 @@ class DatasetStore:
                    "op": op, "rows_before": (extra or {}).get("rows_before", n_parent), "rows_after": int(len(df)),
                    "root_rows": root_rows, "changes": changes,
                    **({"parent_rows": [int(x) for x in rmap]} if row_map is not None else {})}
+        from .catalog import governance as G
+
+        by = by or G.current_actor()  # DL2: the UI's "Acting as" header when the path passes no name
+        reason = (reason or G.current_reason() or "").strip()[:500]  # DL2: an optional reason / change ticket
         if by:
             lineage["by"] = by
+        if reason:
+            lineage["reason"] = reason
         return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op)
 
     def lineage(self, dataset_id: str) -> dict[str, Any] | None:
@@ -475,7 +481,8 @@ class DatasetStore:
         df, note, stem = read_upload(filename, content)
         return self.create_from_frame(df, name=stem, filename=Path(filename).name, note=note, target=target, by=by)
 
-    def upload_version(self, parent_id: str, filename: str, content: bytes, *, by: str, row_key: str | None = None) -> dict[str, Any]:
+    def upload_version(self, parent_id: str, filename: str, content: bytes, *, by: str, row_key: str | None = None,
+                       preview: bool = False, reason: str | None = None) -> dict[str, Any]:
         """DL1: a new file as the next version of `parent_id`. Rows are matched to the parent by `row_key` (a column
         unique in both files) or, without one, by an exact hash of the row over the columns both files share with an
         unchanged type. Matched rows keep their original row and their holdout / fold, so runs on the two versions
@@ -509,10 +516,17 @@ class DatasetStore:
         changes = [c for c in changes if c["n"]] + [{"op": "column_added", "column": c} for c in checks["columns_added"]] + \
             [{"op": "column_removed", "column": c} for c in checks["columns_removed"]]
         n_ver = 1 + len(self.catalog.tree_ids(parent_id))
+        if preview:  # DL2: what the upload would make, written nowhere
+            return {"preview": True, "v": n_ver, "parent": parent_id, "filename": Path(filename).name, "rows": int(len(df)),
+                    "n_cols": int(df.shape[1]), "sha256": sha, **{k: v for k, v in extra.items() if k != "kind"},
+                    "would_be_default": not checks["warnings"],
+                    "note": "nothing was written: send the file again without preview to create the version"}
+        if reason:
+            extra["reason"] = reason.strip()[:500]
         rec = self.derive(parent_id, df, None, "upload_version", changes, name=parent["name"],
                           note=f"{note} as v{n_ver} of {parent['name']}: {match['matched']:,} rows matched by "
                                f"{match['matched_by']}, {match['changed']:,} changed, {match['added']:,} new, {match['removed']:,} gone",
-                          extra=extra, by=by, row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE)
+                          extra=extra, by=by, row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason)
         rec["upload"] = {k: v for k, v in extra.items() if k != "kind"}
         return rec
 

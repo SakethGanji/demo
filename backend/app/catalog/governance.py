@@ -128,3 +128,61 @@ def leak_gate(app: Any, run_id: str, override: Any, what: str) -> dict[str, Any]
             raise ValueError("An override needs a reason of at least 10 characters (it goes in the audit log).")
         return {"open_critical": crit, "override_reason": reason[:1000]}
     return {"leak_check": "clean" if crit is not None else "not available in this build"}
+
+
+# -- DL2: who is acting on a request without a `by` field, refusals and reads in the audit log ---------------------------
+
+import contextvars  # noqa: E402
+
+#: the X-Ensemble-Actor header of the current request (the UI's "Acting as" name), set by a middleware in main.py
+ACTOR: contextvars.ContextVar[str | None] = contextvars.ContextVar("ensemble_actor", default=None)
+#: the X-Ensemble-Reason header: an optional reason / change ticket for a version made by this request
+REASON: contextvars.ContextVar[str | None] = contextvars.ContextVar("ensemble_reason", default=None)
+
+#: a read (row lookup, preview, export) by the same person of the same version is logged once per this many seconds
+READ_AUDIT_DEDUPE_S = 600
+
+
+def current_actor(default: str | None = None) -> str | None:
+    s = (ACTOR.get() or "").strip()[:80]
+    return s if identity_key(s) else default
+
+
+def current_reason() -> str | None:
+    s = (REASON.get() or "").strip()
+    return s[:500] or None
+
+
+def refused(db: Any, by: str | None, action: str, status: int, message: Any, details: dict[str, Any] | None = None) -> None:
+    """A governance action that was refused (403 / 409) goes in the audit log too, as `<action>_refused`."""
+    from .schema import audit
+
+    msg = message if isinstance(message, str) else (message or {}).get("message") if isinstance(message, dict) else str(message)
+    try:
+        with db.connect() as con:
+            audit(con, by or current_actor("unknown"), f"{action}_refused", comment=str(msg)[:500],
+                  details={"status": status, **(details or {}),
+                           **({"blockers": message.get("blockers")} if isinstance(message, dict) and message.get("blockers") else {})})
+    except Exception:  # noqa: BLE001 - the refusal is returned to the caller whatever happens to its audit row
+        pass
+
+
+def read_audit(db: Any, what: str, dataset_id: str, details: dict[str, Any] | None = None, by: str | None = None) -> bool:
+    """DL2: a read of a dataset's rows (row lookup, preview, export) is audited as dataset_read, once per person,
+    version and kind of read every READ_AUDIT_DEDUPE_S seconds. Returns True when a row was written."""
+    from datetime import datetime, timedelta, timezone
+
+    from .schema import audit
+
+    who = by or current_actor("anonymous")
+    since = (datetime.now(timezone.utc) - timedelta(seconds=READ_AUDIT_DEDUPE_S)).isoformat(timespec="seconds")
+    with db.connect() as con:
+        r = con.execute("SELECT root_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        root = (r[0] if r else None) or dataset_id
+        if con.execute("SELECT 1 FROM audit_log WHERE action = 'dataset_read' AND actor = ? AND ts >= ?"
+                       " AND json_extract(details, '$.dataset_id') = ? AND json_extract(details, '$.read') = ? LIMIT 1",
+                       (who, since, dataset_id, what)).fetchone():
+            return False
+        audit(con, who, "dataset_read", {"dataset_id": dataset_id, "root_id": root, "read": what,
+                                         "dedupe_seconds": READ_AUDIT_DEDUPE_S, **(details or {})})
+    return True

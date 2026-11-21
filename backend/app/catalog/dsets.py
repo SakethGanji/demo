@@ -48,7 +48,7 @@ def root_of(con, dataset_id: str) -> str:
 
 def tree_rows(con, root: str) -> list[dict[str, Any]]:
     rows = con.execute("SELECT id, name, filename, source, note, created_at, rows, target, kind, project_id, parent_id, root_id, sha256,"
-                       " op, created_by, state, state_at, state_by, verified_at, verified_ok, size_bytes,"
+                       " op, created_by, state, state_at, state_by, state_scope, verified_at, verified_ok, size_bytes,"
                        " json_extract(profile, '$.n_cols') AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
                        (root, root)).fetchall()
     out = [dict(r) for r in rows]
@@ -72,41 +72,109 @@ def effective_default(rows: list[dict[str, Any]], c: dict[str, Any]) -> tuple[st
 
 
 def usage(con, ids: list[str]) -> dict[str, Any]:
-    """Reverse lineage of these dataset ids: trained_on → runs, built_from → registered versions, champions."""
+    """Reverse lineage of these dataset ids: trained_on → runs, built_from → registered versions, champions.
+    DL2 (B1): driven by lineage_edges with LEFT JOINs, so a deleted run row can't hide the version or champion built
+    from it (a run whose row is gone shows as status 'deleted')."""
     if not ids:
         return {"runs": [], "versions": [], "champions": []}
     q = ",".join("?" * len(ids))
     runs = [dict(r) for r in con.execute(
-        "SELECT r.id, r.name, r.status, r.dataset_id, r.label, r.created_at, r.source, r.primary_metric, r.primary_score, r.predictor_state"
-        f" FROM lineage_edges e JOIN runs r ON r.id = e.dst_id WHERE e.relation = 'trained_on' AND e.src_kind = 'dataset' AND e.src_id IN ({q})"
-        " ORDER BY r.created_at DESC", ids)]
+        "SELECT e.dst_id AS id, e.src_id AS dataset_id, r.name, COALESCE(r.status, 'deleted') AS status, r.label,"
+        " COALESCE(r.created_at, e.created_at) AS created_at, r.source, r.primary_metric, r.primary_score, r.predictor_state"
+        f" FROM lineage_edges e LEFT JOIN runs r ON r.id = e.dst_id WHERE e.relation = 'trained_on' AND e.src_kind = 'dataset'"
+        f" AND e.src_id IN ({q}) ORDER BY created_at DESC", ids)]
     rids = [r["id"] for r in runs]
     vers, champs = [], []
     if rids:
         qr = ",".join("?" * len(rids))
         vers = [dict(r) for r in con.execute(
-            "SELECT v.id, v.model_name, v.version, v.run_id, v.status, v.stage, v.approval, v.created_by, v.created_at"
-            f" FROM lineage_edges e JOIN model_versions v ON v.id = e.dst_id WHERE e.relation = 'built_from' AND e.src_id IN ({qr})", rids)]
-        champs = [dict(r) for r in con.execute(f"SELECT * FROM champions WHERE run_id IN ({qr}) AND status IN ('approved', 'pending')"
-                                               " ORDER BY requested_at DESC", rids)]
+            "SELECT e.dst_id AS id, e.src_id AS run_id, COALESCE(v.model_name, json_extract(e.meta, '$.model_name')) AS model_name,"
+            " COALESCE(v.version, json_extract(e.meta, '$.version')) AS version, COALESCE(v.status, 'missing') AS status, v.stage,"
+            " COALESCE(v.approval, 'unknown') AS approval, v.created_by, v.created_at, v.retired_at, v.retired_by"
+            f" FROM lineage_edges e LEFT JOIN model_versions v ON v.id = e.dst_id WHERE e.relation = 'built_from' AND e.src_kind = 'run'"
+            f" AND e.src_id IN ({qr})", rids)]
+        vids = [v["id"] for v in vers] or [""]
+        qv = ",".join("?" * len(vids))
+        champs = [dict(r) for r in con.execute(
+            f"SELECT * FROM champions WHERE (run_id IN ({qr}) OR version_id IN ({qv})) AND status IN ('approved', 'pending')"
+            " ORDER BY requested_at DESC", (*rids, *vids))]
     ds_of = {r["id"]: r["dataset_id"] for r in runs}
+    run_of = {v["id"]: v["run_id"] for v in vers}
+    champ_vids = {c["version_id"] for c in champs}
     for v in vers:
         v["dataset_id"] = ds_of.get(v["run_id"])
+        v["retired"] = bool(v.get("retired_at"))
+        v["champion"] = v["id"] in champ_vids
     for c in champs:
+        c["run_id"] = c.get("run_id") or run_of.get(c["version_id"])
         c["dataset_id"] = ds_of.get(c["run_id"])
     return {"runs": runs, "versions": vers, "champions": champs}
 
 
-def blockers(con, ids: list[str]) -> list[str]:
-    """Why these versions can't be archived or deleted: a registered version that isn't rejected (or failed), a champion
-    (approved or requested), a run still training."""
+def _days_since(ts: str | None) -> float | None:
+    from datetime import datetime, timezone
+
+    try:
+        t = datetime.fromisoformat(str(ts))
+    except (TypeError, ValueError):
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - t).total_seconds() / 86400
+
+
+def blockers(con, ids: list[str], what: str = "delete") -> list[str]:
+    """Why these versions can't be archived (what='archive') or deleted (what='delete'), each with the way to clear it.
+    DL2: archive is allowed when the only models on the data are Archived or retired and not champion; delete only
+    when every model on it was retired at least the retention period ago (config.retired_data_retention_days, needs
+    model-risk approval). Rejected and failed versions never block. A champion (approved or requested) and a run still
+    training always block."""
+    from .. import config
+
     u = usage(con, ids)
-    out = [f"{v['model_name']} v{v['version']} ({v['approval']}{'' if v['stage'] in (None, 'None') else ', ' + v['stage']}) was built from run {v['run_id']} on {v['dataset_id']}"
-           for v in u["versions"] if v["approval"] != "rejected" and v["status"] != "failed"]
-    out += [f"champion {'request ' if c['status'] == 'pending' else ''}{c['id']} ({c['status']}) of project {c['project_id']} uses run "
-            f"{c['run_id']} on {c['dataset_id']}" for c in u["champions"]]
-    out += [f"run {r['id']} is {r['status']} on {r['dataset_id']}" for r in u["runs"] if r["status"] in ("queued", "running")]
+    days = config.retired_data_retention_days()
+    out = []
+    for v in u["versions"]:
+        if v["approval"] == "rejected" or v["status"] == "failed":
+            continue
+        name = f"{v['model_name']} v{v['version']} ({v['approval']}{'' if v['stage'] in (None, 'None') else ', ' + v['stage']})"
+        src = f"built from run {v['run_id']} on {v['dataset_id']}"
+        if v["champion"]:
+            continue  # reported once, as the champion below
+        if v["retired"]:
+            if what == "archive":
+                continue
+            age = _days_since(v["retired_at"])
+            if age is not None and age >= days:
+                continue
+            out.append(f"{name} was retired on {str(v['retired_at'])[:10]} by {v['retired_by']}; data behind a retired model may be "
+                       f"deleted {days:g} days after retirement ({max(0.0, days - (age or 0)):.0f} days to go). The period is "
+                       "ENSEMBLE_RETIRED_DATA_RETENTION_DAYS (retention policy: needs model-risk approval); archive hides it now.")
+            continue
+        if what == "archive" and v["stage"] == "Archived":
+            continue
+        how = ("reject it (Registry → the version → Review) or retire it" if v["approval"] == "pending" else "retire it")
+        how += (f" (Registry → the version → Retire…, POST /api/registry/versions/{v['id']}/retire; four eyes)"
+                + (", or move it to Archived" if what == "archive" else ""))
+        out.append(f"{name} was {src}: {how}.")
+    for c in u["champions"]:
+        how = (f"reject the request (POST /api/champions/{c['id']}/decide with approve=false)" if c["status"] == "pending" else
+               f"approve another champion for project {c['project_id']} first (Models → Lineage → champion; POST /api/projects/"
+               f"{c['project_id']}/champion), then retire this version")
+        out.append(f"champion {'request ' if c['status'] == 'pending' else ''}{c['id']} ({c['status']}) of project {c['project_id']} uses "
+                   f"version {c['version_id']} (run {c['run_id']} on {c['dataset_id']}): {how}.")
+    out += [f"run {r['id']} is {r['status']} on {r['dataset_id']}: wait for it or cancel it (POST /api/runs/{r['id']}/cancel)."
+            for r in u["runs"] if r["status"] in ("queued", "running")]
     return out
+
+
+def dataset_state(rows: list[dict[str, Any]]) -> str:
+    """DL2: a dataset's state from its versions: deleted when every version is, archived when every remaining one is
+    (v1 alone can be archived or deleted while later versions stay)."""
+    if rows and all(r["state"] == DELETED for r in rows):
+        return DELETED
+    live = [r for r in rows if r["state"] != DELETED]
+    return ARCHIVED if live and all(r["state"] == ARCHIVED for r in live) else "active"
 
 
 def _descendants(con, dataset_id: str) -> list[str]:
@@ -146,6 +214,7 @@ def history(app, dataset_id: str) -> dict[str, Any]:
                                                 "relabelled", "dropped", "synthetic") if lin.get(k) is not None}
         r["n_changes"] = (e.get("meta") or {}).get("n_changes")
         r["warnings"] = ((lin.get("checks") or {}).get("warnings")) or []
+        r["reason"] = lin.get("reason") or None  # DL2: the reason / change ticket given when it was made
         r["paired_with_parent"] = None if not r["parent_id"] else not e.get("inferred", True)
         r["is_default"] = r["id"] == default
         r["tags"] = sorted(tags.get(r["id"], []))
@@ -156,9 +225,16 @@ def history(app, dataset_id: str) -> dict[str, Any]:
         a["details"] = _j(a["details"])
     root_rec = rows[0] if rows else None
     return {"root_id": root, "name": root_rec["name"] if root_rec else root, "project": dict(proj) if proj else None,
-            "state": root_rec["state"] if root_rec else None, "card": c, "default_version_id": default, "default_how": how,
+            "state": (lambda st: None if st == "active" else st)(dataset_state(rows)), "card": c, "default_version_id": default, "default_how": how,
             "versions": rows, "requests": reqs, "audit": aud, "focus": dataset_id,
-            "admins_configured": bool(G.admins())}
+            "admins_configured": bool(G.admins()), "retention_days": _retention_days(), "retired_versions": [
+                {k: v.get(k) for k in ("id", "model_name", "version", "retired_at", "retired_by", "dataset_id")} for v in u["versions"] if v["retired"]]}
+
+
+def _retention_days() -> float:
+    from .. import config
+
+    return config.retired_data_retention_days()
 
 
 def _pairs(app, a: str, b: str) -> tuple[tuple[np.ndarray, np.ndarray] | None, str, str | None]:
@@ -203,7 +279,11 @@ def diff(app, a: str, b: str) -> dict[str, Any]:
             raise DsError(410, f"{x} was deleted: its rows are gone (the tombstone and lineage are kept).")
         recs[x] = rec
     fa, fb = store.load_frame(a), store.load_frame(b)
-    pairs, how, key = _pairs(app, a, b)
+    sa, sb = recs[a].get("sha256"), recs[b].get("sha256")
+    if sa and sa == sb and len(fa) == len(fb):  # DL2 (B5): the same file: every row is itself
+        pairs, how, key = (np.arange(len(fa)), np.arange(len(fb))), "identical files (the same sha256)", None
+    else:
+        pairs, how, key = _pairs(app, a, b)
     out = DV.diff(fa, fb, pairs, how, key)
     with db.connect() as con:
         same_root = root_of(con, a) == root_of(con, b)
@@ -235,8 +315,10 @@ def search(app, *, q: str = "", project: str | None = None, tag: str | None = No
     for root, vs in trees.items():
         head = next((v for v in vs if v["id"] == root), vs[0])
         c = cards.get(root) or {}
-        st = head["state"] or "active"
-        if state != "all" and st != state:
+        st = dataset_state(vs)
+        # DL2: state matches any version (state=deleted finds a dataset with a deleted v1 too)
+        in_state = [v for v in vs if (v["state"] or "active") == state]
+        if state != "all" and not in_state:
             continue
         all_tags = sorted(set().union(*(tags.get(v["id"], set()) for v in vs)))
         live = [v for v in vs if not v["state"]]
@@ -264,7 +346,8 @@ def search(app, *, q: str = "", project: str | None = None, tag: str | None = No
                     "rows": next((v["rows"] for v in vs if v["id"] == dflt), head["rows"]),
                     "n_cols": next((v["n_cols"] for v in vs if v["id"] == dflt), head["n_cols"]),
                     "target": head["target"], "created_at": head["created_at"], "last_change": last["created_at"],
-                    "n_runs": sum(n_runs.get(v["id"], 0) for v in vs)})
+                    "n_runs": sum(n_runs.get(v["id"], 0) for v in vs),
+                    "versions_in_state": [] if state in ("all", "active") else [v["id"] for v in in_state]})
     return sorted(out, key=lambda r: r["last_change"], reverse=True)
 
 
@@ -316,57 +399,107 @@ def set_default(app, dataset_id: str, version_id: str, by: str, reason: str) -> 
             "note": "the pointer moved; no file was changed or copied"}
 
 
-def _targets(con, dataset_id: str) -> tuple[str, list[dict[str, Any]], bool]:
-    """(root, the versions the action covers, whole dataset?): the root's id means every version."""
+def current_default(app, dataset_id: str) -> str | None:
+    with app.state.db.connect() as con:
+        root = root_of(con, dataset_id)
+        return effective_default(tree_rows(con, root), card(con, root))[0]
+
+
+def settle_default(app, new_id: str, before: str | None, warnings: list[dict[str, Any]], by: str, make_default: str) -> dict[str, Any]:
+    """DL2 (B2): a new uploaded version becomes the default only when it has no contract warnings (and the uploader did
+    not say no), else on an explicit POST …/default. A version with warnings is created but not made the default; when
+    no default was set, the pointer is pinned to the one that was in use, so "latest" can't pick the new version."""
+    with app.state.db.connect() as con:
+        root = root_of(con, new_id)
+        rows = tree_rows(con, root)
+        c = card(con, root)
+        v = next(r for r in rows if r["id"] == new_id)
+        con.execute("INSERT OR IGNORE INTO dataset_cards (root_id) VALUES (?)", (root,))
+        if not warnings and make_default != "no":
+            con.execute("UPDATE dataset_cards SET default_version_id = ?, updated_at = ?, updated_by = ? WHERE root_id = ?",
+                        (new_id, now(), by, root))
+            audit(con, by, "dataset_default_set", comment="new version without contract warnings",
+                  details={"dataset_id": new_id, "root_id": root, "from": before, "to": new_id, "to_v": v["v"], "auto": True,
+                           "data_changed": False})
+            return {"is_default": True, "why": "no contract warnings: it is now the default"}
+        pinned = None
+        if not c.get("default_version_id") and before and before != new_id:
+            con.execute("UPDATE dataset_cards SET default_version_id = ?, updated_at = ?, updated_by = ? WHERE root_id = ?",
+                        (before, now(), by, root))
+            pinned = before
+        why = (f"{len(warnings)} contract warning(s): " + "; ".join(w["code"] for w in warnings[:6])) if warnings else "you asked not to"
+        return {"is_default": False, "why": why, "default_stays": before, "pinned": pinned,
+                "how_to_promote": f"after review: Data → v{v['v']} → Make default (POST /api/datasets/{root}/default with "
+                                  f'{{"version_id": "{new_id}", "by": …, "reason": …}})'}
+
+
+def _targets(con, dataset_id: str, only_version: bool = False) -> tuple[str, list[dict[str, Any]], bool]:
+    """(root, the versions the action covers, whole dataset?): the root's id means every version, unless only_version
+    (DL2: v1 alone, e.g. a PII purge of the first extract while later versions stay; root rows still map)."""
     root = root_of(con, dataset_id)
     rows = tree_rows(con, root)
-    whole = dataset_id == root
+    whole = dataset_id == root and not only_version
     return root, (rows if whole else [r for r in rows if r["id"] == dataset_id]), whole
 
 
 def _guard(con, root: str, targets: list[dict[str, Any]], whole: bool, what: str) -> None:
     ids = [r["id"] for r in targets if r["state"] != DELETED]
-    bad = blockers(con, ids)
+    bad = blockers(con, ids, "archive" if what == "archive" else "delete")
     if bad:
-        raise DsError(409, {"message": f"Can't {what}: a version is in use. Reject or retire these first.", "blockers": bad})
+        raise DsError(409, {"message": f"Can't {what}: a version is in use. Each line below says how to clear it.", "blockers": bad})
     if not whole:
         rows = tree_rows(con, root)
         cur, how = effective_default(rows, card(con, root))
         if cur in ids and how == "set":
-            raise DsError(409, f"Can't {what} the default version: set another default first.")
+            raise DsError(409, f"Can't {what} the default version: make another version the default first (Data → the version → "
+                               f"Make default; POST /api/datasets/{root}/default).")
 
 
-def archive(app, dataset_id: str, by: str, archived: bool, reason: str) -> dict[str, Any]:
+def archive(app, dataset_id: str, by: str, archived: bool, reason: str, only_version: bool = False) -> dict[str, Any]:
+    """Hide (or show again) a version, or the whole dataset when the id is its root (unless only_version). DL2 (B7): a
+    whole-dataset archive marks what it hid (state_scope 'dataset'); unarchiving the dataset restores only those, so a
+    version archived on its own stays archived."""
     with app.state.db.connect() as con:
-        root, targets, whole = _targets(con, dataset_id)
-        if any(r["state"] == DELETED for r in targets if r["id"] == dataset_id):
+        root, targets, whole = _targets(con, dataset_id, only_version)
+        if any(r["state"] == DELETED for r in targets if r["id"] == dataset_id) and not whole:
             raise DsError(410, f"{dataset_id} was deleted.")
         if archived:
             _guard(con, root, targets, whole, "archive")
-        ids = [r["id"] for r in targets if r["state"] != DELETED]
+            ids = [r["id"] for r in targets if r["state"] is None]
+        elif whole:
+            ids = [r["id"] for r in targets if r["state"] == ARCHIVED and r.get("state_scope") == "dataset"]
+        else:
+            ids = [r["id"] for r in targets if r["state"] == ARCHIVED]
+        if not ids:
+            raise DsError(409, f"Nothing to {'archive' if archived else 'unarchive'}: "
+                               + ("every version is already archived or deleted." if archived else "no version was hidden by "
+                                  + ("the dataset's archive (versions archived on their own are unarchived one by one)." if whole else "an archive.")))
         q = ",".join("?" * len(ids))
-        con.execute(f"UPDATE datasets SET state = ?, state_at = ?, state_by = ? WHERE id IN ({q})",
-                    (ARCHIVED if archived else None, now(), by, *ids))
+        con.execute(f"UPDATE datasets SET state = ?, state_at = ?, state_by = ?, state_scope = ? WHERE id IN ({q})",
+                    (ARCHIVED if archived else None, now(), by, ("dataset" if whole else "version") if archived else None, *ids))
         audit(con, by, "dataset_archived" if archived else "dataset_unarchived", comment=reason,
               details={"dataset_id": dataset_id, "root_id": root, "whole_dataset": whole, "ids": ids})
     return {"root_id": root, "ids": ids, "state": ARCHIVED if archived else "active", "whole_dataset": whole}
 
 
-def request_delete(app, dataset_id: str, by: str, reason: str) -> dict[str, Any]:
+def request_delete(app, dataset_id: str, by: str, reason: str, only_version: bool = False,
+                   freeze_holdout: bool = False) -> dict[str, Any]:
     """Four eyes: a pending request another person approves. An admin (ENSEMBLE_ADMINS) deletes at once. The guard
-    runs now and again at approval."""
+    runs now and again at approval. DL2: only_version deletes v1 alone (the root id otherwise means every version);
+    freeze_holdout keeps a sample of the holdout rows beside the tombstone for re-validating the retired models."""
     with app.state.db.connect() as con:
-        root, targets, whole = _targets(con, dataset_id)
+        root, targets, whole = _targets(con, dataset_id, only_version)
         if all(r["state"] == DELETED for r in targets):
             raise DsError(410, f"{dataset_id} is already deleted.")
         _guard(con, root, targets, whole, "delete")
         if con.execute("SELECT 1 FROM dataset_requests WHERE dataset_id = ? AND status = 'pending'", (dataset_id,)).fetchone():
             raise DsError(409, f"A delete of {dataset_id} is already waiting for approval.")
         rid = "dsr_" + secrets.token_hex(4)
-        con.execute("INSERT INTO dataset_requests (id, dataset_id, root_id, action, status, requested_by, requested_at, reason)"
-                    " VALUES (?, ?, ?, 'delete', 'pending', ?, ?, ?)", (rid, dataset_id, root, by, now(), reason))
+        opts = {"only_version": bool(only_version and not whole and dataset_id == root), "freeze_holdout": bool(freeze_holdout)}
+        con.execute("INSERT INTO dataset_requests (id, dataset_id, root_id, action, status, requested_by, requested_at, reason, options)"
+                    " VALUES (?, ?, ?, 'delete', 'pending', ?, ?, ?, ?)", (rid, dataset_id, root, by, now(), reason, json.dumps(opts)))
         audit(con, by, "dataset_delete_requested", comment=reason,
-              details={"dataset_id": dataset_id, "root_id": root, "request_id": rid, "whole_dataset": whole,
+              details={"dataset_id": dataset_id, "root_id": root, "request_id": rid, "whole_dataset": whole, **opts,
                        "ids": [r["id"] for r in targets], "needs": "approval by someone other than " + by + " (or an admin)"})
     if G.is_admin(by):
         return decide_delete(app, rid, True, by, "admin: deleted at once", admin_self=True)
@@ -385,12 +518,20 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
     req = get_request(app, rid)
     if req["status"] != "pending":
         raise DsError(409, f"This request is {req['status']}.")
+    opts = _j(req.get("options")) or {}
+    if not approve and G.same_person(by, req["requested_by"]):  # DL2 (B8): the requester withdraws their own request
+        with app.state.db.connect() as con:
+            con.execute("UPDATE dataset_requests SET status = 'withdrawn', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
+                        (by, now(), comment, rid))
+            audit(con, by, "dataset_delete_withdrawn", comment=comment,
+                  details={"dataset_id": req["dataset_id"], "root_id": req["root_id"], "request_id": rid})
+        return get_request(app, rid)
     if G.same_person(by, req["requested_by"]) and not (admin_self or G.is_admin(by)):
         raise DsError(403, f"Four eyes: {req['requested_by']} asked for this delete, so someone else (or an admin) must decide "
                            "(names are compared on letters and digits only; names, not authenticated identities).")
     store = app.state.datasets
     with app.state.db.connect() as con:
-        root, targets, whole = _targets(con, req["dataset_id"])
+        root, targets, whole = _targets(con, req["dataset_id"], bool(opts.get("only_version")))
         if approve:
             _guard(con, root, targets, whole, "delete")  # re-checked: something may use it now
         con.execute("UPDATE dataset_requests SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
@@ -404,23 +545,53 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
             if r["state"] == DELETED:
                 continue
             d = store.dir(r["id"])
+            frozen = _freeze_holdout(store, r) if opts.get("freeze_holdout") else None
             tomb = {"dataset_id": r["id"], "root_id": root, "parent_id": r["parent_id"], "name": r["name"], "v": r["v"], "op": r["op"],
                     "rows": r["rows"], "n_cols": r["n_cols"], "sha256": r["sha256"], "created_at": r["created_at"],
                     "created_by": r["created_by"], "deleted_at": now(), "requested_by": req["requested_by"], "approved_by": by,
                     "reason": req["reason"], "request_id": rid,
-                    "kept": ["lineage.json", "this tombstone", "the datasets row", "every lineage edge", "the audit log"]}
+                    "kept": ["lineage.json", "this tombstone", "the datasets row", "every lineage edge", "the audit log",
+                             *(["holdout_sample.csv (frozen for re-validation)"] if frozen else [])],
+                    **({"holdout_sample": frozen} if frozen else {})}
             if d.is_dir():
                 for p in d.iterdir():
-                    if p.name == "lineage.json":
+                    if p.name in ("lineage.json", "holdout_sample.csv"):
                         continue
                     shutil.rmtree(p) if p.is_dir() else p.unlink()
                 (d / "TOMBSTONE.json").write_text(json.dumps(tomb, indent=1))
             con.execute("UPDATE datasets SET state = ?, state_at = ?, state_by = ? WHERE id = ?", (DELETED, now(), by, r["id"]))
-            gone.append({"id": r["id"], "v": r["v"], "sha256": r["sha256"]})
+            gone.append({"id": r["id"], "v": r["v"], "sha256": r["sha256"], **({"holdout_sample": frozen} if frozen else {})})
         audit(con, by, "dataset_deleted", comment=comment or req["reason"],
               details={"dataset_id": req["dataset_id"], "root_id": root, "request_id": rid, "requested_by": req["requested_by"],
                        "approved_by": by, "admin": G.is_admin(by), "whole_dataset": whole, "deleted": gone})
     return {**get_request(app, rid), "deleted": gone}
+
+
+HOLDOUT_SAMPLE_ROWS = 2000
+
+
+def _freeze_holdout(store, r: dict[str, Any]) -> dict[str, Any] | None:
+    """DL2: up to HOLDOUT_SAMPLE_ROWS holdout rows of a version about to be deleted, kept as holdout_sample.csv (with
+    their row positions) so a retired model can still be re-validated. Optional: a PII purge leaves it off."""
+    import pandas as pd
+
+    from .schema import file_sha256
+
+    try:
+        df = pd.read_csv(store.csv_path(r["id"]))
+        _, sp, _ = store.ensure_splits(r["id"], r["target"] if r["target"] in df.columns else None)
+        hold = [int(i) for i in sp.get("holdout") or [] if int(i) < len(df)]
+    except Exception:  # noqa: BLE001 - no split to freeze: the delete goes ahead without a sample
+        return None
+    if not hold:
+        return None
+    rng = np.random.default_rng(0)
+    pick = sorted(rng.choice(hold, size=min(HOLDOUT_SAMPLE_ROWS, len(hold)), replace=False).tolist())
+    out = df.iloc[pick].copy()
+    out.insert(0, "_row", pick)
+    p = store.dir(r["id"]) / "holdout_sample.csv"
+    out.to_csv(p, index=False)
+    return {"file": "holdout_sample.csv", "rows": len(pick), "of_holdout": len(hold), "sha256": file_sha256(p)}
 
 
 def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]:
@@ -443,6 +614,41 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
               details={"dataset_id": dataset_id, "root_id": root, "checked": len(out), "failed": [x["id"] for x in bad],
                        "results": [{k: x.get(k) for k in ("id", "status", "stored", "now")} for x in out]})
     return {"root_id": root, "results": out, "ok": not bad}
+
+
+def verify_all(app, by: str) -> dict[str, Any]:
+    """DL2: re-hash every version of every dataset that is not deleted (the admin "verify all" and the optional timer)."""
+    with app.state.db.connect() as con:
+        roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS NOT 'deleted'")]
+    res = [verify(app, r, by, whole=True) for r in roots]
+    failed = [{"root_id": x["root_id"], **y} for x in res for y in x["results"] if y["ok"] is False]
+    return {"datasets": len(roots), "checked": sum(len(x["results"]) for x in res), "failed": failed, "ok": not failed, "at": now()}
+
+
+def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[str, Any]:
+    """DL2 (B3): no training on a version whose last verify was a MISMATCH, unless an admin overrides with a reason
+    (audited). Returns what the run records; raises DsError 409 / 403."""
+    rec = app.state.db.get_dataset(dataset_id) or {}
+    notes = []
+    if rec.get("state") == ARCHIVED:
+        notes.append(f"{dataset_id} is archived (hidden from pickers by {rec.get('state_by')} on {str(rec.get('state_at'))[:10]}); "
+                     "training on it is allowed and recorded.")
+    if rec.get("verified_ok") != 0:
+        return {"integrity": "ok" if rec.get("verified_ok") == 1 else "not verified", "notes": notes}
+    reason = str(override or "").strip()
+    msg = (f"{dataset_id}'s last integrity check ({str(rec.get('verified_at'))[:19]}) was a MISMATCH: data.csv no longer has the "
+           "sha256 stored when the version was made. Restore the file and verify again (Data → Check every hash), or an admin "
+           'sends {"integrity_override_reason": "…", "by": "<admin>"} to train on it anyway (audited).')
+    if not reason:
+        raise DsError(409, msg)
+    if not G.is_admin(by):
+        raise DsError(403, f"Only an admin (ENSEMBLE_ADMINS) may train on a version whose hash does not match; {by or 'nobody'} is not one.")
+    if len(reason) < 10:
+        raise DsError(400, "An override needs a reason of at least 10 characters (it goes in the audit log).")
+    with app.state.db.connect() as con:
+        audit(con, by, "training_integrity_override", comment=reason[:1000],
+              details={"dataset_id": dataset_id, "root_id": rec.get("root_id") or dataset_id, "verified_at": rec.get("verified_at")})
+    return {"integrity": "MISMATCH, overridden", "override_by": by, "override_reason": reason[:1000], "notes": notes}
 
 
 def export_manifest(app, dataset_id: str, by: str) -> dict[str, Any]:

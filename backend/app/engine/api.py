@@ -104,6 +104,9 @@ class RunCreate(BaseModel):
         None, description="F9: predict a range. The quantile levels τ (0 < τ < 1) of TabularPredictor(problem_type="
                           "'quantile', quantile_levels=...); giving them makes problem_type 'quantile'. Default for a "
                           "quantile run: [0.1, 0.5, 0.9]. The eval_metric is AutoGluon's pinball_loss.")
+    integrity_override_reason: str | None = Field(
+        None, description="DL2: train on a version whose last integrity check was a MISMATCH; an admin only (with `by`), audited.")
+    by: str | None = Field(None, description="DL2: who starts the run (the integrity override's admin).")
     conformal: bool | None = Field(
         None, description="F9: conformal recalibration of the quantiles (CQR), AutoGluon's fit(calibrate=...): true "
                           "adds a constant c_τ per level fitted on the validation (or out-of-fold) rows; false never; "
@@ -238,6 +241,16 @@ async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
 def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     app = request.app
     ds = dataset_or_404(request, body.dataset_id)
+    from ..catalog import dsets as DS
+    from ..catalog import governance as G
+
+    who = (body.by or "").strip()[:80] or G.current_actor()
+    try:
+        data_gate = DS.integrity_gate(app, body.dataset_id, body.integrity_override_reason, who)
+    except DS.DsError as e:
+        if e.status in (403, 409):
+            G.refused(app.state.db, who, "training", e.status, e.payload, {"dataset_id": body.dataset_id})
+        raise HTTPException(e.status, e.payload) from e
     profile = ds["profile"]
     cols = {c["name"]: c for c in profile["columns"]}
     label = body.label or ds["target"]
@@ -339,8 +352,9 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     settings = app.state.settings
     run_id, run_dir = alloc_run(app)
     cfg = {
-        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone", "scorecard"}),
-        "decision_time": dt,
+        **body.model_dump(exclude={"label", "name", "drop_columns", "column_types", "cost", "monotone", "scorecard",
+                                   "integrity_override_reason"}),
+        "decision_time": dt, "data_gate": data_gate,
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "id_columns_dropped": id_dropped, "text_columns": text_cols, "task": task,
@@ -369,7 +383,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     store = queue_run(app, run_id, run_dir, name, body.dataset_id, label, cfg, dataset_id=body.dataset_id, label=label,
                       problem_type=cfg["problem_type"], eval_metric=body.eval_metric, presets=body.presets,
                       time_limit=body.time_limit)
-    return run_out(store.get(run_id), store)
+    return {**run_out(store.get(run_id), store), **({"notes": data_gate["notes"]} if data_gate.get("notes") else {})}
 
 
 QUANTILE_METRICS = (None, "pinball_loss", "pinball")
@@ -602,11 +616,42 @@ def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.delete("/runs/{run_id}", status_code=204)
-def delete_run(run_id: str, request: Request) -> None:
+def delete_run(run_id: str, request: Request, by: str = "", reason: str = "") -> None:
+    """DL2 (B1): `by` is required and the delete is audited (run_deleted). Refused (409) while the run is the source of a
+    registered version that is not rejected, failed or retired, or of a pending or approved champion: the lineage edges
+    stay either way, so the data it trained on keeps its guard."""
+    from ..catalog import governance as G
+    from ..catalog.api import _who
+    from ..catalog.schema import audit
+
+    who = _who(by or G.current_actor())
     rec = run_or_404(request, run_id)
+    db = request.app.state.db
     if rec["status"] in ("queued", "running"):
+        G.refused(db, who, "run_delete", 409, "the run is still " + rec["status"], {"run_id": run_id})
         raise HTTPException(409, "Cancel the run before deleting it.")
-    with request.app.state.db.connect() as con:
+    with db.connect() as con:
+        vers = [dict(r) for r in con.execute(
+            "SELECT v.id, v.model_name, v.version, v.approval, v.status, v.retired_at FROM lineage_edges e JOIN model_versions v"
+            " ON v.id = e.dst_id WHERE e.relation = 'built_from' AND e.src_id = ? UNION SELECT id, model_name, version, approval,"
+            " status, retired_at FROM model_versions WHERE run_id = ?", (run_id, run_id))]
+        vids = [v["id"] for v in vers] or [""]
+        champs = [dict(r) for r in con.execute(
+            f"SELECT id, status, project_id, version_id FROM champions WHERE status IN ('pending', 'approved') AND (run_id = ?"
+            f" OR version_id IN ({','.join('?' * len(vids))}))", (run_id, *vids))]
+    bad = [f"{v['model_name']} v{v['version']} ({v['approval']}) was built from it: reject it or retire it in the Registry first "
+           f"(POST /api/registry/versions/{v['id']}/retire)" for v in vers
+           if v["approval"] != "rejected" and v["status"] != "failed" and not v["retired_at"]]
+    bad += [f"champion {c['id']} ({c['status']}) of project {c['project_id']} uses version {c['version_id']} built from it" for c in champs]
+    if bad:
+        msg = {"message": f"Can't delete run {run_id}: a registered version or champion comes from it.", "blockers": bad}
+        G.refused(db, who, "run_delete", 409, msg, {"run_id": run_id})
+        raise HTTPException(409, msg)
+    with db.connect() as con:
+        audit(con, who, "run_deleted", comment=reason[:500], run_id=run_id,
+              details={"run_id": run_id, "dataset_id": rec["dataset_id"], "name": rec.get("name"), "status": rec["status"],
+                       "registered_versions": [{"id": v["id"], "approval": v["approval"], "retired": bool(v["retired_at"])} for v in vers],
+                       "kept": "lineage edges and the audit log"})
         con.execute("DELETE FROM run_events WHERE run_id = ?", (run_id,))
         con.execute("DELETE FROM runs WHERE id = ?", (run_id,))
     shutil.rmtree(request.app.state.settings.runs_dir / run_id, ignore_errors=True)

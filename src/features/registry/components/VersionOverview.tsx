@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { Latency, ModelVersion, Stage } from '@/shared/api/types'
+import type { RetireRequest } from '@/shared/api/client'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { fmtScore, metricInfo } from '@/shared/lib/metrics'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
@@ -169,7 +170,7 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
   return (
     <div className="card" data-testid="review-card">
       <div className="card-head"><div className="left"><h3 className="card-title">Review &amp; Stage</h3></div>
-        <div className="row"><StatusPill status={STAGE_STATUS[v.stage]}>{v.stage}</StatusPill><StatusPill status={APPROVAL_STATUS[v.approval]}>{v.approval}</StatusPill></div></div>
+        <div className="row"><StatusPill status={STAGE_STATUS[v.stage]}>{v.stage}</StatusPill><StatusPill status={APPROVAL_STATUS[v.approval]}>{v.approval}</StatusPill>{v.retired_at && <StatusPill status="neutral">retired</StatusPill>}</div></div>
       <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
         <div className="stage-rail" data-testid="stage-rail">
           {STAGES.map((s, i) => (
@@ -193,10 +194,45 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
           <br />Names, not authenticated identities: four eyes compares names on letters and digits only (case, spaces, punctuation and accents ignored; lookalike letters folded). Whoever registered a version does not move it to Production themselves, and Production is blocked while a critical Doctor finding is open unless overridden with a reason (audited).
           {self && v.approval === 'pending' ? <><br /><b style={{ color: 'var(--status-warning)' }}>▲ Four eyes: {v.created_by} registered this version{author ? ` and ${author} designed its change experiment` : ''}, so someone else reviews it.</b></> : null}
         </p>
+        <RetireBox v={v} actor={actor} comment={comment} onChanged={onChanged} />
         {err && <p role="alert" className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
         {(/critical finding is open/.test(err) || override) && <label className="row" style={{ gap: 6 }}><span className="micro-label">override reason</span>
           <input className="input" style={{ flex: 1 }} placeholder="why Production goes ahead with the finding open (≥ 10 characters, audited)" value={override} onChange={(e) => setOverride(e.target.value)} data-testid="production-override" /></label>}
       </div>
+    </div>
+  )
+}
+
+/** DL2: end of life for a registered version, four eyes: one person asks (the comment above is the reason), another
+ *  approves (or an admin at once). Refused while it is champion or in Production. Once retired its training data can be
+ *  archived, and deleted after the retention period. */
+function RetireBox({ v, actor, comment, onChanged }: { v: ModelVersion; actor: string; comment: string; onChanged: (v: ModelVersion) => void }) {
+  const [reqs, setReqs] = useState<RetireRequest[]>([])
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const load = () => api.registry.retireState(v.id).then((r) => setReqs(r.requests)).catch(() => setReqs([]))
+  useEffect(() => { load() }, [v.id, v.retired_at]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pending = reqs.find((r) => r.status === 'pending')
+  const run = async (p: Promise<RetireRequest & { version?: ModelVersion }>, ok: string) => {
+    setMsg(null)
+    try { const r = await p; setMsg({ ok: true, text: ok }); await load(); onChanged(r.version ?? await api.registry.version(v.id)) } catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
+  }
+  if (v.approval === 'rejected') return null
+  return (
+    <div className="retire-box" data-testid="retire-box">
+      {v.retired_at ? <span className="helper" data-testid="retired-line">⏹ Retired {new Date(v.retired_at).toLocaleDateString()} by {v.retired_by}: it stays Archived; its training data can be archived now and deleted after the retention period.</span>
+        : pending ? <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          <span className="helper">Retirement asked by <b>{pending.requested_by}</b>: “{pending.reason}”</span>
+          {nameKey(actor) === nameKey(pending.requested_by)
+            ? <button className="btn sm ghost" onClick={() => run(api.registry.decideRetire(pending.id, false, actor), 'Retirement request withdrawn.')} data-testid="retire-withdraw">Withdraw my request</button>
+            : <>
+              <button className="btn sm" disabled={!actor.trim()} onClick={() => run(api.registry.decideRetire(pending.id, true, actor, comment), 'Retired.')} data-testid="retire-approve">Approve retirement as {actor || '…'}</button>
+              <button className="btn sm ghost" disabled={!actor.trim()} onClick={() => run(api.registry.decideRetire(pending.id, false, actor, comment), 'Retirement rejected.')}>Reject</button></>}
+        </div>
+          : <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className="btn sm" disabled={!actor.trim() || comment.trim().length < 5} onClick={() => run(api.registry.retire(v.id, actor, comment), 'Retirement asked: someone else (or an admin) approves.')} data-testid="retire-ask"
+              title={comment.trim().length < 5 ? 'Write the reason in the comment box first' : 'Four eyes: someone else approves'}>Retire…</button>
+            <span className="helper" style={{ fontSize: 12 }}>End of life, four eyes; the comment is the reason. Not while it is champion or in Production.</span></div>}
+      {msg && <p className="helper" role={msg.ok ? 'status' : 'alert'} style={{ color: msg.ok ? 'var(--status-success)' : 'var(--status-danger)', margin: '4px 0 0' }} data-testid="retire-msg">{msg.ok ? '✓' : '✕'} {msg.text}</p>}
     </div>
   )
 }

@@ -13,6 +13,8 @@ export class ApiError extends Error {
 
 const BASE = '/api'
 
+export type RetireRequest = { id: string; version_id: string; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; requested_by: string; requested_at: string; reason: string; decided_by: string | null; decided_at: string | null; comment: string }
+
 type SqlQuery = { url: string; query: string; limit?: number; password?: string }
 
 export async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
@@ -21,7 +23,9 @@ export async function request<T>(path: string, init: RequestInit & { timeoutMs?:
   const timer = setTimeout(() => ctl.abort(), timeoutMs)
   let res: Response
   try {
-    res = await fetch(`${BASE}${path}`, { ...rest, signal: ctl.signal, headers: { Accept: 'application/json', ...rest.headers } })
+    // DL2: the acting name reaches the audit log of reads and of paths that take no `by` (header values must be Latin-1)
+    const who = actor(); const hdr: Record<string, string> = who && /^[\x20-\x7e]+$/.test(who) ? { 'X-Ensemble-Actor': who } : {}
+    res = await fetch(`${BASE}${path}`, { ...rest, signal: ctl.signal, headers: { Accept: 'application/json', ...hdr, ...rest.headers } })
   } catch (e) {
     throw new ApiError((e as Error).name === 'AbortError' ? 'The API did not answer in time.' : 'The API is not reachable.', 0)
   } finally {
@@ -159,7 +163,7 @@ export const api = {
       request<ShiftCheck>(`/runs/${encodeURIComponent(id)}/shift`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
     cancelShift: (id: string, key: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/cancel`, { method: 'POST' }),
     shiftWeightsVersion: (id: string, key: string) =>
-      request<{ dataset_version: NonNullable<ShiftCheck['versions']>[number]; patch: NonNullable<ShiftAction['patch']> }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/weights-version`, { method: 'POST', timeoutMs: 60_000 }),
+      request<{ dataset_version: NonNullable<ShiftCheck['versions']>[number]; patch: NonNullable<ShiftAction['patch']> }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/weights-version${actor() ? `?by=${encodeURIComponent(actor()!)}` : ''}`, { method: 'POST', timeoutMs: 60_000 }),
     /** F14: annotators' agreement, quality, the CROWDLAB consensus and the disagreement queue. */
     annotations: (id: string, q: { offset?: number; limit?: number; include?: 'queue' | 'all' } = {}) => {
       const p = new URLSearchParams()
@@ -270,6 +274,10 @@ export const api = {
     /** Every model of the run: score, measured µs per row, models and bytes it needs. */
     latency: (runId: string) => request<LatencyProfile>(`/runs/${encodeURIComponent(runId)}/latency`, { timeoutMs: 180_000 }),
     version: (id: string) => request<ModelVersion>(`/registry/versions/${encodeURIComponent(id)}`),
+    /** DL2: retire a version (four eyes; refused while champion or in Production). */
+    retireState: (id: string) => request<{ requests: RetireRequest[] }>(`/registry/versions/${encodeURIComponent(id)}/retire`),
+    retire: (id: string, by: string, reason: string) => json<RetireRequest & { version?: ModelVersion }>(`/registry/versions/${encodeURIComponent(id)}/retire`, 'POST', { by, reason }),
+    decideRetire: (rid: string, approve: boolean, by: string, comment = '') => json<RetireRequest & { version?: ModelVersion }>(`/registry/version-requests/${encodeURIComponent(rid)}/decide`, 'POST', { approve, by, comment }),
     /** F3: the online path (no SHAP), timed by the predictor, the worker and the server. */
     score: (id: string, rows: Record<string, unknown>[]) => json<ScoreResult>(`/registry/versions/${encodeURIComponent(id)}/score`, 'POST', { rows }),
     /** F3: one-row p50 / p95 and batches of 1 → 1,000 as served, in a predict worker. */

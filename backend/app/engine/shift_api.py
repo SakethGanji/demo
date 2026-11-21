@@ -416,7 +416,7 @@ def cancel_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
 
 
 @router.post("/runs/{run_id}/shift/{key}/weights-version", status_code=201)
-def weights_version(run_id: str, key: str, request: Request) -> dict[str, Any]:
+def weights_version(run_id: str, key: str, request: Request, by: str = "") -> dict[str, Any]:
     """Importance weighting: the run's dataset with a `shift_weight` column (w(x) for each reference row, 1 for every
     other row) as a dataset version with the same split (holdout untouched), plus the Gym patch that trains on it with
     predictor_kwargs.sample_weight = 'shift_weight'."""
@@ -452,6 +452,7 @@ def weights_version(run_id: str, key: str, request: Request) -> dict[str, Any]:
     name = (ds.db.get_dataset(src) or {}).get("name", src).replace(" (sample)", "")
     new_rec = ds.derive(src, df, None, "shift_weights",  # P1: every row kept, one column added
                         [{"op": "add_column", "column": sh.WEIGHT_COLUMN, "rows_weighted": int(len(wdf))}], splits=sp, extra=extra,
+                        by=by.strip()[:80] or None,  # DL2: else the X-Ensemble-Actor header
                         name=f"{name} · shift weights",
                         note=f"Importance weights from shift check {key} of {run_id}: {sh.WEIGHT_COLUMN} = p_N(x)/p_R(x) on "
                              f"{len(wdf):,} reference rows (ESS {w.get('ess', 0):,.0f}), 1 elsewhere")

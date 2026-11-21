@@ -102,6 +102,21 @@ CREATE TABLE IF NOT EXISTS dataset_requests (
 );
 CREATE INDEX IF NOT EXISTS ix_dataset_requests ON dataset_requests (root_id, status);
 
+-- DL2: retiring a registered version needs four eyes (or an admin): one person asks, another approves; both audited.
+CREATE TABLE IF NOT EXISTS version_requests (
+    id            TEXT PRIMARY KEY,
+    version_id    TEXT NOT NULL,
+    action        TEXT NOT NULL CHECK (action IN ('retire')),
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'withdrawn')),
+    requested_by  TEXT NOT NULL,
+    requested_at  TEXT NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    decided_by    TEXT,
+    decided_at    TEXT,
+    comment       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_version_requests ON version_requests (version_id, status);
+
 CREATE TABLE IF NOT EXISTS catalog_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
@@ -117,7 +132,13 @@ DATASET_COLS = {"project_id": "TEXT", "parent_id": "TEXT", "root_id": "TEXT", "s
                 "op": "TEXT",
                 # DL1: who made it; archived / deleted (NULL = active) with when and by whom; the last integrity check
                 "created_by": "TEXT", "state": "TEXT", "state_at": "TEXT", "state_by": "TEXT", "verified_at": "TEXT",
-                "verified_ok": "INTEGER"}
+                "verified_ok": "INTEGER",
+                # DL2: 'dataset' when a whole-dataset archive hid it (an unarchive of the dataset restores only those)
+                "state_scope": "TEXT"}
+# DL2: a registered version retired (four eyes): its data may be archived, and deleted after the retention period
+MV_COLS = {"retired_at": "TEXT", "retired_by": "TEXT"}
+# DL2: a delete request's options (freeze a holdout sample)
+DSR_COLS = {"options": "TEXT"}
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_runs_dataset ON runs (dataset_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_runs_project ON runs (project_id, created_at)",
@@ -140,7 +161,7 @@ def now() -> str:
 def migrate(con: sqlite3.Connection) -> None:
     """Idempotent: CREATE IF NOT EXISTS, and ALTER only the columns that are missing."""
     con.executescript(SCHEMA)
-    for table, cols in (("runs", RUN_COLS), ("datasets", DATASET_COLS)):
+    for table, cols in (("runs", RUN_COLS), ("datasets", DATASET_COLS), ("model_versions", MV_COLS), ("dataset_requests", DSR_COLS)):
         have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
         for c, typ in cols.items():
             if c not in have:

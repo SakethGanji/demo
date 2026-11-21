@@ -294,7 +294,7 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
             f"({'positive-unlabeled: unreviewed = 0' if body.negatives == 'unlabeled' else 'reviewed rows only'})")
     new = app.state.datasets.derive(  # P1: every row kept; a new label column and its own split
         rec["dataset_id"], df, None, "anomaly_review", [], splits=splits, extra={"anomaly_run": run_id, "summary": note},
-        name=f"{ds['name'].replace(' (sample)', '')} · confirmed labels", note=note)
+        name=f"{ds['name'].replace(' (sample)', '')} · confirmed labels", note=note, by=(body.by or "").strip()[:80] or None)
     drop = [c for c in cfg.get("id_columns") or [] if c in df.columns]
     for c in (p.get("entity_column"), p.get("time_column")):
         if c and c in df.columns and c not in drop:

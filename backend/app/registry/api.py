@@ -62,7 +62,7 @@ def default_model_name(dataset_id: str, label: str) -> str:
 def version_out(v: dict[str, Any], full: bool = True) -> dict[str, Any]:
     res = v.get("result") or {}
     out = {k: v.get(k) for k in ("id", "model_name", "version", "run_id", "status", "stage", "approval", "created_at",
-                                 "created_by", "options", "progress", "error", "path", "model_hash")}
+                                 "created_by", "options", "progress", "error", "path", "model_hash", "retired_at", "retired_by")}
     ver, src = res.get("version") or {}, res.get("source") or {}
     out["summary"] = {
         "best_model": ver.get("best_model"), "size_bytes": ver.get("size_bytes"), "n_models": ver.get("n_models"),
@@ -330,15 +330,53 @@ async def _sync(request: Request, v: dict[str, Any], extra: dict[str, str] | Non
         return {"error": f"{type(e).__name__}: {e}"}
 
 
+def _champion_of(request: Request, vid: str) -> dict[str, Any] | None:
+    with request.app.state.db.connect() as con:
+        r = con.execute("SELECT id, status, project_id FROM champions WHERE version_id = ? AND status IN ('approved', 'pending')"
+                        " ORDER BY status = 'approved' DESC LIMIT 1", (vid,)).fetchone()
+    return dict(r) if r else None
+
+
+def _refusal_audited(action: str):
+    """DL2: a governance route's 403 / 409 is written to the audit log as `<action>_refused`."""
+    import functools
+
+    def deco(fn):
+        @functools.wraps(fn)
+        async def inner(**kw):
+            try:
+                return await fn(**kw)
+            except HTTPException as e:
+                if e.status_code in (403, 409):
+                    from ..catalog import governance as G
+
+                    body, request = kw.get("body"), kw["request"]
+                    who = getattr(body, "actor", None) or getattr(body, "reviewer", None) or (body.get("by") if isinstance(body, dict) else None)
+                    G.refused(request.app.state.db, who, action, e.status_code, e.detail,
+                              {k: v for k, v in kw.items() if k in ("vid", "rid")})
+                raise
+        return inner
+    return deco
+
+
 @router.post("/registry/versions/{vid}/transition")
+@_refusal_audited("stage_change")
 async def transition(vid: str, body: TransitionRequest, request: Request) -> dict[str, Any]:
     """Move a version between stages. Production needs an approved review; promoting a version to Production
-    archives the model's previous Production version. Every change is written to the audit log."""
+    archives the model's previous Production version. Every change is written to the audit log. DL2: the current
+    champion (approved or requested) can't be archived, and a retired version stays Archived."""
     reg = _reg(request)
     v = _ready_version(request, vid)
     actor = _name_ok(body.actor, "actor")
     if body.stage == v["stage"]:
         raise HTTPException(409, f"Version {v['version']} is already in {v['stage']}.")
+    if v.get("retired_at"):
+        raise HTTPException(409, f"Version {v['version']} was retired ({str(v['retired_at'])[:10]}, {v.get('retired_by')}): it stays Archived.")
+    ch = _champion_of(request, vid) if body.stage == "Archived" else None
+    if ch:
+        raise HTTPException(409, f"Version {v['version']} is the {'requested ' if ch['status'] == 'pending' else ''}champion of project "
+                                 f"{ch['project_id']} ({ch['id']}): approve another champion first (POST /api/projects/"
+                                 f"{ch['project_id']}/champion), or reject the request.")
     if body.stage == "Production" and v["approval"] != "approved":
         raise HTTPException(409, f"Version {v['version']} is {v['approval']}: Production needs an approved review first.")
     if v["approval"] == "rejected" and body.stage in ("Staging", "Production"):
@@ -380,6 +418,7 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
 
 
 @router.post("/registry/versions/{vid}/review")
+@_refusal_audited("review")
 async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, Any]:
     """Approve or reject a version, with the reviewer's name and comment. Four eyes: the reviewer cannot be the
     person who registered it, nor (a D4 change) the author of its experiment; names are compared on letters and digits
@@ -408,6 +447,118 @@ async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, A
                       to_stage=new_stage if new_stage != stage else None, comment=body.comment)
     ml = await _sync(request, v2, {"reviewer": who, "review_comment": body.comment[:500]})
     return {"version": version_out(v2), "audit": entry, "mlflow": ml}
+
+
+# --------------------------------------------------------------------------- DL2: retire (four eyes)
+
+def _vreq(request: Request, rid: str) -> dict[str, Any]:
+    with request.app.state.db.connect() as con:
+        r = con.execute("SELECT * FROM version_requests WHERE id = ?", (rid,)).fetchone()
+    if not r:
+        raise HTTPException(404, f"No version request '{rid}'.")
+    return dict(r)
+
+
+def _retire_check(request: Request, v: dict[str, Any]) -> None:
+    name = f"{v['model_name']} v{v['version']}"
+    if v.get("retired_at"):
+        raise HTTPException(409, f"{name} is already retired.")
+    if v["approval"] == "rejected":
+        raise HTTPException(409, f"{name} was rejected: it does not block its data, there is nothing to retire.")
+    ch = _champion_of(request, v["id"])
+    if ch:
+        raise HTTPException(409, f"{name} is the {'requested ' if ch['status'] == 'pending' else ''}champion of project {ch['project_id']} "
+                                 f"({ch['id']}): approve another champion first (POST /api/projects/{ch['project_id']}/champion).")
+    if v.get("stage") == "Production":
+        raise HTTPException(409, f"{name} is in Production: promote its successor or move it out of Production first.")
+
+
+@router.post("/registry/versions/{vid}/retire", status_code=201)
+@_refusal_audited("retire")
+async def request_retire(vid: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    """{by, reason}: ask to retire a registered version (end of life: it is Archived for good, and its training data may
+    then be archived, and deleted after the retention period). Someone else approves (POST
+    /api/registry/version-requests/{id}/decide); an admin (ENSEMBLE_ADMINS) retires at once. Refused while it is the
+    champion (approved or requested) or in Production. Audited."""
+    import secrets
+
+    from ..catalog import governance as G
+    from ..catalog.api import _text, _who
+    from ..catalog.schema import now
+
+    body = body if isinstance(body, dict) else {}
+    who = _who(body.get("by"))
+    reason = _text(body, "reason", 5, 500, True)
+    v = _version(request, vid)
+    _retire_check(request, v)
+    with request.app.state.db.connect() as con:
+        if con.execute("SELECT 1 FROM version_requests WHERE version_id = ? AND status = 'pending'", (vid,)).fetchone():
+            raise HTTPException(409, f"A retirement of {v['model_name']} v{v['version']} is already waiting for approval.")
+        rid = "vrq_" + secrets.token_hex(4)
+        con.execute("INSERT INTO version_requests (id, version_id, action, status, requested_by, requested_at, reason)"
+                    " VALUES (?, ?, 'retire', 'pending', ?, ?, ?)", (rid, vid, who, now(), reason))
+    _reg(request).audit(actor=who, action="retire_requested", version=v, comment=reason,
+                        details={"request_id": rid, "needs": "approval by someone other than " + who + " (or an admin)"})
+    if G.is_admin(who):
+        return await _decide_retire(request, rid, True, who, "admin: retired at once", admin_self=True)
+    return _vreq(request, rid)
+
+
+@router.post("/registry/version-requests/{rid}/decide")
+@_refusal_audited("retire_decide")
+async def decide_retire(rid: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
+    """{approve, by, comment}: four eyes. The requester may withdraw (approve=false) but not approve."""
+    from ..catalog.api import _who
+
+    body = body if isinstance(body, dict) else {}
+    who = _who(body.get("by"))
+    approve = body.get("approve")
+    if not isinstance(approve, bool):
+        raise HTTPException(400, 'Send {"approve": true} or {"approve": false}.')
+    return await _decide_retire(request, rid, approve, who, str(body.get("comment") or "")[:500])
+
+
+async def _decide_retire(request: Request, rid: str, approve: bool, who: str, comment: str, admin_self: bool = False) -> dict[str, Any]:
+    from ..catalog import governance as G
+    from ..catalog.schema import now
+
+    req = _vreq(request, rid)
+    if req["status"] != "pending":
+        raise HTTPException(409, f"This request is {req['status']}.")
+    reg = _reg(request)
+    v = _version(request, req["version_id"])
+    mine = G.same_person(who, req["requested_by"])
+    if mine and approve and not (admin_self or G.is_admin(who)):
+        raise HTTPException(403, f"Four eyes: {req['requested_by']} asked to retire this version, so someone else (or an admin) must "
+                                 "approve (names are compared on letters and digits only; names, not authenticated identities).")
+    status = "approved" if approve else ("withdrawn" if mine else "rejected")
+    if approve:
+        _retire_check(request, v)  # re-checked: it may have become champion since
+    with request.app.state.db.connect() as con:
+        con.execute("UPDATE version_requests SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
+                    (status, who, now(), comment, rid))
+    if not approve:
+        reg.audit(actor=who, action=f"retire_{status}", version=v, comment=comment, details={"request_id": rid, "requested_by": req["requested_by"]})
+        return _vreq(request, rid)
+    stage = v["stage"]
+    with request.app.state.db.connect() as con:
+        con.execute("UPDATE model_versions SET retired_at = ?, retired_by = ?, stage = 'Archived' WHERE id = ?", (now(), who, v["id"]))
+    v2 = reg.get_version(v["id"])
+    reg.audit(actor=who, action="retired", version=v2, from_stage=stage if stage != "Archived" else None,
+              to_stage="Archived" if stage != "Archived" else None, comment=comment or req["reason"],
+              details={"request_id": rid, "requested_by": req["requested_by"], "approved_by": who, "admin": G.is_admin(who),
+                       "reason": req["reason"]})
+    await _sync(request, v2, {"retired_by": who})
+    return {**_vreq(request, rid), "version": version_out(v2, full=False)}
+
+
+@router.get("/registry/versions/{vid}/retire")
+def retire_state(vid: str, request: Request) -> dict[str, Any]:
+    """The version's retirement requests, newest first."""
+    _version(request, vid)
+    with request.app.state.db.connect() as con:
+        rows = [dict(r) for r in con.execute("SELECT * FROM version_requests WHERE version_id = ? ORDER BY requested_at DESC", (vid,))]
+    return {"version_id": vid, "requests": rows}
 
 
 # --------------------------------------------------------------------------- the model card

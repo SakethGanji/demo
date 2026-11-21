@@ -217,14 +217,27 @@ def diff(a: pd.DataFrame, b: pd.DataFrame, pairs: tuple[np.ndarray, np.ndarray] 
          key: str | None = None, sample: int = 5) -> dict[str, Any]:
     """`pairs` (positions in a, positions in b) of the same original rows, or None to match by exact row hash."""
     sd = schema_diff(a, b)
+    hcols = _same_type(a, b)
     if pairs is None:
-        cols = _same_type(a, b)
-        ia, ib = _hash_pairs(row_hash(a, cols), row_hash(b, cols))
+        if not hcols:  # DL2 (B4): nothing to compare rows on (a zero hash would "match" every row)
+            ia = ib = np.zeros(0, dtype=int)
+            how = "no rows matched: the two versions share no column of the same type"
+        else:
+            ia, ib = _hash_pairs(row_hash(a, hcols), row_hash(b, hcols))
+            how = f"exact row hash over {len(hcols)} shared columns (a changed row counts as removed + added)"
         changed = np.zeros(len(ia), dtype=bool)
-        how = f"exact row hash over {len(cols)} shared columns (a changed row counts as removed + added)"
     else:
-        ia, ib = pairs
+        ia, ib = (np.asarray(x, dtype=int) for x in pairs)
         changed = _changed(a, b, ia, ib, skip=(key,) if key else ())
+        # DL2 (B5): rows the map leaves unpaired on both sides (e.g. the new rows of two sibling uploads, which got
+        # different root ids) pair when they are identical over the shared columns
+        ra, rb = np.setdiff1d(np.arange(len(a)), ia), np.setdiff1d(np.arange(len(b)), ib)
+        if hcols and len(ra) and len(rb):
+            xa, xb = _hash_pairs(row_hash(a.iloc[ra], hcols), row_hash(b.iloc[rb], hcols))
+            if len(xa):
+                ia, ib = np.concatenate([ia, ra[xa]]), np.concatenate([ib, rb[xb]])
+                changed = np.concatenate([changed, np.zeros(len(xa), dtype=bool)])
+                how += f"; {len(xa):,} more rows identical by exact hash"
     cols = _same_type(a, b, (key,) if key else ())
     examples = []
     for i, j in list(zip(ia[changed], ib[changed]))[:sample]:

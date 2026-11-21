@@ -28,3 +28,15 @@
 .data-actions { border-top: 1px solid var(--border-default); background: var(--bg-subtle, #F8FAFC); }
 .data-versions td, .data-versions th { padding-left: 8px; padding-right: 8px; }
 .data-actions a.btn { text-decoration: none; }
+/* DL2 */
+.data-when { white-space: nowrap; font-size: 12px; width: 1%; }
+.data-preview { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.data-hero-sm { padding: 6px 0; background: none; }
+.data-hero-sm b { font-size: 16px; }
+.data-ok-line { color: var(--status-success); }
+.data-list .ellip-cell { max-width: 150px; }
+.data-ds-cell { max-width: 360px; }
+.data-list th, .data-list td { padding-left: 10px; padding-right: 10px; }
+.data-versions td.mono { font-size: 12px; }
+.data-audit-line { font-size: 11px; white-space: normal; overflow-wrap: anywhere; max-width: 260px; }
+[data-testid="data-audit"] td { white-space: normal; overflow-wrap: anywhere; }

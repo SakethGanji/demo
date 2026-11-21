@@ -56,3 +56,23 @@ def admins() -> set[str]:
     from .catalog.governance import admins as _admins  # identity keys: letters and digits, accents and lookalikes folded
 
     return _admins()
+
+
+#: DL2: data behind a retired model may be deleted only this many days after the retirement (four eyes still apply).
+#: NEEDS MODEL-RISK APPROVAL: the period is bank record-retention policy. ENSEMBLE_RETIRED_DATA_RETENTION_DAYS overrides
+#: it; the default is 7 years.
+def retired_data_retention_days() -> float:
+    v = os.environ.get("ENSEMBLE_RETIRED_DATA_RETENTION_DAYS")
+    try:
+        return float(v) if v not in (None, "") else 2557.0
+    except ValueError:
+        return 2557.0
+
+
+def verify_every_hours() -> float | None:
+    """DL2: re-hash every active dataset version on a timer (ENSEMBLE_VERIFY_EVERY_HOURS). No default: off unless set."""
+    try:
+        v = float(os.environ.get("ENSEMBLE_VERIFY_EVERY_HOURS", "") or 0)
+    except ValueError:
+        return None
+    return v if v > 0 else None

@@ -8,6 +8,7 @@ export function VersionStrip({ dsId, onPick, go }: { dsId: string; onPick: (id: 
   const { data: h } = useFetch(() => data.history(dsId), [dsId])
   if (!h || h.focus !== dsId) return null
   const live = h.versions.filter((v) => !v.state)
+  const cur = h.versions.find((v) => v.id === dsId)
   return (
     <div className="data-strip" data-testid="build-versions">
       <span className="micro-label">versions</span>
@@ -16,6 +17,7 @@ export function VersionStrip({ dsId, onPick, go }: { dsId: string; onPick: (id: 
           title={`${v.id} · ${v.op ?? ''} · ${v.created_by ?? ''} · ${v.rows.toLocaleString()} rows`}>v{v.v}{v.is_default ? ' ★' : ''}</button>
       ))}
       <button className="chip-btn" onClick={() => go(`models?tab=Data&dataset=${h.root_id}`)} data-testid="build-data-link">History, diff, new version →</button>
+      {cur?.state === 'archived' && <span className="helper" style={{ color: 'var(--status-warning)' }} data-testid="build-archived-note">▲ v{cur.v} is archived ({cur.state_by}): you can still train on it, and the run records that.</span>}
     </div>
   )
 }

@@ -100,6 +100,20 @@ def catalog_backfill(db: Database, data_dir) -> dict[str, Any]:
     return {**out, "fp2": out2}
 
 
+async def _verify_timer(app: FastAPI) -> None:
+    """DL2: re-hash every dataset version every ENSEMBLE_VERIFY_EVERY_HOURS hours (off unless set); a mismatch is
+    audited as dataset_integrity_failed and then blocks training on that version."""
+    from .catalog import dsets
+
+    while True:
+        await asyncio.sleep(3600 * (config.verify_every_hours() or 24))
+        try:
+            out = await run_in_threadpool(dsets.verify_all, app, "scheduled verify")
+            log.info("scheduled verify: %s versions, %s failed", out["checked"], len(out["failed"]))
+        except Exception:  # noqa: BLE001
+            log.exception("scheduled verify failed")
+
+
 def create_app(settings: config.Settings | None = None) -> FastAPI:
     settings = settings or config.load_settings()
 
@@ -129,8 +143,11 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         from .vela.api import warm_doctor
 
         loop = asyncio.get_running_loop()
+        verify_task = asyncio.ensure_future(_verify_timer(app)) if config.verify_every_hours() else None
         app.state.runner.on_success = lambda rid: loop.call_soon_threadsafe(lambda: asyncio.ensure_future(warm_doctor(app, rid)))
         yield
+        if verify_task:
+            verify_task.cancel()
         app.state.agent.shutdown()
         app.state.runner.shutdown()
         for mod, _ in JOB_MODULES:
@@ -138,6 +155,20 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.heavy.shutdown()
 
     app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan)
+
+    @app.middleware("http")
+    async def acting_as(request: Request, call_next):
+        """DL2: the UI's "Acting as" name (X-Ensemble-Actor) and an optional reason / change ticket (X-Ensemble-Reason)
+        reach the audit log of paths that take no `by` (reads, in-app versions)."""
+        from .catalog import governance as G
+
+        t1 = G.ACTOR.set(request.headers.get("x-ensemble-actor"))
+        t2 = G.REASON.set(request.headers.get("x-ensemble-reason"))
+        try:
+            return await call_next(request)
+        finally:
+            G.ACTOR.reset(t1)
+            G.REASON.reset(t2)
 
     def store(request: Request) -> DatasetStore:
         return request.app.state.datasets
@@ -280,6 +311,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                 hit, column = df[m], c
                 break
         rows = [] if hit is None else hit.head(max(1, min(limit, 50))).astype(object).where(hit.head(max(1, min(limit, 50))).notna(), None).to_dict("records")
+        from .catalog import governance as G
+
+        G.read_audit(request.app.state.db, "row_lookup", dataset_id, {"column": column, "n": 0 if hit is None else int(len(hit))})
         return {"dataset_id": dataset_id, "column": column, "value": value, "n": 0 if hit is None else int(len(hit)), "rows": rows}
 
     @app.post("/api/datasets/{dataset_id}/splits")
