@@ -2,7 +2,8 @@
 
 - Every connection is in-memory (data stays in Parquet) with a `memory_limit`, a thread count, a spill directory and
   a **spill cap** (`max_temp_directory_size`): a query that would spill more fails instead of filling the disk.
-  Extensions are never downloaded at run time.
+  Extensions are never downloaded at run time (P10b: httpfs is loaded from ENSEMBLE_DUCK_EXTENSION_DIR only when
+  ENSEMBLE_S3_READ=httpfs; see s3_attach).
 - **Interactive** (API requests): one process-wide connection; each query runs on its own `cursor()`; at most
   `ENSEMBLE_DUCK_INTERACTIVE_SLOTS` (8) at once (a semaphore; a request that cannot get a slot within the timeout
   gets `DuckBusy`, 429); every query is interrupted after `ENSEMBLE_DUCK_INTERACTIVE_TIMEOUT_S` (10 s) → `DuckTimeout`
@@ -75,6 +76,42 @@ def configure(con: duckdb.DuckDBPyConnection, *, mem_mb: int, threads: int, spil
               "SET autoinstall_known_extensions=false", "SET autoload_known_extensions=false",
               "SET enable_object_cache=true", "SET enable_progress_bar=false"):
         con.execute(s)
+    s3_attach(con)
+
+
+def s3_attach(con: duckdb.DuckDBPyConnection) -> bool:
+    """P10b: with ENSEMBLE_BLOB_STORE=s3 and ENSEMBLE_S3_READ=httpfs, load the httpfs extension (from
+    ENSEMBLE_DUCK_EXTENSION_DIR when set; never downloaded) and add a session secret built from the AWS default chain
+    (in memory only). With the default read mode (cache) DuckDB reads local cached files and nothing is loaded."""
+    if config.lake_store_kind() != "s3":
+        return False
+    cfg = config.s3_config()
+    if cfg["read"] != "httpfs":
+        return False
+    ext = config.duck_extension_dir()
+    if ext:
+        con.execute(f"SET extension_directory='{ext.replace(chr(39), chr(39) * 2)}'")
+    con.execute("LOAD httpfs")
+    import boto3
+
+    cred = boto3.Session().get_credentials()
+    if cred is None:
+        raise DuckError("ENSEMBLE_S3_READ=httpfs: no AWS credentials in the environment or the default chain.")
+    c = cred.get_frozen_credentials()
+
+    def q(v: str) -> str:
+        return "'" + str(v).replace("'", "''") + "'"
+
+    parts = ["TYPE s3", f"KEY_ID {q(c.access_key)}", f"SECRET {q(c.secret_key)}", f"REGION {q(cfg['region'])}",
+             f"URL_STYLE {q(cfg['url_style'])}"]
+    if c.token:
+        parts.append(f"SESSION_TOKEN {q(c.token)}")
+    ep = cfg.get("endpoint")
+    if ep:
+        parts += [f"ENDPOINT {q(ep.split('://', 1)[-1].rstrip('/'))}", f"USE_SSL {'true' if ep.startswith('https') else 'false'}"]
+    con.execute(f"CREATE OR REPLACE SECRET ensemble_lake ({', '.join(parts)})")
+    con.execute("SET enable_http_metadata_cache=true")
+    return True
 
 
 def connect(purpose: Literal["interactive", "job"] = "job", *, mem_mb: int | None = None, threads: int | None = None,
@@ -104,7 +141,7 @@ def job(**kw: Any) -> Iterator[duckdb.DuckDBPyConnection]:
 
 def settings_of(con: duckdb.DuckDBPyConnection) -> dict[str, str]:
     names = ("memory_limit", "threads", "temp_directory", "max_temp_directory_size", "preserve_insertion_order",
-             "autoinstall_known_extensions", "autoload_known_extensions")
+             "autoinstall_known_extensions", "autoload_known_extensions", "extension_directory")
     q = ",".join(f"'{n}'" for n in names)
     return {r[0]: r[1] for r in con.execute(f"SELECT name, value FROM duckdb_settings() WHERE name IN ({q})").fetchall()}
 

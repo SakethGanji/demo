@@ -138,9 +138,9 @@ def _db():
 
 
 def _store():
-    from .lake.store import LocalBlobStore
+    from .lake.store import open_store  # P10b: local or S3 (ENSEMBLE_BLOB_STORE)
 
-    return LocalBlobStore(_settings().lake_dir)
+    return open_store(_settings())
 
 
 def storage(version_id: str) -> str | None:
@@ -178,8 +178,11 @@ def lake_table(ref: Table) -> LakeTable:
             " JOIN blobs b ON b.sha256 = f.blob_sha256 WHERE f.version_id = ? AND f.table_name = ? ORDER BY f.part",
             (ref.version_id, name))]
     st = _store()
-    for p in parts:
-        p["path"] = st.uri(p["key"])
+    for p in parts:  # P10b: a local file (on S3, the sha-verified read cache); a missing blob keeps FileNotFoundError
+        try:
+            p["path"] = str(st.local_copy(p["key"]))
+        except FileNotFoundError:
+            p["path"] = str(st.cache_path(p["key"]))
     return LakeTable(ref.version_id, name, t["table_sha256"], int(t["n_rows"]), json.loads(t["schema_json"]), parts)
 
 

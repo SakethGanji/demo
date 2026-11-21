@@ -16,7 +16,7 @@ from ..catalog import schema as S
 from . import duck, gc
 from . import manifest as M
 from . import verify as V
-from .store import open_store
+from .store import open_store, store_info
 from .writer import ROW_ID, LakeError, VersionWriter
 
 log = logging.getLogger("ensemble.lake")
@@ -29,6 +29,15 @@ def install(app, settings) -> None:
     duck.set_spill_root(settings.duck_spill_dir)
     app.state.lake = open_store(settings)
     app.include_router(router)
+    from .blobcache import CacheIntegrityError
+
+    async def _integrity(request: Request, exc: CacheIntegrityError):  # P10b: the bucket returned other bytes
+        from fastapi.responses import JSONResponse
+
+        log.error("blob integrity: %s", exc)
+        return JSONResponse({"detail": {"code": "blob_integrity", "message": str(exc)}}, status_code=409)
+
+    app.add_exception_handler(CacheIntegrityError, _integrity)
 
 
 def _err(e: LakeError) -> HTTPException:
@@ -60,7 +69,35 @@ def status(request: Request) -> dict[str, Any]:
         n_versions = con.execute("SELECT COUNT(*) FROM datasets WHERE storage = 'parquet'").fetchone()[0]
         armed = gc.armed(con)
     return {"store": st.root, "parquet_versions": n_versions, "blobs": blobs, "gc_armed": armed,
-            "duck": duck.interactive().info()}
+            "blob_store": store_info(st), "duck": duck.interactive().info()}
+
+
+# -- P10b: the object store, its read cache, the local → S3 sync ---------------------------------------------------
+
+@router.post("/admin/lake/cache/verify", dependencies=[require("admin.lake")])
+async def cache_verify(request: Request) -> dict[str, Any]:
+    """Re-hash every file in the S3 read cache; mismatching files are dropped (fetched again, verified, on next use)."""
+    st = request.app.state.lake
+    if not hasattr(st, "cache"):
+        return {"store": st.root, "cache": None, "note": "the local store reads blobs in place; there is no cache"}
+    return {"store": st.root, **(await run_in_threadpool(st.cache.verify_all)), "cache": st.cache.info()}
+
+
+@router.post("/admin/lake/sync-s3", dependencies=[require("admin.lake")])
+async def sync_s3(request: Request, dry_run: int = Query(1), deep_verify: int = Query(0), body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Copy the local lake (Settings.lake_dir) into the configured bucket, verify every catalogued sha there (resumable:
+    a re-run copies only what is missing). `?dry_run=1` (the default) lists what would be copied. Long lakes: run
+    `python -m app.lake.sync_s3` instead (same code)."""
+    from . import sync_s3 as SY
+    from .store import LocalBlobStore
+
+    body = body if isinstance(body, dict) else {}
+    by = _admin(request, body.get("by"), "lake_sync_s3")
+    settings = request.app.state.settings
+    dst = request.app.state.lake if getattr(request.app.state.lake, "bucket", None) else SY.s3_destination(settings)
+    src = LocalBlobStore(settings.lake_dir)
+    return await run_in_threadpool(lambda: SY.sync(request.app.state.db, src, dst, dry_run=bool(dry_run),
+                                                   deep_verify=bool(deep_verify), by=by))
 
 
 # -- a version's manifest and verify -------------------------------------------------------------------------------

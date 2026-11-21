@@ -83,6 +83,7 @@ blis==1.3.4
     # via thinc
 boto3==1.44.5
     # via
+    #   -r requirements.txt
     #   autogluon-common
     #   autogluon-core
 botocore==1.44.5

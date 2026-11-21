@@ -14,6 +14,9 @@ scikit-learn==1.9.1
 # pyarrow is pinned at 24.0.0, the version the lock already resolved through autogluon (the plan's benchmarks use it).
 duckdb==2.0.1
 pyarrow==24.0.0
+# P10b: the S3 / MinIO blob store (lake/s3store.py). Already in the lock through autogluon; pinned here because the app
+# imports it directly. Credentials come from the AWS default chain, never from config files.
+boto3==1.44.5
 # xgboost comes with autogluon.tabular as xgboost-cpu (3.3); a separate xgboost pin would clash with it.
 mlflow==3.18.0
 # AutoGluon engine (S2). CPU torch from the PyTorch index keeps the install smaller and faster;
