@@ -61,7 +61,7 @@ def load(version_id: str, *, rows: int | None = None, columns: list[str] | None 
     rate = budget / src.n_rows
     thr = int(LF.RATE_SCALE * rate)
     with duck.job() as con:
-        ids = con.execute(f"SELECT {q(ROW_ID)} FROM {src.rel} ORDER BY {q(ROW_ID)}").fetchnumpy()[ROW_ID].astype("int64")
+        ids = np.sort(con.execute(f"SELECT {q(ROW_ID)} FROM {src.rel}").fetchnumpy()[ROW_ID].astype("int64"))
         sel = ids[LF._u(ids, config.SEED, SALT) < thr]
         pos = np.searchsorted(ids, sel)
         del ids
@@ -70,6 +70,10 @@ def load(version_id: str, *, rows: int | None = None, columns: list[str] | None 
         con.register("_doctor_ids", pa.table({ROW_ID: pa.array(sel, pa.int64())}))
         at = con.execute(f"SELECT t.{q(ROW_ID)}, {', '.join('t.' + q(c) for c in names)} FROM {src.rel} t"
                          f" SEMI JOIN _doctor_ids s ON t.{q(ROW_ID)} = s.{q(ROW_ID)} ORDER BY t.{q(ROW_ID)}").to_arrow_table()
+    # the job connection runs with preserve_insertion_order = false: sort here so row k is sel[k], whatever DuckDB did
+    at = at.sort_by(ROW_ID)
+    if not np.array_equal(at.column(ROW_ID).to_numpy(zero_copy_only=False), sel):
+        raise RuntimeError("the sampled rows do not match the sampled ids")
     df = pd.DataFrame({c: frames._v1_column(at.column(c), c) for c in names}, columns=names)
     info = {"rows": int(len(df)), "of": int(src.n_rows), "rate": round(rate, 6), "seed": config.SEED, "salt": SALT,
             "rule": f"splitmix64(__row_id XOR (seed+salt)*0x9E3779B97F4A7C15) mod {LF.RATE_SCALE} < {thr}",

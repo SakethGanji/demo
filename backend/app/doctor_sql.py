@@ -321,7 +321,7 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
     target = parent["target"]
     ids = np.asarray(pr.ids, dtype="int64")
     with VersionWriter(store.db, lake, op=op, by=by, parent_id=dataset_id, reason=reason, name=name,
-                       primary_table=pr.table, dedupe=True) as w:
+                       primary_table=pr.table, dedupe=True, duck_kw={"mem_mb": config.doctor_write_mb()}) as w:
         try:
             ch, effects = build(w.con, pr.p.sql, ids, target)
         except ValueRefused:
@@ -345,7 +345,7 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
             return {"noop": True, "effects": effects, "rows_before": int(n0), "rows_after": int(n1), "columns_after": names}
         w.write(pr.table, f"SELECT * FROM {ch.cur} ORDER BY __row_id")
         LD.carry_rest(w, pr, store.db, pr.table, names)
-        rows = w.con.execute(f"SELECT __row_id FROM {ch.cur} ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
+        rows = np.sort(w.con.execute(f"SELECT __row_id FROM {ch.cur}").fetchnumpy()["__row_id"].astype("int64"))
         extra = {"kind": kind, "fixes": effects, "applied_at": now(), "by": by, "columns_before": cols0,
                  "columns_after": len(names), "how": "sql (F-X1: above config.doctor_rows() rows)", **(extra or {}),
                  **({"warnings": [one_class]} if one_class else {})}

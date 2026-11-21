@@ -78,6 +78,7 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     # F-X1 C2: the version whole up to config.doctor_rows() rows, else its recorded splitmix64 sample (rows by position)
     fr = DF.load(dataset_id)
     df = fr.df
+    store.dir(dataset_id).mkdir(parents=True, exist_ok=True)  # a lake version may have no folder yet (suspects, labels)
     roles = _roles(store, dataset_id, df)
     target = rec["target"]
     labels = dd.label_state(store.dir(dataset_id), target, dataset_id)  # P07: keyed and read through frames

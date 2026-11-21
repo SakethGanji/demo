@@ -188,3 +188,8 @@ def max_columns() -> int:
 #: read as a recorded splitmix64 sample of about this many rows, and Doctor fixes run as SQL (no full pandas read).
 def doctor_rows() -> int:
     return int(_env_num("ENSEMBLE_DOCTOR_ROWS", 200_000, 1000))
+
+
+#: F-X1 C2: DuckDB's memory limit for writing a Doctor / Feature Lab version as SQL (it runs in the API process).
+def doctor_write_mb() -> int:
+    return int(_env_num("ENSEMBLE_DOCTOR_WRITE_MB", 1024, 256))

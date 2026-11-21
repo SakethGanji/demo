@@ -126,12 +126,14 @@ def compute(src: Source) -> dict[str, Any]:
             sel += base
         # F-X1 C1: the aggregates are run in chunks of columns. One SELECT of all of them makes DuckDB's planning
         # quadratic in the column count (a 1,000-column table took the API past 13 GB); chunks keep it linear.
-        row = list(con.execute(f"SELECT {sel[0]} FROM {rel}").fetchone())
+        # (count(*) rides with the first chunk: a narrow table is still one scan)
+        row: list[Any] = []
         starts = [i for _, _, _, i, _ in slots]
-        for a in range(0, len(slots), STATS_CHUNK_COLS):
-            lo = starts[a]
+        for a in range(0, max(1, len(slots)), STATS_CHUNK_COLS):
+            lo = starts[a] if slots else 1
             hi = starts[a + STATS_CHUNK_COLS] if a + STATS_CHUNK_COLS < len(slots) else len(sel)
-            row += list(con.execute(f"SELECT {', '.join(sel[lo:hi])} FROM {rel}").fetchone())
+            head = [sel[0]] if a == 0 else []
+            row += list(con.execute(f"SELECT {', '.join(head + sel[lo:hi])} FROM {rel}").fetchall()[0])
         n = int(row[0])
         cols = []
         for name, t, k, i, w in slots:

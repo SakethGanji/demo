@@ -561,12 +561,13 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
                 aggs += ["0", "0", "0"]
         # F-X1 C1: one query per chunk of columns. A single SELECT of every aggregate makes DuckDB's planning cost
         # quadratic in the column count (5,000 columns took the API past 12 GB); chunks keep it linear.
+        # (count(*) rides with the first chunk: a narrow file is still one scan of the CSV)
         row: list[Any] = []
-        step = 1 + 7 * SCAN_CHUNK_COLS
+        step = 7 * SCAN_CHUNK_COLS
         try:
-            row += list(con.execute(f"SELECT {aggs[0]} FROM src").fetchone())
-            for k in range(1, len(aggs), step - 1):
-                row += list(con.execute(f"SELECT {', '.join(aggs[k:k + step - 1])} FROM src").fetchone())
+            for k in range(1, len(aggs), step):
+                head = [aggs[0]] if k == 1 else []
+                row += list(con.execute(f"SELECT {', '.join(head + aggs[k:k + step])} FROM src").fetchall()[0])
         except Exception as e:  # noqa: BLE001 - malformed CSV: a 400 in words
             raise LakeError(400, "csv_unreadable", _err_line(e)) from None
         n_rows = int(row[0])
