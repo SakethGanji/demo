@@ -140,12 +140,12 @@ class Catalog:
             con.execute("UPDATE projects SET name = COALESCE(?, name), description = COALESCE(?, description) WHERE id = ?",
                         (name, description, pid))
 
-    def create_project(self, name: str, description: str, by: str) -> dict[str, Any]:
-        """A user-made project (no root dataset yet: upload into it, or move a dataset tree into it)."""
+    def create_project(self, name: str, description: str, by: str, team_id: str = S.DEFAULT_TEAM) -> dict[str, Any]:
+        """A user-made project in a team (no root dataset yet: upload into it, or move a dataset tree into it)."""
         pid = "prj_" + secrets.token_hex(4)
         with self.db.connect() as con:
-            con.execute("INSERT INTO projects (id, name, root_dataset_id, description, created_at, created_by) VALUES (?, ?, NULL, ?, ?, ?)",
-                        (pid, name, description, now(), by))
+            con.execute("INSERT INTO projects (id, name, root_dataset_id, description, created_at, created_by, team_id)"
+                        " VALUES (?, ?, NULL, ?, ?, ?, ?)", (pid, name, description, now(), by, team_id))
         return self.project(pid)
 
     def move_dataset_tree(self, root_id: str, pid: str) -> dict[str, int]:

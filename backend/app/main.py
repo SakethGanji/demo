@@ -37,6 +37,7 @@ from .engine.serving import PredictorCache
 from .engine.store import RunStore
 from .catalog import api as catalog_api
 from .catalog import datasets_api as catalog_datasets_api
+from .catalog import teams_api
 from .catalog.retention import EvictedError
 
 log = logging.getLogger("ensemble.main")
@@ -460,6 +461,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(catalog_api.router)  # P1: projects, lineage, compare, annotations, champions, retention
     app.middleware("http")(catalog_api.evicted_guard)
     app.add_exception_handler(EvictedError, catalog_api.evicted_handler)
+    app.include_router(teams_api.router)  # P18: /me, teams, members, principals
+    app.middleware("http")(teams_api.see_actor)  # P18: a principal on first sight of an X-Ensemble-Actor name
+    app.middleware("http")(teams_api.team_rows)  # P18: `team` on every list row of the other routers
     for mod, _ in JOB_MODULES:
         app.include_router(mod.router)
     app.include_router(slices_api.router)
