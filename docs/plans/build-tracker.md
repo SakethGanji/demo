@@ -35,7 +35,7 @@
 | P08 | D | done | session_018upNdRRN6S5Y3rTnnk29BM | 656ab64 |
 | P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
 | X1 | ⟂ | done: 2 critical, 6 major → F-X1 | session_018upNdQEzTw3dUV29ygL2YH | 6822049 |
-| F-X1 | D | started (blocks P10) | | |
+| F-X1 | D | done: C1, C2, M1, M2, M4, M5, M6 fixed; M3 re-verified (P10 unblocked) | session_018upNdRigdGd9A2nGzFSQXq (F-X1) | see report |
 | P11 | D2 | done (AG peak ≈ 2.13 GB + 2.43×frame) | session_018upNdQkfQxUCUaQxHcgsFb | 5deecb5 |
 | P19 | G | done (mode audit) | session_018upNdPhxRCU1Z9oW9qWLpN | f9cbfe7 |
 | P20 | G | done | session_018upNdN6AqeeL2rkTsjNjmp | f314861 |
@@ -56,3 +56,6 @@
 - **P21:** add the share pii='unmasked' case to data.read_unmasked.
 - **P23:** copy the catalog_meta pii_salt:* rows verbatim.
 - **U2:** masked indicators + "Unmask (reason)" action (greyed out via /authz/check), unmasked_refused, a PII tags panel, tables[].pii in the upload check, pii_features in the Doctor.
+- **F-X1 → P11 scale gate:** 10M Data Doctor apply (SQL) takes 28–103 s and the Feature Lab SQL write about 50 s, at ≤ 2.1 GB. Run them as jobs with progress, alongside the 10M edit commit.
+- **All lanes:** a `duck.job()` connection (preserve_insertion_order = false) does not keep `ORDER BY` order into `.to_arrow_table()` / `.fetchnumpy()`. Sort in Python when order matters.
+- **New config (F-X1):** ENSEMBLE_MAX_COLUMNS (2,000), ENSEMBLE_DOCTOR_ROWS (200,000: above it the Doctor and Feature Lab use a recorded splitmix64 sample and SQL writes), ENSEMBLE_DOCTOR_WRITE_MB (1,024).

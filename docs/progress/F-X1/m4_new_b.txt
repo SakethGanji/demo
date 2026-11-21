@@ -1,0 +1,4 @@
+drop_rows [1,2] #1: 200 ds_232241ad rows 3000->2998 created=False dedup={'existing': 'ds_232241ad', 'data_sha256': 'ad0ea42bededfb5b31b1b9cfbb27c6d1d5d45a9d6513dc1a65c5ee63221d056c', 'sha256': 'ad0ea42bededfb5b31b1b9cfbb27c6d1d5d45a9d6513dc1a65c5ee63221d056c'}
+drop_rows [1,2] #2: 200 ds_232241ad rows 3000->2998 created=False dedup={'existing': 'ds_232241ad', 'data_sha256': 'ad0ea42bededfb5b31b1b9cfbb27c6d1d5d45a9d6513dc1a65c5ee63221d056c', 'sha256': 'ad0ea42bededfb5b31b1b9cfbb27c6d1d5d45a9d6513dc1a65c5ee63221d056c'}
+-- a no-op fix (relabel row 5 to its own label):
+relabel [5] -> 0: 200 ds_6e470dd9 created=False dedup={'existing': 'ds_6e470dd9', 'reason': 'these fixes change nothing: the version itself is returned'}

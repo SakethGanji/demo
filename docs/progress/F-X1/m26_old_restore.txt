@@ -1,0 +1,6 @@
+POST /api/datasets/ds_9abf7267/restore-splits -> 200 (0.1s) {"dataset_id": "ds_9abf7267", "applied": false, "offers": [{"split_key": "random-stratified__y-95cb0bfd", "table": "w1", "now": {"split_id": "spl_c1ed637fe70f", "split_sha256": "8e6c238556a14faf12801b59d75b6073d45b15abd414ce37c251e794540e3e68", "blob_sha256": "dba15b128f1f6f5e051f6a669e2af79c269d28367b85154fb22228952c5e0616", "n_holdout": 50}, "failed": ["audit"], "checks": [{"n": 1, "check": "blob", "ok": true, "detail": "blob dba15b128f1f\u2026 re-hashed: matches its key"}, {"n": 2, "check": "
+Traceback (most recent call last):
+  File "$SCRATCH/m26.py", line 91, in <module>
+    o = next(x for x in off.get("splits", off.get("offers", [])) if x.get("offer")) if isinstance(off, dict) else None
+        ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+StopIteration

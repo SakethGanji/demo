@@ -1,0 +1,9 @@
+forged spl_c1ed637fe70f in place: holdout 600 -> 50, split_sha256 8e6c238556a1
+rewrote audit #19 (split_created) to the forged hashes
+(a) DELETE FROM run_inputs WHERE split_id = spl_c1ed637fe70f: deleted 1 row(s)
+  verify ds_9abf7267: 200 ok=False
+    split spl_c1ed637fe70f check 3 FAILED: audit #19 (2026-11-21T21:21:26, fx1) records the same split_sha256 and blob; chain link: the row does not re-hash to its row_hash (edited)
+  verify ds_57b400be: 200 ok=False
+    split spl_bb215f05c6cf check 5 FAILED: 2,571 surviving rows of spl_c1ed637fe70f: 466 changed fold
+POST /api/runs -> 409 (1.0s) {"detail": "ds_9abf7267's last integrity check (2026-11-21T21:22:15) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 Verify hash; a split file: Restore the sp
+GET /api/teams/tm_default/audit/verify -> 200 (0.0s) {"team_id": "tm_default", "ok": false, "rows": 18, "legacy_rows": 0, "first_break": {"id": 19, "ts": "2026-11-21T21:21:26+00:00", "action": "split_created", "problem": "the row does not re-hash to its row_hash (it was edited)", "row_hash": "788ed886ae57c549", "recomputed": "9e3f72646b8aa7da"}}

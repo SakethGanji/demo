@@ -1,0 +1,14 @@
+forged spl_ee1f6ee9053d in place: holdout 600 -> 50, split_sha256 8e6c238556a1
+rewrote audit #19 (split_created) to the forged hashes
+(a) DELETE FROM run_inputs → refused: run inputs are immutable
+  verify ds_6c67c3f8: 200 ok=False
+    split spl_ee1f6ee9053d check 3 FAILED: audit #19 (2026-11-21T21:24:46, fx1) records the same split_sha256 and blob; chain link: the row does not re-hash to its row_hash (edited)
+    split spl_ee1f6ee9053d check 4 FAILED: differs from runs run_1cf0c637: they trained on split_sha256 8f118d541b9b…, the split is 8e6c238556a1… now
+POST /api/runs -> 409 (1.2s) {"detail": "ds_6c67c3f8's last integrity check (2026-11-21T21:25:16) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 Verify hash; a split file: Restore the sp
+(b) with ri_ro_d dropped by hand: deleted 1 run_inputs row(s)
+  verify ds_6c67c3f8: 200 ok=False
+    split spl_ee1f6ee9053d check 3 FAILED: audit #19 (2026-11-21T21:24:46, fx1) records the same split_sha256 and blob; chain link: the row does not re-hash to its row_hash (edited)
+  verify ds_2891c254: 200 ok=False
+    split spl_92138ff9b567 check 5 FAILED: 2,571 surviving rows of spl_ee1f6ee9053d: 466 changed fold
+POST /api/runs -> 409 (0.0s) {"detail": "ds_6c67c3f8's last integrity check (2026-11-21T21:25:17) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 Verify hash; a split file: Restore the sp
+GET /api/teams/tm_default/audit/verify -> 200 (0.0s) {"team_id": "tm_default", "ok": false, "rows": 18, "legacy_rows": 0, "first_break": {"id": 19, "ts": "2026-11-21T21:24:46+00:00", "action": "split_created", "problem": "the row does not re-hash to its row_hash (it was edited)", "row_hash": "91d1746aaa7d6482", "recomputed": "8f6ccadf9ddf7342"}}

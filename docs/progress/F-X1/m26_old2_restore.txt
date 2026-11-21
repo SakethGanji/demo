@@ -1,0 +1,8 @@
+POST /api/datasets/ds_4d901ffb/restore-splits -> 200 (0.0s) {"dataset_id": "ds_4d901ffb", "applied": false, "offers": [{"split_key": "random-stratified__y-95cb0bfd", "table": "w1", "now": {"split_id": "spl_8c16e34faf73", "split_sha256": "8e6c238556a14faf12801b59d75b6073d45b15abd414ce37c251e794540e3e68", "blob_sha256": "dba15b128f1f6f5e051f6a669e2af79c269d28367b85154fb22228952c5e0616", "n_holdout":
+POST /api/datasets/ds_4d901ffb/restore-splits -> 500 (0.0s) "b'Internal Server Error'"
+  verify ds_4d901ffb: 200 ok=False
+    split spl_8c16e34faf73 check 3 FAILED: audit #19 (2026-11-21T21:22:38, fx1) records split_sha256 8f118d541b9b…, blob a62c2819c2b3…; chain link: chain link ok
+    split spl_8c16e34faf73 check 4 FAILED: differs from runs run_e01820b7: they trained on split_sha256 8f118d541b9b…, the split is 8e6c238556a1… now
+  verify ds_4bab474a: 200 ok=False
+    split spl_9f344690d851 check 5 FAILED: 2,571 surviving rows of spl_8c16e34faf73: 466 changed fold
+POST /api/runs -> 409 (0.0s) {"detail": "ds_4bab474a's last integrity check (2026-11-21T21:23:11) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 Verify hash; a split file: Restore the sp

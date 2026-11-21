@@ -1,0 +1,15 @@
+rescale from=2^63 factor=2^63    -> 400 {'code': 'value_out_of_range', 'message': 'Fix 1: from 9223372036854775808 is too large (whole numbers must fit in int64, -9223372
+rescale factor=2^64              -> 400 {'code': 'value_out_of_range', 'message': 'Fix 1: factor 18446744073709551616 is too large (whole numbers must fit in int64, -9223
+relabel label 2^63               -> 400 {'code': 'value_out_of_range', 'message': 'Fix 1: labels 9223372036854775808 is too large (whole numbers must fit in int64, -92233
+drop_rows [1.5]                  -> 400 {'code': 'value_invalid', 'message': 'Fix 1 (drop_rows): row numbers are whole numbers; 1.5 is not one.', 'op_index': 1}
+drop_rows [true]                 -> 400 {'code': 'value_invalid', 'message': 'Fix 1 (drop_rows): row numbers are whole numbers; True is not one.', 'op_index': 1}
+drop_rows [-1]                   -> 400 {'code': 'value_out_of_range', 'message': 'Fix 1 (drop_rows): row -1 is not a row of this version (rows 0 to 2,999).', 'op_index':
+drop_rows [1e30]                 -> 400 {'code': 'value_invalid', 'message': 'Fix 1 (drop_rows): row numbers are whole numbers; 1e+30 is not one.', 'op_index': 1}
+drop_rows [10**12]               -> 400 {'code': 'value_out_of_range', 'message': 'Fix 1 (drop_rows): row 1000000000000 is not a row of this version (rows 0 to 2,999).', 
+drop_rows null                   -> 400 {'code': 'value_invalid', 'message': 'Fix 1 (drop_rows): rows is a non-empty list of row numbers.', 'op_index': 1}
+drop_rows ['3']                  -> 400 {'code': 'value_invalid', 'message': "Fix 1 (drop_rows): row numbers are whole numbers; '3' is not one.", 'op_index': 1}
+-- a real fix, twice (dedupe):
+drop_rows [1,2] #1: 201 ds_8bc2f891 rows 3000->2998 created=True dedup=None
+drop_rows [1,2] #2: 200 ds_8bc2f891 rows 3000->2998 created=False dedup={'existing': 'ds_8bc2f891', 'data_sha256': 'bb548a1cd1a5c55a4f2fb463f6230cb757aa9b9d0db5673621e29d
+-- a no-op fix (relabel row 5 to its own label):
+relabel [5] -> 1: 200 ds_13ca315e created=False dedup={'existing': 'ds_13ca315e', 'reason': 'these fixes change nothing: the version itself is returned'}

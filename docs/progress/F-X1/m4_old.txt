@@ -1,0 +1,15 @@
+rescale from=2^63 factor=2^63    -> 500 b'Internal Server Error'
+rescale factor=2^64              -> 400 rescale needs column, date_column (a column of the table) and from (a date).
+relabel label 2^63               -> 400 {'code': 'value_out_of_range', 'message': 'Fix 1 (relabel), label 1: 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -92
+drop_rows [1.5]                  -> 201 new ds_64baf720 rows 3000->2999 effects [{'op': 'drop_rows', 'reason': None, 'rows': 1}]
+drop_rows [true]                 -> 201 new ds_c91c69fd rows 3000->2999 effects [{'op': 'drop_rows', 'reason': None, 'rows': 1}]
+drop_rows [-1]                   -> 201 new ds_e278590f rows 3000->3000 effects [{'op': 'drop_rows', 'reason': None, 'rows': 0}]
+drop_rows [1e30]                 -> 201 new ds_6d2938e9 rows 3000->3000 effects [{'op': 'drop_rows', 'reason': None, 'rows': 0}]
+drop_rows [10**12]               -> 201 new ds_202c356b rows 3000->3000 effects [{'op': 'drop_rows', 'reason': None, 'rows': 0}]
+drop_rows null                   -> 201 new ds_2550c478 rows 3000->3000 effects [{'op': 'drop_rows', 'reason': None, 'rows': 0}]
+drop_rows ['3']                  -> 201 new ds_4c088384 rows 3000->2999 effects [{'op': 'drop_rows', 'reason': None, 'rows': 1}]
+-- a real fix, twice (dedupe):
+drop_rows [1,2] #1: 201 ds_4629ff51 rows 3000->2998 created=None dedup=None
+drop_rows [1,2] #2: 201 ds_b121a286 rows 3000->2998 created=None dedup=None
+-- a no-op fix (relabel row 5 to its own label):
+relabel [5] -> 0: 201 ds_5b04a51f created=None dedup=None
