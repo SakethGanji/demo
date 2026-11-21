@@ -142,6 +142,6 @@ def holdout_frame(src: Any, splits: dict[str, Any], label: str, drop: list[str])
 
     ref = src if isinstance(src, (frames.Table, frames.JoinFrame, frames.LegacyPath)) else frames.LegacyPath(str(src))
     df = frames.read(ref)  # P03: typed (engine_v1), the same dtypes as the fit's holdout
-    h = df.loc[np.asarray(splits["holdout"], dtype=int)]
+    h = df.iloc[np.asarray(splits["holdout"], dtype=int)]  # P09: holdout entries are read positions (a Parquet index is __row_id)
     h = h[h[label].notna()]
     return h.drop(columns=[c for c in drop if c in h.columns and c != label])

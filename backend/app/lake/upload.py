@@ -862,54 +862,19 @@ def _mask(db, root: str, table: str, problem: dict[str, Any]) -> dict[str, Any]:
     return problem
 
 
-def _write_legacy_bridge(dstore, vid: str, parent: "_Parent", rids: Any, pids: Any, match_rec: dict[str, Any],
-                         by: str, reason: str) -> None:
-    """Until splits are Parquet (P09): the new version's DL4 split JSON, carried by __row_id (matched rows keep the
-    parent's fold and holdout; new rows: splitmix64(__row_id ⊕ seed) for the holdout share, §5.7), and a lineage.json
-    so the CSV-era readers (diff pairing, compare root rows) see the same pairing the manifest records."""
-    import numpy as np
-
-    from .. import config
-    from ..splits import save_splits
-    from . import manifest as M
-
+def _write_lineage_summary(dstore, vid: str, parent: "_Parent", rids: Any, match_rec: dict[str, Any], by: str,
+                           reason: str) -> None:
+    """lineage.json for the CSV-era readers (kind, parent, how rows were matched). P09: the split is a Parquet blob
+    carried by join inside the commit, and a row's identity is its __row_id, so neither a split JSON nor a row map
+    is written any more."""
     d = dstore.dir(vid)
     d.mkdir(parents=True, exist_ok=True)
-    pos_of = {int(r): i for i, r in enumerate(parent.ids.tolist())}
-    parent_rows = [pos_of.get(int(p), -1) if p is not None else -1 for p in pids]
-    sp = parent.split
-    if sp is not None:
-        k = int(sp.get("n_folds") or config.N_FOLDS)
-        ph = set(int(h) for h in sp.get("holdout") or [])
-        pf = sp.get("fold") or []
-        seed = int(sp.get("seed") or config.SEED)
-        mix = M.splitmix64(np.asarray(rids, dtype="int64") ^ np.int64(seed)) if len(rids) else np.zeros(0, dtype="uint64")
-        fold, hold = [], []
-        for i, pp in enumerate(parent_rows):
-            if pp >= 0 and pp < len(pf):
-                fold.append(int(pf[pp]))
-                if pp in ph:
-                    hold.append(i)
-            elif float(mix[i]) / 2 ** 64 < float(config.HOLDOUT_SHARE):
-                fold.append(-1)
-                hold.append(i)
-            else:
-                fold.append(int(mix[i] % np.uint64(k)))
-        new_sp = {k_: v for k_, v in sp.items() if k_ not in ("holdout", "fold", "adopted_from", "created_at", "tuning", "excluded")}
-        new_sp.update(holdout=hold, fold=fold, derived_from=parent.vid,
-                      carried={"from": parent.vid, "by": "__row_id", "kept_holdout": sum(1 for p in parent_rows if p in ph),
-                               "new_rows": sum(1 for p in parent_rows if p < 0), "new_holdout": sum(1 for i in hold if parent_rows[i] < 0)})
-        if sp.get("params"):  # a structured split is not carried row by row: drawn fresh on first use
-            new_sp = None
-        if new_sp is not None:
-            save_splits(dstore.legacy_splits_path(vid), new_sp)
     lin = {"parent": parent.vid, "root": parent.root, "kind": "upload_version", "op": "upload_version",
-           "storage": "parquet", "root_rows": [int(r) for r in rids], "parent_rows": parent_rows,
+           "storage": "parquet", "rows": "__row_id (P09: no row map; the manifest's provenance.ops[].match is the record)",
            "matched_by": match_rec["matched_by"], "row_key": (match_rec.get("columns") or [None])[0]
            if match_rec["method"] in ("key", "declared") and len(match_rec.get("columns") or []) == 1 else None,
            "match": match_rec, "rows_before": int(len(parent.ids)), "rows_after": int(len(rids)), "by": by,
-           **({"reason": reason} if reason else {}),
-           "note": "P06 bridge: __row_id is the root row; the manifest's provenance.ops[].match is the record"}
+           **({"reason": reason} if reason else {})}
     (d / "lineage.json").write_text(json.dumps(lin))
 
 
@@ -1082,6 +1047,16 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
                **({"best_candidate": {"columns": best["columns"], "matched": best["matched"],
                                       "holdout_identity_lost": best["holdout_identity_lost"]}} if best else {})}
         w.extra_ops.append({"op": "upload_version", "table": parent.table, "match": rec})
+        # P09 (§5.7): the parent's split carried by join on __row_id, committed with the version (no JSON bridge)
+        from . import splitstore as SS
+        from .. import config as _cfg
+
+        split_rec = SS.carry_into(w, parent.table, parent.ids, parent.split, _cfg.HOLDOUT_SHARE,
+                                  target_in_child=parent.target in new_cols, parent_vid=parent.vid)
+        if split_rec:
+            from .derive import no_floats
+
+            w.extra_ops.append(no_floats({"op": "split_carried", "table": parent.table, **split_rec}))
         w.warnings = warns
         out = w.commit(make_default=make_default, target=target, kind="tabular",
                        note=f"Uploaded file {f['filename']} as the next version of {parent.vid}: {chosen['matched']:,} rows "
@@ -1090,7 +1065,7 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
     vid = out["version_id"]
     created = not out.get("deduped")
     if created and dstore is not None:
-        _write_legacy_bridge(dstore, vid, parent, rids, pids, rec, by, reason or plan.get("reason") or "")
+        _write_lineage_summary(dstore, vid, parent, rids, rec, by, reason or plan.get("reason") or "")
     _keep_source(db, store, tmp / f["src"], f, up, vid)
     _mark_committed(db, up, vid)
     with db.connect() as con:

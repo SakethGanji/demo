@@ -690,14 +690,19 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
                 from ..lake import verify as LV
 
                 lv = LV.verify_version(app.state.db, app.state.lake, r["id"])
-                data_ok = bool(lv["ok"])
+                data_ok = bool(lv["data_ok"])
                 now_sha = r["sha256"] if data_ok else None  # the version hash is recomputed from its parts; a part that differs breaks it
-                status = "ok" if data_ok else "MISMATCH: " + "; ".join(lv.get("problems") or [])[:300]
+                status = "ok" if data_ok else "MISMATCH: " + "; ".join(p for p in lv.get("problems") or []
+                                                                        if not p.startswith("split "))[:300]
             else:
                 now_sha = file_sha256(frames.version_file(r["id"]))
                 data_ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
                 status = "ok" if data_ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
-            splits = store.check_splits(r["id"])  # DL4 (M-d): the holdout and folds are checked like data.csv
+            if r.get("storage") == "parquet":  # P09: the five checks per Parquet split
+                splits = [{"file": f"{x['split_key']} ({x['id']})", "status": x["status"], "stored": None, "now": None,
+                           "failed": x["failed"], "checks": x["checks"]} for x in lv["splits"]]
+            else:
+                splits = store.check_splits(r["id"])  # DL4 (M-d): CSV-era versions keep the split JSON hashes until P10
             bad_splits = [x for x in splits if x["status"] != "ok"]
             ok = data_ok and not bad_splits
             if data_ok and bad_splits:
@@ -711,13 +716,20 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
                 remedy.append(f"The file was changed outside the app and is not trusted. Create a new version from it "
                               f"(POST /api/datasets/{r['id']}/adopt-disk-file with by and reason), and restore v{r['v']}'s "
                               "file from an export or backup.")
-            if bad_splits:
+            if bad_splits and r.get("storage") == "parquet":
+                remedy.append(f"{', '.join(x['file'] for x in bad_splits)} (which rows are held out, and the folds) fails "
+                              + "; ".join(f"check {c['n']} {c['check']}: {c['detail']}" for x in bad_splits for c in x.get("checks") or []
+                                          if not c["ok"])[:600]
+                              + ". POST /api/datasets/" + r["id"] + "/restore-splits (with by and reason) offers the split the earliest run "
+                              "used, from that run's pinned blob.")
+            elif bad_splits:
                 remedy.append(f"{', '.join(x['file'] for x in bad_splits)} (which rows are held out, and the folds) changed outside the "
                               "app. Restore the split as it was drawn (POST /api/datasets/" + r["id"] + "/restore-splits with by and "
                               "reason: written back from the copy recorded when it was drawn, hash-checked).")
             out.append({"id": r["id"], "v": r["v"], "ok": ok, "status": status, "stored": r["sha256"], "now": now_sha,
                         "data_ok": data_ok, "splits_sha256": r.get("splits_sha256"),
-                        "splits": [{k: x[k] for k in ("file", "status", "stored", "now")} for x in splits],
+                        "splits": [{k: x.get(k) for k in ("file", "status", "stored", "now", "failed", "checks") if k in x}
+                                   for x in splits],
                         **({"remedy": " ".join(remedy)} if remedy else {})})
         bad = [x for x in out if x["ok"] is False]
         audit(con, by, "dataset_integrity_failed" if bad else "dataset_verified",

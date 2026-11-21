@@ -82,16 +82,22 @@ def verify_version(db, store: BlobStore, version_id: str) -> dict[str, Any]:
                 problems.append("the manifest and the DB list different tables")
     if mstatus != "ok":
         problems.append(f"manifest: {mstatus}")
-    checked_splits = []
+    # P09 (§4.3): every split of the version through the five checks (blob, split_sha256, audit row, earlier runs, carry)
+    from . import splitstore as SS
+
+    data_problems = list(problems)
+    checked_splits, split_problems = [], []
     for s in splits:
-        now = _rehash(store, s["key"])
-        st = "ok" if now == s["blob_sha256"] else ("missing" if now is None else "MISMATCH")
-        if st == "ok":
-            sh, _ = M.split_sha256_parquet(store.local_copy(s["key"]))
-            st = "ok" if sh == s["split_sha256"] else "SPLIT HASH MISMATCH"
-        checked_splits.append({"id": s["id"], "status": st})
-        if st != "ok":
-            problems.append(f"split {s['id']}: {st}")
+        row = SS.get_by_id(db, s["id"])
+        chk = SS.integrity(db, store, row) if row else {"ok": False, "failed": ["row"], "checks": []}
+        checked_splits.append({"id": s["id"], "split_key": chk.get("split_key"), "table": chk.get("table"),
+                               "status": "ok" if chk["ok"] else "FAILED: " + ", ".join(
+                                   f"check {c['n']} {c['check']}" for c in chk["checks"] if not c["ok"]),
+                               "failed": chk["failed"], "checks": chk["checks"]})
+        for c in chk["checks"]:
+            if not c["ok"]:
+                split_problems.append(f"split {s['id']} ({chk.get('split_key')}): check {c['n']} {c['check']}: {c['detail']}")
+    problems += split_problems
     ok = not problems
     at = S.now()
     with db.connect() as con:
@@ -100,4 +106,5 @@ def verify_version(db, store: BlobStore, version_id: str) -> dict[str, Any]:
         con.execute("UPDATE datasets SET verified_at = ?, verified_ok = ? WHERE id = ?", (at, int(ok), version_id))
     return {"id": version_id, "root_id": v["root_id"], "storage": v["storage"], "ok": ok,
             "status": "ok" if ok else "MISMATCH", "manifest_sha256": v["manifest_sha256"], "manifest": mstatus,
-            "files": checked_files, "splits": checked_splits, "problems": problems, "verified_at": at}
+            "files": checked_files, "splits": checked_splits, "problems": problems, "data_ok": not data_problems,
+            "splits_ok": not split_problems, "verified_at": at}

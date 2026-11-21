@@ -573,6 +573,8 @@ async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]
     this version whose bytes differ from the copy recorded when it was drawn is written back (the copy is hash-checked
     first), the version is verified again, and both steps are audited. The data file is not touched."""
     body = body if isinstance(body, dict) else {}
+    if frames.is_parquet(dataset_id):
+        return await _restore_lake_splits(dataset_id, request, body)
     who = _who(body.get("by"))
     reason = _text(body, "reason", 5, 500, True)
     rec = _live(request, dataset_id)
@@ -589,6 +591,33 @@ async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]
                        "before": [{k: x[k] for k in ("file", "status", "stored", "now")} for x in before]})
     check = await _thread(D.verify, request.app, dataset_id, who)
     return {"dataset_id": dataset_id, "restored": restored, "verify": check}
+
+
+async def _restore_lake_splits(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """P09 (§4.3): restore from run pins. Without `blob_sha256` it only offers: per failing split, the split the
+    earliest run on it used (that run's pinned blob, re-hashed). With {split_key, blob_sha256, by, reason} it puts
+    that split back (the failing row is replaced in one audited transaction) and verifies the version again."""
+    from ..lake import splitstore as SS
+
+    _live(request, dataset_id)
+    db, lake = request.app.state.db, request.app.state.lake
+    offers = await _thread(SS.restore_offer, db, lake, dataset_id)
+    if not body.get("blob_sha256"):
+        if not offers:
+            raise HTTPException(409, {"code": "nothing_to_restore", "message": f"Every split of {dataset_id} passes its five "
+                                      "checks: nothing to restore."})
+        return {"dataset_id": dataset_id, "applied": False, "offers": offers,
+                "how": "send {split_key, blob_sha256, by, reason} to put the offered split back (audited)"}
+    who = _who(body.get("by"))
+    reason = _text(body, "reason", 5, 500, True)
+    key = str(body.get("split_key") or (offers[0]["split_key"] if len(offers) == 1 else ""))
+    try:
+        res = await _thread(SS.restore, db, lake, dataset_id, split_key=key, blob_sha256=str(body["blob_sha256"]), by=who,
+                            reason=reason)
+    except SS.SplitError as e:
+        raise HTTPException(e.status, e.payload) from e
+    check = await _thread(D.verify, request.app, dataset_id, who)
+    return {"dataset_id": dataset_id, "applied": True, **res, "verify": check}
 
 
 @router.post("/datasets/match")

@@ -142,9 +142,11 @@ def sample_truth(datasets: Any, dataset_id: str) -> tuple[np.ndarray, str] | Non
         truth[int(f["row"])] = str(f["true_label"])
     if dataset_id == root:
         return truth, "label_noise.json of the support-tickets sample (given labels with the 300 planted flips undone)"
-    rr = lin.get("root_rows")
+    from ..lake import splitstore as SS
+
+    rr = SS.row_ids(datasets.db, datasets, dataset_id)  # P09: __row_id on a Parquet version, the lineage row map on a CSV-era one
     n = (datasets.db.get_dataset(dataset_id) or {}).get("rows")
-    if not rr or len(rr) != n:
+    if rr is None or len(rr) != n or (len(rr) and int(rr.max()) >= len(truth)):
         return None
     _ = samples  # the classes and look-alikes live there
     return truth[np.asarray(rr, dtype=int)], "label_noise.json of the support-tickets sample, mapped through the version's lineage"

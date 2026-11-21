@@ -53,8 +53,15 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     h = frames.ReadHash()  # DL3 (M1): hash exactly the bytes this fit reads; P05: per Parquet part → table_sha256
     df = frames.read(frames.resolve(cfg), hash_into=h)  # P03: the typed reader, engine_v1 (text stays text)
     data_sha256 = h.hexdigest()
-    split_raw = Path(cfg["splits_path"]).read_bytes()  # DL4 (M-d): hash exactly the split this fit uses
-    splits = json.loads(split_raw)
+    pin = cfg.get("split_pin") or {}
+    split_read: dict[str, Any] | None = None
+    if pin.get("blob_sha256"):  # P09: the pinned Parquet split, read (and hashed) from its blob, mapped by __row_id
+        splits, split_read = _pinned_split(cfg, pin, df)
+        splits_sha = split_read["split_sha256"]
+    else:
+        split_raw = Path(cfg["splits_path"]).read_bytes()  # DL4 (M-d): hash exactly the split this fit uses
+        splits = json.loads(split_raw)
+        splits_sha = hashlib.sha256(split_raw).hexdigest()
     label = cfg["label"]
     fold = np.asarray(splits["fold"], dtype=int)
     is_holdout = holdout_mask(splits, len(df))
@@ -73,7 +80,7 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "dropped_missing_label_train": int((~is_holdout & ~has_label).sum()),
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
         "dropped_columns": drop, "features": [c for c in train.columns if c != label], "label": label,
-        "data_sha256": data_sha256, "splits_sha256": hashlib.sha256(split_raw).hexdigest(),
+        "data_sha256": data_sha256, "splits_sha256": splits_sha, **({"split_read": split_read} if split_read else {}),
         "read": {"kind": h.kind, "mode": "engine_v1", **({"table_sha256": data_sha256, "parts": len(h.parts),
                                                          "parts_differing": h.bad_parts} if h.kind == "parquet" else {})},
     }
@@ -81,7 +88,7 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         info["tuning_rows"] = 0 if tuning is None else len(tuning)
         info["excluded_rows"] = int(is_excluded.sum())
         if splits.get("strategy") in ("group", "time-group"):
-            train[GROUP_FOLD_COLUMN] = fold[train.index.to_numpy()]
+            train[GROUP_FOLD_COLUMN] = fold[is_train & has_label]  # by position (a Parquet index is __row_id)
             info["group_folds"] = {"column": GROUP_FOLD_COLUMN, "group_column": splits["params"]["group_column"],
                                    "rows": [int((train[GROUP_FOLD_COLUMN] == k).sum()) for k in range(splits["n_folds"])]}
     if cfg.get("split"):  # F4: the (label, strategy) split this run uses
@@ -570,6 +577,40 @@ def _decide_threshold(cfg: dict[str, Any], predictor, train: pd.DataFrame, emit)
 
 
 
+def _pinned_split(cfg: dict[str, Any], pin: dict[str, Any], df: pd.DataFrame) -> tuple[dict[str, Any], dict[str, Any]]:
+    """P09: the split this run pinned at queue time, read from its content-addressed blob (not from the view file): its
+    split_sha256 recomputed from the bytes read, its folds joined onto the frame's rows by __row_id. The positional view
+    at cfg.splits_path is rewritten from it, so every later reader of the run sees the verified split."""
+    from .. import frames
+    from ..lake import manifest as LM
+    from ..lake import splitstore as SS
+
+    db = Database(Path(cfg["db_path"]))
+    lake = frames._store()
+    key = SS._blob_key(db, pin["blob_sha256"])
+    if not key or not lake.exists(key):
+        raise DataIntegrityError(f"split_integrity: the split blob this run pinned ({pin['blob_sha256'][:12]}…) is missing from the lake.")
+    with lake.open(key) as fh:
+        bsha = LM.file_sha256(fh)[0]
+    ssha, n = LM.split_sha256_parquet(lake.local_copy(key))
+    ids, folds = SS.read_blob(lake, key)
+    rid = np.asarray(df.index, dtype="int64")
+    if len(rid) != len(ids) or not np.array_equal(np.sort(rid), ids):
+        raise DataIntegrityError(f"split_integrity: the pinned split covers {len(ids):,} rows, the table read has {len(rid):,}; "
+                                 "they are not the same rows.")
+    pos = np.searchsorted(ids, rid)
+    row = SS.get_by_id(db, pin["split_id"]) or {**{k: None for k in ("params_json",)}, "id": pin["split_id"],
+                                                 "seed": 42, "target": cfg.get("label"), "strategy": "random-stratified",
+                                                 "split_key": pin.get("split_key"), "holdout_share": "0.2", "n_folds": 5,
+                                                 "created_at": None, "split_sha256": ssha, "blob_sha256": pin["blob_sha256"],
+                                                 "table_name": pin.get("table")}
+    sp = SS.view({**row, "split_sha256": ssha, "blob_sha256": pin["blob_sha256"]}, folds[pos])
+    if cfg.get("splits_path"):
+        SS.write_view(Path(cfg["splits_path"]), sp)
+    return sp, {"split_id": pin["split_id"], "split_sha256": ssha, "blob_sha256": bsha, "blob_ok": bsha == pin["blob_sha256"],
+                "rows": int(n), "pinned_split_sha256": pin.get("split_sha256")}
+
+
 class DataIntegrityError(RuntimeError):
     """DL3 (M1): the bytes on disk are not the version's: the fit is refused."""
 
@@ -589,13 +630,17 @@ def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str
         with store.db.connect() as con:
             if con.execute("SELECT 1 FROM run_inputs WHERE run_id = ? AND role = 'train'", (run_id,)).fetchone():
                 return
+            pin = cfg.get("split_pin") or {}  # P09: the split this run read (the pinned blob's recomputed split_sha256)
             con.execute(
                 "INSERT INTO run_inputs (id, run_id, role, version_id, table_name, table_sha256, read_sha256, match,"
-                " legacy_csv_sha256, split_legacy_sha256, read_mode, rows_total, rows_used, columns_dropped, created_at)"
-                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?)",
+                " legacy_csv_sha256, split_id, split_sha256, split_legacy_sha256, read_mode, rows_total, rows_used,"
+                " columns_dropped, created_at)"
+                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?)",
                 ("ri_" + _secrets.token_hex(6), run_id, cfg.get("dataset_id"), it.get("table") or "data",
                  it.get("table_sha256") if parquet else None, sha, None if ok is None else int(ok),
-                 None if parquet else (cfg.get("data_sha256_expected") or sha), cfg.get("splits_sha256_expected"),
+                 None if parquet else (cfg.get("data_sha256_expected") or sha),
+                 pin.get("split_id"), (info or {}).get("splits_sha256") if pin else None,
+                 None if pin else cfg.get("splits_sha256_expected"),
                  (info or {}).get("rows"), (info or {}).get("train_rows"),
                  json.dumps((info or {}).get("dropped_columns") or cfg.get("drop_columns") or []), _now()))
     except Exception as e:  # noqa: BLE001 - the record must not cost the run; the gate below still decides
@@ -658,9 +703,33 @@ def splits_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: s
     the fit (audited; the version is flagged) unless an admin armed an override."""
     from ..catalog.schema import audit, now as _now
 
-    exp = cfg.get("splits_sha256_expected")
-    ok = None if not exp else (sha == exp)
-    rec = {"splits_sha256": sha, "expected": exp, "match": ok, "file": cfg.get("splits_file")}
+    pin = cfg.get("split_pin") or {}
+    chk = None
+    if pin.get("split_id"):  # P09: the five checks again at fit, plus "the bytes read are the pinned split"
+        from .. import frames
+        from ..lake import splitstore as SS
+
+        row = SS.get_by_id(store.db, pin["split_id"])
+        exp = pin.get("split_sha256")
+        if row is None:
+            chk = {"ok": False, "failed": ["row"], "message": f"split_integrity: split {pin['split_id']} is no longer in the splits table"}
+        else:
+            chk = SS.integrity(store.db, frames._store(), row, exclude_run=run_id)
+        ok = bool(chk["ok"]) and sha == exp
+        if chk["ok"] and sha != exp:
+            chk["message"] = f"split_integrity: the split read ({str(sha)[:12]}…) is not the one pinned at queue time ({str(exp)[:12]}…)"
+        rec = {"splits_sha256": sha, "expected": exp, "match": ok, "split_id": pin["split_id"], "storage": "parquet",
+               "checks": [{k: c.get(k) for k in ("n", "check", "ok", "detail")} for c in (chk.get("checks") or [])],
+               "failed": chk.get("failed")}
+        ov0 = cfg.get("data_integrity_override") or {}
+        if not ok and ov0.get("by"):
+            rec["override"] = {"by": ov0["by"]}
+    else:
+        exp = cfg.get("splits_sha256_expected")
+        ok = None if not exp else (sha == exp)
+        rec = {"splits_sha256": sha, "expected": exp, "match": ok, "file": cfg.get("splits_file")}
+        if ok is False and (cfg.get("data_integrity_override") or {}).get("by"):
+            rec["override"] = {"by": cfg["data_integrity_override"]["by"]}
     store.merge_result(run_id, splits_sha256=sha, splits_integrity=rec)
     with store.db.connect() as con:
         con.execute("UPDATE runs SET config = json_set(config, '$.splits_sha256', ?) WHERE id = ?", (sha, run_id))
@@ -688,6 +757,10 @@ def splits_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: s
         emit("log", level="warning", logger="ensemble",
              message=f"the split file of {label} differs from when it was drawn: training anyway on {ov['by']}'s override")
         return
+    if chk is not None:
+        raise DataIntegrityError(str(chk.get("message") or "split_integrity") + ". The run was refused at fit: GET /api/datasets/"
+                                 f"{ds}/verify names the check; POST …/restore-splits offers the split the earliest run used; an "
+                                 "admin may train anyway with integrity_override_reason (audited).")
     raise DataIntegrityError(
         f"the split file of version {label} ({cfg.get('splits_file')}: which rows are held out, and the folds) differs from when it "
         f"was drawn: sha256 {exp[:12]}… then, {sha[:12]}… now. It was changed outside the app, so this run was refused: its "

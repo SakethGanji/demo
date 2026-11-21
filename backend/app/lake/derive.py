@@ -243,53 +243,27 @@ def reorder_split(sp: dict[str, Any], order: np.ndarray) -> dict[str, Any]:
     return out
 
 
-def carry_split(parent: ParentRows, parent_rows: np.ndarray, ids: np.ndarray, new_holdout_share: float) -> dict[str, Any] | None:
-    """The parent's split carried by __row_id (rows in read order): a kept row keeps its fold and holdout; a new row
-    goes to the holdout when splitmix64(__row_id ⊕ seed) falls under `new_holdout_share` (§5.7), else to a fold by
-    the same hash. A structured split (group / time) is not carried: it is drawn fresh on first use."""
-    from .. import config
-    from . import manifest as M
+def split_into(w, parent: ParentRows, table: str, ids_read_order: np.ndarray, given: dict[str, Any] | None,
+               new_holdout_share: float, *, target_in_child: bool = True) -> dict[str, Any] | None:
+    """P09 (§5.7): the new version's split, committed with it by the writer (replaces the P06/P07 DL4 JSON bridge).
+    A caller's split (by read position) is written as given; otherwise the parent's split is carried by a join on
+    `__row_id` (kept rows keep their fold; new rows get splitmix64(__row_id ⊕ seed)). A structured split is drawn fresh
+    on first use."""
+    from . import splitstore as SS
 
-    sp = parent.split
-    if sp is None or sp.get("params"):
-        return None
-    k = int(sp.get("n_folds") or config.N_FOLDS)
-    ph = set(int(h) for h in sp.get("holdout") or [])
-    pf = sp.get("fold") or []
-    seed = int(sp.get("seed") or config.SEED)
-    mix = M.splitmix64(np.asarray(ids, dtype="int64") ^ np.int64(seed)) if len(ids) else np.zeros(0, dtype="uint64")
-    fold, hold = [], []
-    for i, pp in enumerate(parent_rows.tolist()):
-        if 0 <= pp < len(pf):
-            fold.append(int(pf[pp]))
-            if pp in ph:
-                hold.append(i)
-        elif new_holdout_share and float(mix[i]) / 2 ** 64 < float(new_holdout_share):
-            fold.append(-1)
-            hold.append(i)
-        else:
-            fold.append(int(mix[i] % np.uint64(k)))
-    new_sp = {k_: v for k_, v in sp.items() if k_ not in ("holdout", "fold", "adopted_from", "created_at", "tuning", "excluded")}
-    new_sp.update(holdout=hold, fold=fold, derived_from=parent.vid,
-                  carried={"from": parent.vid, "by": "__row_id", "kept_holdout": sum(1 for p in parent_rows.tolist() if p in ph),
-                           "new_rows": int((parent_rows < 0).sum()),
-                           "new_holdout": sum(1 for i in hold if parent_rows[i] < 0)})
-    return new_sp
+    if given is not None:
+        return SS.given_into(w, table, ids_read_order, given, parent.ids, parent.split)
+    return SS.carry_into(w, table, parent.ids, parent.split, new_holdout_share, target_in_child=target_in_child,
+                         parent_vid=parent.vid)
 
 
-def legacy_bridge(dstore, vid: str, ids: np.ndarray, parent_rows: np.ndarray, lineage: dict[str, Any],
-                  splits: dict[str, Any] | None) -> None:
-    """Until P09: the new version's DL4 split JSON (by read position) and a lineage.json whose root_rows are the
-    __row_ids (so the CSV-era readers, diff pairing and compare root rows, pair on the rows the manifest records)."""
+def lineage_summary(dstore, vid: str, lineage: dict[str, Any]) -> None:
+    """lineage.json of a derived Parquet version: what happened, for the CSV-era readers that look there (kind, parent,
+    version). P09: it no longer carries row maps; a row's identity is its `__row_id`."""
     import json
-
-    from ..splits import save_splits
 
     d = dstore.dir(vid)
     d.mkdir(parents=True, exist_ok=True)
-    lin = {**lineage, "storage": "parquet", "root_rows": [int(r) for r in ids], "parent_rows": [int(p) for p in parent_rows],
-           "note": "P07 bridge: __row_id is the root row; the manifest's provenance is the record"}
+    lin = {k: v for k, v in lineage.items() if k != "parent_rows"}
+    lin.update(storage="parquet", rows="__row_id (P09: no row map; the manifest's provenance is the record)")
     (d / "lineage.json").write_text(json.dumps(lin, default=str))
-    if splits is not None:
-        save_splits(dstore.legacy_splits_path(vid), splits)
-        dstore.record_split_file(vid, dstore.legacy_splits_path(vid), "drawn with the version")

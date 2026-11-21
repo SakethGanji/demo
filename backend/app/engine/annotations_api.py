@@ -375,9 +375,12 @@ def make_version(run_id: str, request: Request) -> dict[str, Any]:
     src = rec["dataset_id"]
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     parent_lin = ds.lineage(src) or {}
-    root_rows = parent_lin.get("root_rows") or list(range(len(df)))
+    from ..lake import splitstore as SS
+
+    rr = SS.row_ids(ds.db, ds, src)  # P09: __row_id on a Parquet version, the lineage row map on a CSV-era one
+    roots = rr.tolist() if rr is not None else list(range(len(df)))
     for ch in changes:
-        ch["root_row"] = int(root_rows[ch["row"]]) if len(root_rows) == len(df) else ch["row"]
+        ch["root_row"] = int(roots[ch["row"]]) if len(roots) == len(df) else ch["row"]
     versions = st.get("versions") or []
     extra = {"version": int(parent_lin.get("version") or 1) + 1,
              "annotations": {"run_id": run_id, "method": "crowdlab", "rows": int(len(d["rows"])),
