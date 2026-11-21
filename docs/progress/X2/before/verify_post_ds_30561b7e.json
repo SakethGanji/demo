@@ -1,0 +1,33 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_30561b7e",
+    "now": "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771",
+    "ok": true,
+    "splits": [
+     {
+      "file": "splits.json",
+      "now": "836779b1aaea4fc8afc2e0416242db49f0beb9e83bfd9dd5f24fca49cbd30b0f",
+      "status": "ok",
+      "stored": "836779b1aaea4fc8afc2e0416242db49f0beb9e83bfd9dd5f24fca49cbd30b0f"
+     },
+     {
+      "file": "splits/random-stratified__y-95cb0bfd.json",
+      "now": "836779b1aaea4fc8afc2e0416242db49f0beb9e83bfd9dd5f24fca49cbd30b0f",
+      "status": "ok",
+      "stored": "836779b1aaea4fc8afc2e0416242db49f0beb9e83bfd9dd5f24fca49cbd30b0f"
+     }
+    ],
+    "splits_sha256": "6d5e30c49784b34ed9d3e2ad36bdc0cdd61a7c12b1fc24f1d4ea5078e25eeb00",
+    "status": "ok",
+    "stored": "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771",
+    "v": 6
+   }
+  ],
+  "root_id": "ds_3d74a646"
+ },
+ "status": 200
+}

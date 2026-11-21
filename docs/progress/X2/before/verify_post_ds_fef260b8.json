@@ -1,0 +1,33 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_fef260b8",
+    "now": "10a143b0330a21f1a2059797df00ec219bfd1ea8e5c10ee7f14258461b465347",
+    "ok": true,
+    "splits": [
+     {
+      "file": "splits.json",
+      "now": "9c8efd2b619d7cb311621c7862dd84eca617d110e4a30e47cd2e6d57e91763c2",
+      "status": "ok",
+      "stored": "9c8efd2b619d7cb311621c7862dd84eca617d110e4a30e47cd2e6d57e91763c2"
+     },
+     {
+      "file": "splits/random-stratified__churn-bafb5b68.json",
+      "now": "9c8efd2b619d7cb311621c7862dd84eca617d110e4a30e47cd2e6d57e91763c2",
+      "status": "ok",
+      "stored": "9c8efd2b619d7cb311621c7862dd84eca617d110e4a30e47cd2e6d57e91763c2"
+     }
+    ],
+    "splits_sha256": "4eaa39ef93362e4ab0ebadccb3baabc16763cbe64cfaf4d886553b104a994da0",
+    "status": "ok",
+    "stored": "10a143b0330a21f1a2059797df00ec219bfd1ea8e5c10ee7f14258461b465347",
+    "v": 2
+   }
+  ],
+  "root_id": "ds_2e281f4a"
+ },
+ "status": 200
+}

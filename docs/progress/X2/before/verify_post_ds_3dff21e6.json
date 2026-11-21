@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_3dff21e6",
+    "now": "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd",
+    "v": 1
+   }
+  ],
+  "root_id": "ds_3dff21e6"
+ },
+ "status": 200
+}

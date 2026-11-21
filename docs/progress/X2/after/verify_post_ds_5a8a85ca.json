@@ -1,0 +1,73 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_5a8a85ca",
+    "now": "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964",
+    "ok": true,
+    "splits": [
+     {
+      "file": "splits/random-stratified__y-95cb0bfd.json",
+      "now": "993ea938109c6c7722ab4348641dac8cd1eb3df55fc31a03d865e79d9e62cb3b",
+      "status": "ok",
+      "stored": "993ea938109c6c7722ab4348641dac8cd1eb3df55fc31a03d865e79d9e62cb3b"
+     }
+    ],
+    "splits_sha256": "7fe008c90a2a62c6b15d868eb27b64f61e0ef38cf5190fd44dd6d70ff57b7894",
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "641e31fbd2134ee787946411a7d8f7912ba636bd73b313533a4fca5c8797fa6d",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/d4/d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964.csv",
+      "csv_reproducible": true,
+      "now": "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__y-95cb0bfd.json",
+        "recorded": "993ea938109c6c7722ab4348641dac8cd1eb3df55fc31a03d865e79d9e62cb3b",
+        "sha256": "993ea938109c6c7722ab4348641dac8cd1eb3df55fc31a03d865e79d9e62cb3b",
+        "split_id": "spl_124ff234502e",
+        "split_sha256": "d4585ccae0ac7daccc2d2415cf98947c30299de73adb2f0b420f8ab5ec6b94f0"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "14839563c998401a2d7c8e0facb6f57f3ba6f66277ac00513396b29b51db27d9",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964"
+     },
+     "manifest_sha256": "18372cfc5ea41b7742591a76503a41d0e4b6d5324aed064c5f330a2b2f23354d",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_124ff234502e",
+       "split_key": "random-stratified__y-95cb0bfd",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964",
+    "v": 1
+   }
+  ],
+  "root_id": "ds_5a8a85ca"
+ },
+ "status": 200
+}

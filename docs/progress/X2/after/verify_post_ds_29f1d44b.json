@@ -1,0 +1,79 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_29f1d44b",
+    "now": "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a",
+    "ok": true,
+    "splits": [
+     {
+      "file": "splits.json",
+      "now": "55821693650644a4969e9322191f0e3c1d84ccc183e3b34d510abcc7a30665e6",
+      "status": "ok",
+      "stored": "55821693650644a4969e9322191f0e3c1d84ccc183e3b34d510abcc7a30665e6"
+     },
+     {
+      "file": "splits/random-stratified__y-95cb0bfd.json",
+      "now": "47e5df80a38be49a5a7d438002374956555c32cd2e88ff35a24c80672ae6241d",
+      "status": "ok",
+      "stored": "47e5df80a38be49a5a7d438002374956555c32cd2e88ff35a24c80672ae6241d"
+     }
+    ],
+    "splits_sha256": "d110624cccda85985a835b04ade6e26c3bb888bb7a15d6c03602c2c6c71c3b09",
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/2f/2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a.csv",
+      "csv_reproducible": true,
+      "now": "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a",
+      "read": "frame_io.read+schema.json",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__y-95cb0bfd.json",
+        "recorded": "47e5df80a38be49a5a7d438002374956555c32cd2e88ff35a24c80672ae6241d",
+        "sha256": "47e5df80a38be49a5a7d438002374956555c32cd2e88ff35a24c80672ae6241d",
+        "split_id": "spl_70cfa315b9e8",
+        "split_sha256": "fe1611bf0b908f100999af7d0ab54d6b2b4b42e2f31ef283542a07f683b2f4f9"
+       },
+       {
+        "file": "splits.json",
+        "recorded": "55821693650644a4969e9322191f0e3c1d84ccc183e3b34d510abcc7a30665e6",
+        "sha256": "55821693650644a4969e9322191f0e3c1d84ccc183e3b34d510abcc7a30665e6",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"
+     },
+     "manifest_sha256": "d47444b254469ea015f90480b77b72af4afd8e43909ccee77be8b5367067d948",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_70cfa315b9e8",
+       "split_key": "random-stratified__y-95cb0bfd",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a",
+    "v": 1
+   }
+  ],
+  "root_id": "ds_29f1d44b"
+ },
+ "status": 200
+}
