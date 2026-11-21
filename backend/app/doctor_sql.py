@@ -72,7 +72,7 @@ class _Chain:
         return dict(self.cols)[c]
 
     def one(self, sql: str) -> Any:
-        return self.con.execute(sql).fetchone()[0]
+        return self.con.execute(sql).fetchall()[0][0]
 
     def count(self, where: str = "TRUE") -> int:
         """Rows of the current view where `where` holds (columns as s."name" or bare)."""
@@ -214,7 +214,7 @@ def compile_fixes(con: Any, base_sql: str, ids: np.ndarray, transforms: list[dic
             for c, ty in ch.cols:  # data_doctor._row_keys: unique per row, never missing, not a float
                 if ty.upper() in FLOAT_TYPES:
                     continue
-                nn, nd = ch.con.execute(f"SELECT count({q(c)}), count(DISTINCT {q(c)}) FROM {ch.cur}").fetchone()
+                nn, nd = ch.con.execute(f"SELECT count({q(c)}), count(DISTINCT {q(c)}) FROM {ch.cur}").fetchall()[0]
                 if n0 > 1 and nn == n0 and nd == n0:
                     keys.append(c)
             content = [c for c in ch.names if c not in keys] or ch.names
@@ -326,7 +326,7 @@ def apply(store: Any, dataset_id: str, transforms: Any, *, by: str | None, ackno
         one_class = None
         if target and target in ch.names:
             nb = int(ch.one(f"SELECT count(DISTINCT {q(target)}) FROM _d0"))
-            na, left = ch.con.execute(f"SELECT count(DISTINCT {q(target)}), min({q(target)})::VARCHAR FROM {ch.cur}").fetchone()
+            na, left = ch.con.execute(f"SELECT count(DISTINCT {q(target)}), min({q(target)})::VARCHAR FROM {ch.cur}").fetchall()[0]
             one_class = guard_one_class_counts(nb, int(na), [left] if left is not None else [], target, acknowledge,
                                                what="These fixes leave")
         names = ch.names
