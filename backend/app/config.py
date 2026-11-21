@@ -31,6 +31,18 @@ class Settings:
     def runs_dir(self) -> Path:
         return self.data_dir / "runs"
 
+    @property
+    def lake_dir(self) -> Path:
+        """P02: the LocalBlobStore root (blobs/, tmp/, exports/). ENSEMBLE_LAKE_DIR overrides it."""
+        v = os.environ.get("ENSEMBLE_LAKE_DIR")
+        return Path(v).resolve() if v else self.data_dir / "lake"
+
+    @property
+    def duck_spill_dir(self) -> Path:
+        """P02: DuckDB spill files (put it on its own volume in a shared deployment). ENSEMBLE_DUCK_SPILL_DIR overrides it."""
+        v = os.environ.get("ENSEMBLE_DUCK_SPILL_DIR")
+        return Path(v).resolve() if v else self.data_dir / "tmp" / "duck"
+
 
 def load_settings() -> Settings:
     data_dir = Path(os.environ.get("ENSEMBLE_DATA_DIR", BACKEND_DIR / "data")).resolve()
@@ -76,3 +88,62 @@ def verify_every_hours() -> float | None:
     except ValueError:
         return None
     return v if v > 0 else None
+
+
+def _env_num(name: str, default: float, lo: float | None = None) -> float:
+    try:
+        v = float(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+    return default if lo is not None and v < lo else v
+
+
+# == P02: the lake (docs/plans/data-platform-final.md §3, §5.2, §5.10; B §5.1) ========================================
+
+#: 'local' (LocalBlobStore under Settings.lake_dir) is the only store until P10b adds 's3' (MinIO).
+def lake_store_kind() -> str:
+    return (os.environ.get("ENSEMBLE_LAKE_STORE") or "local").strip().lower()
+
+
+#: DuckDB limits (B §5.1). Interactive = one process-wide connection shared by API requests; job = one per job.
+def duck_interactive_mb() -> int:
+    return int(_env_num("ENSEMBLE_DUCK_INTERACTIVE_MB", 512, 64))
+
+
+def duck_interactive_threads() -> int:
+    return int(_env_num("ENSEMBLE_DUCK_INTERACTIVE_THREADS", 2, 1))
+
+
+def duck_interactive_slots() -> int:
+    """How many interactive queries may run at once (the semaphore)."""
+    return int(_env_num("ENSEMBLE_DUCK_INTERACTIVE_SLOTS", 8, 1))
+
+
+def duck_interactive_timeout_s() -> float:
+    """An interactive query is interrupted after this many seconds."""
+    return _env_num("ENSEMBLE_DUCK_INTERACTIVE_TIMEOUT_S", 10.0, 0.1)
+
+
+def duck_job_mb() -> int:
+    return int(_env_num("ENSEMBLE_DUCK_JOB_MB", 2048, 64))
+
+
+def duck_job_threads() -> int:
+    return int(_env_num("ENSEMBLE_DUCK_JOB_THREADS", max(1, (os.cpu_count() or 2) // 2), 1))
+
+
+def duck_spill_gb() -> float:
+    """max_temp_directory_size per connection: a query that would spill more fails instead of filling the disk."""
+    return _env_num("ENSEMBLE_DUCK_SPILL_GB", 20.0, 0.1)
+
+
+#: §3.1 / A §2.5: table parts. Row groups of 122 880 rows (30 720 above 200 columns); at most 8M rows per part.
+PART_MAX_ROWS = int(_env_num("ENSEMBLE_LAKE_PART_MAX_ROWS", 8_000_000, 1000))
+ROW_GROUP_ROWS, ROW_GROUP_ROWS_WIDE, WIDE_COLS = 122_880, 30_720, 200
+PARQUET_COMPRESSION, PARQUET_LEVEL = "zstd", 3
+
+#: §5.10 GC (dry-run only until P24): an unreferenced blob is a candidate after these grace periods.
+GC_PENDING_GRACE_HOURS = 24.0
+GC_LIVE_GRACE_DAYS = 7.0
+GC_ORPHAN_GRACE_HOURS = 24.0
+

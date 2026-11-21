@@ -14,6 +14,8 @@ from . import compare as C
 from . import governance as G
 from . import lineage as L
 from . import retention as RT
+from . import schema as S
+from . import teams_api as T
 
 router = APIRouter(prefix="/api")
 _COMPARE_SLOTS = asyncio.Semaphore(2)
@@ -55,13 +57,20 @@ def _exists(request: Request, kind: str, id_: str) -> None:
 # -- projects --------------------------------------------------------------------------------------------------------
 
 @router.get("/projects")
-def list_projects(request: Request) -> dict[str, Any]:
-    """One project per dataset root (the default), with dataset and run counts and its champion."""
+def list_projects(request: Request, team: str | None = None) -> dict[str, Any]:
+    """One project per dataset root (the default), with dataset and run counts and its champion. P18: every row carries
+    its `team` ({id, slug, name}); ?team= (id or slug) lists one team's projects."""
     cat = request.app.state.catalog
+    with request.app.state.db.connect() as con:
+        refs = T.team_refs(con)
+        tid = T.team_or_404(con, team)["id"] if team else None
     out = []
     for p in cat.projects():
+        if tid and p.get("team_id") != tid:
+            continue
         ch = cat.champion(p["id"])
-        out.append({**p, "champion": ch and {k: ch[k] for k in ("version_id", "run_id", "decided_by", "decided_at")}})
+        out.append({**p, "team": refs.get(p.get("team_id") or S.DEFAULT_TEAM),
+                    "champion": ch and {k: ch[k] for k in ("version_id", "run_id", "decided_by", "decided_at")}})
     return {"projects": out}
 
 
@@ -71,7 +80,9 @@ def get_project(project_id: str, request: Request) -> dict[str, Any]:
     p = cat.project(project_id)
     if not p:
         raise HTTPException(404, f"No project '{project_id}'.")
-    return {**p, "champion": cat.champion(project_id), "champion_requests": cat.champion_requests(project_id),
+    with request.app.state.db.connect() as con:
+        team = T.team_refs(con).get(p.get("team_id") or S.DEFAULT_TEAM)
+    return {**p, "team": team, "champion": cat.champion(project_id), "champion_requests": cat.champion_requests(project_id),
             **cat.annotations("project", project_id)}
 
 
@@ -89,16 +100,34 @@ def _text(body: dict[str, Any], key: str, lo: int, hi: int, required: bool) -> s
 
 @router.post("/projects", status_code=201)
 def create_project(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-    """{name, description?, by}: a new, empty project. Upload into it (POST /api/datasets with project_id) or move a
-    dataset into it (POST /api/projects/{id}/datasets). Audited."""
+    """{name, description?, team_id?, by}: a new, empty project in a team. P18: `team_id` (id or slug) defaults to the
+    caller's only team; a caller in several teams must name one (400). Upload into it (POST /api/datasets with
+    project_id) or move a dataset into it (POST /api/projects/{id}/datasets). Audited (project_created, team-scoped)."""
     body = body if isinstance(body, dict) else {}
     by = _who(body.get("by"))
     name = _text(body, "name", 1, 120, True)
     desc = _text(body, "description", 0, 2000, False) or ""
     st = request.app.state
-    p = st.catalog.create_project(name, desc, by)
-    st.registry.audit(actor=by, action="project_created", details={"project_id": p["id"], "name": name})
-    return {**p, "n_datasets": 0, "n_runs": 0, "champion": None}
+    with st.db.connect() as con:
+        p = T.ensure_principal(con, by)
+        if body.get("team_id") not in (None, ""):
+            if not isinstance(body["team_id"], str):
+                raise HTTPException(400, "team_id is a team id (tm_…) or slug.")
+            t = T.team_or_404(con, body["team_id"])
+            if t["state"] != "active":
+                raise HTTPException(409, f"Team {t['name']} is archived: a new project goes into an active team.")
+            tid = t["id"]
+        else:
+            mine = [r for r in con.execute("SELECT t.id, t.name FROM team_members m JOIN teams t ON t.id = m.team_id"
+                                           " WHERE m.principal_id = ? AND t.state = 'active' ORDER BY t.name", (p["id"],))]
+            if len(mine) != 1:
+                raise HTTPException(400, {"message": f"Say which team the project is for: send team_id ({by} is in "
+                                                     f"{len(mine)} teams).", "teams": [dict(r) for r in mine]})
+            tid = mine[0]["id"]
+        team = T.team_refs(con)[tid]
+    proj = st.catalog.create_project(name, desc, by, team_id=tid)
+    T.audit(request.app, by, "project_created", tid, "project", proj["id"], {"project_id": proj["id"], "name": name, "team_id": tid})
+    return {**proj, "team": team, "n_datasets": 0, "n_runs": 0, "champion": None}
 
 
 @router.patch("/projects/{project_id}")
