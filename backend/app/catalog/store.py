@@ -28,9 +28,12 @@ class Catalog:
         sha = file_sha256(csv_path)
         with self.db.connect() as con:
             pid = ensure_project(con, rec["id"], rec["name"], rec.get("created_at"))
-            con.execute("UPDATE datasets SET project_id = ?, parent_id = NULL, root_id = ?, sha256 = ?, n_rows = ?, op = ?,"
+            # P01: a version number belongs to its root; a dataset that changes root gets a new one (sync_version)
+            con.execute("UPDATE datasets SET version_no = CASE WHEN COALESCE(root_id, id) = id THEN version_no END,"
+                        " project_id = ?, parent_id = NULL, root_id = ?, sha256 = ?, n_rows = ?, op = ?,"
                         " created_by = ?, verified_at = NULL, verified_ok = NULL WHERE id = ?",
                         (pid, rec["id"], sha, rec.get("rows"), op or rec.get("source"), actor or "system", rec["id"]))
+            S.sync_version(con, rec["id"])
             S.audit(con, actor, "dataset_created", {"dataset_id": rec["id"], "root_id": rec["id"], "name": rec["name"],
                                                     "op": op or rec.get("source"), "rows": rec.get("rows"), "sha256": sha})
 
@@ -43,8 +46,10 @@ class Catalog:
             p = con.execute("SELECT project_id, root_id FROM datasets WHERE id = ?", (parent_id,)).fetchone()
             root = (p["root_id"] if p and p["root_id"] else parent_id)
             pid = p["project_id"] if p and p["project_id"] else S.project_id_for(root)
-            con.execute("UPDATE datasets SET project_id = ?, parent_id = ?, root_id = ?, sha256 = ?, n_rows = ?, op = ?, created_by = ?"
-                        " WHERE id = ?", (pid, parent_id, root, sha, rec.get("rows"), op, actor or "system", rec["id"]))
+            con.execute("UPDATE datasets SET version_no = CASE WHEN COALESCE(root_id, id) = ? THEN version_no END,"
+                        " project_id = ?, parent_id = ?, root_id = ?, sha256 = ?, n_rows = ?, op = ?, created_by = ?"
+                        " WHERE id = ?", (root, pid, parent_id, root, sha, rec.get("rows"), op, actor or "system", rec["id"]))
+            S.sync_version(con, rec["id"])  # P01: before drop_if_phantom (the old root row refers to that project)
             add_edge(con, ("dataset", parent_id), ("dataset", rec["id"]), "derived_from", actor=actor,
                      meta={"op": op, **(meta or {})}, inferred=not paired)
             # DL1: every version, whichever path made it (Doctor, Feature Lab, relabel, label queue, drift window, refresh, upload)
@@ -57,9 +62,10 @@ class Catalog:
         cols = run_columns(cfg)
         with self.db.connect() as con:
             d = con.execute("SELECT project_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
-            con.execute("UPDATE runs SET project_id = ?, parent_run_id = ?, source = ?, kind = ?, predictor_state = ? WHERE id = ?",
+            con.execute("UPDATE runs SET project_id = ?, parent_run_id = ?, source = ?, kind = ?, predictor_state = ?,"
+                        " team_id = (SELECT team_id FROM datasets WHERE id = ?) WHERE id = ?",
                         (d["project_id"] if d else None, cols["parent_run_id"], cols["source"], cols["kind"],
-                         S.NONE, run_id))  # 'present' once the run finishes with a predictor (RunStore.finish)
+                         S.NONE, dataset_id, run_id))  # 'present' once the run finishes with a predictor (RunStore.finish)
             add_edge(con, ("dataset", dataset_id), ("run", run_id), "trained_on", actor=actor or "system")
             if cfg.get("parent_run_id"):
                 add_edge(con, ("run", cfg["parent_run_id"]), ("run", run_id), "branched_from", actor=actor or "system",
@@ -154,6 +160,14 @@ class Catalog:
             con.execute(f"UPDATE datasets SET project_id = ? WHERE id IN ({q})", (pid, *ids))
             n_runs = con.execute(f"UPDATE runs SET project_id = ? WHERE dataset_id IN ({q})", (pid, *ids)).rowcount
             con.execute("UPDATE projects SET root_dataset_id = COALESCE(root_dataset_id, ?) WHERE id = ?", (root_id, pid))
+            # P01: the tree takes its new project's team; the root row moves before the old project may be dropped
+            team = S.team_of_project(con, pid)
+            con.execute(f"UPDATE datasets SET team_id = ? WHERE id IN ({q})", (team, *ids))
+            con.execute(f"UPDATE runs SET team_id = ? WHERE dataset_id IN ({q})", (team, *ids))
+            S.ensure_root(con, root_id)
+            nm = con.execute("SELECT name FROM datasets WHERE id = ?", (root_id,)).fetchone()
+            con.execute("UPDATE dataset_roots SET project_id = ?, team_id = ?, name = ? WHERE id = ?",
+                        (pid, team, S.free_root_name(con, pid, nm[0] if nm else root_id, root_id), root_id))
             if old_pid and old_pid != pid:
                 con.execute("UPDATE projects SET root_dataset_id = NULL WHERE id = ? AND root_dataset_id = ?", (old_pid, root_id))
                 S.drop_if_phantom(con, old_pid)

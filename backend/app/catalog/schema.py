@@ -29,11 +29,12 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS lineage_edges (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    src_kind    TEXT NOT NULL CHECK (src_kind IN ('dataset', 'run', 'version')),
+    src_kind    TEXT NOT NULL CHECK (src_kind IN ('dataset', 'run', 'version', 'join_frame')),
     src_id      TEXT NOT NULL,
-    dst_kind    TEXT NOT NULL CHECK (dst_kind IN ('dataset', 'run', 'version')),
+    dst_kind    TEXT NOT NULL CHECK (dst_kind IN ('dataset', 'run', 'version', 'join_frame')),
     dst_id      TEXT NOT NULL,
-    relation    TEXT NOT NULL CHECK (relation IN ('derived_from', 'trained_on', 'branched_from', 'built_from', 'compared_in')),
+    relation    TEXT NOT NULL CHECK (relation IN ('derived_from', 'trained_on', 'branched_from', 'built_from', 'compared_in',
+                                                  'joined_from', 'merged_from')),
     actor       TEXT NOT NULL DEFAULT 'system',
     meta        TEXT,
     inferred    INTEGER NOT NULL DEFAULT 0,
@@ -207,6 +208,7 @@ def migrate(con: sqlite3.Connection) -> None:
         con.execute("INSERT INTO champions SELECT id, project_id, version_id, run_id, status, requested_by, requested_at, decided_by,"
                     " decided_at, comment FROM champions_old")
         con.execute("DROP TABLE champions_old")
+    migrate_p01(con)
 
 
 def project_id_for(root_dataset_id: str) -> str:
@@ -296,6 +298,7 @@ def drop_if_phantom(con: sqlite3.Connection, pid: str) -> bool:
         return False
     for q in ("SELECT 1 FROM datasets WHERE project_id = ?", "SELECT 1 FROM runs WHERE project_id = ?",
               "SELECT 1 FROM champions WHERE project_id = ?",
+              "SELECT 1 FROM dataset_roots WHERE project_id = ?",  # P01: a root row refers to it (FK)
               "SELECT 1 FROM annotations WHERE target_kind = 'project' AND target_id = ? AND deleted_at IS NULL"):
         if con.execute(q + " LIMIT 1", (pid,)).fetchone():
             return False
@@ -469,4 +472,480 @@ def backfill_fp2(con: sqlite3.Connection, data_dir: Path, *, force: bool = False
             con.execute("UPDATE lineage_edges SET meta = ? WHERE id = ?", (json.dumps(new_m, default=str), e["id"]))
             out["derived_meta"] += 1
     con.execute("INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('backfill_fp2', ?)", (BACKFILL2_VERSION,))
+    return out
+
+
+# == P01: the data-platform schema (docs/plans/data-platform-final.md §2.1) ==========================================
+# Tables are created with IF NOT EXISTS, columns only when missing, and every step id is recorded once in catalog_meta
+# ('step:p01_…'), so a second start changes nothing. The ds_hash_ro trigger is P10's (after its hash backfill).
+
+P01_DDL = """
+CREATE TABLE IF NOT EXISTS principals (
+  id TEXT PRIMARY KEY, display_name TEXT NOT NULL, identity_key TEXT NOT NULL UNIQUE,
+  email TEXT, idp TEXT, subject TEXT,
+  kind TEXT NOT NULL DEFAULT 'person' CHECK (kind IN ('person','service','system')),
+  is_admin INTEGER NOT NULL DEFAULT 0 CHECK (is_admin IN (0,1)),
+  created_at TEXT NOT NULL, last_seen_at TEXT, disabled_at TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_principal_subject ON principals (idp, subject) WHERE subject IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS teams (
+  id TEXT PRIMARY KEY, slug TEXT NOT NULL UNIQUE, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived')),
+  policy TEXT NOT NULL DEFAULT '{}',
+  storage_quota_bytes BIGINT, store_root TEXT,
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  team_id TEXT NOT NULL REFERENCES teams(id), principal_id TEXT NOT NULL REFERENCES principals(id),
+  role TEXT NOT NULL CHECK (role IN ('viewer','member','maintainer','owner','risk_reviewer')),
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','idp_group')),
+  added_by TEXT NOT NULL, added_at TEXT NOT NULL,
+  PRIMARY KEY (team_id, principal_id));
+CREATE INDEX IF NOT EXISTS ix_members_principal ON team_members (principal_id);
+
+CREATE TABLE IF NOT EXISTS idp_group_roles (idp TEXT NOT NULL, group_name TEXT NOT NULL, team_id TEXT NOT NULL, role TEXT NOT NULL,
+  PRIMARY KEY (idp, group_name, team_id));
+
+CREATE TABLE IF NOT EXISTS shares (
+  id TEXT PRIMARY KEY, object_kind TEXT NOT NULL CHECK (object_kind IN ('dataset','project')), object_id TEXT NOT NULL,
+  owner_team TEXT NOT NULL, grantee_team TEXT NOT NULL,
+  scope TEXT NOT NULL DEFAULT 'certified' CHECK (scope IN ('certified','default','pinned','all')), pinned_version TEXT,
+  pii TEXT NOT NULL DEFAULT 'masked' CHECK (pii IN ('masked','unmasked')),
+  status TEXT NOT NULL CHECK (status IN ('pending','active','rejected','revoked','expired')),
+  requested_by TEXT NOT NULL, requested_at TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+  decided_by TEXT, decided_at TEXT, expires_at TEXT, revoked_by TEXT, revoked_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_shares_object ON shares (object_kind, object_id, status);
+CREATE INDEX IF NOT EXISTS ix_shares_grantee ON shares (grantee_team, status);
+
+CREATE TABLE IF NOT EXISTS approval_requests (
+  id TEXT PRIMARY KEY, action TEXT NOT NULL, object_kind TEXT NOT NULL, object_id TEXT NOT NULL, team_id TEXT NOT NULL,
+  payload TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL CHECK (status IN ('pending','approved','rejected','withdrawn','used','expired')),
+  requested_by TEXT NOT NULL, requested_at TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+  decided_by TEXT, decided_at TEXT, comment TEXT NOT NULL DEFAULT '');
+CREATE INDEX IF NOT EXISTS ix_approvals_team ON approval_requests (team_id, status);
+
+CREATE TABLE IF NOT EXISTS dataset_roots (
+  id TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL REFERENCES teams(id), project_id TEXT NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', owner TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '',
+  label_definition TEXT NOT NULL DEFAULT '', known_issues TEXT NOT NULL DEFAULT '',
+  default_version_id TEXT, next_version_no INTEGER NOT NULL DEFAULT 1,
+  state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived','deleted')),
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL, updated_at TEXT, updated_by TEXT);
+CREATE INDEX IF NOT EXISTS ix_roots_project ON dataset_roots (project_id, state);
+CREATE INDEX IF NOT EXISTS ix_roots_team ON dataset_roots (team_id, state);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_roots_name ON dataset_roots (project_id, name) WHERE state <> 'deleted';
+
+CREATE TABLE IF NOT EXISTS dataset_root_tables (
+  root_id TEXT NOT NULL REFERENCES dataset_roots(id), table_name TEXT NOT NULL, next_row_id BIGINT NOT NULL,
+  PRIMARY KEY (root_id, table_name));
+
+CREATE TABLE IF NOT EXISTS version_tables (
+  version_id TEXT NOT NULL REFERENCES datasets(id), table_name TEXT NOT NULL, ordinal INTEGER NOT NULL,
+  table_sha256 TEXT NOT NULL, n_rows BIGINT NOT NULL, n_cols INTEGER NOT NULL, bytes BIGINT NOT NULL,
+  schema_json TEXT NOT NULL, schema_sha256 TEXT NOT NULL,
+  row_id_min BIGINT, row_id_max BIGINT, row_id_sorted INTEGER NOT NULL DEFAULT 1 CHECK (row_id_sorted IN (0,1)),
+  change TEXT NOT NULL CHECK (change IN ('new','carried','appended','rewritten')),
+  from_version TEXT, from_table TEXT, source_file TEXT,
+  PRIMARY KEY (version_id, table_name), UNIQUE (version_id, ordinal));
+CREATE INDEX IF NOT EXISTS ix_vt_sha ON version_tables (table_sha256);
+
+CREATE TABLE IF NOT EXISTS blobs (
+  sha256 TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE,
+  kind TEXT NOT NULL CHECK (kind IN ('table','split','join_cache','manifest','source','legacy_csv','legacy_json',
+                                     'frozen_holdout','sample','audit_archive')),
+  bytes BIGINT NOT NULL, n_rows BIGINT,
+  state TEXT NOT NULL CHECK (state IN ('pending','live','purging','purged')),
+  created_at TEXT NOT NULL, verified_at TEXT, verified_ok INTEGER,
+  purged_at TEXT, purged_by TEXT, purge_reason TEXT);
+CREATE INDEX IF NOT EXISTS ix_blobs_state ON blobs (state, created_at);
+
+CREATE TABLE IF NOT EXISTS table_files (
+  version_id TEXT NOT NULL, table_name TEXT NOT NULL, part INTEGER NOT NULL,
+  blob_sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  role TEXT NOT NULL DEFAULT 'base' CHECK (role IN ('base','append','upsert','delete')),
+  n_rows BIGINT NOT NULL, row_id_min BIGINT, row_id_max BIGINT,
+  PRIMARY KEY (version_id, table_name, part),
+  FOREIGN KEY (version_id, table_name) REFERENCES version_tables(version_id, table_name));
+CREATE INDEX IF NOT EXISTS ix_tf_blob ON table_files (blob_sha256);
+
+CREATE TABLE IF NOT EXISTS table_keys (
+  version_id TEXT NOT NULL, table_name TEXT NOT NULL, columns_json TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('primary','unique')),
+  declared_by TEXT NOT NULL,
+  valid INTEGER NOT NULL CHECK (valid IN (0,1)), n_duplicates BIGINT NOT NULL DEFAULT 0, n_nulls BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (version_id, table_name, kind, columns_json));
+
+CREATE TABLE IF NOT EXISTS table_relations (
+  version_id TEXT NOT NULL, name TEXT NOT NULL,
+  from_table TEXT NOT NULL, from_cols_json TEXT NOT NULL, to_table TEXT NOT NULL, to_cols_json TEXT NOT NULL,
+  cardinality TEXT NOT NULL CHECK (cardinality IN ('n:1','1:1')), declared_by TEXT NOT NULL,
+  n_orphans BIGINT NOT NULL DEFAULT 0, PRIMARY KEY (version_id, name));
+
+CREATE TABLE IF NOT EXISTS blob_refs (
+  blob_sha256 TEXT NOT NULL REFERENCES blobs(sha256),
+  owner_kind TEXT NOT NULL CHECK (owner_kind IN ('version','split','join_frame','run','upload','export')),
+  owner_id TEXT NOT NULL, role TEXT NOT NULL,
+  team_id TEXT NOT NULL, created_at TEXT NOT NULL,
+  PRIMARY KEY (blob_sha256, owner_kind, owner_id, role));
+CREATE INDEX IF NOT EXISTS ix_blob_refs_owner ON blob_refs (owner_kind, owner_id);
+CREATE INDEX IF NOT EXISTS ix_blob_refs_team ON blob_refs (team_id);
+
+CREATE TABLE IF NOT EXISTS splits (
+  id TEXT PRIMARY KEY, version_id TEXT NOT NULL REFERENCES datasets(id), table_name TEXT NOT NULL,
+  split_key TEXT NOT NULL, target TEXT, strategy TEXT NOT NULL, params_json TEXT NOT NULL DEFAULT '{}',
+  seed INTEGER NOT NULL, holdout_share TEXT NOT NULL, n_folds INTEGER NOT NULL,
+  blob_sha256 TEXT NOT NULL REFERENCES blobs(sha256), split_sha256 TEXT NOT NULL,
+  legacy_sha256 TEXT,
+  n_rows BIGINT NOT NULL, n_holdout BIGINT NOT NULL,
+  carried_from TEXT REFERENCES splits(id), created_at TEXT NOT NULL, created_by TEXT NOT NULL,
+  UNIQUE (version_id, table_name, split_key));
+
+CREATE TABLE IF NOT EXISTS joins (
+  id TEXT PRIMARY KEY, root_id TEXT NOT NULL REFERENCES dataset_roots(id), team_id TEXT NOT NULL,
+  name TEXT NOT NULL, spec_version INTEGER NOT NULL, spec_json TEXT NOT NULL, spec_sha256 TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'active' CHECK (state IN ('active','archived')),
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL,
+  UNIQUE (root_id, name, spec_version));
+CREATE TABLE IF NOT EXISTS join_frames (
+  id TEXT PRIMARY KEY, join_id TEXT NOT NULL REFERENCES joins(id), version_id TEXT NOT NULL REFERENCES datasets(id),
+  grain_table TEXT NOT NULL, inputs_json TEXT NOT NULL,
+  frame_sha256 TEXT NOT NULL,
+  n_rows BIGINT NOT NULL, schema_json TEXT NOT NULL,
+  cache_blob TEXT REFERENCES blobs(sha256),
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL,
+  UNIQUE (join_id, version_id), UNIQUE (frame_sha256));
+
+CREATE TABLE IF NOT EXISTS run_inputs (
+  id TEXT PRIMARY KEY, run_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('train','score','reference','join_input')),
+  version_id TEXT, table_name TEXT, join_frame_id TEXT,
+  table_sha256 TEXT, read_sha256 TEXT, match INTEGER,
+  legacy_csv_sha256 TEXT,
+  split_id TEXT, split_sha256 TEXT, split_legacy_sha256 TEXT,
+  read_mode TEXT NOT NULL DEFAULT 'engine_v1',
+  sample_spec TEXT, sample_sha256 TEXT, rows_total BIGINT, rows_used BIGINT, frame_mb INTEGER, columns_dropped TEXT,
+  created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS ix_run_inputs_run ON run_inputs (run_id);
+CREATE INDEX IF NOT EXISTS ix_run_inputs_version ON run_inputs (version_id, table_name);
+CREATE INDEX IF NOT EXISTS ix_run_inputs_split ON run_inputs (split_id);
+CREATE INDEX IF NOT EXISTS ix_run_inputs_jf ON run_inputs (join_frame_id);
+
+CREATE TABLE IF NOT EXISTS uploads (
+  id TEXT PRIMARY KEY, team_id TEXT NOT NULL, project_id TEXT NOT NULL, root_id TEXT, parent_version_id TEXT,
+  status TEXT NOT NULL CHECK (status IN ('staged','checked','committed','discarded','expired')),
+  files_json TEXT NOT NULL, plan_json TEXT NOT NULL DEFAULT '{}', check_json TEXT, check_sha256 TEXT,
+  committed_version_id TEXT, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS table_stats (table_sha256 TEXT PRIMARY KEY, stats_version INTEGER NOT NULL, computed_at TEXT NOT NULL,
+  n_rows BIGINT NOT NULL, n_cols INTEGER NOT NULL, columns TEXT NOT NULL, seconds REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS diff_cache (a_sha256 TEXT NOT NULL, b_sha256 TEXT NOT NULL, key TEXT NOT NULL, computed_at TEXT NOT NULL,
+  result TEXT NOT NULL, PRIMARY KEY (a_sha256, b_sha256, key));
+CREATE TABLE IF NOT EXISTS storage_usage (team_id TEXT NOT NULL, computed_at TEXT NOT NULL, bytes_referenced BIGINT NOT NULL,
+  bytes_unique BIGINT NOT NULL, n_blobs BIGINT NOT NULL, PRIMARY KEY (team_id, computed_at));
+CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, team_id TEXT, resource TEXT NOT NULL, mem_mb INTEGER NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued','leased','succeeded','failed','cancelled')),
+  attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 2, created_at TEXT NOT NULL, not_before TEXT,
+  leased_by TEXT, lease_until TEXT, started_at TEXT, finished_at TEXT, error TEXT, result TEXT,
+  by_principal TEXT NOT NULL, ref_kind TEXT, ref_id TEXT);
+CREATE INDEX IF NOT EXISTS ix_jobs_claim ON jobs (status, resource, priority DESC, created_at);
+CREATE INDEX IF NOT EXISTS ix_jobs_ref ON jobs (ref_kind, ref_id);
+CREATE TABLE IF NOT EXISTS workers (id TEXT PRIMARY KEY, host TEXT NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL,
+  slots TEXT NOT NULL, version TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS certifications (id TEXT PRIMARY KEY, root_id TEXT NOT NULL, version_id TEXT NOT NULL,
+  level TEXT NOT NULL CHECK (level IN ('certified','approved_for_model')),
+  status TEXT NOT NULL CHECK (status IN ('pending','active','rejected','superseded','expired','revoked')),
+  contract_id TEXT, contract_result TEXT, requested_by TEXT NOT NULL, requested_at TEXT NOT NULL,
+  reason TEXT NOT NULL DEFAULT '', decided_by TEXT, decided_at TEXT, comment TEXT NOT NULL DEFAULT '', expires_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_cert_root ON certifications (root_id, status);
+CREATE TABLE IF NOT EXISTS legal_holds (id TEXT PRIMARY KEY,
+  scope_kind TEXT NOT NULL CHECK (scope_kind IN ('team','project','dataset','version','run','model')), scope_id TEXT NOT NULL,
+  case_ref TEXT NOT NULL, reason TEXT NOT NULL, placed_by TEXT NOT NULL, placed_at TEXT NOT NULL,
+  released_by TEXT, released_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_holds_scope ON legal_holds (scope_kind, scope_id) WHERE released_at IS NULL;
+CREATE TABLE IF NOT EXISTS column_tags (root_id TEXT NOT NULL, table_name TEXT NOT NULL, column_name TEXT NOT NULL,
+  tag TEXT NOT NULL CHECK (tag IN ('pii_direct','pii_quasi','protected','sensitive','key','none')),
+  mask TEXT NOT NULL CHECK (mask IN ('redact','hash','last4','year_only','bucket','none')),
+  source TEXT NOT NULL CHECK (source IN ('suggested','confirmed')), set_by TEXT NOT NULL, set_at TEXT NOT NULL,
+  PRIMARY KEY (root_id, table_name, column_name));
+CREATE TABLE IF NOT EXISTS data_contracts (id TEXT PRIMARY KEY, root_id TEXT NOT NULL, version INTEGER NOT NULL, spec TEXT NOT NULL,
+  created_by TEXT NOT NULL, created_at TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, UNIQUE (root_id, version));
+"""
+
+#: columns added to existing tables (none removed); SQLite allows a CHECK and a constant default on an added column
+P01_COLS: dict[str, list[tuple[str, str]]] = {
+    "projects": [("team_id", "TEXT NOT NULL DEFAULT 'tm_default'"), ("state", "TEXT NOT NULL DEFAULT 'active'")],
+    "datasets": [("team_id", "TEXT"), ("version_no", "INTEGER"),
+                 ("storage", "TEXT NOT NULL DEFAULT 'csv' CHECK (storage IN ('csv','parquet'))"),
+                 ("manifest_sha256", "TEXT"),  # commit hash; NULL while storage='csv'
+                 ("data_sha256", "TEXT"),      # dedupe identity
+                 ("legacy_sha256", "TEXT"),    # the data.csv sha256 (= old `sha256`), kept forever
+                 ("n_tables", "INTEGER NOT NULL DEFAULT 1"), ("n_cols", "INTEGER"), ("primary_table", "TEXT"),
+                 ("reason", "TEXT NOT NULL DEFAULT ''"), ("job_id", "TEXT"), ("contract_result", "TEXT")],
+    "runs": [("team_id", "TEXT"), ("created_by", "TEXT")],
+    "audit_log": [(c, "TEXT") for c in ("team_id", "project_id", "object_kind", "object_id", "principal_id", "auth", "request_id",
+                                        "decision", "prev_hash", "row_hash")],
+}
+P01_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS ix_projects_team ON projects (team_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_versions_no ON datasets (root_id, version_no)",
+    "CREATE INDEX IF NOT EXISTS ix_versions_data_sha ON datasets (root_id, data_sha256)",
+    "CREATE INDEX IF NOT EXISTS ix_versions_project ON datasets (project_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_versions_team ON datasets (team_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_versions_parent ON datasets (parent_id)",
+    "CREATE INDEX IF NOT EXISTS ix_runs_team ON runs (team_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_audit_team_ts ON audit_log (team_id, ts)",
+    "CREATE INDEX IF NOT EXISTS ix_audit_object ON audit_log (object_kind, object_id, ts)",
+    "CREATE INDEX IF NOT EXISTS ix_audit_actor ON audit_log (actor, ts)",
+]
+#: the protecting rows must not be rewritable through the app or a stray UPDATE (not a defence against file access)
+IMMUTABLE_TRIGGERS = {
+    "splits_ro_u": "CREATE TRIGGER IF NOT EXISTS splits_ro_u BEFORE UPDATE ON splits BEGIN SELECT RAISE(ABORT, 'splits are immutable'); END",
+    "splits_ro_d": "CREATE TRIGGER IF NOT EXISTS splits_ro_d BEFORE DELETE ON splits BEGIN SELECT RAISE(ABORT, 'splits are immutable'); END",
+    "vt_ro_u": "CREATE TRIGGER IF NOT EXISTS vt_ro_u BEFORE UPDATE ON version_tables BEGIN SELECT RAISE(ABORT, 'version tables are immutable'); END",
+    "tf_ro_u": "CREATE TRIGGER IF NOT EXISTS tf_ro_u BEFORE UPDATE ON table_files BEGIN SELECT RAISE(ABORT, 'table files are immutable'); END",
+    "ri_ro_u": "CREATE TRIGGER IF NOT EXISTS ri_ro_u BEFORE UPDATE OF table_sha256, read_sha256, split_sha256, sample_sha256 ON run_inputs"
+               " BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END",
+    "blobs_key_ro": "CREATE TRIGGER IF NOT EXISTS blobs_key_ro BEFORE UPDATE OF sha256, key, bytes ON blobs"
+                    " BEGIN SELECT RAISE(ABORT, 'blob identity is immutable'); END",
+}
+#: created once the P01 backfill has written audit_log.team_id (the backfill is the last UPDATE audit_log ever gets)
+AUDIT_TRIGGERS = {
+    "audit_ro_u": "CREATE TRIGGER IF NOT EXISTS audit_ro_u BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END",
+    "audit_ro_d": "CREATE TRIGGER IF NOT EXISTS audit_ro_d BEFORE DELETE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END",
+}
+DEFAULT_TEAM = "tm_default"
+P01_BACKFILL_VERSION = "1"
+
+
+def _step(con: sqlite3.Connection, step: str) -> None:
+    """Record a migration step id once (the first time it ran); a later start leaves the row untouched."""
+    con.execute("INSERT OR IGNORE INTO catalog_meta (key, value) VALUES (?, ?)", (f"step:{step}", now()))
+
+
+def _has(con: sqlite3.Connection, kind: str, name: str) -> bool:
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?", (kind, name)).fetchone() is not None
+
+
+def _lineage_ddl() -> list[str]:
+    part = SCHEMA[SCHEMA.index("CREATE TABLE IF NOT EXISTS lineage_edges"):SCHEMA.index("-- Tags and notes")]
+    return [s.strip() for s in part.split(";") if s.strip()]
+
+
+def migrate_p01(con: sqlite3.Connection) -> None:
+    con.executescript(P01_DDL)
+    for table, cols in P01_COLS.items():
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        for c, typ in cols:
+            if c not in have:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {c} {typ}")
+    for q in P01_INDEXES:
+        con.execute(q)
+    for q in IMMUTABLE_TRIGGERS.values():
+        con.execute(q)
+    _step(con, "p01_ddl")
+    # lineage_edges: kinds += join_frame, relations += joined_from / merged_from. SQLite cannot alter a CHECK: rebuild
+    # once, ids kept (the champions pattern of F-P2, in one transaction).
+    sql = (con.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'lineage_edges'").fetchone() or [""])[0] or ""
+    if "join_frame" not in sql:
+        con.commit()
+        con.execute("BEGIN")
+        con.execute("ALTER TABLE lineage_edges RENAME TO lineage_edges_old")
+        con.execute("DROP INDEX IF EXISTS ix_edges_src")
+        con.execute("DROP INDEX IF EXISTS ix_edges_dst")
+        for q in _lineage_ddl():
+            con.execute(q)
+        cols = "id, src_kind, src_id, dst_kind, dst_id, relation, actor, meta, inferred, created_at"
+        con.execute(f"INSERT INTO lineage_edges ({cols}) SELECT {cols} FROM lineage_edges_old")
+        con.execute("DROP TABLE lineage_edges_old")
+        con.commit()
+    _step(con, "p01_lineage_check")
+    ensure_default_team(con)
+    _step(con, "p01_team_default")
+    if con.execute("SELECT 1 FROM catalog_meta WHERE key = 'backfill_p01'").fetchone():
+        for q in AUDIT_TRIGGERS.values():
+            con.execute(q)
+
+
+def ensure_default_team(con: sqlite3.Connection) -> None:
+    con.execute("INSERT OR IGNORE INTO teams (id, slug, name, description, created_at, created_by) VALUES (?, 'default', 'Default team',"
+                " 'Every project made before teams existed.', ?, 'system')", (DEFAULT_TEAM, now()))
+
+
+def team_of_project(con: sqlite3.Connection, project_id: str | None) -> str:
+    r = con.execute("SELECT team_id FROM projects WHERE id = ?", (project_id,)).fetchone() if project_id else None
+    return (r[0] if r and r[0] else None) or DEFAULT_TEAM
+
+
+def free_root_name(con: sqlite3.Connection, project_id: str, name: str, root: str) -> str:
+    """ux_roots_name: one live name per project. Two roots with the same name in one project (possible before P01) keep
+    their datasets.name; the second gets its id appended in dataset_roots."""
+    taken = con.execute("SELECT 1 FROM dataset_roots WHERE project_id = ? AND name = ? AND id <> ? AND state <> 'deleted'",
+                        (project_id, name, root)).fetchone()
+    return f"{name} ({root})" if taken else name
+
+
+def root_state(con: sqlite3.Connection, root: str) -> str:
+    """dsets.dataset_state in SQL: deleted when every version is, archived when every remaining one is."""
+    states = [r[0] for r in con.execute("SELECT state FROM datasets WHERE id = ? OR root_id = ?", (root, root))]
+    if states and all(s == "deleted" for s in states):
+        return "deleted"
+    live = [s for s in states if s != "deleted"]
+    return "archived" if live and all(s == "archived" for s in live) else "active"
+
+
+def ensure_root(con: sqlite3.Connection, root: str) -> bool:
+    """The dataset_roots row of a root dataset, from its datasets row and its card (DL1). True when it was created."""
+    if con.execute("SELECT 1 FROM dataset_roots WHERE id = ?", (root,)).fetchone():
+        return False
+    r = con.execute("SELECT id, name, project_id, created_at, created_by FROM datasets WHERE id = ?", (root,)).fetchone()
+    if not r:
+        return False
+    pid = r["project_id"] or project_id_for(root)
+    con.execute("INSERT OR IGNORE INTO projects (id, name, root_dataset_id, created_at) VALUES (?, ?, ?, ?)",
+                (pid, (r["name"] or root).replace(" (sample)", ""), root, r["created_at"] or now()))
+    c = con.execute("SELECT * FROM dataset_cards WHERE root_id = ?", (root,)).fetchone()
+    c = dict(c) if c else {}
+    nmax = con.execute("SELECT MAX(version_no) FROM datasets WHERE id = ? OR root_id = ?", (root, root)).fetchone()[0] or 0
+    state = root_state(con, root)
+    name = r["name"] or root
+    if state != "deleted":
+        name = free_root_name(con, pid, name, root)
+    con.execute("INSERT INTO dataset_roots (id, team_id, project_id, name, description, owner, source, label_definition, known_issues,"
+                " default_version_id, next_version_no, state, created_at, created_by, updated_at, updated_by)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (root, team_of_project(con, pid), pid, name, c.get("description") or "", c.get("owner") or "", c.get("source") or "",
+                 c.get("label_definition") or "", c.get("known_issues") or "", c.get("default_version_id"), nmax + 1, state,
+                 r["created_at"] or now(), r["created_by"] or "system", c.get("updated_at"), c.get("updated_by")))
+    return True
+
+
+def _alloc_version_no(con: sqlite3.Connection, root: str) -> int:
+    nmax = con.execute("SELECT MAX(version_no) FROM datasets WHERE id = ? OR root_id = ?", (root, root)).fetchone()[0] or 0
+    nxt = con.execute("SELECT next_version_no FROM dataset_roots WHERE id = ?", (root,)).fetchone()
+    n = max(nmax + 1, nxt[0] if nxt else 1)
+    con.execute("UPDATE dataset_roots SET next_version_no = ? WHERE id = ?", (n + 1, root))
+    return n
+
+
+def sync_version(con: sqlite3.Connection, dataset_id: str) -> None:
+    """P01, called by the catalog write hooks once a version has its root and project: its dataset_roots row, version_no
+    (allocated from the root), team_id, n_cols and legacy_sha256 (= the data.csv sha256 while storage is 'csv')."""
+    r = con.execute("SELECT id, root_id, project_id, version_no FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+    if not r:
+        return
+    root = r["root_id"] or r["id"]
+    if root != r["id"]:  # it was its own root before it became a version of another: that root is gone (nothing refers to it yet)
+        con.execute("DELETE FROM dataset_roots WHERE id = ?", (r["id"],))
+    ensure_root(con, root)
+    n = r["version_no"] if r["version_no"] is not None else _alloc_version_no(con, root)
+    con.execute("UPDATE datasets SET version_no = ?, team_id = ?, legacy_sha256 = sha256,"
+                " n_cols = CASE WHEN json_valid(profile) THEN CAST(json_extract(profile, '$.n_cols') AS INTEGER) ELSE n_cols END"
+                " WHERE id = ?", (n, team_of_project(con, r["project_id"]), dataset_id))
+    con.execute("UPDATE dataset_roots SET state = ? WHERE id = ?", (root_state(con, root), root))
+
+
+def sync_root_state(con: sqlite3.Connection, root: str) -> None:
+    con.execute("UPDATE dataset_roots SET state = ? WHERE id = ?", (root_state(con, root), root))
+
+
+def _principal_names(con: sqlite3.Connection) -> list[str]:
+    """Every distinct actor name the database knows (P01 backfill step 2), in first-seen order."""
+    qs = ["SELECT actor FROM audit_log ORDER BY id",
+          "SELECT created_by FROM datasets ORDER BY created_at",
+          "SELECT json_extract(config, '$.by') FROM runs WHERE json_valid(config) ORDER BY created_at"]
+    for t, cols in (("dataset_requests", ("requested_by", "decided_by")), ("version_requests", ("requested_by", "decided_by")),
+                    ("admin_requests", ("requested_by", "decided_by", "used_by")), ("champions", ("requested_by", "decided_by"))):
+        qs += [f"SELECT {c} FROM {t} ORDER BY requested_at" for c in cols]
+    seen: dict[str, None] = {}
+    for q in qs:
+        for (v,) in con.execute(q):
+            if isinstance(v, str) and v.strip():
+                seen.setdefault(v.strip(), None)
+    import os
+
+    for a in os.environ.get("ENSEMBLE_ADMINS", "").split(","):
+        if a.strip():
+            seen.setdefault(a.strip(), None)
+    return list(seen)
+
+
+def principal_id_for(key: str) -> str:
+    return "pr_" + hashlib.sha256(key.encode()).hexdigest()[:12]
+
+
+def backfill_p01(con: sqlite3.Connection, *, force: bool = False) -> dict[str, Any]:
+    """P01 backfill (§2.1), idempotent: only NULL columns and missing rows are filled. Then the audit triggers."""
+    from .governance import admins, identity_key
+
+    done = con.execute("SELECT value FROM catalog_meta WHERE key = 'backfill_p01'").fetchone()
+    if done and done[0] == P01_BACKFILL_VERSION and not force:
+        return {"skipped": True}
+    ts = now()
+    out: dict[str, Any] = {}
+    # 1. the default team; every project without a known team is in it
+    ensure_default_team(con)
+    con.execute("UPDATE projects SET team_id = ? WHERE team_id IS NULL OR team_id NOT IN (SELECT id FROM teams)", (DEFAULT_TEAM,))
+    out["projects_in_default_team"] = con.execute("SELECT COUNT(*) FROM projects WHERE team_id = ?", (DEFAULT_TEAM,)).fetchone()[0]
+    # 2. principals: one per identity key (the four-eyes key); admins → owners of tm_default, people → members
+    names = _principal_names(con)
+    adm = admins()
+    keys: dict[str, str] = {}
+    for n in names:
+        k = identity_key(n)
+        if k:
+            keys.setdefault(k, n)
+    for k, n in keys.items():
+        pid = principal_id_for(k)
+        kind = "system" if k == "system" else "person"
+        con.execute("INSERT OR IGNORE INTO principals (id, display_name, identity_key, kind, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    (pid, n, k, kind, int(k in adm), ts))
+        if kind == "person":
+            con.execute("INSERT OR IGNORE INTO team_members (team_id, principal_id, role, source, added_by, added_at)"
+                        " VALUES (?, ?, ?, 'manual', 'system', ?)", (DEFAULT_TEAM, pid, "owner" if k in adm else "member", ts))
+    out["actor_names"] = len(names)
+    out["actor_identity_keys"] = len(keys)
+    out["principals"] = con.execute("SELECT COUNT(*) FROM principals").fetchone()[0]
+    out["team_members"] = con.execute("SELECT COUNT(*) FROM team_members WHERE team_id = ?", (DEFAULT_TEAM,)).fetchone()[0]
+    # 3. dataset_roots from the root rows and dataset_cards
+    roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets")]
+    out["roots_created"] = sum(int(ensure_root(con, rt)) for rt in roots)
+    out["roots"] = con.execute("SELECT COUNT(*) FROM dataset_roots").fetchone()[0]
+    out["root_names_suffixed"] = con.execute("SELECT COUNT(*) FROM dataset_roots r JOIN datasets d ON d.id = r.id WHERE r.name <> d.name").fetchone()[0]
+    # 4. versions: version_no in creation order per root (= the history's v), team, n_cols, legacy hash, storage
+    renumbered = 0
+    for rt in roots:
+        if con.execute("SELECT 1 FROM datasets WHERE (id = ? OR root_id = ?) AND version_no IS NULL", (rt, rt)).fetchone():
+            con.execute("UPDATE datasets SET version_no = NULL WHERE id = ? OR root_id = ?", (rt, rt))
+            ids = [r[0] for r in con.execute("SELECT id FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid", (rt, rt))]
+            for i, did in enumerate(ids):
+                con.execute("UPDATE datasets SET version_no = ? WHERE id = ?", (i + 1, did))
+            renumbered += 1
+        con.execute("UPDATE dataset_roots SET next_version_no = (SELECT COALESCE(MAX(version_no), 0) + 1 FROM datasets"
+                    " WHERE id = ? OR root_id = ?) WHERE id = ?", (rt, rt, rt))
+    out["roots_numbered"] = renumbered
+    con.execute("UPDATE datasets SET team_id = COALESCE(team_id, (SELECT p.team_id FROM projects p WHERE p.id = datasets.project_id), ?),"
+                " legacy_sha256 = COALESCE(legacy_sha256, sha256),"
+                " n_cols = COALESCE(n_cols, CASE WHEN json_valid(profile) THEN CAST(json_extract(profile, '$.n_cols') AS INTEGER) END),"
+                " storage = COALESCE(storage, 'csv')", (DEFAULT_TEAM,))
+    out["versions"] = con.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
+    out["versions_numbered"] = con.execute("SELECT COUNT(*) FROM datasets WHERE version_no IS NOT NULL").fetchone()[0]
+    # 5. runs: the team of the run's dataset (else its project's)
+    out["runs_team_set"] = con.execute(
+        "UPDATE runs SET team_id = COALESCE((SELECT d.team_id FROM datasets d WHERE d.id = runs.dataset_id),"
+        " (SELECT p.team_id FROM projects p WHERE p.id = runs.project_id)) WHERE team_id IS NULL").rowcount
+    # 6. audit rows: the team of details.dataset_id (else details.root_id). Only before the append-only trigger exists.
+    if not _has(con, "trigger", "audit_ro_u"):
+        out["audit_team_set"] = con.execute(
+            "UPDATE audit_log SET team_id = COALESCE((SELECT d.team_id FROM datasets d WHERE d.id = json_extract(audit_log.details, '$.dataset_id')),"
+            " (SELECT d.team_id FROM datasets d WHERE d.id = json_extract(audit_log.details, '$.root_id')))"
+            " WHERE team_id IS NULL AND json_valid(details) AND (json_extract(details, '$.dataset_id') IN (SELECT id FROM datasets)"
+            " OR json_extract(details, '$.root_id') IN (SELECT id FROM datasets))").rowcount
+    for q in AUDIT_TRIGGERS.values():
+        con.execute(q)
+    con.execute("INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('backfill_p01', ?)", (P01_BACKFILL_VERSION,))
+    con.execute("INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('backfill_p01_at', ?)", (ts,))
+    _step(con, "p01_backfill")
     return out

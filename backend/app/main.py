@@ -87,7 +87,7 @@ def _detail(rec: dict[str, Any]) -> dict[str, Any]:
 
 
 def catalog_backfill(db: Database, data_dir) -> dict[str, Any]:
-    from .catalog.schema import backfill, backfill_fp2
+    from .catalog.schema import backfill, backfill_fp2, backfill_p01
 
     with db.connect() as con:
         out = backfill(con, data_dir)
@@ -97,7 +97,11 @@ def catalog_backfill(db: Database, data_dir) -> dict[str, Any]:
         out2 = backfill_fp2(con, data_dir)  # F-P2: phantom projects, root ops, predictor 'none', review edges
     if not out2.get("skipped"):
         log.info("F-P2 catalog backfill: %s", out2)
-    return {**out, "fp2": out2}
+    with db.connect() as con:
+        out3 = backfill_p01(con)  # P01: tm_default, principals, dataset_roots, version numbers, team ids; then audit triggers
+    if not out3.get("skipped"):
+        log.info("P01 catalog backfill: %s", out3)
+    return {**out, "fp2": out2, "p01": out3}
 
 
 async def _verify_timer(app: FastAPI) -> None:
