@@ -78,7 +78,9 @@ def read(src: Any, schema: dict[str, Any] | None = None, **kw: Any) -> pd.DataFr
         src = io.BytesIO(src)
     if dt:
         kw["dtype"] = {**dt, **(kw.get("dtype") or {})}
-    return pd.read_csv(src, **kw)
+    from .frames import parse_csv  # §6.5 R-G: the one parse lives in frames (frame_io is its private helper)
+
+    return parse_csv(src, schema, **kw)
 
 
 def prepare(df: pd.DataFrame, schema: dict[str, Any] | None) -> pd.DataFrame:

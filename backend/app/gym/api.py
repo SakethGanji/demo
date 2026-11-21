@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
 
+from .. import frames
 from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
@@ -110,7 +111,7 @@ async def export_py(run_id: str, request: Request, download: bool = False):
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; export a run that finished.")
     pl = rec["config"].get("pseudolabel") or {}
-    unlabeled = str(request.app.state.datasets.csv_path(pl["dataset_id"])) if pl.get("dataset_id") else None
+    unlabeled = str(frames.version_file(pl["dataset_id"])) if pl.get("dataset_id") else None  # a path the script reads
     try:
         ag = metadata.version("autogluon.tabular")
     except metadata.PackageNotFoundError:

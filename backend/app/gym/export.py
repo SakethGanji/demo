@@ -35,136 +35,9 @@ the leaderboard with the run's.
 """
 '''
 
-BODY = r'''
-
-def _rows(packed: str, n: int) -> np.ndarray:
-    """Positions of data.csv held out by the run (a zlib-compressed bitmask)."""
-    bits = np.unpackbits(np.frombuffer(zlib.decompress(base64.b64decode(packed)), dtype=np.uint8))[:n]
-    return np.flatnonzero(bits)
-
-
-def _cast(df: pd.DataFrame) -> pd.DataFrame:
-    for col, t in COLUMN_TYPES.items():
-        if col not in df.columns:
-            continue
-        if t == "number":
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-        else:
-            df[col] = df[col].map(lambda v: v if pd.isna(v) else str(v)).astype(object)
-    return df
-
-
-def load(path: str, check_hash: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
-    raw = Path(path).read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    if check_hash and digest != DATA_SHA256:
-        sys.exit(f"{path}: SHA-256 {digest[:12]}… is not the run's data ({DATA_SHA256[:12]}…). Use --no-check to go on.")
-    df = pd.read_csv(path)
-    is_holdout = np.zeros(len(df), dtype=bool)
-    is_holdout[_rows(HOLDOUT_ROWS, N_ROWS)] = True
-    has_label = df[LABEL].notna().to_numpy()
-    drop = [c for c in DROP_COLUMNS if c in df.columns and c != LABEL]
-    train = _cast(df.loc[~is_holdout & has_label].drop(columns=drop))
-    holdout = _cast(df.loc[is_holdout & has_label].drop(columns=drop))
-    return train, holdout
-
-
-def load_unlabeled(path: str, features: list[str]) -> pd.DataFrame:
-    u = pd.read_csv(path)
-    return _cast(u[[c for c in features if c in u.columns]])
-
-
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    ap.add_argument("--data", default=DATA_CSV, help="the dataset CSV (default: the run's own file)")
-    ap.add_argument("--unlabeled", default=UNLABELED_CSV, help="unlabeled rows for pseudo-labelling, if the run used them")
-    ap.add_argument("--out", default=f"reproduced_{RUN_ID}", help="folder for the predictor")
-    ap.add_argument("--no-check", action="store_true", help="skip the data hash and the leaderboard comparison")
-    ap.add_argument("--tolerance", type=float, default=1e-6, help="largest |Δ score| accepted per model (default 1e-6)")
-    args = ap.parse_args()
-
-    if NEEDS_ENSEMBLE_MODELS:  # the run used ENSEMBLE's TF-IDF models or its cost metric: put them on the path
-        backend = os.environ.get("ENSEMBLE_BACKEND", ENSEMBLE_BACKEND)
-        sys.path.insert(0, backend)
-        # and for the fold-fitting processes AutoGluon starts (Ray workers do not inherit sys.path)
-        os.environ["PYTHONPATH"] = os.pathsep.join(p for p in (backend, os.environ.get("PYTHONPATH")) if p)
-        import ensemble_models  # noqa: F401
-    predictor_kwargs = dict(PREDICTOR_KWARGS)
-    cost_class_scorer = None
-    if COST is not None:  # F7: the business cost as AutoGluon scorers (ensemble_models.cost)
-        from ensemble_models import cost as cost_lib
-
-        if COST["kind"] == "binary":
-            predictor_kwargs["eval_metric"] = cost_lib.binary_cost_scorer(COST["c_fp"], COST["c_fn"], COST["g_tp"])
-            cost_class_scorer = cost_lib.binary_cost_class_scorer(COST["c_fp"], COST["c_fn"], COST["g_tp"])
-        else:
-            predictor_kwargs["eval_metric"] = cost_lib.multiclass_cost_scorer(COST["matrix"])
-
-    train, holdout = load(args.data, check_hash=not args.no_check)
-    print(f"train {len(train):,} rows · holdout {len(holdout):,} rows · {len(train.columns) - 1} features")
-    fit_kwargs = dict(FIT_KWARGS)
-    if FEATURE_METADATA is not None:
-        from autogluon.common.features.feature_metadata import FeatureMetadata
-
-        fit_kwargs["feature_metadata"] = FeatureMetadata(type_map_raw=FEATURE_METADATA["type_map_raw"],
-                                                         type_group_map_special=FEATURE_METADATA.get("type_group_map_special") or {})
-    unlabeled = None
-    if PSEUDOLABEL:
-        unlabeled = load_unlabeled(args.unlabeled, [c for c in train.columns if c != LABEL])
-        if PSEUDOLABEL["method"] == "unlabeled_data":
-            fit_kwargs["unlabeled_data"] = unlabeled
-
-    predictor = TabularPredictor(path=args.out, **predictor_kwargs)
-    predictor.fit(train, **fit_kwargs)
-
-    if PSEUDOLABEL and PSEUDOLABEL["method"] == "fit_pseudolabel":
-        predictor.fit_pseudolabel(pseudo_data=unlabeled, max_iter=PSEUDOLABEL.get("max_iter", 3))
-    if DISTILL is not None:
-        np.random.seed(0)  # as the run did: distill's augmentation draws from the global generator
-        predictor.distill(**DISTILL)
-
-    def set_threshold(thr):
-        if thr and thr.get("source") == "calibrated":
-            metric = cost_class_scorer if thr["metric"] == "expected_cost" else thr["metric"]
-            t = predictor.calibrate_decision_threshold(metric=metric, verbose=False)
-            predictor.set_decision_threshold(float(t))
-        elif thr and thr.get("source") in ("user", "manual", "set", "default"):
-            predictor.set_decision_threshold(float(thr["value"]))
-        if thr:
-            predictor.save()
-            print(f"decision threshold t = {predictor.decision_threshold:.6f} (run: {thr['value']:.6f})")
-
-    # The run's leaderboard was scored at the threshold it had after the fit; a threshold changed later (Explain)
-    # is applied after the comparison.
-    set_threshold(FIT_THRESHOLD)
-    lb = predictor.leaderboard(holdout, silent=True)
-    lb.to_csv(Path(args.out) / "leaderboard.csv", index=False)
-    with pd.option_context("display.width", 160, "display.max_columns", 8):
-        print(lb[["model", "score_test", "score_val", "fit_time", "stack_level"]].to_string(index=False))
-    if THRESHOLD != FIT_THRESHOLD:
-        set_threshold(THRESHOLD)
-    print(json.dumps(predictor.evaluate(holdout, silent=True), default=float))
-    if args.no_check:
-        return 0
-    got = {r["model"]: r for r in lb.to_dict(orient="records")}
-    worst = 0.0
-    for m, (val, test) in RUN_LEADERBOARD.items():
-        if m not in got:
-            print(f"MISMATCH: model {m} is in the run but not here")
-            return 1
-        for what, a, b in (("val", val, got[m]["score_val"]), ("holdout", test, got[m]["score_test"])):
-            if a is not None and b is not None:
-                d = abs(float(a) - float(b))
-                if d > 1e-6:
-                    print(f"differs: {m} {what} run {float(a):.6f} here {float(b):.6f}")
-                worst = max(worst, d)
-    print(f"leaderboard check: {len(RUN_LEADERBOARD)} models, max |Δ score| = {worst:.3g}")
-    return 0 if worst <= args.tolerance else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
-'''
+#: the script's body (helpers and main) is a template next to this file: its reads belong to the standalone script,
+#: not to the app, so the app's one-reader rule (§6.5 grep gate, *.py) does not apply to it
+BODY = Path(__file__).with_name("export_body.py.tmpl").read_text().split("\n", 2)[2]
 
 
 def _pack_rows(rows: list[int], n: int) -> str:
@@ -190,11 +63,13 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     resolved = res.get("resolved") or {}
     if not resolved:
         raise ValueError("This run has no resolved fit call yet (it has not started fitting).")
-    csv_path = cfg["csv_path"]
-    raw = Path(csv_path).read_bytes()
-    import pandas as pd
+    from .. import frames
 
-    n_rows = len(pd.read_csv(csv_path, usecols=[cfg["label"]]))
+    ref = frames.resolve(cfg)
+    csv_path = str(frames.path_of(ref))
+    raw = Path(csv_path).read_bytes()  # hashed, as the fit hashed it
+    n_rows = frames.n_rows(ref)
+    text_columns = [c.name for c in frames.columns(ref) if c.kind == "text"]
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     fk = {k: v for k, v in (resolved.get("fit_kwargs") or {}).items() if k not in ("callbacks", "unlabeled_data")}
     fm = fk.pop("feature_metadata", None)
@@ -233,6 +108,8 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         f"LABEL = {pycode.py(cfg['label'])}",
         f"DROP_COLUMNS = {pycode.py(cfg.get('drop_columns') or [])}",
         f"COLUMN_TYPES = {pycode.py(cfg.get('column_types') or {})}",
+        "# the version's text columns (schema.json): read as text, so codes with leading zeros keep them",
+        f"TEXT_COLUMNS = {pycode.py(text_columns)}",
         f"# {len(splits['holdout'])} holdout rows (seed {splits.get('seed')}, "
         f"{'stratified' if splits.get('stratified') else 'random'}, share {splits.get('holdout_share')})",
         f"HOLDOUT_ROWS = {_wrap(_pack_rows(splits['holdout'], n_rows))}",

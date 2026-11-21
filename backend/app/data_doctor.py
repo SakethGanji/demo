@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from . import frames
 from .profiling import MAX_CLASSES, REF_NAME, detect_type
 
 log = logging.getLogger("ensemble.data_doctor")
@@ -1171,7 +1172,7 @@ def start_labels(dirpath: Path, target: str, csv: Path, roles: list[dict[str, An
             k = label_key(target, csv)
             t0 = time.perf_counter()
             try:
-                out = label_issues(pd.read_csv(csv), target, roles, all_rows=True)
+                out = label_issues(frames.read_csv_path(csv), target, roles, all_rows=True)
             except Exception as e:  # noqa: BLE001
                 log.exception("label quality failed")
                 out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
@@ -1406,9 +1407,41 @@ def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | N
                 raise ValueError(f"{op}: {t['column']!r} has no cell equal to {', '.join(map(repr, absent))}.")
 
 
-def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None) -> tuple[pd.DataFrame, np.ndarray, list[dict[str, Any]]]:
-    """Apply the fixes in order. Returns the new frame, the mask of the original rows kept, and each fix's effect."""
+def check_values(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None, kinds: dict[str, str] | None = None) -> None:
+    """§4.4: every value a fix writes is checked against its column's type (lake.values), before anything is applied:
+    split_codes `fill`, relabel `labels` (into the target), merge_classes `into` (text), rescale `factor` (a finite
+    number). A refusal is `ValueRefused` (400 value_out_of_range / value_invalid with op_index and column)."""
+    from . import dataset_edit as DE
+    from .lake import values as V
+
+    kinds = kinds or {}
+    for i, t in enumerate(transforms, 1):
+        op = t.get("op")
+        where = f"Fix {i} ({op})"
+        if op == "split_codes":
+            c = t["column"]
+            t["fill"] = DE._coerce(t.get("fill", 0), df[c], where, kind=kinds.get(c), op_index=i)
+        elif op == "relabel" and target in df.columns:
+            if pd.api.types.is_numeric_dtype(df[target]):
+                t["labels"] = [DE._coerce(v, df[target], f"{where}, label {j + 1}", kind=kinds.get(target), op_index=i)
+                               for j, v in enumerate(t.get("labels") or [])]
+            else:
+                for v in t.get("labels") or []:
+                    V.check(v, "VARCHAR", op_index=i, column=target)
+        elif op == "merge_classes":
+            V.check(t.get("into") or "other", "VARCHAR", op_index=i, column=t.get("column"))
+        elif op == "rescale":
+            V.check(t.get("factor"), "DOUBLE", op_index=i, column=t.get("column"))
+
+
+def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None,
+          kinds: dict[str, str] | None = None) -> tuple[pd.DataFrame, np.ndarray, list[dict[str, Any]]]:
+    """Apply the fixes in order. Returns the new frame, the mask of the original rows kept, and each fix's effect.
+    `kinds` (the version's schema) types the value checks (§4.4); a rescaled column must stay finite."""
+    from .lake import values as V
+
     validate(df, transforms, target)
+    check_values(df, transforms, target, kinds)
     out = df.copy()
     keep = np.ones(len(df), bool)
     effects = []
@@ -1483,7 +1516,9 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
                 lx = np.log(np.where(hv, xa, 1.0))
                 m = m & hv & (np.abs(lx - np.log(float(sc["after"]))) < np.abs(lx - np.log(float(sc["before"]))))
             out[c] = out[c].astype(float)
-            out.loc[m, c] = out.loc[m, c] * float(t["factor"])
+            with np.errstate(over="ignore", invalid="ignore"):
+                out.loc[m, c] = out.loc[m, c] * float(t["factor"])
+            V.check_column(out.loc[keep, c].to_numpy(dtype=float), op_index=transforms.index(t) + 1, column=c)  # §4.4: no ±inf
             out[f"{c}_rescaled"] = m.astype(int)
             effects.append({**t, "cells": int((m & keep).sum())})
         elif op == "merge_classes":

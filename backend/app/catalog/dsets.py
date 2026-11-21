@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 
+from .. import frames
 from . import governance as G
 from . import schema as S
 from .schema import audit, file_sha256, now
@@ -303,7 +304,7 @@ def diff(app, a: str, b: str) -> dict[str, Any]:
         if rec.get("state") == DELETED:
             raise DsError(410, f"{x} was deleted: its rows are gone (the tombstone and lineage are kept).")
         recs[x] = rec
-    fa, fb = store.load_frame(a), store.load_frame(b)
+    fa, fb = frames.read_version(a), frames.read_version(b)
     sa, sb = recs[a].get("sha256"), recs[b].get("sha256")
     if sa and sa == sb and len(fa) == len(fb):  # DL2 (B5): the same file: every row is itself
         pairs, how, key = (np.arange(len(fa)), np.arange(len(fb))), "identical files (the same sha256)", None
@@ -561,9 +562,10 @@ def request_delete(app, dataset_id: str, by: str, reason: str, only_version: boo
         if con.execute("SELECT 1 FROM dataset_requests WHERE dataset_id = ? AND status = 'pending'", (dataset_id,)).fetchone():
             raise DsError(409, f"A delete of {dataset_id} is already waiting for approval.")
         rid = "dsr_" + secrets.token_hex(4)
+        # §4.4 (DLA4): runs_made_irreproducible is computed for every request (an empty list when no run loses its data)
         opts = {"only_version": bool(only_version and not whole and dataset_id == root), "freeze_holdout": bool(freeze_holdout),
-                **({"irreproducible": ack, "runs_made_irreproducible": [r["id"] for r in _run_users(con, [t["id"] for t in targets])]}
-                   if ack else {})}
+                "runs_made_irreproducible": [r["id"] for r in _run_users(con, [t["id"] for t in targets if t["state"] != DELETED])],
+                **({"irreproducible": ack} if ack else {})}
         con.execute("INSERT INTO dataset_requests (id, dataset_id, root_id, action, status, requested_by, requested_at, reason, options)"
                     " VALUES (?, ?, ?, 'delete', 'pending', ?, ?, ?, ?)", (rid, dataset_id, root, by, now(), reason, json.dumps(opts)))
         audit(con, by, "dataset_delete_requested", comment=reason,
@@ -580,7 +582,10 @@ def get_request(app, rid: str) -> dict[str, Any]:
         r = con.execute("SELECT * FROM dataset_requests WHERE id = ?", (rid,)).fetchone()
     if not r:
         raise DsError(404, f"No dataset request '{rid}'.")
-    return dict(r)
+    out = dict(r)
+    if out.get("action") == "delete":  # §4.4: the runs this delete makes irreproducible, in the response itself
+        out["runs_made_irreproducible"] = (_j(out.get("options")) or {}).get("runs_made_irreproducible") or []
+    return out
 
 
 def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_self: bool = False, withdraw: bool = False) -> dict[str, Any]:
@@ -655,7 +660,7 @@ def _freeze_holdout(store, r: dict[str, Any]) -> dict[str, Any] | None:
     from .schema import file_sha256
 
     try:
-        df = store.load_frame(r["id"])
+        df = frames.read_version(r["id"])
         _, sp, _ = store.ensure_splits(r["id"], r["target"] if r["target"] in df.columns else None)
         hold = [int(i) for i in sp.get("holdout") or [] if int(i) < len(df)]
     except Exception:  # noqa: BLE001 - no split to freeze: the delete goes ahead without a sample
@@ -681,7 +686,7 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
             if r["state"] == DELETED:
                 out.append({"id": r["id"], "v": r["v"], "ok": None, "status": "deleted (tombstone)", "stored": r["sha256"]})
                 continue
-            now_sha = file_sha256(store.csv_path(r["id"]))
+            now_sha = file_sha256(frames.version_file(r["id"]))
             data_ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
             status = "ok" if data_ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
             splits = store.check_splits(r["id"])  # DL4 (M-d): the holdout and folds are checked like data.csv
@@ -758,7 +763,6 @@ def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[
 
 def export_manifest(app, dataset_id: str, by: str) -> dict[str, Any]:
     """What goes in the zip next to data.csv: the chain up to the root, the stored and current hash."""
-    store = app.state.datasets
     with app.state.db.connect() as con:
         root = root_of(con, dataset_id)
         rows = {r["id"]: r for r in tree_rows(con, root)}
@@ -769,7 +773,7 @@ def export_manifest(app, dataset_id: str, by: str) -> dict[str, Any]:
         while x:
             chain.append({k: x.get(k) for k in ("id", "v", "op", "created_by", "created_at", "rows", "n_cols", "sha256", "parent_id")})
             x = rows.get(x["parent_id"]) if x.get("parent_id") else None
-        sha_now = file_sha256(store.csv_path(dataset_id))
+        sha_now = file_sha256(frames.version_file(dataset_id))
         audit(con, by, "dataset_exported", details={"dataset_id": dataset_id, "root_id": root, "v": r["v"], "sha256": sha_now,
                                                     "integrity_ok": sha_now == r["sha256"]})
     return {"dataset_id": dataset_id, "name": r["name"], "v": r["v"], "root_id": root, "target": r["target"], "rows": r["rows"],
@@ -784,8 +788,6 @@ def match_upload(app, filename: str, content: bytes) -> dict[str, Any]:
     import difflib
     import re as _re
 
-    import pandas as pd
-
     from ..datasets import read_upload
 
     df, _, stem = read_upload(filename, content)
@@ -797,7 +799,6 @@ def match_upload(app, filename: str, content: bytes) -> dict[str, Any]:
         n = _re.sub(r"(?i)([_\- ]?(v|version)\s?\d+|[_\- ]?\d{4}([-_]?\d{2}){0,2}|[_\- ]?(copy|new|final|latest|updated))+$", "", n)
         return norm(n)
 
-    store = app.state.datasets
     with app.state.db.connect() as con:
         roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS NULL")]
         cands = []
@@ -809,7 +810,7 @@ def match_upload(app, filename: str, content: bytes) -> dict[str, Any]:
             cur, _ = effective_default(rows, card(con, root))
             r = next((x for x in live if x["id"] == cur), live[-1])
             try:
-                pcols = [str(c) for c in pd.read_csv(store.csv_path(r["id"]), nrows=0).columns]
+                pcols = frames.column_names(frames.table(r["id"]))
             except Exception:  # noqa: BLE001 - a version with no readable file is not a candidate
                 continue
             pn = {norm(c): c for c in pcols}

@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 
-from . import __version__, config
+from . import __version__, config, frames
 from .datasets import DatasetError, DatasetStore
 from .db import Database
 from .autopilot import api as autopilot_api
@@ -277,7 +277,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         if tgt and (rec.get("profile") or {}).get("target_source") != "guessed" and not any(v == "target" for v in (roles or {}).values()):
             roles = {**(roles or {}), tgt: "target"}
         try:
-            df = store(request).load_frame(dataset_id)
+            df = frames.read_version(dataset_id)
             if tgt not in df.columns:
                 roles = {k: v for k, v in (roles or {}).items() if k in df.columns} or None
             out = {"dataset_id": dataset_id, **intake(df, roles, versions=_binary_versions(request, dataset_id))}
@@ -316,7 +316,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
         who = G.reader(by)
         dataset_or_404(request, dataset_id)
-        df = store(request).load_frame(dataset_id)
+        df = frames.read_version(dataset_id)
         if column is not None and column not in df.columns:
             raise HTTPException(400, f"No column '{column}' in {dataset_id}.")
         cols = [column] if column else [c for c in df.columns if df[c].dtype == object]
@@ -343,7 +343,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         strategy = body.get("strategy") or RANDOM_STRATIFIED
         try:
             _, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
-            df = store(request).load_frame(dataset_id)
+            df = frames.read_version(dataset_id)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
         return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, df[target] if target else None)}

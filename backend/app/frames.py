@@ -110,6 +110,18 @@ def table(version_id: str, table: str = PRIMARY_TABLE) -> Table:
     return Table(version_id, table)
 
 
+def version_file(version_id: str) -> Path:
+    """The file a CSV-store version is written to (the writers of datasets.py until P07's VersionWriter, hashing and
+    run configs' `csv_path` key). Never read it directly: read `Table(version_id)`."""
+    return path_of(Table(version_id))
+
+
+def read_version(version_id: str, columns: Iterable[str] | Callable[[str], bool] | None = None,
+                 rows: range | slice | None = None) -> pd.DataFrame:
+    """`read(Table(version_id))`: the version's one table, typed (what `DatasetStore.load_frame` used to return)."""
+    return read(Table(version_id), columns, rows)
+
+
 def resolve(cfg: dict[str, Any]) -> InputRef:
     """A run config's input: `input_ref` (new configs), else `csv_path` (every config so far: the exact file the fit
     read, so an old run re-reads what it trained on), else `dataset_id`."""
@@ -203,6 +215,25 @@ def n_rows(ref: InputRef) -> int:
         return max(0, sum(1 for _ in csv.reader(f)) - 1)
 
 
+def parse_csv(src: Any, schema: dict[str, Any] | None = None, **kw: Any) -> pd.DataFrame:
+    """The CSV parse behind every typed read (frame_io.read delegates here): text columns of the schema as strings."""
+    return pd.read_csv(src, **kw)
+
+
+def export_schema(version_id: str) -> dict[str, Any]:
+    """§4.1: the `schema.json` written into every export zip: the version's tables and their column types, so the file
+    reads back with the types it was trained on (a ZIP '02139' column is VARCHAR, not a number). On the CSV store there
+    is one table, `data` (data.csv); with Parquet (P05) this is the manifest's tables and schemas."""
+    from .lake.values import type_of_kind
+
+    ref = Table(version_id)
+    stored = FIO.load(path_of(ref).parent) is not None
+    return {"format": "ensemble.export_schema/1", "version_id": version_id, "read_mode": "engine_v1",
+            "tables": [{"name": PRIMARY_TABLE, "file": "data.csv", "rows": n_rows(ref),
+                        "columns": [{"name": c.name, "kind": c.kind, "type": type_of_kind(c.kind)} for c in columns(ref)]}],
+            "source": "schema.json" if stored else "inferred (the version predates DL4's schema.json)"}
+
+
 def read_artifact(path: str | Path, **kw: Any) -> pd.DataFrame:
     """A CSV the app wrote itself (run outputs, reference tables): no schema, read as written."""
     return pd.read_csv(path, **kw)
@@ -211,10 +242,38 @@ def read_artifact(path: str | Path, **kw: Any) -> pd.DataFrame:
 # --------------------------------------------------------------------------- user files
 
 
+def parse_text(text: str, sep: str, name: str = "", *, fix_hint: str = "") -> pd.DataFrame:
+    """Decoded CSV text with the typed import rules: ';' files with decimal commas, codes with leading zeros ('02139',
+    '007') kept as text (`attrs["kept_as_text"]`). Errors are `DatasetError` with a plain message, never pandas' text.
+    Shared by the dataset upload (`datasets.read_upload`) and user batch files (`read_upload`)."""
+    from .datasets import DatasetError
+
+    dec = "," if sep == ";" else "."
+    try:
+        df = pd.read_csv(io.StringIO(text), sep=sep, decimal=dec)
+    except pd.errors.EmptyDataError as e:
+        raise DatasetError("The file has no header row.") from e
+    except pd.errors.ParserError as e:
+        m = re.search(r"Expected (\d+) fields in line (\d+), saw (\d+)", str(e))
+        if m:
+            raise DatasetError(f"Line {m[2]} has {m[3]} fields but the header has {m[1]}.{fix_hint}") from e
+        raise DatasetError(f"Could not read {Path(name).name or 'the file'} as CSV.") from e
+    try:
+        raw = pd.read_csv(io.StringIO(text), sep=sep, dtype=str, keep_default_na=True)
+        keep = FIO.leading_zero_columns(raw, df)
+    except Exception:  # noqa: BLE001 - only a refinement of the typed read
+        keep = []
+    for c in keep:
+        df[c] = raw[c].where(raw[c].notna(), None).astype(object)
+    df.attrs["kept_as_text"] = keep
+    return df
+
+
 def read_upload(src: Any, *, filename: str | None = None, kind: str = "batch", sep: str | None = None) -> pd.DataFrame:
     """A user's file (bytes, a path or a buffer) with the typed import rules: header required, the encoding and the
     separator detected, codes with leading zeros ('02139', '007') kept as text, ';' files read with decimal commas.
-    `kind` is 'batch' (rows to score / compare) or 'labels' (an annotation upload). Parquet is read as stored."""
+    `kind` is 'batch' (rows to score / compare) or 'labels' (an annotation upload). Parquet is read as stored; an
+    Excel workbook (.xlsx) is read from its first sheet, with the same leading-zero rule."""
     from .datasets import DatasetError, decode_upload, sniff_sep
 
     name = filename or (str(src) if isinstance(src, (str, Path)) else "")
@@ -226,32 +285,27 @@ def read_upload(src: Any, *, filename: str | None = None, kind: str = "batch", s
         content = src.read()
     if re.search(r"\.parquet$", name, re.I) or content[:4] == b"PAR1":
         try:
-            return pd.read_parquet(io.BytesIO(content))
+            df = pd.read_parquet(io.BytesIO(content))
         except Exception as e:  # noqa: BLE001
             raise DatasetError(f"Could not read {Path(name).name or 'the file'} as Parquet.") from e
-    if not content.strip():
-        raise DatasetError("The file is empty.")
-    text, _enc = decode_upload(content)
-    if sep is None:
-        sep = "\t" if name.lower().endswith(".tsv") else sniff_sep(text)
-    dec = "," if sep == ";" else "."
-    try:
-        df = pd.read_csv(io.StringIO(text), sep=sep, decimal=dec)
-    except pd.errors.EmptyDataError as e:
-        raise DatasetError("The file has no header row.") from e
-    except pd.errors.ParserError as e:
-        m = re.search(r"Expected (\d+) fields in line (\d+), saw (\d+)", str(e))
-        if m:
-            raise DatasetError(f"Line {m[2]} has {m[3]} fields but the header has {m[1]}.") from e
-        raise DatasetError(f"Could not read {Path(name).name or 'the file'} as CSV.") from e
-    try:
-        raw = pd.read_csv(io.StringIO(text), sep=sep, dtype=str, keep_default_na=True)
+    elif re.search(r"\.xlsx$", name, re.I) or (content[:2] == b"PK" and not re.search(r"\.(csv|tsv|txt)$", name, re.I)):
+        try:
+            raw = pd.read_excel(io.BytesIO(content), sheet_name=0, dtype=str)
+            df = pd.read_excel(io.BytesIO(content), sheet_name=0)
+        except Exception as e:  # noqa: BLE001
+            raise DatasetError(f"Could not read {Path(name).name or 'the file'} as an Excel workbook.") from e
         keep = FIO.leading_zero_columns(raw, df)
-    except Exception:  # noqa: BLE001 - only a refinement of the typed read
-        keep = []
-    for c in keep:
-        df[c] = raw[c].where(raw[c].notna(), None).astype(object)
-    df.attrs["kept_as_text"] = keep
+        for c in keep:
+            df[c] = raw[c].where(raw[c].notna(), None).astype(object)
+        df.attrs["kept_as_text"] = keep
+    else:
+        if not content.strip():
+            raise DatasetError("The file is empty.")
+        text, _enc = decode_upload(content)
+        if sep is None:
+            sep = "\t" if name.lower().endswith(".tsv") else sniff_sep(text)
+        df = parse_text(text, sep, name)
+    df.attrs.setdefault("kept_as_text", [])
     df.attrs["upload_kind"] = kind
     return df
 

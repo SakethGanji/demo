@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from . import featurelab as fl
+from . import frames
 from .data_doctor_api import answers, run_drops
 from .datasets import DatasetError, now
 from .http import dataset_or_404
@@ -49,7 +50,7 @@ def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | 
     body = body or {}
     rec = dataset_or_404(request, dataset_id)
     store = request.app.state.datasets
-    df = store.load_frame(dataset_id)
+    df = frames.read_version(dataset_id)
     target = body.get("target") or rec["target"]
     if not target or target not in df.columns:
         raise HTTPException(400, "Name a target column (the dataset has none set).")

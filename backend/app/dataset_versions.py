@@ -164,6 +164,11 @@ def contract_checks(parent: pd.DataFrame, new: pd.DataFrame, target: str | None,
                                                      f"warning above {row_drop:.0%}): {len(parent):,} → {len(new):,}."})
     for c in sd["columns_removed"]:
         w.append({"code": "column_removed", "column": c, "message": f"'{c}' is gone: runs that used it can't be re-fitted on this version as they were."})
+    renamed = rename_hints(parent, new, sd["columns_removed"], sd["columns_added"])
+    for h in renamed:
+        w.append({"code": "column_renamed_maybe", "column": h["from"], "to": h["to"], "overlap": h["overlap"],
+                  "message": f"Was '{h['from']}' renamed to '{h['to']}'? Same type, and {h['overlap']:.0%} of the new column's "
+                             "values are the old column's. Nothing is renamed automatically: edit the file or the version if so."})
     if target and target in parent.columns and target in new.columns:
         ma, mb = float(parent[target].isna().mean()), float(new[target].isna().mean())
         if mb - ma > 0.05:
@@ -171,7 +176,30 @@ def contract_checks(parent: pd.DataFrame, new: pd.DataFrame, target: str | None,
                       "message": f"The target is missing on {mb:.1%} of rows (was {ma:.1%})."})
     return {"warnings": w, "columns_added": sd["columns_added"], "columns_removed": sd["columns_removed"],
             "type_changes": sd["type_changes"], "rows_before": int(len(parent)), "rows_after": int(len(new)),
-            "row_drop_threshold": row_drop, "blocking": False}
+            "row_drop_threshold": row_drop, "blocking": False, "renamed_maybe": renamed}
+
+
+def rename_hints(parent: pd.DataFrame, new: pd.DataFrame, removed: list[str], added: list[str],
+                 min_overlap: float = 0.95) -> list[dict[str, Any]]:
+    """§4.4 (DLA4): "columns renamed?" pairs for the upload check: a removed and an added column of the same schema
+    kind whose new values are ≥ 95 % (distinct values) the old column's. A hint, never an automatic rename."""
+    from .frame_io import kind_of
+
+    out = []
+    for b in added:
+        nb = new[b].dropna().astype(str).unique()
+        if not len(nb):
+            continue
+        best = None
+        for a in removed:
+            if kind_of(parent[a]) != kind_of(new[b]):
+                continue
+            ov = float(pd.Index(nb).isin(parent[a].dropna().astype(str).unique()).mean())
+            if ov >= min_overlap and (best is None or ov > best["overlap"]):
+                best = {"from": str(a), "to": str(b), "overlap": round(ov, 4)}
+        if best:
+            out.append(best)
+    return out
 
 
 def _f(v: Any) -> float | None:
