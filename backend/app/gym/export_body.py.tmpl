@@ -19,12 +19,64 @@ def _cast(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load(path: str, check_hash: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
-    raw = Path(path).read_bytes()
-    digest = hashlib.sha256(raw).hexdigest()
-    if check_hash and digest != DATA_SHA256:
-        sys.exit(f"{path}: SHA-256 {digest[:12]}… is not the run's data ({DATA_SHA256[:12]}…). Use --no-check to go on.")
-    df = pd.read_csv(path, dtype={c: str for c in TEXT_COLUMNS})  # the version's text columns stay text ('02139')
+def _v1(col) -> pd.Series:
+    """One Arrow column as the run's fit saw it (ENSEMBLE's engine_v1 read): ints without nulls int64, with nulls
+    float64; decimals float64; dates / timestamps ISO text; text as text (codes keep their leading zeros)."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    t = col.type
+    if pa.types.is_integer(t):
+        return pd.Series(col.to_numpy(zero_copy_only=False).astype("int64")) if col.null_count == 0 else \
+            pd.Series(pc.cast(col, pa.float64()).to_numpy(zero_copy_only=False))
+    if pa.types.is_floating(t) or pa.types.is_decimal(t):
+        return pd.Series(pc.cast(col, pa.float64()).to_numpy(zero_copy_only=False))
+    if pa.types.is_boolean(t):
+        return pd.Series(col.to_pandas()) if col.null_count == 0 else pd.Series(col.to_pandas()).astype(object)
+    if pa.types.is_date(t):
+        col = pc.strftime(pc.cast(col, pa.timestamp("s")), format="%Y-%m-%d")
+    elif not (pa.types.is_string(t) or pa.types.is_large_string(t)):
+        col = pc.cast(col, pa.string())
+    v = col.to_numpy(zero_copy_only=False).astype(object)
+    v[pd.isna(v)] = np.nan
+    return pd.Series(v, dtype=object)
+
+
+def read_parts(parts: list, table_sha256: str, check_hash: bool = True) -> pd.DataFrame:
+    """A Parquet table of the ENSEMBLE lake: its part files in order, each hashed as read; the table's sha256 is
+    sha256("ensemble.table/1\n" + "\n".join(f"{role}:{part_sha}")), the hash the run's fit compared."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    pieces, shas = [], []
+    for role, sha, path in parts:
+        raw = Path(path).read_bytes()
+        got = hashlib.sha256(raw).hexdigest()
+        if check_hash and got != sha:
+            sys.exit(f"{path}: SHA-256 {got[:12]}… is not the run's part ({sha[:12]}…). Use --no-check to go on.")
+        shas.append(f"{role}:{got}")
+        pieces.append(pq.read_table(pa.BufferReader(raw)))
+    digest = hashlib.sha256(("ensemble.table/1\n" + "\n".join(shas)).encode()).hexdigest()
+    if check_hash and digest != table_sha256:
+        sys.exit(f"table SHA-256 {digest[:12]}… is not the run's data ({table_sha256[:12]}…). Use --no-check to go on.")
+    at = pa.concat_tables(pieces) if len(pieces) > 1 else pieces[0]
+    names = [c for c in at.column_names if c != "__row_id"]
+    df = pd.DataFrame({c: _v1(at.column(c)) for c in names}, columns=names)
+    df.index = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False))
+    return df
+
+
+def load(path: str | None, check_hash: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if path is None and DATA_PARTS:  # P05: the run read a Parquet table: read its parts, hashed
+        df = read_parts(DATA_PARTS, DATA_SHA256, check_hash)
+    else:
+        raw = Path(path).read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        if DATA_PARTS:
+            print(f"{path}: a CSV given for a run that read a Parquet table; its bytes are not hash-checked.")
+        elif check_hash and digest != DATA_SHA256:
+            sys.exit(f"{path}: SHA-256 {digest[:12]}… is not the run's data ({DATA_SHA256[:12]}…). Use --no-check to go on.")
+        df = pd.read_csv(path, dtype={c: str for c in TEXT_COLUMNS})  # the version's text columns stay text ('02139')
     is_holdout = np.zeros(len(df), dtype=bool)
     is_holdout[_rows(HOLDOUT_ROWS, N_ROWS)] = True
     has_label = df[LABEL].notna().to_numpy()
@@ -34,14 +86,17 @@ def load(path: str, check_hash: bool = True) -> tuple[pd.DataFrame, pd.DataFrame
     return train, holdout
 
 
-def load_unlabeled(path: str, features: list[str]) -> pd.DataFrame:
-    u = pd.read_csv(path, dtype={c: str for c in TEXT_COLUMNS})
+def load_unlabeled(path: str | None, features: list[str]) -> pd.DataFrame:
+    if path is None and UNLABELED_PARTS:
+        u = read_parts(UNLABELED_PARTS["parts"], UNLABELED_PARTS["table_sha256"])
+    else:
+        u = pd.read_csv(path, dtype={c: str for c in TEXT_COLUMNS})
     return _cast(u[[c for c in features if c in u.columns]])
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1])
-    ap.add_argument("--data", default=DATA_CSV, help="the dataset CSV (default: the run's own file)")
+    ap.add_argument("--data", default=DATA_CSV, help="the dataset CSV (default: the run's own data: its CSV, or its Parquet table parts)")
     ap.add_argument("--unlabeled", default=UNLABELED_CSV, help="unlabeled rows for pseudo-labelling, if the run used them")
     ap.add_argument("--out", default=f"reproduced_{RUN_ID}", help="folder for the predictor")
     ap.add_argument("--no-check", action="store_true", help="skip the data hash and the leaderboard comparison")

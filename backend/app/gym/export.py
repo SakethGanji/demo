@@ -66,8 +66,20 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
     from .. import frames
 
     ref = frames.resolve(cfg)
-    csv_path = str(frames.path_of(ref))
-    raw = Path(csv_path).read_bytes()  # hashed, as the fit hashed it
+    parts: list[list[str]] = []
+    if isinstance(ref, frames.Table) and frames.is_parquet(ref):  # P05: the script reads the table's parts, hashed
+        lt = frames.lake_table(ref)
+        parts = [[p["role"], p["sha256"], p["path"]] for p in lt.parts]
+        csv_path, data_sha = None, lt.table_sha256
+    else:
+        csv_path = str(frames.path_of(ref))
+        data_sha = hashlib.sha256(Path(csv_path).read_bytes()).hexdigest()  # hashed, as the fit hashed it
+    unl_parts = None
+    uref = frames.from_json(cfg.get("unlabeled_ref")) if cfg.get("unlabeled_ref") else None
+    if isinstance(uref, frames.Table) and frames.is_parquet(uref):
+        ul = frames.lake_table(uref)
+        unl_parts = {"table_sha256": ul.table_sha256, "parts": [[p["role"], p["sha256"], p["path"]] for p in ul.parts]}
+        unlabeled_csv = None
     n_rows = frames.n_rows(ref)
     text_columns = [c.name for c in frames.columns(ref) if c.kind == "text"]
     splits = json.loads(Path(cfg["splits_path"]).read_text())
@@ -103,7 +115,9 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         "import numpy as np\nimport pandas as pd\nfrom autogluon.tabular import TabularPredictor\n",
         f"RUN_ID = {pycode.py(rec['id'])}",
         f"DATA_CSV = {pycode.py(csv_path)}",
-        f"DATA_SHA256 = {pycode.py(hashlib.sha256(raw).hexdigest())}",
+        "# a Parquet input (P05): its part files [role, sha256, path] in order; DATA_SHA256 is then the table's sha256",
+        f"DATA_PARTS = {pycode.py(parts)}",
+        f"DATA_SHA256 = {pycode.py(data_sha)}",
         f"N_ROWS = {n_rows}",
         f"LABEL = {pycode.py(cfg['label'])}",
         f"DROP_COLUMNS = {pycode.py(cfg.get('drop_columns') or [])}",
@@ -119,6 +133,7 @@ def build_script(rec: dict[str, Any], *, backend_dir: Path, unlabeled_csv: str |
         f"FEATURE_METADATA = {pycode.py(fm)}",
         f"PSEUDOLABEL = {pycode.py(pseudo)}",
         f"UNLABELED_CSV = {pycode.py(unlabeled_csv)}",
+        f"UNLABELED_PARTS = {pycode.py(unl_parts)}",
         f"DISTILL = {pycode.py(distill)}",
         f"THRESHOLD = {pycode.py(thr_out)}",
         f"FIT_THRESHOLD = {pycode.py(fthr_out)}",
