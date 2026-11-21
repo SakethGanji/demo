@@ -26,6 +26,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from .. import frames
 from ..splits import holdout_mask
 from . import shift as sh
 from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
@@ -97,19 +98,20 @@ def plan(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str,
     cfg = rec["config"]
     label = cfg["label"]
     dsm = request.app.state.datasets
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     ref_rows, hold_rows = _split_rows(cfg, df)
     opts = dsm.split_options(rec["dataset_id"], label)
     dates = [d["column"] for d in opts.get("date_columns") or []]
     entities = [g["column"] for g in opts.get("group_columns") or []]
     kinds_all = _kinds(request, rec)
     new_df = df
-    ref = {"csv": cfg["csv_path"], "rows": ref_rows.tolist(), "name": "training rows", "rows_n": len(ref_rows),
+    src = frames.to_json(frames.resolve(cfg))  # P03: each side names what it reads ({"ref"}; "csv" kept for old readers)
+    ref = {"csv": cfg["csv_path"], "ref": src, "rows": ref_rows.tolist(), "name": "training rows", "rows_n": len(ref_rows),
            "what": "every non-holdout row of the run's dataset with a label (the drift reference)"}
     extra: dict[str, Any] = {}
     if body.source == "holdout":
         key = "holdout"
-        new = {"csv": cfg["csv_path"], "rows": hold_rows.tolist(), "name": "holdout rows", "rows_n": len(hold_rows),
+        new = {"csv": cfg["csv_path"], "ref": src, "rows": hold_rows.tolist(), "name": "holdout rows", "rows_n": len(hold_rows),
                "what": f"the run's holdout ({(cfg.get('split') or {}).get('strategy', 'random-stratified')} split)"}
     elif body.source == "time":
         tdef, cdef = _time_defaults(request, rec, opts)
@@ -131,9 +133,9 @@ def plan(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str,
         after = np.flatnonzero(ok & (t >= cut).to_numpy())
         cut_txt = splits_mod._fmt_time(cut)
         key = "time-" + hashlib.sha256(f"{tcol}|{cut_txt}".encode()).hexdigest()[:8]
-        ref = {"csv": cfg["csv_path"], "rows": before.tolist(), "name": f"before {cut_txt}", "rows_n": len(before),
+        ref = {"csv": cfg["csv_path"], "ref": src, "rows": before.tolist(), "name": f"before {cut_txt}", "rows_n": len(before),
                "what": f"rows of the dataset with {tcol} < {cut_txt}"}
-        new = {"csv": cfg["csv_path"], "rows": after.tolist(), "name": f"on or after {cut_txt}", "rows_n": len(after),
+        new = {"csv": cfg["csv_path"], "ref": src, "rows": after.tolist(), "name": f"on or after {cut_txt}", "rows_n": len(after),
                "what": f"rows of the dataset with {tcol} ≥ {cut_txt}"}
         extra = {"time_column": tcol, "cutoff": cut_txt, "cutoff_source": "request" if body.cutoff else
                  "the run's out-of-time cut-off" if cdef else "the date at the 80th row percentile",
@@ -152,9 +154,9 @@ def plan(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str,
         path = request.app.state.settings.data_dir / "registry" / "batches" / body.batch_id / "input.csv"
         if not path.exists():
             raise HTTPException(404, f"The input file of batch {body.batch_id} is gone.")
-        new_df = pd.read_csv(path)
+        new_df = frames.align_to(frames.read_upload(path, kind="batch"), frames.resolve(cfg))  # P03: a user batch file, typed rules
         key = f"batch-{body.batch_id}"
-        new = {"csv": str(path), "rows": None, "name": f"batch {b.get('filename') or body.batch_id}", "rows_n": len(new_df),
+        new = {"csv": str(path), "upload": str(path), "rows": None, "name": f"batch {b.get('filename') or body.batch_id}", "rows_n": len(new_df),
                "what": f"the rows of batch {body.batch_id} ({b.get('filename')}), scored by {b['version_id']}",
                "batch_id": body.batch_id, "version_id": b["version_id"], "max_psi": ((b.get("result") or {}).get("drift") or {}).get("max_psi")}
     for side, s in (("reference", ref), ("new", new)):
@@ -338,8 +340,8 @@ def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: 
     if not (d / "scores.csv").exists():
         raise HTTPException(404, "No finished shift check with this key.")
     G.run_read_audit(request.app, "shift_rows", run_id, {"key": key}, by=by)
-    sc = pd.read_csv(d / "scores.csv")
-    w = pd.read_csv(d / "weights.csv")
+    sc = frames.read_artifact(d / "scores.csv")
+    w = frames.read_artifact(d / "weights.csv")
     sc["w"] = np.nan
     sc.loc[sc["set"] == "reference", "w"] = w["w"].to_numpy()
     page = sc.iloc[offset: offset + limit]
@@ -439,10 +441,10 @@ def weights_version(run_id: str, key: str, request: Request, by: str = "") -> di
         raise HTTPException(400, "The reference rows are not rows of the run's dataset.")
     ds = request.app.state.datasets
     src = rec["dataset_id"]
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     if sh.WEIGHT_COLUMN in df.columns:
         df = df.drop(columns=[sh.WEIGHT_COLUMN])
-    wdf = pd.read_csv(d / "weights.csv")
+    wdf = frames.read_artifact(d / "weights.csv")
     col = np.ones(len(df))
     col[wdf["row"].to_numpy(dtype=int)] = wdf["w"].to_numpy(dtype=float)
     df[sh.WEIGHT_COLUMN] = col

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..splits import load_splits
+from .. import frames
 from . import explain, serving
 from .pool import load_predictor
 
@@ -18,7 +19,7 @@ def shap_holdout_row(cfg: dict[str, Any], row: int, target: str | None) -> dict[
 
 def permutation_importance(cfg: dict[str, Any], num_shuffle_sets: int) -> tuple[list[dict[str, Any]], int]:
     p = load_predictor(cfg["predictor_path"])
-    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     return serving.feature_importance(p, h, num_shuffle_sets=num_shuffle_sets, time_limit=120), min(2000, len(h))
 
 
@@ -36,7 +37,7 @@ def monotone_check(predictor_path: str, cfg: dict[str, Any], constraints: dict[s
     from . import monotone
 
     p = load_predictor(predictor_path)
-    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     m = model or p.model_best
     if m not in p.model_names():
         raise serving.ServingError(f"No model '{m}' in this predictor; models: {', '.join(p.model_names())}.")
@@ -65,7 +66,7 @@ def scorecard_score(cfg: dict[str, Any], rows: list[dict[str, Any]] | None, hold
         _SCORECARDS[key] = sc.load_deployed(run_dir)
     m = _SCORECARDS[key]
     if holdout_index is not None:
-        h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+        h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
         bad = [i for i in holdout_index if not 0 <= i < len(h)]
         if bad:
             raise serving.ServingError(f"holdout_index {bad[0]} is out of range (0–{len(h) - 1}).")

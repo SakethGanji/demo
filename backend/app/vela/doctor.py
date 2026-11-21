@@ -45,6 +45,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..engine.store import now
 from ..stats import wilson
 
@@ -142,7 +143,7 @@ def _fit_gap(cfg: dict[str, Any], rec: dict[str, Any], hp: pd.DataFrame | None) 
 
     p = load_predictor(cfg["predictor_path"])
     sp = json.loads(Path(cfg["splits_path"]).read_text())
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     label = cfg["label"]
     fold = np.asarray(sp["fold"])
     drop = [c for c in (cfg.get("drop_columns") or []) if c in df.columns and c != label]

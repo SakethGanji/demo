@@ -46,6 +46,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from .jobs import watch_parent
 from .jsonsafe import read_json, write_json
 
@@ -313,7 +314,7 @@ def run(run_dir: Path) -> int:
         split = cfg.get("split") or {}
         strategy = split.get("strategy", "random-stratified")
         group_col = (split.get("params") or {}).get("group_column") if strategy in ("group", "time-group") else None
-        groups = pd.read_csv(cfg["csv_path"], usecols=[group_col])[group_col] if group_col else None
+        groups = frames.read(frames.resolve(cfg), columns=[group_col])[group_col] if group_col else None
         fold_col = w.GROUP_FOLD_COLUMN if w.GROUP_FOLD_COLUMN in train.columns else None
         prep_full = w.prepare_fit(cfg, train, holdout, tuning, info)  # applies column types to the frames once
         em_info = res.get("eval_metric") or {}

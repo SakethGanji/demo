@@ -239,7 +239,9 @@ def _next_steps(request: Request, rec: dict[str, Any]) -> list[dict[str, Any]]:
     from . import doctor as D
 
     try:
-        found = intake(request.app.state.datasets.load_frame(rec["dataset_id"]))
+        from .. import frames
+
+        found = intake(frames.read(frames.table(rec["dataset_id"])))
     except Exception:  # noqa: BLE001 — a deleted or unreadable dataset: no suggestions rather than no diagnosis
         found = None
     reg = request.app.state.registry

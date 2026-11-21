@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
-from .. import config
+from .. import config, frames
 from ..http import dataset_or_404
 
 router = APIRouter(prefix="/api")
@@ -129,7 +129,8 @@ async def import_run(request: Request, dataset_id: str = Form(...), file: Upload
            "presets": None, "time_limit": None, "fit_kwargs": {}, "predictor_kwargs": {}, "custom_text_models": False,
            "feature_importance": True, "column_types": {}, "calibrate_threshold": None, "drop_columns": drop,
            "text_columns": [], "task": info["problem_type"], "import": imp, "source": "import",
-           "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(dataset_id)),
+           "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(frames.path_of(frames.table(dataset_id))),
+           "input_ref": frames.input_ref_for(dataset_id),  # P03
            "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
            "predictor_path": str(dest)}
     store = queue_run(app, run_id, run_dir, name or f"Imported · {source.split('/')[-1]} · {label}", dataset_id, label, cfg,

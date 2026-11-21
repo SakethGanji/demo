@@ -1,0 +1,42 @@
+## DLA4 #1 cases (28)
+ok  400 value_out_of_range   set_cells credit_score=1e+30                      | Operation 1 (set_cells), row 0, 'credit_score': 1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 92233720368547
+ok  400 value_out_of_range   set_cells credit_score=1e+308                     | Operation 1 (set_cells), row 0, 'credit_score': 1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854
+ok  400 value_out_of_range   set_cells credit_score=9223372036854775808        | Operation 1 (set_cells), row 0, 'credit_score': 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 
+ok  400 value_out_of_range   set_cells credit_score=18446744073709551616       | Operation 1 (set_cells), row 0, 'credit_score': 18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to
+ok  400 value_out_of_range   set_cells credit_score=-1e+30                     | Operation 1 (set_cells), row 0, 'credit_score': -1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854
+ok  400 value_out_of_range   set_cells credit_score=-1e+308                    | Operation 1 (set_cells), row 0, 'credit_score': -1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 922337203685
+ok  400 value_out_of_range   set_cells credit_score=-9223372036854775809       | Operation 1 (set_cells), row 0, 'credit_score': -9223372036854775809 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to
+ok  400 value_out_of_range   set_cells credit_score=-18446744073709551616      | Operation 1 (set_cells), row 0, 'credit_score': -18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 t
+ok  400 value_out_of_range   set_cells age='1e30' (text)                       | Operation 1 (set_cells), row 1, 'age': '1e30' is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   set_cells age='1e308' (text)                      | Operation 1 (set_cells), row 1, 'age': '1e308' is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   set_cells age='9223372036854775808' (text)        | Operation 1 (set_cells), row 1, 'age': '9223372036854775808' is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372
+ok  400 value_out_of_range   set_cells age='18446744073709551616' (text)       | Operation 1 (set_cells), row 1, 'age': '18446744073709551616' is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 922337
+ok  400 value_out_of_range   set_cells credit_score=1e+30 preview              | Operation 1 (set_cells), row 2, 'credit_score': 1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 92233720368547
+ok  400 value_out_of_range   set_cells credit_score=1e+308 preview             | Operation 1 (set_cells), row 2, 'credit_score': 1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854
+ok  400 value_out_of_range   set_cells credit_score=9223372036854775808 preview  | Operation 1 (set_cells), row 2, 'credit_score': 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 
+ok  400 value_out_of_range   set_cells credit_score=18446744073709551616 preview  | Operation 1 (set_cells), row 2, 'credit_score': 18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to
+ok  400 value_out_of_range   add_rows credit_score=1e+30                       | Operation 1 (add_rows), new row 1, 'credit_score': 1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 92233720368
+ok  400 value_out_of_range   add_rows credit_score=1e+308                      | Operation 1 (add_rows), new row 1, 'credit_score': 1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036
+ok  400 value_out_of_range   add_rows credit_score=9223372036854775808         | Operation 1 (add_rows), new row 1, 'credit_score': 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 
+ok  400 value_out_of_range   add_rows credit_score=18446744073709551616        | Operation 1 (add_rows), new row 1, 'credit_score': 18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808
+ok  400 value_out_of_range   add_column value=1.797e+308                       | Operation 1, 'big': the column's values add up to more than a number can hold (±1.798e+308), so its sum and mean overflow; use smaller values.
+ok  400 value_out_of_range   add_column value=-1.797e+308                      | Operation 1, 'big': the column's values add up to more than a number can hold (±1.798e+308), so its sum and mean overflow; use smaller values.
+ok  400 value_out_of_range   add_column value='1.797e308'                      | Operation 1, 'big': the column's values add up to more than a number can hold (±1.798e+308), so its sum and mean overflow; use smaller values.
+ok  400 value_out_of_range   add_column value=1.7976931348623157e+308          | Operation 1, 'big': the column's values add up to more than a number can hold (±1.798e+308), so its sum and mean overflow; use smaller values.
+ok  400 value_out_of_range   add_column value=1.797e308 preview                | Operation 1, 'big': the column's values add up to more than a number can hold (±1.798e+308), so its sum and mean overflow; use smaller values.
+ok  400 non_finite_result    add_column formula credit_score * 1e308           | Operation 1 (add_column): 'credit_score * 1e308' is not a finite number in 12000 row(s) (it overflows); use smaller values or another formula.
+ok  400 non_finite_result    add_column formula exp(credit_score)              | Operation 1 (add_column): 'exp(credit_score)' is not a finite number in 4526 row(s) (it overflows); use smaller values or another formula.
+ok  400 non_finite_result    add_column formula income_usd * 1e306 * 1e3       | Operation 1 (add_column): 'income_usd * 1e306 * 1e3' is not a finite number in 11515 row(s) (it overflows); use smaller values or another formula.
+=> 28/28 as required
+
+## fill_missing / replace_values with the same values (8)
+ok  400 value_out_of_range   fill_missing credit_score constant 1e+30          | Operation 1 (fill_missing): 1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   fill_missing credit_score constant 1e+308         | Operation 1 (fill_missing): 1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   fill_missing credit_score constant 9223372036854775808  | Operation 1 (fill_missing): 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   fill_missing credit_score constant 18446744073709551616  | Operation 1 (fill_missing): 18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807
+ok  400 value_out_of_range   replace_values credit_score 724 -> 1e+30          | Operation 1 (replace_values): 1e+30 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   replace_values credit_score 724 -> 1e+308         | Operation 1 (replace_values): 1e+308 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.
+ok  400 value_out_of_range   replace_values credit_score 724 -> 9223372036854775808  | Operation 1 (replace_values): 9223372036854775808 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 922337203685477580
+ok  400 value_out_of_range   replace_values credit_score 724 -> 18446744073709551616  | Operation 1 (replace_values): 18446744073709551616 is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 92233720368547758
+=> 8/8 as required
+

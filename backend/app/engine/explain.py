@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..splits import holdout_mask
 from .jsonsafe import jsonable
 
@@ -42,7 +43,7 @@ def load_holdout(run_dir: Path) -> pd.DataFrame:
     path = Path(run_dir) / "holdout_predictions.csv"
     if not path.exists():
         raise FileNotFoundError("This run has no saved holdout predictions.")
-    return pd.read_csv(path)
+    return frames.read_artifact(path)
 
 
 def _proba(df: pd.DataFrame, classes: list[Any]) -> np.ndarray:
@@ -186,7 +187,7 @@ def _calibration(y: np.ndarray, p: np.ndarray, n_bins: int = 10) -> dict[str, An
 def _features_for_rows(cfg: dict[str, Any], rows: list[int]) -> dict[int, dict[str, Any]]:
     if not rows:
         return {}
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     keep = [c for c in df.columns if c not in (cfg.get("drop_columns") or []) and c != cfg["label"]]
     sub = df.loc[rows, keep]
     return {int(i): jsonable(r) for i, r in zip(sub.index, sub.to_dict(orient="records"))}
@@ -328,7 +329,7 @@ def fairness(df: pd.DataFrame, cfg: dict[str, Any], group: str, *, problem_type:
                                    equalized_odds_difference, false_positive_rate, selection_rate, true_positive_rate)
     from sklearn.metrics import accuracy_score, f1_score, mean_absolute_error, precision_score
 
-    data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c == group)
+    data = frames.read(frames.resolve(cfg), columns=lambda c: c == group)
     if group not in data.columns:
         raise ExplainError(f"No column named {group!r} in the dataset.")
     if group == cfg["label"]:
@@ -434,7 +435,7 @@ def _shap_background(cfg: dict[str, Any], features: list[str], background: int):
     """The fixed background sample: `background` training rows (data.csv minus the holdout, labelled), seed 0."""
     import shap
 
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     is_h = holdout_mask(splits, len(df))
     train = df.loc[~is_h & df[cfg["label"]].notna(), features]
@@ -526,7 +527,7 @@ def shap_row(predictor, cfg: dict[str, Any], run_dir: Path, row: int, target: st
         raise ExplainError(f"Row {row} is not in this run's holdout.")
     features = list(predictor.original_features)
     model = predictor.model_best
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     x = df.loc[[row], features]
     target, classes = resolve_target(predictor, x, target)
     cache_dir = Path(run_dir) / "shap"
