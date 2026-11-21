@@ -1,0 +1,81 @@
+## 1. v1: POST /uploads → check → commit (900 rows); its split is a Parquet row + blob + audit row
+  v1 ds_3533a2f7 random-stratified__y-95cb0bfd holdout_rows 180 split_id spl_a0d9e48bb0d8 split_sha256 c8275af23f5d… blob 461872ba262c…
+  splits rows | 1
+  split_created audit rows | 1
+  split_files rows for Parquet versions | 0
+  datasets.splits_sha256 of v1 | None
+## 2. r1, r2 on v1 (POST /runs): each pins the split blob and records split_sha256 in run_inputs
+  run_c34912d7 r1 succeeded | split spl_a0d9e48bb0d8 match True failed [] override None | holdout rows 180
+  run_83f208c4 r2 succeeded | split spl_a0d9e48bb0d8 match True failed [] override None | holdout rows 180
+  run_inputs | run_c34912d7 | spl_a0d9e48bb0d8 | c8275af23f5d
+  run_inputs | run_83f208c4 | spl_a0d9e48bb0d8 | c8275af23f5d
+  blob_refs | run | run_83f208c4 | split | 461872ba262c
+  blob_refs | run | run_c34912d7 | split | 461872ba262c
+  blob_refs | split | spl_a0d9e48bb0d8 | split | 461872ba262c
+## 3. replace the split blob / update the splits row with the DB opened directly → the trigger refuses
+  UPDATE splits … WHERE id = spl_a0d9e48bb0d8 → refused: splits are immutable
+  DELETE FROM splits WHERE id = spl_a0d9e48bb0d8 → refused: splits are immutable
+## 4. simulated tamper: a new blob (50-row holdout) + a new splits row, DB opened directly (delete trigger dropped)
+  replaced spl_a0d9e48bb0d8 (holdout 180, split_sha256 c8275af23f5d…) by spl_4f3d32f523be: holdout 50, split_sha256 941e6eb32e0b…, blob cc87ea5f5c38… (self-consistent: its key is its hash)
+## 5. POST /runs → 409
+  HTTP 409 | split_integrity | split_integrity: random-stratified__y-95cb0bfd of ds_3533a2f7 differs from runs run_c34912d7, run_83f208c4: they trained on split_sha256 c8275af23f5d…, the split is 941e6eb32e0b… now; check 3 (audit): no split_created audit row for spl_4f3d32f523be: the row was not written by the app. The run was refused. GET /api/datasets/ds_3533a2f7/verify names the check; POST …/restore-splits offers the split th
+## 6. GET …/verify names the check
+  ok False data_ok True splits_ok False
+  spl_4f3d32f523be random-stratified__y-95cb0bfd FAILED: check 3 audit, check 4 runs
+    check 1 blob ok     - blob cc87ea5f5c38… re-hashed: matches its key
+    check 2 split_sha256 ok     - split_sha256 941e6eb32e0b… over 900 rows
+    check 3 audit FAILED - no split_created audit row for spl_4f3d32f523be: the row was not written by the app
+    check 4 runs FAILED - differs from runs run_c34912d7, run_83f208c4: they trained on split_sha256 c8275af23f5d…, the split is 941e6eb32e0b… now
+    check 5 carry ok     - not a carried split
+## 7. the tamperer also forges a split_created audit row → check 3 passes, check 4 still fails
+  forged a split_created audit row for spl_4f3d32f523be
+  spl_4f3d32f523be random-stratified__y-95cb0bfd FAILED: check 4 runs
+    check 1 blob ok     - blob cc87ea5f5c38… re-hashed: matches its key
+    check 2 split_sha256 ok     - split_sha256 941e6eb32e0b… over 900 rows
+    check 3 audit ok     - audit #25 (2026-11-21T20:24:31, Ana) records the same split_sha256 and blob; chain link: not written yet (the chain starts in P19)
+    check 4 runs FAILED - differs from runs run_c34912d7, run_83f208c4: they trained on split_sha256 c8275af23f5d…, the split is 941e6eb32e0b… now
+    check 5 carry ok     - not a carried split
+  POST …/verify ok False status SPLIT MISMATCH | remedy: random-stratified__y-95cb0bfd (spl_4f3d32f523be) (which rows are held out, and the folds) fails check 4 runs: differs from runs run_c34912d7, run_83f208c4: they trained on split_sha256 c8275af23f5d…, the split is 941e6eb32e0b… now. POST /api/datasets/ds_3533a2f7/restore-splits (with by and reason) offers the split the earliest r
+## 8. DLA4 #3's run: Ana is refused; Ada (admin) trains on the 50-row holdout with an audited override
+  HTTP 409 | ds_3533a2f7's last integrity check (2026-11-21T20:24:31) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data → the version → Verify hash; a split file: Restore the split as drawn), or an admin sends {"integrity_override_reason": "…", "by": "<admin>"} to train on it anyway (audited).
+  run_d260a73f r3 (override) succeeded | split spl_4f3d32f523be match False failed ['runs'] override {'by': 'Ada'} | holdout rows 50
+## 9. POST /compare r1 vs r3 (50 of 180 holdout rows in common)
+  paired False | paired on 50 of 180 rows (holdouts differ) — 28% overlap is below 50%, so no paired Δ: each run's own holdout score, unpaired
+  overlap {'n_common': 50, 'n_a': 180, 'n_b': 50, 'share': 0.2778, 'same_holdout': False, 'text': 'paired on 50 of 180 rows (holdouts differ)', 'rule': 'overlap = rows in both holdouts / the larger holdout (by __row_id); a paired Δ needs ≥ 50 %'}
+  table [('a', 'run_c34912d7', 180, 0.7444), ('b', 'run_d260a73f', 50, 0.8)] delta None
+  the text "same holdout" appears: False
+## 10. POST …/restore-splits {} → the offer (r1's pinned blob); then apply it
+  applied False | now {'split_id': 'spl_4f3d32f523be', 'n_holdout': 50} failed ['runs']
+  offer {'run_id': 'run_c34912d7', 'split_id': 'spl_a0d9e48bb0d8', 'split_sha256': 'c8275af23f5d6afc05cd96c054ce9288d213729160f85cad350ad254325c9cbb', 'blob_sha256': '461872ba262c1b5e3e6a30681ebc66b6d58f38534ca1452e36da7b5a2aa6f0b3', 'n_holdout': 180, 'runs_agreeing': ['run_c34912d7', 'run_83f208c4']}
+  applied True restored {'id': 'spl_a0d9e48bb0d8', 'n_holdout': 180} from run_c34912d7 replaced {'id': 'spl_4f3d32f523be', 'n_holdout': 50}
+  verify after True ['ok']
+  again: HTTP 409 nothing_to_restore
+  triggers | splits_ro_u,splits_ro_d
+  audit | 20 | split_created | Ana | 
+  audit | 22 | training_refused | Ana | split_integrity: random-stratified__y-95cb0bfd of ds_3533a2f7 differs 
+  audit | 25 | split_created | Ana | 
+  audit | 28 | training_refused | Ana | ds_3533a2f7's last integrity check (2026-11-21T20:24:31) was a MISMATC
+  audit | 29 | training_integrity_override | Ada | reproduce DLA4 #3: train on the tampered 50-row holdout
+  audit | 32 | training_integrity_override | Ada | reproduce DLA4 #3: train on the tampered 50-row holdout
+  audit | 33 | dataset_splits_restored | Ana | DLA4 #3: put back the split r1 and r2 trained on
+## 11. r4 on the restored split: all five checks pass (r3's overridden run is not evidence); paired with r1
+  run_6721f5f9 r4 succeeded | split spl_a0d9e48bb0d8 match True failed [] override None | holdout rows 180
+  check 4: the same hash as 2 earlier run(s): run_c34912d7, run_83f208c4
+  compare r1 r4: True | paired on the same holdout rows | overlap the same holdout rows 1.0
+## 12. v2 = POST …/edit (delete 40 holdout rows, fix 1 cell, add 2 rows): the split is carried by join in the commit
+  v2 spl_7d2b375687bd holdout_rows 140 carried_from spl_a0d9e48bb0d8 {'from': 'spl_a0d9e48bb0d8', 'from_version': 'ds_3533a2f7', 'by': '__row_id (join)', 'kept_holdout': 140, 'new_rows': 2, 'new_holdout': 0, 'new_holdout_share': '0.2'}
+  verify v2 ok ['860 surviving rows of spl_a0d9e48bb0d8: 0 changed fold']
+  diff v1 v2 {'a': 900, 'b': 862, 'matched': 860, 'changed': 1, 'added': 2, 'removed': 40, 'matched_by': '__row_id (the same rows of one dataset)'}
+  v2 lineage.json has a row map: False | files: ['edit_ops.json', 'lineage.json', 'splits']
+  run_1767c435 r5 succeeded | split spl_7d2b375687bd match True failed [] override None | holdout rows 140
+  compare r1 (v1) r5 (v2): True | paired on 140 of 180 rows (holdouts differ) | overlap 140 of 180 0.7778 | Δ 0.0 CI [-0.0571, 0.0571]
+## 13. v3 = POST /uploads parent=v2 → commit {match: key acct}: carried from v2's split; then tamper v3's carried split
+  v3 spl_55d5cc6411a7 holdout_rows 147 carried_from spl_7d2b375687bd {'from': 'spl_7d2b375687bd', 'from_version': 'ds_8e034f1a', 'by': '__row_id (join)', 'kept_holdout': 140, 'new_rows': 40, 'new_holdout': 7, 'new_holdout_share': '0.2'}
+  replaced spl_55d5cc6411a7 (holdout 147, split_sha256 3ef1cb1db882…) by spl_7e2cacc5c220: holdout 50, split_sha256 f651d9984f7a…, blob ac946e8d2cfe… (self-consistent: its key is its hash)
+  spl_7e2cacc5c220 random-stratified__y-95cb0bfd FAILED: check 3 audit, check 5 carry
+    check 1 blob ok     - blob ac946e8d2cfe… re-hashed: matches its key
+    check 2 split_sha256 ok     - split_sha256 f651d9984f7a… over 900 rows
+    check 3 audit FAILED - no split_created audit row for spl_7e2cacc5c220: the row was not written by the app
+    check 4 runs ok     - no earlier run on this split
+    check 5 carry FAILED - 860 surviving rows of spl_7d2b375687bd: 90 changed fold
+  restore offer None | no earlier run pinned an intact copy of this split
