@@ -13,10 +13,9 @@ stay human (four-eyes).
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 import httpx
@@ -512,18 +511,18 @@ async def counterfactuals(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _dataset_csv(ctx: Ctx, dataset_id: str, drop: list[str], limit: int | None) -> bytes:
+    """P20 (§6.3): the dataset as CSV through the masked scan: PII-tagged columns leave as their masks, written by
+    DuckDB's COPY (the agent never holds them in clear; it has no unmasked read)."""
     try:
-        from .. import frames  # P03: typed (text stays text); masking comes with frames.scan (P20)
+        from .. import frames
 
-        df = await asyncio.to_thread(frames.read, frames.table(dataset_id))
+        def build() -> bytes:
+            src = frames.scan(dataset_id, None, mask_for="masked")
+            return frames.scan_csv(src, drop=drop, limit=int(limit) if limit else None)
+
+        return await asyncio.to_thread(build)
     except Exception as e:  # noqa: BLE001
         raise ToolError(f"Dataset {dataset_id}: {e}") from e
-    df = df.drop(columns=[c for c in drop if c in df.columns])
-    if limit:
-        df = df.head(int(limit))
-    buf = io.StringIO()
-    df.to_csv(buf, index=False)
-    return buf.getvalue().encode()
 
 
 async def batch_score(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:

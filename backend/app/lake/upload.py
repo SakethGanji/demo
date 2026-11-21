@@ -867,21 +867,18 @@ def _check_next(db, store, dstore, tmp: Path, out: dict[str, Any], plan: dict[st
 
 
 def _mask(db, root: str, table: str, problem: dict[str, Any]) -> dict[str, Any]:
-    """key_invalid examples: values of a PII-tagged key column are masked (§6.3)."""
+    """key_invalid examples: values of a PII-tagged key column are masked (§6.3; P20: the masks of lake.mask, with
+    the team's salt, like every other masked read)."""
+    from . import mask as M
+
     with db.connect() as con:
-        tags = {r[0]: (r[1], r[2]) for r in con.execute(
-            "SELECT column_name, tag, mask FROM column_tags WHERE root_id = ? AND table_name = ?", (root, table))}
+        tags = {r[0]: r[1] for r in con.execute(
+            "SELECT column_name, mask FROM column_tags WHERE root_id = ? AND table_name = ? AND mask <> 'none'", (root, table))}
+        salt = M.team_salt(con, M.root_and_team(con, root)[1]) if tags else ""
     cols = problem.get("columns") or []
     for side in (problem.get("sides") or {}).values():
         for ex in side.get("examples") or []:
-            vals = []
-            for c, v in zip(cols, ex["value"]):
-                tag, mk = tags.get(c, ("none", "none"))
-                if v is not None and tag in ("pii_direct", "pii_quasi"):
-                    v = ("•••" + v[-4:]) if mk == "last4" and len(v) > 4 else \
-                        hashlib.sha256(v.encode()).hexdigest()[:10] if mk == "hash" else "•••"
-                vals.append(v)
-            ex["value"] = vals
+            ex["value"] = [M.mask_value(v, tags[c], salt) if c in tags else v for c, v in zip(cols, ex["value"])]
     return problem
 
 

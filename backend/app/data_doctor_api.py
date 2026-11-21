@@ -105,11 +105,16 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
 
 @router.get("/datasets/{dataset_id}/data-doctor")
 async def data_doctor(dataset_id: str, request: Request) -> dict[str, Any]:
-    """The Data Report: every check with its severity, numbers, rule, example rows and fix; the decision-time question."""
+    """The Data Report: every check with its severity, numbers, rule, example rows and fix; the decision-time question.
+    P20: the example rows' values of PII-tagged columns are masked."""
+    from .lake import mask as M
+
     try:
-        return await run_in_threadpool(_report, request, dataset_id)
+        out = await run_in_threadpool(_report, request, dataset_id)
     except (ValueError, DatasetError) as e:
         raise HTTPException(400, str(e)) from e
+    m = await run_in_threadpool(M.masked_view, dataset_id)
+    return m.scrub(out) if m is not None else out
 
 
 def _canonical_400(fn, *a: Any, **kw: Any) -> Any:

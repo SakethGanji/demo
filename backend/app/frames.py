@@ -490,6 +490,52 @@ def export_schema(version_id: str) -> dict[str, Any]:
             "source": "schema.json" if stored else "inferred (the version predates DL4's schema.json)"}
 
 
+# --------------------------------------------------------------------------- P20: the masked scan
+
+
+def scan(version_id: str, table: str | None = None, *, mask_for: Any):
+    """P20 (§6.3): the one DuckDB relation over a version table for every read that **shows** rows: the grid, rows
+    pages and lookups, filter preview, diff samples, export and the agent's CSV. `mask_for` is a `lake.mask.Mask`
+    (`mask.for_request(...)` for a request, `mask.for_version(...)` for the masked view) or `"masked"` (the same as
+    `for_version`). It is keyword-only and has no default, so no caller gets rows without deciding about masking.
+    Returns a `lake.pages.Source` whose `rel` masks the PII columns in SQL (a WHERE, a search or a sort sees only
+    masked values; masked columns are VARCHAR). Training and the engine read unmasked through `read`."""
+    from .lake import mask as M
+    from .lake import pages as PG
+
+    src = PG.source(version_id, table)
+    m = M.for_version(version_id, src.table) if mask_for == "masked" else mask_for
+    if not isinstance(m, M.Mask):
+        raise FrameError("scan(): mask_for is a lake.mask.Mask or 'masked'.")
+    return PG.masked(src, m)
+
+
+def scan_csv(src: Any, dest: str | Path | None = None, *, drop: Iterable[str] = (), limit: int | None = None) -> bytes | Path:
+    """A scanned (masked) relation written as CSV by DuckDB's COPY, in __row_id order, header on: to `dest`, or
+    returned as bytes. The masking happens inside the COPY, never after (C §3 #18)."""
+    import tempfile
+
+    from .lake import duck
+    from .lake import pages as PG
+
+    drop = set(drop)
+    cols = ", ".join(PG.q(c) for c in src.names if c not in drop)
+    lim = f" LIMIT {int(limit)}" if limit else ""
+    out = Path(dest) if dest is not None else Path(tempfile.mkstemp(suffix=".csv")[1])
+    with duck.job() as con:
+        con.execute("SET preserve_insertion_order = true")
+        for name, obj in (src.bind or {}).items():
+            con.register(name, obj)
+        con.execute(f"COPY (SELECT {cols} FROM {src.rel} ORDER BY {PG.q(PG.ROW_ID)}{lim}) TO '{str(out).replace(chr(39), chr(39) * 2)}'"
+                    " (FORMAT csv, HEADER true)")
+    if dest is not None:
+        return out
+    try:
+        return out.read_bytes()
+    finally:
+        out.unlink(missing_ok=True)
+
+
 def read_artifact(path: str | Path, **kw: Any) -> pd.DataFrame:
     """A CSV the app wrote itself (run outputs, reference tables): no schema, read as written."""
     return pd.read_csv(path, **kw)

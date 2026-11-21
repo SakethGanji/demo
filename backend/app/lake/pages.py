@@ -64,6 +64,16 @@ class Source:
     rel: str                          # a FROM item
     parts: list[dict[str, Any]] = field(default_factory=list)   # parquet: {path, n_rows, start} in table order
     arrow: Any = None                 # csv: the Arrow table bound as CSV_BIND
+    exprs: dict[str, str] = field(default_factory=dict)  # P20: masked column → its SQL over the stored column
+    mask: Any = None                  # P20: the lake.mask.Mask applied (frames.scan)
+
+    def wrap(self, base: str, extra: str = "") -> str:
+        """P20: `base` (a FROM item over the stored columns) as a relation whose masked columns are masked, so a
+        WHERE, a search or a sort sees only masked values."""
+        if not self.exprs:
+            return base
+        cols = ", ".join(f"{self.exprs[c]} AS {q(c)}" if c in self.exprs else q(c) for c in self.names)
+        return f"(SELECT {extra + ', ' if extra else ''}{q(ROW_ID)}, {cols} FROM {base})"
 
     @property
     def bind(self) -> dict[str, Any] | None:
@@ -166,6 +176,18 @@ def source(version_id: str, table: str | None = None) -> Source:
     return Source(version_id, frames.PRIMARY_TABLE, "csv", ident, at.num_rows, cols, CSV_BIND, arrow=at)
 
 
+def masked(src: Source, m: Any) -> Source:
+    """P20: `src` with the columns of mask `m` (lake.mask.Mask) masked in SQL. The masked columns become VARCHAR."""
+    from dataclasses import replace
+
+    if m is None or not getattr(m, "cols", None):
+        return replace(src, mask=m)
+    exprs = {c: m.sql(c, q(c), t) for c, t in src.columns if c in m.cols}
+    out = replace(src, columns=[(c, "VARCHAR" if c in exprs else t) for c, t in src.columns], exprs=exprs, mask=m)
+    out.rel = out.wrap(src.rel)
+    return out
+
+
 def _arrow_type(t: Any) -> str:
     import pyarrow as pa
 
@@ -208,6 +230,8 @@ def search_where(src: Source, text: str, stats: dict[str, Any] | None = None) ->
     has_alpha = any(ch.isalpha() for ch in needle)
     parts, searched = [], []
     for name, t in src.columns:
+        if name in src.exprs:  # P20: a masked column is not searched (a hit would tell its value)
+            continue
         k, st, x = kind(t), by_col.get(name) or {}, q(name)
         if k in ("integer", "number"):
             if st.get("top_complete") and _NUMLIKE.match(needle):  # every value is known (a code, a label)
@@ -282,7 +306,7 @@ def _select(src: Source, columns: list[str] | None, with_pos: bool) -> tuple[str
         return f"{q(ROW_ID)}, {q(ROW_ID)} AS __pos, {cols}", src.rel
     files = ", ".join(_lit(p["path"]) for p in src.parts)
     case = " ".join(f"WHEN {_lit(p['path'])} THEN {p['start']}" for p in src.parts)
-    rel = f"read_parquet([{files}], filename='__file', file_row_number=true)"
+    rel = src.wrap(f"read_parquet([{files}], filename='__file', file_row_number=true)", "__file, file_row_number")
     return f"{q(ROW_ID)}, (CASE __file {case} END) + file_row_number AS __pos, {cols}", rel
 
 
@@ -363,8 +387,8 @@ def _position_page(src: Source, offset: int, limit: int, columns: list[str] | No
             continue
         lo = max(0, offset - p["start"])
         need = limit - len(out)
-        at = I.query(f"SELECT {q(ROW_ID)}, {p['start']} + file_row_number AS __pos, {cols} FROM read_parquet({_lit(p['path'])},"
-                     f" file_row_number=true) WHERE file_row_number >= {lo} AND file_row_number < {lo + need} ORDER BY file_row_number",
+        rel = src.wrap(f"read_parquet({_lit(p['path'])}, file_row_number=true)", "file_row_number")
+        at = I.query(f"SELECT {q(ROW_ID)}, {p['start']} + file_row_number AS __pos, {cols} FROM {rel} WHERE file_row_number >= {lo} AND file_row_number < {lo + need} ORDER BY file_row_number",
                      fetch="arrow")
         out += _rows(at, src)
         offset = end

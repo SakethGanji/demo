@@ -538,9 +538,26 @@ def shap_row(predictor, cfg: dict[str, Any], run_dir: Path, row: int, target: st
     if path.exists():
         out = json.loads(path.read_text())
         out["cached"] = True
-        return out
+        return _mask_shap_row(cfg, out)
     _, train, bg = _shap_background(cfg, features, background)
     out = {"row": row, **shap_explain(predictor, train, bg, x, target, classes, nsamples),
            "y_true": jsonable(df.loc[row, cfg["label"]]), "cached": False}
     path.write_text(json.dumps(out))
+    return _mask_shap_row(cfg, out)
+
+
+def _mask_shap_row(cfg: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
+    """P20 (§6.3): the SHAP row view shows the feature values of PII-tagged columns masked (the φ are unchanged: they
+    were computed on the stored values). The cache file keeps the stored values; masking is applied when served."""
+    from ..lake import mask as M
+
+    m = M.for_run(cfg)
+    if m is None or not m.cols:
+        return out
+    out = dict(out)
+    out["contributions"] = [{**c, "value": m.value(c["feature"], c.get("value"))} if c.get("feature") in m.cols else c
+                            for c in out.get("contributions") or []]
+    if cfg.get("label") in m.cols:
+        out["y_true"] = m.value(cfg["label"], out.get("y_true"))
+    out["masked_columns"] = sorted(c for c in m.cols if c in {x.get("feature") for x in out["contributions"]} or c == cfg.get("label"))
     return out

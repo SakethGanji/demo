@@ -36,9 +36,9 @@
 | P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
 | X1 | ⟂ | done: 2 critical, 6 major → F-X1 | session_018upNdQEzTw3dUV29ygL2YH | 6822049 |
 | F-X1 | D | started (blocks P10) | | |
-| P11 | D2 | started | session_018upNdQkfQxUCUaQxHcgsFb | |
+| P11 | D2 | done (AG peak ≈ 2.13 GB + 2.43×frame) | session_018upNdQkfQxUCUaQxHcgsFb | 5deecb5 |
 | P19 | G | done (mode audit) | session_018upNdPhxRCU1Z9oW9qWLpN | f9cbfe7 |
-| P20 | G | started | | |
+| P20 | G | done | session_018upNdN6AqeeL2rkTsjNjmp | f314861 |
 | P22 | O | done | session_018upNdPj3uWNkfz67KZVANF | b22d64d |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
@@ -52,3 +52,7 @@
 - **U lane:** send project_id in the /uploads query (it authorises from the query). Grey out "New team" via /authz/check unless self_service_teams.
 - **P23:** keep audit_log.details/decision as TEXT (not jsonb), copy prev_hash/row_hash/audit_head verbatim, and use FOR UPDATE on the head row.
 - **X4:** rewire the four-eyes decide paths to policy.decide_check (they use governance.same_person today).
+- **PII not masked yet (P20 left these out):** anomaly top rows, shift rows, the active-learning queue/annotations, Feature Lab previews, split-options/intake examples, q search text in dataset_read audit rows. Pick them up in a follow-up before X4.
+- **P21:** add the share pii='unmasked' case to data.read_unmasked.
+- **P23:** copy the catalog_meta pii_salt:* rows verbatim.
+- **U2:** masked indicators + "Unmask (reason)" action (greyed out via /authz/check), unmasked_refused, a PII tags panel, tables[].pii in the upload check, pii_features in the Doctor.

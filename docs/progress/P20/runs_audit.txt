@@ -1,0 +1,28 @@
+## R1 Ana POST /runs {v1, label y, time_limit 40} → HTTP 201 | raw PII values in the body: 0
+    {"id": "run_64a05e48", "status": "queued"}
+    run run_64a05e48 succeeded | features: None
+## R2 Ben GET /runs/{id}/explain (worst mistakes with their features) → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+     worst[0].features: {'applicant_name': '•••', 'ssn': '•••', 'income': 36993, 'age': 59, 'segment': 'retail'}
+## R3 Ben GET /runs/{id}/holdout-predictions → HTTP 200 | raw PII values in the body: 0
+    {"n_rows": 120, "classes": ["0", "1"]}
+     keys: ['classes', 'model', 'n_rows', 'probabilities', 'rows', 'run_id', 'y_pred', 'y_true']
+## R4 Ben GET /runs/{id}/shap?row=… → HTTP 200 | raw PII values in the body: 0
+    {"row": 1, "masked_columns": ["applicant_name", "ssn"], "cached": false}
+     contributions: [('age', 21), ('ssn', '•••'), ('income', 30037), ('segment', 'sme'), ('applicant_name', '•••')]
+     the stored row: {'zip': '00037', 'dob': '1951-02-02', 'ssn': 100007926}
+## R5 Ana POST /runs/{id}/slices {min_support 20} → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+     slices: []
+     columns binned: ['ssn', 'income', 'age', 'segment'] | zip levels: None
+## R5d Ben GET /runs/{id}/slices → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+## R6 Ben GET /runs/{id}/doctor → HTTP 200 | raw PII values in the body: 0
+    {"headline": "Leakage (critical): 'age' carries 96% of the permutation importance, 25.6× the next feature, and the Data Doctor flags it (alone it separates y with AUC 0.955). A column this dominant that is filled in after the outcome makes the score look better than any decision made without it.", "pii_features": [{"feature": "ssn", "tag": "pii_direct", "source": "confirmed"}], "masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+## R7 agent/tools._dataset_csv(v1, drop [y], limit 5) | raw PII values: 0
+     applicant_name,ssn,email,zip,dob,ref_code,income,age,segment
+     •••,•••,•••,26482546431b,1950,•••,30000,20,retail
+     •••,•••,•••,aba1fb309c48,1951,•••,30037,21,sme
+## R8 Ben GET /datasets/{v1}/data-doctor (example rows) → HTTP 200 | raw PII values in the body: 0
+    {"dataset_id": "ds_1cecb8ad"}
+     checks with examples: []

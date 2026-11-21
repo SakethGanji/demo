@@ -282,7 +282,19 @@ async def model_doctor(run_id: str, request: Request, latency_ms: float | None =
     if latency_ms is not None and latency_ms <= 0:
         raise HTTPException(422, "latency_ms must be > 0.")
     async with _doctor_locks.setdefault(run_id, asyncio.Lock()):  # a page view waits for a warm-up already running
-        return await run_doctor(request, run_id, latency_ms, measure_latency, served_p95_ms)
+        out = await run_doctor(request, run_id, latency_ms, measure_latency, served_p95_ms)
+    return await run_in_threadpool(_doctor_masked, request, run_id, out)
+
+
+def _doctor_masked(request: Request, run_id: str, out: dict[str, Any]) -> dict[str, Any]:
+    """P20 (C §4.3): the Model Doctor's examples and segments ("zip = 02139") with PII values masked, and the PII
+    features this run uses flagged (`pii_features`)."""
+    from ..lake import mask as M
+
+    rec = run_or_404(request, run_id)
+    out = M.run_scrub(rec, out)
+    out["pii_features"] = M.pii_features(rec, list((rec.get("result") or {}).get("features") or []))
+    return out
 
 
 # --------------------------------------------------------------------------- D3 · What's missing, typed experiments

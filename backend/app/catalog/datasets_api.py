@@ -68,8 +68,47 @@ def search(request: Request, q: str = "", project: str | None = None, tag: str |
 @router.get("/datasets/{dataset_id}/history")
 async def history(dataset_id: str, request: Request) -> dict[str, Any]:
     """The dataset this id belongs to: card, default version, every version (who, when, op, changes, rows × cols, hash,
-    integrity, use), pending requests and its audit trail."""
-    return await _thread(D.history, request.app, dataset_id)
+    integrity, use), pending requests and its audit trail. P20: values of PII-tagged columns in edit logs and audit
+    details are masked."""
+    from ..lake import mask as M
+
+    out = await _thread(D.history, request.app, dataset_id)
+    m = await _thread(M.masked_view, dataset_id)
+    return m.scrub(out) if m is not None else out
+
+
+# -- P20: PII tags ---------------------------------------------------------------------------------------------------
+
+@router.get("/datasets/{dataset_id}/pii", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
+async def pii_tags(dataset_id: str, request: Request, table: str | None = None) -> dict[str, Any]:
+    """P20 (§6.3): the dataset root's PII tags for a table: {column, tag, mask, source (suggested | confirmed), set_by,
+    set_at}, which columns are masked, and which suggestions wait for a maintainer. Columns the root has not seen yet
+    are tagged first by the profiler's rules (names, then value patterns on a sample)."""
+    from ..lake import mask as M
+
+    _live(request, dataset_id)
+    try:
+        return await _thread(M.describe, dataset_id, table)
+    except M.MaskError as e:
+        raise _mask_err(e) from e
+
+
+@router.put("/datasets/{dataset_id}/pii", dependencies=[require("data.tag_pii", path("dataset_id", "dataset"))])
+async def set_pii_tags(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """P20: {columns: [{column, tag, mask?}], table?, by} confirms or changes tags (mask defaults by tag: pii_direct →
+    redact, pii_quasi → bucket, sensitive → redact, protected / key / none → none), or {confirm: "suggested", by}
+    confirms every suggestion as it stands. Tags belong to the root, so they apply to every version. Audited as
+    pii_tags_set. Needs data.tag_pii (maintainer)."""
+    from ..lake import mask as M
+
+    body = body if isinstance(body, dict) else {}
+    who = _who(body.get("by"))
+    _live(request, dataset_id)
+    items = {"confirm": "suggested"} if body.get("confirm") == "suggested" else body.get("columns")
+    try:
+        return await _thread(M.set_tags, dataset_id, body.get("table"), items, who)
+    except M.MaskError as e:
+        raise _mask_err(e) from e
 
 
 @router.post("/datasets/{dataset_id}/versions", status_code=201, dependencies=[require("data.version", path("dataset_id", "dataset"))])
@@ -227,9 +266,28 @@ async def diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", 
     """GET /datasets/diff?a=&b=&key= (main.py routes it before /datasets/{id}) and the path form above."""
     if not a or not b:
         raise HTTPException(400, "Send a and b (two dataset version ids).")
+    from ..lake import diff as LD
+    from ..lake import mask as M
+
     who = G.reader(by)
     cols = [c.strip() for c in key.split(",") if c.strip()] if key else None
-    out = await _thread(D.diff, request.app, a, b, cols, max(0.0, min(float(wait or 0), 30.0)))
+    q = request.query_params
+    try:  # P20: each side's PII columns are masked (unmasked=1&reason=… asks for both in clear)
+        ma, mb = await _thread(lambda: [M.for_request(request, x, None, unmasked=q.get("unmasked"), reason=q.get("reason"), by=who,
+                                                      read="diff_rows") for x in (a, b)])
+    except M.MaskError as e:
+        raise _mask_err(e) from e
+    try:
+        out = await _thread(D.diff, request.app, a, b, cols, max(0.0, min(float(wait or 0), 30.0)))
+    except HTTPException as e:
+        if e.status_code == 400 and isinstance(e.detail, dict) and e.detail.get("code") == "key_invalid":
+            e.detail = LD.mask_key_error(e.detail, ma if e.detail.get("side") != "b" else mb, cols)
+        raise
+    out = await _thread(LD.mask_result, out, ma, mb)
+    if out.get("edit"):  # DL3: b's edit log (cells old → new)
+        out["edit"] = mb.scrub(out["edit"])
+    if ma.refused or mb.refused:
+        out["unmasked_refused"] = ma.refused or mb.refused
     if out["rows"].get("changed_examples") or out.get("edit") or any((out.get("samples") or {}).values()):
         for x in (a, b):  # DL2: the diff shows rows cell by cell: a read of both versions
             G.read_audit(request.app.state.db, "diff_rows", x, {"other": b if x == a else a}, by=who)
@@ -340,35 +398,84 @@ async def verify_all(request: Request, body: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.get("/datasets/{dataset_id}/export", dependencies=[require("data.export", path("dataset_id", "dataset"))])
-async def export(dataset_id: str, request: Request, by: str = "", format: str = "zip"):
+async def export(dataset_id: str, request: Request, by: str = "", format: str = "zip", unmasked: str = "", reason: str = ""):
     """format=zip: data.csv + schema.json (the tables and their column types, §4.1) + lineage.json + manifest.json (the
-    chain to the root, the stored and current sha256). format=csv: the file alone. Audited."""
+    chain to the root, the stored and current sha256). format=csv: the file alone. Audited.
+    P20: PII-tagged columns are masked in the file (inside DuckDB's COPY, never after); schema.json marks them and
+    the X-Ensemble-Masked header lists them. `unmasked=1&reason=…` exports them in clear to a principal with
+    data.export_unmasked, audited as dataset_rows_read."""
+    from .. import frames
+    from ..lake import mask as M
+
     who = _who(by)
     if format not in ("zip", "csv"):
         raise HTTPException(400, "format is zip or csv.")
-    from .. import frames
-
+    try:
+        m = await _thread(M.for_request, request, dataset_id, None, unmasked=unmasked, reason=reason, by=who, read="export",
+                          export=True)
+    except M.MaskError as e:
+        raise _mask_err(e) from e
     if frames.is_parquet(dataset_id):  # P05: a Parquet version is exported from its lake table
-        return await _export_parquet(request, dataset_id, who, format)
+        return await _export_parquet(request, dataset_id, who, format, m)
     man = await _thread(D.export_manifest, request.app, dataset_id, who)
     store = request.app.state.datasets
     fname = f"{man['name']}-v{man['v']}-{dataset_id}".replace("/", "_").replace(" ", "_")
+    data_file, data_sha = frames.version_file(dataset_id), man["sha256_file"] or ""
+    if m.cols:  # P20: the masked file, written by DuckDB from the masked scan
+        data_file, data_sha = await _thread(_masked_csv, request, dataset_id, m)
+    mhdr = {"X-Ensemble-Masked": ",".join(m.masked)} if m.cols else {}
     if format == "csv":
-        return FileResponse(frames.version_file(dataset_id), media_type="text/csv", filename=f"{fname}.csv",
-                            headers={"X-Ensemble-SHA256": man["sha256_file"] or ""})
+        return FileResponse(data_file, media_type="text/csv", filename=f"{fname}.csv",
+                            headers={"X-Ensemble-SHA256": data_sha, **mhdr})
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(frames.version_file(dataset_id), "data.csv")
-        z.writestr("schema.json", json.dumps(frames.export_schema(dataset_id), indent=1))
+        z.write(data_file, "data.csv")
+        z.writestr("schema.json", json.dumps(_schema_masked(frames.export_schema(dataset_id), m), indent=1))
         z.writestr("lineage.json", json.dumps(store.lineage(dataset_id) or {"root": man["root_id"], "parent": None, "op": "upload"}))
-        z.writestr("manifest.json", json.dumps(man, indent=1))
+        z.writestr("manifest.json", json.dumps({**man, **({"masked": m.info(), "sha256_data_csv_masked": data_sha} if m.cols else {})},
+                                               indent=1))
     buf.seek(0)
-    return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{fname}.zip"'})
+    return StreamingResponse(buf, media_type="application/zip",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}.zip"', **mhdr})
 
 
-def _export_csv(request: Request, dataset_id: str) -> tuple[Any, Any, str]:
+def _mask_tag(m: Any) -> str:
+    """The cache name part of a masked export: the masks and the team salt (a re-tag makes a new file)."""
+    import hashlib
+
+    return hashlib.sha256(json.dumps([sorted(m.cols.items()), m.salt]).encode()).hexdigest()[:12]
+
+
+def _schema_masked(sch: dict[str, Any], m: Any) -> dict[str, Any]:
+    """schema.json with each masked column marked (P20): its values in data.csv are the mask's text."""
+    if not m.cols:
+        return sch
+    for t in sch.get("tables") or []:
+        t["columns"] = [{**c, "masked": True, "mask": m.cols[c["name"]], "type": "VARCHAR", "kind": "text",
+                         "stored_type": c.get("type")} if c.get("name") in m.cols else c for c in t.get("columns") or []]
+    sch["masked_columns"] = m.masked
+    return sch
+
+
+def _masked_csv(request: Request, dataset_id: str, m: Any) -> tuple[Any, str]:
+    """A CSV-era version's masked data.csv (P20): DuckDB COPY from the masked scan, cached under lake/exports."""
+    import hashlib
+
+    d = request.app.state.settings.lake_dir / "exports" / dataset_id
+    d.mkdir(parents=True, exist_ok=True)
+    out = d / f"data.masked-{_mask_tag(m)}.csv"
+    if not out.exists():
+        tmp = d / f".data.{__import__('secrets').token_hex(4)}.csv"
+        frames.scan_csv(frames.scan(dataset_id, None, mask_for=m), tmp)
+        tmp.replace(out)
+    return out, hashlib.sha256(out.read_bytes()).hexdigest()
+
+
+def _export_csv(request: Request, dataset_id: str, m: Any = None) -> tuple[Any, Any, str]:
     """(the lake table, the CSV path, its sha256): the table written as CSV by DuckDB in __row_id order, text as stored
-    (codes keep their zeros), cached under lake/exports/<version>/<table>.csv (re-creatable, never a blob)."""
+    (codes keep their zeros), cached under lake/exports/<version>/<table>.csv (re-creatable, never a blob).
+    P20: with masked columns, the COPY reads the masked scan (`frames.scan(mask_for=m)`) and the file is
+    <table>.masked-<masks>.csv."""
     import hashlib
 
     from .. import frames
@@ -378,14 +485,18 @@ def _export_csv(request: Request, dataset_id: str) -> tuple[Any, Any, str]:
     lt = frames.lake_table(frames.table(dataset_id))
     d = request.app.state.settings.lake_dir / "exports" / dataset_id
     d.mkdir(parents=True, exist_ok=True)
-    out = d / f"{lt.name}.csv"
+    masked = m is not None and bool(m.cols)
+    out = d / (f"{lt.name}.masked-{_mask_tag(m)}.csv" if masked else f"{lt.name}.csv")
     if not out.exists():
         tmp = d / f".{lt.name}.{__import__('secrets').token_hex(4)}.csv"
-        cols = ", ".join(_q(c["name"]) for c in lt.schema)
-        src = frames.lake_sql(lt)
-        with duck.job() as con:
-            con.execute("SET preserve_insertion_order = true")
-            con.execute(f"COPY (SELECT {cols} FROM {src} ORDER BY __row_id) TO {_lit(tmp)} (FORMAT csv, HEADER true)")
+        if masked:
+            frames.scan_csv(frames.scan(dataset_id, lt.name, mask_for=m), tmp)
+        else:
+            cols = ", ".join(_q(c["name"]) for c in lt.schema)
+            src = frames.lake_sql(lt)
+            with duck.job() as con:
+                con.execute("SET preserve_insertion_order = true")
+                con.execute(f"COPY (SELECT {cols} FROM {src} ORDER BY __row_id) TO {_lit(tmp)} (FORMAT csv, HEADER true)")
         tmp.replace(out)
     h = hashlib.sha256()
     with open(out, "rb") as f:
@@ -394,7 +505,7 @@ def _export_csv(request: Request, dataset_id: str) -> tuple[Any, Any, str]:
     return lt, out, h.hexdigest()
 
 
-async def _export_parquet(request: Request, dataset_id: str, who: str, format: str):
+async def _export_parquet(request: Request, dataset_id: str, who: str, format: str, m: Any = None):
     """P05: export of a Parquet version: data.csv from the table (format=csv), or a zip with data.csv, schema.json (the
     manifest's tables and schemas), manifest.json (the stored lake manifest, verbatim) and export.json (the chain, the
     committed table sha and the sha now). Audited as dataset_exported."""
@@ -405,7 +516,7 @@ async def _export_parquet(request: Request, dataset_id: str, who: str, format: s
     app = request.app
 
     def build() -> dict[str, Any]:
-        lt, path, csv_sha = _export_csv(request, dataset_id)
+        lt, path, csv_sha = _export_csv(request, dataset_id, m)
         read, exp, bad = frames.hash_table(frames.table(dataset_id))
         with app.state.db.connect() as con:
             root = D.root_of(con, dataset_id)
@@ -419,26 +530,33 @@ async def _export_parquet(request: Request, dataset_id: str, who: str, format: s
                 x = rows.get(x["parent_id"]) if x.get("parent_id") else None
             S.audit(con, who, "dataset_exported", {"dataset_id": dataset_id, "root_id": root, "v": r["v"], "storage": "parquet",
                                                    "table": lt.name, "table_sha256": exp, "csv_sha256": csv_sha,
-                                                   "integrity_ok": read == exp, "format": format})
+                                                   "integrity_ok": read == exp, "format": format,
+                                                   "masked_columns": m.masked if m is not None else [],
+                                                   "unmasked": bool(m is not None and m.unmasked)})
         try:
-            _v, m, raw = LV.load_manifest(app.state.db, app.state.lake, dataset_id)
+            _v, man, raw = LV.load_manifest(app.state.db, app.state.lake, dataset_id)
         except Exception:  # noqa: BLE001
-            m, raw = None, None
+            man, raw = None, None
         return {"lt": lt, "path": path, "csv_sha": csv_sha, "name": r["name"], "v": r["v"], "root": root, "chain": chain,
-                "table_sha256": exp, "table_sha256_now": read, "integrity_ok": read == exp, "manifest": m, "manifest_raw": raw,
+                "table_sha256": exp, "table_sha256_now": read, "integrity_ok": read == exp, "manifest": man, "manifest_raw": raw,
                 "target": r["target"], "rows": r["rows"]}
 
     x = await _thread(build)
     fname = f"{x['name']}-v{x['v']}-{dataset_id}".replace("/", "_").replace(" ", "_")
-    hdr = {"X-Ensemble-SHA256": x["csv_sha"], "X-Ensemble-Table-SHA256": x["table_sha256"]}
+    hdr = {"X-Ensemble-SHA256": x["csv_sha"], "X-Ensemble-Table-SHA256": x["table_sha256"],
+           **({"X-Ensemble-Masked": ",".join(m.masked)} if m is not None and m.cols else {})}
     if format == "csv":
         return FileResponse(x["path"], media_type="text/csv", filename=f"{fname}.csv", headers=hdr)
-    schema_json = frames.export_schema(dataset_id)  # P04's format; for Parquet, the manifest's table and schema
+    schema_json = _schema_masked(frames.export_schema(dataset_id), m) if m is not None else frames.export_schema(dataset_id)
     info = {"dataset_id": dataset_id, "name": x["name"], "v": x["v"], "root_id": x["root"], "target": x["target"], "rows": x["rows"],
             "storage": "parquet", "table": x["lt"].name, "table_sha256_stored": x["table_sha256"],
             "table_sha256_now": x["table_sha256_now"], "integrity_ok": x["integrity_ok"], "csv_sha256": x["csv_sha"],
             "lineage_chain": x["chain"], "exported_at": S.now(), "exported_by": who,
-            "how_to_check": "sha256sum data.csv must equal csv_sha256; the Parquet table is checked by GET /api/datasets/{id}/verify"}
+            "how_to_check": "sha256sum data.csv must equal csv_sha256; the Parquet table is checked by GET /api/datasets/{id}/verify",
+            **({"masked": {**m.info(), "note": "the PII-tagged columns of data.csv hold their masks (applied inside DuckDB's COPY): "
+                                                "csv_sha256 is the masked file's; table_sha256 is the stored table's"}}
+               if m is not None and m.cols else {}),
+            **({"unmasked": {"reason": m.reason, "columns": getattr(m, "unmasked_columns", [])}} if m is not None and m.unmasked and m.reason else {})}
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.write(x["path"], "data.csv")
@@ -465,12 +583,19 @@ def _page_err(e) -> HTTPException:
     return HTTPException(e.status, e.payload())
 
 
-def _src_where(dataset_id: str, table: str | None, q: str, flt: str | None):
-    """(source, WHERE, searched columns) for a page / count: the search `q` ANDed with the filter AST."""
+def _mask_err(e) -> HTTPException:
+    """P20: a lake.mask.MaskError (no reason, a refused unmasked read in enforce mode) as its HTTP answer."""
+    return HTTPException(e.status, e.payload())
+
+
+def _src_where(dataset_id: str, table: str | None, q: str, flt: str | None, m: Any = None):
+    """(source, WHERE, searched columns) for a page / count: the search `q` ANDed with the filter AST. P20: the source
+    is `frames.scan` with the mask `m` (the masked view when None): masked columns are not searched, and a filter on
+    one compares masked values."""
     from ..lake import pages as PG
     from ..lake import stats as ST
 
-    src = PG.source(dataset_id, table)
+    src = frames.scan(dataset_id, table, mask_for=m if m is not None else "masked")
     st = ST.get(src.identity)
     if st is None:
         ST.schedule(dataset_id, table, src.identity)  # the profile job; search narrows its columns once it is done
@@ -487,12 +612,14 @@ def _src_where(dataset_id: str, table: str | None, q: str, flt: str | None):
 @router.get("/datasets/{dataset_id}/grid", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 50, q: str = "", by: str = "",
                after: int | None = None, filter: str | None = None, sort: str | None = None, desc: bool = False,
-               table: str | None = None) -> dict[str, Any]:
+               table: str | None = None, unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """The rows of a version, a page at a time, for the editor (P08: DuckDB, never a full read). `_row` is the row's
     position and `_row_id` its `__row_id` (what an edit names, P07). `offset` jumps to a position; `after` (the last
     `_row_id`) pages on by keyset. `q` keeps rows where any column contains it (case-insensitive); `filter` is the edit
     filter AST (JSON). `matching` is counted within 3 s (null when that runs out). `sort` is refused above 1M rows.
-    A read of the rows: needs a name (by or the X-Ensemble-Actor header) and is audited as dataset_read."""
+    A read of the rows: needs a name (by or the X-Ensemble-Actor header) and is audited as dataset_read.
+    P20: PII columns are masked (`masked_columns`, their `masked: true`); `unmasked=1&reason=…` as on …/rows."""
+    from ..lake import mask as M
     from ..lake import pages as PG
 
     who = G.reader(by)
@@ -502,15 +629,20 @@ async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 
 
     def page() -> dict[str, Any]:
         try:
-            src, where, _ = _src_where(dataset_id, table, q, filter)
+            m = M.for_request(request, dataset_id, table, unmasked=unmasked, reason=reason, by=who, read="grid")
+            src, where, _ = _src_where(dataset_id, table, q, filter, m)
             pg = PG.page(src, after=after, offset=None if after is not None else offset, limit=limit, where=where,
                          sort=sort, desc=desc)
             cnt = PG.count(src, where)
         except PG.PageError as e:
             raise _page_err(e) from e
-        return {"dataset_id": dataset_id, "table": src.table, "columns": [{"name": c, "kind": PG.kind(t), "type": t} for c, t in src.columns],
+        except M.MaskError as e:
+            raise _mask_err(e) from e
+        return {"dataset_id": dataset_id, "table": src.table,
+                "columns": [{"name": c, "kind": PG.kind(t), "type": t, **({"masked": True, "mask": m.cols[c]} if c in m.cols else {})}
+                            for c, t in src.columns],
                 "rows": pg["rows"], "total": src.n_rows, "matching": cnt["count"], "matching_timed_out": cnt["timed_out"],
-                "offset": offset, "limit": limit, "q": q, "next_after": pg["next_after"], "how": pg["how"]}
+                "offset": offset, "limit": limit, "q": q, "next_after": pg["next_after"], "how": pg["how"], **m.info()}
 
     out = await _thread(page)
     G.read_audit(request.app.state.db, "grid", dataset_id, {"q": q[:80] or None, "offset": offset}, by=who)
@@ -549,18 +681,30 @@ async def filter_preview(dataset_id: str, request: Request, body: dict[str, Any]
     flt = body.get("filter")
 
     def run() -> dict[str, Any]:
+        from ..lake import mask as M
+
         try:
-            src, where, searched = _src_where(dataset_id, body.get("table"), str(body.get("q") or ""), json.dumps(flt) if flt is not None else None)
+            m = M.for_request(request, dataset_id, body.get("table"), unmasked=body.get("unmasked"), reason=body.get("reason"),
+                              by=who, read="filter_preview")
+            src, where, searched = _src_where(dataset_id, body.get("table"), str(body.get("q") or ""),
+                                              json.dumps(flt) if flt is not None else None, m)
             pg = PG.page(src, limit=int(body.get("limit") or 20), where=where)
             cnt = PG.count(src, where)
         except PG.PageError as e:
             raise _page_err(e) from e
-        return {"dataset_id": dataset_id, "table": src.table, "filter": flt, "rows": pg["rows"], "next_after": pg["next_after"],
-                "matching": cnt["count"], "matching_timed_out": cnt["timed_out"], "total": src.n_rows,
-                "share": round(cnt["count"] / src.n_rows, 6) if cnt["count"] is not None and src.n_rows else None}
+        except M.MaskError as e:
+            raise _mask_err(e) from e
+        return m.scrub({"dataset_id": dataset_id, "table": src.table, "filter": flt, "rows": pg["rows"], "next_after": pg["next_after"],
+                        "matching": cnt["count"], "matching_timed_out": cnt["timed_out"], "total": src.n_rows,
+                        "share": round(cnt["count"] / src.n_rows, 6) if cnt["count"] is not None and src.n_rows else None,
+                        **m.info()})  # P20: a filter value on a masked column is not echoed
 
     out = await _thread(run)
-    G.read_audit(request.app.state.db, "filter_preview", dataset_id, {"filter": json.dumps(flt)[:200] if flt else None}, by=who)
+    from ..lake import mask as M
+
+    m = await _thread(M.masked_view, dataset_id)  # P20: the audit row keeps the filter with a masked column's value masked
+    G.read_audit(request.app.state.db, "filter_preview", dataset_id,
+                 {"filter": json.dumps(m.scrub(flt) if m is not None else flt, ensure_ascii=False)[:200] if flt else None}, by=who)
     return out
 
 
@@ -569,6 +713,7 @@ async def table_stats(dataset_id: str, request: Request, table: str | None = Non
     """P08: the table's column statistics (table_stats, keyed by table_sha256): rows, nulls, distinct, min / max /
     mean / std / quantiles / histogram for numbers, length and top values for text, ... `status` is `running` while the
     background profile job computes them (it is started here when missing); `wait` (≤ 30 s) waits for it."""
+    from ..lake import mask as M
     from ..lake import pages as PG
     from ..lake import stats as ST
 
@@ -580,7 +725,7 @@ async def table_stats(dataset_id: str, request: Request, table: str | None = Non
         except PG.PageError as e:
             raise _page_err(e) from e
         st = ST.ensure(dataset_id, table, wait_s=max(0.0, min(float(wait or 0), 30.0)), n_rows=src.n_rows)
-        return ST.public(st, dataset_id, src.table, src.identity)
+        return M.stats(ST.public(st, dataset_id, src.table, src.identity), M.masked_view(dataset_id, src.table))
 
     return await _thread(run)
 
@@ -606,17 +751,35 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
         raise HTTPException(400, "make_default is auto, yes or no.")
     _live(request, dataset_id)
     store = request.app.state.datasets
-    if preview:
-        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True,
-                            set_target=body.get("set_target"), acknowledge=body.get("acknowledge"))
-        return SafeJSONResponse(out, status_code=200)  # P03: non-finite → null, never an Infinity token or a 500
-    before = await _thread(D.current_default, request.app, dataset_id)
+    from ..lake import mask as M
+    from ..lake.values import ValueRefused
+
+    m = await _thread(M.masked_view, dataset_id)
+    sent = M.tagged_values(m, body.get("ops")) if m is not None else {}
+
+    def scrubbed(detail: Any) -> Any:  # P20: an error never echoes a value sent for a PII-tagged column
+        return M.scrub_error(detail, m, sent) if sent else detail
+
     try:
-        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, set_target=body.get("set_target"),
-                            acknowledge=body.get("acknowledge"))
+        if preview:
+            out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True,
+                                set_target=body.get("set_target"), acknowledge=body.get("acknowledge"))
+            return SafeJSONResponse(m.scrub(out) if m is not None else out, status_code=200)  # P03: non-finite → null
+        before = await _thread(D.current_default, request.app, dataset_id)
+        try:
+            out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, set_target=body.get("set_target"),
+                                acknowledge=body.get("acknowledge"))
+        except HTTPException as e:
+            if e.status_code == 409:
+                G.refused(request.app.state.db, who, "dataset_edit", 409, scrubbed(e.detail), {"dataset_id": dataset_id})
+            raise
+    except ValueRefused as e:
+        if sent:
+            raise HTTPException(e.status, scrubbed(dict(e.payload))) from None
+        raise
     except HTTPException as e:
-        if e.status_code == 409:
-            G.refused(request.app.state.db, who, "dataset_edit", 409, e.detail, {"dataset_id": dataset_id})
+        if sent and 400 <= e.status_code < 500:
+            raise HTTPException(e.status_code, scrubbed(e.detail)) from None
         raise
     from ..main import _detail
 
@@ -627,8 +790,9 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     warnings = out["edit"]["checks"]["warnings"]
     dflt = await _thread(D.settle_default, request.app, out["id"], before, warnings, who,
                          make_default)
+    edit_out = {k: v for k, v in out["edit"].items()}
     return {**_detail(request.app.state.db.get_dataset(out["id"]) or out), "created": True,
-            "edit": {k: v for k, v in out["edit"].items()}, "default": dflt}
+            "edit": m.scrub(edit_out) if m is not None else edit_out, "default": dflt}
 
 
 @router.post("/datasets/{dataset_id}/adopt-disk-file", status_code=201, dependencies=[require("data.restore", path("dataset_id", "dataset"))])
@@ -950,7 +1114,43 @@ async def check_upload(up: str, request: Request) -> dict[str, Any]:
     from ..lake import upload as U
 
     db, lake = request.app.state.db, request.app.state.lake
-    return await _lthread(U.check, db, lake, up, request.app.state.datasets)
+    out = await _lthread(U.check, db, lake, up, request.app.state.datasets)
+    return await run_in_threadpool(_pii_suggestions, db, up, out)
+
+
+def _pii_suggestions(db: Any, up: str, out: dict[str, Any]) -> dict[str, Any]:
+    """P20 (C §5 /check): per table, the PII tag each column will get: the root's tag when it has one (a new version
+    of a tagged dataset), else the profiler's suggestion (names, then the values of the preview rows)."""
+    from .. import profiling
+    from ..lake import mask as M
+
+    try:
+        with db.connect() as con:
+            u = con.execute("SELECT parent_version_id, root_id FROM uploads WHERE id = ?", (up,)).fetchone()
+            root = None
+            if u and (u["root_id"] or u["parent_version_id"]):
+                r = con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (u["root_id"] or u["parent_version_id"],)).fetchone()
+                root = r[0] if r else u["root_id"]
+            for t in out.get("tables") or []:
+                have = M.tags(con, root, t["name"]) if root else {}
+                cols = (t.get("preview") or {}).get("columns") or [c.get("name") for c in t.get("schema") or []]
+                rows = (t.get("preview") or {}).get("rows") or []
+                sugg = []
+                for i, c in enumerate(cols):
+                    if c in have:
+                        x = have[c]
+                        if x["tag"] != "none":
+                            sugg.append({"column": c, "tag": x["tag"], "mask": x["mask"], "source": x["source"], "from": "the dataset's tags"})
+                        continue
+                    sg = profiling.pii_suggestion(c, [r[i] for r in rows if i < len(r)])
+                    if sg:
+                        sugg.append({"column": c, "tag": sg["tag"], "mask": sg["mask"], "source": "suggested", "why": sg["why"]})
+                t["pii"] = sugg
+    except Exception:  # suggestions never fail a check
+        import logging
+
+        logging.getLogger(__name__).exception("PII suggestions for %s", up)
+    return out
 
 
 @router.post("/uploads/{up}/commit", status_code=201, dependencies=[require("data.upload", path("up", "upload"))])

@@ -1,0 +1,109 @@
+## 1 Ada POST /teams {Credit Risk} → HTTP 201 | raw PII values in the body: 0
+    {"id": "tm_6e7c6f7d", "slug": "credit-risk"}
+## 1b Ada adds Ana (owner) → HTTP 201 | raw PII values in the body: 0
+    {"slug": null}
+## 1c Ana adds Ben (viewer) → HTTP 201 | raw PII values in the body: 0
+    {"slug": null}
+## 1d Ana POST /projects → HTTP 201 | raw PII values in the body: 0
+    {"id": "prj_27e4689f", "team_id": "tm_6e7c6f7d"}
+## 2 Ana POST /uploads?project_id=…&filename=applicants.csv (raw body) → HTTP 201 | raw PII values in the body: 0
+    {"upload_id": "up_306fae9d882c", "status": "staged"}
+## 2b POST /uploads/{u}/check → pii per table:
+     {'column': 'applicant_name', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'why': "the name reads like a person's name"}
+     {'column': 'ssn', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'why': 'the name reads like a national id (SSN, passport, tax id)'}
+     {'column': 'email', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'why': 'the name reads like an email address'}
+     {'column': 'zip', 'tag': 'pii_quasi', 'mask': 'bucket', 'source': 'suggested', 'why': 'the name reads like a zip / postal code'}
+     {'column': 'dob', 'tag': 'pii_quasi', 'mask': 'year_only', 'source': 'suggested', 'why': 'the name reads like a date of birth'}
+     {'column': 'ref_code', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'why': 'the values have the SSN shape (3-2-4 digits)'}
+## 2c POST /uploads/{u}/commit → HTTP 201 | raw PII values in the body: 0
+    {"version_id": "ds_1cecb8ad", "id": "ds_1cecb8ad", "created": null}
+    dataset ds_1cecb8ad
+## 3 Ben GET /datasets/{id}/pii → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"], "pending_review": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+     {'column': 'applicant_name', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'set_by': 'profiler'}
+     {'column': 'dob', 'tag': 'pii_quasi', 'mask': 'year_only', 'source': 'suggested', 'set_by': 'profiler'}
+     {'column': 'email', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'set_by': 'profiler'}
+     {'column': 'ref_code', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'set_by': 'profiler'}
+     {'column': 'ssn', 'tag': 'pii_direct', 'mask': 'redact', 'source': 'suggested', 'set_by': 'profiler'}
+     {'column': 'zip', 'tag': 'pii_quasi', 'mask': 'bucket', 'source': 'suggested', 'set_by': 'profiler'}
+## 4 Ben GET /datasets/{id}/rows?limit=3 → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"], "masks": {"applicant_name": "redact", "dob": "year_only", "email": "redact", "ref_code": "redact", "ssn": "redact", "zip": "bucket"}, "unmasked": false}
+     {'_row_id': 0, 'applicant_name': '•••', 'ssn': '•••', 'email': '•••', 'zip': '000•••', 'dob': '1950', 'ref_code': '•••', 'income': 30000}
+     {'_row_id': 1, 'applicant_name': '•••', 'ssn': '•••', 'email': '•••', 'zip': '000•••', 'dob': '1951', 'ref_code': '•••', 'income': 30037}
+     {'_row_id': 2, 'applicant_name': '•••', 'ssn': '•••', 'email': '•••', 'zip': '000•••', 'dob': '1952', 'ref_code': '•••', 'income': 30074}
+## 4b Ben GET /datasets/{id}/grid?limit=2 → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+     columns: [('applicant_name', 'VARCHAR', 'redact'), ('ssn', 'VARCHAR', 'redact'), ('email', 'VARCHAR', 'redact'), ('zip', 'VARCHAR', 'bucket'), ('dob', 'VARCHAR', 'year_only'), ('ref_code', 'VARCHAR', 'redact'), ('income', 'BIGINT', None), ('age', 'BIGINT', None), ('segment', 'VARCHAR', None), ('y', 'BIGINT', None)]
+## 4c Ben GET …/rows?q=user0007 (a masked column is not searched) → HTTP 200 | raw PII values in the body: 0
+    {"searched_columns": [], "rows": []}
+## 4d Ben GET …/rows?value=<a raw ssn>&column=ssn (lookup on the masked view) → HTTP 200 | raw PII values in the body: 0
+    {"n": 0, "rows": []}
+## 4e Ben POST …/rows/preview {filter: zip eq <raw zip>} (compares masked values) → HTTP 200 | raw PII values in the body: 0
+    {"matching": 0, "masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+## 5 Ana GET …/rows?unmasked=1 (no reason) → HTTP 400 | raw PII values in the body: 0
+    {"detail": {"code": "reason_required", "message": "An unmasked read needs a reason (2–500 characters, e.g. QA or a ticket): send reason=… (it is kept in the audit log with the columns you saw)."}}
+## 5b Ana GET …/rows?unmasked=1&reason=QA&limit=2 → HTTP 200 | raw PII values in the body: 12
+    {"masked_columns": [], "unmasked": true}
+     {'_row_id': 0, 'applicant_name': 'Person0000 Example', 'ssn': 100000007, 'email': 'user0000@example.com', 'zip': '00000'}
+     {'_row_id': 1, 'applicant_name': 'Person0001 Example', 'ssn': 100007926, 'email': 'user0001@example.com', 'zip': '00037'}
+## 5c Ana GET …/rows?unmasked=1&reason=QA&value=<raw ssn>&column=ssn → HTTP 200 | raw PII values in the body: 7
+    {"n": 1, "unmasked": true}
+## 5d Ben GET …/rows?unmasked=1&reason=QA (viewer: not allowed) → HTTP 200 | X-Ensemble-Authz: would-deny data.read_unmasked | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"], "unmasked": false, "unmasked_refused": {"action": "data.read_unmasked", "needed": "maintainer", "role": "viewer", "message": "data.read_unmasked needs maintainer in tm_6e7c6f7d; you are viewer: the PII columns stay masked (audit mode records this as would-deny)."}}
+     ssn shown: •••
+## 5e Ana GET /teams/credit-risk/audit?action=dataset_rows_read → 2 rows
+     33 Ana pr_24d4b96f58da typed rq_eb6d6cb25c7f {'read': 'row_lookup', 'reason': 'QA', 'columns': ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip'], 'action': 'data.read_unmasked'} b9faa48a3cd1
+     31 Ana pr_24d4b96f58da typed rq_a404802e1544 {'read': 'rows_page', 'reason': 'QA', 'columns': ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip'], 'action': 'data.read_unmasked'} 818281909510
+## 5f …?action=authz_would_deny → [('Ben', 'data.read_unmasked')]
+## 6 Ben GET …/stats?wait=30 → HTTP 200 | raw PII values in the body: 0
+    {"status": "ready", "masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}
+     ssn {'masked': True, 'mask': 'redact', 'min': None, 'max': None, 'mean': None, 'histogram': None, 'distinct': 602} top: []
+     email {'masked': True, 'mask': 'redact', 'min': None, 'max': None, 'mean': None, 'histogram': None, 'distinct': 598} top: [{'value': '•••', 'n': 20}]
+     zip {'masked': True, 'mask': 'bucket', 'min': None, 'max': None, 'mean': None, 'histogram': None, 'distinct': 597} top: [{'value': '000•••', 'n': 3}, {'value': '001•••', 'n': 3}, {'value': '002•••', 'n': 3}]
+     dob {'masked': True, 'mask': 'year_only', 'min': '1950', 'max': '1999', 'mean': None, 'histogram': None, 'distinct': 599} top: [{'value': '1950', 'n': 12}, {'value': '1951', 'n': 8}]
+     income {'masked': None, 'mask': None, 'min': 30000.0, 'max': 52163.0, 'mean': 41081.5, 'histogram': {'edges': [30000.0, 31108.15, 32216.3, 33324.45, 34432.6, 35540.75, 36648.9, 37757.05, 38865.2, 39973.35, 41081.5, 42189.65, 43297.8, 44405.95, 45514.1, 46622.25, 47730.4, 48838.55, 49946.7, 51054.85, 52163.0], 'counts': [30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]}, 'distinct': 603} top: []
+## 6b GET /datasets/{id} profile → raw PII values: 0 | [('ssn', '•••', True), ('email', '•••', True), ('zip', '000•••', True), ('dob', '1950', True), ('income', '30000', None)]
+## 7 Ana export (masked by default) → HTTP 200 | X-Ensemble-Masked: applicant_name,dob,email,ref_code,ssn,zip | files ['data.csv', 'schema.json', 'manifest.json', 'export.json']
+     data.csv line 2: •••,•••,•••,000•••,1950,•••,30000,20,retail,1
+     raw PII values in data.csv: 0 | sha256(data.csv) == export.json csv_sha256: True | manifest.json table sha256 == export.json table_sha256_stored: True
+     schema.json masked: ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip'] | export.json masked: ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip'] | unmasked: None
+## 7b Ana export unmasked → HTTP 200 | X-Ensemble-Masked: None | files ['data.csv', 'schema.json', 'manifest.json', 'export.json']
+     data.csv line 2: Person0000 Example,100000007,user0000@example.com,00000,1950-01-01,100-10-1000,30000,20,retail,1
+     raw PII values in data.csv: 3600 | sha256(data.csv) == export.json csv_sha256: True | manifest.json table sha256 == export.json table_sha256_stored: True
+     schema.json masked: None | export.json masked: None | unmasked: {'reason': 'regulator file', 'columns': ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip']}
+## 7c Ben export unmasked (viewer) → HTTP 200 | X-Ensemble-Authz: would-deny data.export, data.export_unmasked | X-Ensemble-Masked: applicant_name,dob,email,ref_code,ssn,zip | files ['data.csv', 'schema.json', 'manifest.json', 'export.json']
+     data.csv line 2: •••,•••,•••,000•••,1950,•••,30000,20,retail,1
+     raw PII values in data.csv: 0 | sha256(data.csv) == export.json csv_sha256: True | manifest.json table sha256 == export.json table_sha256_stored: True
+     schema.json masked: ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip'] | export.json masked: ['applicant_name', 'dob', 'email', 'ref_code', 'ssn', 'zip'] | unmasked: None
+## 8 Ana POST …/edit (set ssn of row 3, delete row 7, add a row) → HTTP 201 | raw PII values in the body: 0
+    {"id": "ds_6dd7cbae", "created": true}
+     edit block raw PII values: 0
+## 8b Ben GET /datasets/diff?a=v1&b=v2 → HTTP 200 | raw PII values in the body: 0
+    {"method": "row_id", "masked_columns": {"a": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"], "b": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"]}}
+     rows: {'changed': 2, 'added': 1, 'removed': 1, 'changed_by_column': {'ssn': 1, 'income': 1}}
+     changed_examples: [{'row_a': 3, 'row_b': 3, 'cells': [{'column': 'ssn', 'a': '•••', 'b': '•••'}]}, {'row_a': 4, 'row_b': 4, 'cells': [{'column': 'income', 'a': 30148, 'b': 41000}]}]
+     samples.added: [{'_row_id': 600, 'applicant_name': '•••', 'ssn': '•••', 'email': '•••', 'zip': '004•••'}]
+     samples.removed: [{'_row_id': 7, 'applicant_name': '•••', 'ssn': '•••', 'email': '•••', 'zip': '002•••'}]
+     edit log cells: [{'row_id': 3, 'column': 'ssn', 'old': '•••', 'new': '•••'}, {'row_id': 4, 'column': 'income', 'old': 30148, 'new': 41000}, {'row_id': 7, 'deleted': {'applicant_name': '•••', 'ssn': '•••', 'email': '•••', 'zip': '002•••', 'dob': '1957', 'ref_code': '•••'}}]
+     columns zip / ssn: [{'column': 'zip', 'masked': True, 'top_a': [{'value': '000•••', 'share': 0.0017}, {'value': '000•••', 'share': 0.0017}, {'value': '000•••', 'share': 0.0017}], 'mean_a': None}, {'column': 'ssn', 'masked': True, 'top_a': None, 'mean_a': None}]
+## 8c Ben GET /datasets/diff?a=v1&b=v2&key=zip (key_invalid: the repeated keys masked) → HTTP 400 | raw PII values in the body: 0
+    {"detail": {"code": "key_invalid", "message": "The key zip is not unique and non-null in version b: 0 missing, 1 repeated.", "side": "b", "n_missing": 0, "repeated": [{"key": ["004•••"], "n": 2}]}}
+## 8d Ana GET /datasets/diff …&unmasked=1&reason=QA → HTTP 200 | raw PII values in the body: 58
+    {"masked_columns": null}
+     changed_examples: [{'row_a': 3, 'row_b': 3, 'cells': [{'column': 'ssn', 'a': 100023764, 'b': 999888777}]}, {'row_a': 4, 'row_b': 4, 'cells': [{'column': 'income', 'a': 30148, 'b': 41000}]}]
+## 8e Ben GET /datasets/{v2}/history → HTTP 200 | raw PII values in the body: 0
+    {"root_id": "ds_1cecb8ad"}
+## 9 Ana POST …/edit set_cells ssn = '987-65-4321' (BIGINT column) → HTTP 400 | raw PII values in the body: 0
+    {"detail": {"code": "value_invalid", "message": "Operation 1 (set_cells), row 3, 'ssn': the value (not shown: the column is PII-tagged) is not a whole number, and 'ssn' is a whole-number column (cast it to text first if it should hold text).", "op_index": 1, "column": "ssn", "type": "BIGINT", "min": "-9223372036854775808", "max": "9223372036854775807", "masked_columns": ["ssn"]}}
+## 9b the same on an untagged column (income = 'abc-12-xyz'): the value is shown → HTTP 400 | raw PII values in the body: 0
+    {"detail": {"code": "value_invalid", "message": "Operation 1 (set_cells), row 3, 'income': 'abc-12-xyz' is not a whole number, and 'income' is a whole-number column (cast it to text first if it should hold text).", "op_index": 1, "column": "income", "type": "BIGINT", "min": "-9223372036854775808", "max": "9223372036854775807"}}
+## 9c Ana POST …/edit filter_rows ssn gt 1e30 (out of range) → HTTP 400 | raw PII values in the body: 0
+    {"detail": {"code": "value_out_of_range", "message": "Operation 1 (filter_rows): the value (not shown: the column is PII-tagged) is out of range; a BIGINT column holds whole numbers from -9223372036854775808 to 9223372036854775807.", "op_index": 1, "column": "ssn", "type": "BIGINT", "min": "-9223372036854775808", "max": "9223372036854775807", "masked_columns": ["ssn"]}}
+## 10 Ben PUT …/pii {confirm suggested} (viewer) → HTTP 200 | X-Ensemble-Authz: would-deny data.tag_pii | raw PII values in the body: 0
+    {"changed": [{"column": "applicant_name", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source": "suggested"}}, {"column": "dob", "tag": "pii_quasi", "mask": "
+## 10b Ana PUT …/pii {zip: pii_quasi hash, segment: none} → HTTP 200 | raw PII values in the body: 0
+    {"changed": [{"column": "zip", "tag": "pii_quasi", "mask": "hash", "was": {"tag": "pii_quasi", "mask": "bucket", "source": "confirmed"}}, {"column": "segment", "tag": "none", "mask": "none", "was": null}]}
+## 10c Ana GET /datasets/{v2}/pii (tags belong to the root: v2 has them) → HTTP 200 | raw PII values in the body: 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ref_code", "ssn", "zip"], "pending_review": []}
+## 10d Ben GET /datasets/{v2}/rows → zip hashed: ['26482546431b', 'aba1fb309c48', '521fc97355cb'] | raw zips ['00000', '00037', '00074']
+ids {'ds': 'ds_1cecb8ad', 'v2': 'ds_6dd7cbae'}
