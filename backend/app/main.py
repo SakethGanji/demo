@@ -377,10 +377,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         strategy = body.get("strategy") or RANDOM_STRATIFIED
         try:
             _, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
-            df = frames.read_version(dataset_id)
+            y = frames.read_version(dataset_id, [target])[target] if target else None  # P08: the target column only
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
-        return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, df[target] if target else None)}
+        return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, y)}
 
     @app.post("/api/admin/reset-requests", status_code=201)
     def reset_request(request: Request, body: dict[str, Any]) -> dict[str, Any]:

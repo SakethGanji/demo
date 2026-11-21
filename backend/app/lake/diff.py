@@ -32,7 +32,7 @@ from .pages import ROW_ID, kind, q
 
 SAMPLE = 50
 EXAMPLES = 5
-DIFF_VERSION = 1
+DIFF_VERSION = 2
 
 
 class DiffError(ValueError):
@@ -132,9 +132,25 @@ def _pair(col: str, ta: str, tb: str) -> tuple[str, str, str]:
     if p:
         ea, eb = p
         how = "same type" if ta == tb else f"as {_family(ta)}"
-    else:
-        ea, eb, how = f"CAST({x} AS VARCHAR)", f"CAST({x} AS VARCHAR)", "as text (the type family changed)"
-    return ea.replace(x, f"a.{x}"), eb.replace(x, f"b.{x}"), how
+        return ea.replace(x, f"a.{x}"), eb.replace(x, f"b.{x}"), how
+    fa, fb = _family(ta), _family(tb)
+    a_, b_ = f"a.{x}", f"b.{x}"
+
+    def as_bool(e: str, f: str) -> str:
+        if f == "bool":
+            return e
+        if f == "number":
+            return f"(CAST({e} AS DOUBLE) <> 0)"
+        return (f"(CASE WHEN lower(trim(CAST({e} AS VARCHAR))) IN ('true', 'yes', 'y', 't', '1') THEN true"
+                f" WHEN lower(trim(CAST({e} AS VARCHAR))) IN ('false', 'no', 'n', 'f', '0') THEN false END)")
+
+    if "bool" in (fa, fb) and {fa, fb} <= {"bool", "text", "number"}:
+        return as_bool(a_, fa), as_bool(b_, fb), "as yes / no (the type family changed)"
+    if {fa, fb} == {"number", "text"}:
+        ea = f"CAST({a_} AS DOUBLE)" if fa == "number" else f"TRY_CAST({a_} AS DOUBLE)"
+        eb = f"CAST({b_} AS DOUBLE)" if fb == "number" else f"TRY_CAST({b_} AS DOUBLE)"
+        return ea, eb, "as numbers (text read as numbers; the type family changed)"
+    return f"CAST({a_} AS VARCHAR)", f"CAST({b_} AS VARCHAR)", "as text (the type family changed)"
 
 
 def _schema(ta: dict[str, str], tb: dict[str, str], renamed: dict[str, str]) -> dict[str, Any]:
@@ -328,7 +344,8 @@ def _multiset(con, A: Side, B: Side, ha: str, hb: str, n_shared: int) -> tuple[d
         return rows, {"added": [], "removed": [], "changed": []}
     con.execute(f"CREATE TEMP TABLE _ha AS SELECT {ha} AS h, count(*) AS n FROM _a a GROUP BY 1")
     con.execute(f"CREATE TEMP TABLE _hb AS SELECT {hb} AS h, count(*) AS n FROM _b b GROUP BY 1")
-    same, rem, add = con.execute("SELECT coalesce(sum(least(x.n, y.n)), 0), coalesce(sum(greatest(coalesce(x.n, 0) - coalesce(y.n, 0), 0)), 0),"
+    same, rem, add = con.execute("SELECT coalesce(sum(least(coalesce(x.n, 0), coalesce(y.n, 0))), 0),"
+                                 " coalesce(sum(greatest(coalesce(x.n, 0) - coalesce(y.n, 0), 0)), 0),"
                                  " coalesce(sum(greatest(coalesce(y.n, 0) - coalesce(x.n, 0), 0)), 0)"
                                  " FROM _ha x FULL JOIN _hb y ON x.h = y.h").fetchone()
 

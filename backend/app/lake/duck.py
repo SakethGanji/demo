@@ -93,7 +93,7 @@ def connect(purpose: Literal["interactive", "job"] = "job", *, mem_mb: int | Non
 def job(**kw: Any) -> Iterator[duckdb.DuckDBPyConnection]:
     """A job connection that is closed, and its spill directory removed, on exit."""
     con = connect("job", **kw)
-    spill = con.execute("SELECT current_setting('temp_directory')").fetchone()[0]
+    spill = con.execute("SELECT current_setting('temp_directory')").fetchall()[0][0]  # fetchall: no open result (DuckDB 2)
     try:
         yield con
     finally:
