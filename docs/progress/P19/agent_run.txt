@@ -1,0 +1,9 @@
+## A agent on behalf of Ben: POST …/edit → ToolError POST /api/datasets/ds_9b995911/edit → 403: {"code": "forbidden", "action": "data.version", "team": "tm_f84c3950", "needed": "member", "message": "data.version needs member in tm_f84c3950; you are view
+## A agent on behalf of Ana: POST …/edit → created ds_2e30169d
+## A forged internal header (Ana, wrong signature) → 401 {"detail": {"code": "unauthenticated", "action": "data.version", "message": "no credentials (send X-Ensemble-Actor; sign-in comes with SSO)"}}
+## A /authz/check as the agent of Ana → {'allow': True, 'reason': 'owner of the team'} {'id': 'pr_24d4b96f58da', 'display_name': 'Ana', 'auth': 'agent', 'kind': 'person', 'is_admin': False}
+    (51, 'Ben', 'authz_denied', 'pr_6700869c8ff7', 'agent', 'rq_dce5bf9ca93c')
+    (52, 'Vela agent on behalf of Ana', 'dataset_version_created', 'pr_24d4b96f58da', 'agent', 'rq_81948aba53fa')
+    (53, 'Vela agent on behalf of Ana', 'split_created', 'pr_24d4b96f58da', 'agent', 'rq_81948aba53fa')
+    (54, 'Vela agent on behalf of Ana', 'dataset_default_set', 'pr_24d4b96f58da', 'agent', 'rq_81948aba53fa')
+    (55, 'anonymous', 'authz_denied', None, 'none', 'rq_20deff3dc7be')

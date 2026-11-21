@@ -1,0 +1,5 @@
+## final verify tm_04a7f34a {'ok': True, 'rows': 1, 'legacy_rows': 0, 'head': 'f6d2da9edfaf0fd90e5cd0c6980e32679475f6fc769ff91e608bb37c0ee9aaff'}
+## final verify tm_default {'ok': True, 'rows': 18, 'legacy_rows': 0, 'head': '133b4e00527f7ba6e85b7f8c94bfe66a4d686d3e767743cbc4c9e066126244e2'}
+## final verify tm_f84c3950 {'ok': True, 'rows': 36, 'legacy_rows': 0, 'head': '503dec1ea423b841508b6fa88d2ff25cb063724daf23af6821eaf7d566bf093b'}
+## stage_change_refused row: (42, 'tm_f84c3950', 'model_version', 'mv_ffdc71a0')
+## audit rows without team or hash: 0

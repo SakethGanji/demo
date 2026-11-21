@@ -1,0 +1,6 @@
+$ ENSEMBLE_AUTHZ=enforce uvicorn app.main:app   (typed names, no flag)
+exit code 1
+RuntimeError: ENSEMBLE_AUTHZ=enforce refuses to start with typed names in the identity chain (ENSEMBLE_IDP=typed): anyone can type any name. Sign-in (SSO, T3) comes first; for a demo only, ENSEMBLE_AUTHZ_ALLOW_TYPED=1 starts it anyway.
+$ ENSEMBLE_AUTHZ=enforce ENSEMBLE_AUTHZ_ALLOW_TYPED=1 uvicorn app.main:app
+INFO ensemble.authz: P19 authz: mode enforce; coverage 157/157 routes that must be covered, 0 uncovered
+WARNING ensemble.authz: !!! ENSEMBLE_AUTHZ=enforce WITH TYPED NAMES (ENSEMBLE_AUTHZ_ALLOW_TYPED=1): names are NOT verified; anyone can act as anyone. Demo only. !!!

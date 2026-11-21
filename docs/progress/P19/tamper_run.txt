@@ -1,0 +1,16 @@
+## T0 before: UPDATE audit_log through the app's connection rules
+   refused: audit is append-only
+## T1
+edited audit row 26 actor → 'Someone else'
+## T2 GET /teams/credit-risk/audit/verify
+{"team_id":"tm_942647e0","ok":false,"rows":7,"legacy_rows":0,"first_break":{"id":26,"ts":"2026-11-21T20:41:32+00:00","action":"split_created","problem":"the row does not re-hash to its row_hash (it was edited)","row_hash":"69f40333e46180e6","recomputed":"2f3f875085fa0b16"}}
+## T3 GET /datasets/ds_70b9db04/verify, split check 3
+   ok False splits_ok False
+   check 3 False audit #26 (2026-11-21T20:41:32, Someone else) records the same split_sha256 and blob; chain link: the row does not re-hash to its row_hash (edited)
+## T4 GET /teams/tm_default/audit/verify (another team's chain is untouched)
+{"team_id":"tm_default","ok":true,"rows":20,"legacy_rows":0,"head":"4dc9c8194a3c0bdd7e141cd8ff5ee24b1b78cb88b69b6d4ca35b72fc16b3ccdc"}
+
+## T5 (restored copy) delete the team's last row
+deleted audit row 62 (the team's last)
+   verify: {'ok': False, 'rows': 40, 'legacy_rows': 0, 'first_break': {'id': None, 'problem': 'the last row is not the recorded head (rows were removed from the end)', 'head': 'a915da8f7ae56589', 'last': 'd259da4de7f06f88'}}
+## T6 restored original: verify {'ok': True, 'rows': 41, 'legacy_rows': 0, 'head': 'a915da8f7ae565897cc8eabceb3e0a43972e2e534f891cb168da13fce7acecc6'}
