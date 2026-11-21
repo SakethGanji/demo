@@ -33,7 +33,10 @@
 | P06 | D | done | session_018upNdPmVFDA7q7c2wULNRM | eb59e9c |
 | P07 | D | done (U2: send __row_id in set_cells/delete_rows) | session_018upNdQzFyc3sTFn8F8WBVu | 858200d |
 | P08 | D | done | session_018upNdRRN6S5Y3rTnnk29BM | 656ab64 |
-| P09 | D | started | session_018upNdSNHpt3EuRkTqNbK1w | |
+| P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
+| X1 | ⟂ | started | session_018upNdQEzTw3dUV29ygL2YH | |
+| P11 | D2 | started | session_018upNdQkfQxUCUaQxHcgsFb | |
+| P19 | G | started | session_018upNdPhxRCU1Z9oW9qWLpN | |
 | P22 | O | started | session_018upNdPj3uWNkfz67KZVANF | |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
