@@ -36,13 +36,16 @@
 | P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
 | X1 | ⟂ | done: 2 critical, 6 major → F-X1 | session_018upNdQEzTw3dUV29ygL2YH | 6822049 |
 | F-X1 | D | done: C1, C2, M1, M2, M4, M5, M6 fixed; M3 re-verified (P10 unblocked) | session_018upNdRigdGd9A2nGzFSQXq (F-X1) | see report |
-| P10 | D | done (25 CSV-era versions: 23 migrated + 2 tampered reported, then migrated once resolved; old results byte-equal) | session_018upNdQ3GmVAB5qkPvPTGac | see report |
+| P10 | D | done (25 CSV-era versions: 23 migrated + 2 tampered reported, then migrated once resolved; old results byte-equal) | session_018upNdQ3GmVAB5qkPvPTGac | 2f50d87 |
 | P11 | D2 | done (AG peak ≈ 2.13 GB + 2.43×frame) | session_018upNdQkfQxUCUaQxHcgsFb | 5deecb5 |
 | P19 | G | done (mode audit) | session_018upNdPhxRCU1Z9oW9qWLpN | f9cbfe7 |
 | P20 | G | done | session_018upNdN6AqeeL2rkTsjNjmp | f314861 |
 | P22 | O | done | session_018upNdPj3uWNkfz67KZVANF | b22d64d |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
+| P10b | S | started (MinIO + read cache) | (pending) | |
+| P23 | O | started (Postgres) | (pending) | |
+| X2 | ⟂ | started (migration check, read-only) | (pending) | |
 
 ## Open notes carried forward
 - **10M edit commit takes 99 s** (P07 path). Full pandas reads remain in data-doctor (and its apply), the edit preview and Feature Lab. X1 to judge whether this is a fix before P10.
