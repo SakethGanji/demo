@@ -36,7 +36,7 @@
 | P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
 | X1 | ⟂ | done: 2 critical, 6 major → F-X1 | session_018upNdQEzTw3dUV29ygL2YH | 6822049 |
 | F-X1 | D | started (blocks P10) | | |
-| P11 | D2 | started | session_018upNdQkfQxUCUaQxHcgsFb | |
+| P11 | D2 | done (AG peak ≈ 2.13 GB + 2.43×frame) | session_018upNdQkfQxUCUaQxHcgsFb | 5deecb5 |
 | P19 | G | done (mode audit) | session_018upNdPhxRCU1Z9oW9qWLpN | f9cbfe7 |
 | P20 | G | done | session_018upNdN6AqeeL2rkTsjNjmp | f314861 |
 | P22 | O | done | session_018upNdPj3uWNkfz67KZVANF | b22d64d |
