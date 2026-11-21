@@ -13,10 +13,10 @@ import re
 from pathlib import Path
 from typing import Any, Literal
 
-import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
+from .. import frames
 from .. import intake
 from ..engine import explain
 from ..engine.store import now
@@ -44,7 +44,7 @@ def analyse(rec: dict[str, Any], *, surname: str | None, zip_col: str | None, tr
     if res.get("problem_type") != "binary":
         raise ValueError(f"The fair-lending check needs a yes/no (binary) model; this run is {res.get('problem_type')}.")
     cfg = rec["config"]
-    data = pd.read_csv(cfg["csv_path"])
+    data = frames.read(frames.resolve(cfg))
     det = intake.detect(data)["columns"]
     found = {}
     for key, role, given in (("surname", "surname", surname), ("zip", "zip", zip_col), ("truth", "protected", truth)):

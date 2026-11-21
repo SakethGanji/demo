@@ -6,7 +6,6 @@ from __future__ import annotations
 import os
 import threading
 from collections import OrderedDict
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -137,8 +136,12 @@ def feature_importance(predictor, holdout: pd.DataFrame, time_limit: float = 60,
     return jsonable(fi.reset_index().rename(columns={"index": "feature"}))
 
 
-def holdout_frame(csv_path: Path, splits: dict[str, Any], label: str, drop: list[str]) -> pd.DataFrame:
-    df = pd.read_csv(csv_path)
+def holdout_frame(src: Any, splits: dict[str, Any], label: str, drop: list[str]) -> pd.DataFrame:
+    """The holdout rows as the fit saw them. `src` is a frames ref (or, from old callers, the data.csv path)."""
+    from .. import frames
+
+    ref = src if isinstance(src, (frames.Table, frames.JoinFrame, frames.LegacyPath)) else frames.LegacyPath(str(src))
+    df = frames.read(ref)  # P03: typed (engine_v1), the same dtypes as the fit's holdout
     h = df.loc[np.asarray(splits["holdout"], dtype=int)]
     h = h[h[label].notna()]
     return h.drop(columns=[c for c in drop if c in h.columns and c != label])

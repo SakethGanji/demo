@@ -63,6 +63,7 @@ def fit(cfg: dict[str, Any], base_models: list[str], suffix: str) -> dict[str, A
 
     from ..splits import load_splits
     from .jsonsafe import jsonable
+    from .. import frames
     from .serving import holdout_frame
 
     t0 = time.time()
@@ -92,7 +93,7 @@ def fit(cfg: dict[str, Any], base_models: list[str], suffix: str) -> dict[str, A
     weights = {k: float(v) for k, v in m._get_model_weights().items()}
     weights = dict(sorted(weights.items(), key=lambda kv: -kv[1]))
 
-    holdout = holdout_frame(Path(cfg["csv_path"]), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    holdout = holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     lb = predictor.leaderboard(holdout, silent=True)
     metric = predictor.eval_metric
     n = len(holdout)

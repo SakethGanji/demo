@@ -17,6 +17,7 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from .. import frames
 from ..splits import holdout_mask
 from . import active_learning as al
 from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
@@ -247,7 +248,7 @@ def _slice_filter(request: Request, rec: dict[str, Any], sid: str) -> dict[str, 
         raise HTTPException(400, f"slice_id: no weak slice {sid!r} in this run's latest slice search (Explain → Weak Slices).")
     cfg = rec["config"]
     cols = {c["column"] for c in s["conditions"]} | {rec["label"]}
-    data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
+    data = frames.read(frames.resolve(cfg), columns=lambda c: c in cols)
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     is_h = holdout_mask(splits, len(data))
     m = sl.slice_mask(data, s["conditions"]) & ~is_h
@@ -306,7 +307,7 @@ def simulate(run_id: str, request: Request) -> dict[str, Any]:
         st, ans, qr = _open_queue(rec)
         if (st.get("pool") or {}).get("source") != "hide":
             raise HTTPException(400, "The pool's labels are really missing, so there is no oracle to simulate the labeller.")
-        df = pd.read_csv(cfg["csv_path"], usecols=[cfg["label"]])
+        df = frames.read(frames.resolve(cfg), columns=[cfg["label"]])
         n = 0
         for it in st["arms"]["queue"]["queue"]:
             if it["id"] in ans["answers"]:
@@ -327,7 +328,7 @@ def _make_version(request: Request, rec: dict[str, Any], st: dict[str, Any], ans
     cfg = rec["config"]
     ds = request.app.state.datasets
     label = cfg["label"]
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     q = st["arms"]["queue"]
     answered = {it["row"]: ans["answers"][it["id"]] for it in q["queue"] if it["id"] in ans["answers"]}
     new = {r: a["label"] for r, a in answered.items() if a["answer"] in ("confirm", "relabel")}

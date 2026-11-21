@@ -5,7 +5,6 @@ names, adjudications), and save the consensus labels as a dataset version with l
 
 from __future__ import annotations
 
-import io
 import json
 import subprocess
 import threading
@@ -17,6 +16,7 @@ import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from .. import frames
 from . import annotations as an
 from .jobs import alive, kill_group, spawn
 from .jsonsafe import write_json
@@ -118,7 +118,7 @@ def _analysis(request: Request, rec: dict[str, Any]) -> tuple[dict[str, Any], pd
     if hit and hit[0] == key:
         return hit[1], hit[2]
     cfg = rec["config"]
-    data = pd.read_csv(cfg["csv_path"])
+    data = frames.read(frames.resolve(cfg))
     res = an.analyze(run_dir, cfg, data[cfg["label"]])
     _CACHE[rec["id"]] = (key, res, data)
     st = an.read_state(run_dir) or {}
@@ -238,11 +238,13 @@ async def upload(run_id: str, request: Request, file: UploadFile = File(...),
     cfg = rec["config"]
     content = await file.read()
     sep = "\t" if (file.filename or "").lower().endswith(".tsv") else ","
-    try:
-        up = pd.read_csv(io.BytesIO(content), sep=sep)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, f"Could not read {file.filename} as CSV: {str(e).splitlines()[0]}") from e
-    data = pd.read_csv(cfg["csv_path"])
+    from ..datasets import DatasetError
+
+    try:  # P03: the typed import rules (IDs with leading zeros stay text, as in the dataset)
+        up = frames.read_upload(content, filename=file.filename or "annotations.csv", kind="labels", sep=sep)
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+    data = frames.read(frames.resolve(cfg))
     try:
         long, info = an.parse_upload(data, up, cfg["label"])
     except ValueError as e:

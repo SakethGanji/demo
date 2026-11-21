@@ -20,7 +20,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
-from .. import config, intake
+from .. import config, frames, intake
 from ..datasets import DatasetError
 from ..splits import load_splits
 from . import catalogue, costs, explain, heavy, serving, threshold
@@ -141,7 +141,7 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
     DL3 (M1): a run that reads its dataset's data.csv carries the version's stored sha256; the worker hashes the bytes it
     reads at fit start and refuses the fit on a mismatch (worker.data_gate)."""
     try:
-        if cfg.get("csv_path") and str(app.state.datasets.csv_path(dataset_id)) == str(cfg["csv_path"]) and "data_sha256_expected" not in cfg:
+        if cfg.get("csv_path") and str(frames.path_of(frames.table(dataset_id))) == str(cfg["csv_path"]) and "data_sha256_expected" not in cfg:
             rec = app.state.db.get_dataset(dataset_id) or {}
             cfg["data_sha256_expected"] = rec.get("sha256")
             cfg.setdefault("dataset_id", dataset_id)
@@ -308,7 +308,7 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         try:
             from ..data_doctor import id_tie
 
-            fr = app.state.datasets.load_frame(ds["id"])
+            fr = frames.read(frames.table(ds["id"]))
             tied = [c for c in id_dropped if c in fr.columns and label in fr.columns and id_tie(fr[c], fr[label])]
         except Exception:  # noqa: BLE001
             tied = []
@@ -381,7 +381,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         "column_types": {c: t for c, t in types.items() if c not in drop},
         "problem_type": None if body.problem_type == "auto" else body.problem_type,
         "label": label, "drop_columns": drop, "id_columns_dropped": id_dropped, "text_columns": text_cols, "task": task,
-        "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
+        "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(frames.path_of(frames.table(body.dataset_id))),
+        "input_ref": frames.input_ref_for(body.dataset_id),  # P03: what frames.resolve reads (csv_path kept for old readers)
         "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "predictor"),
     }
@@ -401,7 +402,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         cfg["quantile_levels"] = quant["levels"]
         cfg["predictor_kwargs"] = {k: v for k, v in (cfg.get("predictor_kwargs") or {}).items() if k != "quantile_levels"}
     if body.pseudolabel:
-        cfg["unlabeled_csv_path"] = str(app.state.datasets.csv_path(body.pseudolabel["dataset_id"]))
+        cfg["unlabeled_csv_path"] = str(frames.path_of(frames.table(body.pseudolabel["dataset_id"])))
+        cfg["unlabeled_ref"] = frames.input_ref_for(body.pseudolabel["dataset_id"])
     name = body.name or f"{display_name(ds)} · {label}"
     store = queue_run(app, run_id, run_dir, name, body.dataset_id, label, cfg, dataset_id=body.dataset_id, label=label,
                       problem_type=cfg["problem_type"], eval_metric=body.eval_metric, presets=body.presets,
@@ -417,11 +419,10 @@ MIN_CLASS_TRAIN_ROWS = 2
 def _min_rows_check(app: Any, dataset_id: str, label: str, split: dict[str, Any], task: str | None, problem_type: str | None) -> None:
     """Refuse (400, in plain words) a run whose training rows are too few, or (classification) whose classes are too thin."""
     import numpy as np
-    import pandas as pd
 
     from ..splits import load_splits
 
-    y = pd.read_csv(app.state.datasets.csv_path(dataset_id), usecols=[label])[label]
+    y = frames.read(frames.table(dataset_id), columns=[label])[label]
     sp = load_splits(Path(split["path"]))
     fold = np.asarray(sp["fold"], dtype=int)
     hold = np.zeros(len(y), dtype=bool)
@@ -522,13 +523,12 @@ def check_scorecard(body: RunCreate, ds: dict[str, Any], label: str) -> dict[str
 def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: dict[str, Any]) -> dict[str, Any]:
     """F7: the run's cost request, checked and normalised: {kind: binary, c_fp, c_fn, g_tp, positive_class} or
     {kind: multiclass, classes, matrix} (classes in AutoGluon's order, the sorted labels)."""
-    import pandas as pd
 
     if body.eval_metric not in (None, costs.METRIC_NAME):
         raise HTTPException(400, f"Give cost or eval_metric '{body.eval_metric}', not both: the cost is the metric.")
     if "eval_metric" in body.predictor_kwargs:
         raise HTTPException(400, "predictor_kwargs.eval_metric is set by the cost.")
-    y = pd.read_csv(app.state.datasets.csv_path(body.dataset_id), usecols=[label])[label].dropna()
+    y = frames.read(frames.table(body.dataset_id), columns=[label])[label].dropna()
     classes = list(y.astype("category").cat.categories)
     pt = body.problem_type
     if pt == "auto":
@@ -961,12 +961,11 @@ async def holdout_predictions(run_id: str, request: Request, by: str = "") -> di
     G.run_read_audit(request.app, "holdout_predictions", run_id, by=by)
 
     def read():
-        import pandas as pd
 
         from . import quantile as qt
         from .jsonsafe import jsonable
 
-        df = pd.read_csv(path)
+        df = frames.read_artifact(path)
         prob_cols = [c for c in df.columns if c.startswith("p_")]
         return {"run_id": run_id, "model": (rec.get("result") or {}).get("best_model"), "n_rows": len(df),
                 "rows": jsonable(df["row"].tolist()), "y_true": jsonable(df["y_true"].tolist()),

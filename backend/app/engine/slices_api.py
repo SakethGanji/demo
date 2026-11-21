@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from .. import frames
 from ..splits import holdout_mask
 from . import explain, heavy
 from . import slices as sl
@@ -79,7 +80,7 @@ def _types(request: Request, rec: dict[str, Any]) -> dict[str, str]:
 
 def _frame(rec: dict[str, Any], hp: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     cols = set(columns)
-    data = pd.read_csv(rec["config"]["csv_path"], usecols=lambda c: c in cols)
+    data = frames.read(frames.resolve(rec["config"]), columns=lambda c: c in cols)
     return data.iloc[hp["row"].to_numpy(dtype=int)].reset_index(drop=True)
 
 
@@ -194,7 +195,7 @@ async def slice_rows(run_id: str, sid: str, request: Request, limit: int | None 
         hp = hp.assign(loss=loss)
         sub = hp[hp["row"].isin(set(s["rows"]))].sort_values("loss", ascending=False, kind="stable")
         feats = list((rec.get("result") or {}).get("features") or [])
-        data = pd.read_csv(rec["config"]["csv_path"], usecols=lambda c: c in set(feats))
+        data = frames.read(frames.resolve(rec["config"]), columns=lambda c: c in set(feats))
         total = len(sub)
         sub = sub.iloc[offset: offset + limit if limit else None]
         items = []
@@ -266,7 +267,7 @@ async def slice_pool(run_id: str, sid: str, request: Request) -> dict[str, Any]:
         _, s = _slice(request, rec, sid)
         cfg = rec["config"]
         cols = {c["column"] for c in s["conditions"]} | {rec["label"]}
-        data = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
+        data = frames.read(frames.resolve(cfg), columns=lambda c: c in cols)
         splits = json.loads(Path(cfg["splits_path"]).read_text())
         is_h = holdout_mask(splits, len(data))
         m = sl.slice_mask(data, s["conditions"]) & ~is_h

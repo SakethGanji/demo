@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..splits import holdout_mask
 
 ID_NAME = re.compile(r"(^id$|_id$|^id_|uuid|^key$|_key$|^row$|^index$)", re.I)
@@ -87,8 +88,8 @@ def holdout_frame(rec: dict[str, Any]) -> pd.DataFrame | None:
     p = Path(rec["config"]["run_dir"]) / "holdout_predictions.csv"
     if not p.exists():
         return None
-    return pd.read_csv(p, dtype={"y_true": str, "y_pred": str}) if (rec.get("result") or {}).get("problem_type") in ("binary", "multiclass") \
-        else pd.read_csv(p)
+    return frames.read_artifact(p, dtype={"y_true": str, "y_pred": str}) if (rec.get("result") or {}).get("problem_type") in ("binary", "multiclass") \
+        else frames.read_artifact(p)
 
 
 def bootstrap_se(rec: dict[str, Any], hp: pd.DataFrame, B: int = 200) -> float | None:
@@ -506,7 +507,7 @@ def compute(rec: dict[str, Any], base: dict[str, Any], events: list[dict[str, An
     out: list[dict[str, Any]] = []
     hp = holdout_frame(rec)
     try:
-        data = pd.read_csv(rec["config"]["csv_path"])
+        data = frames.read(frames.resolve(rec["config"]))
     except Exception:  # noqa: BLE001
         data = None
     steps = [lambda: f_leakage(rec, base, data, out), lambda: f_budget(rec, base, events, out),
