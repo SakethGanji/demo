@@ -332,3 +332,19 @@ after:  active learning: awaiting_labels; queued rows [82, 1672, 87, 1186, 471, 
 - `GET /runs/run_078f82fc/doctor` → **500** for the group-split run above. The cause is `TypeError: '>' not supported between 'NoneType' and 'int'` at `_missing`: `mr["ci"][1] > 0` (doctor.py:1473), when `_more_rows` returns a CI with `None` bounds.
 - It does not depend on the gaps: the random-split run on the same version gets a 200.
 - Fix: `mr["ci"][1] is not None and mr["ci"][1] > 0`.
+
+**Model Doctor 500 fixed** (`vela/doctor.py`; the orchestrator assigned it after P11 finished).
+- **Cause:** the gap analysis's `quick_curve.ci` is a bootstrap quantile. When the bootstrap scores are NaN it is stored as `[null, null]`, and `_missing` did `mr["ci"][1] > 0`.
+- **Fix:** `_ci_ok(ci)` checks for two finite bounds. It is used for:
+  - the `more_rows` gap (which also needs a delta);
+  - the look-alike `r_nn_ci` text;
+  - `_ci` / `_cis`;
+  - `_gap_key`.
+- **Verification:** on the group-split, gapped-version run (`F-X1/al.py`), with `doctor_cache` cleared before each call (`dropcache.py`; `doctor_gaps` kept, `quick_curve.ci = [None, None]`):
+
+```
+before: GET /runs/run_fe871f34/doctor -> 500   (TypeError: '>' not supported between instances of 'NoneType' and 'int')
+after:  GET /runs/run_fe871f34/doctor -> 200   overfit: clear
+```
+
+- **Left alone:** the same run's gap analysis also records `clean labels: ValueError: shape mismatch …` in `doctor_gaps.errors`, in `vela/missing.py`. It is caught and the Doctor still answers.

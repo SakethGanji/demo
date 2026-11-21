@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -732,12 +733,22 @@ def _better(metric: str | None) -> str:
     return " (lower error is better; the sign shows the improvement)" if metric in ERROR_METRICS else ""
 
 
+def _ci_ok(ci: Any) -> bool:
+    """F-X1: a CI with two numeric bounds (an estimate with too few rows comes back as [None, None])."""
+    if not isinstance(ci, (list, tuple)) or len(ci) != 2:
+        return False
+    try:
+        return all(v is not None and math.isfinite(float(v)) for v in ci)
+    except (TypeError, ValueError):
+        return False
+
+
 def _cis(ci: list[float] | None, ref: float | None = None) -> str:
-    return f"[{_sv(ci[0], ref=ref)}, {_sv(ci[1], ref=ref)}]" if ci else ""
+    return f"[{_sv(ci[0], ref=ref)}, {_sv(ci[1], ref=ref)}]" if _ci_ok(ci) else ""
 
 
 def _ci(ci: list[float] | None, d: int = 4) -> str:
-    return f"[{ci[0]:+.{d}f}, {ci[1]:+.{d}f}]" if ci else ""
+    return f"[{ci[0]:+.{d}f}, {ci[1]:+.{d}f}]" if _ci_ok(ci) else ""
 
 
 def _exp(ctx: dict[str, Any], kind: str, columns: list[str] | None = None) -> dict[str, Any] | None:
@@ -1386,7 +1397,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         ex = tw.get("exact_conflicts") or {}
         f = (f"{_pct(tw['errors_in_mixed'])} of the model's errors are rows whose {tw['k']} closest training rows (on the columns that "
              f"matter, weighted by importance) had mixed outcomes: look-alike customers who ended differently. How often look-alikes "
-             f"disagree ({tw['r_nn']:.3f}, 95 % CI [{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}]) puts the error no model can avoid "
+             f"disagree ({tw['r_nn']:.3f}" + (f", 95 % CI [{tw['r_nn_ci'][0]:.3f}, {tw['r_nn_ci'][1]:.3f}]" if _ci_ok(tw.get('r_nn_ci')) else "") + ") puts the error no model can avoid "
              f"with these columns between about {tw['lower']:.3f} and {tw['r_nn']:.3f}, against a model error of "
              f"{tw['model_error']:.3f}" + (
                  ": while a leak question is open (see Leakage) this is not read as the data's limit: the columns the estimate "
@@ -1470,7 +1481,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
                      "gain": {"delta": p["gain"], "ci": None, "metric": "accuracy", "simulated": False,
                               "source": "holdout count: the errors between the two, an upper bound if they were one label"}, "evidence": p})
     mr = _more_rows(ctx)
-    if mr and mr.get("ci") and mr["ci"][1] > 0:
+    if mr and mr.get("delta") is not None and _ci_ok(mr.get("ci")) and mr["ci"][1] > 0:  # F-X1: None-safe
         gaps.append({"id": "more_rows", "kind": "more_rows", "title": "More rows of the same kind",
                      "finding": f"Doubling the training rows: {_sv(mr['delta'], ref=max(abs(x) for x in [mr['delta'], *(mr['ci'] or [])]))} "
                                 f"{_cis(mr['ci'], ref=max(abs(x) for x in [mr['delta'], *(mr['ci'] or [])]))} {mr['metric']}{_better(mr['metric'])} ({mr['source']}).",
@@ -1534,7 +1545,7 @@ def _missing(ctx: dict[str, Any], checks: list[dict[str, Any]]) -> dict[str, Any
         x["measured"] = x.get("gain") is not None
     def _gap_key(x: dict[str, Any]) -> tuple[float, float]:
         gn = x.get("gain") or {}
-        if x.get("kind") != "label_review" and gn.get("delta") is not None and not gn.get("simulated") and gn.get("ci") and gn["ci"][0] > 0:
+        if x.get("kind") != "label_review" and gn.get("delta") is not None and not gn.get("simulated") and _ci_ok(gn.get("ci")) and gn["ci"][0] > 0:
             return (0.5, -float(gn["delta"]))  # D5: a gain measured beyond noise and available now, before the simulated upper bounds
         return _rank_key({"delta": gn.get("delta"), "suggested": x.get("suggested")})
 
