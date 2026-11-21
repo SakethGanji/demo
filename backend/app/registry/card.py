@@ -158,6 +158,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
                      + (f"; drawn for y = {cfg['split']['target']} (split {cfg['split']['key']}, {cfg['split']['strategy']})"
                         if cfg.get("kind") in (None, "tabular") and cfg.get("split") else ""),
             "missing_cells_share": (prof.get("missing") or {}).get("share"), "duplicates": (prof.get("duplicates") or {}).get("rows"),
+            "sampling": _sampling(data),
             "warnings": prof.get("warnings") or [],
             "sql": _sql_lineage(prof),
         },
@@ -211,6 +212,21 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "scorecard": _scorecard_section(res),
         "diagnostics": _diagnostics_section(cfg, res),
     }
+
+
+def _sampling(data: dict[str, Any]) -> dict[str, Any] | None:
+    """P11: how the training frame was built: the whole table, or a recorded sample (rows used of the training rows,
+    seed, rates, sample_sha256), and that the holdout was scored on every row."""
+    fr = data.get("frame") or {}
+    if not fr:
+        return None
+    sp = fr.get("sample_spec") or {}
+    bud = (fr.get("plan") or {}).get("budget") or {}
+    return {"sampled": bool(fr.get("sampled")), "text": fr.get("text"), "rows_used": fr.get("rows_used"),
+            "train_rows_total": fr.get("train_rows_total"), "rows_total": fr.get("rows_total"),
+            "sample_sha256": fr.get("sample_sha256"), "method": sp.get("method"), "seed": sp.get("seed"),
+            "rates": sp.get("rates"), "holdout_rows_scored": (fr.get("holdout") or {}).get("rows"),
+            "budget_mb": bud.get("mb"), "budget_rule": bud.get("rule"), "columns_pruned": fr.get("columns_pruned")}
 
 
 def _sql_lineage(prof: dict[str, Any]) -> dict[str, Any] | None:
@@ -444,6 +460,10 @@ def to_markdown(c: dict[str, Any]) -> str:
                   f"limit {q['limit']:,}{', truncated' if q['truncated'] else ''}, data SHA-256 `{q['data_sha']}`"
                   + (f", refreshed from `{q['parent']}`" if q.get("parent") else "") + "):", "", "```sql", q["query"], "```"]
     L += ["", f"Split: {d['split']}.", ""]
+    if (d.get("sampling") or {}).get("sampled"):  # P11 / §11: a recorded stratified sample is shown on the card
+        sm = d["sampling"]
+        L += [f"**Sampled training rows.** {sm['text']}. Sample spec: {sm['method']}, rates {sm['rates']}, "
+              f"sample_sha256 `{sm['sample_sha256']}`; frame budget {sm['budget_mb']} MB ({sm['budget_rule']}).", ""]
     if isinstance(d.get("label_balance"), list):
         L += ["**Label balance**", "", "| Class | Train | Share | Holdout | Share |", "| --- | ---: | ---: | ---: | ---: |"]
         for b in d["label_balance"]:

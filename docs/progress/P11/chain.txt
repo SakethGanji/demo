@@ -1,0 +1,51 @@
+## 1. v1: POST /uploads → check → commit (2,000,000 rows × 27 columns)
+  v1 ds_93ef495e
+## 2. v2 = POST …/edit delete_rows (every 100th __row_id): 1,980,000 rows, __row_id with 20,000 gaps
+  v2 ds_ca8148e8
+## 3. r1 = POST /runs {dataset_id: v2, label: y, frame_budget_mb: 300} → GET /runs/{id}
+   run_fc08985e succeeded 
+   GET /runs/{id}: rows_total 1980000 | rows_used 505723 | sample_sha256 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9
+   frame: sampled True | estimate 939.4 MB 497.5 B/row | budget 300.0 MB: frame_budget_mb = 300 (set on the run)
+   card text: trained on 505,723 of 1,583,990 training rows (stratified sample, seed 42, sample_sha256 aca1932c9fbd…); holdout scored on all 396,010 rows
+   sample_spec: rate 0.319347 rates {'a': '0.319014', 'b': '0.319014', 'c': '1.000000'} | per stratum {'a': (1121871, 357654), 'b': (461345, 147295), 'c': (774, 774)}
+   holdout: n_rows 396010 | scored {'rows': 396010, 'batches': 4, 'batch_rows': 100000, 'seconds': 7.42, 'of': 396010} | in memory (diagnostics) 126747
+   holdout metrics {'accuracy': 0.941784, 'balanced_accuracy': 0.618165, 'mcc': 0.858409}
+## 4. r2 = the same request again → the same sample_sha256
+   run_3634a169 succeeded 
+   GET /runs/{id}: rows_total 1980000 | rows_used 505723 | sample_sha256 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9
+   frame: sampled True | estimate 939.4 MB 497.5 B/row | budget 300.0 MB: frame_budget_mb = 300 (set on the run)
+   card text: trained on 505,723 of 1,583,990 training rows (stratified sample, seed 42, sample_sha256 aca1932c9fbd…); holdout scored on all 396,010 rows
+   sample_spec: rate 0.319347 rates {'a': '0.319014', 'b': '0.319014', 'c': '1.000000'} | per stratum {'a': (1121871, 357654), 'b': (461345, 147295), 'c': (774, 774)}
+   holdout: n_rows 396010 | scored {'rows': 396010, 'batches': 4, 'batch_rows': 100000, 'seconds': 4.72, 'of': 396010} | in memory (diagnostics) 126747
+   holdout metrics {'accuracy': 0.891985, 'balanced_accuracy': 0.54723, 'mcc': 0.735648}
+   r1 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9
+   r2 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9
+## 5. r3 = no frame_budget_mb (the default: 10 % of the worker's RAM) → the whole table, no sample
+   run_45ff3531 succeeded 
+   GET /runs/{id}: rows_total 1980000 | rows_used 1583990 | sample_sha256 None
+   frame: sampled False | estimate 939.4 MB 497.5 B/row | budget 1608.8 MB: 10% of the worker's RAM (15.7 GB, the host's RAM)
+   card text: trained on all 1,583,990 training rows; holdout scored on all 396,010 rows
+   holdout: n_rows 396010 | scored {'rows': 396010, 'batches': 4, 'batch_rows': 100000, 'seconds': 3.7, 'of': 396010} | in memory (diagnostics) 396010
+   holdout metrics {'accuracy': 0.770741, 'balanced_accuracy': 0.404816, 'mcc': 0.402091}
+## 6. independent checks (check.py: DB + lake + run folder, splitmix64 written out again)
+  run_fc08985e
+  version ds_ca8148e8: 1,980,000 rows, __row_id max 1,999,999 (gaps: 20,000)
+  1. holdout_predictions.csv: 396,010 rows; the split's holdout rows with a label: 396,010; same __row_id set: True; result holdout.n_rows 396,010
+  run_inputs: rows_total 1,980,000 rows_used 505,723 frame_mb 240 sample_sha256 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9
+  2. sample recomputed: 505,723 of 1,583,990 training rows, sha256 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9; = result True, = run_inputs True; sample blob 4c5777eaeb70… holds the same ids True
+     blob_refs: [('run', 'run_3634a169', 'sample'), ('run', 'run_fc08985e', 'sample')]
+  run_3634a169
+  version ds_ca8148e8: 1,980,000 rows, __row_id max 1,999,999 (gaps: 20,000)
+  1. holdout_predictions.csv: 396,010 rows; the split's holdout rows with a label: 396,010; same __row_id set: True; result holdout.n_rows 396,010
+  run_inputs: rows_total 1,980,000 rows_used 505,723 frame_mb 240 sample_sha256 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9
+  2. sample recomputed: 505,723 of 1,583,990 training rows, sha256 aca1932c9fbd5e1058c15915fa73a1f4e03d227c873215f5795b02772a7530c9; = result True, = run_inputs True; sample blob 4c5777eaeb70… holds the same ids True
+     blob_refs: [('run', 'run_3634a169', 'sample'), ('run', 'run_fc08985e', 'sample')]
+  run_fc08985e --evaluate
+  3. predictor.evaluate on the whole holdout frame (396,010 rows, one piece): {'accuracy': 0.9417842983763036, 'balanced_accuracy': np.float64(0.6181653972135153), 'mcc': 0.8584087898316924}
+     the run's batched result: {'accuracy': 0.9417842983763036, 'balanced_accuracy': 0.6181653972135153, 'mcc': 0.8584087898316924}; equal: True
+  run_45ff3531 --evaluate
+  version ds_ca8148e8: 1,980,000 rows, __row_id max 1,999,999 (gaps: 20,000)
+  1. holdout_predictions.csv: 396,010 rows; the split's holdout rows with a label: 396,010; same __row_id set: True; result holdout.n_rows 396,010
+  run_inputs: rows_total 1,980,000 rows_used 1,583,990 frame_mb 939 sample_sha256 None
+  3. predictor.evaluate on the whole holdout frame (396,010 rows, one piece): {'accuracy': 0.7707406378626802, 'balanced_accuracy': np.float64(0.40481609934836155), 'mcc': 0.4020907734536628}
+     the run's batched result: {'accuracy': 0.7707406378626802, 'balanced_accuracy': 0.40481609934836155, 'mcc': 0.4020907734536628}; equal: True

@@ -107,6 +107,12 @@ class RunCreate(BaseModel):
     integrity_override_reason: str | None = Field(
         None, description="DL2: train on a version whose last integrity check was a MISMATCH; an admin only (with `by`), audited.")
     by: str | None = Field(None, description="DL2: who starts the run (the integrity override's admin).")
+    frame_budget_mb: float | None = Field(
+        None, gt=0, description="P11 (§5.9): the training frame's memory budget for this run, in MB (default: "
+                                "ENSEMBLE_TRAIN_FRAME_SHARE = 10 % of the worker's RAM). Over it, the training rows are a "
+                                "recorded stratified splitmix64 sample (result.data.frame, sample_sha256); the holdout is "
+                                "still scored on every row.")
+    sample_seed: int | None = Field(None, ge=0, description="P11: the sample's seed (default: the split's seed, 42).")
     conformal: bool | None = Field(
         None, description="F9: conformal recalibration of the quantiles (CQR), AutoGluon's fit(calibrate=...): true "
                           "adds a constant c_τ per level fitted on the validation (or out-of-fold) rows; false never; "
