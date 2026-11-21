@@ -11,10 +11,11 @@ Per column: type and kind, rows, nulls, approximate distinct, and
 They feed search (which columns can hold a query), the grid's column kinds, the diff's column statistics and PSI,
 split options and Smart Intake, so none of those reads the table into pandas.
 
-**The profile job.** `schedule()` computes a table's stats on a background thread (one at a time, on a job DuckDB
-connection with the job memory and spill limits), deduplicated by table content; every commit schedules its new
-tables (`after_commit`), and a read that finds none schedules them. `ensure(wait_s=…)` waits for a small table.
-P22's job queue can take this over as kind `profile`; the entry point is `run(version_id, table)`.
+**The profile job.** `schedule()` queues a `profile` job (resource `duck`) on P22's durable job queue, deduplicated
+by table content (one live job per `table_sha256`); whichever worker leases it runs `run(version_id, table)` on a job
+DuckDB connection with the job memory and spill limits. Every commit schedules its new tables (`after_commit`), and a
+read that finds none schedules them. `ensure(wait_s=…)` waits for a small table (the returned handle polls the job).
+If the queue cannot be written (no `jobs` table), the old in-process thread runs it instead.
 """
 
 from __future__ import annotations
@@ -167,6 +168,7 @@ def _store(st: dict[str, Any]) -> None:
 def run(version_id: str, table: str | None = None) -> dict[str, Any]:
     """The profile job body: compute and store (a no-op when the table's stats exist)."""
     src = source(version_id, table)
+    _cache.pop(src.identity, None)  # the job asks the database, not this process's cache (a long-lived worker)
     have = get(src.identity)
     if have:
         return have
@@ -177,9 +179,60 @@ def run(version_id: str, table: str | None = None) -> dict[str, Any]:
     return st
 
 
-def schedule(version_id: str, table: str | None = None, identity: str | None = None) -> Future:
+class _JobHandle:
+    """What `schedule()` returns for a queued job: `result(timeout)` polls the job, then reads the stored stats."""
+
+    def __init__(self, job_id: str, identity: str) -> None:
+        self.job_id, self.identity = job_id, identity
+
+    def _job(self) -> dict[str, Any] | None:
+        from ..jobs import queue as Q
+
+        return Q.get(_db(), self.job_id)
+
+    def done(self) -> bool:
+        from ..jobs import queue as Q
+
+        j = self._job()
+        return not j or j["status"] in Q.TERMINAL
+
+    def result(self, timeout: float | None = None) -> dict[str, Any] | None:
+        from ..jobs import queue as Q
+
+        t_end = time.monotonic() + (timeout if timeout is not None else 1e9)
+        while True:
+            j = self._job()
+            if not j or j["status"] in Q.TERMINAL:
+                if j and j["status"] == "failed":
+                    raise RuntimeError(j.get("error") or "the profile job failed")
+                return get(self.identity)
+            if time.monotonic() >= t_end:
+                raise TimeoutError(f"profile job {self.job_id} still {j['status']}")
+            time.sleep(0.2)
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """P22: worker side of a `profile` job."""
+    st = run(ctx.payload["version_id"], ctx.payload.get("table"))
+    return {"identity": st.get("table_sha256"), "n_rows": st.get("n_rows"), "seconds": st.get("seconds")}
+
+
+def schedule(version_id: str, table: str | None = None, identity: str | None = None) -> Any:
     """Queue the profile job for a table (once per content, whatever version asks)."""
     ident = identity or source_identity(version_id, table)
+    try:
+        from ..catalog import governance as G
+        from ..jobs import queue as Q
+
+        db = _db()
+        with _lock:  # one live job per table content (across processes a duplicate is a no-op: run() finds the stats)
+            live = Q.active_for(db, "table_stats", ident, "profile")
+            if live is None:
+                live = Q.enqueue(db, "profile", {"version_id": version_id, "table": table}, resource="duck",
+                                 by=G.current_actor() or "system", ref_kind="table_stats", ref_id=ident)
+        return _JobHandle(live["id"], ident)
+    except Exception:  # noqa: BLE001 - no queue (an old database): profile on this process's thread
+        log.exception("could not queue the profile job for %s; running it here", ident[:16])
     with _lock:
         f = _running.get(ident)
         if f is not None and not f.done():
@@ -210,7 +263,16 @@ def source_identity(version_id: str, table: str | None = None) -> str:
 def status(identity: str) -> str:
     with _lock:
         f = _running.get(identity)
-    return "running" if f is not None and not f.done() else "missing"
+    if f is not None and not f.done():
+        return "running"
+    try:
+        from ..jobs import queue as Q
+
+        if Q.active_for(_db(), "table_stats", identity, "profile"):
+            return "running"
+    except Exception:  # noqa: BLE001
+        pass
+    return "missing"
 
 
 def ensure(version_id: str, table: str | None = None, *, wait_s: float = 0.0, n_rows: int | None = None) -> dict[str, Any] | None:

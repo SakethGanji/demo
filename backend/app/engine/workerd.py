@@ -16,6 +16,7 @@ is killed. Handlers by kind (`HANDLERS`), each `fn(ctx) -> result`:
 | review | light | vela/review.py `run_job` | the D4 review loop (async), against the API over HTTP |
 | heavy | duck | engine/pool.py `run_job` | a registry build / batch score function, in this process |
 | agent | api | agent/loop.py `run_job` | a Vela agent turn; only the API process holds `api` slots |
+| profile | duck | lake/stats.py `run_job` | P08's table statistics for one table (`table_stats`) |
 
 The API process always runs an **embedded** worker (`Worker(..., embedded=True)`) with `api` slots for agent turns,
 the janitor and the queue view. With `ENSEMBLE_WORKERD=embedded` (the default, so `make dev` needs nothing else) it
@@ -56,6 +57,7 @@ HANDLERS: dict[str, str] = {
     "review": "app.vela.review:run_job",
     "heavy": "app.engine.pool:run_job",
     "agent": "app.agent.loop:run_job",
+    "profile": "app.lake.stats:run_job",
 }
 # Called by the janitor when a job ran out of attempts (its holder died every time): close what the job drives.
 DEAD_HOOKS: dict[str, str] = {
