@@ -1,0 +1,46 @@
+   versions 26 25 1
+## M1. sync the local lake (the Parquet versions made before the switch) into s3://ensemble-p10
+   {'local_objects': 4, 'copied': 4, 'verified_in_bucket': 4, 'ok': True}
+  API on s3://ensemble-p10 | object_lock True
+## M2. POST /admin/lake/migrate?dry_run=1
+  versions 25 by action {'migrate': 22, 'skip': 2, 'tombstone': 1}
+## M3. the job (S3: every new blob goes to the bucket through put_file; tmp work on local scratch)
+  202 job jb_1b986a8359e2
+  job jb_1b986a8359e2 | {'total': 25, 'done': 25, 'migrated': 23, 'skipped': 2, 'failed': 0} | by status {'migrated': 23, 'skipped': 2} | CSV-era left 2
+   ds_409e9fbd skipped data_changed | data.csv of ds_409e9fbd differs from the hash stored when it was made (17b73c4457b6… then, fe1d13e2c4e1… now): it is not
+   ds_9b392c5d skipped split_changed | A split file of ds_9b392c5d changed outside the app: splits/random-stratified__y-95cb0bfd.json differs from the hash rec
+## M4. undo the two outside changes (DL3 / DL4 flows): restore data.csv, POST …/restore-splits, migrate again
+   restored datasets/ds_409e9fbd/data.csv | matches the stored hash: True
+  restore-splits ['splits/random-stratified__y-95cb0bfd.json'] verify ok True
+  202 job jb_a0129c493a81
+  job jb_a0129c493a81 | {'total': 2, 'done': 2, 'migrated': 2, 'skipped': 0, 'failed': 0} | by status {'migrated': 25} | CSV-era left 0
+   versions 26 0 26
+   blobs by kind frozen_holdout 1 1179
+   blobs by kind legacy_csv 24 18148256
+   blobs by kind legacy_json 73 2208184
+   blobs by kind manifest 26 85109
+   blobs by kind source 1 30108
+   blobs by kind split 24 648107
+   blobs by kind table 25 3555538
+## M5. POST …/verify of migrated versions (their CSV-era terms; legacy blobs re-hashed from the bucket)
+  L1 ds_bdd931d0 ok True | status ok | storage parquet legacy ok None
+  A2 ds_6f66a702 ok True | status ok | storage parquet legacy ok None
+  C1 ds_409e9fbd ok True | status ok | storage parquet legacy ok None
+  T1 ds_9b392c5d ok True | status ok | storage parquet legacy ok None
+## M6. a run re-verify through its legacy blobs, and a new run on a migrated version
+  run run_84314213 ok True | data True | split None
+  run run_d24dc498 succeeded  | read {'kind': 'parquet', 'mode': 'engine_v1', 'table_sha256': '7986c1e6d1ce3d3c4d122fff275319080224d6d46b2e909159997d4d2b5ce370', 'parts': 1, 'parts_differing': []}
+## M7. verify-all twice, then the cleanup of the .migrated folders
+  verify-all True datasets 18 checked 26 failed []
+  verify-all True datasets 18 checked 26 failed []
+  cleanup deleted 25 folders
+  verify-all after cleanup True checked 26
+  gc dry run: candidates 0 | unreferenced in grace 0 | orphans 0 young 0 | integrity 0
+  data.csv files left: 0
+## API log: tracebacks 0, HTTP 500 0
+## M5 / M6 again, after the cleanup, with the printing fixed (stored / now of the legacy blobs, now re-hashed from the bucket only)
+  L1 ds_bdd931d0 ok True | status ok | stored 3fbf18e9c413… now 3fbf18e9c413… | storage parquet data_ok True | legacy blob blobs/3f/3fbf18e… stored == now True
+  A2 ds_6f66a702 ok True | status ok | stored 032991cb0eb9… now 032991cb0eb9… | storage parquet data_ok True | legacy blob blobs/03/032991c… stored == now True
+  C1 ds_409e9fbd ok True | status ok | stored 17b73c4457b6… now 17b73c4457b6… | storage parquet data_ok True | legacy blob blobs/17/17b73c4… stored == now True
+  T1 ds_9b392c5d ok True | status ok | stored e3ec44870311… now e3ec44870311… | storage parquet data_ok True | legacy blob blobs/e3/e3ec448… stored == now True
+  run run_84314213 ok True | data recorded == now True | split this run recorded no split hash (it was made before DL4)

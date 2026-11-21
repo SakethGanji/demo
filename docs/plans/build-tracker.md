@@ -43,7 +43,7 @@
 | P22 | O | done | session_018upNdPj3uWNkfz67KZVANF | b22d64d |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
-| P10b | S | started (MinIO + read cache) | session_018upNdRLNhdMckTGcyQS5SA | |
+| P10b | S | done (S3BlobStore + verified LRU cache + httpfs; chain equal on s3/local; Object Lock tested on MinIO built from source) | session_018upNdRLNhdMckTGcyQS5SA | see report |
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
 | F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
 | X2 | ⟂ | started (migration check, read-only) | session_018upNdNbAs6Mvojf6VJc3XR | |
@@ -75,3 +75,6 @@
   - no `rowid`, no `json_set`, no output alias inside an ORDER BY expression;
   - no catch-and-continue after a failed statement inside one `with db.connect()` (it aborts a Postgres transaction).
 - **P23 → follow-up:** the long 10M writes as jobs with progress (edit commit, Doctor apply, Feature Lab SQL write) were not built in P23. With grants on (`ENSEMBLE_DB_APP_ROLE`), split restore and admin reset need the owner role (they DROP TRIGGER).
+- **P10b → P24:** delete bytes only through `lake.store.delete_blob(db, store, sha, by, reason, bypass_governance=True)`: it removes every S3 version and the cache file, and audits `blob_deleted` / `blob_delete_refused`. Under Object Lock (GOVERNANCE, `ENSEMBLE_S3_LOCK_DAYS` = 30, needs model-risk approval) GC also needs the bypass role. Run `S3BlobStore.abort_stale_uploads()` with GC (MinIO refuses the abort-multipart lifecycle rule).
+- **P10b → all lanes:** never build a path from a key. Use `store.local_copy(key)` for a local file (on S3, the sha-verified cache) and `store.uri(key)` for DuckDB. Don't memoise a cache path without re-checking it (`pages._ensure_cached`).
+- **P10b → deployment:** `ENSEMBLE_BLOB_STORE=s3://bucket/prefix`, `ENSEMBLE_S3_ENDPOINT`; credentials only from the AWS chain. Bucket policy: the app role gets `PutObject` only with `If-None-Match`, and nobody else writes to `blobs/` (Object Lock keeps the original but a newer version can be stacked on it; verify catches that). Upstream MinIO OSS is archived (dl.min.io answers 410), so pick a maintained S3 store. Bundle httpfs (`ENSEMBLE_DUCK_EXTENSION_DIR`) if `ENSEMBLE_S3_READ=httpfs`.

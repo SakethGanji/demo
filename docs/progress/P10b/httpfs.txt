@@ -1,0 +1,7 @@
+  read httpfs | duck extension_directory None | autoinstall false
+  manifest resolved: s3://ensemble-lake/blobs/c9/c95efc626310c168a9d5a0b9fea566b62fa0809c1e62eb87bdf7a92fbd31c12b.parquet
+  GET …/rows ['A0000000', 'A0000001', 'A0000002'] (0.069 s)
+  GET …/rows ['A0000000', 'A0000001', 'A0000002'] (0.054 s)
+  GET …/rows after=150000 ['A0150001', 'A0150002', 'A0150003']
+  diff v1 v3 {'matched': 199798, 'changed': 301, 'added': 150, 'removed': 202}
+  store gets 2 | cache {'hits': 1, 'misses': 1, 'fills': 1}

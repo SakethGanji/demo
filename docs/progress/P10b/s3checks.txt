@@ -1,0 +1,51 @@
+v1 data part: blobs/c9/c95efc626310c168a9d5a0b9fea566b62fa0809c1e62eb87bdf7a92fbd31c12b.parquet
+## 6. delete the cache directory → re-read: it refills and verifies
+  cache: entries 2 bytes 1875382 | {'hits': 58, 'misses': 25, 'fills': 24, 'rehash_on_hit': 2, 'tamper_refetch': 2, 'fill_integrity_errors': 1}
+  rm -rf cache/ → exists: no
+  GET …/rows 200 first accts ['A0000000', 'A0000001']
+  diff v1 v3 {'matched': 199798, 'changed': 301, 'added': 150, 'removed': 202}
+  cache: entries 2 bytes 3134392 | {'hits': 64, 'misses': 27, 'fills': 26, 'rehash_on_hit': 2, 'tamper_refetch': 2, 'fill_integrity_errors': 1}
+  cache files: 2 parquet; blobs/c9/c95efc626310c168a9d5a0b9fea566b62fa0809c1e62eb87bdf7a92fbd31c12b.parquet cached: yes
+## 7a. tamper with the cached copy (a byte flipped; mtime changes) → next read re-hashes, drops it, re-fetches
+  cached copy c95efc626310c168… now hashes to c993ccdb01ad5b58… 
+  GET …/rows 200 first accts ['A0000000', 'A0000001']
+  cache: entries 2 bytes 3134392 | {'hits': 65, 'misses': 28, 'fills': 27, 'rehash_on_hit': 3, 'tamper_refetch': 3, 'fill_integrity_errors': 1}
+  cached copy now: c95efc626310c168… (name c95efc626310c168…)
+## 7b. tamper again and put the old mtime back → the ctime still differs: re-hashed, dropped, re-fetched
+  cached copy c95efc626310c168… now hashes to c993ccdb01ad5b58… | mtime kept
+  GET …/rows 200 first accts ['A0000000', 'A0000001']
+  cache: entries 2 bytes 3134392 | {'hits': 66, 'misses': 29, 'fills': 28, 'rehash_on_hit': 4, 'tamper_refetch': 4, 'fill_integrity_errors': 1}
+  cached copy now: c95efc626310c168…
+## 7c. POST /admin/lake/cache/verify (re-hash every cached file) after a flip that no read has seen yet
+  cached copy c95efc626310c168… now hashes to c993ccdb01ad5b58… 
+  cache/verify: checked 2 dropped ['c95efc626310c168…']
+  GET …/rows 200 first accts ['A0000000', 'A0000001']
+  cached copy now: c95efc626310c168…
+## 8. tamper with the object in the bucket (PUT without If-None-Match: a new version over the locked one)
+  PUT without If-None-Match → HTTP 200 version c19dea55-e531-4142-9410-de96eef5742e | new bytes sha c993ccdb01ad5b58…
+  version c19dea55 latest | no retention | sha c993ccdb01ad5b58…
+  version 189e391c        | GOVERNANCE until 2026-12-21 | sha c95efc626310c168…
+  GET …/verify: ok False | status MISMATCH | problems ['accounts part 0: MISMATCH']
+  verify-all: ok False | failed [('ds_7757bb69', 'MISMATCH: accounts part 0: MISMATCH'), ('ds_7a1e9f63', 'MISMATCH: accounts part 0: MISMATCH'), ('ds_08a681cd', 'MISMATCH: accounts part 0: MISMATCH')]
+  cache emptied → a fill now gets the tampered bytes:
+  GET …/rows 409 first accts {'code': 'blob_integrity', 'message': 'the object store returned bytes for c95efc626310c168a9d5a0b9fea566b62fa0809c1e62eb87bdf7a92fbd31c12b.parquet whose sha256 is c993ccdb01ad5b584fd06fdf69afe95fac5c9241163dc4583b21a08efb137608; they were not cached (verify the version: the object may have been alt
+  cache: entries 0 bytes 0 | {'hits': 98, 'misses': 48, 'fills': 46, 'rehash_on_hit': 4, 'tamper_refetch': 4, 'fill_integrity_errors': 2}
+  the locked original cannot be deleted without the governance bypass:
+    deleting version 189e391c (the original) without x-amz-bypass-governance-retention
+    delete of the locked version refused: An error occurred (InvalidRequest) when calling the DeleteObject operation: Object is WORM protected and canno
+    still there: True
+  undo: delete the tampering version (it has no retention) → the locked original is current again
+    deleted the tampering version c19dea55
+  GET …/verify: ok True | status ok
+  GET …/rows 200 first accts ['A0000000', 'A0000001']
+## 9. concurrent writes of the same sha
+  8 concurrent puts of one sha: keys returned 8 (distinct 1), errors [], object versions 1, stats puts 1 existing 7 raced 0
+  two uploads of one new file (twin.csv: the first 50,000 accounts, never uploaded) committed at the same time:
+  store stats: puts 2 existing 6 raced 0
+  commit 201 ds_f8090302 
+  commit 201 ds_3280171c 
+  store stats: puts 7 existing 9 raced 0
+  ds_f8090302 data part blobs/7e/7e89b480e3ce6b6c0591c28cb02e75a51338fef87a81d3d7a8a1189c52b3ba9b.parquet
+  ds_3280171c data part blobs/7e/7e89b480e3ce6b6c0591c28cb02e75a51338fef87a81d3d7a8a1189c52b3ba9b.parquet
+  version 5830db0c latest | GOVERNANCE until 2026-12-21 | sha 7e89b480e3ce6b6c…
+  cache: entries 4 bytes 2395877 | {'hits': 119, 'misses': 52, 'fills': 50, 'rehash_on_hit': 4, 'tamper_refetch': 4, 'fill_integrity_errors': 2}

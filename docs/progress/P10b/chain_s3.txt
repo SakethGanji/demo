@@ -1,0 +1,21 @@
+## 0. GET /admin/lake/status: the store
+  store s3://ensemble-lake | kind s3 | read cache | object_lock True GOVERNANCE 30.0 | versioning Enabled
+## 1. v1: POST /uploads → check → commit (200,000 rows)
+  v1 ds_7757bb69 (3.23 s)
+  manifest 4919e41116a1… | data bf0751e13b31… | parts 1 | resolved <scratch>/data-s3/cache/blobs/c9/c95efc626310c168a9d5a0b9fea566b62fa0809c1e62eb87bdf7a92fbd31c12b.parquet
+  GET …/rows (preview): 200000 rows | first ['A0000000', 'A0000001', 'A0000002']
+## 2. v2 = next file (POST /uploads parent_version_id=v1 → check → commit {match key acct}) → GET …/diff
+  v2 ds_572ed6ee
+  diff v1 v2 {'a': 200000, 'b': 199950, 'matched': 199800, 'changed': 299, 'added': 150, 'removed': 200, 'matched_by': '__row_id (the same rows of one dataset)'}
+## 3. v3 = POST …/edit on v2 (set 2 cells, delete 2 rows)
+  v3 ds_d2a5630b
+  diff v2 v3 {'a': 199950, 'b': 199948, 'matched': 199948, 'changed': 2, 'added': 0, 'removed': 2, 'matched_by': '__row_id (the same rows of one dataset)'}
+## 4. r1 on v1, r2 on v3 (POST /runs, 20 s) → POST /compare
+  run run_4981668f succeeded  | dataset ds_7757bb69 | holdout {'accuracy': 0.7832, 'roc_auc': 0.7654}
+  run run_ea888553 succeeded  | dataset ds_d2a5630b | holdout {'accuracy': 0.7724, 'roc_auc': 0.7603}
+  compare r1 r2: True | paired on 39,961 of 40,000 rows (holdouts differ) | overlap 39961 | Δ -0.0104
+## 5. verify-all and GC dry run
+  verify-all ok True | datasets 15 | checked 17 | failed []
+  gc dry run: blobs {'live': 53} refs 55 | candidates 0 | orphans 0 young 0 | integrity [] | stale tmp 0
+  store stats {'puts': 53, 'put_bytes': 23866830, 'put_mb_s': 47.4, 'put_existing': 0, 'gets': 105, 'get_bytes': 18138149, 'get_mb_s': 453.0}
+  cache {'hits': 220, 'misses': 34, 'fills': 34, 'fill_bytes': 8720880, 'fill_mb_s': 69.2, 'tamper_refetch': 0, 'evictions': 0}

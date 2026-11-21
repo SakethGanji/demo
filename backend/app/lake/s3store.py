@@ -199,7 +199,9 @@ class S3BlobStore:
         key = blob_key(sha256, ext)
         local = Path(local)
         size = local.stat().st_size
-        if self.conditional == "off" and self._head(key) is not None:
+        # HEAD first when the conditional PUT cannot answer cheaply: no condition support, or a multipart upload (its
+        # 412 only comes at the completion, after every part was sent). The condition still guards a race after it.
+        if (self.conditional == "off" or size > self.multipart_bytes) and self._head(key) is not None:
             self._count("put_existing")
             return self._check_existing(key, sha256, size)
         t0 = time.monotonic()

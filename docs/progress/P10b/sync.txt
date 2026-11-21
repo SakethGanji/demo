@@ -1,0 +1,22 @@
+## 10.1 dry run (nothing copied)
+   {'dry_run': True, 'local_objects': 53, 'copied': 53, 'copied_bytes': 23866830, 'already_in_bucket': 0, 'put_mb_s': None, 'verified_in_bucket': 0, 'ok': False, 'seconds': 0.14} | integrity 0 failed 0 missing 0 mismatch 0
+## 10.2 the sync crashes after 20 puts
+-- simulated crash after 20 puts (os._exit, no cleanup)
+  exit 137
+   sync_s3:progress {"state": "running", "by": "system:sync_s3", "dst": "s3://ensemble-sync2", "total": 53, "done": 0, "started": "2026-11-21T23:15:10Z"}
+## 10.3 re-run: resumes (the 20 already copied are checked, not copied again), then every catalogued sha is re-hashed from the bucket
+   {'dry_run': False, 'local_objects': 53, 'copied': 33, 'copied_bytes': 15181797, 'already_in_bucket': 20, 'put_mb_s': 45.0, 'verified_in_bucket': 53, 'ok': True, 'seconds': 0.72} | integrity 0 failed 0 missing 0 mismatch 0
+## 10.4 re-run with --deep-verify: nothing to copy, every object re-hashed
+   {'dry_run': False, 'local_objects': 53, 'copied': 0, 'copied_bytes': 0, 'already_in_bucket': 53, 'put_mb_s': None, 'verified_in_bucket': 53, 'ok': True, 'seconds': 0.64} | integrity 0 failed 0 missing 0 mismatch 0
+   Ada lake_synced_to_s3 33 1
+   Ada lake_synced_to_s3 0 1
+   Ada lake_synced_to_s3 33 1
+   Ada lake_synced_to_s3 0 1
+## 10.5 the same data dir served from the bucket (ENSEMBLE_BLOB_STORE=s3://ensemble-sync2/), a fresh cache
+  store s3://ensemble-sync2 | object_lock True | versions 17
+  verify-all ok True | datasets 15 | checked 17 | failed []
+  GET …/rows ['A0000000', 'A0000001']
+  diff v1 v3 {'matched': 199798, 'changed': 301, 'added': 150, 'removed': 202}
+  gc dry run: candidates 0 orphans 0 young 0 integrity 0
+  cache: entries 19 bytes 4476786 {'hits': 27, 'misses': 19, 'fills': 19, 'fill_mb_s': 65.2}
+  API log: tracebacks 0, HTTP 500 0
