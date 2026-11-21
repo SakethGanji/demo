@@ -1,0 +1,8 @@
+v1 ds_044bf656 gapped child ds_41ad143e
+POST /api/runs -> 201 (1.6s) {"id": "run_078f82fc", "name": "fx1-al", "dataset_id": "ds_41ad143e", "label": "y", "status": "queued", "created_at": "2
+run run_078f82fc succeeded missing-label train rows None None
+POST /api/runs/run_078f82fc/active-learning -> 202 (0.0s) {"run_id": "run_078f82fc", "schema": "active_learning/1", "status": "queued", "request": {"pool": "missing", "hide_share": 0.9, "budget": 10, "rounds"
+active learning: awaiting_labels error None queue rows []
+queued rows that are blank-label rows of the version: 0 of 0
+queued rows [82, 1672, 87, 1186, 471, 1363, 50, 2095, 45, 2353]
+blank-label rows of the gapped version, features matching: 10 of 10

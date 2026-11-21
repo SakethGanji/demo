@@ -62,3 +62,7 @@
 - **P10 → U lane:** a migrated table in data.csv order still pages by `__row_id` (rows shown in id order); `file_row_number` paging (R5) not built.
 - **All lanes:** a `duck.job()` connection (preserve_insertion_order = false) does not keep `ORDER BY` order into `.to_arrow_table()` / `.fetchnumpy()`. Sort in Python when order matters.
 - **New config (F-X1):** ENSEMBLE_MAX_COLUMNS (2,000), ENSEMBLE_DOCTOR_ROWS (200,000: above it the Doctor and Feature Lab use a recorded splitmix64 sample and SQL writes), ENSEMBLE_DOCTOR_WRITE_MB (1,024).
+- **Long 10M writes should become jobs with progress:** edit commit (≈38 s), Doctor apply (28–103 s), Feature Lab SQL write (≈50 s). Do this in P23 or a follow-up before X5's scale gates.
+- **duck.job() connections don't preserve ORDER BY into arrow/numpy:** sort explicitly wherever row order matters.
+- **Data Doctor label-quality thread:** still in-process (≤200k rows). It belongs on the queue.
+- **vela/missing.py clean-labels:** shape mismatch (622,2) vs (622,1) on a group-split gapped run. It is caught and recorded in doctor_gaps.errors. Fix it in a follow-up.

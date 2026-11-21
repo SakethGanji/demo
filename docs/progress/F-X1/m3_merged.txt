@@ -1,0 +1,2 @@
+run_50778423 doctor 200
+overfit clear | accuracy on the training rows 0.8164 vs the holdout 0.7970: gap 0.0194, z = 0.8 (SE 0.0249). | source fit gap

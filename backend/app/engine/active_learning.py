@@ -259,7 +259,7 @@ def _missing_pool(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
     drop = [c for c in cfg.get("drop_columns") or [] if c in df.columns and c != cfg["label"]]
     pool = df.loc[sel].drop(columns=drop)
     if w.GROUP_FOLD_COLUMN in train.columns:
-        pool[w.GROUP_FOLD_COLUMN] = fold[pool.index.to_numpy()]
+        pool[w.GROUP_FOLD_COLUMN] = fold[np.flatnonzero(sel)]  # F-X1: by position (pool.index is __row_id, gapped)
     return pool[[c for c in train.columns]]
 
 
