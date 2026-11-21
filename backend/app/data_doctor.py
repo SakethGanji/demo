@@ -1139,18 +1139,19 @@ _label_jobs: dict[str, threading.Thread] = {}
 _label_lock = threading.Lock()
 
 
-def label_key(target: str, csv: Path) -> str:
-    st = csv.stat()
-    return f"{target}|{st.st_size}|{int(st.st_mtime)}"
+def label_key(target: str, version_id: str) -> str:
+    """P08: the label job is keyed on the data's identity, not on a file's stat: a Parquet version's table_sha256 (it
+    has no data.csv), else the CSV-era version's stored sha256 (else data.csv's size and mtime, for an unhashed one)."""
+    return f"{target}|{frames.data_identity(version_id)}"
 
 
-def label_state(dirpath: Path, target: str | None, csv: Path) -> dict[str, Any] | None:
+def label_state(dirpath: Path, target: str | None, version_id: str) -> dict[str, Any] | None:
     if not target:
         return None
     p = dirpath / "data_doctor_labels.json"
     if p.exists():
         s = json.loads(p.read_text())
-        if s.get("key") == label_key(target, csv):
+        if s.get("key") == label_key(target, version_id):
             return s
     key = f"{dirpath}|{target}"
     with _label_lock:
@@ -1160,8 +1161,9 @@ def label_state(dirpath: Path, target: str | None, csv: Path) -> dict[str, Any] 
     return None
 
 
-def start_labels(dirpath: Path, target: str, csv: Path, roles: list[dict[str, Any]]) -> dict[str, Any]:
-    """Start the quick out-of-fold model + cleanlab in a thread (once per dataset and target)."""
+def start_labels(dirpath: Path, target: str, version_id: str, roles: list[dict[str, Any]]) -> dict[str, Any]:
+    """Start the quick out-of-fold model + cleanlab in a thread (once per dataset and target). The rows are read
+    through frames (typed, Parquet or the CSV store); nothing here opens a data file by path."""
     key = f"{dirpath}|{target}"
     with _label_lock:
         t = _label_jobs.get(key)
@@ -1169,14 +1171,16 @@ def start_labels(dirpath: Path, target: str, csv: Path, roles: list[dict[str, An
             return {"status": "running"}
 
         def run():
-            k = label_key(target, csv)
             t0 = time.perf_counter()
             try:
-                out = label_issues(frames.read_csv_path(csv), target, roles, all_rows=True)
+                k = label_key(target, version_id)
+                out = label_issues(frames.read_version(version_id).reset_index(drop=True), target, roles, all_rows=True)
             except Exception as e:  # noqa: BLE001
                 log.exception("label quality failed")
+                k = f"{target}|failed"
                 out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
             out.update(key=k, seconds=round(time.perf_counter() - t0, 1))
+            dirpath.mkdir(parents=True, exist_ok=True)
             (dirpath / "data_doctor_labels.json").write_text(json.dumps(out, default=_jsonable))
 
         th = threading.Thread(target=run, name=f"data-doctor-labels-{dirpath.name}", daemon=True)

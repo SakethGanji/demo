@@ -9,7 +9,21 @@ import json
 from pathlib import Path
 from typing import Any
 
+# P08 (§7 risk 2): a dataset's versions are listed by root_id (no recursion, so no depth cap on a version chain); the
+# CTE seeds every version of the root at the depth of its version number and walks only from there: derived versions in
+# other roots, runs, branches and registered versions. `depth < 64` bounds those cross-object walks only.
 TREE = """
+WITH RECURSIVE down(kind, id, depth) AS (
+    SELECT 'dataset', id, COALESCE(version_no, 1) - 1 FROM datasets WHERE id = ? OR root_id = ?
+    UNION
+    SELECT e.dst_kind, e.dst_id, d.depth + 1 FROM lineage_edges e JOIN down d ON e.src_kind = d.kind AND e.src_id = d.id
+    WHERE d.depth < 64 + (SELECT count(*) FROM datasets WHERE id = ? OR root_id = ?)
+      AND NOT (e.dst_kind = 'dataset' AND e.dst_id IN (SELECT id FROM datasets WHERE id = ? OR root_id = ?))
+)
+SELECT kind, id, MIN(depth) AS depth FROM down GROUP BY kind, id
+"""
+
+TREE_NODE = """
 WITH RECURSIVE down(kind, id, depth) AS (
     SELECT ?, ?, 0
     UNION
@@ -19,12 +33,14 @@ WITH RECURSIVE down(kind, id, depth) AS (
 SELECT kind, id, MIN(depth) AS depth FROM down GROUP BY kind, id
 """
 
+# up to the first dataset (runs → their dataset, branches → their run, registered versions → their run); a dataset's
+# root is then its root_id column, never a walk up its version chain
 UP = """
 WITH RECURSIVE up(kind, id, depth) AS (
     SELECT ?, ?, 0
     UNION
     SELECT e.src_kind, e.src_id, u.depth + 1 FROM lineage_edges e JOIN up u ON e.dst_kind = u.kind AND e.dst_id = u.id
-    WHERE u.depth < 64 AND e.relation IN ('derived_from', 'trained_on', 'branched_from', 'built_from')
+    WHERE u.depth < 64 AND u.kind <> 'dataset' AND e.relation IN ('trained_on', 'branched_from', 'built_from')
 )
 SELECT kind, id, MAX(depth) AS depth FROM up GROUP BY kind, id ORDER BY depth DESC
 """
@@ -35,10 +51,28 @@ def _j(v: str | None) -> Any:
 
 
 def root_of(con, kind: str, id_: str) -> tuple[str, str]:
-    """The top dataset upstream of a node (the project's root)."""
-    rows = con.execute(UP, (kind, id_)).fetchall()
-    ds = [r for r in rows if r["kind"] == "dataset"]
-    return ("dataset", ds[0]["id"]) if ds else (kind, id_)
+    """The top dataset upstream of a node (the project's root): the node's dataset, then its root_id; a root derived
+    from another dataset's version (a cross-root derived_from edge) continues to that dataset's root."""
+    if kind == "dataset":
+        ds = id_
+    else:
+        rows = con.execute(UP, (kind, id_)).fetchall()
+        hit = [r for r in rows if r["kind"] == "dataset"]
+        if not hit:
+            return (kind, id_)
+        ds = hit[0]["id"]
+    seen: set[str] = set()
+    while ds not in seen:
+        seen.add(ds)
+        r = con.execute("SELECT id, root_id FROM datasets WHERE id = ?", (ds,)).fetchone()
+        root = (r["root_id"] or r["id"]) if r else ds
+        up = con.execute("SELECT src_id FROM lineage_edges WHERE dst_kind = 'dataset' AND dst_id = ? AND src_kind = 'dataset'"
+                         " AND relation = 'derived_from' AND src_id NOT IN (SELECT id FROM datasets WHERE id = ? OR root_id = ?)"
+                         " LIMIT 1", (root, root, root)).fetchone()
+        if not up:
+            return ("dataset", root)
+        ds = up[0]
+    return ("dataset", ds)
 
 
 def review_journal(run: dict[str, Any] | None, review_id: str) -> dict[str, Any] | None:
@@ -70,7 +104,7 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
             roots = [root[1]] if root[0] == "dataset" else []
         nodes = []
         for r0 in roots or ([] if kind == "project" else [root[1]]):
-            nodes += con.execute(TREE, ("dataset", r0) if roots else root).fetchall()
+            nodes += (con.execute(TREE, (r0,) * 6) if roots else con.execute(TREE_NODE, root)).fetchall()
         keys = {(n["kind"], n["id"]) for n in nodes}
         depth = {(n["kind"], n["id"]): n["depth"] for n in nodes}
         ids = {k: [i for (kk, i) in keys if kk == k] for k in ("dataset", "run", "version")}

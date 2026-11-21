@@ -205,6 +205,45 @@ def _descendants(con, dataset_id: str) -> list[str]:
     return [r[0] for r in rows if r[0] != dataset_id]
 
 
+_LIN_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+_ROW_ARRAYS = (b'"root_rows":', b'"parent_rows":')
+
+
+def lineage_meta(store, dataset_id: str) -> dict[str, Any]:
+    """P08: a version's lineage.json without its row maps (`root_rows` / `parent_rows`, one int per row: 178 MB at 10M
+    rows) — what history and diff show (kind, parent, renamed, edit_log, reason, checks …). The arrays are cut out of
+    the bytes before parsing; the result is cached by the file's size and mtime."""
+    p = store.dir(dataset_id) / "lineage.json"
+    try:
+        st = p.stat()
+    except OSError:
+        return {}
+    k = (st.st_size, st.st_mtime_ns)
+    hit = _LIN_CACHE.get(str(p))
+    if hit and hit[0] == k:
+        return hit[1]
+    data = p.read_bytes()
+    for key in _ROW_ARRAYS:
+        i = data.find(key)
+        if i < 0:
+            continue
+        j = i + len(key)
+        while j < len(data) and data[j:j + 1] in b" \t\r\n":
+            j += 1
+        if data[j:j + 1] == b"[":
+            e = data.find(b"]", j)
+            if e > 0:
+                data = data[:j] + b"null" + data[e + 1:]
+    try:
+        out = json.loads(data)
+    except ValueError:
+        out = {}
+    if len(_LIN_CACHE) > 2048:
+        _LIN_CACHE.clear()
+    _LIN_CACHE[str(p)] = (k, out)
+    return out
+
+
 # -- read ---------------------------------------------------------------------------------------------------------------
 
 def history(app, dataset_id: str) -> dict[str, Any]:
@@ -230,7 +269,7 @@ def history(app, dataset_id: str) -> dict[str, Any]:
     default, how = effective_default(rows, c)
     for r in rows:
         e = edges.get(r["id"]) or {}
-        lin = store.lineage(r["id"]) or {}
+        lin = lineage_meta(store, r["id"])  # P08: never the row maps
         r["created_by"] = r["created_by"] or e.get("actor") or ("system" if r["source"] == "sample" else None)
         r["changes"] = {k: lin.get(k) for k in ("matched_by", "matched", "changed", "added", "removed", "rows_before", "rows_after",
                                                 "relabelled", "dropped", "synthetic") if lin.get(k) is not None}
@@ -263,37 +302,13 @@ def _retention_days() -> float:
     return config.retired_data_retention_days()
 
 
-def _pairs(app, a: str, b: str) -> tuple[tuple[np.ndarray, np.ndarray] | None, str, str | None]:
-    """The same original rows in a and b: b's row map onto its parent a (or the reverse), else shared root rows, else None."""
-    from .compare import root_info
-
-    store = app.state.datasets
-    la, lb = store.lineage(a) or {}, store.lineage(b) or {}
-    for x, y, lin, flip in ((a, b, lb, False), (b, a, la, True)):
-        pr = lin.get("parent_rows")
-        if lin.get("parent") == x and pr:
-            pr = np.asarray(pr, dtype=int)
-            iy = np.flatnonzero(pr >= 0)
-            ix = pr[iy]
-            key = lin.get("row_key")
-            how = f"{y}'s row map onto its parent ({lin.get('matched_by') or 'upload'})"
-            return ((iy, ix) if flip else (ix, iy)), how, key
-    ra, ma, _ = root_info(app, a)
-    rb, mb, _ = root_info(app, b)
-    if ra == rb and ma is not None and mb is not None:
-        pos = {int(r): i for i, r in enumerate(ma) if r >= 0}
-        ia, ib = [], []
-        for j, r in enumerate(mb):
-            i = pos.get(int(r)) if r >= 0 else None
-            if i is not None:
-                ia.append(i)
-                ib.append(j)
-        return (np.asarray(ia, dtype=int), np.asarray(ib, dtype=int)), f"the same original rows of {ra}", None
-    return None, "exact row hash", None
-
-
-def diff(app, a: str, b: str) -> dict[str, Any]:
-    from .. import dataset_versions as DV
+def diff(app, a: str, b: str, key: list[str] | None = None, wait_s: float = 0.0) -> dict[str, Any]:
+    """P08 (§5.4, R6): the two-pass DuckDB diff (lake/diff.py), cached by (a sha, b sha, key). Same root: on
+    `__row_id`; `key` (a confirmed business key) for two roots or CSV vs Parquet; else a multiset row-hash diff
+    (added / removed only). The DL1 response shape is kept; `tables`, `samples`, `changed_by_column` and
+    `schema.dtype_changes` are new. DL3: an edit of a adds its operations (`edit`) and compares renamed columns under
+    their old names."""
+    from ..lake import diff as LD
 
     db, store = app.state.db, app.state.datasets
     recs = {}
@@ -304,19 +319,23 @@ def diff(app, a: str, b: str) -> dict[str, Any]:
         if rec.get("state") == DELETED:
             raise DsError(410, f"{x} was deleted: its rows are gone (the tombstone and lineage are kept).")
         recs[x] = rec
-    fa, fb = frames.read_version(a), frames.read_version(b)
-    sa, sb = recs[a].get("sha256"), recs[b].get("sha256")
-    if sa and sa == sb and len(fa) == len(fb):  # DL2 (B5): the same file: every row is itself
-        pairs, how, key = (np.arange(len(fa)), np.arange(len(fb))), "identical files (the same sha256)", None
-    else:
-        pairs, how, key = _pairs(app, a, b)
-    lb = store.lineage(b) or {}
+    lb = lineage_meta(store, b)  # P08: without the row maps
     ren = (lb.get("renamed") or {}) if lb.get("kind") == "edit" and lb.get("parent") == a else {}
-    if ren:  # DL3: a column renamed by an edit of a is compared under its old name (its cells, not "removed + added")
-        fb = fb.rename(columns={v: k for k, v in ren.items()})
-    out = DV.diff(fa, fb, pairs, how, key)
+    tgt = recs[a]["target"]
+    try:
+        out = LD.compute(db, store, a, b, key=key or None, renamed=ren, target=tgt)
+        out = LD.with_columns(out, wait_s=wait_s)
+    except LD.DiffError as e:
+        raise DsError(e.status, e.payload()) from e
+    with db.connect() as con:
+        same_root = root_of(con, a) == root_of(con, b)
+    out.setdefault("checks", [])
+    out["a"] = {"id": a, "name": recs[a]["name"], "rows": out["rows"]["a"], "target": tgt, "sha256": recs[a].get("sha256"),
+                "table": out.get("a_table"), "table_sha256": out.get("a_sha256")}
+    out["b"] = {"id": b, "name": recs[b]["name"], "rows": out["rows"]["b"], "target": recs[b]["target"], "sha256": recs[b].get("sha256"),
+                "table": out.get("b_table"), "table_sha256": out.get("b_sha256")}
+    out["same_dataset"] = same_root
     if ren:
-        out["schema"]["renamed"] = [{"from": k, "to": v} for k, v in ren.items()]
         for c in out["columns"]:
             if c.get("column") in ren:
                 c["column"] = f"{c['column']} → {ren[c['column']]}"
@@ -324,13 +343,6 @@ def diff(app, a: str, b: str) -> dict[str, Any]:
             for c in e["cells"]:
                 if c["column"] in ren:
                     c["column"] = f"{c['column']} → {ren[c['column']]}"
-    with db.connect() as con:
-        same_root = root_of(con, a) == root_of(con, b)
-    tgt = recs[a]["target"]
-    out["a"] = {"id": a, "name": recs[a]["name"], "rows": len(fa), "target": tgt, "sha256": recs[a].get("sha256")}
-    out["b"] = {"id": b, "name": recs[b]["name"], "rows": len(fb), "target": recs[b]["target"], "sha256": recs[b].get("sha256")}
-    out["same_dataset"] = same_root
-    out["checks"] = DV.contract_checks(fa, fb, tgt)["warnings"]
     if lb.get("kind") == "edit" and lb.get("parent") == a:  # DL3: an edit of a: the operations, their cells old → new
         out["edit"] = {"by": lb.get("by"), "reason": lb.get("reason"), "ops": lb.get("edit_log") or [], "renamed": ren}
     return json.loads(json.dumps(out, default=lambda v: v.item() if hasattr(v, "item") else str(v)))

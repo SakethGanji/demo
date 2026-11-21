@@ -468,6 +468,10 @@ class VersionWriter:
             for attempt in range(4):
                 out = self._try_commit(make_default=make_default, target=target, kind=kind, note=note, regone_ok=attempt == 0)
                 if out is not None:
+                    if not out.get("deduped"):  # P08: the profile job for the tables this commit wrote (background)
+                        from . import stats
+
+                        stats.after_commit(out["version_id"])
                     return out
             raise LakeError(409, "commit_contended", "Other versions of this dataset kept being committed; try again.")
         finally:

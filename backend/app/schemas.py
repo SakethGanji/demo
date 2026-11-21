@@ -43,3 +43,5 @@ class Dataset(DatasetSummary):
 
 class DatasetList(BaseModel):
     datasets: list[DatasetSummary]
+    next_after: str | None = None  # P08: GET /datasets?limit= pages by keyset
+    total: int | None = None

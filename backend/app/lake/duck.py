@@ -22,9 +22,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
+import warnings
+
 import duckdb
 
 from .. import config
+
+# DuckDB 2: an Arrow result of execute() is one extra copy of a page (≤ 500 rows); the advice to use con.sql() is noise
+warnings.filterwarnings("ignore", message="Arrow output on a DB-API result", category=UserWarning)
 
 
 class DuckError(Exception):
@@ -68,7 +73,7 @@ def configure(con: duckdb.DuckDBPyConnection, *, mem_mb: int, threads: int, spil
     for s in (f"SET memory_limit='{int(mem_mb)}MB'", f"SET threads={int(threads)}", "SET preserve_insertion_order=false",
               f"SET temp_directory='{sd}'", f"SET max_temp_directory_size='{float(spill_gb):g}GB'",
               "SET autoinstall_known_extensions=false", "SET autoload_known_extensions=false",
-              "SET enable_object_cache=true"):
+              "SET enable_object_cache=true", "SET enable_progress_bar=false"):
         con.execute(s)
 
 
@@ -117,8 +122,9 @@ class Interactive:
         self.stats = {"queries": 0, "timeouts": 0, "busy": 0}
 
     def query(self, sql: str, params: list[Any] | None = None, *, timeout_s: float | None = None,
-              fetch: Literal["all", "arrow", "df", "one"] = "all") -> Any:
-        """Run one read query within the limits. Raises DuckBusy (no slot in time) or DuckTimeout (interrupted)."""
+              fetch: Literal["all", "arrow", "df", "one"] = "all", bind: dict[str, Any] | None = None) -> Any:
+        """Run one read query within the limits. Raises DuckBusy (no slot in time) or DuckTimeout (interrupted).
+        `bind` (P08): {name: Arrow table} registered on this query's cursor only (a CSV-era version's rows)."""
         t = timeout_s or self.timeout_s
         start = time.monotonic()
         if not self.sem.acquire(timeout=t):
@@ -143,9 +149,11 @@ class Interactive:
             timer.daemon = True
             timer.start()
             try:
+                for name, obj in (bind or {}).items():
+                    cur.register(name, obj)
                 res = cur.execute(sql, params or [])
                 if fetch == "arrow":
-                    return res.fetch_arrow_table()
+                    return res.to_arrow_table()
                 if fetch == "df":
                     return res.df()
                 if fetch == "one":
