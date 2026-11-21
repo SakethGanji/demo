@@ -11,7 +11,8 @@ import { DataReport } from './DataReport'
 import { FeatureLab } from './FeatureLab'
 import { SqlLineageLine, SqlSource } from './SqlSource'
 import { VersionStrip } from './VersionStrip'
-import { data as dsApi } from '@/shared/api/catalog'
+import { data as dsApi, type DsHistory, type DsMatchCandidate } from '@/shared/api/catalog'
+import { readActor, saveActor, UploadVersion } from '../models/data/DataView'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
 const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip', 'decision']  // G4: protected attributes, surname and zip are never model inputs; G7: nor the approve/decline decision
@@ -108,9 +109,19 @@ function BuildLive({ go }: { go: (r: string) => void }) {
   const detail = useFetch(dsId ? () => api.datasets.get(dsId) : null, [dsId])
   const sqlDs = detail.data?.id === dsId && (detail.data?.profile.lineage as { source?: string } | undefined)?.source === 'sql' ? detail.data : null
 
-  const upload = async (f: File) => {
-    setBusy('Uploading and profiling…'); setErr('')
+  // DL4 (#11): a CSV that looks like a dataset already here is offered as its next version first (one choice)
+  const [match, setMatch] = useState<{ file: File; m: DsMatchCandidate } | null>(null)
+  const create = async (f: File) => {
+    setBusy('Uploading and profiling…'); setErr(''); setMatch(null)
     try { const d = await api.datasets.upload(f); list.reload(); setDs(d.id) } catch (e) { setErr((e as Error).message) } finally { setBusy('') }
+  }
+  const upload = async (f: File) => {
+    setBusy('Reading the file…'); setErr(''); setMatch(null)
+    let m: DsMatchCandidate | null = null
+    try { m = (await dsApi.match(f)).match } catch { m = null }  // no match check: plain upload, as before
+    setBusy('')
+    if (m) setMatch({ file: f, m })
+    else await create(f)
   }
   const open = async (s: IntakeSuggestion) => {
     if (!dsId) return
@@ -132,6 +143,8 @@ function BuildLive({ go }: { go: (r: string) => void }) {
       <BuildHead go={go} />
       {dsId && fixed?.id === dsId && <p className="helper dr-made" role="status" data-testid="dr-made">✓ {fixed.msg}</p>}
       {dsId && <DataReport dsId={dsId} onVersion={(id, msg) => { setFixed({ id, msg }); list.reload(); setDs(id) }} />}
+      {match && <MatchPrompt file={match.file} m={match.m} onNew={() => create(match.file)} onCancel={() => setMatch(null)}
+        onDone={(vid, text) => { setMatch(null); setFixed({ id: vid, msg: text }); list.reload(); setDs(vid) }} />}
       <div className="grid build-top">
         <div className="card">
           <div className="card-head"><h3 className="card-title">1 · Your table</h3><Segmented options={['CSV file', 'SQL query']} value={from} onChange={setFrom} /></div>
@@ -227,6 +240,40 @@ function Suggestions({ intake, onOpen, busy }: { intake: Intake; onOpen: (s: Int
           </button>
         ))}
       </div>}
+    </div>
+  )
+}
+
+/** DL4 (#11): "this file looks like <dataset>": one primary choice, add it as the next version (the same preview, reason
+ *  and rules as Data → Upload a new version), or create a new dataset. */
+function MatchPrompt({ file, m, onNew, onDone, onCancel }: { file: File; m: DsMatchCandidate; onNew: () => void; onDone: (vid: string, text: string) => void; onCancel: () => void }) {
+  const [adding, setAdding] = useState(false)
+  const [h, setH] = useState<DsHistory | null>(null)
+  const [by, setByState] = useState(readActor)
+  const [err, setErr] = useState('')
+  const [done, setDone] = useState('')
+  const add = async () => {
+    setErr(''); setAdding(true)
+    try { setH(await dsApi.history(m.root_id)) } catch (e) { setErr((e as Error).message); setAdding(false) }
+  }
+  return (
+    <div className="card build-match" data-testid="build-match">
+      <div className="card-body stack" style={{ gap: 8 }}>
+        <div><b>{file.name}</b> looks like <b data-testid="match-name">{m.name}</b> <span className="mono muted">v{m.v} (its default) · {m.rows.toLocaleString()} rows</span></div>
+        <span className="helper" data-testid="match-why">{m.reasons.join(' · ')}{m.columns_added.length ? ` · new: ${m.columns_added.join(', ')}` : ''}{m.columns_removed.length ? ` · missing: ${m.columns_removed.join(', ')}` : ''}</span>
+        {!adding && <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn primary" onClick={add} data-testid="match-add">Add as new version of {m.name} (v{m.next_v})</button>
+          <button className="btn" onClick={onNew} data-testid="match-new">Create a new dataset</button>
+          <button className="btn ghost" onClick={onCancel}>Cancel</button>
+        </div>}
+        {adding && !by && <label className="row" style={{ gap: 6 }}><span className="micro-label">acting as</span>
+          <input className="input" style={{ width: 140 }} maxLength={80} placeholder="your name" onBlur={(e) => { const v = e.target.value.trim(); if (v) { saveActor(v); setByState(v) } }} data-testid="match-by" />
+          <span className="helper">every version records who made it</span></label>}
+        {adding && h && by && <UploadVersion d={h} by={by} initialFile={file} onCancel={() => { setAdding(false); setH(null) }}
+          onDone={(vid, text) => { setDone(text); onDone(vid, text) }} onErr={(e) => setErr((e as Error).message)} />}
+        {done && <p className="helper" role="status">✓ {done}</p>}
+        {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
+      </div>
     </div>
   )
 }

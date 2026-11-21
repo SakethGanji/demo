@@ -100,8 +100,12 @@ export type DsEditPreview = DsEditSummary & { preview: true; v: number; parent: 
 export type DsUsage = { dataset_id: string; datasets: string[]; runs: { id: string; name: string; status: string; dataset_id: string; label: string; created_at: string; primary_metric: string | null; primary_score: number | null }[]; versions: { id: string; model_name: string; version: number; run_id: string; status: string; stage: string; approval: string; dataset_id: string; retired: boolean; retired_at: string | null }[]; champions: ChampionRequest[]; blocks_archive: string[]; blocks_archive_or_delete: string[] }
 export type DsUploadSummary = { matched_by: string; matched: number; changed: number; added: number; removed: number; reason?: string
   checks: { warnings: DsWarning[]; columns_added: string[]; columns_removed: string[]; type_changes: { column: string; kind_from: string; kind_to: string; from: string; to: string }[]; rows_before: number; rows_after: number } }
-export type DsUploadPreview = DsUploadSummary & { preview: true; v: number; parent: string; filename: string; rows: number; n_cols: number; sha256: string; would_be_default: boolean; note: string }
-export type DsVerify = { root_id: string; ok: boolean; results: { id: string; v: number; ok: boolean | null; status: string; stored: string | null; now?: string | null; remedy?: string }[] }
+export type DsUploadPreview = DsUploadSummary & { preview: true; v: number; parent: string; filename: string; rows: number; n_cols: number; sha256: string; would_be_default: boolean; note: string; kept_as_text?: string[] }
+/** DL4 (#11): the live dataset an uploaded CSV most looks like (POST /datasets/match writes nothing) */
+export type DsMatchCandidate = { root_id: string; name: string; version_id: string; v: number; next_v: number; target: string | null; rows: number; score: number
+  columns_in_common: number; columns_added: string[]; columns_removed: string[]; same_target: boolean; name_similarity: number; sample: boolean; reasons: string[] }
+export type DsMatch = { filename: string; rows: number; columns: string[]; match: DsMatchCandidate | null; others: DsMatchCandidate[] }
+export type DsVerify = { root_id: string; ok: boolean; results: { id: string; v: number; ok: boolean | null; status: string; stored: string | null; now?: string | null; remedy?: string; splits?: { file: string; status: string }[] }[] }
 
 export const data = {
   search: (f: { q?: string; project?: string; tag?: string; owner?: string; op?: string; since?: string; until?: string; state?: string }) => {
@@ -125,6 +129,10 @@ export const data = {
     if (rowKey !== undefined) form.append('row_key', rowKey)
     return request<DsUploadPreview>(`/datasets/${e(id)}/versions`, { method: 'POST', body: form, timeoutMs: 300_000 })
   },
+  /** DL4: does this file look like a dataset already here? Nothing is written. */
+  match: (file: File) => { const form = new FormData(); form.append('file', file); return request<DsMatch>('/datasets/match', { method: 'POST', body: form, timeoutMs: 120_000 }) },
+  /** DL4 (M-d): write back split files changed outside the app, from the copy recorded when they were drawn */
+  restoreSplits: (id: string, by: string, reason: string) => json<{ restored: string[]; verify: DsVerify }>(`/datasets/${e(id)}/restore-splits`, 'POST', { by, reason }),
   diff: (a: string, b: string) => request<DsDiff>(`/datasets/${e(a)}/diff/${e(b)}`, { timeoutMs: 120_000 }),
   usage: (id: string) => request<DsUsage>(`/datasets/${e(id)}/usage`),
   setDefault: (id: string, version_id: string, by: string, reason = '') => json<{ default_version_id: string; v: number; rollback: boolean; previous: string | null; note: string }>(`/datasets/${e(id)}/default`, 'POST', { version_id, by, reason }),

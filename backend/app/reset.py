@@ -24,7 +24,8 @@ from .db import Database
 
 #: deleted by a reset (the audit_log, admin_requests and catalog_meta are kept)
 TABLES = ("run_events", "runs", "batch_jobs", "model_versions", "registered_models", "datasets",
-          "lineage_edges", "champions", "dataset_cards", "dataset_requests", "version_requests", "annotations", "projects")
+          "lineage_edges", "champions", "dataset_cards", "dataset_requests", "version_requests", "annotations", "projects",
+          "split_files")
 FOLDERS = ("runs", "registry", "mlflow", "autopilot", "agent", "datasets")
 
 
@@ -51,6 +52,21 @@ def live_governance(con) -> list[str]:
     return out
 
 
+def user_data(con) -> list[str]:
+    """DL4: what a reset would wipe that a person made: uploaded / derived datasets and runs. Any of it needs four eyes."""
+    out = []
+    try:
+        n_ds = int(con.execute("SELECT COUNT(*) FROM datasets WHERE COALESCE(source, '') != 'sample' OR parent_id IS NOT NULL").fetchone()[0])
+        n_runs = int(con.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
+    except Exception:  # noqa: BLE001 - no tables yet
+        return out
+    if n_ds:
+        out.append(f"{n_ds} user dataset version(s) (uploads, edits and other versions) would be deleted")
+    if n_runs:
+        out.append(f"{n_runs} run(s) would be deleted")
+    return out
+
+
 def check(db: Database, by: str | None, request_id: str | None = None) -> dict[str, Any] | None:
     """Raise ResetRefused unless this reset may run; returns the four-eyes approval it uses (or None)."""
     from .catalog import governance as G
@@ -63,11 +79,11 @@ def check(db: Database, by: str | None, request_id: str | None = None) -> dict[s
     if not G.is_admin(by):
         raise ResetRefused(403, f"Only an admin (ENSEMBLE_ADMINS) may reset; {by} is not one.")
     with db.connect() as con:
-        live = live_governance(con)
+        live = live_governance(con) + user_data(con)
         if not live:
             return None
         if not request_id:
-            raise ResetRefused(409, {"message": "Can't reset: live models or champions would be deleted. Retire them, or get a "
+            raise ResetRefused(409, {"message": "Can't reset: user data, live models or champions would be deleted. Get a "
                                                 "four-eyes approval (POST /api/admin/reset-requests {by, reason}; someone else "
                                                 "approves) and send its request_id.", "blockers": live})
         r = con.execute("SELECT * FROM admin_requests WHERE id = ? AND action = 'reset'", (request_id,)).fetchone()

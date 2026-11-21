@@ -11,7 +11,6 @@ dropped columns (ID columns by default). The holdout is scored at the end. `fit_
 from __future__ import annotations
 
 import hashlib
-import io
 import json
 import logging
 import os
@@ -50,9 +49,12 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     fit(tuning_data=...)) and rows excluded by the split (fold -2) are in no frame. Group splits add their
     group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...)."""
     raw = Path(cfg["csv_path"]).read_bytes()  # DL3 (M1): hash exactly the bytes this fit reads
-    df = pd.read_csv(io.BytesIO(raw))
+    from .. import frame_io as FIO
+
+    df = FIO.read(raw, FIO.load(Path(cfg["csv_path"]).parent))  # DL4 (m-e): with the version's schema (text stays text)
     data_sha256 = hashlib.sha256(raw).hexdigest()
-    splits = json.loads(Path(cfg["splits_path"]).read_text())
+    split_raw = Path(cfg["splits_path"]).read_bytes()  # DL4 (M-d): hash exactly the split this fit uses
+    splits = json.loads(split_raw)
     label = cfg["label"]
     fold = np.asarray(splits["fold"], dtype=int)
     is_holdout = holdout_mask(splits, len(df))
@@ -71,7 +73,7 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "dropped_missing_label_train": int((~is_holdout & ~has_label).sum()),
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
         "dropped_columns": drop, "features": [c for c in train.columns if c != label], "label": label,
-        "data_sha256": data_sha256,
+        "data_sha256": data_sha256, "splits_sha256": hashlib.sha256(split_raw).hexdigest(),
     }
     if structured:
         info["tuning_rows"] = 0 if tuning is None else len(tuning)
@@ -612,6 +614,49 @@ def data_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: str
         "(Data → the version → Create a new version from this file), or restore the file; an admin may train anyway with "
         "integrity_override_reason (audited).")
 
+def splits_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: str, emit) -> None:
+    """DL4 (M-d): the split file (which rows are held out, the folds) is checked like data.csv: its sha256 is recorded on the
+    run (splits_sha256, next to data_sha256) and compared with the hash stored when the split was drawn. A mismatch refuses
+    the fit (audited; the version is flagged) unless an admin armed an override."""
+    from ..catalog.schema import audit, now as _now
+
+    exp = cfg.get("splits_sha256_expected")
+    ok = None if not exp else (sha == exp)
+    rec = {"splits_sha256": sha, "expected": exp, "match": ok, "file": cfg.get("splits_file")}
+    store.merge_result(run_id, splits_sha256=sha, splits_integrity=rec)
+    with store.db.connect() as con:
+        con.execute("UPDATE runs SET config = json_set(config, '$.splits_sha256', ?) WHERE id = ?", (sha, run_id))
+        con.execute("UPDATE lineage_edges SET meta = json_set(COALESCE(meta, '{}'), '$.splits_sha256', ?, '$.splits_sha256_match', json(?))"
+                    " WHERE relation = 'trained_on' AND dst_kind = 'run' AND dst_id = ?", (sha, "null" if ok is None else ("true" if ok else "false"), run_id))
+    emit("splits_hashed", **rec)
+    if ok is not False:
+        return
+    ds = cfg.get("dataset_id")
+    label = cfg.get("data_version_label") or ds
+    ov = cfg.get("data_integrity_override") or {}
+    with store.db.connect() as con:
+        root = (con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (ds,)).fetchone() or [ds])[0]
+        con.execute("UPDATE datasets SET verified_at = ?, verified_ok = 0 WHERE id = ?", (_now(), ds))
+        audit(con, "system:train-time hash", "dataset_integrity_failed", run_id=run_id,
+              details={"dataset_id": ds, "root_id": root, "run_id": run_id, "file": cfg.get("splits_file"), "stored": exp, "read": sha,
+                       "what": "split file", "remedy": "restore the split as drawn (POST /api/datasets/{id}/restore-splits)"})
+        if ov.get("by"):
+            audit(con, ov["by"], "training_integrity_override", comment=str(ov.get("reason") or "")[:1000], run_id=run_id,
+                  details={"dataset_id": ds, "root_id": root, "run_id": run_id, "what": "split file", "stored": exp, "read": sha, "at": "fit start"})
+        else:
+            audit(con, cfg.get("by") or "unknown", "training_refused", run_id=run_id, comment=f"split file of {label} differs",
+                  details={"dataset_id": ds, "root_id": root, "run_id": run_id, "what": "split file", "stored": exp, "read": sha, "status": 409})
+    if ov.get("by"):
+        emit("log", level="warning", logger="ensemble",
+             message=f"the split file of {label} differs from when it was drawn: training anyway on {ov['by']}'s override")
+        return
+    raise DataIntegrityError(
+        f"the split file of version {label} ({cfg.get('splits_file')}: which rows are held out, and the folds) differs from when it "
+        f"was drawn: sha256 {exp[:12]}… then, {sha[:12]}… now. It was changed outside the app, so this run was refused: its "
+        "holdout would not be the one other runs on this version use. Restore it (Data → the version → Restore the split, or "
+        "POST /api/datasets/{id}/restore-splits); an admin may train anyway with integrity_override_reason (audited).")
+
+
 # --------------------------------------------------------------------------- main
 
 
@@ -630,6 +675,7 @@ def run(run_dir: Path) -> int:
         emit("run_started", pid=os.getpid())
         train, holdout, info, tuning = load_frames(cfg)
         data_gate(cfg, info.get("data_sha256"), store, run_id, emit)  # DL3 (M1): before anything is fit
+        splits_gate(cfg, info.get("splits_sha256"), store, run_id, emit)  # DL4 (M-d): the holdout and folds too
         emit("data_ready", **info)
         store.merge_result(run_id, data=info)
 

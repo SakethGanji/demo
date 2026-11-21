@@ -49,7 +49,7 @@ def root_of(con, dataset_id: str) -> str:
 def tree_rows(con, root: str) -> list[dict[str, Any]]:
     rows = con.execute("SELECT id, name, filename, source, note, created_at, rows, target, kind, project_id, parent_id, root_id, sha256,"
                        " op, created_by, state, state_at, state_by, state_scope, verified_at, verified_ok, size_bytes,"
-                       " json_extract(profile, '$.n_cols') AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
+                       " splits_sha256, json_extract(profile, '$.n_cols') AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
                        (root, root)).fetchall()
     out = [dict(r) for r in rows]
     for i, r in enumerate(out):
@@ -461,9 +461,25 @@ def _targets(con, dataset_id: str, only_version: bool = False) -> tuple[str, lis
     return root, (rows if whole else [r for r in rows if r["id"] == dataset_id]), whole
 
 
-def _guard(con, root: str, targets: list[dict[str, Any]], whole: bool, what: str) -> None:
+def _run_users(con, ids: list[str]) -> list[dict[str, Any]]:
+    """DL4 (m-h): succeeded runs trained on these versions whose run is not deleted and not retired (no registered version
+    built from it that was retired): deleting the data makes them irreproducible."""
+    u = usage(con, ids)
+    retired_runs = {v["run_id"] for v in u["versions"] if v.get("retired")}
+    return [r for r in u["runs"] if r["status"] == "succeeded" and r["id"] not in retired_runs]
+
+
+def _guard(con, root: str, targets: list[dict[str, Any]], whole: bool, what: str, ack: dict[str, Any] | None = None) -> None:
     ids = [r["id"] for r in targets if r["state"] != DELETED]
     bad = blockers(con, ids, "archive" if what == "archive" else "delete")
+    if what == "delete" and not ack:  # DL4 (m-h): a succeeded run trained on it would lose the data it was trained on
+        users = _run_users(con, ids)
+        if users:
+            bad += [f"run {r['id']} ({r.get('name') or 'unnamed'}, succeeded) was trained on {r['dataset_id']}: deleting the data makes it "
+                    "irreproducible. Delete the run, or retire the model built from it, or send "
+                    '"irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).' for r in users[:20]]
+            if len(users) > 20:
+                bad.append(f"… and {len(users) - 20} more succeeded runs.")
     if bad:
         raise DsError(409, {"message": f"Can't {what}: a version is in use. Each line below says how to clear it.", "blockers": bad})
     if not whole:
@@ -501,8 +517,20 @@ def archive(app, dataset_id: str, by: str, archived: bool, reason: str, only_ver
     return {"root_id": root, "ids": ids, "state": ARCHIVED if archived else "active", "whole_dataset": whole}
 
 
+def _ack(irreproducible: Any) -> dict[str, Any] | None:
+    """DL4 (m-h): {"reason": "…"} (or true with no reason → refused): the person deleting accepts that runs trained on these
+    versions can no longer be reproduced from their data."""
+    if irreproducible in (None, False):
+        return None
+    reason = str((irreproducible or {}).get("reason") if isinstance(irreproducible, dict) else "").strip()
+    if len(reason) < 10:
+        raise DsError(400, 'irreproducible is {"reason": "…"} (at least 10 characters): why it is acceptable that the runs '
+                           "trained on this data can't be reproduced after the delete.")
+    return {"reason": reason[:500]}
+
+
 def request_delete(app, dataset_id: str, by: str, reason: str, only_version: bool = False,
-                   freeze_holdout: bool = False) -> dict[str, Any]:
+                   freeze_holdout: bool = False, irreproducible: Any = None) -> dict[str, Any]:
     """Four eyes: a pending request another person approves. An admin (ENSEMBLE_ADMINS) deletes at once. The guard
     runs now and again at approval. DL2: only_version deletes v1 alone (the root id otherwise means every version);
     freeze_holdout keeps a sample of the holdout rows beside the tombstone for re-validating the retired models."""
@@ -510,11 +538,14 @@ def request_delete(app, dataset_id: str, by: str, reason: str, only_version: boo
         root, targets, whole = _targets(con, dataset_id, only_version)
         if all(r["state"] == DELETED for r in targets):
             raise DsError(410, f"{dataset_id} is already deleted.")
-        _guard(con, root, targets, whole, "delete")
+        ack = _ack(irreproducible)
+        _guard(con, root, targets, whole, "delete", ack=ack)
         if con.execute("SELECT 1 FROM dataset_requests WHERE dataset_id = ? AND status = 'pending'", (dataset_id,)).fetchone():
             raise DsError(409, f"A delete of {dataset_id} is already waiting for approval.")
         rid = "dsr_" + secrets.token_hex(4)
-        opts = {"only_version": bool(only_version and not whole and dataset_id == root), "freeze_holdout": bool(freeze_holdout)}
+        opts = {"only_version": bool(only_version and not whole and dataset_id == root), "freeze_holdout": bool(freeze_holdout),
+                **({"irreproducible": ack, "runs_made_irreproducible": [r["id"] for r in _run_users(con, [t["id"] for t in targets])]}
+                   if ack else {})}
         con.execute("INSERT INTO dataset_requests (id, dataset_id, root_id, action, status, requested_by, requested_at, reason, options)"
                     " VALUES (?, ?, ?, 'delete', 'pending', ?, ?, ?, ?)", (rid, dataset_id, root, by, now(), reason, json.dumps(opts)))
         audit(con, by, "dataset_delete_requested", comment=reason,
@@ -561,7 +592,7 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
     with app.state.db.connect() as con:
         root, targets, whole = _targets(con, req["dataset_id"], bool(opts.get("only_version")))
         if approve:
-            _guard(con, root, targets, whole, "delete")  # re-checked: something may use it now
+            _guard(con, root, targets, whole, "delete", ack=opts.get("irreproducible"))  # re-checked: something may use it now
         con.execute("UPDATE dataset_requests SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
                     ("approved" if approve else "rejected", by, now(), comment, rid))
         if not approve:
@@ -592,7 +623,7 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
         audit(con, by, "dataset_deleted", comment=comment or req["reason"],
               details={"dataset_id": req["dataset_id"], "root_id": root, "request_id": rid, "requested_by": req["requested_by"],
                        "approved_by": by, "admin": G.is_admin(by), "self_approved_by_admin": self_admin, "whole_dataset": whole,
-                       "deleted": gone})
+                       "deleted": gone, **({k: opts[k] for k in ("irreproducible", "runs_made_irreproducible") if k in opts})})
     return {**get_request(app, rid), "deleted": gone}
 
 
@@ -602,12 +633,10 @@ HOLDOUT_SAMPLE_ROWS = 2000
 def _freeze_holdout(store, r: dict[str, Any]) -> dict[str, Any] | None:
     """DL2: up to HOLDOUT_SAMPLE_ROWS holdout rows of a version about to be deleted, kept as holdout_sample.csv (with
     their row positions) so a retired model can still be re-validated. Optional: a PII purge leaves it off."""
-    import pandas as pd
-
     from .schema import file_sha256
 
     try:
-        df = pd.read_csv(store.csv_path(r["id"]))
+        df = store.load_frame(r["id"])
         _, sp, _ = store.ensure_splits(r["id"], r["target"] if r["target"] in df.columns else None)
         hold = [int(i) for i in sp.get("holdout") or [] if int(i) < len(df)]
     except Exception:  # noqa: BLE001 - no split to freeze: the delete goes ahead without a sample
@@ -634,17 +663,32 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
                 out.append({"id": r["id"], "v": r["v"], "ok": None, "status": "deleted (tombstone)", "stored": r["sha256"]})
                 continue
             now_sha = file_sha256(store.csv_path(r["id"]))
-            ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
-            status = "ok" if ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
+            data_ok = bool(now_sha and r["sha256"] and now_sha == r["sha256"])
+            status = "ok" if data_ok else ("file missing" if not now_sha else "no stored hash" if not r["sha256"] else "MISMATCH")
+            splits = store.check_splits(r["id"])  # DL4 (M-d): the holdout and folds are checked like data.csv
+            bad_splits = [x for x in splits if x["status"] != "ok"]
+            ok = data_ok and not bad_splits
+            if data_ok and bad_splits:
+                status = "SPLIT MISMATCH"
             con.execute("UPDATE datasets SET verified_at = ?, verified_ok = ? WHERE id = ?", (now(), int(ok), r["id"]))
+            remedy = []
+            if status == "MISMATCH":
+                remedy.append(f"The file was changed outside the app and is not trusted. Create a new version from it "
+                              f"(POST /api/datasets/{r['id']}/adopt-disk-file with by and reason), and restore v{r['v']}'s "
+                              "file from an export or backup.")
+            if bad_splits:
+                remedy.append(f"{', '.join(x['file'] for x in bad_splits)} (which rows are held out, and the folds) changed outside the "
+                              "app. Restore the split as it was drawn (POST /api/datasets/" + r["id"] + "/restore-splits with by and "
+                              "reason: written back from the copy recorded when it was drawn, hash-checked).")
             out.append({"id": r["id"], "v": r["v"], "ok": ok, "status": status, "stored": r["sha256"], "now": now_sha,
-                        **({"remedy": f"The file was changed outside the app and is not trusted. Create a new version from it "
-                                      f"(POST /api/datasets/{r['id']}/adopt-disk-file with by and reason), and restore v{r['v']}'s "
-                                      "file from an export or backup."} if status == "MISMATCH" else {})})
+                        "data_ok": data_ok, "splits_sha256": r.get("splits_sha256"),
+                        "splits": [{k: x[k] for k in ("file", "status", "stored", "now")} for x in splits],
+                        **({"remedy": " ".join(remedy)} if remedy else {})})
         bad = [x for x in out if x["ok"] is False]
         audit(con, by, "dataset_integrity_failed" if bad else "dataset_verified",
               details={"dataset_id": dataset_id, "root_id": root, "checked": len(out), "failed": [x["id"] for x in bad],
-                       "results": [{k: x.get(k) for k in ("id", "status", "stored", "now")} for x in out]})
+                       "results": [{**{k: x.get(k) for k in ("id", "status", "stored", "now")},
+                                    "splits_failed": [y["file"] for y in x.get("splits") or [] if y["status"] != "ok"]} for x in out]})
     return {"root_id": root, "results": out, "ok": not bad}
 
 
@@ -676,8 +720,9 @@ def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[
                 raise DsError(400, "An override needs a reason of at least 10 characters (it goes in the audit log).")
             out["override_armed"] = {"by": by, "reason": reason[:1000]}
         return out
-    msg = (f"{dataset_id}'s last integrity check ({str(rec.get('verified_at'))[:19]}) was a MISMATCH: data.csv no longer has the "
-           "sha256 stored when the version was made. Restore the file and verify again (Data → Check every hash), or an admin "
+    msg = (f"{dataset_id}'s last integrity check ({str(rec.get('verified_at'))[:19]}) was a MISMATCH: data.csv or a split file "
+           "(which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it "
+           "(Data → the version → Verify hash; a split file: Restore the split as drawn), or an admin "
            'sends {"integrity_override_reason": "…", "by": "<admin>"} to train on it anyway (audited).')
     if not reason:
         raise DsError(409, msg)
@@ -712,3 +757,68 @@ def export_manifest(app, dataset_id: str, by: str) -> dict[str, Any]:
             "sha256_stored": r["sha256"], "sha256_file": sha_now, "integrity_ok": sha_now == r["sha256"],
             "lineage_chain": chain, "exported_at": now(), "exported_by": by,
             "how_to_check": "sha256sum data.csv must equal sha256_stored"}
+
+
+def match_upload(app, filename: str, content: bytes) -> dict[str, Any]:
+    """DL4 (#11): the live dataset this file most looks like (same or similar columns, its target present, a similar
+    name), or None. Reads the file's header and a few rows; writes nothing."""
+    import difflib
+    import re as _re
+
+    import pandas as pd
+
+    from ..datasets import read_upload
+
+    df, _, stem = read_upload(filename, content)
+    norm = lambda c: _re.sub(r"[^a-z0-9]", "", str(c).lower())  # noqa: E731
+    cols = {norm(c): str(c) for c in df.columns}
+
+    def base(n: str) -> str:  # "loans_2026-11 v2.csv" and "Loans" compare as "loans"
+        n = _re.sub(r"(?i)\.(csv|tsv|txt)$", "", n or "")
+        n = _re.sub(r"(?i)([_\- ]?(v|version)\s?\d+|[_\- ]?\d{4}([-_]?\d{2}){0,2}|[_\- ]?(copy|new|final|latest|updated))+$", "", n)
+        return norm(n)
+
+    store = app.state.datasets
+    with app.state.db.connect() as con:
+        roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS NULL")]
+        cands = []
+        for root in roots:
+            rows = tree_rows(con, root)
+            live = [r for r in rows if r["state"] is None]
+            if not live:
+                continue
+            cur, _ = effective_default(rows, card(con, root))
+            r = next((x for x in live if x["id"] == cur), live[-1])
+            try:
+                pcols = [str(c) for c in pd.read_csv(store.csv_path(r["id"]), nrows=0).columns]
+            except Exception:  # noqa: BLE001 - a version with no readable file is not a candidate
+                continue
+            pn = {norm(c): c for c in pcols}
+            inter = set(cols) & set(pn)
+            jac = len(inter) / max(1, len(set(cols) | set(pn)))
+            tgt = r["target"]
+            same_target = bool(tgt) and norm(tgt) in cols
+            name_sim = difflib.SequenceMatcher(None, base(stem), base(r["name"])).ratio() if base(stem) and base(r["name"]) else 0.0
+            ok = (jac >= 0.6 and (same_target or jac >= 0.85)) or (name_sim >= 0.8 and jac >= 0.4)
+            if not ok:
+                continue
+            reasons = []
+            if jac == 1:
+                reasons.append(f"the same {len(pn)} columns")
+            else:
+                reasons.append(f"{len(inter)} of {len(pn)} columns in common")
+            if same_target:
+                reasons.append(f"its target '{tgt}' is in the file")
+            if name_sim >= 0.8:
+                reasons.append(f"a similar name ('{stem}' ~ '{r['name']}')")
+            cands.append({"root_id": root, "name": r["name"], "version_id": r["id"], "v": r["v"], "next_v": len(rows) + 1,
+                          "target": tgt, "rows": r["rows"], "score": round(0.6 * jac + 0.25 * same_target + 0.15 * name_sim, 3),
+                          "columns_in_common": len(inter), "columns_added": sorted(cols[c] for c in set(cols) - set(pn)),
+                          "columns_removed": sorted(pn[c] for c in set(pn) - set(cols)), "same_target": same_target,
+                          "name_similarity": round(name_sim, 2), "sample": r["source"] == "sample", "reasons": reasons})
+    # an upload of the user's own data matches their datasets before a built-in sample with the same columns
+    cands.sort(key=lambda c: (c["score"] - (0.05 if c["sample"] else 0)), reverse=True)
+    return {"filename": filename, "rows": int(len(df)), "columns": [str(c) for c in df.columns],
+            "match": cands[0] if cands else None, "others": cands[1:4],
+            "note": "nothing was written; send the file to POST /api/datasets/{version_id}/versions to add it as the next version, "
+                    "or to POST /api/datasets to create a new dataset"}

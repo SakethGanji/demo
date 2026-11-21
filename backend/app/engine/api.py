@@ -145,6 +145,11 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
             rec = app.state.db.get_dataset(dataset_id) or {}
             cfg["data_sha256_expected"] = rec.get("sha256")
             cfg.setdefault("dataset_id", dataset_id)
+            if cfg.get("splits_path"):  # DL4 (M-d): the split file's hash when it was drawn; the worker checks it too
+                st = app.state.datasets
+                rel = st.split_rel(dataset_id, cfg["splits_path"])
+                cfg["splits_file"] = rel
+                cfg["splits_sha256_expected"] = st.split_hashes(dataset_id).get(rel)
             if not cfg.get("data_version_label"):
                 from ..catalog import dsets as DS
 
@@ -204,7 +209,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
                 "feature_importance", "leaderboard", "resolved", "custom_ensembles", "threshold", "mlflow",
                 "forecast", "backtests", "anomaly", "imported", "monotone", "quantile", "quantile_levels",
                 "learning_curve", "active_learning", "annotations", "shift", "slices", "doctor", "expected_loss", "segmented", "survival", "reject_inference", "multilabel",
-                "data_sha256", "data_integrity"):  # DL3 (M1): the sha256 of the bytes the fit read, and the check against its version
+                "data_sha256", "data_integrity", "splits_sha256", "splits_integrity"):  # DL3 (M1): the sha256 of the bytes the fit read, and the check against its version
         out[key] = res.get(key)
     out["feature_importance"] = explain.importance_with_ci(out["feature_importance"])
     sc = res.get("scorecard")  # F11: the headline only; the table is GET /runs/{id}/scorecard

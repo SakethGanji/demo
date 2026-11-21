@@ -133,6 +133,18 @@ CREATE TABLE IF NOT EXISTS admin_requests (
     used_by       TEXT
 );
 
+-- DL4 (M-d): the sha256 of every split file (holdout and folds) when it was drawn, and a compressed copy of its bytes,
+-- so verify and the worker at fit start can refuse a split file changed outside the app, and restore it.
+CREATE TABLE IF NOT EXISTS split_files (
+    dataset_id    TEXT NOT NULL,
+    file          TEXT NOT NULL,
+    sha256        TEXT NOT NULL,
+    recorded_at   TEXT NOT NULL,
+    basis         TEXT NOT NULL DEFAULT 'drawn',
+    content       BLOB,
+    PRIMARY KEY (dataset_id, file)
+);
+
 CREATE TABLE IF NOT EXISTS catalog_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
@@ -150,7 +162,9 @@ DATASET_COLS = {"project_id": "TEXT", "parent_id": "TEXT", "root_id": "TEXT", "s
                 "created_by": "TEXT", "state": "TEXT", "state_at": "TEXT", "state_by": "TEXT", "verified_at": "TEXT",
                 "verified_ok": "INTEGER",
                 # DL2: 'dataset' when a whole-dataset archive hid it (an unarchive of the dataset restores only those)
-                "state_scope": "TEXT"}
+                "state_scope": "TEXT",
+                # DL4 (M-d): one sha256 over the version's split files (each file's own hash is in split_files)
+                "splits_sha256": "TEXT"}
 # DL2: a registered version retired (four eyes): its data may be archived, and deleted after the retention period
 MV_COLS = {"retired_at": "TEXT", "retired_by": "TEXT"}
 # DL2: a delete request's options (freeze a holdout sample)

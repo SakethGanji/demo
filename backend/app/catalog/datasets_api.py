@@ -94,8 +94,10 @@ async def upload_version(dataset_id: str, request: Request, file: UploadFile = F
     before = None if preview else await _thread(D.current_default, request.app, dataset_id)
     out = await _thread(request.app.state.datasets.upload_version, dataset_id, file.filename or "", content, by=who,
                         row_key=(row_key or None) if row_key != "" else "", preview=preview, reason=reason.strip()[:500] or None)
-    if preview:
-        return out
+    if preview:  # DL4 (m-i): a preview creates nothing: 200, not 201
+        from fastapi.responses import JSONResponse
+
+        return JSONResponse(json.loads(json.dumps(out, default=str)), status_code=200)
     dflt = await _thread(D.settle_default, request.app, out["id"], before, out["upload"]["checks"]["warnings"], who, make_default)
     from ..main import _detail
 
@@ -182,7 +184,7 @@ def request_delete(dataset_id: str, request: Request, body: dict[str, Any]) -> d
     who = _who(body.get("by"))
     reason = _text(body, "reason", 5, 500, True)
     return _call(D.request_delete, request.app, dataset_id, who, reason, bool(body.get("only_version")), bool(body.get("freeze_holdout")),
-                 _gov=(request.app, who, "dataset_delete", {"dataset_id": dataset_id}))
+                 irreproducible=body.get("irreproducible"), _gov=(request.app, who, "dataset_delete", {"dataset_id": dataset_id}))
 
 
 @router.post("/dataset-requests/{rid}/decide")
@@ -308,11 +310,12 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     _live(request, dataset_id)
     store = request.app.state.datasets
     if preview:
-        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True)
+        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True,
+                            set_target=body.get("set_target"))
         return JSONResponse(json.loads(json.dumps(out, default=str)), status_code=200)
     before = await _thread(D.current_default, request.app, dataset_id)
     try:
-        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason)
+        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, set_target=body.get("set_target"))
     except HTTPException as e:
         if e.status_code == 409:
             G.refused(request.app.state.db, who, "dataset_edit", 409, e.detail, {"dataset_id": dataset_id})
@@ -365,3 +368,38 @@ async def adopt_disk_file(dataset_id: str, request: Request, body: dict[str, Any
 
     return {**_detail(request.app.state.db.get_dataset(out["id"]) or out), "upload": out["upload"], "default": dflt,
             "parent_still_mismatched": True}
+
+
+@router.post("/datasets/{dataset_id}/restore-splits")
+async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """DL4 (M-d): {by, reason}: the remedy for a split file (holdout, folds) changed outside the app. Every split file of
+    this version whose bytes differ from the copy recorded when it was drawn is written back (the copy is hash-checked
+    first), the version is verified again, and both steps are audited. The data file is not touched."""
+    body = body if isinstance(body, dict) else {}
+    who = _who(body.get("by"))
+    reason = _text(body, "reason", 5, 500, True)
+    rec = _live(request, dataset_id)
+    store = request.app.state.datasets
+    before = store.check_splits(dataset_id)
+    if all(x["status"] == "ok" for x in before):
+        raise HTTPException(409, f"{dataset_id}'s split files match the hashes recorded when they were drawn: nothing to restore.")
+    restored = await _thread(store.restore_split_files, dataset_id)
+    with request.app.state.db.connect() as con:
+        from .schema import audit
+
+        audit(con, who, "dataset_splits_restored", comment=reason,
+              details={"dataset_id": dataset_id, "root_id": rec.get("root_id") or dataset_id, "restored": restored,
+                       "before": [{k: x[k] for k in ("file", "status", "stored", "now")} for x in before]})
+    check = await _thread(D.verify, request.app, dataset_id, who)
+    return {"dataset_id": dataset_id, "restored": restored, "verify": check}
+
+
+@router.post("/datasets/match")
+async def match_upload(request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    """DL4 (#11): does this CSV look like a dataset already here? Nothing is written. Compares the file's columns,
+    its likely target and its name with every live dataset (its default version); answers the best match (or none)
+    with the reasons, so Build can offer "Add as a new version of <dataset>" next to "Create a new dataset"."""
+    content = await file.read(config.MAX_UPLOAD_BYTES + 1)
+    if len(content) > config.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    return await _thread(D.match_upload, request.app, file.filename or "", content)

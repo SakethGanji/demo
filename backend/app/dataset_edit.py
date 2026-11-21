@@ -30,7 +30,8 @@ import pandas as pd
 
 MAX_OPS = 200
 MAX_CELLS = 5000
-MAX_ADD_ROWS = 1000
+MAX_ADD_ROWS = 1000  # DL4 (m-f): per version (all add_rows ops together), not per op
+ROUND_DIGITS = (-15, 15)  # DL4 (M-a): round(x, digits) with digits in this range
 EXAMPLES_PER_OP = 20
 FORMULA_MAX_LEN = 300
 FORMULA_MAX_NODES = 60
@@ -76,6 +77,8 @@ def _coerce(value: Any, s: pd.Series, where: str) -> Any:
             raise EditError(f"{where}: {value!r} is not a number, and '{s.name}' is a number column.")
         try:
             f = float(str(value).replace(",", "")) if isinstance(value, str) else float(value)
+        except OverflowError:
+            raise EditError(f"{where}: {str(value)[:40]!r} is too large for a number.") from None
         except (TypeError, ValueError):
             raise EditError(f"{where}: {value!r} is not a number, and '{s.name}' is a number column (cast it to text first "
                             "if it should hold text).") from None
@@ -155,7 +158,7 @@ def _formula(df: pd.DataFrame, expr: str, ctx: str) -> tuple[pd.Series, list[str
     src = re.sub(r"`([^`]+)`", sub, expr)
     try:
         tree = ast.parse(src, mode="eval")
-    except SyntaxError:
+    except (SyntaxError, ValueError, RecursionError, MemoryError):
         raise EditError(f"{ctx}: can't read the formula {expr!r}; {FORMULA_HELP}.") from None
     nodes = list(ast.walk(tree))
     if len(nodes) > FORMULA_MAX_NODES:
@@ -166,7 +169,10 @@ def _formula(df: pd.DataFrame, expr: str, ctx: str) -> tuple[pd.Series, list[str
         if isinstance(n, ast.Expression):
             return ev(n.body)
         if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)) and not isinstance(n.value, bool):
-            return float(n.value)
+            try:
+                return float(n.value)
+            except OverflowError:
+                raise EditError(f"{ctx}: the number {str(n.value)[:20]}… is too large.") from None
         if isinstance(n, ast.Name):
             c = names.get(n.id, n.id)
             if c not in df.columns:
@@ -195,9 +201,11 @@ def _formula(df: pd.DataFrame, expr: str, ctx: str) -> tuple[pd.Series, list[str
                 raise EditError(f"{ctx}: {n.func.id}() takes {ar if not isinstance(ar, tuple) else ' or '.join(map(str, ar))} argument(s).")
             args = [ev(x) for x in n.args]
             if n.func.id == "round" and len(args) == 2:
-                if not isinstance(args[1], float):
-                    raise EditError(f"{ctx}: round(x, digits) takes a number of digits.")
-                return np.round(args[0], int(args[1]))
+                d = args[1]
+                lo, hi = ROUND_DIGITS
+                if not isinstance(d, float) or not math.isfinite(d) or d != int(d) or not lo <= d <= hi:
+                    raise EditError(f"{ctx}: round(x, digits) takes a whole number of digits from {lo} to {hi}.")
+                return np.round(args[0], int(d))
             with np.errstate(divide="ignore", invalid="ignore"):
                 return FUNCS[n.func.id](*args)
         what = type(n).__name__
@@ -207,7 +215,12 @@ def _formula(df: pd.DataFrame, expr: str, ctx: str) -> tuple[pd.Series, list[str
             what = f"the operator {type(n.op).__name__}"
         raise EditError(f"{ctx}: {what} is not allowed in a formula; {FORMULA_HELP}.")
 
-    out = ev(tree)
+    try:
+        out = ev(tree)
+    except EditError:
+        raise
+    except (ArithmeticError, ValueError, TypeError, RecursionError, MemoryError) as e:  # DL4 (M-a): never a 500
+        raise EditError(f"{ctx}: can't compute {expr!r} ({type(e).__name__}); {FORMULA_HELP}.") from None
     if not isinstance(out, pd.Series):
         out = pd.Series(float(out), index=df.index)
     out = out.replace([np.inf, -np.inf], np.nan)
@@ -235,6 +248,18 @@ def _rows_param(df: pd.DataFrame, rows: Any, ctx: str) -> list[int]:
 
 
 def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[str, Any]:
+    """See _apply_ops. DL4 (M-a): an error that is not an EditError (a pandas or numpy corner) is still the request's
+    fault, never a 500: it is reported as a 400 naming the operations."""
+    try:
+        return _apply_ops(src, ops, target)
+    except EditError:
+        raise
+    except (ArithmeticError, ValueError, TypeError, KeyError, IndexError, AssertionError, RecursionError, MemoryError) as e:
+        raise EditError(f"These operations can't be applied to this data ({type(e).__name__}: {str(e)[:160]}). Check the values "
+                        "and types in each operation.") from None
+
+
+def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[str, Any]:
     """The ops applied in order to a copy of `src` (rows indexed by their position in `src`). Returns {frame (index reset),
     row_map (position in src or -1 per row), log (one entry per op), renamed, target (after renames / drops)}."""
     if not isinstance(ops, list) or not ops:
@@ -248,6 +273,9 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
     renamed: dict[str, str] = {}
     tgt = target
     n_cells = 0
+    n_added = 0
+    touched: dict[str, Any] | None = None  # DL4 (M-c): the first op that drops, renames or casts the target
+    casts: dict[str, str] = {}  # DL4 (m-e): column → the kind a cast_column gave it
     for i, op in enumerate(ops):
         if not isinstance(op, dict) or op.get("op") not in OPS:
             raise EditError(f"Operation {i + 1}: 'op' is one of {', '.join(OPS)}.")
@@ -280,6 +308,11 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
                     continue
                 if isinstance(new, str) and df[col].dtype.kind != "O":
                     df[col] = df[col].astype(object)
+                if df[col].dtype.kind in "iu" and isinstance(new, float):  # DL4: keep ints int; widen only when needed
+                    if new.is_integer() and abs(new) < 2 ** 53:
+                        new = int(new)
+                    else:
+                        df[col] = df[col].astype(float)
                 df.at[r, col] = new
                 changed += 1
                 rows.add(r)
@@ -307,8 +340,10 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
             rows = op.get("rows")
             if not isinstance(rows, list) or not rows or not all(isinstance(r, dict) for r in rows):
                 raise EditError(f"{ctx}: 'rows' is a non-empty list of {{column: value}}.")
-            if len(rows) > MAX_ADD_ROWS:
-                raise EditError(f"{ctx}: at most {MAX_ADD_ROWS} rows; upload a file as a new version for more.")
+            n_added += len(rows)
+            if n_added > MAX_ADD_ROWS:
+                raise EditError(f"At most {MAX_ADD_ROWS:,} added rows per version ({n_added:,} with this operation); upload a file "
+                                "as a new version for more.")
             new_rows = []
             for j, r in enumerate(rows):
                 for k in r:
@@ -320,7 +355,9 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
             for c in df.columns:
                 if df[c].dtype.kind in "iuf":
                     add[c] = pd.to_numeric(add[c], errors="coerce")
+            before = df.dtypes
             df = pd.concat([df, add])
+            df = _keep_types(df, before)
             for k, r in zip(idx, new_rows):
                 if len(ex) < EXAMPLES_PER_OP:
                     ex.append({"row": _rid(k), "added": {c: _cell(v) for c, v in list(r.items())[:6]}})
@@ -335,7 +372,10 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
                 raise EditError(f"{ctx}: there is already a column named {to!r}.")
             df = df.rename(columns={col: to})
             renamed[col] = to
+            if col in casts:
+                casts[to] = casts.pop(col)
             if tgt == col:
+                touched = touched or {"i": i + 1, "op": kind, "what": f"renames (to '{to}')", "column": col}
                 tgt = to
             entry.update(column=col, to=to, summary=f"renamed '{col}' → '{to}'")
         elif kind == "drop_column":
@@ -343,7 +383,9 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
             if df.shape[1] <= 2:
                 raise EditError(f"{ctx}: a dataset keeps at least two columns.")
             df = df.drop(columns=[col])
+            casts.pop(col, None)
             if tgt == col:
+                touched = touched or {"i": i + 1, "op": kind, "what": "drops", "column": col}
                 tgt = None
             entry.update(column=col, summary=f"dropped '{col}'")
         elif kind == "add_column":
@@ -385,6 +427,8 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
             col = _col(df, op.get("column"), ctx)
             to = op.get("to")
             s = df[col]
+            if tgt == col:
+                touched = touched or {"i": i + 1, "op": kind, "what": f"casts (to {to})", "column": col}
             if to == "number" or to == "integer":
                 t = s.astype("string").str.replace(",", "", regex=False).str.strip() if not _is_num(s) else s
                 new = pd.to_numeric(t, errors="coerce")
@@ -401,6 +445,7 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
             for r in list(df.index[lost])[:EXAMPLES_PER_OP]:
                 note(r, col, s.at[r], None)
             df[col] = new
+            casts[col] = {"number": "number", "integer": "integer", "text": "text", "bool": "bool"}[to]
             entry.update(column=col, to=to, became_missing=int(lost.sum()),
                          summary=f"cast '{col}' to {to}" + (f": {int(lost.sum())} value(s) could not be read and are now missing" if lost.any() else ""))
         elif kind == "replace_values":
@@ -464,7 +509,24 @@ def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[st
         entry["examples_truncated"] = bool((entry.get("cells") or entry.get("rows") or 0) > len(ex)) if ex else False
         log.append(entry)
     rmap = [int(i) if int(i) >= 0 else -1 for i in df.index]
-    return {"frame": df.reset_index(drop=True), "row_map": rmap, "log": log, "renamed": renamed, "target": tgt}
+    return {"frame": df.reset_index(drop=True), "row_map": rmap, "log": log, "renamed": renamed, "target": tgt,
+            "target_touched": touched, "casts": casts}
+
+
+def _keep_types(df: pd.DataFrame, before: pd.Series) -> pd.DataFrame:
+    """DL4 (M-b): a column that was integer stays integer after rows are added (nullable Int64 while a new cell is
+    missing); a 0/1 target never turns into 0.0/1.0. Bool columns stay bool when every value is one."""
+    for c, dt in before.items():
+        if c not in df.columns:
+            continue
+        s = df[c]
+        if dt.kind in "iu" and s.dtype.kind == "f":
+            v = s.dropna()
+            if (v == v.round()).all():
+                df[c] = s.round().astype("int64") if not s.isna().any() else s.round().astype("Int64")
+        elif dt.kind == "b" and s.dtype.kind != "b" and s.notna().all() and s.map(lambda x: isinstance(x, (bool, np.bool_))).all():
+            df[c] = s.astype(bool)
+    return df
 
 
 def _describe(where: Any) -> str:

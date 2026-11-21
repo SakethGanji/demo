@@ -358,7 +358,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                 raise HTTPException(409, "A reset request is already pending or approved and unused.")
             con.execute("INSERT INTO admin_requests (id, action, status, requested_by, requested_at, reason) VALUES (?, 'reset', 'pending', ?, ?, ?)",
                         (rid, who, _now(), reason))
-            audit(con, who, "admin_reset_requested", comment=reason, details={"request_id": rid, "live": reset_mod.live_governance(con)})
+            audit(con, who, "admin_reset_requested", comment=reason, details={"request_id": rid, "live": reset_mod.live_governance(con) + reset_mod.user_data(con)})
             return dict(con.execute("SELECT * FROM admin_requests WHERE id = ?", (rid,)).fetchone())
 
     @app.post("/api/admin/reset-requests/{rid}/decide")
@@ -398,7 +398,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         from . import reset as reset_mod
 
         with request.app.state.db.connect() as con:
-            return {"demo_mode": reset_mod.demo_mode(), "live": reset_mod.live_governance(con),
+            return {"demo_mode": reset_mod.demo_mode(), "live": reset_mod.live_governance(con) + reset_mod.user_data(con),
                     "requests": [dict(r) for r in con.execute("SELECT * FROM admin_requests ORDER BY requested_at DESC LIMIT 20")]}
 
     @app.post("/api/admin/reset")

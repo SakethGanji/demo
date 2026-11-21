@@ -10,8 +10,8 @@ import { ProjectTree } from '../components/ProjectTree'
 import { EditVersion } from './EditVersion'
 import './data.css'
 
-const readActor = () => { try { return localStorage.getItem('ensemble.actor') || '' } catch { return '' } }
-const saveActor = (s: string) => { try { localStorage.setItem('ensemble.actor', s) } catch { /* private mode */ } }
+export const readActor = () => { try { return localStorage.getItem('ensemble.actor') || '' } catch { return '' } }
+export const saveActor = (s: string) => { try { localStorage.setItem('ensemble.actor', s) } catch { /* private mode */ } }
 const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—')
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const pct = (v?: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
@@ -140,7 +140,8 @@ function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => voi
         onVerifyAll={() => act(data.verify(d.root_id, by, true), (r) => `${r.ok ? 'Every file matches its hash' : 'A file does not match its hash'}: ${r.results.map((x) => `v${x.v} ${x.status}`).join(' · ')}`)}
         onArchive={(v, a) => act(data.archive(v.id, a, by, '', v.id === d.root_id), (r) => `${r.ids.join(', ')}: ${r.state}.`)}
         onEdit={(v) => { setMsg(null); setEditing(v.id) }}
-        onAdopt={(v, reason) => act(data.adoptDiskFile(v.id, by, reason), (r) => `The file on disk is now a new version (${r.id}) of v${v.v}, with its own hash. v${v.v} stays flagged until its file is restored.`)} />
+        onAdopt={(v, reason) => act(data.adoptDiskFile(v.id, by, reason), (r) => `The file on disk is now a new version (${r.id}) of v${v.v}, with its own hash. v${v.v} stays flagged until its file is restored.`)}
+        onRestoreSplits={(v) => act(data.restoreSplits(v.id, by, 'split file changed outside the app; restored as drawn'), (r) => `Restored ${r.restored.join(', ') || 'nothing'} as drawn; verify: ${r.verify.results.map((x) => `v${x.v} ${x.status}`).join(' · ')}.`)} />
 
       {editing && vOf(editing) && <EditVersion key={editing} d={d} v={vOf(editing)!} by={by} onClose={() => setEditing(null)} onErr={fail}
         onCreated={(vid, text) => { setMsg({ ok: true, text }); setEditing(null); setPair([editing, vid]); setFocus(vid); reload() }} />}
@@ -163,13 +164,16 @@ function DatasetPage({ id, go, onChanged }: { id: string; go: (r: string) => voi
 
 /** DL2: picking a file previews it (nothing written): matching summary, schema changes and contract warnings; then
  *  "Create version", and "Create and make default" only when there is no warning. */
-function UploadVersion({ d, by, onDone, onErr }: { d: DsHistory; by: string; onDone: (vid: string, text: string) => void; onErr: (e: unknown) => void }) {
+export function UploadVersion({ d, by, onDone, onErr, initialFile, onCancel }: { d: DsHistory; by: string; onDone: (vid: string, text: string) => void; onErr: (e: unknown) => void
+  /** DL4: Build hands over the file it matched: previewed at once, the same rules as picking it here */
+  initialFile?: File; onCancel?: () => void }) {
   const ref = useRef<HTMLInputElement>(null)
   const [key, setKey] = useState('')  // '' = guess an id column, else 'hash' or a column
   const [busy, setBusy] = useState(false)
   const [pv, setPv] = useState<{ file: File; p: DsUploadPreview } | null>(null)
   const [reason, setReason] = useState('')
   const parent = d.versions.find((v) => v.id === d.default_version_id)
+  useEffect(() => { if (initialFile && parent && by) void pick(initialFile) }, [initialFile, by]) // eslint-disable-line react-hooks/exhaustive-deps
   if (!parent) return <div className="card-body helper data-upload">No active version to build on: every version is archived or deleted{d.state === 'archived' ? ' (unarchive the dataset below to add one)' : ''}.</div>
   const pick = async (f?: File) => {
     if (!f) return
@@ -216,23 +220,24 @@ function UploadVersion({ d, by, onDone, onErr }: { d: DsHistory; by: string; onD
           {ck.type_changes.map((t) => <span key={t.column} className="pt-chip data-type">{t.column}: {t.kind_from} → {t.kind_to}</span>)}
           {!ck.columns_added.length && !ck.columns_removed.length && !ck.type_changes.length && <span className="helper">same columns and types</span>}
         </div>
+        {(p.kept_as_text?.length ?? 0) > 0 && <span className="helper" data-testid="pv-kept-text">Kept as text (codes with leading zeros): {p.kept_as_text!.join(', ')}</span>}
         {ck.warnings.length > 0 ? <div className="data-warn" data-testid="data-warnings"><b>{ck.warnings.length} contract warning{ck.warnings.length === 1 ? '' : 's'}</b>: the version can be created, but it won't become the default until someone makes it so after review.{ck.warnings.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>
           : <span className="helper data-ok-line">No contract warnings.</span>}
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <input className="input" style={{ flex: 1, minWidth: 220 }} maxLength={500} placeholder="reason or change ticket (optional, kept with the version)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="data-upload-reason" />
           <button className="btn" disabled={busy} onClick={() => create('no')} data-testid="data-create-version">Create v{p.v}</button>
           {!ck.warnings.length && <button className="btn primary" disabled={busy} onClick={() => create('auto')} data-testid="data-create-default">Create v{p.v} and make it the default</button>}
-          <button className="btn ghost" disabled={busy} onClick={() => setPv(null)}>Cancel</button>
+          <button className="btn ghost" disabled={busy} onClick={() => { setPv(null); onCancel?.() }}>Cancel</button>
         </div>
       </div>}
     </div>
   )
 }
 
-function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, onVerifyAll, onArchive, onEdit, onAdopt }: {
+function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, onVerifyAll, onArchive, onEdit, onAdopt, onRestoreSplits }: {
   d: DsHistory; pair: [string, string] | null; setPair: (p: [string, string]) => void; focus: string | null; setFocus: (id: string) => void; by: string
   onDefault: (v: DsVersion) => void; onVerify: (v: DsVersion) => void; onVerifyAll: () => void; onArchive: (v: DsVersion, archived: boolean) => void
-  onEdit: (v: DsVersion) => void; onAdopt: (v: DsVersion, reason: string) => void
+  onEdit: (v: DsVersion) => void; onAdopt: (v: DsVersion, reason: string) => void; onRestoreSplits: (v: DsVersion) => void
 }) {
   const def = d.versions.find((v) => v.id === d.default_version_id)
   return (
@@ -261,16 +266,16 @@ function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, 
           )
         })}</tbody>
       </table></div>
-      <VersionActions v={d.versions.find((v) => v.id === focus) ?? null} def={def} root={d.root_id} by={by} onDefault={onDefault} onVerify={onVerify} onArchive={onArchive} onEdit={onEdit} onAdopt={onAdopt} />
+      <VersionActions v={d.versions.find((v) => v.id === focus) ?? null} def={def} root={d.root_id} by={by} onDefault={onDefault} onVerify={onVerify} onArchive={onArchive} onEdit={onEdit} onAdopt={onAdopt} onRestoreSplits={onRestoreSplits} />
       <p className="helper" style={{ fontSize: 12, padding: '6px 16px 10px' }}>Versions are made by transforms (Data Doctor, Feature Lab, relabel, the label queue, drift windows, SQL refresh), by a new file, or by an edit; every change is a new version, nothing is modified in place, and a file changed on disk outside the app fails its hash check. The default is a pointer: rolling back moves it and never changes or copies data. ◇ = new rows with no mapping to the original rows (never paired).</p>
     </div>
   )
 }
 
 /** What can be done to the selected version: one bar under the table (the page's primary action stays Upload). */
-function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEdit, onAdopt }: { v: DsVersion | null; def?: DsVersion; root: string; by: string
+function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEdit, onAdopt, onRestoreSplits }: { v: DsVersion | null; def?: DsVersion; root: string; by: string
   onDefault: (v: DsVersion) => void; onVerify: (v: DsVersion) => void; onArchive: (v: DsVersion, archived: boolean) => void
-  onEdit: (v: DsVersion) => void; onAdopt: (v: DsVersion, reason: string) => void }) {
+  onEdit: (v: DsVersion) => void; onAdopt: (v: DsVersion, reason: string) => void; onRestoreSplits: (v: DsVersion) => void }) {
   const [adopt, setAdopt] = useState<string | null>(null)
   if (!v) return null
   const gone = v.state === 'deleted'
@@ -280,8 +285,9 @@ function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEd
       <b className="mono">v{v.v}</b>
       {gone ? <span className="muted">deleted {when(v.state_at)} by {v.state_by}: the files are gone; this row, lineage.json, the tombstone, every edge and the audit stay.</span> : <>
         {!bad && <button className="btn sm" disabled={!by} onClick={() => onEdit(v)} data-testid={`data-edit-${v.v}`} title={by ? 'Edit cells, rows and columns; the changes are saved as a new version' : 'Type your name in “acting as” first'}>Edit v{v.v}…</button>}
-        {bad && <div className="data-warn" data-testid={`data-integrity-${v.v}`}><b>v{v.v}'s file was changed outside the app</b> (its sha256 no longer matches): it is not trusted, and training on it is refused.
-          Restore the file, or keep what is on disk as a new, named version:
+        {bad && <div className="data-warn" data-testid={`data-integrity-${v.v}`}><b>v{v.v}'s data or split file was changed outside the app</b> (its sha256 no longer matches; Verify hash says which): it is not trusted, and training on it is refused.
+          A split file (which rows are held out) is restored as it was drawn: <button className="btn sm" disabled={!by} onClick={() => onRestoreSplits(v)} data-testid={`data-restore-splits-${v.v}`}>Restore the split as drawn</button>.
+          For data.csv, restore the file, or keep what is on disk as a new, named version:
           {adopt == null ? <button className="btn sm" style={{ marginLeft: 6 }} disabled={!by} onClick={() => setAdopt('')} data-testid={`data-adopt-${v.v}`}>Create a new version from this file…</button>
             : <span className="row" style={{ gap: 6, marginTop: 4 }}><input className="input" style={{ flex: 1 }} placeholder="why (required)" value={adopt} onChange={(e) => setAdopt(e.target.value)} data-testid="data-adopt-reason" />
               <button className="btn sm" disabled={adopt.trim().length < 5} onClick={() => { onAdopt(v, adopt.trim()); setAdopt(null) }} data-testid="data-adopt-ok">Create version</button>

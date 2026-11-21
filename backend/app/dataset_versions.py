@@ -134,6 +134,15 @@ def schema_diff(a: pd.DataFrame, b: pd.DataFrame) -> dict[str, Any]:
             "n_columns": [int(a.shape[1]), int(b.shape[1])]}
 
 
+def _labels(s: pd.Series) -> set[str]:
+    """DL4 (M-b): class labels as text, with 1.0 read as 1 (a float copy of an int target is not a new class)."""
+    def one(v: Any) -> str:
+        if isinstance(v, (float, np.floating)) and float(v).is_integer():
+            return str(int(v))
+        return str(v)
+    return {one(v) for v in s.dropna().tolist()}
+
+
 def contract_checks(parent: pd.DataFrame, new: pd.DataFrame, target: str | None, row_drop: float = ROW_DROP_WARN) -> dict[str, Any]:
     """Warnings, never a block: the target gone, a type changed, a new category in the target, too many rows gone, a
     column gone."""
@@ -145,7 +154,7 @@ def contract_checks(parent: pd.DataFrame, new: pd.DataFrame, target: str | None,
         w.append({"code": "type_changed", "column": t["column"],
                   "message": f"'{t['column']}' changed type: {t['kind_from']} ({t['from']}) → {t['kind_to']} ({t['to']})."})
     if target and target in parent.columns and target in new.columns and parent[target].nunique() <= TARGET_MAX_CATS:
-        new_cats = sorted(set(new[target].dropna().astype(str)) - set(parent[target].dropna().astype(str)))
+        new_cats = sorted(_labels(new[target]) - _labels(parent[target]))
         if new_cats:
             w.append({"code": "new_target_category", "column": target, "values": new_cats[:20],
                       "message": f"The target '{target}' has {len(new_cats)} new value(s): {', '.join(new_cats[:5])}. Models trained on the "

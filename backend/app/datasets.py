@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from . import config
+from . import frame_io as FIO
 from .db import Database
 from .profiling import profile_frame
 from .samples import SAMPLES
@@ -140,6 +141,15 @@ def read_upload(filename: str, content: bytes) -> tuple[pd.DataFrame, str, str]:
             raise DatasetError(f"Line {m[2]} has {m[3]} fields but the header has {m[1]}. Quote values that "
                                f"contain '{sep}' or fix that line, then upload again.") from e
         raise DatasetError(f"Could not read {filename} as CSV: {str(e).splitlines()[0]}") from e
+    # DL4 (m-e): codes with leading zeros ('02139', '007') stay text: pandas would read them as numbers and drop the zeros
+    try:
+        raw = pd.read_csv(io.StringIO(text), sep=sep, dtype=str, keep_default_na=True)
+        keep = FIO.leading_zero_columns(raw, df)
+    except Exception:  # noqa: BLE001 - the typed read above succeeded; this is only a refinement
+        keep = []
+    for c in keep:
+        df[c] = raw[c].where(raw[c].notna(), None).astype(object)
+    df.attrs["kept_as_text"] = keep
     if df.shape[1] < 2:
         raise DatasetError("No separated columns found (tried comma, semicolon, tab, pipe). Give a CSV with a "
                            "header row and at least two columns.")
@@ -220,6 +230,7 @@ class DatasetStore:
             raise DatasetError(str(e)) from e
         with self._split_lock:
             if path.exists():
+                self.record_split_file(dataset_id, path, "first seen (drawn before DL4)", only_new=True)
                 return path, load_splits(path), False
             legacy = self.legacy_splits_path(dataset_id)
             sp = load_splits(legacy) if legacy.exists() and strategy == RANDOM_STRATIFIED else None
@@ -240,7 +251,79 @@ class DatasetStore:
             tmp = path.with_suffix(".tmp")
             save_splits(tmp, sp)
             tmp.replace(path)
+            self.record_split_file(dataset_id, path, "drawn")  # DL4 (M-d)
             return path, sp, True
+
+    # -- DL4 (M-d): split files are hashed when drawn, like data.csv ------------------------------------------------
+
+    def split_rel(self, dataset_id: str, path: Path | str) -> str:
+        p = Path(path)
+        return f"splits/{p.name}" if p.parent.name == "splits" else p.name
+
+    def record_split_file(self, dataset_id: str, path: Path, basis: str = "drawn", only_new: bool = False) -> None:
+        import zlib
+
+        from .catalog.schema import file_sha256
+
+        sha = file_sha256(path)
+        if not sha:
+            return
+        rel = self.split_rel(dataset_id, path)
+        with self.db.connect() as con:
+            if only_new and con.execute("SELECT 1 FROM split_files WHERE dataset_id = ? AND file = ?", (dataset_id, rel)).fetchone():
+                return
+            con.execute("INSERT INTO split_files (dataset_id, file, sha256, recorded_at, basis, content) VALUES (?, ?, ?, ?, ?, ?)"
+                        " ON CONFLICT (dataset_id, file) DO UPDATE SET sha256 = excluded.sha256, recorded_at = excluded.recorded_at,"
+                        " basis = excluded.basis, content = excluded.content",
+                        (dataset_id, rel, sha, now(), basis, zlib.compress(path.read_bytes())))
+            self._refresh_splits_sha(con, dataset_id)
+
+    @staticmethod
+    def _refresh_splits_sha(con: Any, dataset_id: str) -> str | None:
+        import hashlib
+
+        rows = con.execute("SELECT file, sha256 FROM split_files WHERE dataset_id = ? ORDER BY file", (dataset_id,)).fetchall()
+        combined = hashlib.sha256("\n".join(f"{r[0]} {r[1]}" for r in rows).encode()).hexdigest() if rows else None
+        con.execute("UPDATE datasets SET splits_sha256 = ? WHERE id = ?", (combined, dataset_id))
+        return combined
+
+    def split_hashes(self, dataset_id: str) -> dict[str, str]:
+        with self.db.connect() as con:
+            return {r[0]: r[1] for r in con.execute("SELECT file, sha256 FROM split_files WHERE dataset_id = ?", (dataset_id,))}
+
+    def check_splits(self, dataset_id: str) -> list[dict[str, Any]]:
+        """Each recorded split file: its stored sha256, the file's now, and ok / MISMATCH / file missing."""
+        from .catalog.schema import file_sha256
+
+        out = []
+        for rel, stored in sorted(self.split_hashes(dataset_id).items()):
+            now_sha = file_sha256(self.dir(dataset_id) / rel)
+            out.append({"file": rel, "stored": stored, "now": now_sha,
+                        "status": "ok" if now_sha == stored else ("file missing" if not now_sha else "MISMATCH")})
+        return out
+
+    def restore_split_files(self, dataset_id: str) -> list[str]:
+        """Write back every split file whose bytes differ from the copy recorded when it was drawn (hash-checked)."""
+        import hashlib
+        import zlib
+
+        restored = []
+        with self.db.connect() as con:
+            rows = con.execute("SELECT file, sha256, content FROM split_files WHERE dataset_id = ?", (dataset_id,)).fetchall()
+        for rel, sha, blob in rows:
+            p = self.dir(dataset_id) / rel
+            if blob is None:
+                continue
+            raw = zlib.decompress(blob)
+            if hashlib.sha256(raw).hexdigest() != sha:
+                raise DatasetError(f"The recorded copy of {rel} does not match its own hash: it can't be restored from it.")
+            from .catalog.schema import file_sha256
+
+            if file_sha256(p) != sha:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(raw)
+                restored.append(rel)
+        return restored
 
     def list_splits(self, dataset_id: str) -> list[dict[str, Any]]:
         """Summaries of every split stored for the dataset (one per target and strategy used so far)."""
@@ -309,7 +392,26 @@ class DatasetStore:
         return rec
 
     def load_frame(self, dataset_id: str) -> pd.DataFrame:
-        return pd.read_csv(self.csv_path(dataset_id))
+        return FIO.read(self.csv_path(dataset_id))  # DL4 (m-e): with the version's schema (text stays text)
+
+    def schema(self, dataset_id: str, df: pd.DataFrame | None = None) -> dict[str, Any]:
+        """DL4: the version's column schema (schema.json), or, for a version made before DL4, the types its file reads as."""
+        return FIO.load(self.dir(dataset_id)) or FIO.schema_of(self.load_frame(dataset_id) if df is None else df)
+
+    def _same_bytes(self, sha: str, root: str, schema: dict[str, Any]) -> str | None:
+        """DL4 (m-e): an existing live version of this dataset with the same bytes AND the same column schema (a number cast
+        to text writes the same bytes, but it is a different version)."""
+        with self.db.connect() as con:
+            ids = [r[0] for r in con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'"
+                                             " ORDER BY created_at", (sha, root, root))]
+        want = FIO.columns(schema)
+        for i in ids:
+            try:
+                if FIO.columns(self.schema(i)) == want:
+                    return i
+            except Exception:  # noqa: BLE001 - an unreadable file is not a duplicate
+                continue
+        return None
 
     # -- create -----------------------------------------------------------
 
@@ -328,6 +430,9 @@ class DatasetStore:
         save_splits(self.legacy_splits_path(dataset_id), splits)
         for p in (self.dir(dataset_id) / "splits").glob("*.json"):  # a regenerated sample: its old splits are stale
             p.unlink()
+        with self.db.connect() as con:
+            con.execute("DELETE FROM split_files WHERE dataset_id = ?", (dataset_id,))
+        self.record_split_file(dataset_id, self.legacy_splits_path(dataset_id), "drawn with the version")
         _, splits, _ = self.ensure_splits(dataset_id, tgt)
         profile["splits"] = summarize(splits, y)
         # "given": named on upload (or a sample's label); "guessed": the profiler's suggestion, to be confirmed.
@@ -339,6 +444,8 @@ class DatasetStore:
         }
         self.db.insert_dataset(rec)
         self.catalog.record_root_dataset(rec, self.csv_path(dataset_id), op=source, actor=by)
+        with self.db.connect() as con:
+            self._refresh_splits_sha(con, dataset_id)  # DL4 (M-d): stored with the version
         return rec
 
     def sidecar(self, dataset_id: str, name: str) -> dict[str, Any] | None:
@@ -413,7 +520,8 @@ class DatasetStore:
         return [rec["id"]]
 
     def create_version(self, parent_id: str, df: pd.DataFrame, splits: dict[str, Any], *, name: str, note: str,
-                       lineage: dict[str, Any], op: str | None = None) -> dict[str, Any]:
+                       lineage: dict[str, Any], op: str | None = None, schema: dict[str, Any] | None = None,
+                       target: str | None = None) -> dict[str, Any]:
         """A new dataset derived from `parent_id` (Autopilot: relabelled / dropped / synthetic rows). The splits are
         given, not drawn: the holdout is the parent's holdout rows that were kept, so scores stay comparable.
         `lineage` (parent, root, root row of every row, the changes) goes to lineage.json and a summary to the profile."""
@@ -423,15 +531,20 @@ class DatasetStore:
         dataset_id = "ds_" + secrets.token_hex(4)
         d = self.dir(dataset_id)
         d.mkdir(parents=True, exist_ok=True)
-        df.to_csv(self.csv_path(dataset_id), index=False)
-        df = pd.read_csv(self.csv_path(dataset_id))
-        profile = profile_frame(df, parent["target"] if parent["target"] in df.columns else None)
+        if schema is None:  # DL4: the parent's schema as the hint (an int column stays int, text stays text)
+            schema = FIO.schema_of(df, FIO.columns(FIO.load(self.dir(parent_id))))
+        self.csv_path(dataset_id).write_bytes(FIO.to_csv_bytes(df, schema))
+        FIO.save(d, schema)
+        df = FIO.read(self.csv_path(dataset_id), schema)
+        tgt0 = target if target is not None else parent["target"]  # DL4 (M-c): an edit that names a new target sets it
+        profile = profile_frame(df, tgt0 if tgt0 in df.columns else None)
         save_splits(self.legacy_splits_path(dataset_id), splits)
+        self.record_split_file(dataset_id, self.legacy_splits_path(dataset_id), "drawn with the version")
         tgt = profile["target"]
         # The given split is stored under its own target (adopted from splits.json, rows unchanged).
         st = splits.get("target") if splits.get("target") in df.columns else tgt
         _, splits, _ = self.ensure_splits(dataset_id, st if st in df.columns else None)
-        profile["target_source"] = parent["profile"].get("target_source", "given")
+        profile["target_source"] = "confirmed" if target is not None else parent["profile"].get("target_source", "given")
         profile["splits"] = summarize(splits, df[st] if st in df.columns else None)
         (d / "lineage.json").write_text(json.dumps(lineage))
         profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes")}
@@ -441,6 +554,8 @@ class DatasetStore:
             "kind": profile["kind"], "profile": profile,
         }
         self.db.insert_dataset(rec)
+        with self.db.connect() as con:
+            self._refresh_splits_sha(con, dataset_id)  # DL4 (M-d): stored with the version
         rr = lineage.get("root_rows")
         self.catalog.record_version(parent_id, rec, self.csv_path(dataset_id), op=str(op or lineage.get("kind") or "derived"),
                                     actor=str(lineage.get("by") or lineage.get("created_by") or "system"),
@@ -453,7 +568,7 @@ class DatasetStore:
     def derive(self, parent_id: str, df: pd.DataFrame, keep_idx: Any, op: str, changes: list[Any], *, name: str, note: str,
                splits: dict[str, Any] | None = None, extra: dict[str, Any] | None = None, by: str | None = None,
                new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0, reason: str | None = None,
-               dedupe: bool | None = None) -> dict[str, Any]:
+               dedupe: bool | None = None, schema: dict[str, Any] | None = None, target: str | None = None) -> dict[str, Any]:
         """P1 step 2: the one way to make a dataset version. `df` is the new frame: the parent's rows `keep_idx` (positions
         in the parent, in order; a bool mask or ints; None = every row) followed by `new_rows` rows with no root row
         (synthetic: root -1-i). Writes data.csv, lineage.json {parent, root, root_rows, changes, op, …extra}, the version's
@@ -492,6 +607,8 @@ class DatasetStore:
         root_rows = [int(proots[p]) if p >= 0 else 0 for p in rmap]
         for i, j in enumerate(new_pos):
             root_rows[j] = neg0 - 1 - i
+        if schema is None:  # DL4: the parent's schema as the hint (an int column stays int, text stays text)
+            schema = FIO.schema_of(df, FIO.columns(self.schema(parent_id)))
         if splits is None:
             st = parent["target"] if parent["target"] in df.columns else None
             _, sp, _ = self.ensure_splits(parent_id, parent["target"])
@@ -531,11 +648,10 @@ class DatasetStore:
         # DL3 (m3): the same bytes as a version of this dataset that still exists: return it (dedupe), or flag it
         import hashlib
 
-        sha = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()
+        sha = hashlib.sha256(FIO.to_csv_bytes(df, schema)).hexdigest()
         root = plin.get("root") or parent.get("root_id") or parent_id
-        with self.db.connect() as con:
-            same = con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'"
-                               " ORDER BY created_at LIMIT 1", (sha, root, root)).fetchone()
+        same = self._same_bytes(sha, root, schema)
+        same = (same,) if same else None
         if same and (dedupe if dedupe is not None else op in DEDUPE_OPS):
             from .catalog.schema import audit
 
@@ -550,7 +666,7 @@ class DatasetStore:
             lineage["duplicate_of"] = same[0]
             lineage.setdefault("checks", {"warnings": []}).setdefault("warnings", []).append(
                 {"code": "identical_file", "message": f"The same rows as {same[0]} (sha256 {sha[:12]}…): this version adds nothing but a pointer."})
-        return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op)
+        return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op, schema=schema, target=target)
 
     def lineage(self, dataset_id: str) -> dict[str, Any] | None:
         p = self.dir(dataset_id) / "lineage.json"
@@ -572,24 +688,34 @@ class DatasetStore:
         if not parent:
             raise DatasetError(f"No dataset with id '{parent_id}'.")
         df, note, _ = read_upload(filename, content)
+        kept = list(df.attrs.get("kept_as_text") or [])
+        held = {c: df[c] for c in kept}
         df = _normalize_frame(df)
-        df = pd.read_csv(io.StringIO(df.to_csv(index=False)))  # exactly what data.csv will read back as
+        for c, v in held.items():
+            if c in df.columns:
+                df[c] = v
         pdf = self.load_frame(parent_id)
+        pschema = FIO.columns(self.schema(parent_id, pdf))
+        # DL4 (m-e): a column the parent keeps as text stays text in the new file (its codes keep their zeros)
+        schema = FIO.schema_of(df, pschema, {c: "text" for c in df.columns if pschema.get(c) == "text" or c in kept})
+        df = FIO.roundtrip(df, schema)  # exactly what data.csv will read back as
         match = DV.match_rows(pdf, df, row_key)
         checks = DV.contract_checks(pdf, df, parent["target"])
         import hashlib
 
-        sha = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()  # the bytes create_version will write
-        with self.db.connect() as con:
-            same = con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'",
-                               (sha, parent.get("root_id") or parent_id, parent.get("root_id") or parent_id)).fetchone()
+        sha = hashlib.sha256(FIO.to_csv_bytes(df, schema)).hexdigest()  # the bytes create_version will write
+        same = self._same_bytes(sha, parent.get("root_id") or parent_id, schema)
+        same = (same,) if same else None
         if same:
             checks["warnings"].append({"code": "identical_file", "message": f"This file has the same rows as {same[0]} (sha256 "
                                        f"{sha[:12]}…): the new version adds nothing but a pointer."})
         extra = {"kind": "upload_version", "filename": Path(filename).name, "matched_by": match["matched_by"],
                  "row_key": match.get("row_key"), "matched": match["matched"], "changed": match["changed"],
                  "added": match["added"], "removed": match["removed"], "checks": checks,
-                 "columns_before": int(pdf.shape[1]), "columns_after": int(df.shape[1])}
+                 "columns_before": int(pdf.shape[1]), "columns_after": int(df.shape[1]),
+                 **({"kept_as_text": kept} if kept else {})}
+        if kept:
+            checks.setdefault("notes", []).append(f"Kept as text (codes with leading zeros): {', '.join(kept)}.")
         changes = [{"op": "rows_changed", "n": match["changed"]}, {"op": "rows_added", "n": match["added"]},
                    {"op": "rows_removed", "n": match["removed"]}]
         changes = [c for c in changes if c["n"]] + [{"op": "column_added", "column": c} for c in checks["columns_added"]] + \
@@ -605,21 +731,27 @@ class DatasetStore:
         rec = self.derive(parent_id, df, None, "upload_version", changes, name=parent["name"],
                           note=f"{note} as v{n_ver} of {parent['name']}: {match['matched']:,} rows matched by "
                                f"{match['matched_by']}, {match['changed']:,} changed, {match['added']:,} new, {match['removed']:,} gone",
-                          extra=extra, by=by, row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason)
+                          extra=extra, by=by, row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason,
+                          schema=schema)
         rec["upload"] = {k: v for k, v in extra.items() if k != "kind"}
         return rec
 
 
-    def edit_version(self, parent_id: str, ops: Any, *, by: str, reason: str, preview: bool = False) -> dict[str, Any]:
+    def edit_version(self, parent_id: str, ops: Any, *, by: str, reason: str, preview: bool = False,
+                     set_target: Any = None) -> dict[str, Any]:
         """DL3: typed edits (dataset_edit.OPS) applied to `parent_id`, committed as a NEW version through derive(): edited
         rows keep their root row and holdout / fold, new rows get new root ids (and a seeded share of the holdout),
         deleted rows are gone. The version edited is never changed. `preview` writes nothing. Refused (409) when the
-        parent's file on disk no longer matches its stored sha256 (an edit would carry an outside change forward)."""
+        parent's file on disk no longer matches its stored sha256 (an edit would carry an outside change forward).
+
+        DL4: column types are kept (schema.json: an int stays int, text stays text; a cast changes the schema and makes a
+        real version). An op that drops, renames or casts the target is refused unless `set_target` {column, reason}
+        names the target of the new version explicitly (audited either way)."""
         import hashlib
 
         from . import dataset_edit as DE
         from . import dataset_versions as DV
-        from .catalog.schema import file_sha256
+        from .catalog.schema import audit, file_sha256
 
         parent = self.db.get_dataset(parent_id)
         if not parent:
@@ -630,38 +762,80 @@ class DatasetStore:
                                   f"{(on_disk or 'missing')[:12]}…): it was changed outside the app, so it can't be edited. "
                                   "Restore the file, or create a new version from it (Data → the version → Create a new version "
                                   "from this file).")
+        st_col, st_reason = None, ""
+        if set_target is not None:
+            if not isinstance(set_target, dict) or not isinstance(set_target.get("column"), str) or not set_target["column"].strip():
+                raise DatasetError('set_target is {"column": <the new version\'s target>, "reason": "…"}.')
+            st_col, st_reason = set_target["column"].strip(), str(set_target.get("reason") or "").strip()
+            if len(st_reason) < 10:
+                raise DatasetError("Changing the target needs its own reason (set_target.reason, at least 10 characters): "
+                                   "models trained on the old target can't be compared with ones trained on the new.")
         pdf = self.load_frame(parent_id)
+        pschema = FIO.columns(self.schema(parent_id, pdf))
         try:
             res = DE.apply_ops(pdf, ops, parent["target"])
         except DE.EditError as e:
             raise DatasetError(str(e)) from e
+        old_t = parent["target"]
+        if res["target_touched"] and st_col is None:  # DL4 (M-c): never re-target silently
+            t = res["target_touched"]
+            msg = (f"Operation {t['i']} {t['what']} the target '{old_t}'. Runs on this version would predict something else, so "
+                   "this is refused. Leave the target alone, or say what the new version predicts: send "
+                   '"set_target": {"column": "<column>", "reason": "<why the target changes>"} with the edit.')
+            with self.db.connect() as con:
+                audit(con, by, "dataset_edit_refused", comment=msg[:500],
+                      details={"dataset_id": parent_id, "root_id": parent.get("root_id") or parent_id, "status": 400,
+                               "target": old_t, "op": t})
+            raise DatasetError(msg)
         df = res["frame"]
-        df = pd.read_csv(io.StringIO(df.to_csv(index=False)))  # exactly what data.csv will read back as
+        if st_col is not None and st_col not in df.columns:
+            raise DatasetError(f"set_target: no column {st_col!r} in the edited version (columns: {', '.join(map(str, df.columns[:12]))}).")
+        if st_col is not None:
+            check_target(df[st_col].dropna(), st_col)
+        # the schema of the new version: the parent's, through renames and drops; casts set their column's kind
+        inv = {}
+        for old, new in res["renamed"].items():
+            inv[new] = inv.pop(old, old)
+        hint = {c: pschema.get(inv.get(c, c)) for c in df.columns if pschema.get(inv.get(c, c))}
+        schema = FIO.schema_of(df, hint, res["casts"])
+        df = FIO.roundtrip(df, schema)  # exactly what data.csv will read back as
         if df.shape[1] < 2 or len(df) < 2:
             raise DatasetError("A version needs at least two rows and two columns.")
-        sha = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()
+        sha = hashlib.sha256(FIO.to_csv_bytes(df, schema)).hexdigest()
         rmap = np.asarray(res["row_map"], dtype=int)
         ib = np.flatnonzero(rmap >= 0)
         ia = rmap[ib]
-        changed = int(DV._changed(pdf, df, ia, ib).sum())
-        checks = DV.contract_checks(pdf, df, parent["target"])
+        # DL4 (m-g): compare renamed columns under their old name, as the diff does
+        changed = int(DV._changed(pdf, df.rename(columns=inv), ia, ib).sum())
+        new_t = st_col if st_col is not None else res["target"]
+        checks = DV.contract_checks(pdf, df.rename(columns=inv), old_t if st_col is None or st_col == old_t else None)
         for old, new in res["renamed"].items():  # a rename is not a loss: say so next to the warning it raises
             for w in checks["warnings"]:
                 if w.get("column") == old and w["code"] == "column_removed":
                     w["message"] = f"'{old}' was renamed to '{new}': runs that used '{old}' can't be re-fitted on this version as they were."
-                if w["code"] == "target_missing" and parent["target"] == old:
-                    w["message"] = f"The target '{old}' was renamed to '{new}': runs on this version use '{new}' as the target."
+        if res["renamed"]:  # contract_checks saw the renamed columns under their old names: report the rename itself
+            for old, new in res["renamed"].items():
+                if old in pdf.columns:
+                    checks["warnings"].append({"code": "column_removed", "column": old,
+                                               "message": f"'{old}' was renamed to '{new}': runs that used '{old}' can't be re-fitted on this version as they were."})
+            checks["columns_removed"] = sorted(set(checks.get("columns_removed") or []) | {o for o in res["renamed"] if o in pdf.columns})
+            checks["columns_added"] = sorted(set(checks.get("columns_added") or []) | {n for n in res["renamed"].values() if n in df.columns})
+        if st_col is not None and st_col != old_t:
+            checks["warnings"].append({"code": "target_changed", "column": st_col,
+                                       "message": f"The target changes from '{old_t}' to '{st_col}' ({st_reason}): runs on this version "
+                                                  "predict something else, and are not compared with runs on the old target."})
+        kinds_changed = [{"column": c, "from": pschema.get(inv.get(c, c)), "to": k} for c, k in FIO.columns(schema).items()
+                         if pschema.get(inv.get(c, c)) and pschema.get(inv.get(c, c)) != k]
         root = parent.get("root_id") or parent_id
-        with self.db.connect() as con:
-            same = con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'"
-                               " ORDER BY created_at LIMIT 1", (sha, root, root)).fetchone()
+        same = self._same_bytes(sha, root, schema)
         n_ver = 1 + len(self.catalog.tree_ids(parent_id))
         summary = {"matched": int(len(ib)), "changed": changed, "added": int((rmap < 0).sum()), "removed": int(len(pdf) - len(ib)),
                    "columns_before": int(pdf.shape[1]), "columns_after": int(df.shape[1]), "checks": checks,
                    "renamed": res["renamed"], "edit_log": res["log"], "ops_summary": [e["summary"] for e in res["log"]],
-                   "n_ops": len(res["log"])}
+                   "n_ops": len(res["log"]), "schema": FIO.columns(schema), "types_changed": kinds_changed,
+                   "target": {"before": old_t, "after": new_t, **({"set_by_edit": True, "reason": st_reason} if st_col is not None else {})}}
         if same:
-            summary["duplicate_of"] = same[0]
+            summary["duplicate_of"] = same
         if preview:
             cols = list(df.columns)
             return {"preview": True, "v": n_ver, "parent": parent_id, "rows": int(len(df)), "n_cols": int(df.shape[1]), "sha256": sha,
@@ -674,11 +848,18 @@ class DatasetStore:
         rec = self.derive(parent_id, df, None, "edit", changes, name=parent["name"],
                           note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
                                + ("…" if len(summary["ops_summary"]) > 4 else ""),
-                          extra=extra, by=by, row_map=res["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason)
+                          extra=extra, by=by, row_map=res["row_map"], new_holdout_share=config.HOLDOUT_SHARE, reason=reason,
+                          schema=schema, target=new_t if st_col is not None else None)
         if rec.get("deduplicated"):
             return {**rec, "created": False, "edit": {k: v for k, v in summary.items() if k != "edit_log"}}
         # the full list of operations as sent (every cell), beside lineage.json, whose log is capped
-        (self.dir(rec["id"]) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops}, default=str))
+        (self.dir(rec["id"]) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops,
+                                                                        **({"set_target": set_target} if set_target else {})}, default=str))
+        if st_col is not None:
+            with self.db.connect() as con:
+                audit(con, by, "dataset_target_changed", comment=st_reason[:500],
+                      details={"dataset_id": rec["id"], "root_id": root, "parent": parent_id, "from": old_t, "to": st_col,
+                               "edit_reason": reason})
         rec["edit"] = summary
         rec["created"] = True
         return rec
@@ -696,20 +877,32 @@ class DatasetStore:
             raise DatasetError("A dataset needs at least two rows.")
         from .profiling import coerce_numeric
 
+        kept = list(df.attrs.get("kept_as_text") or [])
+        held = {c: df[c] for c in kept if c in df.columns}
         df, coerced = coerce_numeric(df)  # A1 #5: '  ' / 'n/a' / '$12,000' in a number column must not make it a category or an ID
         dataset_id = "ds_" + secrets.token_hex(4)
         d = self.dir(dataset_id)
         d.mkdir(parents=True, exist_ok=True)
-        df.to_csv(self.csv_path(dataset_id), index=False)
+        for c, v in held.items():  # DL4 (m-e): codes with leading zeros are not numbers
+            df[c] = v
+        coerced = [x for x in coerced if x.get("column") not in held]
+        schema = FIO.schema_of(df, force={c: "text" for c in kept})  # DL4 (m-e): types travel with the version
+        self.csv_path(dataset_id).write_bytes(FIO.to_csv_bytes(df, schema))
+        FIO.save(d, schema)
         if coerced:
             (d / "coerced.json").write_text(json.dumps(coerced))
-        df = pd.read_csv(self.csv_path(dataset_id))  # profile exactly what the engine will read back
+        df = FIO.read(self.csv_path(dataset_id), schema)  # profile exactly what the engine will read back
         try:
             rec = self._register(dataset_id, df, name=name, filename=filename, source="upload", note=note,
                                  size_bytes=self.csv_path(dataset_id).stat().st_size, target=target, by=by)
         except DatasetError:
             shutil.rmtree(d, ignore_errors=True)
             raise
+        if kept:  # DL4 (m-e): say which columns were kept as text, and why
+            rec["profile"]["kept_as_text"] = kept
+            rec["profile"].setdefault("warnings", []).append(
+                f"Kept as text (codes with leading zeros, e.g. ZIP or ID codes): {', '.join(kept)}. Cast to number in Data → Edit if they are amounts.")
+            self.db.insert_dataset(rec)
         if lineage:
             lineage = {**lineage, "root": lineage.get("root") or dataset_id}
             (d / "lineage.json").write_text(json.dumps(lineage))
