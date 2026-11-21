@@ -52,7 +52,7 @@ def tree_rows(con, root: str) -> list[dict[str, Any]]:
     rows = con.execute("SELECT id, name, filename, source, note, created_at, rows, target, kind, project_id, parent_id, root_id, sha256,"
                        " op, created_by, state, state_at, state_by, state_scope, verified_at, verified_ok, size_bytes,"
                        " splits_sha256, version_no, team_id, storage, legacy_sha256,"
-                       " COALESCE(n_cols, json_extract(profile, '$.n_cols')) AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
+                       " COALESCE(n_cols, CAST(json_extract(profile, '$.n_cols') AS INTEGER)) AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, id",
                        (root, root)).fetchall()
     out = [dict(r) for r in rows]
     for i, r in enumerate(out):
@@ -111,7 +111,7 @@ def usage(con, ids: list[str]) -> dict[str, Any]:
         qr = ",".join("?" * len(rids))
         vers = [dict(r) for r in con.execute(
             "SELECT e.dst_id AS id, e.src_id AS run_id, COALESCE(v.model_name, json_extract(e.meta, '$.model_name')) AS model_name,"
-            " COALESCE(v.version, json_extract(e.meta, '$.version')) AS version, COALESCE(v.status, 'missing') AS status, v.stage,"
+            " COALESCE(v.version, CAST(json_extract(e.meta, '$.version') AS INTEGER)) AS version, COALESCE(v.status, 'missing') AS status, v.stage,"
             " COALESCE(v.approval, 'unknown') AS approval, v.created_by, v.created_at, v.retired_at, v.retired_by"
             f" FROM lineage_edges e LEFT JOIN model_versions v ON v.id = e.dst_id WHERE e.relation = 'built_from' AND e.src_kind = 'run'"
             f" AND e.src_id IN ({qr})", rids)]
@@ -353,7 +353,7 @@ def search(app, *, q: str = "", project: str | None = None, tag: str | None = No
     with app.state.db.connect() as con:
         rows = [dict(r) for r in con.execute(
             "SELECT d.id, d.name, d.filename, d.source, d.created_at, d.rows, d.target, d.project_id, d.parent_id, d.root_id, d.op,"
-            " d.created_by, d.state, d.sha256, COALESCE(d.n_cols, json_extract(d.profile, '$.n_cols')) AS n_cols FROM datasets d ORDER BY d.created_at, d.rowid")]
+            " d.created_by, d.state, d.sha256, COALESCE(d.n_cols, CAST(json_extract(d.profile, '$.n_cols') AS INTEGER)) AS n_cols FROM datasets d ORDER BY d.created_at, d.id")]
         cards = {r["root_id"]: dict(r) for r in con.execute("SELECT * FROM dataset_cards")}
         cards.update({r["root_id"]: dict(r) for r in con.execute(_ROOT_CARD_SQL)})  # P01: dataset_roots first
         tags: dict[str, set[str]] = {}
@@ -776,7 +776,7 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
 def verify_all(app, by: str) -> dict[str, Any]:
     """DL2: re-hash every version of every dataset that is not deleted (the admin "verify all" and the optional timer)."""
     with app.state.db.connect() as con:
-        roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS NOT 'deleted'")]
+        roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS DISTINCT FROM 'deleted'")]
     res = [verify(app, r, by, whole=True) for r in roots]
     failed = [{"root_id": x["root_id"], **y} for x in res for y in x["results"] if y["ok"] is False]
     at = now()

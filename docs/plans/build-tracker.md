@@ -44,7 +44,8 @@
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
 | P10b | S | started (MinIO + read cache) | session_018upNdRLNhdMckTGcyQS5SA | |
-| P23 | O | started (Postgres) | session_018upNdQtu1bjzLTGxWxh2gv | |
+| P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
+| F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
 | X2 | ⟂ | started (migration check, read-only) | session_018upNdNbAs6Mvojf6VJc3XR | |
 
 ## Open notes carried forward
@@ -69,3 +70,8 @@
 - **duck.job() connections don't preserve ORDER BY into arrow/numpy:** sort explicitly wherever row order matters.
 - **Data Doctor label-quality thread:** still in-process (≤200k rows). It belongs on the queue.
 - **vela/missing.py clean-labels:** shape mismatch (622,2) vs (622,1) on a group-split gapped run. It is caught and recorded in doctor_gaps.errors. Fix it in a follow-up.
+- **P23 → all lanes:** SQL is still written once in the SQLite dialect; on Postgres (`ENSEMBLE_DB_URL`) `db_pg.translate` rewrites it. Write portable SQL anyway:
+  - `CAST(json_extract(…) AS INTEGER/REAL)` wherever a JSON value meets a number (Postgres's json_extract returns text);
+  - no `rowid`, no `json_set`, no output alias inside an ORDER BY expression;
+  - no catch-and-continue after a failed statement inside one `with db.connect()` (it aborts a Postgres transaction).
+- **P23 → follow-up:** the long 10M writes as jobs with progress (edit commit, Doctor apply, Feature Lab SQL write) were not built in P23. With grants on (`ENSEMBLE_DB_APP_ROLE`), split restore and admin reset need the owner role (they DROP TRIGGER).

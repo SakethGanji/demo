@@ -1,4 +1,6 @@
-"""SQLite through the standard library. One short-lived connection per call keeps it thread-safe."""
+"""The metadata DB. SQLite through the standard library by default (local dev): one short-lived connection per call keeps
+it thread-safe. P23: with ENSEMBLE_DB_URL=postgresql://… (read from the environment only, never stored) the same
+`connect()` hands out pooled Postgres connections through the dialect layer in db_pg.py."""
 
 from __future__ import annotations
 
@@ -113,13 +115,23 @@ CREATE TABLE IF NOT EXISTS batch_jobs (
 
 #: P08: the columns of a list row, with the two profile fields the list shows (json_extract, not the whole profile)
 LIGHT_COLS = ("id, name, filename, source, note, created_at, size_bytes, rows, target, kind, project_id, parent_id, root_id, op, state,"
-              " COALESCE(n_cols, json_extract(profile, '$.n_cols')) AS _n_cols, json_extract(profile, '$.n_classes') AS _n_classes")
+              " COALESCE(n_cols, CAST(json_extract(profile, '$.n_cols') AS INTEGER)) AS _n_cols,"
+              " CAST(json_extract(profile, '$.n_classes') AS INTEGER) AS _n_classes")
+
+_pg_migrated: set[str] = set()
 
 
 class Database:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, url: str | None = None) -> None:
+        from . import db_pg
+
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
+        self.url = url if url is not None else db_pg.env_url()
+        self.dialect = "postgres" if db_pg.is_pg_url(self.url) else "sqlite"
+        if self.dialect == "postgres":
+            self._migrate_pg()
+            return
         with self.connect() as con:
             con.executescript(SCHEMA)
             # F18: a scored batch carries the date of its data (monitoring over time). Added to older databases in place.
@@ -132,8 +144,34 @@ class Database:
             # P08: the dataset list's order and count without reading rows (state is a late column, after profile)
             con.execute("CREATE INDEX IF NOT EXISTS ix_datasets_list ON datasets (state, created_at, id)")
 
+    def _migrate_pg(self) -> None:
+        """Once per process and URL: the §2.2 schema, as the owner role when ENSEMBLE_DB_OWNER_URL is set (then the app
+        role named by ENSEMBLE_DB_APP_ROLE gets the §2.2 grants)."""
+        import os
+
+        from . import db_pg
+        from .catalog import pg_schema
+
+        if self.url in _pg_migrated:
+            return
+        owner = pg_schema.owner_url()
+        role = (os.environ.get("ENSEMBLE_DB_APP_ROLE") or "").strip() or None
+        if owner:
+            with db_pg.direct(owner) as con:
+                pg_schema.migrate(con, app_role=role)
+        else:
+            with self.connect() as con:
+                pg_schema.migrate(con)
+        _pg_migrated.add(self.url)
+
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
+        if self.dialect == "postgres":
+            from . import db_pg
+
+            with db_pg.connect(self.url) as pcon:
+                yield pcon  # type: ignore[misc]
+            return
         con = sqlite3.connect(self.path, timeout=30)
         con.row_factory = sqlite3.Row
         con.execute("PRAGMA journal_mode=WAL")
@@ -163,10 +201,10 @@ class Database:
         the whole profile JSON of each row."""
         if light:
             with self.connect() as con:
-                rows = con.execute(f"SELECT {LIGHT_COLS} FROM datasets ORDER BY created_at, rowid").fetchall()
+                rows = con.execute(f"SELECT {LIGHT_COLS} FROM datasets ORDER BY created_at, id").fetchall()
             return [self._light(r) for r in rows]
         with self.connect() as con:
-            rows = con.execute("SELECT * FROM datasets ORDER BY created_at, rowid").fetchall()
+            rows = con.execute("SELECT * FROM datasets ORDER BY created_at, id").fetchall()
         return [self._row(r) for r in rows]
 
     def count_datasets(self) -> int:

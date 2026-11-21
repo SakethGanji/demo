@@ -627,6 +627,12 @@ psutil==7.2.2
     #   accelerate
     #   autogluon-common
     #   peft
+psycopg[binary]==3.3.9
+    # via -r backend/requirements.txt
+psycopg-binary==3.3.9
+    # via psycopg
+psycopg-pool==3.3.3
+    # via -r backend/requirements.txt
 py-spy==0.4.3
     # via ray
 py4j==0.10.9.9

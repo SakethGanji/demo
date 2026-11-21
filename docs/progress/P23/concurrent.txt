@@ -1,0 +1,10 @@
+### Postgres (:8002)
+staged + checked: ['up_528c01a5d7c1', 'up_ef221f27abf3']
+  up_528c01a5d7c1 → HTTP 201 ds_773941c0 version_no 7
+  up_ef221f27abf3 → HTTP 201 ds_78fb0b89 version_no 6
+RESULT: n and n+1
+### SQLite (:8001)
+staged + checked: ['up_68cef61b542c', 'up_94cba6ee142b']
+  up_68cef61b542c → HTTP 201 ds_1b5ca2b5 version_no 6
+  up_94cba6ee142b → HTTP 201 ds_f3d21dd5 version_no 7
+RESULT: n and n+1

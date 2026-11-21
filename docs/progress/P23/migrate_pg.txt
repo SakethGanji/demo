@@ -1,0 +1,55 @@
+source /tmp/claude-0/p23src/ensemble.sqlite3
+target postgresql://ens_owner@/ensemble?host=/var/tmp/p23pg&port=5433
+  copied admin_requests: 0 rows
+  copied annotations: 0 rows
+  copied approval_requests: 0 rows
+  copied audit_log: 72 rows
+  copied batch_jobs: 0 rows
+  copied blobs: 57 rows
+  copied catalog_meta: 13 rows
+  copied certifications: 0 rows
+  copied champions: 0 rows
+  copied column_tags: 0 rows
+  copied data_contracts: 0 rows
+  copied dataset_cards: 15 rows
+  copied dataset_requests: 0 rows
+  copied datasets: 19 rows
+  copied diff_cache: 1 rows
+  copied idp_group_roles: 0 rows
+  copied jobs: 21 rows
+  copied lake_migrations: 1 rows
+  copied legal_holds: 0 rows
+  copied lineage_edges: 6 rows
+  copied principals: 4 rows
+  copied projects: 15 rows
+  copied registered_models: 1 rows
+--- kill -9 at run_events rows_copied=124 (pg_copy_progress: run_events|124|124|0)
+--- resume:
+source /tmp/claude-0/p23src/ensemble.sqlite3
+target postgresql://ens_owner@/ensemble?host=/var/tmp/p23pg&port=5433
+  copied run_events: 165 rows (resumed)
+  copied run_inputs: 1 rows
+  copied runs: 1 rows
+  copied shares: 0 rows
+  copied split_files: 1 rows
+  copied storage_usage: 0 rows
+  copied table_keys: 4 rows
+  copied table_relations: 0 rows
+  copied table_stats: 19 rows
+  copied teams: 2 rows
+  copied uploads: 4 rows
+  copied version_requests: 0 rows
+  copied workers: 0 rows
+  copied blob_refs: 62 rows
+  copied dataset_roots: 15 rows
+  copied model_versions: 1 rows
+  copied splits: 19 rows
+  copied team_members: 6 rows
+  copied version_tables: 19 rows
+  copied dataset_root_tables: 15 rows
+  copied joins: 0 rows
+  copied table_files: 19 rows
+  copied join_frames: 0 rows
+verify: ok=True tables=46 rows=578 mismatched=[]
+  audit chain tm_5556e1c6: ok=True rows=29
+  audit chain tm_default: ok=True rows=43

@@ -489,7 +489,7 @@ def evidence_runs(db, version_id: str, table: str, split_key: str, split_id: str
             " LEFT JOIN blob_refs b ON b.owner_kind = 'run' AND b.owner_id = ri.run_id AND b.role = 'split'"
             " WHERE ri.role = 'train' AND (ri.split_id = ? OR (ri.version_id = ? AND ri.table_name = ?"
             "   AND json_extract(r.config, '$.split.key') = ?))"
-            " AND COALESCE(json_extract(r.result, '$.splits_integrity.match'), 1) = 1"
+            " AND COALESCE(CAST(json_extract(r.result, '$.splits_integrity.match') AS TEXT), '1') IN ('1', 'true')"
             " AND json_extract(r.result, '$.splits_integrity.override') IS NULL"
             " ORDER BY r.created_at, ri.run_id", (split_id, version_id, table, split_key)).fetchall()
     return [dict(r) for r in rows if r["split_sha256"] or r["split_legacy_sha256"]]

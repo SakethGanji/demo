@@ -711,6 +711,21 @@ class DataIntegrityError(RuntimeError):
     """DL3 (M1): the bytes on disk are not the version's: the fit is refused."""
 
 
+def _json_set(con, run_id: str, cfg: dict[str, Any], meta: dict[str, Any]) -> None:
+    """P23: SQLite's json_set, portable: the run's config and its trained_on edges get the keys (compact JSON, a new
+    key appended, an existing one replaced in place, as json_set does)."""
+    r = con.execute("SELECT config FROM runs WHERE id = ?", (run_id,)).fetchone()
+    if r:
+        c = json.loads(r[0])
+        c.update(cfg)
+        con.execute("UPDATE runs SET config = ? WHERE id = ?", (json.dumps(c, separators=(",", ":"), ensure_ascii=False), run_id))
+    for e in con.execute("SELECT id, meta FROM lineage_edges WHERE relation = 'trained_on' AND dst_kind = 'run' AND dst_id = ?",
+                         (run_id,)).fetchall():
+        m = json.loads(e[1] or "{}")
+        m.update(meta)
+        con.execute("UPDATE lineage_edges SET meta = ? WHERE id = ?", (json.dumps(m, separators=(",", ":"), ensure_ascii=False), e[0]))
+
+
 def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str | None, ok: bool | None,
                      info: dict[str, Any] | None = None) -> None:
     """P05: what this run read, as one insert-only `run_inputs` row (role 'train'): the table and its committed
@@ -770,9 +785,7 @@ def data_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: str
     record_run_input(cfg, store, run_id, sha, ok, info)
     store.merge_result(run_id, data_sha256=sha, data_integrity=rec)
     with store.db.connect() as con:
-        con.execute("UPDATE runs SET config = json_set(config, '$.data_sha256', ?) WHERE id = ?", (sha, run_id))
-        con.execute("UPDATE lineage_edges SET meta = json_set(COALESCE(meta, '{}'), '$.data_sha256', ?, '$.data_sha256_match', json(?))"
-                    " WHERE relation = 'trained_on' AND dst_kind = 'run' AND dst_id = ?", (sha, "null" if ok is None else ("true" if ok else "false"), run_id))
+        _json_set(con, run_id, {"data_sha256": sha}, {"data_sha256": sha, "data_sha256_match": ok})
     emit("data_hashed", **rec)
     if ok is not False:
         return
@@ -837,9 +850,7 @@ def splits_gate(cfg: dict[str, Any], sha: str | None, store: RunStore, run_id: s
             rec["override"] = {"by": cfg["data_integrity_override"]["by"]}
     store.merge_result(run_id, splits_sha256=sha, splits_integrity=rec)
     with store.db.connect() as con:
-        con.execute("UPDATE runs SET config = json_set(config, '$.splits_sha256', ?) WHERE id = ?", (sha, run_id))
-        con.execute("UPDATE lineage_edges SET meta = json_set(COALESCE(meta, '{}'), '$.splits_sha256', ?, '$.splits_sha256_match', json(?))"
-                    " WHERE relation = 'trained_on' AND dst_kind = 'run' AND dst_id = ?", (sha, "null" if ok is None else ("true" if ok else "false"), run_id))
+        _json_set(con, run_id, {"splits_sha256": sha}, {"splits_sha256": sha, "splits_sha256_match": ok})
     emit("splits_hashed", **rec)
     if ok is not False:
         return

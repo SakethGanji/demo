@@ -557,7 +557,7 @@ class VersionWriter:
                     raise LakeError(409, "root_deleted", f"Dataset {root} is deleted.")
                 if self.dedupe:
                     r = con.execute("SELECT id FROM datasets WHERE (id = ? OR root_id = ?) AND data_sha256 = ? AND storage = 'parquet'"
-                                    " AND state IS NOT 'deleted' ORDER BY version_no LIMIT 1", (root, root, dsha)).fetchone()
+                                    " AND state IS DISTINCT FROM 'deleted' ORDER BY version_no LIMIT 1", (root, root, dsha)).fetchone()
                     if r:
                         con.rollback()
                         return self._result(r[0], deduped="data")
@@ -677,7 +677,7 @@ class VersionWriter:
         if self.root_id and self.dedupe:
             with self.db.connect() as con:
                 r = con.execute("SELECT id FROM datasets WHERE (id = ? OR root_id = ?) AND data_sha256 = ? AND storage = 'parquet'"
-                                " AND state IS NOT 'deleted' ORDER BY version_no LIMIT 1", (root, root, dsha)).fetchone()
+                                " AND state IS DISTINCT FROM 'deleted' ORDER BY version_no LIMIT 1", (root, root, dsha)).fetchone()
             if r:
                 return r[0], "data"
         return None

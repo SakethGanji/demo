@@ -66,7 +66,7 @@ class RegistryStore:
 
     def list_models(self) -> list[dict[str, Any]]:
         with self.db.connect() as con:
-            return [dict(r) for r in con.execute("SELECT * FROM registered_models ORDER BY created_at, rowid")]
+            return [dict(r) for r in con.execute("SELECT * FROM registered_models ORDER BY created_at, name")]
 
     # -- versions ------------------------------------------------------------
 
@@ -96,7 +96,7 @@ class RegistryStore:
             q += " WHERE model_name = ?"
             args = (model_name,)
         with self.db.connect() as con:
-            rows = con.execute(q + " ORDER BY created_at DESC, rowid DESC", args).fetchall()
+            rows = con.execute(q + " ORDER BY created_at DESC, id DESC", args).fetchall()
         return [self._row("model_versions", r) for r in rows]
 
     def update_version(self, vid: str, **fields: Any) -> None:
@@ -168,7 +168,7 @@ class RegistryStore:
         if version_id:
             q, args = q + " WHERE version_id = ?", (version_id,)
         with self.db.connect() as con:
-            return [self._row("batch_jobs", r) for r in con.execute(q + " ORDER BY created_at DESC, rowid DESC", args)]
+            return [self._row("batch_jobs", r) for r in con.execute(q + " ORDER BY created_at DESC, id DESC", args)]
 
     def update_batch(self, bid: str, **fields: Any) -> None:
         self._update("batch_jobs", bid, fields)

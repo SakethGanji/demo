@@ -112,10 +112,11 @@ class Catalog:
     def projects(self) -> list[dict[str, Any]]:
         with self.db.connect() as con:
             rows = con.execute(
-                "SELECT p.*, (SELECT COUNT(*) FROM datasets d WHERE d.project_id = p.id) AS n_datasets,"
+                # P23: an output alias inside an ORDER BY expression is SQLite-only; the outer query orders by columns
+                "SELECT * FROM (SELECT p.*, (SELECT COUNT(*) FROM datasets d WHERE d.project_id = p.id) AS n_datasets,"
                 " (SELECT COUNT(*) FROM runs r WHERE r.project_id = p.id) AS n_runs,"
                 " (SELECT MAX(r.created_at) FROM runs r WHERE r.project_id = p.id) AS last_run_at"
-                " FROM projects p ORDER BY last_run_at IS NULL, last_run_at DESC, p.created_at").fetchall()
+                " FROM projects p) x ORDER BY last_run_at IS NULL, last_run_at DESC, created_at").fetchall()
         return [dict(r) for r in rows]
 
     def project(self, pid: str) -> dict[str, Any] | None:
@@ -179,7 +180,7 @@ class Catalog:
             r = con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
             if not r:
                 return []
-            return [x[0] for x in con.execute("SELECT id FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid", (r[0], r[0]))]
+            return [x[0] for x in con.execute("SELECT id FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, id", (r[0], r[0]))]
 
     def project_roots(self, pid: str) -> list[str]:
         """Every dataset root in the project (a user project can hold several uploads)."""
