@@ -158,7 +158,16 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             mod.shutdown()
         app.state.heavy.shutdown()
 
-    app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan)
+    from .lake.values import SafeJSONResponse, ValueRefused
+
+    # P03 (§4.4): every JSON response through one encoder (non-finite → null + "non_finite": true, allow_nan=False)
+    app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan, default_response_class=SafeJSONResponse)
+
+    @app.exception_handler(ValueRefused)
+    async def value_refused(request: Request, exc: ValueRefused):
+        """P03 (§4.4, DLA4 #1): a value that does not fit its column → 400 {detail: {code, message, op_index, column,
+        type, min, max}}. Never engine text."""
+        return SafeJSONResponse({"detail": exc.payload}, status_code=exc.status)
 
     @app.middleware("http")
     async def acting_as(request: Request, call_next):
