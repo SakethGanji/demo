@@ -264,7 +264,7 @@ def _export_csv(request: Request, dataset_id: str) -> tuple[Any, Any, str]:
     if not out.exists():
         tmp = d / f".{lt.name}.{__import__('secrets').token_hex(4)}.csv"
         cols = ", ".join(_q(c["name"]) for c in lt.schema)
-        src = "read_parquet([" + ",".join(_lit(p["path"]) for p in lt.parts) + "])"
+        src = frames.lake_sql(lt)
         with duck.job() as con:
             con.execute("SET preserve_insertion_order = true")
             con.execute(f"COPY (SELECT {cols} FROM {src} ORDER BY __row_id) TO {_lit(tmp)} (FORMAT csv, HEADER true)")

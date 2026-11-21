@@ -53,6 +53,16 @@ _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
 
+def _duck_kw() -> dict[str, int]:
+    """An upload is the one job a person waits on: all cores, and a memory limit that keeps the API under 3 GB RSS
+    at 10M rows (ENSEMBLE_UPLOAD_DUCK_MB, default 1536)."""
+    try:
+        mb = int(os.environ.get("ENSEMBLE_UPLOAD_DUCK_MB", "1536"))
+    except ValueError:
+        mb = 1536
+    return {"threads": max(2, os.cpu_count() or 2), "mem_mb": max(256, mb)}
+
+
 def max_upload_bytes() -> int:
     try:
         gb = float(os.environ.get("ENSEMBLE_MAX_UPLOAD_GB", "5"))
@@ -447,7 +457,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
     unknown = [c for c in declared if c not in names]
     if unknown:
         blocks.append({"code": "declared_unknown", "message": f"Declared types name no column of the file: {', '.join(unknown)}."})
-    con = duck.connect("job", threads=max(2, os.cpu_count() or 2))  # an upload is the one job a person waits on
+    con = duck.connect("job", **_duck_kw())
     try:
         sniffed, fmts = _sniff(con, path, sep)
         # sniff_csv names columns as the file does; map them to our stripped names by position
@@ -585,7 +595,7 @@ def _examples(con, n: str, want: str, fmt: str | None, decimal_comma: bool) -> l
 
 
 def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any], table: str) -> dict[str, Any]:
-    con = duck.connect("job", threads=max(2, os.cpu_count() or 2))
+    con = duck.connect("job", **_duck_kw())
     blocks: list[dict[str, Any]] = []
     try:
         try:
@@ -658,7 +668,7 @@ def commit(db, store, up: str, *, by: str, reason: str = "", check_sha256: str |
         warns = [{k: v for k, v in w.items() if k != "examples"} for w in chk.get("warnings") or []]
         w = VersionWriter(db, store, op="upload", by=by, name=name, project_id=plan.get("project_id") or None,
                           reason=reason or plan.get("reason") or "", job_id=up, sources=sources, warnings=warns,
-                          primary_table=t["name"], duck_kw={"threads": max(2, os.cpu_count() or 2)})
+                          primary_table=t["name"], duck_kw=_duck_kw())
         with w:
             done = w.committed_for_job()
             if done:

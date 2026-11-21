@@ -1,0 +1,100 @@
+upload up_6e9c79523f9b  dataset ds_1d2bd07e
+## /check: apps10m 10000000 rows 13 cols; encoding utf-8 sep , ; check_sha256 7317744c2b3de6b1 ; blocks [] ; warnings [] ; seconds 19.34
+   zip VARCHAR  | leading zeros: kept as text
+   account_no VARCHAR  | leading zeros: kept as text
+   branch VARCHAR  | leading zeros: kept as text
+   app_date DATE  | dates (%Y-%m-%d)
+   amount DOUBLE  | numbers
+   income DOUBLE  | numbers
+   tenure_months BIGINT  | whole numbers
+   age BIGINT  | whole numbers
+   segment VARCHAR  | text
+   channel VARCHAR  | text
+   product VARCHAR  | text
+   note VARCHAR  | text
+   y BIGINT nullable | whole numbers
+## /commit: {'version_id': 'ds_1d2bd07e', 'version_no': 1, 'storage': 'parquet', 'n_rows': 10000000, 'n_cols': 13, 'primary_table': 'apps10m', 'data_sha256': '266bd64e5d5b2987231bbf462f14a44f2fb6637daf54c1a99b4c73ba090a30d3', 'manifest_sha256': '6d3eb346599bb945de4b8cde6bc9573f92ee331a2e86ea87d729e5aa3335d324', 'repeat': False}
+   table apps10m ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786 131809096 bytes new
+## repeat /commit
+{'version_id': 'ds_1d2bd07e', 'data_sha256': '266bd64e5d5b2987231bbf462f14a44f2fb6637daf54c1a99b4c73ba090a30d3', 'repeat': True} HTTP200 0.006189s
+## GET /uploads/up_6e9c79523f9b
+{'status': 'committed', 'committed_version_id': 'ds_1d2bd07e', 'check_sha256': '7317744c2b3de6b1cac312de361e991aa470a66bb7158ccdf5954a0e8a4f283b'}
+## GET /datasets/ds_1d2bd07e
+{'id': 'ds_1d2bd07e', 'name': 'applications 10M', 'filename': 'apps10m.csv', 'rows': 10000000, 'n_cols': 13, 'kind': 'text', 'target': 'y', 'n_classes': 2, 'op': 'upload'}
+  task binary classes [{'name': '0.0', 'count': 8791174, 'share': 0.88}, {'name': '1.0', 'count': 1198795, 'share': 0.12}] sampled 200000 of 10000000
+  account_no: [('id', 'object', '0517933470', 9657367)]
+  warnings ["Class '1.0' is rare (12.0% of rows).", '10031 rows have no label and will be dropped.', 'Kept as text (codes with leading zeros, e.g. ZIP or ID codes): zip, account_no, branch. Cast to number in Data → Edit if they are amounts.']
+## GET /datasets/ds_1d2bd07e/manifest
+manifest_sha256 6d3eb346599bb945 bytes 2626
+table apps10m ea1955e0b3185d6c 10000000 row_id {'column': '__row_id', 'max': 9999999, 'min': 0, 'sorted': True}
+files [('b4ca06465111', 5000000, 0, 4999999, 65978236), ('28b1f6d1839a', 5000000, 5000000, 9999999, 65830860)]
+schema [('zip', 'VARCHAR', 'leading zeros: kept as text'), ('account_no', 'VARCHAR', 'leading zeros: kept as text'), ('branch', 'VARCHAR', 'leading zeros: kept as text')] …
+provenance op upload sources [{'bytes': 1139007765, 'filename': 'apps10m.csv', 'kept': True, 'sha256': '06e959c6bad5f8b3896a653a3a1ded617784079aa8f65fc6546b4b003705bf9e'}] ops [{'change': 'new', 'n_rows': 10000000, 'op': 'write', 'table': 'apps10m'}]
+## GET /datasets/ds_1d2bd07e/verify
+True ok ok [] ['ok', 'ok']
+## POST /runs on the 10M version (stopped after data_hashed: the fit itself is not P05's)
+${S:-.}/chain2.sh: line 33: /usr/bin/time: No such file or directory
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json;print(json.load(open('run10.json'))['id'])
+                                ~~~~^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'run10.json'
+Traceback (most recent call last):
+  File "<string>", line 1, in <module>
+    import json;c=json.load(open('run10.json'))['config'];print('  config input_table',c['input_table']);print('  data_sha256_expected',c['data_sha256_expected'])
+                            ~~~~^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'run10.json'
+{"detail":"Not Found"}
+## small upload (3 000 rows) → full run to the end
+  check de1abec7392beed9bcb7ba0f488c01eadc4f7753819e0d1e2e4535454a5b935a
+  PATCH types {dmy: DATE %d/%m/%Y}:
+   staged {'target': 'y', 'name': 'small p05', 'types': {'dmy': 'DATE'}, 'formats': {'dmy': '%d/%m/%Y'}}
+  commit before a new check:
+{"detail":{"code":"check_required","message":"Check upload up_cacc020b2289 first (POST /api/uploads/up_cacc020b2289/check): the commit writes what the check showed."}}  HTTP 409
+  re-check c4deaf778130856eddf67d51242f70e0fbc92955e90e8080728eafb9fa848090
+  commit naming the old check:
+{"detail":{"code":"check_stale","message":"The upload was checked again or its plan changed after the check you saw.","check_sha256":"c4deaf778130856eddf67d51242f70e0fbc92955e90e8080728eafb9fa848090"}}  HTTP 409
+  two commits at once:
+   {'version_id': 'ds_796b428b', 'repeat': False} HTTP201 [('dmy', 'DATE')]
+   {'version_id': 'ds_796b428b', 'repeat': True} HTTP200 [('dmy', 'DATE')]
+  POST /runs HTTP 201
+  run run_bd0a551b succeeded data_integrity {'match': True, 'storage': 'parquet', 'table': 'small', 'table_sha256': '7537e2442efd4705984fbdfda9e4a89a8e1179afc345b639a94adab8f14b5192'} holdout auc 0.47850241967889023
+## run_inputs
+  {'run_id': 'run_bd0a551b', 'role': 'train', 'version_id': 'ds_796b428b', 'table_name': 'small', 'table_sha256': '7537e2442efd4705', 'read_sha256': '7537e2442efd4705', 'match': 1, 'legacy_csv_sha256': None, 'split_legacy_sha256': 'b9cae716eb7eb0d4', 'read_mode': 'engine_v1', 'rows_total': 3000, 'rows_used': 2400, 'columns_dropped': '["zip", "account_no"]'}
+## flip one byte of the 10M table's first part → POST /runs
+{"detail":{"code":"data_integrity","message":"Table apps10m of v1 (ds_1d2bd07e) no longer has the bytes it was committed with (table_sha256 ea1955e0b318… committed, 95154032a4a0… now; 1 of 2 file(s) differ). The run was refused. GET /api/datasets/ds_1d2bd07e/verify names the file; an admin may train anyway with integrity_override_reason (audited).","dataset_id":"ds_1d2bd07e","table":"apps10m","stored":"ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786","read":"95154032a4a09afc427fe8013b3f716e76cae74a963e7e3ad5c6bdd278b7c2c0"}}
+  HTTP 409
+  the next one (version now flagged by the failed check):
+{"detail":"ds_1d2bd07e's last integrity check (2026-11-21T19:03:14) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says whi
+  HTTP 409
+  GET verify:
+   False MISMATCH ['apps10m part 0: MISMATCH']
+  byte restored; GET verify:
+   True ok
+## export
+${S:-.}/chain2.sh: line 71: /usr/bin/time: No such file or directory
+grep: h10.txt: No such file or directory
+sha256sum: exp10.csv: No such file or directory
+06e959c6bad5f8b3896a653a3a1ded617784079aa8f65fc6546b4b003705bf9e  apps10m.csv
+head: cannot open 'exp10.csv' for reading: No such file or directory
+   181351  2026-11-21 19:03   data.csv
+     1569  2026-11-21 19:03   schema.json
+     2022  2026-11-21 19:03   manifest.json
+      933  2026-11-21 19:03   export.json
+---------                     -------
+   185875                     4 files
+  schema.json ensemble.export_schema/1 [('zip', 'text', 'VARCHAR', 'leading zeros: kept as text'), ('account_no', 'text', 'VARCHAR', 'leading zeros: kept as text'), ('app_date', 'text', 'DATE', 'dates (%Y-%m-%d)')] …
+zip,account_no,app_date,amount,tenure,segment,dmy,flag,y
+00000,000000000,2020-01-01,0.0,0,retail,2020-01-01,false,1
+## POST /api/data/verify-all (admin)
+  datasets 16 checked 16 failed [] ok True
+  storage of the checked versions: [('csv', 14), ('parquet', 2)]
+## POST /api/datasets (the old route, now a wrapper)
+ HTTP 201
+  keys same as a CSV-era record: True | profile keys missing vs CSV-era: []
+   {'id': 'ds_d24d1036', 'name': 'small', 'filename': 'small.csv', 'source': 'upload', 'rows': 3000, 'n_cols': 9, 'kind': 'tabular', 'target': 'y', 'n_classes': 2, 'op': 'upload'} storage parquet split random-stratified__y-95cb0bfd
+  tiny.csv: {"detail":"This file has fewer than two data rows."} HTTP 400
+  dup.csv: {"detail":"The header repeats a column name ('a' is columns 1, 2). Rename or remove the duplicate and upload again, so no column is silently renamed."} HTTP 400
+  empty.csv: {"detail":"The file is empty."} HTTP 400
+  ragged.csv: {"detail":"Line 3 has a different number of fields than the header. Quote values that contain the separator or fix that line, then upload again."} HTTP 400
+## tracebacks in the API log: 0

@@ -181,6 +181,11 @@ def lake_table(ref: Table) -> LakeTable:
     return LakeTable(ref.version_id, name, t["table_sha256"], int(t["n_rows"]), json.loads(t["schema_json"]), parts)
 
 
+def lake_sql(lt: LakeTable) -> str:
+    """The DuckDB relation over a committed table's parts (for engine-side work: export, profile)."""
+    return "read_parquet([" + ",".join("'" + str(p["path"]).replace("'", "''") + "'" for p in lt.parts) + "])"
+
+
 class ReadHash:
     """`hash_into` for `read`: on a Parquet table it collects each part's sha256 (of the exact bytes parsed) and its
     `hexdigest()` is the table_sha256 recomputed from them (§3.3); on a CSV it is the sha256 of data.csv's bytes."""

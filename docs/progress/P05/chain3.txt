@@ -1,0 +1,21 @@
+## POST /runs on the 10M version ds_1d2bd07e (stopped after data_ready: the fit itself is not P05's)
+  HTTP 201 in 7.576782s (the 10M split is drawn by this first run)
+  config input_table {'version_id': 'ds_1d2bd07e', 'table': 'apps10m', 'table_sha256': 'ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786', 'n_rows': 10000000, 'parts': 2, 'read_mode': 'engine_v1'}
+  data_sha256_expected ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786
+  event data_hashed {'match': True, 'data_sha256': 'ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786', 'table': 'apps10m', 'storage': 'parquet'}
+  event splits_hashed {'match': True}
+  event data_ready {'data_sha256': 'ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786', 'rows': 10000000, 'train_rows': 7991975, 'holdout_rows': 1997994, 'read': {'kind': 'parquet', 'mode': 'engine_v1', 'table_sha256': 'ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786', 'parts': 2, 'parts_differing': []}}
+  run_inputs ('apps10m', 1, 1, 10000000, 7991975)
+{"id":"run_d12d0471","cancelling":true}
+## a second POST /runs (split already drawn)
+  HTTP 201 in 7.599648s
+{"id":"run_8cf45ef0","cancelling":true}
+## export the 10M version as CSV
+  HTTP 200 in 16.098382s
+x-ensemble-sha256: 06e959c6bad5f8b3896a653a3a1ded617784079aa8f65fc6546b4b003705bf9e
+x-ensemble-table-sha256: ea1955e0b3185d6c123db98e5b757dada95b17e4d425e227171c2aaac9bef786
+06e959c6bad5f8b3896a653a3a1ded617784079aa8f65fc6546b4b003705bf9e  exp10.csv
+06e959c6bad5f8b3896a653a3a1ded617784079aa8f65fc6546b4b003705bf9e  apps10m.csv
+zip,account_no,branch,app_date,amount,income,tenure_months,age,segment,channel,product,note,y
+00000,0000000000,0000,2019-01-01,50.0,12000.0,0,18,retail,branch,personal-loan-36m,first loan ref 0,
+07919,0000104729,0001,2019-01-14,50.37,12000.53,31,35,sme,branch,overdraft-rolling,home repair ref 435761,0

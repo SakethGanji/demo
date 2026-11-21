@@ -779,11 +779,11 @@ class DatasetStore:
                 return profile_frame(frames.read(ref), target)
             except ValueError as e:
                 raise DatasetError(str(e)) from e
-        src = "read_parquet([" + ",".join("'" + p["path"].replace("'", "''") + "'" for p in lt.parts) + "])"
+        src = frames.lake_sql(lt)
         names = [c["name"] for c in lt.schema]
         q = lambda c: '"' + c.replace('"', '""') + '"'  # noqa: E731
         with duck.job() as con:
-            sample = con.sql(f"SELECT * FROM {src} USING SAMPLE reservoir({self.PROFILE_SAMPLE_ROWS} ROWS) REPEATABLE (42)"
+            sample = con.execute(f"SELECT * FROM {src} USING SAMPLE reservoir({self.PROFILE_SAMPLE_ROWS} ROWS) REPEATABLE (42)"
                                  " ORDER BY __row_id").to_arrow_table()
             exact = con.execute("SELECT " + ", ".join(f"count({q(c)}), approx_count_distinct({q(c)})" for c in names) +
                                 f" FROM {src}").fetchone()
@@ -805,15 +805,20 @@ class DatasetStore:
             p["warnings"] = [w for w in p["warnings"] if "duplicates" not in w and "no label" not in w]
             tgt = p["target"]
             if tgt and p.get("task") != "regression":
-                cnt = con.execute(f"SELECT CAST({q(tgt)} AS VARCHAR) AS v, count(*) FROM {src} WHERE {q(tgt)} IS NOT NULL"
+                cnt = con.execute(f"SELECT {q(tgt)} AS v, count(*) FROM {src} WHERE {q(tgt)} IS NOT NULL"
                                   " GROUP BY 1 ORDER BY 2 DESC, 1").fetchall()
                 tot = sum(r[1] for r in cnt) or 1
-                byname = {str(c["name"]): c for c in p["classes"]}
-                p["classes"] = [{**byname.get(str(v), {}), "name": byname.get(str(v), {}).get("name", v), "count": int(k),
-                                 "share": round(k / tot, 6)} for v, k in cnt]
+                # a class is named as the fit sees it (engine_v1: an int label with missing cells is float, '1.0')
+                ty = df[tgt].dtype
+                name = (lambda v: str(float(v))) if ty.kind == "f" else (lambda v: str(int(v))) if ty.kind in "iu" else str
+                p["classes"] = [{"name": name(v), "count": int(k), "share": round(k / tot, 6)} for v, k in cnt]
                 p["n_classes"] = len(p["classes"])
                 counts = [c["count"] for c in p["classes"]]
                 p["imbalance_ratio"] = round(max(counts) / min(counts), 4) if counts else None
+                p["warnings"] = [w for w in p["warnings"] if not w.startswith("Class '")]
+                if counts and min(counts) / max(counts) < 0.2:
+                    rare = p["classes"][-1]
+                    p["warnings"].insert(0, f"Class '{rare['name']}' is rare ({rare['share'] * 100:.1f}% of rows).")
                 n_unl = n - tot
                 if n_unl:
                     p["warnings"].append(f"{n_unl} rows have no label and will be dropped.")
