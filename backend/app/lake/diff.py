@@ -463,3 +463,102 @@ def with_columns(out: dict[str, Any], *, wait_s: float = 0.0) -> dict[str, Any]:
         out["columns_pending"] = pending
         out["columns_note"] = "column statistics are being computed in the background (profile job); ask again shortly"
     return out
+
+
+# -- P20: masking a diff for its reader -------------------------------------------------------------------------------
+
+def _resample(rows: list[dict[str, Any]], vid: str, table: str, m: Any, to_side: dict[str, str]) -> list[dict[str, Any]]:
+    """The sample rows with their masked columns re-read through `frames.scan(mask_for=m)` by `__row_id` (a Parquet
+    side: its `_row_id` is the table's `__row_id`). `to_side` maps a shown column name to the side's own name."""
+    ids = sorted({int(r["_row_id"]) for r in rows if r.get("_row_id") is not None})
+    if not ids:
+        return rows
+    src = frames.scan(vid, table, mask_for=m)
+    cols = sorted({to_side.get(k, k) for r in rows for k in r} & set(m.cols))
+    if not cols:
+        return rows
+    at = duck.interactive().query(f"SELECT {q(ROW_ID)}, {', '.join(q(c) for c in cols)} FROM {src.rel}"
+                                  f" WHERE {q(ROW_ID)} IN ({', '.join(map(str, ids))})", fetch="arrow", bind=src.bind)
+    by = {r[ROW_ID]: r for r in at.to_pylist()}
+    out = []
+    for r in rows:
+        s = by.get(r.get("_row_id"))
+        d = {}
+        for k, v in r.items():
+            c = to_side.get(k, k)
+            d[k] = v if c not in m.cols else s[c] if s is not None else m.value(c, v)
+        out.append(d)
+    return out
+
+
+def mask_result(out: dict[str, Any], ma: Any, mb: Any) -> dict[str, Any]:
+    """A diff result (cached: computed on the stored values, so equal-but-masked cells still count as changes) as shown
+    to a reader with masks `ma` (version a) and `mb` (version b): samples of added rows (b) and removed rows (a) are
+    re-read through the masked scan; changed cells, keys, and the top values / mean / median of the column table go
+    through the same masks in Python."""
+    if not (ma and ma.cols) and not (mb and mb.cols):
+        return out
+    ren = {r["from"]: r["to"] for r in (out.get("schema") or {}).get("renamed") or []}  # a's name → b's name
+    base_b = {k: v.split(" → ")[-1] for k, v in ren.items()}
+
+    def side_col(m: Any, c: str, side: str) -> str:
+        c = c.split(" → ")[0]
+        return base_b.get(c, c) if side == "b" else c
+
+    smp = dict(out.get("samples") or {})
+    for key, m, side, vid, table in (("added", mb, "b", out["b"]["id"], out.get("b_table")),
+                                     ("removed", ma, "a", out["a"]["id"], out.get("a_table"))):
+        rows = smp.get(key) or []
+        if not rows or not (m and m.cols):
+            continue
+        to_side = base_b if side == "b" else {}
+        if frames.is_parquet(vid):
+            smp[key] = _resample(rows, vid, table, m, to_side)
+        else:  # a CSV-era side: its diff _row_id may be a lineage root row, not the position the scan pages by
+            smp[key] = [{k: m.value(to_side.get(k, k), v) for k, v in r.items()} for r in rows]
+    out["samples"] = smp
+    rows = out.get("rows") or {}
+    for e in rows.get("changed_examples") or []:
+        for c in e.get("cells") or []:
+            c["a"] = ma.value(side_col(ma, c["column"], "a"), c["a"]) if ma else c["a"]
+            c["b"] = mb.value(side_col(mb, c["column"], "b"), c["b"]) if mb else c["b"]
+        if "key" in e and ma and ma.cols:
+            ks = [k.strip() for k in str(out.get("key") or "").removeprefix("key:").strip("[]").replace('"', "").split(",") if k.strip()]
+            if len(ks) == 1:
+                e["key"] = ma.value(ks[0], e["key"])
+            elif isinstance(e["key"], list):
+                e["key"] = [ma.value(k, v) for k, v in zip(ks, e["key"])]
+    for c in out.get("columns") or []:
+        name = str(c.get("column") or "").split(" → ")[0]
+        for side, m in (("a", ma), ("b", mb)):
+            col = side_col(m, name, side) if m else name
+            if not (m and col in m.cols):
+                continue
+            c["masked"] = True
+            if c.get(f"top_{side}"):
+                c[f"top_{side}"] = [{**t, "value": m.value(col, _num_text(t["value"], c.get("kind")))} for t in c[f"top_{side}"]]
+            for f in ("mean", "median"):
+                if f"{f}_{side}" in c:
+                    c[f"{f}_{side}"] = None
+    out["masked_columns"] = {"a": ma.masked if ma else [], "b": mb.masked if mb else []}
+    return out
+
+
+def _num_text(v: Any, k: Any) -> Any:
+    if k == "number":
+        try:
+            f = float(v)
+            return int(f) if f.is_integer() else f
+        except (TypeError, ValueError):
+            return v
+    return v
+
+
+def mask_key_error(payload: Any, m: Any, key: list[str] | None) -> Any:
+    """key_invalid's `repeated` keys (values of the key columns) masked."""
+    if not (m and m.cols and isinstance(payload, dict) and key):
+        return payload
+    rep = payload.get("repeated")
+    if isinstance(rep, list):
+        payload = {**payload, "repeated": [{**r, "key": [m.value(c, v) for c, v in zip(key, r.get("key") or [])]} for r in rep]}
+    return payload
