@@ -1,13 +1,15 @@
 """F13 routes: start an active-learning labelling queue on a finished classification run, answer its queue (the
 Ground-Truth Inbox's answer shape), submit a round (a dataset version with lineage, then a refit), read the curves and
 the active-vs-random comparison, cancel. The work runs in its own process (`python -m app.engine.active_learning`,
-see active_learning.py), one queue at a time across the workbench."""
+see active_learning.py), one queue at a time across the workbench.
+
+P22: the process runs as an `al` job (resource `train`) on the durable queue (`run_job`, on whichever worker leases it);
+"is it working" is the job's status, so an API restart costs nothing. A round submitted while the process is finishing
+is picked up by the same job (it runs the process again)."""
 
 from __future__ import annotations
 
 import json
-import signal
-import subprocess
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -21,15 +23,14 @@ from pydantic import BaseModel, Field
 from .. import frames
 from ..splits import holdout_mask
 from . import active_learning as al
-from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
+from ..jobs import queue as Q
 from .store import now
 from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
-_LOCK = threading.Lock()
-_PROCS: dict[str, subprocess.Popen] = {}
-_CANCELLED: set[str] = set()
+_LOCK = threading.Lock()  # the answers file, within this API process
+_DB = None  # bound at API start (main.py): active() needs it
 
 
 class ALRequest(BaseModel):
@@ -64,13 +65,12 @@ class Answers(BaseModel):
 def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
     run_dir = Path(rec["config"]["run_dir"])
     st = al.read_state(run_dir)
-    if st and st.get("status") in ("queued", "running"):
-        with _LOCK:
-            p = _PROCS.get(rec["id"])
-        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.active_learning"):
-            if p is not None and p.poll() is not None:
-                return al.read_state(run_dir)
-            st.update(status="failed", error="The labelling queue's process stopped (the API restarted).", finished_at=now())
+    if st and st.get("status") in ("queued", "running") and not Q.active_for(store.db, "run", rec["id"], "al"):
+        st = al.read_state(run_dir)  # the handler may have just closed it
+        if st and st.get("status") in ("queued", "running"):
+            j = Q.latest_for(store.db, "run", rec["id"], "al") or {}
+            st.update(status="failed", finished_at=now(),
+                      error=f"The labelling queue's job ended without finishing ({j.get('error') or j.get('status') or 'no job'}).")
             store.merge_result(rec["id"], active_learning=al.headline(st))
             al.write_state(run_dir, st)
     return st
@@ -132,38 +132,45 @@ def get_active_learning(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, **_view(rec, st, al.read_answers(Path(rec["config"]["run_dir"]))), "defaults": defaults(rec)}
 
 
-def _spawn(request: Request, rec: dict[str, Any]) -> None:
-    run_id = rec["id"]
-    run_dir = Path(rec["config"]["run_dir"])
-    store = request.app.state.runs
-    d = al.al_dir(run_dir)
-    p = spawn("app.engine.active_learning", [str(run_dir), watch_arg()], d / "active_learning.log")
-    _PROCS[run_id] = p
-    _CANCELLED.discard(run_id)
+def _enqueue(request: Request, rec: dict[str, Any]) -> None:
+    from ..catalog import governance as G
 
-    def wait():
-        code = p.wait()
-        kill_group(p.pid, signal.SIGKILL)
-        with _LOCK:
-            st = al.read_state(run_dir) or {}
-            superseded = _PROCS.get(run_id) is not p  # a submit already started the next process
-            cancelled = run_id in _CANCELLED and not superseded
-            if cancelled:
-                _CANCELLED.discard(run_id)
-            # answers submitted while the process was finishing: run them now
-            again = not cancelled and not superseded and st.get("status") == "awaiting_labels" and _pending(run_dir, st)
-        if superseded:
-            return
+    db = request.app.state.db
+    if not Q.active_for(db, "run", rec["id"], "al"):
+        Q.enqueue(db, "al", {"run_id": rec["id"]}, resource="train", by=G.current_actor() or "system",
+                  team_id=rec.get("team_id"), ref_kind="run", ref_id=rec["id"])
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side: run the queue's process; again while a submitted round is waiting; close the state if it did not."""
+    from .workerd import Cancelled
+
+    store = ctx.state.runs
+    run_id = ctx.payload["run_id"]
+    run_dir = Path(store.get(run_id)["config"]["run_dir"])
+    d = al.al_dir(run_dir)
+    passes = 0
+    while True:
+        passes += 1
+        code = ctx.run_process("app.engine.active_learning", [str(run_dir), ctx.watch_pid()], d / "active_learning.log")
+        if ctx.stop_reason in ("shutdown", "lost"):
+            raise Cancelled(ctx.stop_reason)
+        st = al.read_state(run_dir) or {}
         if st.get("status") in ("queued", "running"):
-            st.update(status="cancelled" if cancelled else "failed", finished_at=now(),
-                      error="Cancelled." if cancelled else f"The labelling queue's process exited with code {code}.")
+            st.update(status="cancelled" if ctx.cancelled else "failed", finished_at=now(),
+                      error="Cancelled." if ctx.cancelled else f"The labelling queue's process exited with code {code}.")
             store.merge_result(run_id, active_learning=al.headline(st))
             al.write_state(run_dir, st)
-        elif again:
-            with _LOCK:
-                _spawn(request, store.get(run_id))
+            return {"run_id": run_id, "status": st["status"], "passes": passes}
+        if ctx.cancelled or not (st.get("status") == "awaiting_labels" and _pending(run_dir, st)):
+            return {"run_id": run_id, "status": st.get("status"), "passes": passes}
+        # answers submitted while the process was finishing: run them now
 
-    threading.Thread(target=wait, name=f"al-{run_id}", daemon=True).start()
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    rec = state.runs.get(job["ref_id"])
+    if rec:
+        _state(rec, state.runs)
 
 
 def _pending(run_dir: Path, st: dict[str, Any]) -> bool:
@@ -209,18 +216,12 @@ def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dic
                                      f"training rows inside the slice '{sli['label']}' ({n_in} training rows in it); "
                                      f"lower the budget to {max(1, avail // body.rounds)} or less.")
     store = request.app.state.runs
+    busy = Q.active_of_kind(store.db, "al")
+    if busy:
+        other = busy[0]["ref_id"]
+        raise HTTPException(409, f"A labelling queue is working (run {other}); wait for it or cancel it."
+                            if other != run_id else "This run's labelling queue is already working.")
     with _LOCK:
-        for other, p in _PROCS.items():
-            if p.poll() is None:
-                ost = al.read_state(Path(store.get(other)["config"]["run_dir"])) if store.get(other) else None
-                if ost and ost.get("status") not in ("queued", "running"):
-                    try:  # finished its work, and its process is only cleaning up
-                        p.wait(30)
-                        continue
-                    except subprocess.TimeoutExpired:
-                        pass
-                raise HTTPException(409, f"A labelling queue is working (run {other}); wait for it or cancel it."
-                                    if other != run_id else "This run's labelling queue is already working.")
         run_dir = Path(cfg["run_dir"])
         d = al.al_dir(run_dir)
         import shutil
@@ -233,7 +234,7 @@ def start_active_learning(run_id: str, body: ALRequest, request: Request) -> dic
         al.write_answers(run_dir, {"answers": {}, "submitted": {}, "versions": []})
         al.write_state(run_dir, {"schema": al.SCHEMA, "status": "queued", "request": req, "created_at": now(),
                                  "fits_done": 0, "fits_total": None})
-        _spawn(request, rec)
+        _enqueue(request, rec)
     store.merge_result(run_id, active_learning=al.headline(al.read_state(run_dir)))
     return get_active_learning(run_id, request)
 
@@ -410,12 +411,10 @@ def submit(run_id: str, request: Request) -> dict[str, Any]:
         ans.setdefault("versions", []).append(ver)
         ans.setdefault("submitted", {})[str(qr)] = {"at": now(), "dataset_id": ver["id"]}
         al.write_answers(run_dir, ans)
-        p = _PROCS.get(run_id)
-        running = (p is not None and p.poll() is None) or alive(st.get("pid"), "app.engine.active_learning")
-        if not running:
+        if not Q.active_for(request.app.state.db, "run", run_id, "al"):  # else its job runs the round when it finishes
             st["status"] = "queued"
             al.write_state(run_dir, st)
-            _spawn(request, rec)
+            _enqueue(request, rec)
     return {"round": qr, "dataset_version": ver, "status": "refitting"}
 
 
@@ -423,35 +422,31 @@ def submit(run_id: str, request: Request) -> dict[str, Any]:
 def cancel(run_id: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     run_dir = Path(rec["config"]["run_dir"])
+    db = request.app.state.db
     with _LOCK:
-        p = _PROCS.get(run_id)
+        job = Q.active_for(db, "run", run_id, "al")
+        before = Q.cancel(db, job["id"]) if job else None
         st = al.read_state(run_dir)
-        if p is None or p.poll() is not None:
-            if st and alive(st.get("pid"), "app.engine.active_learning"):
-                _CANCELLED.add(run_id)
-                kill_group(st["pid"])
-            elif st and st.get("status") == "awaiting_labels":
-                st.update(status="cancelled", finished_at=now(), error="Cancelled.")
-                al.write_state(run_dir, st)
-                request.app.state.runs.merge_result(run_id, active_learning=al.headline(st))
-            else:
-                raise HTTPException(400, "No labelling queue is working or open for this run.")
+        if before and before["status"] == "leased":
+            pass  # its worker stops the process and closes the state
+        elif before or (st and st.get("status") == "awaiting_labels"):
+            st = st or {}
+            st.update(status="cancelled", finished_at=now(), error="Cancelled.")
+            al.write_state(run_dir, st)
+            request.app.state.runs.merge_result(run_id, active_learning=al.headline(st))
         else:
-            _CANCELLED.add(run_id)
-            kill_group(p.pid)
+            raise HTTPException(400, "No labelling queue is working or open for this run.")
     return {"run_id": run_id, "cancelled": True}
 
 
+def bind(db) -> None:
+    global _DB
+    _DB = db
+
+
 def shutdown() -> None:
-    if dev_reload():
-        return
-    with _LOCK:
-        procs = list(_PROCS.values())
-    for p in procs:
-        if p.poll() is None:
-            kill_group(p.pid)
+    """Nothing to stop: labelling queues run on the queue's workers and survive the API."""
 
 
 def active() -> list[str]:
-    with _LOCK:
-        return [r for r, p in _PROCS.items() if p.poll() is None]
+    return [j["ref_id"] for j in Q.active_of_kind(_DB, "al")] if _DB is not None else []

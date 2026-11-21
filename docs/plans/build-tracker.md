@@ -37,7 +37,7 @@
 | X1 | ⟂ | started | session_018upNdQEzTw3dUV29ygL2YH | |
 | P11 | D2 | started | session_018upNdQkfQxUCUaQxHcgsFb | |
 | P19 | G | started | session_018upNdPhxRCU1Z9oW9qWLpN | |
-| P22 | O | started | session_018upNdPj3uWNkfz67KZVANF | |
+| P22 | O | done | session_018upNdPj3uWNkfz67KZVANF | b22d64d |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
 
@@ -46,4 +46,4 @@
 - **U lane:** switch the UI's GET /datasets to ?limit=50&after= (the full list takes 1.15 s at 20k versions). Send __row_id in set_cells/delete_rows.
 - **P23:** carry ix_datasets_list into the Postgres DDL.
 - **P20:** mask diff samples.
-- **P22:** take over the stats profile job (stats.run / stats.after_commit).
+- **Still on in-process threads (not on the queue):** stats profile, annotations, shift, Data Doctor label job, Autopilot. Move them in P23 or a follow-up.

@@ -180,8 +180,12 @@ class RegistryStore:
     def recover(self) -> None:
         msg = "The API stopped while this was in progress."
         with self.db.connect() as con:
-            con.execute("UPDATE model_versions SET status = 'failed', error = ? WHERE status = 'building'", (msg,))
-            con.execute("UPDATE batch_jobs SET status = 'failed', error = ?, stage = 'failed' WHERE status IN ('queued', 'running')", (msg,))
+            # P22: builds and batches on the durable job queue keep going (a worker runs them); only orphans fail
+            live = "SELECT ref_id FROM jobs WHERE ref_kind = ? AND status IN ('queued', 'leased')"
+            con.execute(f"UPDATE model_versions SET status = 'failed', error = ? WHERE status = 'building' AND id NOT IN ({live})",
+                        (msg, "model_version"))
+            con.execute("UPDATE batch_jobs SET status = 'failed', error = ?, stage = 'failed' WHERE status IN ('queued', 'running')"
+                        f" AND id NOT IN ({live})", (msg, "batch"))
 
     # -- summary ---------------------------------------------------------------
 
