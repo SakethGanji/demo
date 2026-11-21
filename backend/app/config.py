@@ -182,3 +182,9 @@ FIT_RAM_SHARE = 0.8
 #: F-X1 C1: the widest file an upload accepts (400 too_many_columns above it). Bank tables of 1-2k columns are real.
 def max_columns() -> int:
     return int(_env_num("ENSEMBLE_MAX_COLUMNS", 2000, 2))
+
+
+#: F-X1 C2: the Data Doctor's report (and Feature Lab) read a version of at most this many rows whole; a larger one is
+#: read as a recorded splitmix64 sample of about this many rows, and Doctor fixes run as SQL (no full pandas read).
+def doctor_rows() -> int:
+    return int(_env_num("ENSEMBLE_DOCTOR_ROWS", 200_000, 1000))

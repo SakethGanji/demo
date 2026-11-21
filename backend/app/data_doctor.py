@@ -1167,9 +1167,12 @@ def label_state(dirpath: Path, target: str | None, version_id: str) -> dict[str,
     return None
 
 
-def start_labels(dirpath: Path, target: str, version_id: str, roles: list[dict[str, Any]]) -> dict[str, Any]:
+def start_labels(dirpath: Path, target: str, version_id: str, roles: list[dict[str, Any]],
+                 frame: pd.DataFrame | None = None) -> dict[str, Any]:
     """Start the quick out-of-fold model + cleanlab in a thread (once per dataset and target). The version is read
-    through frames (P07: a Parquet version's table, a CSV-era version's typed data.csv)."""
+    through frames (P07: a Parquet version's table, a CSV-era version's typed data.csv). F-X1 C2: `frame` is the
+    report's bounded frame (the version, or its recorded sample above config.doctor_rows()); it is used as given, so
+    the job's row numbers are the report's."""
     key = f"{dirpath}|{target}"
     with _label_lock:
         t = _label_jobs.get(key)
@@ -1181,7 +1184,8 @@ def start_labels(dirpath: Path, target: str, version_id: str, roles: list[dict[s
             k = None
             try:
                 k = label_key(target, version_id)
-                out = label_issues(frames.read_version(version_id).reset_index(drop=True), target, roles, all_rows=True)
+                df = frame if frame is not None else frames.read_version(version_id).reset_index(drop=True)
+                out = label_issues(df, target, roles, all_rows=True)
             except Exception as e:  # noqa: BLE001
                 log.exception("label quality failed")
                 out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
@@ -1370,9 +1374,50 @@ def _match(s: pd.Series, values: list[Any]) -> pd.Series:
     return s.astype(str).isin([str(v) for v in values]) & s.notna()
 
 
-def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None) -> None:
+def check_args(transforms: Any, n_rows: int) -> None:
+    """F-X1 M4 (§4.4): the arguments a fix carries are checked before anything runs. Every whole number must fit in
+    int64 (it is recorded in the version's manifest), and row numbers (drop_rows, relabel) must be whole numbers from
+    0 to n_rows - 1: 1.5, true, "3", -1 or 1e30 are refused with a 400, never coerced or skipped."""
+    from .lake.values import INT64_MAX, INT64_MIN, ValueRefused
+
     if not isinstance(transforms, list) or not transforms:
         raise ValueError("Send {\"transforms\": [...]} with at least one fix.")
+
+    def walk(v: Any, i: int, where: str) -> None:
+        if isinstance(v, bool):
+            return
+        if isinstance(v, int) and not INT64_MIN <= v <= INT64_MAX:
+            raise ValueRefused("value_out_of_range", f"Fix {i}: {where} {str(v)[:40]} is too large (whole numbers must fit in "
+                                                     f"int64, {INT64_MIN} to {INT64_MAX}).", op_index=i)
+        if isinstance(v, dict):
+            for k, x in v.items():
+                walk(x, i, f"{where}.{k}" if where else str(k))
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, i, where)
+
+    for i, t in enumerate(transforms, 1):
+        if not isinstance(t, dict):
+            raise ValueError(f"Fix {i} is not an object with an \"op\".")
+        walk(t, i, "")
+        if t.get("op") in ("drop_rows", "relabel"):
+            rows = t.get("rows")
+            if not isinstance(rows, list) or not rows:
+                raise ValueRefused("value_invalid", f"Fix {i} ({t['op']}): rows is a non-empty list of row numbers.", op_index=i)
+            bad = [r for r in rows if isinstance(r, bool) or not isinstance(r, int)]
+            if bad:
+                raise ValueRefused("value_invalid", f"Fix {i} ({t['op']}): row numbers are whole numbers; "
+                                                    f"{', '.join(repr(b)[:20] for b in bad[:3])} is not one.", op_index=i)
+            out = [r for r in rows if not 0 <= r < n_rows]
+            if out:
+                raise ValueRefused("value_out_of_range", f"Fix {i} ({t['op']}): row {out[0]} is not a row of this version "
+                                                         f"(rows 0 to {n_rows - 1:,}).", op_index=i)
+            if len(set(rows)) != len(rows):
+                raise ValueRefused("value_invalid", f"Fix {i} ({t['op']}): a row number is listed twice.", op_index=i)
+
+
+def validate(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None) -> None:
+    check_args(transforms, len(df))
     for t in transforms:
         op = (t or {}).get("op")
         if op not in TRANSFORMS:
@@ -1492,7 +1537,7 @@ def apply(df: pd.DataFrame, transforms: list[dict[str, Any]], target: str | None
             keep[gone] = False
             effects.append({**t, "rows": int(len(gone))})
         elif op == "drop_rows":
-            rows = [int(r) for r in t.get("rows") or [] if 0 <= int(r) < len(df)]
+            rows = list(t["rows"])  # F-X1 M4: validated by check_args (whole numbers in range)
             before = int(keep.sum())
             keep[rows] = False
             effects.append({"op": op, "reason": t.get("reason"), "rows": before - int(keep.sum())})

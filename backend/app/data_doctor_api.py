@@ -71,15 +71,20 @@ def _roles(store: DatasetStore, dataset_id: str, df) -> list[dict[str, Any]]:
 
 
 def _report(request: Request, dataset_id: str) -> dict[str, Any]:
+    from . import doctor_frame as DF
+
     rec = dataset_or_404(request, dataset_id)
     store = _store(request)
-    df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (issues, keep masks)
+    # F-X1 C2: the version whole up to config.doctor_rows() rows, else its recorded splitmix64 sample (rows by position)
+    fr = DF.load(dataset_id)
+    df = fr.df
     roles = _roles(store, dataset_id, df)
     target = rec["target"]
     labels = dd.label_state(store.dir(dataset_id), target, dataset_id)  # P07: keyed and read through frames
-    task_ok = target is not None and not (df[target].dtype.kind in "fi" and df[target].nunique() > dd.MAX_CLASSES)
+    task_ok = target is not None and target in df.columns and \
+        not (df[target].dtype.kind in "fi" and df[target].nunique() > dd.MAX_CLASSES)
     if labels is None and task_ok and df[target].nunique(dropna=True) >= 2:
-        labels = dd.start_labels(store.dir(dataset_id), target, dataset_id, roles)
+        labels = dd.start_labels(store.dir(dataset_id), target, dataset_id, roles, frame=df)
     cpath = store.dir(dataset_id) / "coerced.json"
     lin_ = store.lineage(dataset_id) or {}
     if not cpath.exists() and lin_.get("root"):
@@ -90,6 +95,7 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
         [{k: s.get(k) for k in ("column", "confidence", "reasons", "auc", "basis")} for s in (leak or {}).get("suspects") or []],
         default=dd._jsonable))
     lin = store.lineage(dataset_id) or {}
+    DF.remap_report(out, fr)  # sample positions → the version's; the sample is recorded in the report
     out.update(dataset_id=dataset_id, name=rec["name"],
                lineage={k: lin.get(k) for k in ("parent", "root", "kind", "fixes", "applied_at", "by") if k in lin} or None,
                transforms=dd.TRANSFORMS)
@@ -105,21 +111,106 @@ async def data_doctor(dataset_id: str, request: Request) -> dict[str, Any]:
         raise HTTPException(400, str(e)) from e
 
 
+def _canonical_400(fn, *a: Any, **kw: Any) -> Any:
+    """F-X1 M4: a value the manifest can't record (canonical JSON) is a 400, never a 500."""
+    from .lake.manifest import CanonicalError
+    from .lake.values import ValueRefused
+
+    try:
+        return fn(*a, **kw)
+    except CanonicalError as e:
+        import logging
+
+        logging.getLogger("ensemble.edit").warning("data doctor apply: %s", str(e)[:300])
+        raise ValueRefused("value_invalid", "A value in these fixes can't be recorded in the version's manifest (whole "
+                                            "numbers must fit in int64, numbers must be finite); nothing was written.") from None
+
+
 @router.post("/datasets/{dataset_id}/data-doctor/apply", status_code=201, dependencies=[require("data.version", path("dataset_id", "dataset"))])
 async def apply_fixes(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """Apply typed fixes to a copy: a new dataset version whose lineage names the parent and the fixes. The holdout is
     the parent's holdout rows that were kept, so scores stay comparable. The decision-time answers carry over."""
+    from .lake.values import SafeJSONResponse
+
     body = body or {}
     # DL3 (m3): a version records a real name: by, else the X-Ensemble-Actor header (derive() refuses neither)
-    return await run_in_threadpool(_apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "").strip()[:80] or None,
-                                   body.get("acknowledge"))
+    out = await run_in_threadpool(_canonical_400, _apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "").strip()[:80] or None,
+                                  body.get("acknowledge"))
+    # F-X1 M4: fixes that change nothing (or repeat an earlier apply) return the existing version: 200, not a new one
+    return SafeJSONResponse(out, status_code=200 if out.get("deduplicated") else 201)
+
+
+def _names(request: Request, dataset_id: str, rec: dict[str, Any]) -> tuple[str, int]:
+    store = _store(request)
+    base = rec["name"].split(" · fixed")[0]
+    root = (store.lineage(dataset_id) or {}).get("root") or dataset_id
+    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
+                and (d["profile"].get("lineage") or {}).get("kind") == "data_doctor") + 1
+    return f"{base} · fixed v{n_ver}", n_ver
+
+
+def _same_frame(a, b) -> bool:
+    """The same columns in the same order, and the same values (types may differ: an int label set to itself)."""
+    import pandas as pd
+
+    if list(a.columns) != list(b.columns) or len(a) != len(b):
+        return False
+    try:
+        pd.testing.assert_frame_equal(a.reset_index(drop=True), b.reset_index(drop=True), check_dtype=False,
+                                      check_exact=True)
+        return True
+    except AssertionError:
+        return False
+
+
+def _noop(rec: dict[str, Any], dataset_id: str, effects: list[Any], n: int) -> dict[str, Any]:
+    from .main import _detail
+
+    return {"dataset": _detail(rec), "parent": dataset_id, "effects": effects, "rows_before": n, "rows_after": n,
+            "columns_added": [], "columns_removed": [], "created": False,
+            "deduplicated": {"existing": dataset_id, "reason": "these fixes change nothing: the version itself is returned"}}
+
+
+def _apply_sql(request: Request, dataset_id: str, rec: dict[str, Any], transforms: Any, by: str | None,
+               acknowledge: Any) -> dict[str, Any]:
+    """F-X1 C2: above config.doctor_rows() rows the fixes compile to DuckDB (doctor_sql) and the version is written
+    through the VersionWriter: no full-table pandas read."""
+    from . import doctor_sql
+    from .main import _detail
+
+    store = _store(request)
+    name, _ = _names(request, dataset_id, rec)
+    n_fix = len(transforms) if isinstance(transforms, list) else 0
+    try:
+        res = doctor_sql.apply(store, dataset_id, transforms, by=by, acknowledge=acknowledge, name=name,
+                               note=f"Data Doctor: {n_fix} fix{'es' if n_fix != 1 else ''} applied to {dataset_id}")
+    except (ValueError, DatasetError) as e:
+        if type(e).__name__ == "ValueRefused":
+            raise
+        raise HTTPException(400, str(e)) from e
+    if res.get("noop"):
+        return {**_noop(rec, dataset_id, res["effects"], res["rows_before"]), "how": "sql"}
+    new = res["rec"]
+    cols0 = frames.column_names(frames.table(dataset_id))
+    out = {"dataset": _detail(new), "parent": dataset_id, "effects": res["effects"], "rows_before": res["rows_before"],
+           "rows_after": res["rows_after"], "columns_added": [c for c in res["columns_after"] if c not in cols0],
+           "columns_removed": [c for c in cols0 if c not in res["columns_after"]], "how": "sql"}
+    if new.get("deduplicated"):
+        return {**out, "created": False, "deduplicated": new["deduplicated"]}
+    a = answers(store, dataset_id)
+    if a:
+        (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))
+    return {**out, "created": True}
 
 
 def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowledge: Any = None) -> dict[str, Any]:
+    from . import config, doctor_frame
     from .main import _detail
 
     rec = dataset_or_404(request, dataset_id)
     store = _store(request)
+    if frames.is_parquet(dataset_id) and doctor_frame.n_rows(dataset_id) > config.doctor_rows():
+        return _apply_sql(request, dataset_id, rec, transforms, by, acknowledge)
     df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (keep mask → derive)
     target = rec["target"]
     from . import frame_io as FIO
@@ -139,6 +230,8 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowle
         raise ValueRefused("edit_invalid", "A fix could not be applied to these values; nothing was written.") from None
     if len(new_df) < 2:
         raise HTTPException(400, "These fixes leave fewer than two rows.")
+    if bool(np.asarray(keep).all()) and _same_frame(df, new_df):  # F-X1 M4: a no-op apply returns the version itself
+        return _noop(rec, dataset_id, effects, len(df))
     one_class = guard_one_class(df[target] if target in df.columns else None,
                                 new_df[target] if target in new_df.columns else None, target, acknowledge, what="These fixes leave")
     try:
@@ -150,25 +243,26 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowle
     at = now()
     extra = {"kind": "data_doctor", "fixes": effects, "applied_at": at, "by": by, "columns_before": int(df.shape[1]),
              "columns_after": int(new_df.shape[1]), **({"warnings": [one_class]} if one_class else {})}
-    base = rec["name"].split(" · fixed")[0]
-    root = (store.lineage(dataset_id) or {}).get("root") or dataset_id
-    n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
-                and (d["profile"].get("lineage") or {}).get("kind") == "data_doctor") + 1
+    name, _ = _names(request, dataset_id, rec)
     try:  # P1: datasets.derive maps the holdout and root rows through the kept rows and writes the edge
         op = "clean_labels" if any(isinstance(t, dict) and t.get("op") == "relabel" for t in transforms or []) else "data_doctor"
-        new = store.derive(dataset_id, new_df, np.asarray(keep, dtype=bool), op, list(effects or []), name=f"{base} · fixed v{n_ver}",
+        new = store.derive(dataset_id, new_df, np.asarray(keep, dtype=bool), op, list(effects or []), name=name,
                            note=f"Data Doctor: {len(effects)} fix{'es' if len(effects) != 1 else ''} applied to {dataset_id}",
-                           extra=extra, by=by)
+                           extra=extra, by=by, dedupe=True)  # F-X1 M4: identical data → the existing version
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
     lineage = {"rows_before": int(len(df)), "rows_after": int(len(new_df))}
+    if new.get("deduplicated"):
+        return {"dataset": _detail(new), "parent": dataset_id, "effects": effects, "rows_before": lineage["rows_before"],
+                "rows_after": lineage["rows_after"], "columns_added": [], "columns_removed": [], "created": False,
+                "deduplicated": new["deduplicated"]}
     a = answers(store, dataset_id)
     if a:
         (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))
     return {"dataset": _detail(new), "parent": dataset_id, "effects": effects,
             "rows_before": lineage["rows_before"], "rows_after": lineage["rows_after"],
             "columns_added": [c for c in new_df.columns if c not in df.columns],
-            "columns_removed": [c for c in df.columns if c not in new_df.columns]}
+            "columns_removed": [c for c in df.columns if c not in new_df.columns], "created": True}
 
 
 @router.get("/datasets/{dataset_id}/decision-time")
