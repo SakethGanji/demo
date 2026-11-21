@@ -47,6 +47,9 @@
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
 | F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
 | F-X2 | D | started (X2 C1, M1–M6, m1–m3) | session_018upNdNvnaG9wjQHpViW7q9 | |
+| P13 | D | started (deltas) | session_018upNdMmQyXrKkqxx22sMTS | |
+| P14 | D2 | started (saved joins) | session_018upNdRR2Vg6fMS5HYdUAeG | |
+| P21 | G | started (contracts/certify/shares + decide_check rewire + share pii) | session_018upNdNeZFRrGECEyFj5531 | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
