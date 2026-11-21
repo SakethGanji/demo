@@ -433,7 +433,11 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
     tr = np.flatnonzero(~is_h & y_all.notna().to_numpy())
     if len(tr) > MAX_TRAIN:
         tr = np.sort(np.random.default_rng(0).choice(tr, MAX_TRAIN, replace=False))
-    ho = hp["row"].to_numpy().astype(int)
+    # P11: holdout_predictions' `row` is the __row_id (a Parquet frame's index, with gaps after an edit); every array here
+    # is by read position, so map it (the identity on a CSV-era version)
+    ho = pd.Index(df.index).get_indexer(hp["row"].to_numpy().astype(int))
+    if (ho < 0).any():
+        raise ValueError(f"{int((ho < 0).sum())} holdout prediction row(s) are not rows of {cfg.get('dataset_id')}")
     feats_all = [f for f in (res.get("features") or []) if f in df.columns and f != label]
     types = {c: detect_type(str(c), df[c]) for c in feats_all}
     feats = [c for c in feats_all if types[c] not in ("text", "id")]
@@ -509,7 +513,7 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
         items = []
         F = len(feats)
         for j, i in enumerate(top):
-            it: dict[str, Any] = {"row": int(ho[i]), "y_true": str(hp["y_true"].iloc[i]), "y_pred": str(hp["y_pred"].iloc[i]),
+            it: dict[str, Any] = {"row": int(hp["row"].iloc[i]), "y_true": str(hp["y_true"].iloc[i]), "y_pred": str(hp["y_pred"].iloc[i]),
                                   "confidence": float(conf[i]), "label_issue": bool(flags[i]) if flags is not None else None}
             if contrib is not None:
                 if pt == "multiclass":
@@ -986,7 +990,7 @@ def overlap(df: pd.DataFrame, cfg: dict[str, Any], res: dict[str, Any], label: s
     seen_mask = exact_mask | near_mask | (ent[0]["_mask"] if ent else False)
     # the served score on the holdout rows that are new (by holdout_predictions' row numbers)
     pos_in_h = {int(r): i for i, r in enumerate(hidx)}
-    hrow = hp["row"].to_numpy().astype(int)
+    hrow = pd.Index(df.index).get_indexer(hp["row"].to_numpy().astype(int))  # P11: __row_id → read position (hidx is positions)
     m_seen = np.array([bool(seen_mask[pos_in_h[r]]) if r in pos_in_h else False for r in hrow])
     out["seen_rows"] = int(m_seen.sum())
     out["seen_share"] = float(m_seen.mean()) if len(m_seen) else 0.0

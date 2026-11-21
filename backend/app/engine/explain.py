@@ -334,7 +334,8 @@ def fairness(df: pd.DataFrame, cfg: dict[str, Any], group: str, *, problem_type:
         raise ExplainError(f"No column named {group!r} in the dataset.")
     if group == cfg["label"]:
         raise ExplainError("The label can't be the group column.")
-    g, binning = group_labels(data[group].iloc[df["row"].to_numpy()].reset_index(drop=True).rename(group))
+    # P11: holdout_predictions' `row` is the __row_id = the frame's index (a read position only without gaps), so .loc
+    g, binning = group_labels(data[group].loc[df["row"].to_numpy()].reset_index(drop=True).rename(group))
 
     out: dict[str, Any] = {"group": group, "binning": binning, "n": int(len(df)), "problem_type": problem_type}
     if problem_type == "binary":

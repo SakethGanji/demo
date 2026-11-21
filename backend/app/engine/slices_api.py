@@ -82,7 +82,7 @@ def _types(request: Request, rec: dict[str, Any]) -> dict[str, str]:
 def _frame(rec: dict[str, Any], hp: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     cols = set(columns)
     data = frames.read(frames.resolve(rec["config"]), columns=lambda c: c in cols)
-    return data.iloc[hp["row"].to_numpy(dtype=int)].reset_index(drop=True)
+    return data.loc[hp["row"].to_numpy(dtype=int)].reset_index(drop=True)  # P11: `row` is the __row_id (the index)
 
 
 def _loss(rec: dict[str, Any], hp: pd.DataFrame, loss: str) -> tuple[np.ndarray, dict[str, Any]]:

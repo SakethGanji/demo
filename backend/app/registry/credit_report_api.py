@@ -234,7 +234,7 @@ def build(request: Request, vid: str, on: str = "holdout", date_column: str | No
     periods: list[dict[str, Any]] = []
     dcol = (det.get("date") or {}).get("column")
     if dcol:
-        when = pd.to_datetime(train[dcol], errors="coerce").iloc[hold["row"].to_numpy()].dt.strftime("%Y-%m").to_numpy()
+        when = pd.to_datetime(train[dcol], errors="coerce").loc[hold["row"].to_numpy()].dt.strftime("%Y-%m").to_numpy()  # P11: by __row_id
         for per in sorted(set(x for x in when if isinstance(x, str))):
             m = when == per
             periods.append({"period": per, "source": "holdout", **C.rank_stats(hold["y"].to_numpy()[m], hold["p"].to_numpy()[m])})
