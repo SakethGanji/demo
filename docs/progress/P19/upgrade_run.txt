@@ -1,0 +1,6 @@
+## U1 pre-P19 database (made by 21a3749: 15 unhashed rows), started with P19
+GET /teams/tm_default/audit/verify → {"team_id":"tm_default","ok":true,"rows":0,"legacy_rows":14,"head":""}
+GET /teams/old-team/audit/verify → {"team_id":"tm_1122388b","ok":true,"rows":0,"legacy_rows":1,"head":""}
+POST /teams/old-team/members {Ana} as Ada, then:
+GET /teams/tm_default/audit/verify → {"team_id":"tm_default","ok":true,"rows":1,"legacy_rows":14,"head":"8935045ee2c2a13c0e2b0e75129160ff47f9092f3f5940eca70717f9fdb5ada9"}
+GET /teams/old-team/audit/verify → {"team_id":"tm_1122388b","ok":true,"rows":1,"legacy_rows":1,"head":"a1587203c651cc09e55af41c4b52447ad6c1fc7d249abb11f2774c5fc3105482"}

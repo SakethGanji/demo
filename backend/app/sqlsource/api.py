@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 from .. import frame_io as FIO
 from .. import frames
+from ..authz import body, path, query, require  # P19
 from ..datasets import DatasetError
 from ..http import dataset_or_404
 from . import core
@@ -87,7 +88,7 @@ def demo(request: Request) -> dict[str, Any]:
             "(credit-default), loans (loan-stream) and accounts (account-churn)."}
 
 
-@router.post("/tables")
+@router.post("/tables", dependencies=[require("data.upload", query("project_id", "project"))])
 async def list_tables(body: Conn, request: Request) -> dict[str, Any]:
     try:
         return {"tables": await run_in_threadpool(core.tables, body.url, _data_dir(request), body.password)}
@@ -95,7 +96,7 @@ async def list_tables(body: Conn, request: Request) -> dict[str, Any]:
         raise HTTPException(400, str(e)) from e
 
 
-@router.post("/preview")
+@router.post("/preview", dependencies=[require("data.upload", query("project_id", "project"))])
 async def preview(body: Query, request: Request) -> dict[str, Any]:
     try:
         r = await run_in_threadpool(core.run_query, body.url, body.query, _data_dir(request), limit=body.limit,
@@ -116,7 +117,7 @@ def _save(request: Request, res: dict[str, Any], *, name: str, target: str | Non
         df, name=name, filename=f"{base_name}.sql", note=f"SQL query · {lin['url']} · v{version}", target=tgt, lineage=lin)
 
 
-@router.post("/datasets", status_code=201)
+@router.post("/datasets", status_code=201, dependencies=[require("data.upload", body("project_id", "project"))])
 async def create(body: Save, request: Request) -> dict[str, Any]:
     from ..main import _detail
 
@@ -138,7 +139,7 @@ def _family(request: Request, root: str) -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: r["profile"]["lineage"].get("version", 0))
 
 
-@router.post("/datasets/{dataset_id}/refresh", status_code=201)
+@router.post("/datasets/{dataset_id}/refresh", status_code=201, dependencies=[require("data.version", path("dataset_id", "dataset"))])
 async def refresh(dataset_id: str, request: Request, body: Refresh | None = None) -> dict[str, Any]:
     """Run the stored query again into a new dataset: the next version, with the parent, the row diff and both
     data hashes in its lineage. The confirmed target carries over."""

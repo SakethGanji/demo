@@ -1,12 +1,13 @@
 """F12 routes: start, read and cancel a run's learning curve. The curve itself runs in its own process
-(`python -m app.engine.learning_curve <run_dir>`, see learning_curve.py), one at a time across the workbench."""
+(`python -m app.engine.learning_curve <run_dir>`, see learning_curve.py), one at a time across the workbench.
+
+P22: a start queues an `lc` job (resource `train`) on the durable queue; whichever worker leases it runs the process
+(`run_job`). The state file stays the record the UI polls; "is it running" is the job's status, not a local pid, so an
+API restart costs nothing and the curve can run on another host."""
 
 from __future__ import annotations
 
 import json
-import signal
-import subprocess
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -14,15 +15,14 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import learning_curve as lc
-from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
+from ..authz import path, require  # P19
+from ..jobs import queue as Q
 from .store import now
 from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
-_LOCK = threading.Lock()
-_PROCS: dict[str, subprocess.Popen] = {}
-_CANCELLED: set[str] = set()
+_DB = None  # bound at API start (main.py): active() needs it
 MIN_ROWS = 30  # the smallest subsample must have at least this many rows
 
 
@@ -38,16 +38,15 @@ class LearningCurveRequest(BaseModel):
 
 
 def _state(rec: dict[str, Any], store: Any) -> dict[str, Any] | None:
-    """The job's state, with a running job whose process is gone (an API restart, a crash) marked failed."""
+    """The job's state, with a running curve whose job is gone (it failed or was lost) marked failed."""
     run_dir = Path(rec["config"]["run_dir"])
     st = lc.read_state(run_dir)
-    if st and st.get("status") in ("queued", "running"):
-        with _LOCK:
-            p = _PROCS.get(rec["id"])
-        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.learning_curve"):
-            if p is not None and p.poll() is not None:
-                return lc.read_state(run_dir)  # the watcher thread is finishing it
-            st.update(status="failed", error="The learning curve's process stopped (the API restarted).", finished_at=now())
+    if st and st.get("status") in ("queued", "running") and not Q.active_for(store.db, "run", rec["id"], "lc"):
+        st = lc.read_state(run_dir)  # the handler may have just closed it
+        if st and st.get("status") in ("queued", "running"):
+            j = Q.latest_for(store.db, "run", rec["id"], "lc") or {}
+            st.update(status="failed", finished_at=now(),
+                      error=f"The learning curve's job ended without finishing it ({j.get('error') or j.get('status') or 'no job'}).")
             store.merge_result(rec["id"], learning_curve=lc.headline(st))
             lc.write_state(run_dir, st)
     return st
@@ -80,7 +79,7 @@ def get_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, **st, "defaults": defaults(rec)}
 
 
-@router.post("/runs/{run_id}/learning-curve", status_code=202)
+@router.post("/runs/{run_id}/learning-curve", status_code=202, dependencies=[require("run.train", path("run_id", "run"))])
 def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Request) -> dict[str, Any]:
     """F12: fit the run's exact config on nested subsamples of its training rows (default 10 / 25 / 50 %, 3 seeds each;
     100 % is the run itself), each scored on the run's holdout, in a separate process. Poll GET …/learning-curve."""
@@ -104,79 +103,81 @@ def start_learning_curve(run_id: str, body: LearningCurveRequest, request: Reque
     if body.reuse_full and metric not in (((rec.get("result") or {}).get("holdout") or {}).get("metrics") or {}):
         raise HTTPException(400, "The run has no holdout score for its metric to use as the 100 % point; use reuse_full = false.")
     store = request.app.state.runs
-    with _LOCK:
-        for other, p in _PROCS.items():
-            if p.poll() is None:
-                ost = lc.read_state(Path(store.get(other)["config"]["run_dir"])) if store.get(other) else None
-                if ost and ost.get("status") not in ("queued", "running"):
-                    try:  # finished, and its process is only cleaning up
-                        p.wait(30)
-                        continue
-                    except subprocess.TimeoutExpired:
-                        pass
-                raise HTTPException(409, f"A learning curve is already running (run {other}); wait for it or cancel it."
-                                    if other != run_id else "This run's learning curve is already running.")
-        run_dir = Path(cfg["run_dir"])
-        d = lc.lc_dir(run_dir)
-        d.mkdir(parents=True, exist_ok=True)
-        req = {**body.model_dump(), "fractions": fr}
-        (d / "request.json").write_text(json.dumps(req, indent=1))
-        seeds = body.seeds
-        lc.write_state(run_dir, {"schema": lc.SCHEMA, "status": "queued", "request": req, "created_at": now(),
-                                 "fits_total": (len(fr) - 1) * seeds + (0 if body.reuse_full else 1), "fits_done": 0,
-                                 "points": []})
-        p = spawn("app.engine.learning_curve", [str(run_dir), watch_arg()], d / "learning_curve.log")
-        _PROCS[run_id] = p
-        _CANCELLED.discard(run_id)
+    busy = Q.active_of_kind(store.db, "lc")
+    if busy:
+        other = busy[0]["ref_id"]
+        raise HTTPException(409, f"A learning curve is already running (run {other}); wait for it or cancel it."
+                            if other != run_id else "This run's learning curve is already running.")
+    run_dir = Path(cfg["run_dir"])
+    d = lc.lc_dir(run_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    req = {**body.model_dump(), "fractions": fr}
+    (d / "request.json").write_text(json.dumps(req, indent=1))
+    seeds = body.seeds
+    lc.write_state(run_dir, {"schema": lc.SCHEMA, "status": "queued", "request": req, "created_at": now(),
+                             "fits_total": (len(fr) - 1) * seeds + (0 if body.reuse_full else 1), "fits_done": 0,
+                             "points": []})
+    from ..catalog import governance as G
 
-    def wait():
-        code = p.wait()
-        kill_group(p.pid, signal.SIGKILL)  # anything the fits left behind (Ray)
-        st = lc.read_state(run_dir) or {}
-        with _LOCK:
-            cancelled = run_id in _CANCELLED
-            _CANCELLED.discard(run_id)
-        if st.get("status") in ("queued", "running"):
-            st.update(status="cancelled" if cancelled else "failed", finished_at=now(),
-                      error="Cancelled." if cancelled else f"The learning curve's process exited with code {code}.")
-            store.merge_result(run_id, learning_curve=lc.headline(st))  # the run payload first: readers poll the state
-            lc.write_state(run_dir, st)
-
-    threading.Thread(target=wait, name=f"lc-{run_id}", daemon=True).start()
+    Q.enqueue(store.db, "lc", {"run_id": run_id}, resource="train", by=G.current_actor() or "system",
+              team_id=rec.get("team_id"), ref_kind="run", ref_id=run_id)
     store.merge_result(run_id, learning_curve=lc.headline(lc.read_state(run_dir)))
     return get_learning_curve(run_id, request)
 
 
-@router.post("/runs/{run_id}/learning-curve/cancel")
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side: run the curve's process; close the state if the process did not."""
+    from .workerd import Cancelled
+
+    store = ctx.state.runs
+    run_id = ctx.payload["run_id"]
+    rec = store.get(run_id)
+    run_dir = Path(rec["config"]["run_dir"])
+    d = lc.lc_dir(run_dir)
+    code = ctx.run_process("app.engine.learning_curve", [str(run_dir), ctx.watch_pid()], d / "learning_curve.log")
+    if ctx.stop_reason in ("shutdown", "lost"):
+        raise Cancelled(ctx.stop_reason)
+    st = lc.read_state(run_dir) or {}
+    if st.get("status") in ("queued", "running"):
+        st.update(status="cancelled" if ctx.cancelled else "failed", finished_at=now(),
+                  error="Cancelled." if ctx.cancelled else f"The learning curve's process exited with code {code}.")
+        store.merge_result(run_id, learning_curve=lc.headline(st))  # the run payload first: readers poll the state
+        lc.write_state(run_dir, st)
+    return {"run_id": run_id, "status": st.get("status"), "code": code}
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    rec = state.runs.get(job["ref_id"])
+    if rec:
+        _state(rec, state.runs)
+
+
+@router.post("/runs/{run_id}/learning-curve/cancel", dependencies=[require("run.manage", path("run_id", "run"))])
 def cancel_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
-    with _LOCK:
-        p = _PROCS.get(run_id)
-        if p is None or p.poll() is not None:
-            st = lc.read_state(Path(rec["config"]["run_dir"]))
-            if st and alive(st.get("pid"), "app.engine.learning_curve"):  # started by a previous API process
-                _CANCELLED.add(run_id)
-                kill_group(st["pid"])
-            else:
-                raise HTTPException(400, "No learning curve is running for this run.")
-        else:
-            _CANCELLED.add(run_id)
-            kill_group(p.pid)
+    db = request.app.state.db
+    job = Q.active_for(db, "run", run_id, "lc")
+    before = Q.cancel(db, job["id"]) if job else None
+    if not before:
+        raise HTTPException(400, "No learning curve is running for this run.")
+    if before["status"] == "queued":  # never started: close it here (a leased one is closed by its worker)
+        run_dir = Path(rec["config"]["run_dir"])
+        st = lc.read_state(run_dir) or {}
+        st.update(status="cancelled", finished_at=now(), error="Cancelled.")
+        request.app.state.runs.merge_result(run_id, learning_curve=lc.headline(st))
+        lc.write_state(run_dir, st)
     return {"run_id": run_id, "cancelled": True}
 
 
+def bind(db) -> None:
+    global _DB
+    _DB = db
+
+
 def shutdown() -> None:
-    """Stop running curves with the API (not on a development reload: they watch the reloader and keep going)."""
-    if dev_reload():
-        return
-    with _LOCK:
-        procs = list(_PROCS.values())
-    for p in procs:
-        if p.poll() is None:
-            kill_group(p.pid)
+    """Nothing to stop: curves run on the queue's workers and survive the API."""
 
 
 def active() -> list[str]:
-    """Runs whose learning curve is running in this API process."""
-    with _LOCK:
-        return [r for r, p in _PROCS.items() if p.poll() is None]
+    """Runs whose learning curve is queued or running (any worker)."""
+    return [j["ref_id"] for j in Q.active_of_kind(_DB, "lc")] if _DB is not None else []

@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
+from ..authz import require  # P19
 from ..catalog import governance as G
 from ..catalog import schema as S
 from . import duck, gc
@@ -104,7 +105,7 @@ def verify(dataset_id: str, request: Request) -> dict[str, Any]:
 
 # -- GC (dry run only in P02) ---------------------------------------------------------------------------------------
 
-@router.post("/admin/lake/gc")
+@router.post("/admin/lake/gc", dependencies=[require("admin.lake")])
 async def run_gc(request: Request, dry_run: int = Query(1)) -> dict[str, Any]:
     if not dry_run:
         raise HTTPException(409, {"code": "gc_disarmed", "message": "GC deletes are not available yet (P24 builds them, "
@@ -167,7 +168,7 @@ def _seed(app, by: str, body: dict[str, Any]) -> dict[str, Any]:
         return w.commit(target="y")
 
 
-@router.post("/admin/lake/seed", status_code=201)
+@router.post("/admin/lake/seed", status_code=201, dependencies=[require("admin.lake")])
 async def seed(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """{by, rows=1e6, name?, project_id?, split=true} → a new Parquet dataset; {by, parent_id, mode: append|carry,
     rows?} → its next version. Admins only; for building and checking the lake, not a user upload path."""

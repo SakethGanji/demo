@@ -1,0 +1,55 @@
+## 1 Ada POST /teams {Credit Risk} → HTTP 201 | X-Request-Id: rq_77006d08ee26
+    {"id": "tm_f84c3950", "slug": "credit-risk", "my_role": "owner"}
+## 1b Ada POST /teams/credit-risk/members {Ana owner} → HTTP 201 | X-Request-Id: rq_c5d6320bcb3e
+    {"members": [{"principal_id": "pr_fdee430d40bd", "display_name": "Ada", "identity_key": "ada", "kind": "person", "email": null, "is_admin": true, "role": "owner", "source": "manual", "added_by": "Ada", "added_at": "2026-11-21T20:45:58+00:00"}, {"principal_id": "pr_24d4b96f58da", "display_name": "Ana", "identity_key": "ana", "kind": "person", "email": null, "is_admin": false, "role": "owner", "source": "manual", "added_by": "Ada", "added_at": "2026-11-21T20:45:58+00:00"}]}
+## 1c Ana POST /teams/credit-risk/members {Ben viewer} → HTTP 201 | X-Request-Id: rq_65736468f6a8
+    {"members": [{"principal_id": "pr_fdee430d40bd", "display_name": "Ada", "identity_key": "ada", "kind": "person", "email": null, "is_admin": true, "role": "owner", "source": "manual", "added_by": "Ada", "added_at": "2026-11-21T20:45:58+00:00"}, {"principal_id": "pr_24d4b96f58da", "display_name": "Ana", "identity_key": "ana", "kind": "person", "email": null, "is_admin": false, "role": "owner", "source": "manual", "added_by": "Ada", "added_at": "2026-11-21T20:45:58+00:00"}, {"principal_id": "pr_6700869c8ff7", "display_name": "Ben", "identity_key": "ben", "kind": "person", "email": null, "is_admin
+## 1d Ben POST /teams {Ben's team} (not admin, self-service off) → HTTP 201 | X-Ensemble-Authz: would-deny team.create | X-Request-Id: rq_67cda82c003b
+    {"id": "tm_04a7f34a", "slug": "bens-team"}
+## 2 Ana POST /projects {PD scorecard, team credit-risk} → HTTP 201 | X-Request-Id: rq_364218accc45
+    {"id": "prj_a5ead988", "team_id": "tm_f84c3950"}
+## 3 Ana POST /datasets (multipart, project_id) → HTTP 201 | X-Request-Id: rq_f017267ca86e
+    {"id": "ds_9b995911", "rows": 600, "team_id": null}
+## 4 Ben (viewer) POST /datasets/{id}/edit → HTTP 201 | X-Ensemble-Authz: would-deny data.version | X-Request-Id: rq_28fb8fb1dffa
+    {"id": "ds_01486a95", "created": true}
+## 5 Ana GET /teams/credit-risk/audit?action=authz_would_deny → HTTP 200 | X-Request-Id: rq_ac18c4e3cbb1
+    {"team_id": "tm_f84c3950", "entries": [{"id": 27, "ts": "2026-11-21T20:45:58+00:00", "actor": "Ben", "action": "authz_would_deny", "team_id": "tm_f84c3950", "project_id": null, "object_kind": "dataset", "object_id": "ds_9b995911", "principal_id": "pr_6700869c8ff7", "auth": "typed", "request_id": "rq_28fb8fb1dffa", "run_id": null, "model_name": null, "version": null, "version_id": null, "from_stage": null, "to_stage": null, "comment": "", "details": {"action": "data.version", "needed": "member", "role": "viewer", "reason": "data.version needs member in tm_f84c3950; you are viewer", "method": "P
+     27 Ben dataset ds_9b995911 pr_6700869c8ff7 typed rq_28fb8fb1dffa {'action': 'data.version', 'allow': False, 'mode': 'audit', 'needed': 'member', 'role': 'viewer', 'team': 'tm_f84c3950'} 1527cf785e8e
+## 6 Ana POST /datasets/{id}/edit (owner) → HTTP 201 | X-Request-Id: rq_1945aa5ad02c
+    {"id": "ds_ef334f26", "created": true}
+## 7 Ben GET /datasets/{id}/rows (viewer: allowed, no header) → HTTP 200 | X-Request-Id: rq_934ba37057b8
+    {"total": 600}
+## 8 Dee (only tm_default) GET /datasets/{id}/grid → HTTP 200 | X-Ensemble-Authz: would-deny data.preview | X-Request-Id: rq_10dad69125c1
+    {"total": 600}
+## 9 anonymous POST /datasets/{id}/splits → HTTP 200 | X-Ensemble-Authz: would-deny run.train | X-Request-Id: rq_f77f56d00536
+    {"dataset_id": "ds_9b995911", "drawn_now": false}
+## 10 Ana POST /authz/check {data.version, dataset, principal Ben} → HTTP 200 | X-Request-Id: rq_eecdb7ab7303
+    {"allow": false, "needed": "member", "role": "viewer", "team": "tm_f84c3950", "reason": "data.version needs member in tm_f84c3950; you are viewer"}
+## 11 Ben POST /authz/check {data.preview, dataset} → HTTP 200 | X-Request-Id: rq_8790276dcf0b
+    {"allow": true, "needed": "viewer", "role": "viewer", "reason": "viewer of the team"}
+## 11b Ana POST /runs {dataset, time_limit 30} → HTTP 201 | X-Request-Id: rq_327b41b6178c
+    {"id": "run_61d89384", "status": "queued"}
+    run run_61d89384 succeeded
+## 11c Ana POST /runs/{id}/register → HTTP 202 | X-Request-Id: rq_174a38aa9c76
+    {"id": "mv_ffdc71a0", "status": "building"}
+    version mv_ffdc71a0 ready
+## 11d Ben POST /registry/versions/{id}/transition {Staging} → HTTP 200 | X-Ensemble-Authz: would-deny model.promote | X-Request-Id: rq_0c9ae548479d
+    {"stage": null, "detail": null}
+## 11e Ana POST /registry/versions/{id}/transition {Production} (owner: model.promote_production allowed; the four-eyes rule answers) → HTTP 409 | X-Request-Id: rq_5e2f47630d76
+    {"stage": null, "detail": "Version 1 is pending: Production needs an approved review first."}
+## 12 GET /authz/coverage → mode audit, chain ['agent', 'typed'], routes 264, must 157, covered 158, uncovered 0
+    sample: [('POST', '/api/datasets/{dataset_id}/edit', 'data.version'), ('POST', '/api/registry/versions/{vid}/transition', 'model.promote'), ('POST', '/api/authz/check', 'a question about a decision; it changes nothing')]
+## 13 GET /datasets rows with team: 17 / 17 | [('ds_9b995911', 'credit-risk'), ('ds_01486a95', 'credit-risk')]
+    /runs: 1/1 rows with team
+    /registry: 1/1 rows with team
+    /registry/versions: 1/1 rows with team
+    /registry/summary: 0/0 rows with team
+    /data/search: 15/15 rows with team
+    /projects: 15/15 rows with team
+## 14 Ana GET /datasets/{id}/verify (split check 3 chain link) → HTTP 200 | X-Request-Id: rq_ec1ad90b0ba8
+    {"ok": true, "splits_ok": true}
+    check 3: True audit #26 (2026-11-21T20:45:58, Ana) records the same split_sha256 and blob; chain link: chain link ok
+## 15 GET /teams/credit-risk/audit/verify → HTTP 200 | X-Request-Id: rq_bcd375609ab8
+    {"team_id": "tm_f84c3950", "ok": true, "rows": 23, "legacy_rows": 0, "head": "50338b94e9cf17973b6654b6fae7a68a710ce24cc131e66e83364e16bf374ffc"}
+## 15 GET /teams/tm_default/audit/verify → HTTP 200 | X-Request-Id: rq_c189022af6bf
+    {"team_id": "tm_default", "ok": true, "rows": 18, "legacy_rows": 0, "head": "133b4e00527f7ba6e85b7f8c94bfe66a4d686d3e767743cbc4c9e066126244e2"}

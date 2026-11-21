@@ -14,6 +14,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from ..authz import path, require  # P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -205,7 +206,7 @@ def _replace(request: Request, rec: dict[str, Any], long: pd.DataFrame, source: 
     return get_annotations(rec["id"], request)
 
 
-@router.post("/runs/{run_id}/annotations/sample")
+@router.post("/runs/{run_id}/annotations/sample", dependencies=[require("run.train", path("run_id", "run"))])
 def load_sample(run_id: str, body: SampleRequest, request: Request) -> dict[str, Any]:
     """The support-tickets sample's SIMULATED annotators (5, of different quality, one systematically biased): each of
     n_rows training rows labelled by per_row of them, every label drawn from the sample's hidden truth. Replaces the
@@ -228,7 +229,7 @@ def load_sample(run_id: str, body: SampleRequest, request: Request) -> dict[str,
     return _replace(request, rec, long, "sample", load, tdoc)
 
 
-@router.post("/runs/{run_id}/annotations/upload")
+@router.post("/runs/{run_id}/annotations/upload", dependencies=[require("run.train", path("run_id", "run"))])
 async def upload(run_id: str, request: Request, file: UploadFile = File(...),
                  mode: Literal["replace", "append"] = Form("replace")) -> dict[str, Any]:
     """A long-format annotations file: one line per (row, annotator, label). Rows by `row` (the dataset's row number,
@@ -273,7 +274,7 @@ async def upload(run_id: str, request: Request, file: UploadFile = File(...),
     return _replace(request, rec, long, "upload", load, None if mode == "replace" else an.read_truth(Path(cfg["run_dir"])))
 
 
-@router.post("/runs/{run_id}/annotations/answer")
+@router.post("/runs/{run_id}/annotations/answer", dependencies=[require("run.train", path("run_id", "run"))])
 def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
     """The disagreement queue: `vote` adds the reviewer's label for the row as one more annotation (the inbox under
     another name); `adjudicate` sets the row's final label, over the consensus; `clear` removes the reviewer's vote and
@@ -314,7 +315,7 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
     return {"answered": len(body.answers), "votes": len(add), "adjudicated": len(adj), "reviewer": body.reviewer}
 
 
-@router.post("/runs/{run_id}/annotations/simulate-adjudication")
+@router.post("/runs/{run_id}/annotations/simulate-adjudication", dependencies=[require("run.train", path("run_id", "run"))])
 def simulate_adjudication(run_id: str, body: SimAdj, request: Request) -> dict[str, Any]:
     """Adjudicate the n lowest-quality queue rows from the sample's hidden truth, as 'simulated-adjudicator' (a stand-in
     for a person; the sample only)."""
@@ -339,7 +340,7 @@ def simulate_adjudication(run_id: str, body: SimAdj, request: Request) -> dict[s
     return {"adjudicated": int(len(order)), "reviewer": "simulated-adjudicator"}
 
 
-@router.post("/runs/{run_id}/annotations/version")
+@router.post("/runs/{run_id}/annotations/version", dependencies=[require("data.version", path("run_id", "run"))])
 def make_version(run_id: str, request: Request) -> dict[str, Any]:
     """The final labels (an adjudication, else the CROWDLAB consensus) of the annotated training rows as a dataset
     version: the run's data with those labels, the same split record (holdout rows and labels untouched), lineage with

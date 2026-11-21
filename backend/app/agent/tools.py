@@ -75,12 +75,21 @@ def _guard_path(method: str, path: str, body: Any) -> None:
         raise ToolError("Promoting to Production is a human decision; the agent can only request approval.")
 
 
+def principal_headers(ctx: Ctx) -> dict[str, str]:
+    """P19: every call carries the session owner's principal, signed for the in-process provider (authz.identity), so
+    require() authorises the agent exactly as its user; it never has more rights than its user."""
+    from ..authz.identity import internal_headers
+
+    user = ctx.actor.split(" on behalf of ", 1)[-1] if " on behalf of " in ctx.actor else ctx.actor
+    return internal_headers(user)
+
+
 async def call(ctx: Ctx, method: str, path: str, *, body: Any = None, params: dict[str, Any] | None = None,
                files: Any = None, data: Any = None, timeout: float = 600) -> Any:
     _guard_path(method, path, body)
     try:
         r = await ctx.client.request(method, path, json=body if files is None else None, params=params, files=files,
-                                     data=data, timeout=timeout)
+                                     data=data, timeout=timeout, headers=principal_headers(ctx))
     except httpx.HTTPError as e:
         raise ToolError(f"{method} {path} failed: {type(e).__name__}: {e}") from e
     if r.status_code >= 400:

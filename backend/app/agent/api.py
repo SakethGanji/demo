@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..authz import require  # P19
 from . import loop
 from .tools import TOOLS
 
@@ -60,7 +61,7 @@ def sessions(request: Request) -> dict[str, Any]:
     return {"sessions": _m(request).list()}
 
 
-@router.post("/sessions", status_code=201)
+@router.post("/sessions", status_code=201, dependencies=[require("agent.use")])
 async def start(body: Start, request: Request) -> dict[str, Any]:
     return _m(request).create(body.message, body.user.strip() or "analyst", body.decider, body.max_steps, body.max_seconds)
 
@@ -73,7 +74,7 @@ def get(sid: str, request: Request, since: int | None = None) -> dict[str, Any]:
     return s
 
 
-@router.post("/sessions/{sid}/messages")
+@router.post("/sessions/{sid}/messages", dependencies=[require("agent.use")])
 async def say(sid: str, body: Say, request: Request) -> dict[str, Any]:
     _s(request, sid)
     try:
@@ -82,7 +83,7 @@ async def say(sid: str, body: Say, request: Request) -> dict[str, Any]:
         raise HTTPException(409, str(e)) from e
 
 
-@router.post("/sessions/{sid}/confirm")
+@router.post("/sessions/{sid}/confirm", dependencies=[require("agent.use")])
 async def confirm(sid: str, body: Confirm, request: Request) -> dict[str, Any]:
     _s(request, sid)
     try:
@@ -91,7 +92,7 @@ async def confirm(sid: str, body: Confirm, request: Request) -> dict[str, Any]:
         raise HTTPException(409, str(e)) from e
 
 
-@router.post("/sessions/{sid}/stop")
+@router.post("/sessions/{sid}/stop", dependencies=[require("agent.use")])
 async def stop(sid: str, request: Request) -> dict[str, Any]:
     _s(request, sid)
     return _m(request).stop(sid)

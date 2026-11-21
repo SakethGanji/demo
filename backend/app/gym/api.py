@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
+from ..authz import body, require  # P19
 
 from .. import frames
 from ..http import run_or_404
@@ -72,7 +73,7 @@ async def gym_schema(request: Request) -> dict[str, Any]:
     return cached
 
 
-@router.post("/gym/validate")
+@router.post("/gym/validate", dependencies=[require("data.read_meta", body("dataset_id", "dataset"))])
 async def gym_validate(body: dict[str, Any], request: Request) -> dict[str, Any]:
     """Validate a run body (the same JSON `POST /api/runs` takes) without starting it: errors and warnings, the
     resolved fit call and its diff against TabularPredictor.fit's defaults, the bagging and stacking AutoGluon will

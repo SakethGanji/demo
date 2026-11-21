@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from . import llm
+from .authz import require  # P19
 
 router = APIRouter(prefix="/api/llm")
 
@@ -18,7 +19,7 @@ async def llm_status() -> dict[str, Any]:
     return llm.status()
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=[require("admin.config")])
 async def llm_settings(body: dict[str, Any]) -> dict[str, Any]:
     """Change timeouts (sdk_timeout, cli_timeout, total_timeout, seconds), cache_ttl, model, enabled, use_sdk, use_cli.
     A null value restores the environment default. Stored in data/llm_settings.json."""
@@ -29,6 +30,6 @@ async def llm_settings(body: dict[str, Any]) -> dict[str, Any]:
     return llm.status()
 
 
-@router.post("/cache/clear")
+@router.post("/cache/clear", dependencies=[require("admin.config")])
 async def llm_cache_clear() -> dict[str, Any]:
     return {"cleared": llm.clear_cache()}

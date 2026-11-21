@@ -123,14 +123,17 @@ class RegistryStore:
     def audit(self, *, actor: str, action: str, version: dict[str, Any] | None = None, from_stage: str | None = None,
               to_stage: str | None = None, comment: str = "", details: dict[str, Any] | None = None,
               run_id: str | None = None) -> dict[str, Any]:
+        # P19: team-scoped, hash-chained
+        from ..catalog.schema import audit as chained_audit
+
         with self.db.connect() as con:
-            cur = con.execute(
-                "INSERT INTO audit_log (ts, actor, action, model_name, version, version_id, run_id, from_stage, to_stage,"
-                " comment, model_hash, details) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (now(), actor, action, version and version["model_name"], version and version["version"],
-                 version and version["id"], run_id or (version and version["run_id"]), from_stage, to_stage, comment or "",
-                 version and version.get("model_hash"), _dump(details)))
-            r = con.execute("SELECT * FROM audit_log WHERE id = ?", (cur.lastrowid,)).fetchone()
+            aid = chained_audit(con, actor, action, jsonable(details) if details else {}, comment or "",
+                                run_id or (version and version["run_id"]),
+                                model_name=version and version["model_name"], version=version and version["version"],
+                                version_id=version and version["id"], from_stage=from_stage, to_stage=to_stage,
+                                model_hash=version and version.get("model_hash"),
+                                object_kind="model_version" if version else None, object_id=version and version["id"])
+            r = con.execute("SELECT * FROM audit_log WHERE id = ?", (aid,)).fetchone()
         return self._row("audit_log", r)
 
     def audit_log(self, *, model_name: str | None = None, version_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
@@ -177,8 +180,12 @@ class RegistryStore:
     def recover(self) -> None:
         msg = "The API stopped while this was in progress."
         with self.db.connect() as con:
-            con.execute("UPDATE model_versions SET status = 'failed', error = ? WHERE status = 'building'", (msg,))
-            con.execute("UPDATE batch_jobs SET status = 'failed', error = ?, stage = 'failed' WHERE status IN ('queued', 'running')", (msg,))
+            # P22: builds and batches on the durable job queue keep going (a worker runs them); only orphans fail
+            live = "SELECT ref_id FROM jobs WHERE ref_kind = ? AND status IN ('queued', 'leased')"
+            con.execute(f"UPDATE model_versions SET status = 'failed', error = ? WHERE status = 'building' AND id NOT IN ({live})",
+                        (msg, "model_version"))
+            con.execute("UPDATE batch_jobs SET status = 'failed', error = ?, stage = 'failed' WHERE status IN ('queued', 'running')"
+                        f" AND id NOT IN ({live})", (msg, "batch"))
 
     # -- summary ---------------------------------------------------------------
 

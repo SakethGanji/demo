@@ -15,6 +15,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
+from ..authz import path, query, require, variant, with_team  # P19
 from pydantic import BaseModel, Field
 
 from .. import config, frames
@@ -110,7 +111,7 @@ class RegisterRequest(BaseModel):
                                   "approve the version either.")
 
 
-@router.post("/runs/{run_id}/register", status_code=202)
+@router.post("/runs/{run_id}/register", status_code=202, dependencies=[require("model.register", path("run_id", "run"))])
 async def register(run_id: str, body: RegisterRequest, request: Request) -> dict[str, Any]:
     """Register a finished run as a new version of a registered model. The version is built in a worker process
     (status 'building', then 'ready' or 'failed'); poll GET /api/registry/versions/{id} for its steps."""
@@ -252,14 +253,15 @@ def registry(request: Request) -> dict[str, Any]:
         models.append({**m, "versions": len(vs), "latest": vs[0]["version"] if vs else None,
                        "production": next((v["version"] for v in vs if v["stage"] == "Production"), None),
                        "staging": next((v["version"] for v in vs if v["stage"] == "Staging"), None)})
-    return {"models": models, "versions": versions, "counts": reg.counts()}
+    return with_team(request, {"models": models, "versions": versions, "counts": reg.counts()}, "registry")
 
 
 @router.get("/registry/summary")
 def registry_summary(request: Request) -> dict[str, Any]:
     reg = _reg(request)
-    return {"counts": reg.counts(), "audit": reg.audit_log(limit=8),
-            "production": [version_out(v, full=False) for v in reg.list_versions() if v["stage"] == "Production"]}
+    return with_team(request, {"counts": reg.counts(), "audit": reg.audit_log(limit=8),
+                               "production": [version_out(v, full=False) for v in reg.list_versions() if v["stage"] == "Production"]},
+                     "registry_summary")
 
 
 def _version(request: Request, vid: str) -> dict[str, Any]:
@@ -276,7 +278,8 @@ def _ready_version(request: Request, vid: str) -> dict[str, Any]:
 
 @router.get("/registry/versions")
 def list_versions(request: Request, model: str | None = None) -> dict[str, Any]:
-    return {"versions": [version_out(v, full=False) for v in _reg(request).list_versions(model)]}
+    return with_team(request, {"versions": [version_out(v, full=False) for v in _reg(request).list_versions(model)]},
+                     "registry_versions")
 
 
 @router.get("/registry/versions/{vid}")
@@ -284,7 +287,7 @@ def get_version(vid: str, request: Request) -> dict[str, Any]:
     return version_out(_version(request, vid))
 
 
-@router.get("/registry/audit")
+@router.get("/registry/audit", dependencies=[require("model.read", query("version_id", "model_version"), query("model", "model"))])
 def audit(request: Request, model: str | None = None, version_id: str | None = None,
           limit: int = Query(200, ge=1, le=2000)) -> dict[str, Any]:
     return {"entries": _reg(request).audit_log(model_name=model, version_id=version_id, limit=limit)}
@@ -359,7 +362,7 @@ def _refusal_audited(action: str):
     return deco
 
 
-@router.post("/registry/versions/{vid}/transition")
+@router.post("/registry/versions/{vid}/transition", dependencies=[require("model.promote", path("vid", "model_version"), when=variant("stage", {"Production": "model.promote_production"}))])
 @_refusal_audited("stage_change")
 async def transition(vid: str, body: TransitionRequest, request: Request) -> dict[str, Any]:
     """Move a version between stages. Production needs an approved review; promoting a version to Production
@@ -417,7 +420,7 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
     return {"version": version_out(v2), "audit": entry, "archived": [o["id"] for o in changed], "mlflow": ml}
 
 
-@router.post("/registry/versions/{vid}/review")
+@router.post("/registry/versions/{vid}/review", dependencies=[require("model.review", path("vid", "model_version"))])
 @_refusal_audited("review")
 async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, Any]:
     """Approve or reject a version, with the reviewer's name and comment. Four eyes: the reviewer cannot be the
@@ -473,7 +476,7 @@ def _retire_check(request: Request, v: dict[str, Any]) -> None:
         raise HTTPException(409, f"{name} is in Production: promote its successor or move it out of Production first.")
 
 
-@router.post("/registry/versions/{vid}/retire", status_code=201)
+@router.post("/registry/versions/{vid}/retire", status_code=201, dependencies=[require("model.retire", path("vid", "model_version"))])
 @_refusal_audited("retire")
 async def request_retire(vid: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
     """{by, reason}: ask to retire a registered version (end of life: it is Archived for good, and its training data may
@@ -505,7 +508,7 @@ async def request_retire(vid: str, body: dict[str, Any], request: Request) -> di
                                                "(ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off)"} if G.is_admin(who) else {})}
 
 
-@router.post("/registry/version-requests/{rid}/decide")
+@router.post("/registry/version-requests/{rid}/decide", dependencies=[require("model.retire_decide", path("rid", "version_request"))])
 @_refusal_audited("retire_decide")
 async def decide_retire(rid: str, body: dict[str, Any], request: Request) -> dict[str, Any]:
     """{approve, by, comment}: four eyes. The requester may withdraw (approve=false) but not approve."""
@@ -648,7 +651,7 @@ class CardFields(BaseModel):
     fields: dict[str, str]
 
 
-@router.put("/registry/versions/{vid}/card")
+@router.put("/registry/versions/{vid}/card", dependencies=[require("model.card", path("vid", "model_version"))])
 def edit_card(vid: str, body: CardFields, request: Request) -> dict[str, Any]:
     """Fill in the card's template (intended use, limitations, owner, …). Recorded in the audit log."""
     reg = _reg(request)
@@ -697,7 +700,7 @@ class TryRequest(BaseModel):
     target: str | None = None
 
 
-@router.post("/registry/versions/{vid}/predict")
+@router.post("/registry/versions/{vid}/predict", dependencies=[require("model.use", path("vid", "model_version"))])
 async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]:
     """One row through the version's predictor: the prediction, the class probabilities and (explain) Kernel SHAP
     for that row, f(x) = φ₀ + Σ φᵢ, with the top reasons. Computed in a worker process."""
@@ -829,7 +832,7 @@ def warm_version(request: Request, v: dict[str, Any]) -> None:
         threading.Thread(target=lambda: _SERVE.get(v["path"]), daemon=True).start()
 
 
-@router.post("/registry/versions/{vid}/score")
+@router.post("/registry/versions/{vid}/score", dependencies=[require("model.use", path("vid", "model_version"))])
 async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any]:
     """The online path (F3): rows → predictions with no SHAP, in a predict worker whose copy of the version is
     persisted and warmed. Returns the predictor's own time (`predict_ms`), the worker's (`worker_ms`) and the API's
@@ -928,7 +931,7 @@ def serving_state() -> dict[str, Any]:
             "inproc_max_bytes": INPROC_MAX_BYTES, "inproc_max_rows": INPROC_MAX_ROWS}
 
 
-@router.post("/registry/versions/{vid}/benchmark")
+@router.post("/registry/versions/{vid}/benchmark", dependencies=[require("model.use", path("vid", "model_version"))])
 async def benchmark(vid: str, request: Request) -> dict[str, Any]:
     """Measure the version as served, in a predict worker: one-row p50 / p95 on holdout rows and batches of
     1 → 1,000. Stored on the version (`result.serving_benchmark`)."""
@@ -948,7 +951,7 @@ def _kinds(request: Request, run: dict[str, Any]) -> dict[str, str]:
     return {c: ("number" if t == "number" else "text" if t == "text" else "category") for c, t in types.items()}
 
 
-@router.post("/registry/versions/{vid}/batches", status_code=202)
+@router.post("/registry/versions/{vid}/batches", status_code=202, dependencies=[require("model.use", path("vid", "model_version"))])
 async def create_batch(vid: str, request: Request, file: UploadFile = File(...), created_by: str = Form(""),
                        data_date: str | None = Form(None)) -> dict[str, Any]:
     """Score a CSV with the version, in a worker process: progress on GET /registry/batches/{id}, then a preview,
@@ -1014,7 +1017,7 @@ def get_batch(bid: str, request: Request) -> dict[str, Any]:
     return batch_or_404(request, bid)
 
 
-@router.get("/registry/batches/{bid}/download")
+@router.get("/registry/batches/{bid}/download", dependencies=[require("model.read", path("bid", "batch"))])
 def download_batch(bid: str, request: Request):
     b = batch_or_404(request, bid)
     if b["status"] != "succeeded":
@@ -1094,7 +1097,7 @@ class ReasonsBody(BaseModel):
     reference: Literal["approved", "population"] | None = None
 
 
-@router.put("/registry/versions/{vid}/reasons")
+@router.put("/registry/versions/{vid}/reasons", dependencies=[require("model.card", path("vid", "model_version"))])
 async def edit_reasons(vid: str, body: ReasonsBody, request: Request) -> dict[str, Any]:
     """Edit the model's mapping table (codes and plain-English statements) or the adverse class. Stored per registry
     model (every version of it uses it) and recorded in the audit log."""
@@ -1148,7 +1151,7 @@ class StabilityBody(BaseModel):
     repeats: int = Field(3, ge=1, le=20)
 
 
-@router.post("/registry/versions/{vid}/reasons/stability")
+@router.post("/registry/versions/{vid}/reasons/stability", dependencies=[require("model.use", path("vid", "model_version"))])
 async def reasons_stability(vid: str, body: StabilityBody, request: Request) -> dict[str, Any]:
     """The stability check: on the adverse decisions among the first `rows` holdout rows, how often the top reasons
     change when every numeric input moves by ε·σ·N(0, 1). Stored beside the version; the model card shows it."""
@@ -1207,7 +1210,7 @@ class RecourseEdit(BaseModel):
     actions: dict[str, Literal["fixed", "any", "increase", "decrease"]]
 
 
-@router.put("/registry/versions/{vid}/recourse")
+@router.put("/registry/versions/{vid}/recourse", dependencies=[require("model.card", path("vid", "model_version"))])
 async def edit_recourse(vid: str, body: RecourseEdit, request: Request) -> dict[str, Any]:
     """Override what may change, per registry model (every version uses it); audited."""
     from ..engine.store import now
@@ -1237,7 +1240,7 @@ class RecourseRequest(BaseModel):
     rows: list[dict[str, Any]] = Field(..., min_length=1, max_length=200)
 
 
-@router.post("/registry/versions/{vid}/recourse")
+@router.post("/registry/versions/{vid}/recourse", dependencies=[require("model.use", path("vid", "model_version"))])
 async def recourse(vid: str, body: RecourseRequest, request: Request) -> dict[str, Any]:
     """Counterfactuals for posted rows: for each adverse one, up to 3 diverse sets of changes that flip the served
     decision at the version's threshold, each re-scored by the served model, with its distance and plausibility."""
@@ -1259,7 +1262,7 @@ class RecourseCheck(BaseModel):
     rows: int = Field(120, ge=10, le=1000, description="adverse holdout rows to test")
 
 
-@router.post("/registry/versions/{vid}/recourse/check")
+@router.post("/registry/versions/{vid}/recourse/check", dependencies=[require("model.use", path("vid", "model_version"))])
 async def recourse_check(vid: str, body: RecourseCheck, request: Request) -> dict[str, Any]:
     """The acceptance check on the first `rows` adverse holdout rows: the share with ≥ 1 valid counterfactual, and
     0 fixed features moved, 0 values outside training, 0 direction breaks. Stored; the model card shows it."""

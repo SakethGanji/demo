@@ -37,7 +37,6 @@ import logging
 import math
 import re
 import secrets
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -67,8 +66,6 @@ AMOUNT = re.compile(r"amt|amount|bal|limit|income|debt|loan|pay|bill|salary|valu
                     r"revenue|asset|liab|deposit|withdraw|fee|rent|mortgage|savings", re.I)
 DENOM = re.compile(r"limit|income|salary|total|bal|asset|revenue|value|price", re.I)
 
-_jobs: dict[str, threading.Thread] = {}
-_lock = threading.Lock()
 
 
 # ------------------------------------------------------------------------------------------------ the DSL
@@ -562,28 +559,44 @@ def write_job(ds_dir: Path, job: dict[str, Any]) -> None:
     tmp.replace(p)
 
 
-def start(ds_dir: Path, body: dict[str, Any], work) -> dict[str, Any]:
-    """Run `work(job, progress)` in a thread; the job's JSON is the state GET reads."""
+def create(ds_dir: Path, body: dict[str, Any]) -> dict[str, Any]:
+    """P22: the job's JSON (the state GET reads); a worker runs it (`execute`) off the durable queue. The status is
+    `running` from the start (the UI polls while running) with `phase` queued → searching."""
     from .datasets import now
 
-    job = {"id": "fl_" + secrets.token_hex(4), "status": "running", "started_at": now(), "request": body, "journal": []}
+    job = {"id": "fl_" + secrets.token_hex(4), "status": "running", "phase": "queued", "started_at": now(), "request": body, "journal": []}
+    write_job(ds_dir, job)
+    return job
+
+
+def execute(ds_dir: Path, job_id: str, work) -> dict[str, Any]:
+    """Run `work(job, progress)` here (a worker's thread); progress and the outcome go to the job's JSON."""
+    from .datasets import now
+
+    job = read_job(ds_dir, job_id) or {"id": job_id, "journal": []}
+    job.update(status="running", phase="searching", running_since=now(), journal=[])
+    job.pop("error", None)
     write_job(ds_dir, job)
 
     def progress(journal):
         job["journal"] = journal
         write_job(ds_dir, job)
 
-    def run():
-        try:
-            res = work(job, progress)
-            job.update(status="succeeded", finished_at=now(), **res)
-        except Exception as e:  # noqa: BLE001
-            log.exception("feature lab failed")
-            job.update(status="failed", finished_at=now(), error=f"{type(e).__name__}: {e}"[:400])
-        write_job(ds_dir, job)
-
-    th = threading.Thread(target=run, name=f"feature-lab-{job['id']}", daemon=True)
-    with _lock:
-        _jobs[job["id"]] = th
-    th.start()
+    try:
+        res = work(job, progress)
+        job.update(status="succeeded", phase="done", finished_at=now(), **res)
+    except Exception as e:  # noqa: BLE001
+        log.exception("feature lab failed")
+        job.update(status="failed", phase="done", finished_at=now(), error=f"{type(e).__name__}: {e}"[:400])
+    write_job(ds_dir, job)
     return job
+
+
+def close(ds_dir: Path, job_id: str, status: str, error: str) -> None:
+    """Close a job whose worker never finished it (the janitor gave up)."""
+    from .datasets import now
+
+    job = read_job(ds_dir, job_id)
+    if job and job.get("status") in ("queued", "running"):
+        job.update(status=status, finished_at=now(), error=error[:400])
+        write_job(ds_dir, job)
