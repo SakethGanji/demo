@@ -1,0 +1,15 @@
+  v1 ds_194dc9b2 → v2 ds_6ff33898 (18,000 rows, every 10th __row_id gone)
+  run run_11f7caaf succeeded | holdout rows 3591
+  the old line, in-process on the same run (df.loc[positions]):
+    old: .loc → KeyError: '[0, 10, 160, 230, 290, 370, 440, 480, 550, 580, 630, 760, 810, 850, 880, 920, 960, 1030, 
+    new: .iloc read 3591 rows = the holdout's __row_ids: True
+  GET /runs/{id}/doctor: {"schema": "doctor/1", "procedure": "doctor-procedure/1", "run_id": "run_11f7caaf", "computed_at": "2026-11-21T20:56:53+00:00", "problem_type": "multiclass", "primary": {"id": "budget", "title": "Time budget", "status": "finding", "severity": "minor", "reason": "The fit took 32 s of \u03c4 = 30 s (107%); AutoGluon skipped 2 model(s) for lack of time.", "evidence": {"fit_seconds": 32.08101415634155, "tau": 30.0, "used": 1.0693671385447183, "skipped": 2, "time_logs": 1, "stack_levels_fitted": 1, "stack_levels_planned": null}, "prescription": {"kind": "gym_patch", "title": "Double the budget", "p
+  errors mentioning the fit gap: []
+## the doctor's gap analysis on the same run (vela/missing.measure), before → after the fix
+  before: errors ['gap analysis: IndexError: index 18003 is out of bounds for axis 0 with size 18000']
+  after:  errors []; the 25 error rows it reports are all holdout __row_ids: True
+## GET /runs/{id}/fairness?group=segment (engine/explain.py) on the same run
+  API (after)  {'corp': 537, 'private': 390, 'public': 169, 'retail': 1824, 'sme': 671}  HTTP 200
+  by __row_id  {'corp': 537, 'private': 390, 'public': 169, 'retail': 1824, 'sme': 671}
+  old .iloc    {'corp': 462, 'private': 329, 'public': 157, 'retail': 1622, 'sme': 651} (wrong rows; 370 ids past the end would raise)
+## POST /runs/{id}/slices {} → HTTP 200, n 3591

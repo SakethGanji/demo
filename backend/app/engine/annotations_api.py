@@ -119,7 +119,7 @@ def _analysis(request: Request, rec: dict[str, Any]) -> tuple[dict[str, Any], pd
     if hit and hit[0] == key:
         return hit[1], hit[2]
     cfg = rec["config"]
-    data = frames.read(frames.resolve(cfg))
+    data = frames.read(frames.resolve(cfg)).reset_index(drop=True)  # P11: rows by read position (split positions, `row`)
     res = an.analyze(run_dir, cfg, data[cfg["label"]])
     _CACHE[rec["id"]] = (key, res, data)
     st = an.read_state(run_dir) or {}
@@ -245,7 +245,7 @@ async def upload(run_id: str, request: Request, file: UploadFile = File(...),
         up = frames.read_upload(content, filename=file.filename or "annotations.csv", kind="labels", sep=sep)
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
-    data = frames.read(frames.resolve(cfg))
+    data = frames.read(frames.resolve(cfg)).reset_index(drop=True)  # P11: `row` is a read position, not a __row_id
     try:
         long, info = an.parse_upload(data, up, cfg["label"])
     except ValueError as e:

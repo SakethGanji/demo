@@ -147,9 +147,10 @@ def _fit_gap(cfg: dict[str, Any], rec: dict[str, Any], hp: pd.DataFrame | None) 
     label = cfg["label"]
     fold = np.asarray(sp["fold"])
     drop = [c for c in (cfg.get("drop_columns") or []) if c in df.columns and c != label]
-    tr = df.loc[fold >= 0].drop(columns=drop)
+    tr = df.loc[fold >= 0].drop(columns=drop)  # a boolean mask over read positions
     tr = tr[tr[label].notna()]
-    ho = df.loc[np.asarray(sp["holdout"], dtype=int)].drop(columns=drop)
+    # P11: holdout entries are read positions; a Parquet frame's index is __row_id (with gaps after an edit), so .iloc
+    ho = df.iloc[np.asarray(sp["holdout"], dtype=int)].drop(columns=drop)
     ho = ho[ho[label].notna()]
     name = p.eval_metric.name
     s_tr = float(p.evaluate(tr, silent=True, auxiliary_metrics=False)[name])

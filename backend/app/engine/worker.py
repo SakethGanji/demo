@@ -25,6 +25,7 @@ os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
 import numpy as np
 import pandas as pd
 
+from .. import config
 from ..db import Database
 from ..splits import holdout_mask
 from .jobs import watch_parent
@@ -47,12 +48,25 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
 
     F6: with a group / time / time + group split, rows of the tuning slice (fold -3) form `tuning` (given to
     fit(tuning_data=...)) and rows excluded by the split (fold -2) are in no frame. Group splits add their
-    group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...)."""
-    from .. import frames
+    group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...).
 
+    P11 (§5.9): the frame is estimated per column (R12) against the run's budget (`frame_budget_mb`, else 10 % of the
+    worker's RAM). Under it, the whole table is read as before. Over it (a Parquet table with a pinned split), only
+    __row_id and the label are read first; the training rows are a recorded splitmix64 sample (R13, `info.frame`,
+    `sample_sha256`), the tuning slice is whole, and `holdout` is a diagnostics subset: the run's holdout metrics and
+    predictions still cover every holdout row (`score_full_holdout`, batches read from the lake)."""
+    from .. import frames
+    from ..lake import frame as LF
+
+    ref = frames.resolve(cfg)
+    label = cfg["label"]
+    t_read = time.time()
+    fp = LF.plan(cfg, ref)
     h = frames.ReadHash()  # DL3 (M1): hash exactly the bytes this fit reads; P05: per Parquet part → table_sha256
-    df = frames.read(frames.resolve(cfg), hash_into=h)  # P03: the typed reader, engine_v1 (text stays text)
-    data_sha256 = h.hexdigest()
+    if fp["sample"]:
+        df = LF.read_ids_label(ref, label, fp)  # P11: __row_id + label only; the features come after the sample
+    else:
+        df = frames.read(ref, hash_into=h)  # P03: the typed reader, engine_v1 (text stays text)
     pin = cfg.get("split_pin") or {}
     split_read: dict[str, Any] | None = None
     if pin.get("blob_sha256"):  # P09: the pinned Parquet split, read (and hashed) from its blob, mapped by __row_id
@@ -62,7 +76,6 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         split_raw = Path(cfg["splits_path"]).read_bytes()  # DL4 (M-d): hash exactly the split this fit uses
         splits = json.loads(split_raw)
         splits_sha = hashlib.sha256(split_raw).hexdigest()
-    label = cfg["label"]
     fold = np.asarray(splits["fold"], dtype=int)
     is_holdout = holdout_mask(splits, len(df))
     structured = bool(splits.get("params"))
@@ -71,11 +84,62 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     is_train = ~is_holdout & ~is_tuning & ~is_excluded
     has_label = df[label].notna().to_numpy()
     drop = [c for c in cfg.get("drop_columns") or [] if c in df.columns and c != label]
-    train = df.loc[is_train & has_label].drop(columns=drop)
-    holdout = df.loc[is_holdout & has_label].drop(columns=drop)
-    tuning = df.loc[is_tuning & has_label].drop(columns=drop) if is_tuning.any() else None
+    fold_train = fold[is_train & has_label]
+    frame: dict[str, Any] = {"plan": LF.compact(fp), "sampled": False}
+    if not fp["sample"]:
+        data_sha256 = h.hexdigest()
+        train = df.loc[is_train & has_label].drop(columns=drop)
+        holdout = df.loc[is_holdout & has_label].drop(columns=drop)
+        tuning = df.loc[is_tuning & has_label].drop(columns=drop) if is_tuning.any() else None
+        n_holdout = len(holdout)
+        frame.update(train_rows_total=len(train), rows_used=len(train), holdout_in_memory=len(holdout))
+        LF.remember(cfg.get("run_id"), {"holdout_ids": None})
+    else:  # P11: over the budget
+        tcols = set(fp["estimate"]["table_columns"])  # `df` holds only the label here: drops are checked on the table
+        drop = [c for c in cfg.get("drop_columns") or [] if c in tcols and c != label]
+        pruned = LF.prune(cfg, fp)
+        cols_all = [c["name"] for c in fp["estimate"]["columns"]]
+        drop = [*drop, *[c["name"] for c in pruned if c["name"] not in drop]]
+        cols = [c for c in cols_all if c not in drop]
+        est = fp["estimate"]
+        bpr = 8.0 + sum(c["bytes_per_cell"] for c in est["columns"] if c["name"] in cols)
+        ids_train = df.index.to_numpy()[is_train & has_label]
+        ids_hold = df.index.to_numpy()[is_holdout & has_label]
+        ids_tun = df.index.to_numpy()[is_tuning & has_label]
+        n_mem = fp["budget"]["bytes"] / bpr
+        rate = (n_mem - len(ids_tun)) / max(1, len(ids_train) + len(ids_hold))
+        floor_rate = min(1.0, config.SAMPLE_MIN_CLASS_ROWS / max(1, len(ids_train)))
+        warn = None
+        if rate < floor_rate:
+            warn = f"the budget leaves room for {max(0, int(n_mem - len(ids_tun))):,} rows: kept at least {floor_rate:.4%} of the training rows"
+            rate = floor_rate
+        rate = min(1.0, rate)
+        seed = int(cfg.get("sample_seed") if cfg.get("sample_seed") is not None else (cfg.get("split") or {}).get("seed") or config.SEED)
+        y_tr = df[label].to_numpy()[is_train & has_label]
+        keep, spec = LF.draw(ids_train, pd.Series(y_tr), seed=seed, rate=rate,
+                             classification=LF.is_classification(cfg, df[label]))
+        hd = LF.holdout_subset(ids_hold, seed=seed, rate=rate)
+        want = np.unique(np.concatenate([ids_train[keep], ids_hold[hd], ids_tun]))
+        full = LF.read_rows(ref, want, cols, fp, hash_into=h)  # every part hashed in full (DL3), only `want` parsed
+        data_sha256 = h.hexdigest()
+        train = full.loc[ids_train[keep]]
+        holdout = full.loc[ids_hold[hd]]
+        tuning = full.loc[ids_tun] if len(ids_tun) else None
+        del full
+        fold_train = fold_train[keep]
+        n_holdout = len(ids_hold)
+        sample_sha = M_sample_sha256(ids_train[keep])
+        blob = LF.commit_sample(cfg, ids_train[keep], spec) if cfg.get("run_id") and cfg.get("db_path") else None
+        LF.remember(cfg.get("run_id"), {"ref": ref, "holdout_ids": np.sort(ids_hold), "columns": cols, "plan": fp})
+        frame.update(sampled=bool(spec["rows_used"] < spec["rows_total"]), train_rows_total=int(len(ids_train)),
+                     rows_used=int(keep.sum()), sample_sha256=sample_sha, sample_spec=spec, sample_blob=blob,
+                     columns_pruned=pruned, holdout_in_memory=int(hd.sum()),
+                     bytes_per_row_used=round(bpr, 1), **({"warning": warn} if warn else {}))
+    frame.update(rows_total=int(len(df)), read_seconds=round(time.time() - t_read, 2),
+                 holdout={"rows": int(n_holdout), "scored": "every row, in batches of "
+                          f"{config.HOLDOUT_BATCH_ROWS:,}", "in_memory": int(len(holdout))})
     info = {
-        "rows": len(df), "train_rows": len(train), "holdout_rows": len(holdout),
+        "rows": len(df), "train_rows": len(train), "holdout_rows": int(n_holdout),
         "dropped_missing_label": int((~has_label).sum()),
         "dropped_missing_label_train": int((~is_holdout & ~has_label).sum()),
         "dropped_missing_label_holdout": int((is_holdout & ~has_label).sum()),
@@ -83,17 +147,39 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "data_sha256": data_sha256, "splits_sha256": splits_sha, **({"split_read": split_read} if split_read else {}),
         "read": {"kind": h.kind, "mode": "engine_v1", **({"table_sha256": data_sha256, "parts": len(h.parts),
                                                          "parts_differing": h.bad_parts} if h.kind == "parquet" else {})},
+        "rows_total": int(len(df)), "rows_used": int(len(train)), "sample_sha256": frame.get("sample_sha256"),
+        "frame": frame,
     }
+    frame["text"] = LF.card_text(info)
     if structured:
         info["tuning_rows"] = 0 if tuning is None else len(tuning)
         info["excluded_rows"] = int(is_excluded.sum())
         if splits.get("strategy") in ("group", "time-group"):
-            train[GROUP_FOLD_COLUMN] = fold[is_train & has_label]  # by position (a Parquet index is __row_id)
+            train[GROUP_FOLD_COLUMN] = fold_train  # by position (a Parquet index is __row_id)
             info["group_folds"] = {"column": GROUP_FOLD_COLUMN, "group_column": splits["params"]["group_column"],
                                    "rows": [int((train[GROUP_FOLD_COLUMN] == k).sum()) for k in range(splits["n_folds"])]}
     if cfg.get("split"):  # F4: the (label, strategy) split this run uses
         info["split"] = {k: v for k, v in cfg["split"].items() if k != "path"}
     return train, holdout, info, tuning
+
+
+def M_sample_sha256(ids: Any) -> str:
+    """§3.3 sample hash of the kept __row_ids (lake.manifest.sample_sha256)."""
+    from ..lake.manifest import sample_sha256
+
+    return sample_sha256(ids)
+
+
+def score_full_holdout(cfg: dict[str, Any], predictor, holdout: pd.DataFrame, path: Path) -> dict[str, Any]:
+    """P11 (§5.9 step 3): predictions and metrics over EVERY holdout row, in batches (from the lake when the run was
+    sampled); written to `path` (holdout_predictions.csv) batch by batch. The same numbers as `holdout_metrics` on the
+    whole holdout: predict_proba (or predict) per batch, one evaluate_predictions over all rows."""
+    from ..lake import frame as LF
+
+    label = cfg["label"]
+    res, run = LF.score_holdout(predictor, LF.holdout_batches(cfg, holdout), label, path, holdout_prediction_frame)
+    return holdout_result(predictor, res["scores"], res["y_true"], res["y_pred"], label,
+                          scored={**run, "of": LF.full_holdout_rows(cfg, holdout)})
 
 
 def apply_column_types(cfg: dict[str, Any], train: pd.DataFrame, holdout: pd.DataFrame,
@@ -412,9 +498,18 @@ def ensemble_weights(predictor) -> list[dict[str, Any]]:
 
 
 def holdout_metrics(predictor, holdout: pd.DataFrame, label: str) -> dict[str, Any]:
+    scores = predictor.evaluate(holdout, silent=True)
+    y_pred = predictor.predict(holdout) if predictor.problem_type in ("binary", "multiclass") else None
+    return holdout_result(predictor, scores, holdout[label], y_pred, label)
+
+
+def holdout_result(predictor, scores: dict[str, Any], y_true: pd.Series, y_pred: pd.Series | None, label: str,
+                   scored: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The holdout result from AutoGluon's scores over the rows `y_true` (and, for classification, the predicted
+    labels `y_pred`): natural-sign metrics, the F7 served-decision cost, the confusion matrix. P11: `scored` says how
+    the rows were scored (batches, rows, of)."""
     from autogluon.core.metrics import get_metric
 
-    scores = predictor.evaluate(holdout, silent=True)
     natural = {}
     em = predictor.eval_metric
     for k, v in scores.items():
@@ -429,20 +524,21 @@ def holdout_metrics(predictor, holdout: pd.DataFrame, label: str) -> dict[str, A
         from ensemble_models.cost import binary_expected_cost_labels
 
         kw = em._kwargs
-        y = (holdout[label] == predictor.positive_class).to_numpy().astype(int)
-        yhat = (predictor.predict(holdout) == predictor.positive_class).to_numpy().astype(int)
+        y = (y_true == predictor.positive_class).to_numpy().astype(int)
+        yhat = (y_pred == predictor.positive_class).to_numpy().astype(int)
         natural["expected_cost_bayes"] = natural.get("expected_cost")
         natural["expected_cost"] = binary_expected_cost_labels(y, yhat, **kw)
         scores = {**scores, "expected_cost_bayes": scores.get("expected_cost"), "expected_cost": -natural["expected_cost"]}
-    out: dict[str, Any] = {"n_rows": len(holdout), "model": predictor.model_best, "scores": scores,
+    out: dict[str, Any] = {"n_rows": len(y_true), "model": predictor.model_best, "scores": scores,
                            "metrics": natural, "eval_metric": predictor.eval_metric.name}
     if predictor.problem_type in ("binary", "multiclass"):
         from sklearn.metrics import confusion_matrix
 
         classes = list(predictor.class_labels)
-        y_pred = predictor.predict(holdout)
         out["classes"] = classes
-        out["confusion_matrix"] = confusion_matrix(holdout[label], y_pred, labels=classes).tolist()
+        out["confusion_matrix"] = confusion_matrix(y_true, y_pred, labels=classes).tolist()
+    if scored is not None:
+        out["scored"] = scored
     return out
 
 
@@ -619,13 +715,21 @@ def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str
                      info: dict[str, Any] | None = None) -> None:
     """P05: what this run read, as one insert-only `run_inputs` row (role 'train'): the table and its committed
     table_sha256 with the sha recomputed from the bytes read (Parquet), or the data.csv sha (CSV-era, legacy_csv_sha256);
-    the split file's hash; the read mode; rows and dropped columns. Written once per run (a re-run keeps the first)."""
+    the split file's hash; the read mode; rows and dropped columns. Written once per run (a re-run keeps the first).
+    P11: rows_total = the table's rows, rows_used = the training rows fitted; a sampled run adds sample_spec (canonical
+    JSON, rates as decimal text) and sample_sha256; frame_mb = the estimated frame of the rows fitted."""
     import secrets as _secrets
 
     from ..catalog.schema import now as _now
 
+    from ..lake import frame as LF
+
     it = cfg.get("input_table") or {}
     parquet = bool(it.get("table_sha256"))
+    fr = (info or {}).get("frame") or {}  # P11: the training frame (sample spec and hash when sampled)
+    est = ((fr.get("plan") or {}).get("estimate") or {})
+    frame_mb = int(round(fr["bytes_per_row_used"] * fr["rows_used"] / 2 ** 20)) if fr.get("bytes_per_row_used") \
+        else (int(round(est["mb"])) if est.get("mb") is not None else None)
     try:
         with store.db.connect() as con:
             if con.execute("SELECT 1 FROM run_inputs WHERE run_id = ? AND role = 'train'", (run_id,)).fetchone():
@@ -634,15 +738,16 @@ def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str
             con.execute(
                 "INSERT INTO run_inputs (id, run_id, role, version_id, table_name, table_sha256, read_sha256, match,"
                 " legacy_csv_sha256, split_id, split_sha256, split_legacy_sha256, read_mode, rows_total, rows_used,"
-                " columns_dropped, created_at)"
-                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?)",
+                " columns_dropped, sample_spec, sample_sha256, frame_mb, created_at)"
+                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?, ?, ?, ?)",
                 ("ri_" + _secrets.token_hex(6), run_id, cfg.get("dataset_id"), it.get("table") or "data",
                  it.get("table_sha256") if parquet else None, sha, None if ok is None else int(ok),
                  None if parquet else (cfg.get("data_sha256_expected") or sha),
                  pin.get("split_id"), (info or {}).get("splits_sha256") if pin else None,
                  None if pin else cfg.get("splits_sha256_expected"),
                  (info or {}).get("rows"), (info or {}).get("train_rows"),
-                 json.dumps((info or {}).get("dropped_columns") or cfg.get("drop_columns") or []), _now()))
+                 json.dumps((info or {}).get("dropped_columns") or cfg.get("drop_columns") or []),
+                 LF.spec_json(fr.get("sample_spec")), fr.get("sample_sha256"), frame_mb, _now()))
     except Exception as e:  # noqa: BLE001 - the record must not cost the run; the gate below still decides
         log.warning("run_inputs not recorded for %s: %s", run_id, e)
 
@@ -838,8 +943,8 @@ def run(run_dir: Path) -> int:
                                                          "pred_time_val", "pred_time_test", "stack_level",
                                                          "val_score_std", "can_infer")} for r in leaderboard])
 
-        holdout_out = holdout_metrics(predictor, holdout, cfg["label"])
-        save_holdout_predictions(predictor, holdout, cfg["label"], run_dir / "holdout_predictions.csv")
+        # P11: every holdout row, scored in batches (from the lake when the training rows were sampled)
+        holdout_out = score_full_holdout(cfg, predictor, holdout, run_dir / "holdout_predictions.csv")
         store.merge_result(run_id, holdout=holdout_out)
         emit("evaluation", **holdout_out)
         if predictor.problem_type == "binary":

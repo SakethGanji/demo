@@ -68,7 +68,7 @@ def analyse(rec: dict[str, Any], *, surname: str | None, zip_col: str | None, tr
     t_tab = tables.load()
     hd = explain.load_holdout(Path(cfg["run_dir"]))
     rows = hd["row"].to_numpy()
-    sub = data.iloc[rows].reset_index(drop=True)
+    sub = data.loc[rows].reset_index(drop=True)  # P11: `row` is the __row_id (the frame's index), not a position
     post = bisg.posterior(sub[found["surname"]["column"]], sub[found["zip"]["column"]] if found["zip"] else None, t_tab)
     P = post["P"]
     pos = res.get("positive_class")

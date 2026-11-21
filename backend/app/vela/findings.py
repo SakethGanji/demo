@@ -252,7 +252,7 @@ def f_segment(rec, base, hp, data, out):
         return
     worst = None
     for c in cats:
-        lv = data[c].iloc[rows].astype(str).to_numpy()
+        lv = data[c].loc[rows].astype(str).to_numpy()  # P11: `row` is the __row_id, the frame's index
         for v in pd.unique(lv):
             m = lv == v
             if m.sum() < 30:

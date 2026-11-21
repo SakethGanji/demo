@@ -273,6 +273,9 @@ def compute_probs(run_dir: Path) -> dict[str, Any]:
     classes = [str(c) for c in predictor.class_labels]
     rows_tr, _ = split_rows(cfg)
     df = frames.read(frames.resolve(cfg))
+    # P11: the fit's frames are indexed by __row_id (gaps after an edit on a Parquet version); rows here are read positions
+    proba.index = pd.Index(df.index).get_indexer(proba.index)
+    df = df.reset_index(drop=True)
     missing = [r for r in rows_tr.tolist() if r not in set(proba.index.tolist())]
     P = pd.DataFrame(np.nan, index=rows_tr, columns=proba.columns, dtype=float)
     common = proba.index.intersection(P.index)

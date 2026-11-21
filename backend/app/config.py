@@ -147,3 +147,33 @@ GC_PENDING_GRACE_HOURS = 24.0
 GC_LIVE_GRACE_DAYS = 7.0
 GC_ORPHAN_GRACE_HOURS = 24.0
 
+
+
+# == P11: the training frame and sampling (docs/plans/data-platform-final.md §5.9, R12, R13) ==========================
+
+def train_frame_share() -> float:
+    """The training frame's budget as a share of the worker's RAM (§11: 10 %). ENSEMBLE_TRAIN_FRAME_SHARE overrides it."""
+    return min(1.0, _env_num("ENSEMBLE_TRAIN_FRAME_SHARE", 0.10, 0.001))
+
+
+def worker_ram_mb() -> int | None:
+    """The worker's RAM when it is not the host's (a container limit the cgroup does not show). ENSEMBLE_WORKER_RAM_MB."""
+    v = _env_num("ENSEMBLE_WORKER_RAM_MB", 0, 0)
+    return int(v) if v > 0 else None
+
+
+#: R12's per-column estimator (bytes per cell of the engine_v1 pandas frame): 8 B for a number / bool cell; an object
+#: string cell costs a pointer plus the str object (≈ 50 B + its length). The load peaks at ≈ 1.6 × the frame.
+FRAME_NUM_BYTES = 8
+FRAME_STR_BASE = 58
+FRAME_LOAD_PEAK = 1.6
+#: §5.9 step 3: the holdout is never sampled; it is scored in batches of this many rows.
+HOLDOUT_BATCH_ROWS = int(_env_num("ENSEMBLE_HOLDOUT_BATCH_ROWS", 500_000, 1000))
+#: §5.9 step 2: a class with at most this many training rows is kept whole by the stratified sample.
+SAMPLE_MIN_CLASS_ROWS = 1000
+
+#: P11 calibration: peak RSS of a whole AutoGluon 1.6.3 fit (the worker process and its children) per byte of the
+#: estimated training frame, by preset; measured at 1M and 5M rows (docs/plans/B-scale-performance.md, "P11"). A run's
+#: frame budget is also capped so that estimate × factor stays under FIT_RAM_SHARE of the worker's RAM.
+FIT_PEAK_PER_FRAME_BYTE: dict[str, float] = {}
+FIT_RAM_SHARE = 0.8
