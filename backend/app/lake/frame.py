@@ -13,7 +13,8 @@ table: 8 B per number / bool cell; per text cell (VARCHAR, and DATE / TIMESTAMP,
 pointer plus, when it is not null, the str object: 8 + share_non_null × (FRAME_STR_BASE − 8 + mean length). The mean
 length and the null counts come from one DuckDB scan of the table (deterministic: the same table gives the same
 estimate, so the same rates and the same sample). The budget is `frame_budget_mb` of the run when given, else
-ENSEMBLE_TRAIN_FRAME_SHARE (10 %) × the worker's RAM, capped by the calibrated AutoGluon fit peak of the run's preset.
+ENSEMBLE_TRAIN_FRAME_SHARE (10 %) × the worker's RAM, capped so that the run's calibrated peak (config.FIT_PEAK:
+base + slope × frame, measured at 1M / 5M rows for medium_quality) stays under 80 % of that RAM.
 
 **Under the budget** nothing changes: `frames.read` of the whole table, as before P11.
 
@@ -97,7 +98,7 @@ def preset_of(cfg: dict[str, Any]) -> str:
 def budget(cfg: dict[str, Any]) -> dict[str, Any]:
     ram, src = worker_ram()
     preset = preset_of(cfg)
-    factor = config.FIT_PEAK_PER_FRAME_BYTE.get(preset)
+    cal = config.FIT_PEAK.get(preset)
     if cfg.get("frame_budget_mb"):
         b = int(float(cfg["frame_budget_mb"]) * 2 ** 20)
         rule = f"frame_budget_mb = {int(cfg['frame_budget_mb'])} (set on the run)"
@@ -105,14 +106,14 @@ def budget(cfg: dict[str, Any]) -> dict[str, Any]:
         share = config.train_frame_share()
         b = int(share * ram)
         rule = f"{share:.0%} of the worker's RAM ({ram / 2 ** 30:.1f} GB, {src})"
-        if factor:
-            cap = int(config.FIT_RAM_SHARE * ram / factor)
+        if cal:
+            cap = int(max(0.0, config.FIT_RAM_SHARE * ram - cal["base_mb"] * 2 ** 20) / cal["per_frame_byte"])
             if cap < b:
                 b = cap
-                rule += (f", capped so that the {preset} fit's calibrated peak (× {factor:g} the frame) stays under "
-                         f"{config.FIT_RAM_SHARE:.0%} of it")
+                rule += (f", capped so that the {preset} run's calibrated peak ({cal['base_mb']:.0f} MB + "
+                         f"{cal['per_frame_byte']:g} × the frame) stays under {config.FIT_RAM_SHARE:.0%} of it")
     return {"bytes": b, "mb": round(b / 2 ** 20, 1), "rule": rule, "ram_bytes": ram, "ram_source": src, "preset": preset,
-            "fit_peak_per_frame_byte": factor}
+            "fit_peak": cal, "fit_peak_mb_at_budget": round(cal["base_mb"] + cal["per_frame_byte"] * b / 2 ** 20) if cal else None}
 
 
 # --------------------------------------------------------------------------- the estimate (R12)

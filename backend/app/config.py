@@ -166,14 +166,20 @@ def worker_ram_mb() -> int | None:
 #: string cell costs a pointer plus the str object (≈ 50 B + its length). The load peaks at ≈ 1.6 × the frame.
 FRAME_NUM_BYTES = 8
 FRAME_STR_BASE = 58
-FRAME_LOAD_PEAK = 1.6
+FRAME_LOAD_PEAK = 2.5  # P11 measured: frames.read peaks at 2.49-2.55 x the frame (R12's 1.6 was pd.read_parquet alone)
 #: §5.9 step 3: the holdout is never sampled; it is scored in batches of this many rows.
 HOLDOUT_BATCH_ROWS = int(_env_num("ENSEMBLE_HOLDOUT_BATCH_ROWS", 500_000, 1000))
 #: §5.9 step 2: a class with at most this many training rows is kept whole by the stratified sample.
 SAMPLE_MIN_CLASS_ROWS = 1000
 
-#: P11 calibration: peak RSS of a whole AutoGluon 1.6.3 fit (the worker process and its children) per byte of the
-#: estimated training frame, by preset; measured at 1M and 5M rows (docs/plans/B-scale-performance.md, "P11"). A run's
-#: frame budget is also capped so that estimate × factor stays under FIT_RAM_SHARE of the worker's RAM.
-FIT_PEAK_PER_FRAME_BYTE: dict[str, float] = {}
+#: P11 calibration: peak RSS of a whole run in the worker (python -m app.engine.worker and its children: read, AutoGluon
+#: 1.6.3 fit, holdout scoring, ladder, importance) against the estimated training frame, by preset. Measured on 27-column
+#: tables (5 text-like) at 1M and 5M rows, 4 vCPU (docs/progress/P11.md, docs/plans/B-scale-performance.md "P11"):
+#:   medium_quality  1M: estimate 539 MB → peak 3,436 MB (6.37 x);  5M: 2,697 MB → 8,669 MB (3.21 x)
+#: so peak ≈ base_mb + per_frame_byte × estimate (a fixed ~2.1 GB of libraries and models plus 2.43 x the frame).
+#: A run's default budget is capped so that this peak stays under FIT_RAM_SHARE of the worker's RAM; a preset without a
+#: calibration is not capped (only the 10 % share applies).
+FIT_PEAK: dict[str, dict[str, float]] = {
+    "medium_quality": {"base_mb": 2127.0, "per_frame_byte": 2.43, "measured_1m_x": 6.37, "measured_5m_x": 3.21},
+}
 FIT_RAM_SHARE = 0.8

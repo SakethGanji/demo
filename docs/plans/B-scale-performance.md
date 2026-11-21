@@ -885,3 +885,23 @@ The scripts were in the planning session's scratch directory (`bench/gen.py`, `v
   `executemany` / `COPY`. Writers are separate processes, 8 s per level.
 
 B8 commits the generator as `app/lake/seed.py`, so the numbers can be rerun.
+
+## P11 numbers (appended 2026-11-21; pinned stack: AutoGluon 1.6.3, pandas 2.3.3, pyarrow 24.0.0, duckdb 2.0.1; 4 vCPU, 15.7 GB)
+
+Measured through the real worker (`docs/progress/P11/calibrate.py`, raw `docs/progress/P11/calib.jsonl`); 27 columns
+(an ID, 3 categories, a date, 18 floats, an int with nulls, a bool, a 3-class label); default preset `medium_quality`.
+
+| rows | R12 estimate | real engine_v1 frame | `frames.read` peak | time_limit | run peak RSS (worker tree) | peak / estimate |
+|---|---|---|---|---|---|---|
+| 1M | 539 MB | 481 MB | 1,228 MB (2.55 × frame) | 600 s | 3,436 MB | 6.37 × |
+| 5M | 2,697 MB | 2,405 MB | 5,984 MB (2.49 × frame) | 1,200 s | 8,669 MB | 3.21 × |
+
+- The run peak is ≈ 2.13 GB + 2.43 × the estimated frame (`config.FIT_PEAK`).
+- The default frame budget = min(10 % of RAM, (80 % RAM − 2.13 GB) / 2.43).
+- §5.9 sampling at 2M rows (gapped `__row_id`) with `frame_budget_mb: 300`:
+  - estimate 939 MB;
+  - 505,723 of 1,583,990 training rows kept (rate 0.319, the rare class whole);
+  - the sampled `load_frames` (estimate, ids + label, the sample, the hashed partial read) took 4.6–4.9 s, against 5.3 s for the full read;
+  - all 396,010 holdout rows scored in 4 batches in 4.7–8.6 s.
+- The rerun of this document's table on an anonymised real export was **not** done: no export was available.
+
