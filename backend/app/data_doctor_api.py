@@ -75,7 +75,7 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (issues, keep masks)
     roles = _roles(store, dataset_id, df)
     target = rec["target"]
-    labels = dd.label_state(store.dir(dataset_id), target, dataset_id)  # P08: keyed on the table sha, read by frames
+    labels = dd.label_state(store.dir(dataset_id), target, dataset_id)  # P07: keyed and read through frames
     task_ok = target is not None and not (df[target].dtype.kind in "fi" and df[target].nunique() > dd.MAX_CLASSES)
     if labels is None and task_ok and df[target].nunique(dropna=True) >= 2:
         labels = dd.start_labels(store.dir(dataset_id), target, dataset_id, roles)
