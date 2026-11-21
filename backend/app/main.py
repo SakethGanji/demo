@@ -86,6 +86,19 @@ def _summary(rec: dict[str, Any]) -> dict[str, Any]:
 
 
 def _detail(rec: dict[str, Any]) -> dict[str, Any]:
+    """A dataset with its stored profile. P20: the profile's values of PII-tagged columns (example, top values, range,
+    numeric stats) are masked (`profiling.mask_profile`), wherever a detail is returned (GET, upload, edit, patch)."""
+    from . import profiling
+    from .lake import mask as M
+
+    out = _detail_raw(rec)
+    m = M.masked_view(rec["id"]) if rec.get("id") else None
+    if m is not None and m.cols:
+        out["profile"] = profiling.mask_profile(out.get("profile"), {c: m.fn(c) for c in m.cols})
+    return out
+
+
+def _detail_raw(rec: dict[str, Any]) -> dict[str, Any]:
     return {**_summary(rec), "profile": rec["profile"]}
 
 
@@ -238,7 +251,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.get("/api/datasets/{dataset_id}", response_model=Dataset)
     def get_dataset(dataset_id: str, request: Request) -> dict[str, Any]:
         rec = dataset_or_404(request, dataset_id)
-        return _detail(rec)
+        return _detail(rec)  # P20: a PII column's example / top values / range are shown masked
 
     @app.post("/api/datasets", response_model=Dataset, status_code=201,
                dependencies=[require("data.upload", body("project_id", "project"))])
@@ -351,35 +364,45 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.get("/api/datasets/{dataset_id}/rows", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
     def dataset_rows(dataset_id: str, request: Request, value: str | None = None, column: str | None = None, limit: int | None = None,
                      by: str = "", after: int | None = None, offset: int | None = None, q: str = "", filter: str | None = None,
-                     columns: str | None = None, sort: str | None = None, desc: bool = False, table: str | None = None) -> dict[str, Any]:
+                     columns: str | None = None, sort: str | None = None, desc: bool = False, table: str | None = None,
+                     unmasked: str = "", reason: str = "") -> dict[str, Any]:
         """P08 (R5): a page of rows in `__row_id` order, by keyset: `after` = the last `_row_id` seen (exclusive),
         `limit` ≤ 500 (50). `q` keeps rows where any column contains it (case-insensitive; the first `limit` hits; the
         count is GET …/rows/count). `filter` is the edit filter AST as JSON. `offset` jumps to a row position;
         `sort` (+ `desc`) orders by a column, refused above 1M rows ("filter first"). `columns` (comma list) narrows.
         G10: with `value`, the rows where `column` equals `value` as text (any text column when none is named), for
-        looking up one applicant or account by its id. DL3 (m2): needs a name (by or the X-Ensemble-Actor header)."""
+        looking up one applicant or account by its id. DL3 (m2): needs a name (by or the X-Ensemble-Actor header).
+        P20: PII-tagged columns are masked (`masked_columns`); `unmasked=1&reason=…` shows them in clear to a principal
+        with data.read_unmasked, and is audited as dataset_rows_read."""
+        from . import frames
         from .catalog import governance as G
-        from .catalog.datasets_api import _src_where
+        from .catalog.datasets_api import _mask_err, _src_where
+        from .lake import mask as M
         from .lake import pages as PG
 
         who = G.reader(by)
         dataset_or_404(request, dataset_id)
         try:
+            m = M.for_request(request, dataset_id, table, unmasked=unmasked, reason=reason, by=who,
+                              read="row_lookup" if value is not None else "rows_page")
             if value is not None:
-                src = PG.source(dataset_id, table)
+                src = frames.scan(dataset_id, table, mask_for=m)
                 hit = PG.lookup(src, value, column, limit or 3)
                 G.read_audit(request.app.state.db, "row_lookup", dataset_id, {"column": hit["column"], "n": hit["n"]}, by=who)
-                return {"dataset_id": dataset_id, "column": hit["column"], "value": value, "n": hit["n"], "rows": hit["rows"]}
-            src, where, searched = _src_where(dataset_id, table, q, filter)
+                return m.scrub({"dataset_id": dataset_id, "column": hit["column"], "value": value, "n": hit["n"], "rows": hit["rows"],
+                                **m.info()})  # P20: the looked-up value of a masked column is not echoed
+            src, where, searched = _src_where(dataset_id, table, q, filter, m)
             cols = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
             pg = PG.page(src, after=after, offset=offset, limit=limit or 50, where=where, columns=cols, sort=sort, desc=desc,
                          positions=False)
         except PG.PageError as e:
             raise HTTPException(e.status, e.payload()) from e
+        except M.MaskError as e:
+            raise _mask_err(e) from e
         G.read_audit(request.app.state.db, "rows_page", dataset_id, {"after": after, "q": q[:80] or None,
                                                                     "filter": bool(filter), "n": len(pg["rows"])}, by=who)
         return {"dataset_id": dataset_id, "table": src.table, "total": src.n_rows, "after": after, "limit": limit or 50, "q": q,
-                **({"searched_columns": searched} if q.strip() else {}), **pg}
+                **({"searched_columns": searched} if q.strip() else {}), **pg, **m.info()}
 
     @app.post("/api/datasets/{dataset_id}/splits", dependencies=[require("run.train", path("dataset_id", "dataset"))])
     def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:

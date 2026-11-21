@@ -254,3 +254,91 @@ def profile_frame(df: pd.DataFrame, target: str | None = None) -> dict[str, Any]
         },
         "warnings": warnings,
     }
+
+
+# --------------------------------------------------------------------------- P20 (§6.3, C §4.3): PII suggestions
+
+#: name rules, first match wins: (pattern on the column name, tag, mask, why)
+PII_NAME_RULES: list[tuple[re.Pattern[str], str, str, str]] = [
+    (re.compile(r"(^|_)(ssn|social_?sec\w*|sin|national_?id\w*|passport\w*|tax_?id|tin|nino)($|_)", re.I),
+     "pii_direct", "redact", "the name reads like a national id (SSN, passport, tax id)"),
+    (re.compile(r"e_?mail", re.I), "pii_direct", "redact", "the name reads like an email address"),
+    (re.compile(r"(^|_)(phone|mobile|cell|tel|telephone|fax)(_?(no|num|number))?($|_)", re.I),
+     "pii_direct", "last4", "the name reads like a phone number"),
+    (re.compile(r"(^|_)(((first|last|full|given|middle|family|sur|customer|client|applicant|maiden|borrower)_?name)|name|"
+                r"surname|lastname|firstname|fullname)$", re.I), "pii_direct", "redact", "the name reads like a person's name"),
+    (re.compile(r"(^|_)(address|street|addr|address_?line_?\d*|street_?address|home_?address)($|_)", re.I),
+     "pii_direct", "redact", "the name reads like a postal address"),
+    (re.compile(r"(^|_)(dob|birth_?date|date_?of_?birth|birthday)($|_)", re.I), "pii_quasi", "year_only",
+     "the name reads like a date of birth"),
+    (re.compile(r"(zip|postal|postcode|post_code)", re.I), "pii_quasi", "bucket", "the name reads like a zip / postal code"),
+    (re.compile(r"(^|_)(account_?(no|num|number)|acct_?(no|num|number)|card_?(no|num|number)|iban|pan|credit_?card(_?(no|number))?)($|_)",
+                re.I), "pii_direct", "last4", "the name reads like an account or card number"),
+    (re.compile(r"(^|_)(ip|ip_?addr\w*)($|_)", re.I), "pii_direct", "hash", "the name reads like an IP address"),
+    (re.compile(r"(^|_)(race|ethnic\w*|gender|sex|religion|national_origin|nationality|marital_status|disability)($|_)", re.I),
+     "protected", "none", "the name reads like a protected attribute: never a model input"),
+]
+
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+_SSN = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+_CARD = re.compile(r"^\d{13,19}$")
+
+
+def _luhn(d: str) -> bool:
+    tot = 0
+    for i, ch in enumerate(reversed(d)):
+        n = int(ch)
+        if i % 2:
+            n = n * 2 - 9 if n > 4 else n * 2
+        tot += n
+    return tot % 10 == 0
+
+
+def pii_suggestion(name: str, values: list[Any] | None = None) -> dict[str, str] | None:
+    """{tag, mask, why} for a column, or None: the name rules first (PII_NAME_RULES), then value patterns on a sample
+    (≥ 80 % of the non-missing values: an email, a 9-digit SSN shape `123-45-6789`, a Luhn-valid card number). The
+    value is never part of `why`."""
+    n = str(name)
+    for rx, tag, mask, why in PII_NAME_RULES:
+        if rx.search(n):
+            return {"tag": tag, "mask": mask, "why": why, "rule": "name"}
+    vals = [str(v).strip() for v in (values or []) if v is not None and not (isinstance(v, float) and np.isnan(v)) and str(v).strip()]
+    if len(vals) < 5:
+        return None
+
+    def share(f: Any) -> float:
+        return sum(1 for v in vals if f(v)) / len(vals)
+
+    if share(lambda v: bool(_EMAIL.match(v))) >= 0.8:
+        return {"tag": "pii_direct", "mask": "redact", "why": "the values look like email addresses", "rule": "values"}
+    if share(lambda v: bool(_SSN.match(v))) >= 0.8:
+        return {"tag": "pii_direct", "mask": "redact", "why": "the values have the SSN shape (3-2-4 digits)", "rule": "values"}
+    if share(lambda v: bool(_CARD.match(re.sub(r"[\s-]", "", v))) and _luhn(re.sub(r"[\s-]", "", v))) >= 0.8:
+        return {"tag": "pii_direct", "mask": "last4", "why": "the values are Luhn-valid card numbers", "rule": "values"}
+    return None
+
+
+def mask_profile(profile: dict[str, Any] | None, masked: dict[str, Any]) -> dict[str, Any] | None:
+    """A stored profile (GET /datasets/{id}) with the values of masked columns masked: `example`, `top`, `range` and
+    the numeric `stats` (min / max / mean …) of a PII column are never shown as stored. `masked` = {column: fn(value)}."""
+    if not profile or not masked:
+        return profile
+    out = dict(profile)
+    cols = []
+    for c in profile.get("columns") or []:
+        f = masked.get(str(c.get("name")))
+        if f is None:
+            cols.append(c)
+            continue
+        c = dict(c, masked=True)
+        if c.get("example") not in (None, ""):
+            c["example"] = f(c["example"])
+        if c.get("top"):
+            c["top"] = [{**t, "value": f(t.get("value"))} for t in c["top"]]
+        if c.get("range"):
+            c["range"] = {k: f(v) for k, v in c["range"].items()}
+        if isinstance(c.get("stats"), dict) and c.get("type") == "number":
+            c["stats"] = None
+        cols.append(c)
+    out["columns"] = cols
+    return out
