@@ -34,6 +34,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
+
 DELIMS = (";", "|", ",")
 MIN_POS = 20      # a label needs this many positive training rows to get its own model
 B = 300
@@ -200,7 +202,7 @@ def _frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, np.ndarray, np.ndarray, 
     """(data, train, tuning, holdout masks, info) from the run's split (fold −1 holdout, −3 tuning, −2 excluded)."""
     from ..splits import holdout_mask
 
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     fold = np.asarray(splits["fold"], dtype=int)
     hold = holdout_mask(splits, len(df))

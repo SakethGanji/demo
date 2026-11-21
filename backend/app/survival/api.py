@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from ..datasets import DatasetError
 from ..engine.api import alloc_run, queue_run, run_out, split_record
 from ..http import dataset_or_404
+from .. import frames
 from . import core
 
 router = APIRouter(prefix="/api/survival")
@@ -73,7 +74,7 @@ def detect(df: pd.DataFrame) -> dict[str, Any]:
 @router.get("/detect")
 def detect_route(dataset_id: str, request: Request) -> dict[str, Any]:
     dataset_or_404(request, dataset_id)
-    return {"dataset_id": dataset_id, **detect(request.app.state.datasets.load_frame(dataset_id))}
+    return {"dataset_id": dataset_id, **detect(frames.read_version(dataset_id))}
 
 
 @router.post("/runs", status_code=201)
@@ -86,7 +87,7 @@ def _create(body: SurvCreate, request: Request) -> dict[str, Any]:
 
     app = request.app
     ds = dataset_or_404(request, body.dataset_id)
-    df = app.state.datasets.load_frame(body.dataset_id)
+    df = frames.read_version(body.dataset_id)
     det = detect(df)
     dur = body.duration_column or det["duration_column"]
     evt = body.event_column or det["event_column"]
@@ -126,7 +127,7 @@ def _create(body: SurvCreate, request: Request) -> dict[str, Any]:
         "kind": "survival", "dataset_id": body.dataset_id, "label": evt, "duration_column": dur, "event_column": evt,
         "horizons": horizons, "drop_columns": drop, "n_estimators": body.n_estimators, "min_samples_leaf": body.min_samples_leaf,
         "split": sp, "splits_path": sp["path"], "run_id": run_id, "db_path": str(settings.db_path),
-        "csv_path": str(app.state.datasets.csv_path(body.dataset_id)), "run_dir": str(run_dir),
+        "csv_path": str(frames.version_file(body.dataset_id)), "input_ref": frames.input_ref_for(body.dataset_id), "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "survival"),
         "detected": {k: det[k] for k in ("duration_column", "event_column", "strong", "duration_candidates", "event_candidates",
                                          "horizons", "drop_columns", "split", "split_why", "evidence", "event_rate")},

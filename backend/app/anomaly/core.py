@@ -29,6 +29,7 @@ import numpy as np
 import pandas as pd
 
 from . import group, velocity
+from .. import frames
 
 Emit = Callable[..., int]
 EULER = 0.5772156649
@@ -243,7 +244,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
     from sklearn.ensemble import IsolationForest
     from sklearn.neighbors import LocalOutlierFactor
 
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     profile = cfg.get("profile")
     p = cfg["params"]
     # Group-relative features (amount ÷ the entity's own mean, z within the entity, time since its previous row)
@@ -441,8 +442,15 @@ def score_frame(model_dir: str, df: pd.DataFrame, explain_top: int = 50) -> tupl
     return out, top, summary
 
 
-def score_batch(model_dir: str, csv_path: str, out_path: str) -> dict[str, Any]:
-    df = pd.read_csv(csv_path)
+def score_batch(model_dir: str, csv_path: str, out_path: str, train_ref: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A user's batch file: the typed import rules (frames.read_upload), cast to the training table's column kinds."""
+    df = frames.read_upload(csv_path, filename=Path(csv_path).name)
+    ref = frames.from_json(train_ref)
+    if ref is not None:
+        try:
+            df = frames.align_to(df, ref)
+        except (frames.FrameError, OSError):  # the training version is gone: score the file as read
+            pass
     out, top, summary = score_frame(model_dir, df)
     out.to_csv(out_path, index=False)
     h, edges = np.histogram(out["anomaly_score"], bins=40)

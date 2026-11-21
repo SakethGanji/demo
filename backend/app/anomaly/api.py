@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ..engine.store import now
+from .. import frames
 from . import core, group, labels as review, velocity
 from ..http import dataset_or_404, stash_upload
 
@@ -92,7 +93,7 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
         if not body.amount_column:
             raise HTTPException(400, "velocity_features needs an amount_column (a numeric column).")
         if body.category_column is None:
-            df_head = pd.read_csv(app.state.datasets.csv_path(body.dataset_id), nrows=20000)
+            df_head = frames.read_version(body.dataset_id, rows=range(0, 20000))
             body.category_column = velocity.suggest_category(
                 df_head, {c: v["type"] for c, v in cols.items()}, {body.entity_column, body.time_column})
         bad = [c for c in body.velocity_in_forest or [] if c not in velocity.names(body.model_dump())]
@@ -108,7 +109,8 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
            "id_columns": [c for c, v in cols.items() if v["type"] == "id"],
            "profile": {"columns": [{"name": c["name"], "type": c["type"]} for c in ds["profile"]["columns"]]},
            "truth": truth, "run_id": run_id, "db_path": str(settings.db_path),
-           "csv_path": str(app.state.datasets.csv_path(body.dataset_id)), "run_dir": str(run_dir),
+           "csv_path": str(frames.version_file(body.dataset_id)), "input_ref": frames.input_ref_for(body.dataset_id),
+           "run_dir": str(run_dir),
            "predictor_path": str(run_dir / "model")}
     name = body.name or f"{display_name(ds)} · anomalies · c={body.contamination:g}"
     store = queue_run(app, run_id, run_dir, name, body.dataset_id, "anomaly", cfg, kind="anomaly",
@@ -124,7 +126,7 @@ def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
     types (a repeated ID-like column, a datetime column, amount-like numbers)."""
     ds = dataset_or_404(request, dataset_id)
     spec = request.app.state.datasets.sidecar(dataset_id, "anomaly_truth.json")
-    df = pd.read_csv(request.app.state.datasets.csv_path(dataset_id), nrows=20000)
+    df = frames.read_version(dataset_id, rows=range(0, 20000))
     types = {c["name"]: c["type"] for c in ds["profile"]["columns"]}
     out = group.suggest(df, types, spec)
     out["amount_column"] = (out.get("relative_columns") or [None])[0]
@@ -157,7 +159,7 @@ def top(run_id: str, request: Request, contamination: float | None = Query(None,
     d = Path(rec["config"]["run_dir"])
     a = (rec.get("result") or {}).get("anomaly") or {}
     rows = json.loads((d / "top.json").read_text())
-    scores = pd.read_csv(d / "scores.csv")
+    scores = frames.read_artifact(d / "scores.csv")
     s = scores["s"].to_numpy()
     c = contamination or a.get("contamination")
     thr = float(np.quantile(s, 1 - c))
@@ -214,7 +216,7 @@ def get_labels(run_id: str, request: Request) -> dict[str, Any]:
 def set_labels(run_id: str, body: ReviewBody, request: Request) -> dict[str, Any]:
     """Confirm (fraud) or dismiss (not fraud) flagged rows; the labels are stored with the dataset and audited."""
     rec = _run(request, run_id)
-    sc = pd.read_csv(Path(rec["config"]["run_dir"]) / "scores.csv")
+    sc = frames.read_artifact(Path(rec["config"]["run_dir"]) / "scores.csv")
     n = len(sc)
     bad = [it.row for it in body.items if it.row >= n]
     if bad:
@@ -268,16 +270,16 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
     if not summ["can_train"]:
         raise HTTPException(409, f"{summ['confirmed']} confirmed fraud(s); confirm at least {body.min_positives} to train.")
     d = Path(cfg["run_dir"])
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     n = len(df)
     p = cfg["params"]
     derived = d / "derived.csv"
     if derived.exists():
-        der = pd.read_csv(derived).drop(columns=["row"])
+        der = frames.read_artifact(derived).drop(columns=["row"])
         for c in der.columns:
             if c not in df.columns:
                 df[c] = der[c].to_numpy()
-    sc = pd.read_csv(d / "scores.csv")
+    sc = frames.read_artifact(d / "scores.csv")
     if body.include_score:
         df["anomaly_score"] = sc["s"].to_numpy()
         if "lof" in sc:
@@ -312,7 +314,7 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
     entry = {"run_id": out["id"], "dataset_id": new["id"], "created_at": now(), "by": body.by,
              "negatives": body.negatives, "include_score": body.include_score, **summ,
              "unreviewed": int(n - summ["reviewed"]), "reviewed_rows": sorted(int(r) for r in cur if r < n),
-             "features_added": [c for c in df.columns if c not in pd.read_csv(cfg["csv_path"], nrows=1).columns and c != label],
+             "features_added": [c for c in df.columns if c not in frames.column_names(frames.resolve(cfg)) and c != label],
              "drop_columns": drop, "fit_kwargs": fit_kwargs, "eval_metric": body.eval_metric}
     with _sup_lock:
         lst = _sup_list(d)
@@ -351,7 +353,7 @@ async def list_supervised(run_id: str, request: Request) -> dict[str, Any]:
                 item["comparison"] = json.loads(cache.read_text())
             else:
                 try:
-                    oof = await request.app.state.heavy.run(_heavy_oof, r["config"]["predictor_path"], r["config"]["csv_path"],
+                    oof = await request.app.state.heavy.run(_heavy_oof, r["config"]["predictor_path"], frames.to_json(frames.resolve(r["config"])),
                                                            r["config"]["label"])
                     cmp_ = compare(rec, e, r, oof)
                     cache.write_text(json.dumps(cmp_))
@@ -366,7 +368,7 @@ async def list_supervised(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, "review": review.summary(cur), "runs": out}
 
 
-def _heavy_oof(predictor_path: str, csv_path: str, label: str) -> dict[str, Any]:
+def _heavy_oof(predictor_path: str, input_ref: dict[str, Any], label: str) -> dict[str, Any]:
     """(In the heavy pool.) Out-of-fold P(1) for the training rows, and predict_proba for every other row (the holdout,
     and with negatives = dismissed_only the unreviewed rows): none of them was training data for its score."""
     from ..engine.heavy import load_predictor
@@ -374,7 +376,7 @@ def _heavy_oof(predictor_path: str, csv_path: str, label: str) -> dict[str, Any]
 
     pred = load_predictor(predictor_path)
     o = serving_oof(pred, None)
-    df = pd.read_csv(csv_path)
+    df = frames.read(frames.from_json(input_ref))  # the supervised run's own input, typed as it was fitted
     seen = set(o["rows"])
     rest = [i for i in range(len(df)) if i not in seen]
     if rest:
@@ -389,7 +391,7 @@ def compare(rec: dict[str, Any], entry: dict[str, Any], sup: dict[str, Any], oof
     """Per row an out-of-sample P(confirmed | x): out-of-fold for training rows, the holdout prediction for holdout
     rows. Compared with the isolation score s on the rows nobody reviewed (U), against the hidden truth (sample)."""
     d = Path(rec["config"]["run_dir"])
-    sc = pd.read_csv(d / "scores.csv")
+    sc = frames.read_artifact(d / "scores.csv")
     n = len(sc)
     p = np.full(n, np.nan)
     cls = [str(c) for c in oof["classes"]]
@@ -424,7 +426,7 @@ def compare(rec: dict[str, Any], entry: dict[str, Any], sup: dict[str, Any], oof
 @router.get("/runs/{run_id}/scores")
 def scores(run_id: str, request: Request, bins: int = Query(60, ge=5, le=400)) -> dict[str, Any]:
     rec = _run(request, run_id)
-    s = pd.read_csv(Path(rec["config"]["run_dir"]) / "scores.csv")
+    s = frames.read_artifact(Path(rec["config"]["run_dir"]) / "scores.csv")
     h, e = np.histogram(s["s"], bins=bins)
     out = {"run_id": run_id, "edges": e.tolist(), "counts": h.tolist(), "n": int(len(s)),
            "sorted_sample": np.quantile(s["s"], np.linspace(0, 1, 201)).tolist()}
@@ -447,7 +449,7 @@ async def score_batch(run_id: str, request: Request, file: UploadFile = File(...
     bid, d = await stash_upload(rec, file, "batches", "ab_")
     try:
         out = await request.app.state.heavy.run(core.score_batch, rec["config"]["predictor_path"], str(d / "input.csv"),
-                                                str(d / "scored.csv"))
+                                                str(d / "scored.csv"), frames.to_json(frames.resolve(rec["config"])))
     except core.AnomalyError as e:
         raise HTTPException(400, str(e)) from e
     return {"run_id": run_id, "id": bid, "filename": file.filename, **out,
