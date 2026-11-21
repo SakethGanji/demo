@@ -33,6 +33,7 @@ from __future__ import annotations
 import json
 import logging
 import secrets
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -644,16 +645,40 @@ def restore(db, store: BlobStore, version_id: str, *, split_key: str, blob_sha25
         root, team = _team(con, version_id)
         con.execute("DROP TRIGGER IF EXISTS splits_ro_d")
         con.execute("DROP TRIGGER IF EXISTS splits_ro_u")
-        if bad:
-            con.execute("DELETE FROM splits WHERE id = ?", (bad["id"],))
-            con.execute("DELETE FROM blob_refs WHERE owner_kind = 'split' AND owner_id = ?", (bad["id"],))
-        if con.execute("SELECT 1 FROM splits WHERE id = ?", (row["id"],)).fetchone():
-            con.execute("DELETE FROM splits WHERE id = ?", (row["id"],))
-        con.execute("INSERT INTO splits (id, version_id, table_name, split_key, target, strategy, params_json, seed, holdout_share,"
-                    " n_folds, blob_sha256, split_sha256, legacy_sha256, n_rows, n_holdout, carried_from, created_at, created_by)"
-                    " VALUES (:id, :version_id, :table_name, :split_key, :target, :strategy, :params_json, :seed, :holdout_share,"
-                    " :n_folds, :blob_sha256, :split_sha256, :legacy_sha256, :n_rows, :n_holdout, :carried_from, :created_at,"
-                    " :created_by)", row)
+        # F-X1 M2: a split that was carried into a child version is referenced by the child's splits.carried_from, so
+        # it can't be deleted and re-inserted. The restored row is written in place when it keeps the id (the usual
+        # case: a forger rewrote the row), else inserted first and the children repointed to it, in this transaction.
+        repointed: list[str] = []
+        try:
+            if bad and bad["blob_sha256"] != row["blob_sha256"]:
+                con.execute("DELETE FROM blob_refs WHERE owner_kind = 'split' AND owner_id = ? AND blob_sha256 = ?",
+                            (bad["id"], bad["blob_sha256"]))
+            if con.execute("SELECT 1 FROM splits WHERE id = ?", (row["id"],)).fetchone():
+                con.execute("UPDATE splits SET version_id = :version_id, table_name = :table_name, split_key = :split_key,"
+                            " target = :target, strategy = :strategy, params_json = :params_json, seed = :seed,"
+                            " holdout_share = :holdout_share, n_folds = :n_folds, blob_sha256 = :blob_sha256,"
+                            " split_sha256 = :split_sha256, legacy_sha256 = :legacy_sha256, n_rows = :n_rows,"
+                            " n_holdout = :n_holdout, carried_from = :carried_from, created_at = :created_at,"
+                            " created_by = :created_by WHERE id = :id", row)
+            else:
+                con.execute("INSERT INTO splits (id, version_id, table_name, split_key, target, strategy, params_json, seed,"
+                            " holdout_share, n_folds, blob_sha256, split_sha256, legacy_sha256, n_rows, n_holdout, carried_from,"
+                            " created_at, created_by) VALUES (:id, :version_id, :table_name, :split_key, :target, :strategy,"
+                            " :params_json, :seed, :holdout_share, :n_folds, :blob_sha256, :split_sha256, :legacy_sha256, :n_rows,"
+                            " :n_holdout, :carried_from, :created_at, :created_by)", row)
+            if bad and bad["id"] != row["id"]:
+                repointed = [r[0] for r in con.execute("SELECT id FROM splits WHERE carried_from = ?", (bad["id"],)).fetchall()]
+                con.execute("UPDATE splits SET carried_from = ? WHERE carried_from = ?", (row["id"], bad["id"]))
+                con.execute("DELETE FROM splits WHERE id = ?", (bad["id"],))
+                con.execute("DELETE FROM blob_refs WHERE owner_kind = 'split' AND owner_id = ?", (bad["id"],))
+        except sqlite3.IntegrityError as e:
+            con.rollback()
+            refs = [dict(r) for r in con.execute("SELECT id, version_id FROM splits WHERE carried_from IN (?, ?)",
+                                                 (row["id"], (bad or {}).get("id") or row["id"])).fetchall()]
+            raise SplitError(409, "restore_conflict",
+                             f"The split row of {version_id} ({split_key}) could not be replaced: {e}. Splits carried from it: "
+                             + (", ".join(f"{r['id']} on {r['version_id']}" for r in refs) or "none")
+                             + ". Nothing was changed.", carried_into=refs) from None
         con.execute("INSERT OR IGNORE INTO blob_refs (blob_sha256, owner_kind, owner_id, role, team_id, created_at)"
                     " VALUES (?, 'split', ?, 'split', ?, ?)", (row["blob_sha256"], row["id"], team, S.now()))
         con.execute("UPDATE blobs SET state = 'live' WHERE sha256 = ? AND state IN ('pending', 'live')", (row["blob_sha256"],))
@@ -666,6 +691,6 @@ def restore(db, store: BlobStore, version_id: str, *, split_key: str, blob_sha25
                          "from_run": cand["run_id"], "restored": {k: row[k] for k in ("id", "split_sha256", "blob_sha256", "n_holdout")},
                          "replaced": {k: bad[k] for k in ("id", "split_sha256", "blob_sha256", "n_holdout", "created_at",
                                                           "created_by")} if bad else None,
-                         "failed_before": o["failed"]})
+                         "failed_before": o["failed"], "children_repointed": repointed})
     return {"restored": {k: row[k] for k in ("id", "split_key", "split_sha256", "blob_sha256", "n_holdout")},
             "from_run": cand["run_id"], "replaced": {k: bad[k] for k in ("id", "split_sha256", "blob_sha256", "n_holdout")} if bad else None}
