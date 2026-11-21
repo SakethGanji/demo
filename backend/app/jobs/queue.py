@@ -52,11 +52,8 @@ def dialect(db) -> str:
 
 
 def _sql(db, q: str) -> str:
-    """Named parameters are written `:name`; Postgres drivers (P23) take `%(name)s`."""
-    if dialect(db) == "postgres":
-        import re
-
-        return re.sub(r"(?<!:):([a-z_][a-z0-9_]*)", r"%(\1)s", q)
+    """Named parameters are written `:name`. P23: the Postgres dialect layer (db_pg.translate) rewrites them, with the
+    rest of the statement, on every Database connection; nothing to do here."""
     return q
 
 
@@ -82,7 +79,7 @@ def _exec(db, q: str, params: dict[str, Any] | None = None, *, immediate: bool =
         if immediate and dialect(db) == "sqlite":
             con.execute("BEGIN IMMEDIATE")
         if serialize and dialect(db) == "postgres":
-            con.execute("SELECT pg_advisory_xact_lock(hashtext(%(k)s))", {"k": serialize})
+            con.execute("SELECT pg_advisory_xact_lock(hashtext(:k))", {"k": serialize})
         cur = con.execute(_sql(db, q), params or {})
         rows = cur.fetchall() if cur.description else []
         out = [_row(r) for r in rows]

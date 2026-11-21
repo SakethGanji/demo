@@ -14,6 +14,9 @@ scikit-learn==1.9.1
 # pyarrow is pinned at 24.0.0, the version the lock already resolved through autogluon (the plan's benchmarks use it).
 duckdb==2.0.1
 pyarrow==24.0.0
+# P23: the Postgres metadata DB (ENSEMBLE_DB_URL=postgresql://…; SQLite stays the default for local dev)
+psycopg[binary]==3.3.9
+psycopg-pool==3.3.3
 # xgboost comes with autogluon.tabular as xgboost-cpu (3.3); a separate xgboost pin would clash with it.
 mlflow==3.18.0
 # AutoGluon engine (S2). CPU torch from the PyTorch index keeps the install smaller and faster;

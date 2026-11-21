@@ -1,0 +1,11 @@
+API ENSEMBLE_WORKERD=external on Postgres (ensemble_single) + 2 × `python -m app.engine.workerd --slots train=1,light=2,duck=1`
+POST /runs {dataset_id: v3 (pg1 chain), label y, time_limit 20} → run_1358a1d8
+GET /workers
+ worker workerd-9efbb8@vm:5149 {'train': 1, 'light': 2, 'duck': 1}
+ worker workerd-48c65f@vm:5147 {'train': 1, 'light': 2, 'duck': 1}
+ worker api-4e6131@vm:5145 {'api': 16}
+status succeeded
+GET /jobs?kind=train
+ job jb_e827c24edf76 run_1358a1d8 succeeded leased_by workerd-9efbb8@vm:5149 attempts 1
+run_events: 0|run_queued  1|run_started  164|run_succeeded        (one run_started, no run_requeued)
+workerd logs: "train jb_e827c24edf76" appears once (workerd_2.log: 1, workerd_1.log: 0)

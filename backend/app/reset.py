@@ -114,10 +114,10 @@ def reset(settings: config.Settings, by: str | None = None, request_id: str | No
     with db.connect() as con:
         live = live_governance(con)
         for t in TABLES:
-            try:
-                counts[t] = int(con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
-            except Exception:  # noqa: BLE001 - a table this build doesn't have
+            # a table this build doesn't have is skipped (checked first: a failed statement aborts a Postgres transaction)
+            if not con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (t,)).fetchone():
                 continue
+            counts[t] = int(con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0])
         audit_rows = int(con.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0])
         # the audit row goes in the same transaction as the deletes: no reset without its record
         audit(con, by, "admin_reset", comment=reason[:500],

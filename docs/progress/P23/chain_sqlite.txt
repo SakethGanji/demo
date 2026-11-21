@@ -1,0 +1,36 @@
+## 1 Ada POST /teams → HTTP 201
+    {"id": "tm_5556e1c6", "slug": "p23-risk-lite1"}
+## 1b Ada POST /teams/{t}/members {Ana owner} → HTTP 201
+    {"members": [{"principal_id": "pr_fdee430d40bd", "display_name": "Ada", "identity_key": "ada", "kind": "person", "email": null, "is_admin": true, "role": "owner", "source": "manual", "added_by": "Ada", "added_at": "2026-11-21T23:00:36+00:00"}, {"principal_id": "pr_24d4b96f58da", "display_name": "Ana", "identity_key": "ana", "kind": "person", "email": null, "is_admin": false, "role": "owner", "source": "manual", "added_by": "Ada", "added_at": "2026-11-21T23:00:36+00:00"}]}
+## 2 Ana POST /projects → HTTP 201
+    {"id": "prj_119f932a", "team_id": "tm_5556e1c6"}
+## 3 POST /uploads (v1) → HTTP 201
+    {"upload_id": "up_c95d5486c9fd", "status": "staged"}
+## 3b POST /uploads/{u}/check → HTTP 200
+    {"status": null}
+## 3c POST /uploads/{u}/commit → HTTP 201
+    {"version_id": "ds_078dc957", "version_no": 1, "team_id": "tm_5556e1c6"}
+## 4 POST /uploads parent_version_id=v1 (15 corrected incomes) → HTTP 201
+    {"upload_id": "up_95ebd5836b7f"}
+## 4b POST /uploads/{u2}/check → HTTP 200
+    {"status": null}
+    preselect {'method': 'key', 'columns': ['acct']}
+## 4c POST /uploads/{u2}/commit {match: key acct} → HTTP 201
+    {"version_id": "ds_a2f471a1", "version_no": 2, "match": {"method": "key", "columns": ["acct"], "confirmed_by": "Ana", "matched_by": "key acct", "candidates": [["acct", "1.0000"], ["income", "0.9850"], ["row_hash", "0.9850"]], "matched": 1000, "changed": 15, "added": 0, "removed": 0, "holdout_identity_lost": 0, "parent_holdout": 200, "acknowledged": [], "warnings": [], "parent": "ds_078dc957", "parent_storage": "parquet", "next_row_id": 1000, "best_candidate": {"columns": ["acct"], "matched": 1000, "holdout_identity_lost": 0}}}
+## 4d GET /datasets/v1/diff/v2 → HTTP 200
+    {"rows": {"a": 1000, "b": 1000, "matched": 1000, "unchanged": 985, "changed": 15, "added": 0, "removed": 0, "matched_by": "__row_id (the same rows of one dataset)", "changed_examples": [{"row_a": 0, "row_b": 0, "cells": [{"column": "income", "a": 30000, "b": 31000}]}, {"row_a": 1, "row_b": 1, "cells": [{"column": "income", "a": 30037, "b": 31037}]}, {"row_a": 2, "row_b": 2, "cells": [{"column": "income", "a": 30074, "b": 31074}]}, {"row_a": 3, "row_b": 3, "cells": [{"column": "income", "a": 30111, "b": 31111}]}, {"row_a": 4, "row_b": 4, "cells": [{"column": "income", "a": 30148, "b": 31148}]}], "changed_by_column": {"income": 15}, "compared_columns": 4, "note": "every shared column is compar
+## 5 POST /datasets/v2/edit {set_cells} → HTTP 201
+    {"id": "ds_2f49a9b0", "created": true, "version_no": null}
+## 6 POST /runs {v3, time_limit 20} → HTTP 201
+    {"id": "run_e45e1430", "status": "queued"}
+    run run_e45e1430 succeeded in 30s
+## 7 POST /runs/{id}/register → HTTP 202
+    {"id": "mv_581a0293", "status": "building"}
+    model version mv_581a0293 ready
+## 8 GET /teams/{t}/audit/verify → HTTP 200
+    {"team_id": "tm_5556e1c6", "ok": true, "rows": 19, "legacy_rows": 0, "head": "6fc8ab6b70ae49c1b946a03839459673b76dc2bb4f05b5a8d81bc36b7dd91296"}
+## 8b GET /teams/tm_default/audit/verify → HTTP 200
+    {"team_id": "tm_default", "ok": true, "rows": 43, "legacy_rows": 0, "head": "b87bff33344dbd433907f29038272b1109486afe036008f6e770aee586bf797a"}
+## 9 GET /datasets/v3/verify → HTTP 200
+    {"ok": true, "splits_ok": true}
+    audit actions: ['team_created', 'team_member_added', 'project_created', 'upload_staged', 'dataset_created', 'dataset_default_set', 'upload_committed', 'split_created', 'upload_staged', 'dataset_version_created', 'split_created', 'dataset_default_set', 'upload_committed', 'dataset_read', 'dataset_read', 'dataset_version_created', 'split_created', 'dataset_default_set', 'registered']

@@ -473,7 +473,7 @@ class DatasetStore:
         """DL4 (m-e): an existing live version of this dataset with the same bytes AND the same column schema (a number cast
         to text writes the same bytes, but it is a different version)."""
         with self.db.connect() as con:
-            ids = [r[0] for r in con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'"
+            ids = [r[0] for r in con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS DISTINCT FROM 'deleted'"
                                              " ORDER BY created_at", (sha, root, root))]
         want = FIO.columns(schema)
         for i in ids:
@@ -767,7 +767,7 @@ class DatasetStore:
             return rec
         with self.db.connect() as con:
             dup = con.execute("SELECT id FROM datasets WHERE (id = ? OR root_id = ?) AND data_sha256 = ? AND id <> ?"
-                              " AND state IS NOT 'deleted' ORDER BY version_no LIMIT 1", (pr.root, pr.root, out["data_sha256"], vid)).fetchone()
+                              " AND state IS DISTINCT FROM 'deleted' ORDER BY version_no LIMIT 1", (pr.root, pr.root, out["data_sha256"], vid)).fetchone()
         if dup:
             lineage["duplicate_of"] = dup[0]
             lineage.setdefault("checks", {"warnings": []}).setdefault("warnings", []).append(

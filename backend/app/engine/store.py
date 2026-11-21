@@ -91,16 +91,16 @@ class RunStore:
         w, args = self._where(**filters)
         with self.db.connect() as con:
             if limit is None:
-                rows = con.execute(f"SELECT * FROM runs{w} ORDER BY created_at DESC, rowid DESC", args).fetchall()
+                rows = con.execute(f"SELECT * FROM runs{w} ORDER BY created_at DESC, id DESC", args).fetchall()
             else:  # F-P2: pick the page's ids on the narrow columns first, so the sort never reads every result JSON
-                rows = con.execute(f"SELECT * FROM runs WHERE rowid IN (SELECT rowid FROM runs{w} ORDER BY created_at DESC, rowid DESC"
-                                   f" LIMIT {int(limit)} OFFSET {int(offset)}) ORDER BY created_at DESC, rowid DESC", args).fetchall()
+                rows = con.execute(f"SELECT * FROM runs WHERE id IN (SELECT id FROM runs{w} ORDER BY created_at DESC, id DESC"
+                                   f" LIMIT {int(limit)} OFFSET {int(offset)}) ORDER BY created_at DESC, id DESC", args).fetchall()
         return [self._row(r) for r in rows]
 
     def list_light(self, limit: int | None = None, offset: int = 0, **filters: Any) -> list[dict[str, Any]]:
         """P1: the indexed columns only (no JSON parsed), newest first: the list path for thousands of runs."""
         w, args = self._where(**filters)
-        q = f"SELECT {', '.join(self.LIGHT)} FROM runs{w} ORDER BY created_at DESC, rowid DESC"
+        q = f"SELECT {', '.join(self.LIGHT)} FROM runs{w} ORDER BY created_at DESC, id DESC"
         if limit is not None:
             q += " LIMIT ? OFFSET ?"
             args += [int(limit), int(offset)]
@@ -119,7 +119,7 @@ class RunStore:
 
     def list_active(self) -> list[dict[str, Any]]:
         with self.db.connect() as con:
-            rows = con.execute("SELECT * FROM runs WHERE status IN ('queued', 'running') ORDER BY rowid").fetchall()
+            rows = con.execute("SELECT * FROM runs WHERE status IN ('queued', 'running') ORDER BY created_at, id").fetchall()
         return [self._row(r) for r in rows]
 
     def update(self, run_id: str, **fields: Any) -> None:

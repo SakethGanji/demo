@@ -1,0 +1,8 @@
+### Postgres
+dialect postgres: 300 jobs; worker A leased 154, worker B leased 146 in 1.1s
+each job leased exactly once: True | duplicates: 0
+jobs by (status, attempts): [('succeeded', 1, 300)]
+### SQLite
+dialect sqlite: 300 jobs; worker A leased 155, worker B leased 145 in 1.6s
+each job leased exactly once: True | duplicates: 0
+jobs by (status, attempts): [('succeeded', 1, 300)]

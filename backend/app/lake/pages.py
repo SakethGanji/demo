@@ -120,6 +120,10 @@ def meta_con():
     read paths. Committed version tables are immutable, so what it reads can be cached."""
     import sqlite3
 
+    from .. import db_pg
+
+    if db_pg.is_pg_url(url := db_pg.env_url()):  # P23: a pooled Postgres connection; close() returns it
+        return db_pg.borrow(url)
     con = sqlite3.connect(f"file:{frames._settings().db_path}?mode=ro", uri=True, timeout=30, check_same_thread=False)
     con.row_factory = sqlite3.Row
     return con

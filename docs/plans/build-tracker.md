@@ -69,3 +69,8 @@
 - **duck.job() connections don't preserve ORDER BY into arrow/numpy:** sort explicitly wherever row order matters.
 - **Data Doctor label-quality thread:** still in-process (≤200k rows). It belongs on the queue.
 - **vela/missing.py clean-labels:** shape mismatch (622,2) vs (622,1) on a group-split gapped run. It is caught and recorded in doctor_gaps.errors. Fix it in a follow-up.
+- **P23 → all lanes:** SQL is still written once in the SQLite dialect; on Postgres (`ENSEMBLE_DB_URL`) `db_pg.translate` rewrites it. Write portable SQL anyway:
+  - `CAST(json_extract(…) AS INTEGER/REAL)` wherever a JSON value meets a number (Postgres's json_extract returns text);
+  - no `rowid`, no `json_set`, no output alias inside an ORDER BY expression;
+  - no catch-and-continue after a failed statement inside one `with db.connect()` (it aborts a Postgres transaction).
+- **P23 → follow-up:** the long 10M writes as jobs with progress (edit commit, Doctor apply, Feature Lab SQL write) were not built in P23. With grants on (`ENSEMBLE_DB_APP_ROLE`), split restore and admin reset need the owner role (they DROP TRIGGER).

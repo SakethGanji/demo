@@ -94,8 +94,8 @@ def pins(app) -> dict[str, list[str]]:
         # precision) for binary, else the run's own eval metric. json_extract keeps the result JSON out of Python.
         rows = con.execute(
             "SELECT id, project_id, dataset_id, label, primary_metric, primary_score, greater_is_better,"
-            " json_extract(result, '$.problem_type') AS pt, json_extract(result, '$.holdout.metrics.roc_auc') AS auc,"
-            " json_extract(result, '$.holdout.metrics.average_precision') AS ap FROM runs"
+            " json_extract(result, '$.problem_type') AS pt, CAST(json_extract(result, '$.holdout.metrics.roc_auc') AS REAL) AS auc,"
+            " CAST(json_extract(result, '$.holdout.metrics.average_precision') AS REAL) AS ap FROM runs"
             " WHERE status = 'succeeded' AND (primary_score IS NOT NULL OR json_extract(result, '$.holdout.metrics.roc_auc') IS NOT NULL)").fetchall()
         keep_versions = [r[0] for r in con.execute(
             "SELECT v.run_id FROM annotations a JOIN model_versions v ON v.id = a.target_id WHERE a.target_kind = 'version'"

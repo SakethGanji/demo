@@ -286,14 +286,16 @@ def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict
     key = f"audit_head:{row['team_id']}"
     # the write lock first (a write statement), so two writers never chain onto the same head
     con.execute("INSERT INTO catalog_meta (key, value) VALUES (?, '') ON CONFLICT (key) DO UPDATE SET value = value", (key,))
-    head = con.execute("SELECT value FROM catalog_meta WHERE key = ?", (key,)).fetchone()[0] or ""
+    # P23: on Postgres the head row is also read FOR UPDATE (the upsert above already holds its row lock)
+    lock = " FOR UPDATE" if getattr(con, "dialect", "sqlite") == "postgres" else ""
+    head = con.execute(f"SELECT value FROM catalog_meta WHERE key = ?{lock}", (key,)).fetchone()[0] or ""
     row["prev_hash"] = head
     h = audit_row_hash(row)
     names = list(AUDIT_CHAIN_COLS) + ["row_hash"]
-    cur = con.execute(f"INSERT INTO audit_log ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
-                      [row[c] for c in AUDIT_CHAIN_COLS] + [h])
+    new_id = con.execute(f"INSERT INTO audit_log ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) RETURNING id",
+                         [row[c] for c in AUDIT_CHAIN_COLS] + [h]).fetchone()[0]
     con.execute("UPDATE catalog_meta SET value = ? WHERE key = ?", (h, key))
-    return int(cur.lastrowid)
+    return int(new_id)
 
 
 #: the columns a row's hash covers (everything but id and row_hash), in this order
@@ -418,7 +420,7 @@ def audit_link(con: sqlite3.Connection, audit_id: int) -> tuple[bool, str]:
     if r is None:
         return False, "no such audit row"
     if r["row_hash"] is None:
-        later = con.execute("SELECT 1 FROM audit_log WHERE team_id IS ? AND id < ? AND row_hash IS NOT NULL LIMIT 1",
+        later = con.execute("SELECT 1 FROM audit_log WHERE team_id IS NOT DISTINCT FROM ? AND id < ? AND row_hash IS NOT NULL LIMIT 1",
                             (r["team_id"], audit_id)).fetchone()
         return (False, "no chain link: the row was written outside the app (after the chain started)") if later else \
             (True, "written before the chain started (P19)")
@@ -1121,7 +1123,7 @@ def backfill_p01(con: sqlite3.Connection, *, force: bool = False) -> dict[str, A
     for rt in roots:
         if con.execute("SELECT 1 FROM datasets WHERE (id = ? OR root_id = ?) AND version_no IS NULL", (rt, rt)).fetchone():
             con.execute("UPDATE datasets SET version_no = NULL WHERE id = ? OR root_id = ?", (rt, rt))
-            ids = [r[0] for r in con.execute("SELECT id FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid", (rt, rt))]
+            ids = [r[0] for r in con.execute("SELECT id FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, id", (rt, rt))]
             for i, did in enumerate(ids):
                 con.execute("UPDATE datasets SET version_no = ? WHERE id = ?", (i + 1, did))
             renumbered += 1
