@@ -17,9 +17,11 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
+from .. import frames
 from ..datasets import now
 from ..http import version_or_404
 from . import changes as C
+from .scoring import read_batch
 
 router = APIRouter(prefix="/api", tags=["changes"])
 SPECIAL = ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel")
@@ -62,7 +64,7 @@ def _ctx(request: Request, vid: str) -> dict[str, Any]:
     try:  # A3 M6: a date column drifts by construction (new months): never the feature to drop
         inp = _regdir(request) / "batches" / newest["id"] / "input.csv"
         dcols = [d["feature"] for d in out["drifted"]]
-        bt = pd.read_csv(inp, usecols=lambda c_: c_ in dcols, nrows=500) if dcols and inp.exists() else pd.DataFrame()
+        bt = read_batch(inp, run.get("config"), columns=dcols, nrows=500) if dcols and inp.exists() else pd.DataFrame()
         out["date_features"] = [c_ for c_ in bt.columns if date_like(bt[c_])]
     except Exception:  # noqa: BLE001
         out["date_features"] = []
@@ -95,17 +97,16 @@ def scale_changes_for(run: dict[str, Any], inp: Path, feats: list[str]) -> list[
     from ..data_doctor import UNIT_FACTORS
 
     cfg = run.get("config") or {}
-    if not feats or not cfg.get("csv_path"):
+    if not feats or not (cfg.get("input_ref") or cfg.get("csv_path")):
         return []
     inp = Path(inp)
     if not inp.exists():
         return []
-    head = pd.read_csv(inp, nrows=0).columns
-    cols = [f for f in feats if f in head]
+    bt = read_batch(inp, cfg, columns=feats)
+    cols = [f for f in feats if f in bt.columns]
     if not cols:
         return []
-    tr = pd.read_csv(cfg["csv_path"], usecols=lambda c: c in cols)
-    bt = pd.read_csv(inp, usecols=lambda c: c in cols)
+    tr = frames.read(frames.resolve(cfg), columns=cols)
     qs = [0.1, 0.25, 0.5, 0.75, 0.9]
     out = []
     for f in cols:
@@ -135,8 +136,8 @@ def scale_changes_for(run: dict[str, Any], inp: Path, feats: list[str]) -> list[
 
 def _batch_rows(request: Request, b: dict[str, Any], pos: str) -> tuple[np.ndarray, np.ndarray, list[int], str]:
     bdir = _regdir(request) / "batches" / b["id"]
-    lab = pd.read_csv(bdir / "labels.csv")
-    sc = pd.read_csv(bdir / "scored.csv")
+    lab = frames.read_artifact(bdir / "labels.csv")
+    sc = frames.read_artifact(bdir / "scored.csv")
     rows = lab["row"].to_numpy().astype(int)
     y = (lab["y"].astype(str).to_numpy() == pos).astype(int)
     col = f"p_{pos}" if f"p_{pos}" in sc.columns else next(c for c in sc.columns if c.startswith("p_") and c.endswith(pos))
@@ -176,7 +177,7 @@ async def _refresh(request: Request, vid: str, c: dict[str, Any], items: list[di
             try:
                 nb = request.app.state.registry.get_batch(it["batch_id"])
                 y, p, rows, inp = await run_in_threadpool(_batch_rows, request, nb, c["positive"])
-                pn = await request.app.state.heavy.run(C.score_with_run, r["config"]["predictor_path"], inp, rows, c["positive"])
+                pn = await request.app.state.heavy.run(C.score_with_run, r["config"]["predictor_path"], inp, rows, c["positive"], r["config"])
                 res = await run_in_threadpool(C.compare_models, y, p, np.asarray(pn), c["cost"])
                 res["proposal"] = {"run_id": it["run_id"]}
                 it.update(status="succeeded", result=res, verdict=C.verdict(res), finished_at=now())

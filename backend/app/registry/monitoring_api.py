@@ -23,9 +23,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from .. import config
+from .. import config, frames
 from ..http import batch_or_404, version_or_404
 from . import monitoring as M
+from .scoring import read_batch
 from .store import RegistryStore
 
 router = APIRouter(prefix="/api", tags=["monitoring"])
@@ -148,7 +149,7 @@ def resolve_data_date(request: Request, run: dict[str, Any] | None, csv_path: Pa
           (((run or {}).get("config") or {}).get("split_spec") or {}).get("time_column")
     if col:
         try:
-            s = pd.to_datetime(pd.read_csv(csv_path, usecols=[col])[col], errors="coerce").dropna()
+            s = pd.to_datetime(read_batch(csv_path, (run or {}).get("config"), columns=[col])[col], errors="coerce").dropna()
             if len(s):
                 return str(s.max().date())
         except (ValueError, KeyError):
@@ -270,7 +271,7 @@ def _point(request: Request, run: dict[str, Any], b: dict[str, Any], th: dict[st
         drifted = [f["feature"] for f in p["features"] if (f.get("psi") or 0) > th["feature_psi"]]
         inp = _dir(request) / "batches" / b["id"] / "input.csv"
         p["scale_changes"] = scale_changes_for(run, inp, drifted) if drifted else []
-        bt = pd.read_csv(inp, usecols=lambda c: c in drifted, nrows=500) if drifted and inp.exists() else pd.DataFrame()
+        bt = read_batch(inp, run["config"], columns=drifted, nrows=500) if drifted and inp.exists() else pd.DataFrame()
         p["date_features"] = [c for c in bt.columns if date_like(bt[c])]
     except Exception:  # noqa: BLE001
         p["scale_changes"], p["date_features"] = [], []
@@ -288,7 +289,7 @@ def _baseline(v: dict[str, Any], run: dict[str, Any]) -> dict[str, Any] | None:
         hp_path = Path(run["config"]["run_dir"]) / "holdout_predictions.csv"
     if not hp_path.exists():
         return None
-    hp = pd.read_csv(hp_path)
+    hp = frames.read_artifact(hp_path)
     vres = (v.get("result") or {}).get("version") or {}
     pos = str(vres.get("positive_class") or res.get("positive_class"))
     if f"p_{pos}" not in hp.columns:
@@ -310,8 +311,8 @@ def _pooled_paired(request: Request, points: list[dict[str, Any]], cid: str | No
         bdir = _dir(request) / "batches" / p["batch_id"]
         if not (bdir / "labels.csv").exists() or not (bdir / "shadow.csv").exists():
             continue
-        lab = pd.read_csv(bdir / "labels.csv")
-        sh = pd.read_csv(bdir / "shadow.csv").set_index("row")
+        lab = frames.read_artifact(bdir / "labels.csv")
+        sh = frames.read_artifact(bdir / "shadow.csv").set_index("row")
         b_rec = _reg(request).get_batch(p["batch_id"]) or {}
         pos = ((b_rec.get("result") or {}).get("summary") or {}).get("positive_class")
         ys.append((lab["y"].astype(str) == str(pos)).astype(int).to_numpy())
@@ -531,19 +532,19 @@ async def launch_retrain(vid: str, body: RetrainBody, request: Request) -> dict[
 def _window_dataset(request: Request, v: dict[str, Any], run: dict[str, Any], prop: dict[str, Any], actor: str) -> dict[str, Any]:
     reg = _reg(request)
     label = run["label"]
-    frames = []
+    parts = []
     for pb in prop["batches"]:
         b = reg.get_batch(pb["batch_id"])
         bdir = _dir(request) / "batches" / b["id"]
-        x = pd.read_csv(bdir / "input.csv")
-        lab = pd.read_csv(bdir / "labels.csv")
+        x = read_batch(bdir / "input.csv", run["config"])
+        lab = frames.read_artifact(bdir / "labels.csv")
         x = x.iloc[lab["row"].to_numpy()].copy()
         x[label] = lab["y"].to_numpy()
         x["_source_batch"] = b["id"]
-        frames.append(x)
-    df = pd.concat(frames, ignore_index=True)
+        parts.append(x)
+    df = pd.concat(parts, ignore_index=True)
     if prop["include_reference"]:
-        ref = request.app.state.datasets.load_frame(run["dataset_id"])
+        ref = frames.read_version(run["dataset_id"])
         ref["_source_batch"] = "reference"
         df = pd.concat([ref, df], ignore_index=True)
     src = df.pop("_source_batch")
@@ -563,7 +564,7 @@ def _window_dataset(request: Request, v: dict[str, Any], run: dict[str, Any], pr
     with request.app.state.db.connect() as con:
         con.execute("UPDATE datasets SET profile = ?, note = ? WHERE id = ?",
                     (json.dumps(prof), f"Monitoring window of {_label(v)} · {prop['window']['start']} … {prop['window']['end']}", rec["id"]))
-    store.catalog.record_version(run["dataset_id"], rec, store.csv_path(rec["id"]), op="monitoring-window", actor=actor,
+    store.catalog.record_version(run["dataset_id"], rec, store.data_file(rec["id"]), op="monitoring-window", actor=actor,
                                  meta={"champion_version_id": v["id"]}, paired=False)  # P1: new rows, no root-row mapping
     return request.app.state.db.get_dataset(rec["id"])
 

@@ -17,7 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from .. import config
+from .. import config, frames
 from ..engine import explain
 from ..http import batch_or_404, run_or_404, version_or_404
 from . import build, card, scoring, tracking
@@ -197,7 +197,7 @@ def scoring_profile(cfg: dict[str, Any], batch: int) -> dict[str, Any]:
     from ..splits import load_splits
 
     p = load_predictor(cfg["predictor_path"])
-    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     X = h.drop(columns=[cfg["label"]])
     lb = p.leaderboard(h, silent=True).set_index("model")
     root = Path(cfg["predictor_path"]) / "models"

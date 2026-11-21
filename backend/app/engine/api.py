@@ -1292,7 +1292,7 @@ async def set_threshold(run_id: str, body: ThresholdRequest, request: Request) -
     def work():
         with _run_lock(run_id):
             p = app.state.predictors.get(cfg["predictor_path"])
-            h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+            h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
             t0 = time.time()
             if body.metric is not None:
                 value, source = threshold.calibrate(p, body.metric), "calibrated"

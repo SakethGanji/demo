@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..splits import holdout_mask
 
 DISCLAIMER = ("This card is generated from the run's recorded artefacts to support model risk review. It documents the "
@@ -96,7 +97,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
     # Label balance on the rows the model saw (training) and on the holdout.
     balance = None
     try:
-        df = pd.read_csv(cfg["csv_path"], usecols=[label])
+        df = frames.read(frames.resolve(cfg), columns=[label])
         splits = json.loads(Path(cfg["splits_path"]).read_text())
         is_h = holdout_mask(splits, len(df))
         y = df[label]

@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
 
 KINDS = {
     "threshold": "Move the threshold to the cost-optimal one on the newest labelled batch (cross-fitted)",
@@ -149,11 +148,14 @@ def compare_models(y: np.ndarray, p_cur: np.ndarray, p_new: np.ndarray, cost: di
     return out
 
 
-def score_with_run(predictor_path: str, input_csv: str, rows: list[int], positive: str) -> list[float]:
+def score_with_run(predictor_path: str, input_csv: str, rows: list[int], positive: str,
+                   cfg: dict[str, Any] | None = None) -> list[float]:
     """(Heavy pool.) p̂ of the positive class from a run's predictor on the given rows of a batch's input."""
     from autogluon.tabular import TabularPredictor
 
-    X = pd.read_csv(input_csv).iloc[rows]
+    from .scoring import read_batch
+
+    X = read_batch(input_csv, cfg).iloc[rows]  # the user's upload, typed as the run's table
     p = TabularPredictor.load(predictor_path, verbosity=0, require_py_version_match=False)
     pr = p.predict_proba(X)
     col = next((c for c in pr.columns if str(c) == str(positive)), pr.columns[-1])
