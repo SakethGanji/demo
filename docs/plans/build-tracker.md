@@ -44,7 +44,8 @@
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
 | P10b | S | started (MinIO + read cache) | session_018upNdRLNhdMckTGcyQS5SA | |
-| P23 | O | started (Postgres) | session_018upNdQtu1bjzLTGxWxh2gv | |
+| P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
+| F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
 | X2 | ⟂ | started (migration check, read-only) | session_018upNdNbAs6Mvojf6VJc3XR | |
 
 ## Open notes carried forward
