@@ -51,6 +51,23 @@ def is_reserved_name(name: str) -> bool:
     return n.startswith("__") or n.strip().lower() in API_ID_NAMES
 
 
+def reserve_row_ids(db, root: str, table: str, floor: int, n: int) -> int:
+    """F-X1 M1: atomically take `n` new `__row_id`s for (root, table) and return the first one. One UPSERT ... RETURNING
+    on the root counter, committed at once, so two versions written at the same time (sibling uploads, edits with
+    add_rows, derived versions) can never get the same ids. The ids go into the Parquet parts before the version's own
+    commit transaction, which is why the range is reserved here and not there; a version that then fails leaves a gap,
+    and gaps are allowed (§5.6). `floor` is the caller's own lower bound (its parent's max id + 1)."""
+    from ..catalog import schema as S
+
+    n, floor = max(0, int(n)), max(0, int(floor))
+    with db.connect() as con:
+        S.ensure_root(con, root)  # a CSV-era root that predates its dataset_roots row
+        r = con.execute("INSERT INTO dataset_root_tables (root_id, table_name, next_row_id) VALUES (?, ?, ?)"
+                        " ON CONFLICT (root_id, table_name) DO UPDATE SET next_row_id = MAX(next_row_id, ?) + ?"
+                        " RETURNING next_row_id", (root, table, floor + n, floor, n)).fetchone()
+    return int(r[0]) - n
+
+
 class LakeError(Exception):
     def __init__(self, status: int, code: str, message: str, **extra: Any) -> None:
         super().__init__(message)

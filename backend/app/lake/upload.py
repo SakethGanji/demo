@@ -35,7 +35,7 @@ from typing import Any, BinaryIO
 
 from ..catalog import schema as S
 from . import duck
-from .writer import ROW_ID, LakeError, VersionWriter, _lit, _q, is_reserved_name
+from .writer import ROW_ID, LakeError, VersionWriter, _lit, _q, is_reserved_name, reserve_row_ids
 
 log = logging.getLogger("ensemble.upload")
 
@@ -1037,7 +1037,11 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
             [{k: v for k, v in x.items() if k not in ("values",)} for x in contract["warnings"]] + \
             [{**x, "source": "match"} for x in mw]
         mt.materialise(m, "_m")
-        nxt = parent.next_row_id(db)
+        # F-X1 M1: the new rows' ids are taken atomically on the root counter (UPSERT ... RETURNING), so sibling
+        # uploads committed at the same time can never be given the same range.
+        n_new = int(w.con.execute("SELECT count(*) FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)"
+                                  " WHERE m.pid IS NULL").fetchone()[0])
+        nxt = reserve_row_ids(db, parent.root, parent.table, parent.next_row_id(db), n_new) if n_new else parent.next_row_id(db)
         w.con.execute("CREATE OR REPLACE TEMP TABLE _ids AS SELECT n.__fr, m.pid,"
                       f" CASE WHEN m.pid IS NOT NULL THEN m.pid ELSE {int(nxt)} + row_number() OVER"
                       " (PARTITION BY m.pid IS NULL ORDER BY n.__fr) - 1 END::BIGINT AS rid"

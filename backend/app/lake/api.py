@@ -158,10 +158,9 @@ def _seed(app, by: str, body: dict[str, Any]) -> dict[str, Any]:
         if mode == "carry":
             w.carry(table)
         elif mode == "append":
-            with app.state.db.connect() as con:
-                nxt = con.execute("SELECT next_row_id FROM dataset_root_tables WHERE root_id = ? AND table_name = ?",
-                                  (w.root_id, table)).fetchone()
-            start = nxt[0] if nxt else 0
+            from .writer import reserve_row_ids
+
+            start = reserve_row_ids(app.state.db, w.root_id, table, 0, rows)  # F-X1 M1: atomic on the root counter
             w.append(table, SEED_SQL, [start, start + rows], source_file="seed")
         else:
             raise LakeError(400, "mode", "mode is new, append or carry.")

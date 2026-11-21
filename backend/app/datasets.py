@@ -721,6 +721,7 @@ class DatasetStore:
             kept = np.zeros(len(df), dtype=bool)
         ids = np.empty(len(df), dtype="int64")
         ids[kept] = pr.ids[rmap[kept]]
+        pr.reserve(self.db, int((~kept).sum()))  # F-X1 M1: the new rows' ids, taken atomically on the root counter
         ids[~kept] = int(pr.next_row_id) + np.arange(int((~kept).sum()), dtype="int64")
         prow = np.where(kept, rmap, -1)
         order = LD.order_rows(ids)  # the table is read back in __row_id order: splits and lineage follow it
@@ -1194,6 +1195,7 @@ class DatasetStore:
                     "columns": cols, "sample": sample,
                     "note": "nothing was written: send the same operations without preview to create the version"}
         try:
+            pr.reserve(self.db, _n_added(ops))  # F-X1 M1: add_rows ids, taken atomically on the root counter
             with VersionWriter(self.db, lake, op="edit", by=by, parent_id=parent_id, reason=reason, name=parent["name"],
                                primary_table=pr.table, dedupe=True) as w:
                 comp, summary = self._edit_compile(w.con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
@@ -1305,3 +1307,13 @@ class DatasetStore:
                 self.catalog.record_version(lineage["parent"], rec, self.data_file(dataset_id), op=str(lineage.get("source") or "refresh"),
                                             meta={"version": lineage.get("version")}, paired=False)
         return rec
+
+
+def _n_added(ops: Any) -> int:
+    """F-X1 M1: how many rows an edit's add_rows operations add (the compiler validates them; this only sizes the
+    reservation of their ids, so a malformed op counts 0 and is refused by the compiler)."""
+    n = 0
+    for op in ops if isinstance(ops, list) else []:
+        if isinstance(op, dict) and op.get("op") == "add_rows" and isinstance(op.get("rows"), list):
+            n += len(op["rows"])
+    return min(n, 10_000_000)

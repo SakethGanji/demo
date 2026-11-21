@@ -91,6 +91,15 @@ class ParentRows:
             self.types = {c: KIND_TYPES.get(k, "VARCHAR") for c, k in kinds.items()}
         self.next_row_id = p.next_row_id(db)
 
+    def reserve(self, db, n: int) -> int:
+        """F-X1 M1: take `n` new row ids for this root table atomically (writer.reserve_row_ids); they start at the
+        returned value, which also becomes `next_row_id` (n = 0: nothing is taken)."""
+        from .writer import reserve_row_ids
+
+        if int(n) > 0:
+            self.next_row_id = reserve_row_ids(db, self.root, self.table, self.next_row_id, int(n))
+        return self.next_row_id
+
     def keys(self, db) -> list[dict[str, Any]]:
         from .upload import _parent_keys
 
