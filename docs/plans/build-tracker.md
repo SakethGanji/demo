@@ -43,9 +43,9 @@
 | P22 | O | done | session_018upNdPj3uWNkfz67KZVANF | b22d64d |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
-| P10b | S | started (MinIO + read cache) | (pending) | |
-| P23 | O | started (Postgres) | (pending) | |
-| X2 | ⟂ | started (migration check, read-only) | (pending) | |
+| P10b | S | started (MinIO + read cache) | session_018upNdRLNhdMckTGcyQS5SA | |
+| P23 | O | started (Postgres) | session_018upNdQtu1bjzLTGxWxh2gv | |
+| X2 | ⟂ | started (migration check, read-only) | session_018upNdNbAs6Mvojf6VJc3XR | |
 
 ## Open notes carried forward
 - **10M edit commit takes 99 s** (P07 path). Full pandas reads remain in data-doctor (and its apply), the edit preview and Feature Lab. X1 to judge whether this is a fix before P10.
