@@ -46,6 +46,8 @@
 | P10b | S | done (S3BlobStore + verified LRU cache + httpfs; chain equal on s3/local; Object Lock tested on MinIO built from source) | session_018upNdRLNhdMckTGcyQS5SA | see report |
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
 | F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
+| F-X2 | D | started (X2 C1, M1–M6, m1–m3) | session_018upNdNvnaG9wjQHpViW7q9 | |
+| P12 | D | started (multi-table + Excel), in parallel with F-X2 (separate files) | session_018upNdQBD1YfmthVvNNLCxe | |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
 ## Open notes carried forward
