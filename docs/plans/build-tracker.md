@@ -34,7 +34,8 @@
 | P07 | D | done (U2: send __row_id in set_cells/delete_rows) | session_018upNdQzFyc3sTFn8F8WBVu | 858200d |
 | P08 | D | done | session_018upNdRRN6S5Y3rTnnk29BM | 656ab64 |
 | P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
-| X1 | ⟂ | started | session_018upNdQEzTw3dUV29ygL2YH | |
+| X1 | ⟂ | done: 2 critical, 6 major → F-X1 | session_018upNdQEzTw3dUV29ygL2YH | 6822049 |
+| F-X1 | D | started (blocks P10) | | |
 | P11 | D2 | started | session_018upNdQkfQxUCUaQxHcgsFb | |
 | P19 | G | done (mode audit) | session_018upNdPhxRCU1Z9oW9qWLpN | f9cbfe7 |
 | P20 | G | started | | |
