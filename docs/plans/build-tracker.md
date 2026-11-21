@@ -47,7 +47,7 @@
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
 | F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
 | F-X2 | D | started (X2 C1, M1–M6, m1–m3) | session_018upNdNvnaG9wjQHpViW7q9 | |
-| P12 | D | started (multi-table + Excel), in parallel with F-X2 (separate files) | session_018upNdQBD1YfmthVvNNLCxe | |
+| P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
 ## Open notes carried forward
@@ -80,3 +80,7 @@
 - **P10b → P24:** delete bytes only through `lake.store.delete_blob(db, store, sha, by, reason, bypass_governance=True)`: it removes every S3 version and the cache file, and audits `blob_deleted` / `blob_delete_refused`. Under Object Lock (GOVERNANCE, `ENSEMBLE_S3_LOCK_DAYS` = 30, needs model-risk approval) GC also needs the bypass role. Run `S3BlobStore.abort_stale_uploads()` with GC (MinIO refuses the abort-multipart lifecycle rule).
 - **P10b → all lanes:** never build a path from a key. Use `store.local_copy(key)` for a local file (on S3, the sha-verified cache) and `store.uri(key)` for DuckDB. Don't memoise a cache path without re-checking it (`pages._ensure_cached`).
 - **P10b → deployment:** `ENSEMBLE_BLOB_STORE=s3://bucket/prefix`, `ENSEMBLE_S3_ENDPOINT`; credentials only from the AWS chain. Bucket policy: the app role gets `PutObject` only with `If-None-Match`, and nobody else writes to `blobs/` (Object Lock keeps the original but a newer version can be stacked on it; verify catches that). Upstream MinIO OSS is archived (dl.min.io answers 410), so pick a maintained S3 store. Bundle httpfs (`ENSEMBLE_DUCK_EXTENSION_DIR`) if `ENSEMBLE_S3_READ=httpfs`.
+- **P12 → F-JOBS:** `POST …/edit` is now `edit` (a `{table}` wrapper) → `_edit`. When the edit commit becomes a job, put `table` in the payload and wrap the job body in `frames.use_table(table)`: the context variable reaches `run_in_threadpool`, not a queued job.
+- **P12 → U2:** table picker on runs (`POST /runs {table, label}`), diff (`?table=`) and edit (`{table}`); the multi-table check (`tables[].action`, `sheets`, `carried`, `dropped`, `keys`, `relations`, `suggested_relations`), the plan PATCH (`tables`, `relations`, `primary_table`), `commit {match: {<table>: …}}`; `GET /datasets/{root}/versions/{v}`, `PUT …/tables/{t}/key`, `GET`/`PUT …/relations`.
+- **P12 → all lanes:** a key or a relation declared on a version makes a NEW version (all tables carried, zero bytes). The writer now carries the parent's relations (recounted), re-checks keys on an append, and keeps the parent's table order, for every op.
+- **P12 → P13:** `_commit_multi`'s append branch (cast to the parent's types, ids above the table's max, `w.append`) is the insert-only delta path.
