@@ -1,0 +1,70 @@
+{
+ "body": {
+  "data_ok": true,
+  "files": [
+   {
+    "key": "blobs/a8/a83056ba26787de04e4230a3e192aeb1690370c6f767a35786c6143210665e2a.parquet",
+    "now": "a83056ba26787de04e4230a3e192aeb1690370c6f767a35786c6143210665e2a",
+    "part": 0,
+    "status": "ok",
+    "stored": "a83056ba26787de04e4230a3e192aeb1690370c6f767a35786c6143210665e2a",
+    "table": "data"
+   }
+  ],
+  "id": "ds_a8297848",
+  "manifest": "ok",
+  "manifest_sha256": "0df1a35f959baca55b775d0ffba29eccd972b7660576268a62f526ef8212e865",
+  "ok": true,
+  "problems": [],
+  "root_id": "ds_a8297848",
+  "splits": [
+   {
+    "checks": [
+     {
+      "check": "blob",
+      "detail": "blob b865c116e59c\u2026 re-hashed: matches its key",
+      "n": 1,
+      "ok": true
+     },
+     {
+      "check": "split_sha256",
+      "detail": "split_sha256 471f3a182c02\u2026 over 600 rows",
+      "n": 2,
+      "ok": true
+     },
+     {
+      "check": "audit",
+      "detail": "audit #54 (2026-11-21T22:43:12, Ada) records the same split_sha256 and blob; chain link: chain link ok",
+      "n": 3,
+      "ok": true
+     },
+     {
+      "check": "runs",
+      "detail": "no earlier run on this split",
+      "n": 4,
+      "ok": true,
+      "runs": [],
+      "runs_differ": []
+     },
+     {
+      "applies": false,
+      "check": "carry",
+      "detail": "not a carried split",
+      "n": 5,
+      "ok": true
+     }
+    ],
+    "failed": [],
+    "id": "spl_88f9e9fc832b",
+    "split_key": "random-stratified__y-95cb0bfd",
+    "status": "ok",
+    "table": "data"
+   }
+  ],
+  "splits_ok": true,
+  "status": "ok",
+  "storage": "parquet",
+  "verified_at": "2026-11-21T22:43:18+00:00"
+ },
+ "status": 200
+}

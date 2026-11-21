@@ -1,0 +1,175 @@
+## 0. the CSV-era data dir as it was when before/ was recorded (pre-P10 head acfe988), started with this code
+api up (/home/user/demo)
+    versions 26 25 1
+    triggers ds_hash_ro
+    split_files rows 17
+## 1. POST /api/admin/lake/migrate?dry_run=1 → the plan (nothing written)
+  versions 25 by action {'migrate': 22, 'skip': 2, 'tombstone': 1}
+   account-churn v1 active → migrate | hashes match | pd.read_csv | 
+   card-transactions v1 active → migrate | hashes match | pd.read_csv | 
+   credit-default v1 active → migrate | hashes match | pd.read_csv | 
+   loan-amount v1 active → migrate | hashes match | pd.read_csv | 
+   personal-loans v1 active → migrate | hashes match | pd.read_csv | 
+   support-tickets v1 active → migrate | hashes match | pd.read_csv | 
+   transaction-volume v1 active → migrate | hashes match | pd.read_csv | 
+   fair-lending v1 active → migrate | hashes match | pd.read_csv | 
+   loan-losses v1 active → migrate | hashes match | pd.read_csv | 
+   loan-stream v1 active → migrate | hashes match | pd.read_csv | 
+   segmented-loans v1 active → migrate | hashes match | pd.read_csv | 
+   account-attrition v1 active → migrate | hashes match | pd.read_csv | 
+   complaint-topics v1 active → migrate | hashes match | pd.read_csv | 
+   credit-rejects v1 active → migrate | hashes match | pd.read_csv | 
+   ds_a8297848 v1 active → migrate | hashes match | pd.read_csv | 
+   ds_373ded2d v2 active → migrate | hashes match | pd.read_csv | 
+   ds_67149428 v3 active → migrate | hashes match | pd.read_csv | 
+   ds_b67eef11 v4 active → migrate | hashes match | frame_io.read+schema.json | 
+   ds_750a5b2d v1 active → skip | data_changed | pd.read_csv | data.csv of ds_750a5b2d differs from the hash stored when it was made (17b73c4457b6… then, fe1d13e2c4e1… now): it is not migrated. Restore the file (POST …/verify names i
+   ds_97f900b5 v2 archived → migrate | hashes match | frame_io.read+schema.json | 
+   ds_d0509f82 v1 active → migrate | hashes match | frame_io.read+schema.json | 
+   ds_63026720 v2 active → migrate | hashes match | frame_io.read+schema.json | 
+   ds_f24d6a59 v3 active → migrate | hashes match | frame_io.read+schema.json | 
+   ds_73167ff8 v1 active → skip | split_changed | frame_io.read+schema.json | A split file of ds_73167ff8 changed outside the app: splits/random-stratified__y-95cb0bfd.json differs from the hash recorded when it was drawn (844b8dc64ba7… then, 9cf92
+   ds_0e04e5b7 v2 deleted → tombstone | deleted: a manifest with no tables |  | 
+    after the dry run: lake_migrations rows 0
+    parquet versions 1
+## 2. a first job on the loans root only (v1, v2), then a crash simulated between v1's commit and its folder rename
+  202 job jb_5efe3ac57a29
+  job jb_5efe3ac57a29 | {'total': 2, 'done': 2, 'migrated': 2, 'skipped': 0, 'failed': 0} | by status {'migrated': 2} | CSV-era left 23
+  simulated: ds_a8297848 committed, its folder not renamed yet (folder_state pending, data.csv still in ds_a8297848/)
+## 3. the full job (resumes: finishes ds_a8297848's folder step, migrates the rest, re-checks the skipped)
+  202 job jb_b4ef3bb75267
+  job jb_b4ef3bb75267 | {'total': 23, 'done': 23, 'migrated': 21, 'skipped': 2, 'failed': 0} | by status {'migrated': 23, 'skipped': 2} | CSV-era left 2
+   ds_a8297848 migrated  | folder renamed | attempts 1 | 
+   ds_373ded2d migrated  | folder renamed | attempts 1 | 
+   account-churn migrated  | folder renamed | attempts 1 | 
+   card-transactions migrated  | folder renamed | attempts 1 | 
+   credit-default migrated  | folder renamed | attempts 1 | 
+   loan-amount migrated  | folder renamed | attempts 1 | 
+   personal-loans migrated  | folder renamed | attempts 1 | 
+   support-tickets migrated  | folder renamed | attempts 1 | 
+   transaction-volume migrated  | folder renamed | attempts 1 | 
+   fair-lending migrated  | folder renamed | attempts 1 | 
+   loan-losses migrated  | folder renamed | attempts 1 | 
+   loan-stream migrated  | folder renamed | attempts 1 | 
+   segmented-loans migrated  | folder renamed | attempts 1 | 
+   account-attrition migrated  | folder renamed | attempts 1 | 
+   complaint-topics migrated  | folder renamed | attempts 1 | 
+   credit-rejects migrated  | folder renamed | attempts 1 | 
+   ds_67149428 migrated  | folder renamed | attempts 1 | 
+   ds_b67eef11 migrated  | folder renamed | attempts 1 | 
+   ds_750a5b2d skipped data_changed | folder None | attempts 1 | data.csv of ds_750a5b2d differs from the hash stored when it was made (17b73c4457b6… then, fe1d13e2c4e1… now): it is not migrated. Restore the file (P
+   ds_97f900b5 migrated  | folder renamed | attempts 1 | 
+   ds_d0509f82 migrated  | folder renamed | attempts 1 | 
+   ds_63026720 migrated  | folder renamed | attempts 1 | 
+   ds_f24d6a59 migrated  | folder renamed | attempts 1 | 
+   ds_73167ff8 skipped split_changed | folder None | attempts 1 | A split file of ds_73167ff8 changed outside the app: splits/random-stratified__y-95cb0bfd.json differs from the hash recorded when it was drawn (844b8
+   ds_0e04e5b7 migrated  | folder renamed | attempts 1 | 
+  datasets/ds_a8297848
+  datasets/ds_a8297848.migrated
+    kept: splits
+    audit dataset_migrated 23
+    audit dataset_migration_skipped 2
+    audit lake_migration_finished 2
+    audit lake_migration_started 2
+## 4. after: the same calls; JSON diff with before/ (everything outside 'storage' must be equal)
+compare_rA1_rA2.json               identical (except storage)
+compare_rA2_rA4.json               identical (except storage)
+compare_rA2_rA5.json               identical (except storage)
+compare_rL1_rL2.json               identical (except storage)
+compare_rL2_rL4.json               identical (except storage)
+explain_rA2.json                   identical (except storage)
+explain_rL2.json                   identical (except storage)
+verify_get_A2.json                 14 differences
+verify_get_C1.json                 identical (except storage)
+verify_get_L1.json                 14 differences
+verify_get_L2.json                 14 differences
+verify_get_L3.json                 14 differences
+verify_get_L4.json                 14 differences
+verify_get_T2.json                 14 differences
+verify_post_A2.json                identical (except storage)
+verify_post_C1.json                identical (except storage)
+verify_post_L1.json                identical (except storage)
+verify_post_L2.json                identical (except storage)
+verify_post_L3.json                identical (except storage)
+verify_post_L4.json                identical (except storage)
+verify_post_T2.json                identical (except storage)
+differences outside `storage`: 84
+  GET …/verify: 409 not_parquet before (CSV-era); after:
+   L1 200 ok True manifest ok files ['ok'] splits ['ok']
+   L2 200 ok True manifest ok files ['ok'] splits ['ok']
+   L3 200 ok True manifest ok files ['ok'] splits ['ok']
+   A2 200 ok True manifest ok files ['ok'] splits ['ok']
+   L4 200 ok True manifest ok files ['ok'] splits ['ok']
+   T2 200 ok True manifest ok files [] splits []
+## 5. re-verify old runs' data and split hashes (GET /api/admin/lake/runs/{id}/verify): via the legacy blobs
+  rL1 run_7b34fe92 ok True | data True 3fbf18e9c413 = 3fbf18e9c413 ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split None  ( this run recorded no split hash (it was made before  )
+  rL2 run_de48fae8 ok True | data True 2726f2dce5de = 2726f2dce5de ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split None  ( this run recorded no split hash (it was made before  )
+  rL4 run_f7713888 ok True | data True 72b73d9e47f3 = 72b73d9e47f3 ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split True 20e3d2525609 ( the DL4 split JSON, from its legacy_json blob (P10) )
+  rA1 run_3299bd16 ok True | data True f35d1d5b2c13 = f35d1d5b2c13 ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split True 4ac44d450854 ( the DL4 split JSON, from its legacy_json blob (P10) )
+  rA2 run_efd13c8c ok True | data True 032991cb0eb9 = 032991cb0eb9 ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split True b291680a886a ( the DL4 split JSON, from its legacy_json blob (P10) )
+  rA4 run_35620aa2 ok True | data True 032991cb0eb9 = 032991cb0eb9 ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split True b291680a886a ( the DL4 split JSON, from its legacy_json blob (P10) )
+  rS1 run_51f18d2e ok True | data True f9844b67ff1a = f9844b67ff1a ( data.csv bytes, from the version's legacy_csv blob (P10) ) | split True 0d996ad03e1b ( the DL4 split JSON, from its legacy_json blob (P10) )
+  rT2 run_0482e0f6 ok None | data None c1e9668b87fc =  ( the version is deleted (four eyes): its data is gone; its tomb ) | split None  (  )
+  rA5 run_663e5e3b ok True | data True 6d6379e922fb = 6d6379e922fb ( table_sha256 recomputed from the Parquet parts ) | split True 1aecbb5b88e2 ( the pinned Parquet split blob )
+## 6. train on migrated versions: read_mode engine_v1, holdout ids identical
+ new run run_6501ea9a on L2 (ds_373ded2d): succeeded 
+  run_inputs: read_mode engine_v1 | table_sha256 8309b77f9536 match 1 | split spl_f8c77562af57 18fecc34d46c | legacy_csv None
+  its split: legacy_sha256 (the DL4 JSON) 6b2baf5db4ba | split_sha256 18fecc34d46c
+  new run holdout: 122 rows
+  old run run_de48fae8 holdout (positions → __row_id through the migrated table): 122 rows
+  identical holdout ids: True
+  compare old new: True | paired on the same holdout rows | the same holdout rows | how {'a': 'root_rows', 'b': '__row_id'}
+RUN run_6501ea9a
+ new run run_23df4c87 on L3 (ds_67149428): succeeded 
+  run_inputs: read_mode engine_v1 | table_sha256 2ef2b53f39ee match 1 | split spl_7fa4b389d008 d7b9ab172966 | legacy_csv None
+  its split: legacy_sha256 (the DL4 JSON) 6ffb5cb9bcab | split_sha256 d7b9ab172966
+  new run holdout: 123 rows
+  the DL4 JSON splits/random-stratified__y-95cb0bfd.json holdout (positions → __row_id): 123 rows; identical: True | table in data.csv order, ids increasing: False
+RUN run_23df4c87
+## 7. ds_hash_ro: a migrated version's hashes cannot be rewritten
+  refused: UPDATE datasets SET data_sha256 = 'x' → version hashes are immutable
+  refused: UPDATE datasets SET legacy_sha256 = 'x' → version hashes are immutable
+  refused: UPDATE datasets SET manifest_sha256 = NULL → version hashes are immutable
+  refused: UPDATE datasets SET legacy_sha256 = 'x' → version hashes are immutable
+## 8. GC dry run: no live blob of a migrated version is a candidate
+  blobs {'live': 161} refs 194 | candidates 0 | unreferenced in grace 0 [] | orphans 0 | integrity 0
+## 9. the Parquet child made from a CSV-era parent before P10 (A3 → A4): diff by __row_id after A3's migration
+   {'a': 763, 'b': 750, 'matched': 717, 'changed': 10, 'added': 33, 'removed': 46, 'changed_by_column': {'region': 10}, 'matched_by': '__row_id (the same rows of one dataset)'}
+## 10. the two outside changes are resolved through the DL3/DL4 flows, then the job migrates them
+ restored datasets/ds_750a5b2d/data.csv | matches the stored hash: True
+  restore-splits ['splits/random-stratified__y-95cb0bfd.json'] verify ok True
+  202 job jb_458731ec95f2
+  job jb_458731ec95f2 | {'total': 2, 'done': 2, 'migrated': 2, 'skipped': 0, 'failed': 0} | by status {'migrated': 25} | CSV-era left 0
+## 11. cleanup waits for two verify-all passes since the migration
+  cleanup now:  HTTP 409 {"detail":{"code":"verify_all_needed","message":"The migrated folders are deleted only after two verify-all passes since the migration finished; 0 so far (GET /api/admin/lake/verify-all)."}} HTTP 409
+  verify-all True datasets 18 checked 26 failed 0
+  verify-all True datasets 18 checked 26 failed 0
+  dry run: allowed True passes 2 folders 25 to delete 25 bytes 20375471
+  deleted 25 folders
+  .migrated folders left: 0; data.csv files left: 0
+## 12. after the cleanup: the same calls again (the data now lives only in the lake)
+compare_rA1_rA2.json               identical (except storage)
+compare_rA2_rA4.json               identical (except storage)
+compare_rA2_rA5.json               identical (except storage)
+compare_rL1_rL2.json               identical (except storage)
+compare_rL2_rL4.json               identical (except storage)
+explain_rA2.json                   identical (except storage)
+explain_rL2.json                   identical (except storage)
+verify_post_A2.json                identical (except storage)
+verify_post_C1.json                6 differences
+     body/ok: 'False' → 'True'
+     body/results/0/data_ok: 'False' → 'True'
+     body/results/0/now: 'fe1d13e2c4e1e345f3769ff9e20bb6b99a1af08b243fc1156eddf193eec1829e' → '17b73c4457b672f5d8c22cce99347f79ed3398160d3630c6ac033185b919024b'
+     body/results/0/ok: 'False' → 'True'
+     body/results/0/remedy: only before
+     body/results/0/status: 'MISMATCH' → 'ok'
+verify_post_L1.json                identical (except storage)
+verify_post_L2.json                identical (except storage)
+verify_post_L3.json                identical (except storage)
+verify_post_L4.json                identical (except storage)
+verify_post_T2.json                identical (except storage)
+differences outside `storage`: 104
+  (= the 7 GET …/verify files, 409 not_parquet before and 200 after, 14 lines each, hidden above, and verify_post_C1: its outside change was undone in step 10)
+  verify-all True checked 26
+    versions 26 0 26
+## API log: tracebacks 0, HTTP 500 0

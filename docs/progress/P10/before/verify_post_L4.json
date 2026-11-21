@@ -1,0 +1,33 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_b67eef11",
+    "now": "72b73d9e47f3b9a82c6056a46f939e2e7c7bea9741a465723441778705ed6552",
+    "ok": true,
+    "splits": [
+     {
+      "file": "splits.json",
+      "now": "20e3d25256090927812f2727d935a20cfd4ac091811d06bd519ec76aa6eb69e5",
+      "status": "ok",
+      "stored": "20e3d25256090927812f2727d935a20cfd4ac091811d06bd519ec76aa6eb69e5"
+     },
+     {
+      "file": "splits/random-stratified__y-95cb0bfd.json",
+      "now": "20e3d25256090927812f2727d935a20cfd4ac091811d06bd519ec76aa6eb69e5",
+      "status": "ok",
+      "stored": "20e3d25256090927812f2727d935a20cfd4ac091811d06bd519ec76aa6eb69e5"
+     }
+    ],
+    "splits_sha256": "382ccae19755252c6472a9c0b153ee093f32f0af4e07157dff62d9b4a0a5fdbe",
+    "status": "ok",
+    "stored": "72b73d9e47f3b9a82c6056a46f939e2e7c7bea9741a465723441778705ed6552",
+    "v": 4
+   }
+  ],
+  "root_id": "ds_a8297848"
+ },
+ "status": 200
+}

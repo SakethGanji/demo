@@ -1,0 +1,18 @@
+{
+ "body": {
+  "data_ok": true,
+  "files": [],
+  "id": "ds_0e04e5b7",
+  "manifest": "ok",
+  "manifest_sha256": "b85e0b2f6533b18674797791d802a3b6e1d9dea9d2e52f9d052c834c10d3f00e",
+  "ok": true,
+  "problems": [],
+  "root_id": "ds_73167ff8",
+  "splits": [],
+  "splits_ok": true,
+  "status": "ok",
+  "storage": "parquet",
+  "verified_at": "2026-11-21T22:43:18+00:00"
+ },
+ "status": 200
+}

@@ -1,0 +1,9 @@
+{
+ "body": {
+  "detail": {
+   "code": "not_parquet",
+   "message": "ds_0e04e5b7 is a CSV-era version: use POST /api/datasets/ds_0e04e5b7/verify."
+  }
+ },
+ "status": 409
+}

@@ -1,0 +1,81 @@
+{
+ "body": {
+  "B": 1000,
+  "a": {
+   "dataset_id": "ds_373ded2d",
+   "eval_metric": "accuracy",
+   "holdout_rows": 122,
+   "holdout_score": 0.7131147540983607,
+   "id": "run_de48fae8",
+   "kind": "run",
+   "label": "loans v2",
+   "predictor_state": "present",
+   "problem_type": "binary",
+   "root_id": "ds_a8297848",
+   "run_id": "run_de48fae8",
+   "target": "y"
+  },
+  "auc": {
+   "a": null,
+   "b": null,
+   "delta": null,
+   "note": "alongside, no CI"
+  },
+  "b": {
+   "dataset_id": "ds_b67eef11",
+   "eval_metric": "accuracy",
+   "holdout_rows": 122,
+   "holdout_score": 0.7131147540983607,
+   "id": "run_f7713888",
+   "kind": "run",
+   "label": "loans v4",
+   "predictor_state": "present",
+   "problem_type": "binary",
+   "root_id": "ds_a8297848",
+   "run_id": "run_f7713888",
+   "target": "y"
+  },
+  "ci": [
+   0.0,
+   0.0
+  ],
+  "delta": 0.0,
+  "excludes_zero": false,
+  "label": "paired on the same holdout rows",
+  "labels_same": true,
+  "level": 0.95,
+  "method": "paired bootstrap, B = 1000, percentile 95 % CI, rows resampled together",
+  "metric": "accuracy",
+  "metric_key": "accuracy",
+  "overlap": {
+   "n_a": 120,
+   "n_b": 120,
+   "n_common": 120,
+   "rule": "overlap = rows in both holdouts / the larger holdout (by __row_id); a paired \u0394 needs \u2265 50 %",
+   "same_holdout": true,
+   "share": 1.0,
+   "text": "the same holdout rows"
+  },
+  "paired": true,
+  "partial": false,
+  "roots": {
+   "a": {
+    "how": "root_rows",
+    "root": "ds_a8297848"
+   },
+   "b": {
+    "how": "root_rows",
+    "root": "ds_a8297848"
+   }
+  },
+  "rows": 120,
+  "rows_a": 120,
+  "rows_b": 120,
+  "same_rows": true,
+  "score_a": 0.725,
+  "score_b": 0.725,
+  "sign": "\u0394 = b \u2212 a, better is positive",
+  "verdict": "no difference beyond noise"
+ },
+ "status": 200
+}

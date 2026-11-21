@@ -1,0 +1,73 @@
+{
+ "body": {
+  "data_ok": true,
+  "files": [
+   {
+    "key": "blobs/db/db61e0d41a0c1430103410735acdbcbc10130813062aa4ebb294867369757313.parquet",
+    "now": "db61e0d41a0c1430103410735acdbcbc10130813062aa4ebb294867369757313",
+    "part": 0,
+    "status": "ok",
+    "stored": "db61e0d41a0c1430103410735acdbcbc10130813062aa4ebb294867369757313",
+    "table": "data"
+   }
+  ],
+  "id": "ds_63026720",
+  "manifest": "ok",
+  "manifest_sha256": "2494821edc1ae59a2058ef9638ebbeeda5ce24fd94c8b7e86d08291dd2da0e2a",
+  "ok": true,
+  "problems": [],
+  "root_id": "ds_d0509f82",
+  "splits": [
+   {
+    "checks": [
+     {
+      "check": "blob",
+      "detail": "blob 5908b71693a8\u2026 re-hashed: matches its key",
+      "n": 1,
+      "ok": true
+     },
+     {
+      "check": "split_sha256",
+      "detail": "split_sha256 d7f27d644dce\u2026 over 793 rows",
+      "n": 2,
+      "ok": true
+     },
+     {
+      "check": "audit",
+      "detail": "audit #97 (2026-11-21T22:43:16, Ada) records the same split_sha256 and blob; chain link: chain link ok",
+      "n": 3,
+      "ok": true
+     },
+     {
+      "check": "runs",
+      "detail": "the same hash as 2 earlier run(s): run_efd13c8c, run_35620aa2",
+      "n": 4,
+      "ok": true,
+      "runs": [
+       "run_efd13c8c",
+       "run_35620aa2"
+      ],
+      "runs_differ": []
+     },
+     {
+      "applies": false,
+      "check": "carry",
+      "detail": "not a carried split",
+      "n": 5,
+      "ok": true
+     }
+    ],
+    "failed": [],
+    "id": "spl_e5b7533f85db",
+    "split_key": "random-stratified__y-95cb0bfd",
+    "status": "ok",
+    "table": "data"
+   }
+  ],
+  "splits_ok": true,
+  "status": "ok",
+  "storage": "parquet",
+  "verified_at": "2026-11-21T22:43:18+00:00"
+ },
+ "status": 200
+}
