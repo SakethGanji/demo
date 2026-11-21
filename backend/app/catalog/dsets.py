@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 
 from . import governance as G
+from . import schema as S
 from .schema import audit, file_sha256, now
 
 ACTIVE, ARCHIVED, DELETED = None, "archived", "deleted"
@@ -49,7 +50,8 @@ def root_of(con, dataset_id: str) -> str:
 def tree_rows(con, root: str) -> list[dict[str, Any]]:
     rows = con.execute("SELECT id, name, filename, source, note, created_at, rows, target, kind, project_id, parent_id, root_id, sha256,"
                        " op, created_by, state, state_at, state_by, state_scope, verified_at, verified_ok, size_bytes,"
-                       " splits_sha256, json_extract(profile, '$.n_cols') AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
+                       " splits_sha256, version_no, team_id, storage,"
+                       " COALESCE(n_cols, json_extract(profile, '$.n_cols')) AS n_cols FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid",
                        (root, root)).fetchall()
     out = [dict(r) for r in rows]
     for i, r in enumerate(out):
@@ -57,10 +59,29 @@ def tree_rows(con, root: str) -> list[dict[str, Any]]:
     return out
 
 
+CARD_COLS = (*CARD_FIELDS, "default_version_id", "updated_at", "updated_by")
+_ROOT_CARD_SQL = "SELECT id AS root_id, " + ", ".join(CARD_COLS) + " FROM dataset_roots"
+
+
 def card(con, root: str) -> dict[str, Any]:
-    r = con.execute("SELECT * FROM dataset_cards WHERE root_id = ?", (root,)).fetchone()
+    """P01: the card lives in dataset_roots; a root without a row there (made before the backfill) falls back to
+    dataset_cards, which stays written for one release."""
+    r = con.execute(_ROOT_CARD_SQL + " WHERE id = ?", (root,)).fetchone()
+    if r is None:
+        r = con.execute("SELECT * FROM dataset_cards WHERE root_id = ?", (root,)).fetchone()
     return dict(r) if r else {"root_id": root, **{k: "" for k in CARD_FIELDS}, "default_version_id": None, "updated_at": None,
                               "updated_by": None}
+
+
+def _write_card(con, root: str, fields: dict[str, Any]) -> None:
+    """Write card columns to both dataset_cards and the root's dataset_roots row (created when missing)."""
+    con.execute("INSERT OR IGNORE INTO dataset_cards (root_id) VALUES (?)", (root,))
+    S.ensure_root(con, root)
+    for k, v in fields.items():
+        if k not in CARD_COLS:
+            raise ValueError(k)
+        con.execute(f"UPDATE dataset_cards SET {k} = ? WHERE root_id = ?", (v, root))
+        con.execute(f"UPDATE dataset_roots SET {k} = ? WHERE id = ?", ("" if v is None and k in CARD_FIELDS else v, root))
 
 
 def effective_default(rows: list[dict[str, Any]], c: dict[str, Any]) -> tuple[str | None, str]:
@@ -319,8 +340,9 @@ def search(app, *, q: str = "", project: str | None = None, tag: str | None = No
     with app.state.db.connect() as con:
         rows = [dict(r) for r in con.execute(
             "SELECT d.id, d.name, d.filename, d.source, d.created_at, d.rows, d.target, d.project_id, d.parent_id, d.root_id, d.op,"
-            " d.created_by, d.state, d.sha256, json_extract(d.profile, '$.n_cols') AS n_cols FROM datasets d ORDER BY d.created_at, d.rowid")]
+            " d.created_by, d.state, d.sha256, COALESCE(d.n_cols, json_extract(d.profile, '$.n_cols')) AS n_cols FROM datasets d ORDER BY d.created_at, d.rowid")]
         cards = {r["root_id"]: dict(r) for r in con.execute("SELECT * FROM dataset_cards")}
+        cards.update({r["root_id"]: dict(r) for r in con.execute(_ROOT_CARD_SQL)})  # P01: dataset_roots first
         tags: dict[str, set[str]] = {}
         for r in con.execute("SELECT target_id, value FROM annotations WHERE target_kind = 'dataset' AND kind = 'tag' AND deleted_at IS NULL"):
             tags.setdefault(r[0], set()).add(r[1])
@@ -376,15 +398,15 @@ def update_card(app, dataset_id: str, fields: dict[str, Any], by: str) -> dict[s
     with app.state.db.connect() as con:
         root = root_of(con, dataset_id)
         before = card(con, root)
-        con.execute("INSERT OR IGNORE INTO dataset_cards (root_id) VALUES (?)", (root,))
         sets = {k: v for k, v in fields.items() if k in CARD_FIELDS}
-        for k, v in sets.items():
-            con.execute(f"UPDATE dataset_cards SET {k} = ? WHERE root_id = ?", (v, root))
-        con.execute("UPDATE dataset_cards SET updated_at = ?, updated_by = ? WHERE root_id = ?", (now(), by, root))
+        _write_card(con, root, {**sets, "updated_at": now(), "updated_by": by})
         name_before = None
         if fields.get("name"):
             name_before = con.execute("SELECT name FROM datasets WHERE id = ?", (root,)).fetchone()[0]
             con.execute("UPDATE datasets SET name = ? WHERE id = ? OR root_id = ?", (fields["name"], root, root))
+            rr = con.execute("SELECT project_id FROM dataset_roots WHERE id = ?", (root,)).fetchone()
+            if rr:
+                con.execute("UPDATE dataset_roots SET name = ? WHERE id = ?", (S.free_root_name(con, rr[0], fields["name"], root), root))
         changed = {k: {"before": (before.get(k) or "")[:300], "after": str(v)[:300]} for k, v in sets.items() if (before.get(k) or "") != v}
         if name_before is not None and name_before != fields["name"]:
             changed["name"] = {"before": name_before, "after": fields["name"]}
@@ -408,9 +430,7 @@ def set_default(app, dataset_id: str, version_id: str, by: str, reason: str) -> 
             raise DsError(409, f"v{v['v']} is already the default.")
         cur_v = next((r for r in rows if r["id"] == cur), None)
         rollback = bool(cur_v and v["v"] < cur_v["v"])
-        con.execute("INSERT OR IGNORE INTO dataset_cards (root_id) VALUES (?)", (root,))
-        con.execute("UPDATE dataset_cards SET default_version_id = ?, updated_at = ?, updated_by = ? WHERE root_id = ?",
-                    (version_id, now(), by, root))
+        _write_card(con, root, {"default_version_id": version_id, "updated_at": now(), "updated_by": by})
         audit(con, by, "dataset_rolled_back" if rollback else "dataset_default_set", comment=reason,
               details={"dataset_id": version_id, "root_id": root, "from": cur, "from_v": cur_v and cur_v["v"], "to": version_id,
                        "to_v": v["v"], "data_changed": False})
@@ -433,18 +453,15 @@ def settle_default(app, new_id: str, before: str | None, warnings: list[dict[str
         rows = tree_rows(con, root)
         c = card(con, root)
         v = next(r for r in rows if r["id"] == new_id)
-        con.execute("INSERT OR IGNORE INTO dataset_cards (root_id) VALUES (?)", (root,))
         if not warnings and make_default != "no":
-            con.execute("UPDATE dataset_cards SET default_version_id = ?, updated_at = ?, updated_by = ? WHERE root_id = ?",
-                        (new_id, now(), by, root))
+            _write_card(con, root, {"default_version_id": new_id, "updated_at": now(), "updated_by": by})
             audit(con, by, "dataset_default_set", comment="new version without contract warnings",
                   details={"dataset_id": new_id, "root_id": root, "from": before, "to": new_id, "to_v": v["v"], "auto": True,
                            "data_changed": False})
             return {"is_default": True, "why": "no contract warnings: it is now the default"}
         pinned = None
         if not c.get("default_version_id") and before and before != new_id:
-            con.execute("UPDATE dataset_cards SET default_version_id = ?, updated_at = ?, updated_by = ? WHERE root_id = ?",
-                        (before, now(), by, root))
+            _write_card(con, root, {"default_version_id": before, "updated_at": now(), "updated_by": by})
             pinned = before
         why = (f"{len(warnings)} contract warning(s): " + "; ".join(w["code"] for w in warnings[:6])) if warnings else "you asked not to"
         return {"is_default": False, "why": why, "default_stays": before, "pinned": pinned,
@@ -512,6 +529,7 @@ def archive(app, dataset_id: str, by: str, archived: bool, reason: str, only_ver
         q = ",".join("?" * len(ids))
         con.execute(f"UPDATE datasets SET state = ?, state_at = ?, state_by = ?, state_scope = ? WHERE id IN ({q})",
                     (ARCHIVED if archived else None, now(), by, ("dataset" if whole else "version") if archived else None, *ids))
+        S.sync_root_state(con, root)  # P01
         audit(con, by, "dataset_archived" if archived else "dataset_unarchived", comment=reason,
               details={"dataset_id": dataset_id, "root_id": root, "whole_dataset": whole, "ids": ids})
     return {"root_id": root, "ids": ids, "state": ARCHIVED if archived else "active", "whole_dataset": whole}
@@ -620,6 +638,7 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
                 (d / "TOMBSTONE.json").write_text(json.dumps(tomb, indent=1))
             con.execute("UPDATE datasets SET state = ?, state_at = ?, state_by = ? WHERE id = ?", (DELETED, now(), by, r["id"]))
             gone.append({"id": r["id"], "v": r["v"], "sha256": r["sha256"], **({"holdout_sample": frozen} if frozen else {})})
+        S.sync_root_state(con, root)  # P01
         audit(con, by, "dataset_deleted", comment=comment or req["reason"],
               details={"dataset_id": req["dataset_id"], "root_id": root, "request_id": rid, "requested_by": req["requested_by"],
                        "approved_by": by, "admin": G.is_admin(by), "self_approved_by_admin": self_admin, "whole_dataset": whole,

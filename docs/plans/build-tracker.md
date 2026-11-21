@@ -25,5 +25,7 @@
 
 | Phase | Lane | Status | Session | Head |
 |---|---|---|---|---|
-| P01 | D | started | | |
-| P03 | R | started | | |
+| P01 | D | done | session_018upNdRLvgWS6ojVV61QiZu | 76b3dc6 |
+| P03 | R | running (merged partial 8268759) | session_018upNdMfWmu4csFiRDB9cYA | |
+| P02 | D | started | session_018upNdMxLoGmBn2rfMZrStw | |
+| P18 | G | started | session_018upNdRkZyzaZ19U6LU2cj7 | |

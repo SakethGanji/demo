@@ -23,7 +23,10 @@ from . import config
 from .db import Database
 
 #: deleted by a reset (the audit_log, admin_requests and catalog_meta are kept)
-TABLES = ("run_events", "runs", "batch_jobs", "model_versions", "registered_models", "datasets",
+TABLES = ("run_events", "runs", "batch_jobs", "model_versions", "registered_models",
+          # P01: what refers to datasets / projects goes first (foreign keys); teams, principals and blobs are kept
+          "run_inputs", "join_frames", "joins", "splits", "table_relations", "table_keys", "table_files", "version_tables",
+          "dataset_root_tables", "dataset_roots", "uploads", "certifications", "column_tags", "data_contracts", "datasets",
           "lineage_edges", "champions", "dataset_cards", "dataset_requests", "version_requests", "annotations", "projects",
           "split_files")
 FOLDERS = ("runs", "registry", "mlflow", "autopilot", "agent", "datasets")
@@ -118,8 +121,12 @@ def reset(settings: config.Settings, by: str | None = None, request_id: str | No
               details={"deleted": counts, "audit_rows_kept": audit_rows, "via": via, "live_at_reset": live,
                        "four_eyes": ({k: approval.get(k) for k in ("id", "requested_by", "decided_by", "reason")} if approval else None),
                        "demo_mode": True})
+        con.execute("DROP TRIGGER IF EXISTS splits_ro_d")  # P01: splits are immutable except to a reset
         for t in counts:
             con.execute(f"DELETE FROM {t}")
+        from .catalog.schema import IMMUTABLE_TRIGGERS
+
+        con.execute(IMMUTABLE_TRIGGERS["splits_ro_d"])
         if approval:
             con.execute("UPDATE admin_requests SET status = 'used', used_at = ?, used_by = ? WHERE id = ?", (now(), by, approval["id"]))
     for f in FOLDERS:

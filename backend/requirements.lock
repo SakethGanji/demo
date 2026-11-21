@@ -171,6 +171,8 @@ docker==7.2.0
     # via mlflow
 docstring-parser==0.18.0
     # via anthropic
+duckdb==2.0.1
+    # via -r backend/requirements.txt
 ecos==2.0.14
     # via scikit-survival
 einops==0.8.2
@@ -630,6 +632,7 @@ py4j==0.10.9.9
     # via hyperopt
 pyarrow==24.0.0
     # via
+    #   -r backend/requirements.txt
     #   autogluon-common
     #   autogluon-core
     #   mlflow
