@@ -20,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from .. import frames
 
 KINDS = ("ablate", "budget", "preset", "cost_ratio", "monotone", "apply_data_fix", "add_features", "clean_labels",
          "serve_rung", "segment", "group_split")
@@ -153,7 +154,7 @@ def validate(rec: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
         out["column"] = col
     elif kind == "group_split":
         col = spec.get("column")
-        cols = pd.read_csv(cfg["csv_path"], nrows=0).columns if cfg.get("csv_path") else []
+        cols = frames.column_names(frames.resolve(cfg)) if cfg.get("csv_path") else []
         if not isinstance(col, str) or col not in cols or col == rec.get("label"):
             raise ValueError("group_split needs column: an entity column of the run's table (e.g. a customer id).")
         if cfg.get("import") or (cfg.get("split") or {}).get("strategy") not in (None, "random-stratified"):
@@ -223,7 +224,7 @@ def flag_training_labels(cfg: dict[str, Any], label: str) -> dict[str, Any]:
     from ..intake import detect
     from ..splits import holdout_mask
 
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     tr = np.flatnonzero(~holdout_mask(sp, len(df)) & df[label].notna().to_numpy())
     sub = df.iloc[tr].reset_index(drop=True)
@@ -354,7 +355,7 @@ def _scores(rec: dict[str, Any]) -> tuple[pd.DataFrame | None, str]:
     p = Path(rec["config"]["run_dir"]) / "holdout_predictions.csv"
     if not p.exists():
         return None, ""
-    hp = pd.read_csv(p, dtype={"y_true": str, "y_pred": str})
+    hp = frames.read_artifact(p, dtype={"y_true": str, "y_pred": str})
     return hp, (rec.get("result") or {}).get("problem_type") or ""
 
 
@@ -373,14 +374,12 @@ def _metric(pt: str, cost: dict[str, Any] | None):
 
 def _roots(rec: dict[str, Any]) -> np.ndarray:
     """Row i of the run's dataset is row roots[i] of the root dataset (D1 / D2 versions keep `root_rows` in lineage)."""
-    csv = Path(rec["config"]["csv_path"])
-    lp = csv.parent / "lineage.json"
+    ref = frames.resolve(rec["config"])  # P03: the run's input through the reader (lineage.json sits beside it)
+    lp = frames.path_of(ref).parent / "lineage.json"
     rr = json.loads(lp.read_text()).get("root_rows") if lp.exists() else None
     if rr:
         return np.asarray(rr, dtype=int)
-    with open(csv, "rb") as f:
-        n = sum(1 for _ in f) - 1
-    return np.arange(max(n, 0) + 1)
+    return np.arange(frames.n_rows(ref) + 1)
 
 
 def delta(parent: dict[str, Any], child: dict[str, Any], b: int = 1000) -> dict[str, Any] | None:

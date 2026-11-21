@@ -30,6 +30,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..splits import holdout_mask
 from ..stats import wilson
 from .jsonsafe import read_json, write_json
@@ -72,7 +73,7 @@ def read_long(run_dir: Path) -> pd.DataFrame:
     p = ann_dir(run_dir) / "annotations.csv"
     if not p.exists():
         return pd.DataFrame(columns=["row", "annotator", "label", "source", "at"])
-    return pd.read_csv(p, dtype={"annotator": str, "label": str, "source": str, "at": str})
+    return frames.read_artifact(p, dtype={"annotator": str, "label": str, "source": str, "at": str})
 
 
 def write_long(run_dir: Path, df: pd.DataFrame) -> None:
@@ -135,7 +136,7 @@ def sample_truth(datasets: Any, dataset_id: str) -> tuple[np.ndarray, str] | Non
     side = datasets.sidecar("support-tickets", "label_noise.json")
     if not side:
         return None
-    base = pd.read_csv(datasets.csv_path("support-tickets"), usecols=[side["label_column"]])[side["label_column"]].astype(str).to_numpy()
+    base = frames.read(frames.table("support-tickets"), columns=[side["label_column"]])[side["label_column"]].astype(str).to_numpy()
     truth = base.copy()
     for f in side.get("flipped") or []:
         truth[int(f["row"])] = str(f["true_label"])
@@ -269,7 +270,7 @@ def compute_probs(run_dir: Path) -> dict[str, Any]:
     proba = predictor.predict_proba_oof(model=src["model"])
     classes = [str(c) for c in predictor.class_labels]
     rows_tr, _ = split_rows(cfg)
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     missing = [r for r in rows_tr.tolist() if r not in set(proba.index.tolist())]
     P = pd.DataFrame(np.nan, index=rows_tr, columns=proba.columns, dtype=float)
     common = proba.index.intersection(P.index)

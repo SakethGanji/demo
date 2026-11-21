@@ -206,11 +206,25 @@ def _cast(df: pd.DataFrame, kinds: dict[str, str]) -> pd.DataFrame:
     return out
 
 
+def _side(s: dict[str, Any], ref_of_a: Any = None) -> pd.DataFrame:
+    """One side of a shift check through the typed reader: a dataset ref ({"ref"}; old requests: the "csv" path), or a
+    user's batch file ({"upload"}), read with the import rules and aligned to the reference's column types."""
+    from .. import frames
+
+    if s.get("upload"):
+        df = frames.read_upload(s["upload"], kind="batch")
+        return frames.align_to(df, ref_of_a) if ref_of_a is not None else df
+    return frames.read(frames.from_json(s.get("ref")) or frames.LegacyPath(s["csv"]))
+
+
 def load_sets(req: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
-    a = pd.read_csv(req["reference"]["csv"])
-    if req["reference"].get("rows") is not None:
-        a = a.iloc[np.asarray(req["reference"]["rows"], dtype=int)]
-    b = pd.read_csv(req["new"]["csv"])
+    from .. import frames
+
+    ra = req["reference"]
+    a = _side(ra)
+    if ra.get("rows") is not None:
+        a = a.iloc[np.asarray(ra["rows"], dtype=int)]
+    b = _side(req["new"], frames.from_json(ra.get("ref")) or frames.LegacyPath(ra["csv"]))
     if req["new"].get("rows") is not None:
         b = b.iloc[np.asarray(req["new"]["rows"], dtype=int)]
     return a, b

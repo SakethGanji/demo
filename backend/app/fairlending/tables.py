@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .. import config
+from .. import config, frames
 
 GROUPS = ["white", "black", "hispanic", "api", "aian", "multi"]
 LABELS = {"white": "White", "black": "Black", "hispanic": "Hispanic", "api": "Asian / Pacific Islander",
@@ -110,7 +110,7 @@ def synthetic_tables(seed: int = 2024) -> Tables:
 
 
 def _census_tables(d: Path) -> Tables:
-    s = pd.read_csv(d / "surnames.csv", dtype=str)
+    s = frames.read_artifact(d / "surnames.csv", dtype=str)
     s.columns = [c.lower() for c in s.columns]
     pct = pd.DataFrame({g: pd.to_numeric(s[CENSUS_COLS[g]], errors="coerce") for g in GROUPS})
     # "(S)": suppressed small shares. Spread what is left of 100% evenly over them.
@@ -121,7 +121,7 @@ def _census_tables(d: Path) -> Tables:
     sur = pd.concat([p, pd.to_numeric(s["count"], errors="coerce").fillna(0).rename("count")], axis=1)
     sur.index = norm_surname(s["name"]).to_numpy()
     sur = sur[~sur.index.duplicated()]
-    z = pd.read_csv(d / "zips.csv", dtype={"zip": str})
+    z = frames.read_artifact(d / "zips.csv", dtype={"zip": str})
     z.columns = [c.lower() for c in z.columns]
     z["zip"] = norm_zip(z["zip"])
     zt = z.set_index("zip")[GROUPS].apply(pd.to_numeric, errors="coerce").fillna(0)

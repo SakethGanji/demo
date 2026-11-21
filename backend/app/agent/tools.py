@@ -503,9 +503,10 @@ async def counterfactuals(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _dataset_csv(ctx: Ctx, dataset_id: str, drop: list[str], limit: int | None) -> bytes:
-    store = ctx.app.state.datasets
     try:
-        df = await asyncio.to_thread(store.load_frame, dataset_id)
+        from .. import frames  # P03: typed (text stays text); masking comes with frames.scan (P20)
+
+        df = await asyncio.to_thread(frames.read, frames.table(dataset_id))
     except Exception as e:  # noqa: BLE001
         raise ToolError(f"Dataset {dataset_id}: {e}") from e
     df = df.drop(columns=[c for c in drop if c in df.columns])

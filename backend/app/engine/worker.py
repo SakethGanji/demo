@@ -48,11 +48,11 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
     F6: with a group / time / time + group split, rows of the tuning slice (fold -3) form `tuning` (given to
     fit(tuning_data=...)) and rows excluded by the split (fold -2) are in no frame. Group splits add their
     group-disjoint fold id as GROUP_FOLD_COLUMN to `train`, for TabularPredictor(groups=...)."""
-    raw = Path(cfg["csv_path"]).read_bytes()  # DL3 (M1): hash exactly the bytes this fit reads
-    from .. import frame_io as FIO
+    from .. import frames
 
-    df = FIO.read(raw, FIO.load(Path(cfg["csv_path"]).parent))  # DL4 (m-e): with the version's schema (text stays text)
-    data_sha256 = hashlib.sha256(raw).hexdigest()
+    h = hashlib.sha256()  # DL3 (M1): hash exactly the bytes this fit reads
+    df = frames.read(frames.resolve(cfg), hash_into=h)  # P03: the typed reader, engine_v1 (text stays text)
+    data_sha256 = h.hexdigest()
     split_raw = Path(cfg["splits_path"]).read_bytes()  # DL4 (M-d): hash exactly the split this fit uses
     splits = json.loads(split_raw)
     label = cfg["label"]
@@ -125,7 +125,9 @@ def feature_metadata_object(fm: Any):
 def load_unlabeled(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
     """Unlabeled rows for pseudo-labelling: the training frame's feature columns only (the label is dropped, so
     AutoGluon treats every row as unlabeled), with the same column types."""
-    u = pd.read_csv(cfg["unlabeled_csv_path"])
+    from .. import frames
+
+    u = frames.read(frames.from_json(cfg.get("unlabeled_ref")) or frames.LegacyPath(cfg["unlabeled_csv_path"]))
     feats = [c for c in train.columns if c not in (cfg["label"], GROUP_FOLD_COLUMN)]
     missing = [c for c in feats if c not in u.columns]
     if missing:

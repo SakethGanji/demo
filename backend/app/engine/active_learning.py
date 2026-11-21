@@ -47,6 +47,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..splits import holdout_mask
 from .jobs import watch_parent
 from .jsonsafe import read_json, write_json
@@ -248,7 +249,7 @@ def _missing_pool(cfg: dict[str, Any], train: pd.DataFrame) -> pd.DataFrame:
     """Training rows of data.csv (not holdout, tuning or excluded by the split) whose label is empty."""
     from . import worker as w
 
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     sp = json.loads(Path(cfg["splits_path"]).read_text())
     fold = np.asarray(sp["fold"], dtype=int)
     hold = holdout_mask(sp, len(df))
