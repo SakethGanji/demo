@@ -306,3 +306,29 @@ P20's masking of the Doctor's example rows wraps `_report`'s output, so it appli
   - `datasets.py`, `dataset_edit.py` (two reserved-name checks);
   - `data_doctor.py`, `data_doctor_api.py`, `featurelab_api.py`, `config.py`.
   - None of P11's or P20's files were edited. `vela/doctor.py` was only re-verified.
+
+## Extra items from the orchestrator (after P11)
+
+**Active learning on a gapped version** (`engine/active_learning.py:262`, `_missing_pool`; found by P11).
+- **Cause:** `fold[pool.index]` used `__row_id` as a position.
+- **Fix:** `fold[np.flatnonzero(sel)]`.
+- **Repro** (`F-X1/al.py`):
+  1. 3,000 rows, 300 customers, about 10 % blank labels.
+  2. An edit deletes every 7th row.
+  3. A run on the gapped child with `split_spec {strategy: group, group_column: cust}`.
+  4. `POST /runs/{id}/active-learning {pool: missing, budget: 10, rounds: 1}`.
+
+```
+before (head without the fix): active learning: failed  error IndexError: index 2573 is out of bounds for axis 0 with size 2571
+after:  active learning: awaiting_labels; queued rows [82, 1672, 87, 1186, 471, 1363, 50, 2095, 45, 2353]
+        blank-label rows of the gapped version, features matching (GET /rows by __row_id): 10 of 10
+```
+
+**M3 against P11's code** (merged head, `_fit_gap` rewritten by P11):
+- A random-split run on the same gapped child (run_50778423): overfit is "clear", training 0.8164 vs holdout 0.7970, z = 0.8, source "fit gap".
+- No `fit gap: KeyError` in the log.
+
+**Found, not fixed** (`vela/doctor.py`, P11's file, a line older than P11):
+- `GET /runs/run_078f82fc/doctor` → **500** for the group-split run above. The cause is `TypeError: '>' not supported between 'NoneType' and 'int'` at `_missing`: `mr["ci"][1] > 0` (doctor.py:1473), when `_more_rows` returns a CI with `None` bounds.
+- It does not depend on the gaps: the random-split run on the same version gets a 200.
+- Fix: `mr["ci"][1] is not None and mr["ci"][1] > 0`.
