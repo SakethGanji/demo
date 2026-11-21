@@ -124,11 +124,13 @@ def reset(settings: config.Settings, by: str | None = None, request_id: str | No
                        "four_eyes": ({k: approval.get(k) for k in ("id", "requested_by", "decided_by", "reason")} if approval else None),
                        "demo_mode": True})
         con.execute("DROP TRIGGER IF EXISTS splits_ro_d")  # P01: splits are immutable except to a reset
+        con.execute("DROP TRIGGER IF EXISTS ri_ro_d")  # F-X1 M6: so are run inputs
         for t in counts:
             con.execute(f"DELETE FROM {t}")
         from .catalog.schema import IMMUTABLE_TRIGGERS
 
         con.execute(IMMUTABLE_TRIGGERS["splits_ro_d"])
+        con.execute(IMMUTABLE_TRIGGERS["ri_ro_d"])
         if approval:
             con.execute("UPDATE admin_requests SET status = 'used', used_at = ?, used_by = ? WHERE id = ?", (now(), by, approval["id"]))
     for f in FOLDERS:

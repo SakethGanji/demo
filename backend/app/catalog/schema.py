@@ -870,6 +870,8 @@ IMMUTABLE_TRIGGERS = {
     "tf_ro_u": "CREATE TRIGGER IF NOT EXISTS tf_ro_u BEFORE UPDATE ON table_files BEGIN SELECT RAISE(ABORT, 'table files are immutable'); END",
     "ri_ro_u": "CREATE TRIGGER IF NOT EXISTS ri_ro_u BEFORE UPDATE OF table_sha256, read_sha256, split_sha256, sample_sha256 ON run_inputs"
                " BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END",
+    # F-X1 M6: a deleted run_inputs row would remove split check 4's evidence (the hash a run trained on)
+    "ri_ro_d": "CREATE TRIGGER IF NOT EXISTS ri_ro_d BEFORE DELETE ON run_inputs BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END",
     "blobs_key_ro": "CREATE TRIGGER IF NOT EXISTS blobs_key_ro BEFORE UPDATE OF sha256, key, bytes ON blobs"
                     " BEGIN SELECT RAISE(ABORT, 'blob identity is immutable'); END",
 }

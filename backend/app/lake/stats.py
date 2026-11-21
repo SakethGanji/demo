@@ -93,6 +93,10 @@ def _f(v: Any) -> Any:
     return round(f, 6)
 
 
+#: F-X1 C1: columns per aggregate query in compute() (up to 8 aggregates each).
+STATS_CHUNK_COLS = 48
+
+
 def compute(src: Source) -> dict[str, Any]:
     """Every column's statistics in a few scans (one aggregate pass, one GROUP BY per low-cardinality column, one
     histogram pass per number column)."""
@@ -120,7 +124,14 @@ def compute(src: Source) -> dict[str, Any]:
                 base += [f"count(*) FILTER (WHERE {x})"]
             slots.append((name, t, k, len(sel), len(base)))
             sel += base
-        row = con.execute(f"SELECT {', '.join(sel)} FROM {rel}").fetchone()
+        # F-X1 C1: the aggregates are run in chunks of columns. One SELECT of all of them makes DuckDB's planning
+        # quadratic in the column count (a 1,000-column table took the API past 13 GB); chunks keep it linear.
+        row = list(con.execute(f"SELECT {sel[0]} FROM {rel}").fetchone())
+        starts = [i for _, _, _, i, _ in slots]
+        for a in range(0, len(slots), STATS_CHUNK_COLS):
+            lo = starts[a]
+            hi = starts[a + STATS_CHUNK_COLS] if a + STATS_CHUNK_COLS < len(slots) else len(sel)
+            row += list(con.execute(f"SELECT {', '.join(sel[lo:hi])} FROM {rel}").fetchone())
         n = int(row[0])
         cols = []
         for name, t, k, i, w in slots:
