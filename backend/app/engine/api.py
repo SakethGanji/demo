@@ -183,7 +183,9 @@ def _parquet_input(app: Any, cfg: dict[str, Any], ref: Any) -> None:
     cfg["data_sha256_expected"] = lt.table_sha256
     cfg["input_table"] = {"version_id": ref.version_id, "table": lt.name, "table_sha256": lt.table_sha256, "n_rows": lt.n_rows,
                           "parts": len(lt.parts), "read_mode": "engine_v1"}
-    if cfg.get("splits_path"):  # the (JSON) split drawn for this label: its hash at draw time, checked by the worker
+    if (cfg.get("split") or {}).get("split_id"):  # P09: the Parquet split, five checks now (and again at fit)
+        _split_gate(app, cfg, ref)
+    elif cfg.get("splits_path"):  # the (JSON) split drawn for this label: its hash at draw time, checked by the worker
         st = app.state.datasets
         rel = st.split_rel(ref.version_id, cfg["splits_path"])
         cfg["splits_file"] = rel
@@ -214,6 +216,44 @@ def _parquet_input(app: Any, cfg: dict[str, Any], ref: Any) -> None:
                               "dataset_id": ref.version_id, "table": lt.name, "stored": exp, "read": read})
 
 
+def _split_gate(app: Any, cfg: dict[str, Any], ref: Any) -> None:
+    """P09 (§4.3): before a run on a Parquet version is queued, its split passes the five checks (blob hash, split_sha256,
+    the split_created audit row, every earlier run's recorded hash, the carry). A failure refuses the run (409
+    split_integrity, audited, the version flagged) unless an admin armed an override; the worker checks again at fit.
+    The run pins the exact split blob (blob_refs owner 'run', role 'split')."""
+    from ..catalog.schema import audit, now as _now
+    from ..lake import splitstore as SS
+
+    sid = cfg["split"]["split_id"]
+    row = SS.get_by_id(app.state.db, sid)
+    if row is None:
+        raise HTTPException(409, {"code": "split_integrity", "message": f"split_integrity: split {sid} is no longer in the "
+                                  "splits table. GET /api/datasets/" + ref.version_id + "/verify says more."})
+    chk = SS.integrity(app.state.db, app.state.lake, row)
+    cfg["split_pin"] = {**SS.pin_of(row), "checked_at_queue": {"ok": chk["ok"], "failed": chk["failed"]}}
+    ov = (cfg.get("data_integrity_override") or {}).get("by")
+    if not chk["ok"]:
+        with app.state.db.connect() as con:
+            root = (con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (ref.version_id,)).fetchone() or [ref.version_id])[0]
+            con.execute("UPDATE datasets SET verified_at = ?, verified_ok = 0 WHERE id = ?", (_now(), ref.version_id))
+            audit(con, "system:run-queue split check", "dataset_integrity_failed",
+                  details={"dataset_id": ref.version_id, "root_id": root, "what": "split", "split_id": sid,
+                           "split_key": row["split_key"], "failed": chk["failed"], "at": "run queued",
+                           "checks": [{k: c[k] for k in ("n", "check", "ok", "detail")} for c in chk["checks"]]})
+            if not ov:
+                audit(con, cfg.get("by") or "unknown", "training_refused", comment=chk["message"][:500],
+                      details={"dataset_id": ref.version_id, "root_id": root, "split_id": sid, "status": 409,
+                               "failed": chk["failed"]})
+        if not ov:
+            raise HTTPException(409, {"code": "split_integrity", "message": chk["message"] +
+                                      ". The run was refused. GET /api/datasets/" + ref.version_id + "/verify names the check; "
+                                      "POST …/restore-splits offers the split the earliest run used; an admin may train anyway "
+                                      "with integrity_override_reason (audited).", "dataset_id": ref.version_id,
+                                      "split_id": sid, "failed": chk["failed"], "checks": chk["checks"]})
+    if cfg.get("run_id"):
+        SS.pin_run(app.state.db, cfg["run_id"], row)
+
+
 def _runner(request: Request) -> JobRunner:
     return request.app.state.runner
 
@@ -233,6 +273,10 @@ def split_record(datasets: Any, dataset_id: str, label: str, spec: dict[str, Any
            "seed": sp["seed"], "stratified": sp["stratified"], "holdout_share": sp["holdout_share"],
            "n_folds": sp["n_folds"], "holdout_rows": len(sp["holdout"]), "sha256": split_sha256(sp),
            "drawn_for_this_run": created}
+    vo = sp.get("view_of") or {}
+    if vo.get("split_id"):  # P09: the Parquet split this run pins (its view file is what `path` names)
+        rec.update(split_id=vo["split_id"], split_sha256=vo["split_sha256"], blob_sha256=vo["blob_sha256"],
+                   table=vo.get("table"), storage="parquet")
     if sp.get("params"):
         rec.update(params=sp["params"], tuning_rows=len(sp.get("tuning") or []),
                    excluded_rows=len(sp.get("excluded") or []), cutoff=sp.get("cutoff"),
@@ -403,6 +447,10 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         split = split_record(app.state.datasets, body.dataset_id, label, spec)
     except DatasetError as e:
         raise HTTPException(400, str(e)) from e
+    except ValueError as e:  # P09: DatasetConflict (the split's file is missing or unreadable): a 409, not a 500
+        if type(e).__name__ != "DatasetConflict":
+            raise
+        raise HTTPException(409, {"code": "split_integrity", "message": "split_integrity: " + str(e)}) from e
     _min_rows_check(app, body.dataset_id, label, split, task, body.problem_type)  # DL3 (m5)
     if body.drop_columns is None and (split.get("params") or {}).get("group_column"):
         # The entity id is what the split keeps apart; as a feature it can only memorise customers.

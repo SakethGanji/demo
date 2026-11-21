@@ -2,6 +2,10 @@
 same original rows (same dataset root, root-row mapping on both sides, ≥ 30 shared holdout rows, same label and
 problem type); otherwise a labelled "different holdout, not paired" table of each side's own holdout score.
 
+P09 (§4.3, DLA4 #3): pairing is the intersection of the two runs' holdout `__row_id` sets, reported as `overlap`
+(n_common / the larger holdout). "paired on the same holdout rows" only when the sets are equal; "paired on n of N rows
+(holdouts differ)" otherwise; below 50 % overlap no paired Δ at all, only the labelled unpaired table.
+
 Only stored artefacts are read (holdout_predictions.csv, lineage.json, the result JSON), so it works on evicted runs."""
 
 from __future__ import annotations
@@ -16,6 +20,8 @@ import pandas as pd
 from .. import frames, stats
 
 MIN_ROWS = 30
+#: P09 (§4.3): below this share of the larger holdout in common, no paired Δ is reported (only a labelled unpaired table)
+MIN_OVERLAP = 0.5
 
 
 class CompareError(ValueError):
@@ -45,13 +51,19 @@ def _hp(run: dict[str, Any]) -> pd.DataFrame | None:
 
 
 def root_info(app, dataset_id: str) -> tuple[str, np.ndarray | None, str]:
-    """(root dataset id, root row of every row or None, how). None: the rows can't be mapped to the root (a refresh or a
-    monitoring window: new rows), so nothing on it is paired with another dataset."""
+    """(root dataset id, root row of every row by read position, or None, how). None: the rows can't be mapped to the
+    root (a refresh or a monitoring window: new rows), so nothing on it is paired with another dataset.
+    P09: a Parquet version's rows carry their identity (`__row_id`, shared by every version of the root); only a
+    CSV-era version (until P10 migrates it) is mapped through its lineage file."""
     ds = app.state.datasets
     rec = app.state.db.get_dataset(dataset_id) or {}
     with app.state.db.connect() as con:
-        r = con.execute("SELECT parent_id, root_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        r = con.execute("SELECT parent_id, root_id, storage FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
     parent, root = (r["parent_id"], r["root_id"]) if r else (None, None)
+    if r and r["storage"] == "parquet":
+        from ..lake import splitstore as SS
+
+        return root or dataset_id, SS.table_row_ids(dataset_id), "__row_id"
     lin = ds.lineage(dataset_id) or {}
     rr = lin.get("root_rows")
     n = int(rec.get("rows") or 0)
@@ -63,6 +75,23 @@ def root_info(app, dataset_id: str) -> tuple[str, np.ndarray | None, str]:
         op = (con.execute("SELECT op FROM datasets WHERE id = ?", (dataset_id,)).fetchone() or [None])[0]
     why = "refresh" if op in ("sql", "refresh") or lin.get("source") == "sql" else (op or "new rows")
     return root or lin.get("root") or dataset_id, None, f"no root-row mapping ({why})"
+
+
+def _ids(hp: pd.DataFrame, mapping: np.ndarray, how: str) -> np.ndarray:
+    r = hp["row"].to_numpy().astype("int64")
+    if how == "__row_id":
+        return r
+    out = np.full(len(r), -1, dtype="int64")
+    ok = (r >= 0) & (r < len(mapping))
+    out[ok] = mapping[r[ok]]
+    return out
+
+
+def _read_modes(app, a: str, b: str) -> tuple[str, str] | None:
+    with app.state.db.connect() as con:
+        m = {r[0]: r[1] for r in con.execute("SELECT run_id, read_mode FROM run_inputs WHERE role = 'train' AND run_id IN (?, ?)",
+                                             (a, b))}
+    return (m[a], m[b]) if a in m and b in m else None
 
 
 #: AutoGluon eval metric → (label, higher is better). Scored from holdout_predictions.csv with numpy (fast enough to
@@ -210,12 +239,32 @@ def compare(app, a_ref: str, b_ref: str, b: int = 1000) -> dict[str, Any]:
     hp_a, hp_b = _hp(ra), _hp(rb)
     if hp_a is None or hp_b is None:
         return unpaired("holdout predictions are missing on one side")
-    hp_a = hp_a.assign(root=map_a[hp_a["row"].to_numpy()])
-    hp_b = hp_b.assign(root=map_b[hp_b["row"].to_numpy()])
+    # P09: holdout_predictions.csv names a row by the fit's frame index: the __row_id on a Parquet version (already the
+    # root identity), the read position on a CSV-era one (mapped through its root rows)
+    hp_a = hp_a.assign(root=_ids(hp_a, map_a, how_a))
+    hp_b = hp_b.assign(root=_ids(hp_b, map_b, how_b))
     hp_a, hp_b = hp_a[hp_a["root"] >= 0], hp_b[hp_b["root"] >= 0]  # synthetic rows (root -1-i) never pair
-    rows = np.intersect1d(hp_a["root"].to_numpy(), hp_b["root"].to_numpy())
+    ids_a, ids_b = np.unique(hp_a["root"].to_numpy()), np.unique(hp_b["root"].to_numpy())
+    rows = np.intersect1d(ids_a, ids_b)
+    n_big = max(len(ids_a), len(ids_b))
+    share = len(rows) / n_big if n_big else 0.0
+    same = len(rows) == len(ids_a) == len(ids_b)
+    out["overlap"] = {"n_common": int(len(rows)), "n_a": int(len(ids_a)), "n_b": int(len(ids_b)),
+                      "share": round(share, 4), "same_holdout": bool(same),
+                      "text": ("the same holdout rows" if same else
+                               f"paired on {len(rows):,} of {n_big:,} rows (holdouts differ)"),
+                      "rule": "overlap = rows in both holdouts / the larger holdout (by __row_id); a paired Δ needs ≥ 50 %"}
+    modes = _read_modes(app, ra["id"], rb["id"])
+    if modes and modes[0] != modes[1]:
+        out["read_modes"] = {"a": modes[0], "b": modes[1], "note": "read modes differ"}
     if len(rows) < MIN_ROWS:
         return unpaired(f"only {len(rows)} holdout rows in common (≥ {MIN_ROWS} needed)")
+    if share < MIN_OVERLAP:
+        res = unpaired(f"the holdouts differ: {len(rows):,} of {n_big:,} rows in common ({share:.0%}), below the "
+                       f"{MIN_OVERLAP:.0%} a paired Δ needs")
+        res["label"] = (f"paired on {len(rows):,} of {n_big:,} rows (holdouts differ) — {share:.0%} overlap is below "
+                        f"{MIN_OVERLAP:.0%}, so no paired Δ: each run's own holdout score, unpaired")
+        return res
     al = hp_a.drop_duplicates("root").set_index("root").loc[rows]
     bl = hp_b.drop_duplicates("root").set_index("root").loc[rows]
     labels_same = bool((al["y_true"].astype(str).to_numpy() == bl["y_true"].astype(str).to_numpy()).all())
@@ -235,12 +284,12 @@ def compare(app, a_ref: str, b_ref: str, b: int = 1000) -> dict[str, Any]:
         out["metric_note"] = mnote
     if b < b_asked:
         out["B_note"] = f"B lowered from {b_asked:,} to {b:,} to cap the work ({len(rows):,} rows)"
-    out.update(paired=True, label="paired on the same original holdout rows", metric=metric, metric_key=key,
+    out.update(paired=True, label=("paired on the same holdout rows" if same else
+                                   f"paired on {len(rows):,} of {n_big:,} rows (holdouts differ)"), metric=metric, metric_key=key,
                score_a=nat(bs["a"]), score_b=nat(bs["b"]), delta=bs["delta"], ci=bs["ci"], level=bs["level"], B=bs["B"],
                rows=int(len(rows)), rows_a=int(len(hp_a)), rows_b=int(len(hp_b)), same_rows=bool(len(rows) == len(hp_a) == len(hp_b)),
                labels_same=labels_same, excludes_zero=bs["excludes_zero"],
                partial=bool(len(rows) < max(len(hp_a), len(hp_b))),
-               overlap=f"overlap only ({len(rows):,} of {max(len(hp_a), len(hp_b)):,} rows)" if len(rows) < max(len(hp_a), len(hp_b)) else None,
                sign="Δ = b − a, better is positive" + ("" if gib else f" ({metric}: lower is better, so Δ is the reduction)"),
                verdict=("b better" if bs["ci"][0] is not None and bs["ci"][0] > 0 else "a better" if bs["ci"][1] is not None and bs["ci"][1] < 0
                         else "no difference beyond noise"),

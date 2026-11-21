@@ -468,6 +468,10 @@ class VersionWriter:
             for attempt in range(4):
                 out = self._try_commit(make_default=make_default, target=target, kind=kind, note=note, regone_ok=attempt == 0)
                 if out is not None:
+                    if not out.get("deduped"):  # P08: the profile job for the tables this commit wrote (background)
+                        from . import stats
+
+                        stats.after_commit(out["version_id"])
                     return out
             raise LakeError(409, "commit_contended", "Other versions of this dataset kept being committed; try again.")
         finally:
@@ -610,10 +614,15 @@ class VersionWriter:
                        "data_sha256": dsha, "tables": {t.name: {"change": t.change, "table_sha256": t.sha256}
                                                        for t in self.tables.values()}, "job_id": self.job_id}
             S.audit(con, self.by, "dataset_version_created" if self.root_id else "dataset_created", details, comment=self.reason)
-            for s in self.splits:
+            for s in self.splits:  # P09: everything needed to rebuild the row (restore-splits), not only the hashes
                 S.audit(con, self.by, "split_created", {"dataset_id": version_id, "root_id": root, "split_id": s.id,
                                                         "split_sha256": s.split_sha256, "blob_sha256": s.part.sha256,
-                                                        "table": s.table, "split_key": s.split_key})
+                                                        "table": s.table, "split_key": s.split_key, "target": s.target,
+                                                        "strategy": s.strategy, "params_json": json.dumps(s.params),
+                                                        "seed": s.seed, "holdout_share": s.holdout_share,
+                                                        "n_folds": s.n_folds, "n_rows": s.n_rows, "n_holdout": s.n_holdout,
+                                                        "carried_from": s.carried_from, "legacy_sha256": s.legacy_sha256,
+                                                        "basis": "committed with the version"})
             con.commit()
         default = self._settle_default(version_id, root, before_default, make_default)
         return self._result(version_id, deduped=None, default=default)

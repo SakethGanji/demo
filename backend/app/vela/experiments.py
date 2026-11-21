@@ -373,8 +373,14 @@ def _metric(pt: str, cost: dict[str, Any] | None):
 
 
 def _roots(rec: dict[str, Any]) -> np.ndarray:
-    """Row i of the run's dataset is row roots[i] of the root dataset (D1 / D2 versions keep `root_rows` in lineage)."""
+    """Row i of the run's dataset is row roots[i] of the root dataset (D1 / D2 versions keep `root_rows` in lineage).
+    P09: a Parquet run's holdout rows are already __row_ids (the root identity): identity over them."""
     ref = frames.resolve(rec["config"])  # P03: the run's input through the reader (lineage.json sits beside it)
+    if isinstance(ref, frames.Table) and frames.is_parquet(ref):
+        from ..lake import splitstore as SS
+
+        ids = SS.table_row_ids(ref.version_id)
+        return np.arange(int(ids.max()) + 2 if len(ids) else 1)
     lp = frames.path_of(ref).parent / "lineage.json"
     rr = json.loads(lp.read_text()).get("root_rows") if lp.exists() else None
     if rr:

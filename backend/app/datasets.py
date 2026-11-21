@@ -247,6 +247,8 @@ class DatasetStore:
             path = self.split_path(dataset_id, target, strategy, params)
         except ValueError as e:
             raise DatasetError(str(e)) from e
+        if frames.is_parquet(dataset_id):  # P09: a Parquet version's split is a content-addressed blob (lake/splitstore)
+            return self._ensure_lake_split(dataset_id, target, strategy, params, path)
         with self._split_lock:
             if path.exists():
                 self.record_split_file(dataset_id, path, "first seen (drawn before DL4)", only_new=True)
@@ -274,6 +276,63 @@ class DatasetStore:
             tmp.replace(path)
             self.record_split_file(dataset_id, path, "drawn")  # DL4 (M-d)
             return path, sp, True
+
+    def _ensure_lake_split(self, dataset_id: str, target: str | None, strategy: str, params: dict[str, Any],
+                           path: Path) -> tuple[Path, dict[str, Any], bool]:
+        """P09 (§5.7): the (target, strategy, parameters) split of a Parquet version as a `splits` row + Parquet blob.
+        An existing row is returned as is (never redrawn; its integrity is the gate's and verify's job). A missing one is
+        adopted from a positional file already there (a pre-P09 DL4 JSON, hash-checked against the hash recorded when
+        it was drawn, or a caller's file for a derived version), else drawn with the fixed seed over the rows in `__row_id` order, and
+        committed with its audit row in one transaction. `path` is the positional view consumers read."""
+        from .lake import splitstore as SS
+        from .lake.store import open_store
+
+        lake = open_store(self.settings)
+        key = split_key(target, strategy, params)
+        table = SS.primary_table(self.db, dataset_id)
+        by = None
+        try:
+            from .catalog import governance as G
+
+            by = G.current_actor()
+        except Exception:  # noqa: BLE001
+            by = None
+        by = by or "system:split draw"
+        created = False
+        with self._split_lock:
+            row = SS.get_row(self.db, dataset_id, table, key)
+            if row is None:
+                try:
+                    legacy = self.legacy_splits_path(dataset_id)
+                    for cand in (path, legacy):  # a pre-P09 Parquet version's DL4 JSON (P05-P08 bridges), adopted once
+                        if row is None and cand.exists():
+                            sp0 = load_splits(cand)
+                            if SS.is_view(sp0) or (cand == legacy and (sp0.get("target") != target or
+                                                                         sp0.get("strategy", RANDOM_STRATIFIED) != strategy)):
+                                continue
+                            row = SS.adopt_legacy(self.db, lake, self, dataset_id, table, key, cand, by=by)
+                except SS.SplitError as e:
+                    raise DatasetConflict(e.message) from e
+            if row is None:
+                df = frames.read_version(dataset_id, None if strategy != RANDOM_STRATIFIED or target is None else [target])
+                if target is not None and target not in df.columns:
+                    raise DatasetError(f"Column '{target}' is not in the dataset.")
+                y = df[target].reset_index(drop=True) if target is not None else None
+                n = len(df) if target is not None or strategy != RANDOM_STRATIFIED else self.n_rows(dataset_id)
+                try:
+                    sp = make_splits(y, n, config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy,
+                                     frame=df.reset_index(drop=True) if strategy != RANDOM_STRATIFIED else None, params=params)
+                except ValueError as e:
+                    raise DatasetError(str(e)) from e
+                ids = SS.table_row_ids(dataset_id, table)  # position i of the draw is the i-th smallest __row_id
+                row = SS.commit_split(self.db, lake, dataset_id, table, key, ids, np.asarray(sp["fold"]), sp, by=by)
+                created = True
+            try:
+                sp = SS.view_of_row(self.db, lake, row)
+            except SS.SplitError as e:
+                raise DatasetConflict(e.message) from e
+            SS.write_view(path, sp)
+        return path, sp, created
 
     # -- DL4 (M-d): split files are hashed when drawn, like data.csv ------------------------------------------------
 
@@ -348,6 +407,23 @@ class DatasetStore:
 
     def list_splits(self, dataset_id: str) -> list[dict[str, Any]]:
         """Summaries of every split stored for the dataset (one per target and strategy used so far)."""
+        if frames.is_parquet(dataset_id):  # P09: the version's `splits` rows (each a Parquet blob)
+            from .lake import splitstore as SS
+            from .lake.store import open_store
+
+            lake, out = open_store(self.settings), []
+            for row in SS.rows_of_version(self.db, dataset_id):
+                try:
+                    sp = SS.view_of_row(self.db, lake, row)
+                except SS.SplitError as e:
+                    out.append({"key": row["split_key"], "split_id": row["id"], "error": e.message})
+                    continue
+                out.append({**{k: v for k, v in summarize(sp, None).items() if k != "diagram"},
+                            "created_at": row["created_at"], "adopted_from": sp.get("adopted_from"),
+                            "split_id": row["id"], "split_sha256": row["split_sha256"], "blob_sha256": row["blob_sha256"],
+                            "table": row["table_name"], "carried_from": row["carried_from"],
+                            **({"carried": sp["carried"]} if sp.get("carried") else {})})
+            return out
         d = self.dir(dataset_id) / "splits"
         out = []
         for p in sorted(d.glob("*.json")) if d.exists() else []:
@@ -362,7 +438,9 @@ class DatasetStore:
         10 distinct) and entity columns (ID-like name or a high-cardinality category whose values repeat: several
         rows per customer) are offered for time and group splits; a random split on data with either gets a
         warning, because it lets the same customer, or the future, into training."""
-        dates, groups = splits_mod.date_and_group_columns(frames.read_version(dataset_id), target)
+        from .lake import stats as lake_stats  # P08: a big table is never read whole for this
+
+        dates, groups, sampled = lake_stats.split_columns(dataset_id, target)
         warnings = []
         if dates:
             warnings.append(f"'{dates[0]['column']}' is a date: a random split trains on rows from after the holdout's "
@@ -383,7 +461,8 @@ class DatasetStore:
                 "tuning_share": splits_mod.DEFAULT_TUNING_SHARE,
                 "suggested_params": {"group_column": groups[0]["column"] if groups else None,
                                      "time_column": dates[0]["column"] if dates else None, "cutoff": None,
-                                     "tuning_share": splits_mod.DEFAULT_TUNING_SHARE}}
+                                     "tuning_share": splits_mod.DEFAULT_TUNING_SHARE},
+                **({"sampled": sampled} if sampled else {})}
 
     def set_target(self, dataset_id: str, target: str) -> dict[str, Any]:
         """Confirm the column to predict: re-profile for it (classes, task, conflicts), draw or reuse its split, and
@@ -574,11 +653,11 @@ class DatasetStore:
                        lineage: dict[str, Any], op: str | None = None, schema: dict[str, Any] | None = None,
                        target: str | None = None) -> dict[str, Any]:
         """A new version derived from `parent_id` with the given splits. P07: a thin wrapper of derive() (every writer
-        goes through the VersionWriter); `lineage` keeps its parent_rows / root_rows meaning when it has them."""
+        goes through the VersionWriter); `lineage.parent_rows`, when given, is the row map."""
         rm = lineage.get("parent_rows")
         return self.derive(parent_id, df, None, str(op or lineage.get("kind") or "derived"), list(lineage.get("changes") or []),
                            name=name, note=note, splits=splits,
-                           extra={k: v for k, v in lineage.items() if k not in ("root_rows", "parent_rows", "changes")},
+                           extra={k: v for k, v in lineage.items() if k not in ("parent_rows", "changes")},
                            by=lineage.get("by"), row_map=rm if rm and len(rm) == len(df) else None,
                            new_rows=0 if rm else max(0, len(df) - int((self.db.get_dataset(parent_id) or {}).get("rows") or 0)),
                            reason=lineage.get("reason"), schema=schema, target=target)
@@ -646,14 +725,11 @@ class DatasetStore:
         prow = np.where(kept, rmap, -1)
         order = LD.order_rows(ids)  # the table is read back in __row_id order: splits and lineage follow it
         ids_r, prow_r = ids[order], prow[order]
-        if splits is None:
-            splits = LD.carry_split(pr, prow_r, ids_r, new_holdout_share)
-            if splits is not None and not (parent["target"] in df.columns):
-                splits = {**splits, "target": None}
-        elif not np.array_equal(order, np.arange(len(order))):
-            splits = LD.reorder_split(splits, order)
-        if splits is not None:
-            splits = {**splits, "derived_from": parent_id}
+        given = splits  # P09: a caller's split (by position in df) is written with the version; else the parent's is carried
+        if given is not None and not np.array_equal(order, np.arange(len(order))):
+            given = LD.reorder_split(given, order)
+        if given is not None:
+            given = {**given, "derived_from": parent_id}
         hints: dict[str, str] = {}
         if schema:  # DL4 schema.json kinds of the frame (an upload's "kept as text") are honoured
             hints = {c: k for c, k in FIO.columns(schema).items() if c in df.columns}
@@ -672,13 +748,16 @@ class DatasetStore:
             with w:
                 notes = LD.write_frame(w, pr.table, df, ids, pr.types, hints)
                 LD.carry_rest(w, pr, self.db, pr.table, list(df.columns))
+                split_rec = LD.split_into(w, pr, pr.table, ids_r, given, new_holdout_share,
+                                          target_in_child=parent["target"] in df.columns)
                 rec_op = {"op": op, "table": pr.table,
                           "rows": {"kept": int(kept.sum()), "new": int((~kept).sum()), "removed": int(removed)},
                           "ids": "fresh: the parent has no row mapping" if pr.fresh else
                                  "kept rows keep the parent's __row_id; new rows get next_row_id + k",
                           "next_row_id": int(pr.next_row_id), "n_changes": len(changes or []),
                           "changes": [c for c in (changes or [])[:50] if isinstance(c, dict)],
-                          **({"types": notes} if notes else {}), **(ops_record or {})}
+                          **({"types": notes} if notes else {}), **(ops_record or {}),
+                          **({"split": split_rec} if split_rec else {})}
                 w.extra_ops.append(LD.no_floats(rec_op))
                 type_warn = [{"code": "type_changed", "column": n["column"],
                               "message": f"'{n['column']}' changed type: {n['from']} → {n['to']} (its values no longer fit {n['from']})."}
@@ -703,17 +782,11 @@ class DatasetStore:
             lineage["duplicate_of"] = dup[0]
             lineage.setdefault("checks", {"warnings": []}).setdefault("warnings", []).append(
                 {"code": "identical_file", "message": f"The same data as {dup[0]}: this version adds nothing but a pointer."})
-        LD.legacy_bridge(self, vid, ids_r, prow_r, lineage, splits)
-        st = (splits or {}).get("target") if (splits or {}).get("target") in df.columns else tgt0
-        if splits is not None:
-            try:  # the given split is stored under its own target (adopted from splits.json, rows unchanged)
-                self.ensure_splits(vid, st)
-            except DatasetError:
-                pass
+        LD.lineage_summary(self, vid, lineage)  # P09: no row maps any more (the rows carry __row_id)
         rec = self.finish_lake_version(vid, target=tgt0, by=by)
         profile = rec["profile"]
         profile["target_source"] = "confirmed" if target is not None else parent["profile"].get("target_source", "given")
-        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes", "parent_rows")}
+        profile["lineage"] = {k: v for k, v in lineage.items() if k != "changes"}
         if notes:
             profile["types_kept"] = notes
         rec = {**rec, "name": name, "note": note, "profile": profile}
@@ -1135,6 +1208,11 @@ class DatasetStore:
                      "next_row_id": int(pr.next_row_id)}))
                 w.warnings = LD.no_floats([{k: v for k, v in x.items() if k not in ("values", "examples")} for x in summary["checks"]["warnings"]])
                 new_t = summary["target"]["after"]
+                # P09: the parent's split carried by join on __row_id (a split for another target is drawn on first use)
+                split_rec = LD.split_into(w, pr, pr.table, rows, None, config.HOLDOUT_SHARE,
+                                          target_in_child=new_t == parent["target"])
+                if split_rec:
+                    w.extra_ops.append(LD.no_floats({"op": "split_carried", "table": pr.table, **split_rec}))
                 out = w.commit(make_default=False, target=new_t,
                                note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
                                     + ("…" if len(summary["ops_summary"]) > 4 else ""))
@@ -1151,23 +1229,18 @@ class DatasetStore:
             summary["duplicate_of"] = vid
             return {**rec, "created": False, "deduplicated": {"existing": vid, "data_sha256": out["data_sha256"]},
                     "edit": {k: v for k, v in summary.items() if k != "edit_log"}}
-        pos_of = {int(r): i for i, r in enumerate(pr.ids.tolist())}
-        prow = np.asarray([pos_of.get(int(r), -1) for r in rows.tolist()], dtype="int64")
-        splits = LD.carry_split(pr, prow, rows, config.HOLDOUT_SHARE)
-        if splits is not None and new_t != parent["target"]:
-            splits = None  # a split for another target is drawn on first use
         changes = [{"op": e["op"], "n": e.get("cells") or e.get("rows") or 0, **({"column": e["column"]} if e.get("column") else {})}
                    for e in comp.log]
         lineage = {"kind": "edit", "matched_by": "edit (rows keep their __row_id)", **summary, "parent": parent_id, "root": root,
                    "op": "edit", "rows_before": len(pr.ids), "rows_after": int(len(rows)), "changes": changes, "by": by,
                    **({"reason": reason} if reason else {})}
-        LD.legacy_bridge(self, vid, rows, prow, lineage, splits)
+        LD.lineage_summary(self, vid, lineage)  # P09: no row maps (the rows carry __row_id)
         (self.dir(vid) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops,
                                                                  **({"set_target": set_target} if set_target else {})}, default=str))
         rec = self.finish_lake_version(vid, target=new_t, by=by)
         profile = rec["profile"]
         profile["target_source"] = "confirmed" if st_col is not None else parent["profile"].get("target_source", "given")
-        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes", "parent_rows", "edit_log")}
+        profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("changes", "edit_log")}
         rec = {**rec, "note": out.get("note") or rec.get("note"), "profile": profile}
         self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
                                                      "rows", "target", "kind", "profile")})

@@ -32,8 +32,18 @@
 | P05 | D | done | session_018upNdR5aiQ2E9Luej6fmJ6 | 112b4d0 |
 | P06 | D | done | session_018upNdPmVFDA7q7c2wULNRM | eb59e9c |
 | P07 | D | done (U2: send __row_id in set_cells/delete_rows) | session_018upNdQzFyc3sTFn8F8WBVu | 858200d |
-| P08 | D | started | session_018upNdRRN6S5Y3rTnnk29BM | |
-| P09 | D | started | session_018upNdSNHpt3EuRkTqNbK1w | |
+| P08 | D | done | session_018upNdRRN6S5Y3rTnnk29BM | 656ab64 |
+| P09 | D | done (split_files read-only for P10) | session_018upNdSNHpt3EuRkTqNbK1w | 7da74bb |
+| X1 | ⟂ | started | session_018upNdQEzTw3dUV29ygL2YH | |
+| P11 | D2 | started | session_018upNdQkfQxUCUaQxHcgsFb | |
+| P19 | G | started | session_018upNdPhxRCU1Z9oW9qWLpN | |
 | P22 | O | started | session_018upNdPj3uWNkfz67KZVANF | |
 | U1 | U | done | session_018upNdQpQQ3Pdy7XWP9nE4H | a9eed11 |
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
+
+## Open notes carried forward
+- **10M edit commit takes 99 s** (P07 path). Full pandas reads remain in data-doctor (and its apply), the edit preview and Feature Lab. X1 to judge whether this is a fix before P10.
+- **U lane:** switch the UI's GET /datasets to ?limit=50&after= (the full list takes 1.15 s at 20k versions). Send __row_id in set_cells/delete_rows.
+- **P23:** carry ix_datasets_list into the Postgres DDL.
+- **P20:** mask diff samples.
+- **P22:** take over the stats profile job (stats.run / stats.after_commit).

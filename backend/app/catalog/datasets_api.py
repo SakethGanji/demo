@@ -212,15 +212,25 @@ def _legacy_preview(ds, dataset_id: str, fname: str, chk: dict[str, Any], nv: di
 
 
 @router.get("/datasets/{a}/diff/{b}")
-async def diff(a: str, b: str, request: Request, by: str = "") -> dict[str, Any]:
-    """a → b: schema (added / removed columns, type changes), rows (added / removed / changed: by b's row map onto its
-    parent, the shared original rows, or an exact hash), per-column missing %, mean / median, top categories, PSI.
+async def diff(a: str, b: str, request: Request, by: str = "", key: str = "", wait: float = 0) -> dict[str, Any]:
+    """a → b (P08: the two-pass DuckDB diff, cached): tables (unchanged by sha, changed, added, removed, renamed),
+    schema (added / removed columns, type and dtype changes), rows (matched / changed / added / removed on `__row_id`
+    in one dataset, on `key=col[,col]` (a confirmed business key) across datasets, else by row content), per-column
+    changed cells, samples, missing %, mean / median, top categories and PSI from table_stats.
     DL3: when b was made by an edit of a, the operations and their cells (old → new) come with it (`edit`).
     The diff shows cells: it needs a name (by or the X-Ensemble-Actor header) and is audited as a read."""
+    return await diff_q(request, a, b, by, key, wait)
+
+
+async def diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", wait: float = 0) -> dict[str, Any]:
+    """GET /datasets/diff?a=&b=&key= (main.py routes it before /datasets/{id}) and the path form above."""
+    if not a or not b:
+        raise HTTPException(400, "Send a and b (two dataset version ids).")
     who = G.reader(by)
-    out = await _thread(D.diff, request.app, a, b)
-    if out["rows"].get("changed_examples") or out.get("edit"):  # DL2: the diff shows rows cell by cell: a read of both versions
-        for x in (a, b):
+    cols = [c.strip() for c in key.split(",") if c.strip()] if key else None
+    out = await _thread(D.diff, request.app, a, b, cols, max(0.0, min(float(wait or 0), 30.0)))
+    if out["rows"].get("changed_examples") or out.get("edit") or any((out.get("samples") or {}).values()):
+        for x in (a, b):  # DL2: the diff shows rows cell by cell: a read of both versions
             G.read_audit(request.app.state.db, "diff_rows", x, {"other": b if x == a else a}, by=who)
     return out
 
@@ -450,38 +460,128 @@ def _live(request: Request, dataset_id: str) -> dict[str, Any]:
     return rec
 
 
+def _page_err(e) -> HTTPException:
+    return HTTPException(e.status, e.payload())
+
+
+def _src_where(dataset_id: str, table: str | None, q: str, flt: str | None):
+    """(source, WHERE, searched columns) for a page / count: the search `q` ANDed with the filter AST."""
+    from ..lake import pages as PG
+    from ..lake import stats as ST
+
+    src = PG.source(dataset_id, table)
+    st = ST.get(src.identity)
+    if st is None:
+        ST.schedule(dataset_id, table, src.identity)  # the profile job; search narrows its columns once it is done
+    conds, searched = [], None
+    if q.strip():
+        w, searched = PG.search_where(src, q, st)
+        conds.append(w)
+    fw = PG.filter_where(src, flt)
+    if fw != "true":
+        conds.append(fw)
+    return src, " AND ".join(f"({c})" for c in conds) or "true", searched
+
+
 @router.get("/datasets/{dataset_id}/grid")
-async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 50, q: str = "", by: str = "") -> dict[str, Any]:
-    """The rows of a version, a page at a time, for the editor: `_row` is the row's position (what an edit names).
-    `q` keeps rows where any column contains it (case-insensitive). A read of the rows: needs a name (by or the
-    X-Ensemble-Actor header) and is audited as dataset_read."""
+async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 50, q: str = "", by: str = "",
+               after: int | None = None, filter: str | None = None, sort: str | None = None, desc: bool = False,
+               table: str | None = None) -> dict[str, Any]:
+    """The rows of a version, a page at a time, for the editor (P08: DuckDB, never a full read). `_row` is the row's
+    position and `_row_id` its `__row_id` (what an edit names, P07). `offset` jumps to a position; `after` (the last
+    `_row_id`) pages on by keyset. `q` keeps rows where any column contains it (case-insensitive); `filter` is the edit
+    filter AST (JSON). `matching` is counted within 3 s (null when that runs out). `sort` is refused above 1M rows.
+    A read of the rows: needs a name (by or the X-Ensemble-Actor header) and is audited as dataset_read."""
+    from ..lake import pages as PG
+
     who = G.reader(by)
     _live(request, dataset_id)
     limit = max(1, min(int(limit), 200))
     offset = max(0, int(offset))
 
     def page() -> dict[str, Any]:
-        import pandas as pd
-
-        from ..dataset_versions import kind
-
-        df = frames.read_version(dataset_id)
-        idx = pd.RangeIndex(len(df))
-        if q.strip():
-            m = pd.Series(False, index=df.index)
-            for c in df.columns:
-                m |= df[c].astype("string").str.contains(q.strip(), case=False, regex=False).fillna(False).astype(bool)
-            idx = df.index[m]
-        part = df.loc[idx[offset:offset + limit]]
-        rows = json.loads(part.to_json(orient="records"))
-        for r, i in zip(rows, part.index):
-            r["_row"] = int(i)
-        return {"dataset_id": dataset_id, "columns": [{"name": c, "kind": kind(df[c])} for c in df.columns], "rows": rows,
-                "total": int(len(df)), "matching": int(len(idx)), "offset": offset, "limit": limit, "q": q}
+        try:
+            src, where, _ = _src_where(dataset_id, table, q, filter)
+            pg = PG.page(src, after=after, offset=None if after is not None else offset, limit=limit, where=where,
+                         sort=sort, desc=desc)
+            cnt = PG.count(src, where)
+        except PG.PageError as e:
+            raise _page_err(e) from e
+        return {"dataset_id": dataset_id, "table": src.table, "columns": [{"name": c, "kind": PG.kind(t), "type": t} for c, t in src.columns],
+                "rows": pg["rows"], "total": src.n_rows, "matching": cnt["count"], "matching_timed_out": cnt["timed_out"],
+                "offset": offset, "limit": limit, "q": q, "next_after": pg["next_after"], "how": pg["how"]}
 
     out = await _thread(page)
     G.read_audit(request.app.state.db, "grid", dataset_id, {"q": q[:80] or None, "offset": offset}, by=who)
     return out
+
+
+@router.get("/datasets/{dataset_id}/rows/count")
+async def rows_count(dataset_id: str, request: Request, q: str = "", filter: str | None = None, table: str | None = None,
+                     budget: float = 3.0) -> dict[str, Any]:
+    """P08 (R5): how many rows match a search / filter, as its own cancellable call: stopped after `budget` seconds
+    (≤ 3) with {count: null, timed_out: true}. A count shows no values, so it needs no name."""
+    from ..lake import pages as PG
+
+    _live(request, dataset_id)
+
+    def run() -> dict[str, Any]:
+        try:
+            src, where, searched = _src_where(dataset_id, table, q, filter)
+            return {"dataset_id": dataset_id, "table": src.table, "q": q, "searched_columns": searched, "total": src.n_rows,
+                    **PG.count(src, where, max(0.1, min(float(budget), PG.COUNT_BUDGET_S)))}
+        except PG.PageError as e:
+            raise _page_err(e) from e
+
+    return await _thread(run)
+
+
+@router.post("/datasets/{dataset_id}/rows/preview")
+async def filter_preview(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """P08: filter preview: {filter (the edit filter AST), q?, limit?, by} → the first rows that match and how many
+    (counted within 3 s). Nothing is written; what a `filter_rows` / `delete_rows` edit with this filter would touch."""
+    from ..lake import pages as PG
+
+    body = body or {}
+    who = G.reader(str(body.get("by") or ""))
+    _live(request, dataset_id)
+    flt = body.get("filter")
+
+    def run() -> dict[str, Any]:
+        try:
+            src, where, searched = _src_where(dataset_id, body.get("table"), str(body.get("q") or ""), json.dumps(flt) if flt is not None else None)
+            pg = PG.page(src, limit=int(body.get("limit") or 20), where=where)
+            cnt = PG.count(src, where)
+        except PG.PageError as e:
+            raise _page_err(e) from e
+        return {"dataset_id": dataset_id, "table": src.table, "filter": flt, "rows": pg["rows"], "next_after": pg["next_after"],
+                "matching": cnt["count"], "matching_timed_out": cnt["timed_out"], "total": src.n_rows,
+                "share": round(cnt["count"] / src.n_rows, 6) if cnt["count"] is not None and src.n_rows else None}
+
+    out = await _thread(run)
+    G.read_audit(request.app.state.db, "filter_preview", dataset_id, {"filter": json.dumps(flt)[:200] if flt else None}, by=who)
+    return out
+
+
+@router.get("/datasets/{dataset_id}/stats")
+async def table_stats(dataset_id: str, request: Request, table: str | None = None, wait: float = 0) -> dict[str, Any]:
+    """P08: the table's column statistics (table_stats, keyed by table_sha256): rows, nulls, distinct, min / max /
+    mean / std / quantiles / histogram for numbers, length and top values for text, ... `status` is `running` while the
+    background profile job computes them (it is started here when missing); `wait` (≤ 30 s) waits for it."""
+    from ..lake import pages as PG
+    from ..lake import stats as ST
+
+    _live(request, dataset_id)
+
+    def run() -> dict[str, Any]:
+        try:
+            src = PG.source(dataset_id, table)
+        except PG.PageError as e:
+            raise _page_err(e) from e
+        st = ST.ensure(dataset_id, table, wait_s=max(0.0, min(float(wait or 0), 30.0)), n_rows=src.n_rows)
+        return ST.public(st, dataset_id, src.table, src.identity)
+
+    return await _thread(run)
 
 
 @router.post("/datasets/{dataset_id}/edit", status_code=201)
@@ -573,6 +673,8 @@ async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]
     this version whose bytes differ from the copy recorded when it was drawn is written back (the copy is hash-checked
     first), the version is verified again, and both steps are audited. The data file is not touched."""
     body = body if isinstance(body, dict) else {}
+    if frames.is_parquet(dataset_id):
+        return await _restore_lake_splits(dataset_id, request, body)
     who = _who(body.get("by"))
     reason = _text(body, "reason", 5, 500, True)
     rec = _live(request, dataset_id)
@@ -589,6 +691,33 @@ async def restore_splits(dataset_id: str, request: Request, body: dict[str, Any]
                        "before": [{k: x[k] for k in ("file", "status", "stored", "now")} for x in before]})
     check = await _thread(D.verify, request.app, dataset_id, who)
     return {"dataset_id": dataset_id, "restored": restored, "verify": check}
+
+
+async def _restore_lake_splits(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """P09 (§4.3): restore from run pins. Without `blob_sha256` it only offers: per failing split, the split the
+    earliest run on it used (that run's pinned blob, re-hashed). With {split_key, blob_sha256, by, reason} it puts
+    that split back (the failing row is replaced in one audited transaction) and verifies the version again."""
+    from ..lake import splitstore as SS
+
+    _live(request, dataset_id)
+    db, lake = request.app.state.db, request.app.state.lake
+    offers = await _thread(SS.restore_offer, db, lake, dataset_id)
+    if not body.get("blob_sha256"):
+        if not offers:
+            raise HTTPException(409, {"code": "nothing_to_restore", "message": f"Every split of {dataset_id} passes its five "
+                                      "checks: nothing to restore."})
+        return {"dataset_id": dataset_id, "applied": False, "offers": offers,
+                "how": "send {split_key, blob_sha256, by, reason} to put the offered split back (audited)"}
+    who = _who(body.get("by"))
+    reason = _text(body, "reason", 5, 500, True)
+    key = str(body.get("split_key") or (offers[0]["split_key"] if len(offers) == 1 else ""))
+    try:
+        res = await _thread(SS.restore, db, lake, dataset_id, split_key=key, blob_sha256=str(body["blob_sha256"]), by=who,
+                            reason=reason)
+    except SS.SplitError as e:
+        raise HTTPException(e.status, e.payload) from e
+    check = await _thread(D.verify, request.app, dataset_id, who)
+    return {"dataset_id": dataset_id, "applied": True, **res, "verify": check}
 
 
 @router.post("/datasets/match")

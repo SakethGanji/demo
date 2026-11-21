@@ -205,17 +205,32 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     @app.get("/api/health", response_model=Health)
     def health(request: Request) -> dict[str, Any]:
-        return {"status": "ok", "version": __version__, "datasets": len(request.app.state.db.list_datasets()),
+        return {"status": "ok", "version": __version__, "datasets": request.app.state.db.count_datasets(),
                 "data_dir": str(settings.data_dir), "runs": request.app.state.runs.count(),
                 "engine": engine_api.engine_info()}
 
     @app.get("/api/datasets", response_model=DatasetList)
-    def list_datasets(request: Request, all: bool = False) -> dict[str, Any]:
-        # Samples first, in a fixed order; then uploads, oldest first. DL1: archived and deleted ones are hidden (all=true shows them).
+    def list_datasets(request: Request, all: bool = False, limit: int | None = None, after: str | None = None,
+                      project_id: str | None = None, root_id: str | None = None) -> dict[str, Any]:
+        """Samples first, in a fixed order; then uploads, oldest first. DL1: archived and deleted ones are hidden
+        (all=true shows them). P08: `limit` (≤ 500) pages the list by keyset (`after` = the `next_after` of the last
+        page) from light columns (no profile JSON is parsed); without it the whole list comes back as before.
+        `project_id` / `root_id` narrow it."""
         order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5, *SAMPLES_G6, *SAMPLES_G7, *SAMPLES_G8]
-        recs = sorted([r for r in request.app.state.db.list_datasets() if all or not r.get("state")],
+        if limit is not None:
+            page = request.app.state.db.list_datasets_page(limit=max(1, min(int(limit), 500)), after=after, include_hidden=all,
+                                                           pinned=order, project_id=project_id, root_id=root_id)
+            return {"datasets": [_summary(r) for r in page["rows"]], "next_after": page["next_after"], "total": page["total"]}
+        recs = sorted([r for r in request.app.state.db.list_datasets(light=True) if all or not r.get("state")],
                       key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
         return {"datasets": [_summary(r) for r in recs]}
+
+    @app.get("/api/datasets/diff")
+    async def datasets_diff(request: Request, a: str = "", b: str = "", key: str = "", by: str = "", wait: float = 0) -> dict[str, Any]:
+        """P08: GET /datasets/diff?a=&b=[&key=col,col] — the two-pass diff of version a → b (see GET …/{a}/diff/{b})."""
+        from .catalog.datasets_api import diff_q
+
+        return await diff_q(request, a, b, by, key, wait)
 
     @app.get("/api/datasets/{dataset_id}", response_model=Dataset)
     def get_dataset(dataset_id: str, request: Request) -> dict[str, Any]:
@@ -294,10 +309,14 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         if tgt and (rec.get("profile") or {}).get("target_source") != "guessed" and not any(v == "target" for v in (roles or {}).values()):
             roles = {**(roles or {}), tgt: "target"}
         try:
-            df = frames.read_version(dataset_id)
+            from .lake import stats as lake_stats  # P08: above 200k rows, a deterministic sample (never a full read)
+
+            df, sampled = lake_stats.sample_frame(dataset_id)
             if tgt not in df.columns:
                 roles = {k: v for k, v in (roles or {}).items() if k in df.columns} or None
             out = {"dataset_id": dataset_id, **intake(df, roles, versions=_binary_versions(request, dataset_id))}
+            if sampled:
+                out["sampled"] = sampled
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
         # D1: the Data Doctor's stored answers (not known at decision time, fairness only) join every pre-filled drop list.
@@ -326,26 +345,37 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return sorted(out, key=lambda v: v["created_at"] or "", reverse=True)
 
     @app.get("/api/datasets/{dataset_id}/rows")
-    def dataset_rows(dataset_id: str, request: Request, value: str, column: str | None = None, limit: int = 3, by: str = "") -> dict[str, Any]:
-        """G10: rows where `column` equals `value` (as text), or where any text column does when no column is given. For
+    def dataset_rows(dataset_id: str, request: Request, value: str | None = None, column: str | None = None, limit: int | None = None,
+                     by: str = "", after: int | None = None, offset: int | None = None, q: str = "", filter: str | None = None,
+                     columns: str | None = None, sort: str | None = None, desc: bool = False, table: str | None = None) -> dict[str, Any]:
+        """P08 (R5): a page of rows in `__row_id` order, by keyset: `after` = the last `_row_id` seen (exclusive),
+        `limit` ≤ 500 (50). `q` keeps rows where any column contains it (case-insensitive; the first `limit` hits; the
+        count is GET …/rows/count). `filter` is the edit filter AST as JSON. `offset` jumps to a row position;
+        `sort` (+ `desc`) orders by a column, refused above 1M rows ("filter first"). `columns` (comma list) narrows.
+        G10: with `value`, the rows where `column` equals `value` as text (any text column when none is named), for
         looking up one applicant or account by its id. DL3 (m2): needs a name (by or the X-Ensemble-Actor header)."""
         from .catalog import governance as G
+        from .catalog.datasets_api import _src_where
+        from .lake import pages as PG
 
         who = G.reader(by)
         dataset_or_404(request, dataset_id)
-        df = frames.read_version(dataset_id)
-        if column is not None and column not in df.columns:
-            raise HTTPException(400, f"No column '{column}' in {dataset_id}.")
-        cols = [column] if column else [c for c in df.columns if df[c].dtype == object]
-        hit = None
-        for c in cols:
-            m = df[c].astype(str) == value
-            if m.any():
-                hit, column = df[m], c
-                break
-        rows = [] if hit is None else hit.head(max(1, min(limit, 50))).astype(object).where(hit.head(max(1, min(limit, 50))).notna(), None).to_dict("records")
-        G.read_audit(request.app.state.db, "row_lookup", dataset_id, {"column": column, "n": 0 if hit is None else int(len(hit))}, by=who)
-        return {"dataset_id": dataset_id, "column": column, "value": value, "n": 0 if hit is None else int(len(hit)), "rows": rows}
+        try:
+            if value is not None:
+                src = PG.source(dataset_id, table)
+                hit = PG.lookup(src, value, column, limit or 3)
+                G.read_audit(request.app.state.db, "row_lookup", dataset_id, {"column": hit["column"], "n": hit["n"]}, by=who)
+                return {"dataset_id": dataset_id, "column": hit["column"], "value": value, "n": hit["n"], "rows": hit["rows"]}
+            src, where, searched = _src_where(dataset_id, table, q, filter)
+            cols = [c.strip() for c in columns.split(",") if c.strip()] if columns else None
+            pg = PG.page(src, after=after, offset=offset, limit=limit or 50, where=where, columns=cols, sort=sort, desc=desc,
+                         positions=False)
+        except PG.PageError as e:
+            raise HTTPException(e.status, e.payload()) from e
+        G.read_audit(request.app.state.db, "rows_page", dataset_id, {"after": after, "q": q[:80] or None,
+                                                                    "filter": bool(filter), "n": len(pg["rows"])}, by=who)
+        return {"dataset_id": dataset_id, "table": src.table, "total": src.n_rows, "after": after, "limit": limit or 50, "q": q,
+                **({"searched_columns": searched} if q.strip() else {}), **pg}
 
     @app.post("/api/datasets/{dataset_id}/splits")
     def draw_split(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
@@ -360,10 +390,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         strategy = body.get("strategy") or RANDOM_STRATIFIED
         try:
             _, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
-            df = frames.read_version(dataset_id)
+            y = frames.read_version(dataset_id, [target])[target] if target else None  # P08: the target column only
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
-        return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, df[target] if target else None)}
+        return {"dataset_id": dataset_id, "drawn_now": created, **summarize_split(sp, y)}
 
     @app.post("/api/admin/reset-requests", status_code=201)
     def reset_request(request: Request, body: dict[str, Any]) -> dict[str, Any]:

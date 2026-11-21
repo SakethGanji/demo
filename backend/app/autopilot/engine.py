@@ -409,12 +409,23 @@ class Pilot:
     # ------------------------------------------------------------------ truth and scores
 
     def _lineage_rows(self, dataset_id: str) -> np.ndarray:
-        """Root row of every row of a dataset (identity for the root)."""
-        lin = self.mgr.app.state.datasets.lineage(dataset_id)
-        if lin:
-            return np.asarray(lin["root_rows"], dtype=int)
+        """Root row of every row of a dataset, by read position (P09: a Parquet version's __row_id; the lineage row map
+        only for a CSV-era version; identity for a root)."""
+        from ..lake import splitstore as SS
+
+        app = self.mgr.app
+        rr = SS.row_ids(app.state.db, app.state.datasets, dataset_id)
+        if rr is not None:
+            return rr
         n = frames.n_rows(frames.table(dataset_id))
         return np.arange(n)
+
+    def _pred_roots(self, dataset_id: str, rows: list[int]) -> list[int]:
+        """holdout-predictions rows → root rows: a Parquet run names rows by __row_id already (P09)."""
+        if frames.is_parquet(dataset_id):
+            return [int(r) for r in rows]
+        roots = self._lineage_rows(dataset_id)
+        return [int(roots[r]) for r in rows]
 
     def _holdout_rows_local(self, dataset_id: str) -> list[int]:
         sp = json.loads(self.mgr.app.state.datasets.splits_path(dataset_id, self.st["facts"]["label"]).read_text())
@@ -433,8 +444,7 @@ class Pilot:
     def holdout_preds(self, run_id: str, dataset_id: str) -> dict[str, Any]:
         if run_id not in self._holdout_cache:
             h = self.http("GET", f"/api/runs/{run_id}/holdout-predictions")
-            roots = self._lineage_rows(dataset_id)
-            h["root_rows"] = [int(roots[r]) for r in h["rows"]]
+            h["roots"] = self._pred_roots(dataset_id, h["rows"])
             self._holdout_cache[run_id] = h
         return self._holdout_cache[run_id]
 
@@ -446,8 +456,8 @@ class Pilot:
             if not s.get("run_id") or s.get("status") == "failed":
                 continue
             h = self.holdout_preds(s["run_id"], s["dataset_id"])
-            idx = [i for i, r in enumerate(h["root_rows"]) if r in hold]
-            yt = [lab[h["root_rows"][i]] for i in idx]
+            idx = [i for i, r in enumerate(h["roots"]) if r in hold]
+            yt = [lab[h["roots"][i]] for i in idx]
             yp = [h["y_pred"][i] for i in idx]
             pr = [h["probabilities"][i] for i in idx] if h.get("probabilities") else None
             m = M.score(yt, yp, pr, h.get("classes"), f["problem_type"], positive=s.get("positive_class"))
