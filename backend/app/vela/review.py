@@ -41,6 +41,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
+import os
 import secrets
 import time
 from pathlib import Path
@@ -49,6 +51,8 @@ from typing import Any
 import httpx
 
 from .. import llm
+
+log = logging.getLogger("ensemble.review")
 
 SCHEMA = "review/1"
 MAX_EXPERIMENTS, MAX_MINUTES = 5, 30
@@ -71,7 +75,14 @@ RULES = {
              "and the computed text stands. Domain gaps carry no figures at all.",
 }
 
-_tasks: dict[str, asyncio.Task] = {}
+_DB = None  # bound at API start (main.py): load() asks the job queue whether a review is still live
+API_URL = os.environ.get("ENSEMBLE_API_URL", "http://127.0.0.1:8000")
+RETRY_S = float(os.environ.get("ENSEMBLE_REVIEW_API_RETRY_S", "600"))  # how long a worker's review waits for the API
+
+
+def bind(db) -> None:
+    global _DB
+    _DB = db
 C_TITLES = {"threshold": "move the threshold to the cost-optimal one on recent data",
             "recalibrate": "recalibrate the probabilities on recent data"}
 
@@ -97,9 +108,14 @@ def load(rec: dict[str, Any], rid: str) -> dict[str, Any] | None:
     if not p.exists():
         return None
     rv = json.loads(p.read_text())
-    if rv.get("status") in ("queued", "running") and rid not in _tasks:
-        rv["status"] = "interrupted"  # the API restarted while it ran; its finished experiments stay in the journal
-        rv["stop_reason"] = "The API restarted while the review ran; start it again (finished experiments are reused)."
+    if rv.get("status") in ("queued", "running") and _DB is not None:
+        from ..jobs import queue as Q
+
+        if not Q.active_for(_DB, "review", rid):  # P22: its job ended without closing it (it ran out of attempts)
+            j = Q.latest_for(_DB, "review", rid) or {}
+            rv["status"] = "interrupted"  # its finished experiments stay in the journal
+            rv["stop_reason"] = (f"The review's job ended without finishing it ({j.get('error') or j.get('status') or 'no job'}); "
+                                 "start it again (finished experiments are reused).")
     return rv
 
 
@@ -445,28 +461,71 @@ def verdict(kind: str, res: dict[str, Any] | None, leak_cols: set[str], spec: di
 # --------------------------------------------------------------------------------------------------------- the loop
 
 
+class Abandon(Exception):
+    """The review's worker is stopping (shutdown, cancel, lost lease): leave the journal as it is for the next holder."""
+
+
 class Review:
-    def __init__(self, app, rec: dict[str, Any], rv: dict[str, Any]):
+    """P22: `app` is anything with `.state.runs` and `.state.registry`. With `client` None the API is called in-process
+    (ASGI, the API's embedded worker); a workerd passes an HTTP client to the API, and calls retry through an API restart
+    (RETRY_S). A review whose rv already has a journal is a resume: finished experiments are reused, and an experiment
+    whose run was started by the previous holder is followed, not started again."""
+
+    def __init__(self, app, rec: dict[str, Any], rv: dict[str, Any], client: httpx.AsyncClient | None = None, ctx=None):
         self.app = app
         self.rec = rec
         self.rv = rv
-        self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://review", timeout=900)
+        self.ctx = ctx
+        self.remote = client is not None
+        self.client = client or httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://review", timeout=900)
+        self.prior: dict[str, dict[str, Any]] = {}
 
     def save(self) -> None:
         save(self.rec, self.rv)
 
+    def check(self) -> None:
+        if self.ctx is not None and self.ctx.stopping:
+            raise Abandon(self.ctx.stop_reason)
+
     def progress(self, text: str) -> None:
+        self.check()
         self.rv["progress"] = text
         self.save()
 
+    async def _send(self, method: str, path: str, **kw) -> httpx.Response:
+        """One call; from a workerd, wait out an API restart (connection refused / 502 / 503) for up to RETRY_S."""
+        t0 = time.monotonic()
+        wait = 1.0
+        while True:
+            self.check()
+            try:
+                r = await self.client.request(method, path, **kw)
+                if not (self.remote and r.status_code in (502, 503, 504)):
+                    return r
+                err: Exception = RuntimeError(f"{method} {path}: {r.status_code}")
+            except httpx.TransportError as e:
+                if not self.remote:
+                    raise
+                if method != "GET" and not isinstance(e, httpx.ConnectError):
+                    raise  # it may have reached the API: the caller looks the outcome up instead of sending it twice
+                err = e
+            if time.monotonic() - t0 > RETRY_S:
+                raise RuntimeError(f"the API did not answer for {RETRY_S:.0f} s: {type(err).__name__}: {err}")
+            self.rv["waiting_for_api"] = f"{type(err).__name__} at {_now()}"
+            log.info("review %s: API not answering (%s); retrying in %.0f s", self.rv["id"], type(err).__name__, wait)
+            await asyncio.sleep(wait)
+            wait = min(wait * 2, 10)
+
     async def get(self, path: str, **params) -> Any:
-        r = await self.client.get(path, params=params or None)
+        r = await self._send("GET", path, params=params or None)
+        self.rv.pop("waiting_for_api", None)
         if r.status_code >= 400:
             raise RuntimeError(f"GET {path}: {r.status_code} {r.text[:300]}")
         return r.json()
 
     async def post(self, path: str, body: dict[str, Any]) -> tuple[int, Any]:
-        r = await self.client.post(path, json=body)
+        r = await self._send("POST", path, json=body)
+        self.rv.pop("waiting_for_api", None)
         try:
             return r.status_code, r.json()
         except ValueError:
@@ -507,6 +566,14 @@ class Review:
     async def run(self) -> None:
         rv = self.rv
         t0 = time.monotonic()
+        abandon = False
+        if rv.get("journal"):  # P22: a resume (the previous holder stopped): keep what it started, redo the rest
+            for e in rv["journal"]:
+                if e.get("run_id") and e.get("node"):
+                    self.prior[e["node"] + json.dumps((e.get("experiment") or {}).get("spec"), sort_keys=True)] = e
+            rv.setdefault("resumes", []).append({"at": _now(), "experiments_before": len(rv["journal"]),
+                                                 "worker": getattr(getattr(self.ctx, "worker", None), "id", None)})
+            rv.update(journal=[], hypotheses=[], roles=[], plan=None, stop_reason=None)
         try:
             rv["status"] = "running"
             self.progress("reading the run, the Data Doctor and the Model Doctor")
@@ -645,14 +712,23 @@ class Review:
             rv["plan"] = plan
             rv["status"] = "done"
         except Exception as e:  # noqa: BLE001
+            if isinstance(e, Abandon) or (self.ctx is not None and self.ctx.stopping):
+                abandon = True
+                raise
             rv["status"] = "failed"
             rv["error"] = f"{type(e).__name__}: {e}"[:500]
         finally:
-            rv["finished_at"] = _now()
-            rv["seconds"] = round(time.monotonic() - t0, 1)
-            rv["progress"] = None
-            self.audit()
-            self.save()
+            if abandon:
+                rv["progress"] = f"paused: its worker stopped ({self.ctx.stop_reason if self.ctx else ''}); it resumes on the next one"
+                if self.ctx is not None and self.ctx.cancelled:
+                    rv.update(status="cancelled", finished_at=_now(), progress=None, stop_reason="cancelled")
+                self.save()
+            else:
+                rv["finished_at"] = _now()
+                rv["seconds"] = round(time.monotonic() - t0, 1)
+                rv["progress"] = None
+                self.audit()
+                self.save()
             await self.client.aclose()
 
     async def experiment(self, h: dict[str, Any], node: dict[str, Any], leak_cols: set[str]) -> dict[str, Any]:
@@ -664,6 +740,12 @@ class Review:
         rv["journal"].append(e)
         self.progress(f"experiment {e['step']}: {spec['kind']}")
         reuse = await self._reuse(node["run_id"], spec)
+        was = self.prior.get(node["run_id"] + json.dumps(spec, sort_keys=True))
+        if not reuse and was and was.get("run_id"):  # P22: started before the resume: follow it, do not train it twice
+            out = {"run_id": was["run_id"], "status": "running", "prepared": was.get("prepared"), "title": was.get("title")}
+            e.update(run_id=was["run_id"], prepared=was.get("prepared"), title=was.get("title"), resumed=True)
+            self.save()
+            return await self._follow(e, node, spec, leak_cols, out)
         if reuse:
             e.update(reused=True, run_id=reuse.get("run_id"), status=reuse.get("status"))
             x = reuse
@@ -676,23 +758,31 @@ class Review:
                 return e
             e.update(run_id=out.get("run_id"), status=out.get("status"), prepared=out.get("prepared"), title=out.get("title"))
             self.save()
-            x = None
             if out.get("status") == "no-change":
                 e.update(verdict="rejected", reason=(out.get("prepared") or {}).get("why") or "nothing changed", finished_at=_now())
                 self.save()
                 return e
-            if out.get("result") is not None:  # instant
-                x = out
-            else:
-                while True:
-                    r = await self.get(f"/api/runs/{out['run_id']}")
-                    e["status"] = r["status"]
-                    if r["status"] in ("succeeded", "failed", "cancelled"):
-                        break
-                    self.progress(f"experiment {e['step']}: {spec['kind']} training ({out['run_id']}, {r['status']})")
-                    await asyncio.sleep(POLL_S)
-                lst = await self.get(f"/api/runs/{node['run_id']}/experiments")
-                x = next((i for i in lst["experiments"] if i.get("run_id") == out["run_id"]), None) or {}
+            return await self._follow(e, node, spec, leak_cols, out)
+        return self._judge(e, x, spec, leak_cols)
+
+    async def _follow(self, e: dict[str, Any], node: dict[str, Any], spec: dict[str, Any], leak_cols: set[str],
+                      out: dict[str, Any]) -> dict[str, Any]:
+        """Wait for an experiment's run (unless it was instant), then judge it."""
+        if out.get("result") is not None:  # instant
+            x = out
+        else:
+            while True:
+                r = await self.get(f"/api/runs/{out['run_id']}")
+                e["status"] = r["status"]
+                if r["status"] in ("succeeded", "failed", "cancelled"):
+                    break
+                self.progress(f"experiment {e['step']}: {spec['kind']} training ({out['run_id']}, {r['status']})")
+                await asyncio.sleep(POLL_S)
+            lst = await self.get(f"/api/runs/{node['run_id']}/experiments")
+            x = next((i for i in lst["experiments"] if i.get("run_id") == out["run_id"]), None) or {}
+        return self._judge(e, x, spec, leak_cols)
+
+    def _judge(self, e: dict[str, Any], x: dict[str, Any], spec: dict[str, Any], leak_cols: set[str]) -> dict[str, Any]:
         e["status"] = x.get("status") or e["status"]
         e["result"] = x.get("result")
         e["title"] = e.get("title") or x.get("title")
@@ -999,7 +1089,53 @@ def start(app, rec: dict[str, Any], by: str, options: dict[str, Any]) -> dict[st
           "roles": [], "hypotheses": [], "journal": [], "node": None, "plan": None, "domain_gaps": [], "rules": RULES,
           "progress": "queued"}
     save(rec, rv)
-    task = asyncio.get_running_loop().create_task(Review(app, rec, rv).run())
-    _tasks[rv["id"]] = task
-    task.add_done_callback(lambda _t, k=rv["id"]: _tasks.pop(k, None))
+    from ..jobs import queue as Q  # P22: a `review` job; a worker runs it and an API restart does not stop it
+
+    Q.enqueue(app.state.db, "review", {"run_id": rec["id"], "review_id": rv["id"]}, resource="light", by=by,
+              team_id=rec.get("team_id"), ref_kind="review", ref_id=rv["id"], max_attempts=5)
     return rv
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side of a `review` job: run (or resume) the loop. Embedded in the API: in-process ASGI calls on the API's
+    event loop; in a workerd: HTTP to ENSEMBLE_API_URL, waiting out API restarts."""
+    from types import SimpleNamespace
+
+    from ..engine.workerd import Cancelled
+
+    rec = ctx.state.runs.get(ctx.payload["run_id"])
+    if not rec:
+        raise RuntimeError(f"run {ctx.payload['run_id']} is gone")
+    rv = json.loads((_dir(rec) / f"{ctx.payload['review_id']}.json").read_text())
+    if rv.get("status") not in ("queued", "running"):
+        return {"review_id": rv["id"], "status": rv["status"], "skipped": True}
+    if ctx.embedded and getattr(ctx.worker, "app", None) is not None:
+        app, client = ctx.worker.app, None
+    else:
+        app = SimpleNamespace(state=ctx.state)
+        client = httpx.AsyncClient(base_url=API_URL, timeout=900)
+
+    async def go():
+        await Review(app, rec, rv, client=client, ctx=ctx).run()
+
+    try:
+        ctx.run_async(go)
+    except Abandon as e:
+        raise Cancelled(str(e)) from e
+    if ctx.stopping:
+        raise Cancelled(ctx.stop_reason)
+    return {"review_id": rv["id"], "status": rv["status"], "experiments": len(rv.get("journal") or []),
+            "resumes": len(rv.get("resumes") or [])}
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    rec = state.runs.get((job.get("payload") or {}).get("run_id"))
+    if not rec:
+        return
+    p = _dir(rec) / f"{job['ref_id']}.json"
+    if p.exists():
+        rv = json.loads(p.read_text())
+        if rv.get("status") in ("queued", "running"):
+            rv.update(status="interrupted", finished_at=_now(), progress=None,
+                      stop_reason=f"Its worker stopped every time ({job.get('error')}); start it again (finished experiments are reused).")
+            save(rec, rv)

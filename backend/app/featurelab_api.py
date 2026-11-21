@@ -1,7 +1,8 @@
 """D2 Feature Lab routes.
 
     POST /api/datasets/{id}/feature-lab            {target?, entity?, candidates?, max_candidates?, time_limit?, apply?, by?}
-                                                   → 202 {job}; the search runs in a thread
+                                                   → 202 {job}; the search runs as a `featurelab` job on
+                                                   the durable queue (P22), on whichever worker leases it
     GET  /api/datasets/{id}/feature-lab            the dataset's jobs, newest first, plus the DSL
     GET  /api/datasets/{id}/feature-lab/{job_id}   one job: status, journal (live), kept transforms, holdout check, version
 
@@ -45,11 +46,8 @@ def get_feature_lab(dataset_id: str, job_id: str, request: Request) -> dict[str,
     return j
 
 
-@router.post("/datasets/{dataset_id}/feature-lab", status_code=202)
-def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
-    body = body or {}
-    rec = dataset_or_404(request, dataset_id)
-    store = request.app.state.datasets
+def _prepare(store, dataset_id: str, rec: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:
+    """Validate a request and read what the search needs (the route checks; the worker reads it again to run)."""
     df = frames.read_version(dataset_id).reset_index(drop=True)  # P07: rows by position (split masks)
     target = body.get("target") or rec["target"]
     if not target or target not in df.columns:
@@ -85,24 +83,67 @@ def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | 
 
     roles = detect(df)["columns"]
     drops = run_drops(store, dataset_id, list(df.columns))
+    return {"df": df, "target": target, "entity": entity, "max_c": max_c, "limit": limit, "cands": cands, "sp": sp,
+            "roles": roles, "drops": drops}
+
+
+@router.post("/datasets/{dataset_id}/feature-lab", status_code=202)
+def start_feature_lab(dataset_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    body = body or {}
+    rec = dataset_or_404(request, dataset_id)
+    store = request.app.state.datasets
+    p = _prepare(store, dataset_id, rec, body)
     apply = body.get("apply", True) is not False
     from .catalog import governance as G
 
-    # DL3 (m3): the version this job makes records a real name, taken now (the job runs on another thread)
+    # DL3 (m3): the version this job makes records a real name, taken now (the job runs on a worker)
     by = str(body.get("by") or "").strip()[:80] or G.current_actor()
     if not by and apply:
         raise HTTPException(400, "Say who is running Feature Lab: send by (or the X-Ensemble-Actor header); the version it makes records the name.")
+    job = fl.create(store.dir(dataset_id), {**body, "target": p["target"]})
+    from .jobs import queue as Q
+
+    team = None
+    with request.app.state.db.connect() as con:
+        r = con.execute("SELECT p.team_id FROM datasets d JOIN projects p ON p.id = d.project_id WHERE d.id = ?",
+                        (dataset_id,)).fetchone()
+        team = r[0] if r else None
+    Q.enqueue(request.app.state.db, "featurelab", {"dataset_id": dataset_id, "job_id": job["id"], "body": {**body, "target": p["target"]},
+                                                   "apply": apply, "by": by},
+              resource="train", by=by or "system", team_id=team, ref_kind="featurelab", ref_id=job["id"])
+    return job
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side: read the version, run the search, write the new version (P22)."""
+    from types import SimpleNamespace
+
+    pl = ctx.payload
+    store = ctx.state.datasets
+    dataset_id, body = pl["dataset_id"], pl["body"]
+    rec = ctx.state.db.get_dataset(dataset_id)
+    ds_dir = store.dir(dataset_id)
+    req = SimpleNamespace(app=SimpleNamespace(state=ctx.state))  # what _version reads from a request
 
     def work(job, progress):
-        res = fl.search(df, target, holdout_mask(sp, len(df)), roles=roles, drops=drops, entity=entity, candidates=cands,
-                        max_candidates=max_c, time_limit=limit, progress=progress)
-        out: dict[str, Any] = {"result": res, "journal": res["journal"], "target": target}
-        if apply and res["kept"]:
-            out["version"] = _version(request, rec, df, sp, res, by)
+        p = _prepare(store, dataset_id, rec, body)
+        res = fl.search(p["df"], p["target"], holdout_mask(p["sp"], len(p["df"])), roles=p["roles"], drops=p["drops"],
+                        entity=p["entity"], candidates=p["cands"], max_candidates=p["max_c"], time_limit=p["limit"],
+                        progress=progress)
+        out: dict[str, Any] = {"result": res, "journal": res["journal"], "target": p["target"]}
+        if pl["apply"] and res["kept"]:
+            out["version"] = _version(req, rec, p["df"], p["sp"], res, pl["by"])
         return out
 
-    job = fl.start(store.dir(dataset_id), {**body, "target": target}, work)
-    return job
+    job = fl.execute(ds_dir, pl["job_id"], work)
+    if job["status"] == "failed":
+        raise RuntimeError(job.get("error") or "Feature Lab failed")
+    return {"job_id": job["id"], "status": job["status"], "version": (job.get("version") or {}).get("id")}
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    pl = job.get("payload") or {}
+    fl.close(state.datasets.dir(pl["dataset_id"]), pl["job_id"], "failed", f"Its worker stopped every time ({job.get('error')}).")
 
 
 def _version(request: Request, rec: dict[str, Any], df, sp: dict[str, Any], res: dict[str, Any], by: str) -> dict[str, Any]:

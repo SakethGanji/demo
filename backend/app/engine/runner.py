@@ -1,95 +1,69 @@
-"""The job runner: one OS process per fit (`python -m app.engine.worker`), started from a small thread pool.
+"""Runs on the durable job queue (P22, B §5.5). One OS process per fit (`python -m app.engine.worker`), started by
+whichever worker leases the run's `train` job: a `workerd` process, or the worker embedded in the API.
 
-- `submit(run_id)` queues a run; `ENSEMBLE_MAX_PARALLEL_RUNS` (default 1) fits run at once.
-- Each worker gets its own process group, so cancelling also stops anything AutoGluon started (Ray workers).
-- `recover()` runs on start: runs left `queued`/`running` by a previous API process are marked failed (and a
-  stray worker from it is killed), with a `run_failed` event so open event streams end.
-- `shutdown()` stops running workers and marks their runs failed.
+API side (`JobRunner`, the interface the routes always used):
+- `submit(run_id)` queues a `train` job (team from the run, for fair share; `by_principal` from the run's creator);
+- `cancel(run_id)` cancels the job: a queued one never starts, a leased one is stopped by its holder within ~2 s;
+- `start()` re-queues runs left `queued` without a job (runs queued before P22) and fails runs left `running` without
+  one (an old API's in-process fit: nothing can resume it);
+- `on_success(run_id)` (the Model Doctor warm-up) is called by a poller in the API for every train job that finished
+  `succeeded`, on any worker.
 
-Dev reload (`ENSEMBLE_DEV_RELOAD=1`, set by `make dev` / `make api`): uvicorn's `--reload` restarts the API
-process whenever backend code changes. In this mode a restart must not cost a running fit, so:
-- workers watch the reloader (the API process's parent), not the API process: they keep fitting across a
-  reload and still stop when `make dev` is stopped;
-- `shutdown()` leaves running workers alone and keeps queued runs queued;
-- `recover()` adopts a running worker that is still alive (watches its pid, can cancel it) and re-queues
-  queued runs, instead of failing them. Workers write their own events and results, so nothing is lost and the
-  UI's event stream resumes by replay (EventSource reconnects with Last-Event-ID).
+Worker side (`run_job`): spawn the fit, watching the worker's pid; a re-leased job (its first holder died) resets the
+run to queued, emits `run_requeued` and fits again from the start (the fit writes its own events and result, so a
+second attempt overwrites the first). Under dev reload a fit started by the previous API process is adopted, not
+started twice. `on_dead` fails the run once its attempts are spent.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import queue
-import signal
-import subprocess
-import threading
-import time
+import shutil
 from pathlib import Path
+from typing import Any
 
 from .. import config
-from .jobs import alive, dev_reload, kill_group, spawn
-from .store import RunStore
+from ..jobs import queue as Q
+from .jobs import alive
+from .store import RunStore, now
 
 log = logging.getLogger("ensemble.runner")
 
 STOPPED_MSG = "The API stopped while this run was in progress."
+LOST_MSG = "The worker running this fit stopped every time it was tried."
 
 
-def _is_our_worker(pid: int) -> bool:
-    return alive(pid, "app.engine.worker")
-
-
-def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return _is_our_worker(pid)
+def _team_and_by(store: RunStore, run_id: str) -> tuple[str | None, str]:
+    rec = store.get(run_id) or {}
+    cfg = rec.get("config") or {}
+    by = rec.get("created_by") or (cfg.get("patch") or {}).get("by") or cfg.get("by") or "system"
+    return rec.get("team_id"), str(by)
 
 
 class JobRunner:
     def __init__(self, settings: config.Settings, store: RunStore, max_parallel: int | None = None) -> None:
         self.settings = settings
         self.store = store
+        self.db = store.db
         self.max_parallel = max_parallel or int(os.environ.get("ENSEMBLE_MAX_PARALLEL_RUNS", "1"))
-        self._q: queue.Queue[str | None] = queue.Queue()
-        self._procs: dict[str, subprocess.Popen] = {}
-        self._cancelled: set[str] = set()
         self.on_success = None  # callable(run_id), set by the API: warms the Model Doctor after a fit
-        self._lock = threading.Lock()
-        self._threads: list[threading.Thread] = []
-        self._stopping = False
-        self.dev_reload = dev_reload()
-        self._adopted: dict[str, int] = {}  # run id → pid of a worker started by a previous API process
+        self._seen = Q.ts()
 
     # -- lifecycle ------------------------------------------------------------
 
     def start(self) -> None:
         self.recover()
-        for i in range(self.max_parallel):
-            t = threading.Thread(target=self._loop, name=f"run-worker-{i}", daemon=True)
-            t.start()
-            self._threads.append(t)
 
     def recover(self) -> list[str]:
         failed = []
         for rec in self.store.list_active():
-            pid = rec.get("pid")
-            if self.dev_reload:
-                if rec["status"] == "queued":
-                    log.info("re-queueing run %s after a reload", rec["id"])
-                    self.submit(rec["id"])
-                    continue
-                if pid and _alive(pid):
-                    log.info("adopting worker %s of run %s after a reload", pid, rec["id"])
-                    self._adopt(rec["id"], pid)
-                    continue
-            if pid and _is_our_worker(pid):
-                log.warning("killing worker %s left over from a previous API process (run %s)", pid, rec["id"])
-                kill_group(pid, signal.SIGKILL)
+            if Q.latest_for(self.db, "run", rec["id"], "train") and Q.active_for(self.db, "run", rec["id"], "train"):
+                continue  # on the queue: a worker has it or will
+            if rec["status"] == "queued":
+                log.info("queueing run %s (it had no job)", rec["id"])
+                self.submit(rec["id"])
+                continue
             if self.store.finish(rec["id"], "failed", error=STOPPED_MSG):
                 self.store.emit(rec["id"], "run_failed", error=STOPPED_MSG, recovered=True)
                 failed.append(rec["id"])
@@ -97,127 +71,104 @@ class JobRunner:
             log.info("marked %d interrupted run(s) failed: %s", len(failed), ", ".join(failed))
         return failed
 
-    def _adopt(self, run_id: str, pid: int) -> None:
-        with self._lock:
-            self._adopted[run_id] = pid
-
-        def watch():
-            while _alive(pid):
-                time.sleep(0.5)
-            kill_group(pid, signal.SIGKILL)
-            with self._lock:
-                self._adopted.pop(run_id, None)
-                cancelled = run_id in self._cancelled
-                self._cancelled.discard(run_id)
-            if self._stopping:
-                return
-            if cancelled:
-                if self.store.finish(run_id, "cancelled", error="Cancelled."):
-                    self.store.emit(run_id, "run_cancelled", reason="cancelled while running")
-            elif self.store.finish(run_id, "failed", error="The worker exited without finishing the run."):
-                self.store.emit(run_id, "run_failed", error="The worker exited without finishing the run.")
-
-        threading.Thread(target=watch, name=f"adopted-{run_id}", daemon=True).start()
+    def poll_finished(self) -> None:
+        """Called every ~2 s by the API's worker: on_success for fits that finished anywhere."""
+        rows = Q.finished_since(self.db, "train", self._seen)
+        for r in rows:
+            self._seen = max(self._seen, r["finished_at"])
+            if r["status"] == "succeeded" and self.on_success is not None and r.get("ref_id"):
+                if (self.store.get(r["ref_id"]) or {}).get("status") == "succeeded":
+                    try:  # A1 #12: the Model Doctor is computed (and cached) right after the fit
+                        self.on_success(r["ref_id"])
+                    except Exception:  # noqa: BLE001
+                        log.exception("on_success hook failed for %s", r["ref_id"])
 
     def shutdown(self) -> None:
-        self._stopping = True
-        if self.dev_reload:
-            # A reload: running workers keep fitting (they watch the reloader, not us) and queued runs stay
-            # queued; the next API process adopts them in recover().
-            for _ in self._threads:
-                self._q.put(None)
-            return
-        with self._lock:
-            procs = dict(self._procs)
-        for run_id, p in procs.items():
-            kill_group(p.pid)
-        for run_id, p in procs.items():
-            try:
-                p.wait(10)
-            except subprocess.TimeoutExpired:
-                kill_group(p.pid, signal.SIGKILL)
-        for _ in self._threads:
-            self._q.put(None)
-        # Queued and running runs are failed by recover() on the next start; doing it here too keeps the
-        # record right if the API is never started again.
-        for rec in self.store.list_active():
-            if self.store.finish(rec["id"], "failed", error=STOPPED_MSG):
-                self.store.emit(rec["id"], "run_failed", error=STOPPED_MSG)
+        """Nothing to stop: fits belong to workers. The embedded worker's own jobs are re-queued by main.py."""
 
     # -- runs -----------------------------------------------------------------
 
     def run_dir(self, run_id: str) -> Path:
         return self.settings.runs_dir / run_id
 
-    def submit(self, run_id: str) -> None:
-        self._q.put(run_id)
+    def submit(self, run_id: str) -> dict[str, Any]:
+        team, by = _team_and_by(self.store, run_id)
+        return Q.enqueue(self.db, "train", {"run_id": run_id}, resource="train", by=by, team_id=team,
+                         ref_kind="run", ref_id=run_id)
 
     def cancel(self, run_id: str) -> bool:
         rec = self.store.get(run_id)
         if not rec or rec["status"] not in ("queued", "running"):
             return False
-        with self._lock:
-            self._cancelled.add(run_id)
-            p = self._procs.get(run_id)
-            adopted = self._adopted.get(run_id)
-        if p is not None:
-            kill_group(p.pid)
-        elif adopted is not None:
-            kill_group(adopted)
-        elif self.store.finish(run_id, "cancelled", error="Cancelled before it started."):
+        job = Q.active_for(self.db, "run", run_id, "train")
+        before = Q.cancel(self.db, job["id"]) if job else None
+        if before and before["status"] == "leased":
+            return True  # its holder stops the fit and records the cancel
+        if self.store.finish(run_id, "cancelled", error="Cancelled before it started."):
             self.store.emit(run_id, "run_cancelled", reason="cancelled while queued")
         return True
 
-    def _loop(self) -> None:
-        while True:
-            run_id = self._q.get()
-            if run_id is None or self._stopping:
-                return
-            try:
-                self._run(run_id)
-            except Exception:  # noqa: BLE001
-                log.exception("run %s crashed in the runner", run_id)
-                if self.store.finish(run_id, "failed", error="The job runner crashed; see the API log."):
-                    self.store.emit(run_id, "run_failed", error="The job runner crashed; see the API log.")
 
-    def _run(self, run_id: str) -> None:
-        rec = self.store.get(run_id)
-        if not rec or rec["status"] != "queued":
-            return
-        d = self.run_dir(run_id)
-        # The worker stops if the process it watches dies: the API, or under dev reload the reloader above it.
-        anchor = [str(os.getppid()), "anchor"] if self.dev_reload else [str(os.getpid())]
-        # PYTHONPATH: Ray workers (parallel folds, dynamic stacking) must import app.* and ensemble_models too.
-        p = spawn("app.engine.worker", [str(d), *anchor], d / "worker.log",
-                  {"ENSEMBLE_DATA_DIR": str(self.settings.data_dir)})
-        with self._lock:
-            self._procs[run_id] = p
-        self.store.mark_running(run_id, p.pid)
-        code = p.wait()
-        with self._lock:
-            self._procs.pop(run_id, None)
-            cancelled = run_id in self._cancelled
-            self._cancelled.discard(run_id)
-        kill_group(p.pid, signal.SIGKILL)  # anything the worker left behind (Ray)
-        if self._stopping:
-            if self.store.finish(run_id, "failed", error=STOPPED_MSG):
-                self.store.emit(run_id, "run_failed", error=STOPPED_MSG)
-            return
-        if cancelled:
-            if self.store.finish(run_id, "cancelled", error="Cancelled."):
-                self.store.emit(run_id, "run_cancelled", reason="cancelled while running")
-            return
-        if self.on_success is not None and (self.store.get(run_id) or {}).get("status") == "succeeded":
-            try:  # A1 #12: the Model Doctor is computed (and cached) right after the fit, not on the first page view
-                self.on_success(run_id)
-            except Exception:  # noqa: BLE001
-                log.exception("on_success hook failed for %s", run_id)
-        if self.store.finish(run_id, "failed", error=f"The worker exited with code {code}. {self._tail(d)}".strip()):
-            self.store.emit(run_id, "run_failed", error=f"The worker exited with code {code}.", log_tail=self._tail(d))
+# ------------------------------------------------------------------------------------------------ worker side
 
-    @staticmethod
-    def _tail(d: Path, n: int = 2000) -> str:
-        try:
-            return (d / "worker.log").read_text(errors="replace")[-n:]
-        except OSError:
-            return ""
+
+def _tail(d: Path, n: int = 2000) -> str:
+    try:
+        return (d / "worker.log").read_text(errors="replace")[-n:]
+    except OSError:
+        return ""
+
+
+def run_job(ctx) -> dict[str, Any]:
+    from .workerd import Cancelled
+
+    store: RunStore = ctx.state.runs
+    settings = ctx.state.settings
+    run_id = ctx.payload["run_id"]
+    rec = store.get(run_id)
+    if not rec or rec["status"] not in ("queued", "running"):
+        return {"skipped": f"run is {rec and rec['status']}"}
+    d = Path(rec["config"].get("run_dir") or settings.runs_dir / run_id)
+    pid = rec.get("pid")
+    if rec["status"] == "running" and pid and alive(pid, "app.engine.worker"):
+        log.info("adopting fit pid %s of run %s", pid, run_id)  # dev reload: the previous API's fit
+        ctx.wait_pid(pid, "app.engine.worker")
+    else:
+        if ctx.attempt > 1 or rec["status"] == "running":
+            store.emit(run_id, "run_requeued", attempt=ctx.attempt, worker=ctx.worker.id,
+                       reason=(ctx.job.get("error") or "its previous worker stopped"))
+            store.update(run_id, status="queued", pid=None)
+            pp = rec["config"].get("predictor_path")
+            if pp and Path(pp).is_dir():
+                shutil.rmtree(pp, ignore_errors=True)  # the fit starts again from nothing
+        code = ctx.run_process("app.engine.worker", [str(d), ctx.watch_pid(), "anchor"], d / "worker.log",
+                               {"ENSEMBLE_DATA_DIR": str(settings.data_dir)},
+                               on_start=lambda p: store.mark_running(run_id, p))
+        if ctx.stop_reason in ("shutdown", "lost"):
+            raise Cancelled(ctx.stop_reason)  # re-queued: another worker fits it
+        if ctx.cancelled:
+            if store.finish(run_id, "cancelled", error="Cancelled."):
+                store.emit(run_id, "run_cancelled", reason="cancelled while running")
+            raise Cancelled("cancelled")
+        if (store.get(run_id) or {}).get("status") == "succeeded":
+            return {"run_id": run_id, "status": "succeeded", "worker": ctx.worker.id}
+        msg = f"The worker exited with code {code}. {_tail(d)}".strip()
+        if store.finish(run_id, "failed", error=msg):
+            store.emit(run_id, "run_failed", error=f"The worker exited with code {code}.", log_tail=_tail(d))
+        raise RuntimeError(f"fit exited with code {code}")
+    st = (store.get(run_id) or {}).get("status")
+    if ctx.cancelled:
+        if store.finish(run_id, "cancelled", error="Cancelled."):
+            store.emit(run_id, "run_cancelled", reason="cancelled while running")
+        raise Cancelled("cancelled")
+    if st != "succeeded" and store.finish(run_id, "failed", error="The worker exited without finishing the run."):
+        store.emit(run_id, "run_failed", error="The worker exited without finishing the run.")
+    return {"run_id": run_id, "status": st, "adopted": True}
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    run_id = (job.get("payload") or {}).get("run_id") or job.get("ref_id")
+    store: RunStore = state.runs
+    msg = f"{LOST_MSG} ({job.get('error')})"
+    if run_id and store.finish(run_id, "failed", error=msg):
+        store.emit(run_id, "run_failed", error=msg, at=now())

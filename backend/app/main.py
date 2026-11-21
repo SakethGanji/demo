@@ -140,19 +140,32 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.registry = RegistryStore(db)
         app.state.registry.recover()  # builds and batches cut off by a previous stop are marked failed
         app.state.jobs = {}
-        app.state.heavy = HeavyPool()
-        app.state.heavy.start()  # SHAP, importance, predictions, version builds and batch scoring run here
+        app.state.heavy = HeavyPool(db=db)  # P22: version builds and batch scores go on the durable queue
+        app.state.heavy.start()  # SHAP, importance, predictions run here
         app.state.autopilot = AutopilotManager(app, settings.data_dir / "autopilot")
         app.state.autopilot.resume_all()  # autopilots cut off by a restart continue from their saved state
         app.state.agent = AgentManager(app, settings.data_dir / "agent")  # G10: the Vela agent's conversations
         from .vela.api import warm_doctor
+        from .vela import review as review_mod
+        from .engine.jobs import dev_reload
+        from .engine.workerd import Worker, embedded_slots
 
         loop = asyncio.get_running_loop()
         verify_task = asyncio.ensure_future(_verify_timer(app)) if config.verify_every_hours() else None
         app.state.runner.on_success = lambda rid: loop.call_soon_threadsafe(lambda: asyncio.ensure_future(warm_doctor(app, rid)))
+        for mod in (learning_curve_api, active_learning_api, review_mod):
+            mod.bind(db)
+        # P22: the API's own worker: agent turns (`api`), the janitor, the success/heavy pollers, and with
+        # ENSEMBLE_WORKERD=embedded (default) train/duck/light slots too; `python -m app.engine.workerd` adds more.
+        app.state.worker = Worker(app.state, embedded_slots(), role="api", embedded=True, loop=loop)
+        app.state.worker.app = app
+        app.state.worker.hooks += [app.state.runner.poll_finished, app.state.heavy.poll_durable]
+        app.state.worker.start()
         yield
         if verify_task:
             verify_task.cancel()
+        app.state.agent.shutting_down = True
+        app.state.worker.stop(requeue=True, kill=not dev_reload())  # held jobs go back on the queue
         app.state.agent.shutdown()
         app.state.runner.shutdown()
         for mod, _ in JOB_MODULES:
@@ -465,6 +478,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.middleware("http")(catalog_api.evicted_guard)
     app.add_exception_handler(EvictedError, catalog_api.evicted_handler)
     app.include_router(teams_api.router)  # P18: /me, teams, members, principals
+    from .jobs import api as jobs_api
+
+    app.include_router(jobs_api.router)  # P22: GET /jobs, /jobs/{id}, /workers
     app.middleware("http")(teams_api.see_actor)  # P18: a principal on first sight of an X-Ensemble-Actor name
     app.middleware("http")(teams_api.team_rows)  # P18: `team` on every list row of the other routers
     for mod, _ in JOB_MODULES:

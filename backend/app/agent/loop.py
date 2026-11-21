@@ -350,6 +350,16 @@ class AgentManager:
         self.tasks: dict[str, asyncio.Task] = {}
         self.events: dict[str, asyncio.Event] = {}
         self.stops: set[str] = set()
+        self.shutting_down = False
+
+    def _live_job(self, sid: str) -> dict[str, Any] | None:
+        """P22: the session's `agent` job, if one is queued or held (a turn in progress, possibly being resumed)."""
+        db = getattr(getattr(self.app, "state", None), "db", None)
+        if db is None:
+            return None
+        from ..jobs import queue as Q
+
+        return Q.active_for(db, "agent_session", sid, "agent")
 
     # -- storage
     def save(self, s: dict[str, Any]) -> None:
@@ -364,7 +374,7 @@ class AgentManager:
         if not p.exists():
             return None
         s = json.loads(p.read_text())
-        if s["status"] not in TERMINAL and s["status"] != "idle":  # cut off by a restart
+        if s["status"] not in TERMINAL and s["status"] != "idle" and not self._live_job(sid):  # cut off, and no job resumes it
             s["status"] = "idle"
             s["timeline"].append({"type": "note", "text": "The API restarted; the agent stopped here. Ask again to continue."})
             for it in s["timeline"]:
@@ -398,7 +408,7 @@ class AgentManager:
         s = self.get(sid)
         if s is None:
             raise KeyError(sid)
-        if sid in self.tasks and not self.tasks[sid].done():
+        if (sid in self.tasks and not self.tasks[sid].done()) or self._live_job(sid):
             raise RuntimeError("The agent is still working on this conversation; stop it or wait.")
         s["timeline"].append({"type": "user", "text": message.strip(), "at": now()})
         s["status"] = "thinking"
@@ -412,7 +422,12 @@ class AgentManager:
             return s
         self.stops.discard(sid)
         self.save(s)
-        self.tasks[sid] = asyncio.get_running_loop().create_task(self._loop(sid))
+        # P22: the turn is an `agent` job (resource `api`: only API processes hold those). The API's worker leases it
+        # within a second and runs `_loop` on this event loop; after an API restart the next API process resumes it.
+        from ..jobs import queue as Q
+
+        Q.enqueue(self.app.state.db, "agent", {"session_id": sid}, resource="api", by=s.get("user") or "user",
+                  ref_kind="agent_session", ref_id=sid, max_attempts=5)
         return s
 
     def confirm(self, sid: str, step_id: str, approve: bool) -> dict[str, Any]:
@@ -436,9 +451,16 @@ class AgentManager:
         t = self.tasks.get(sid)
         if t and not t.done():
             t.cancel()
+        job = self._live_job(sid)
+        if job and job["status"] == "queued":  # not started yet
+            from ..jobs import queue as Q
+
+            Q.cancel(self.app.state.db, job["id"], "Stopped by the user.")
         return s
 
     def shutdown(self) -> None:
+        """The API is stopping: leave each turn as it is; its job is re-queued and the next API process resumes it."""
+        self.shutting_down = True
         for t in self.tasks.values():
             t.cancel()
 
@@ -476,8 +498,22 @@ class AgentManager:
                                         "rewritten": retried, "rule": "every number in the answer appears in the tool results "
                                         "(after rounding to the answer's precision; 0–10 allowed as counts)"}})
 
-    async def _loop(self, sid: str) -> None:
-        s = self.sessions[sid]
+    def _resume_point(self, s: dict[str, Any]) -> dict[str, Any] | None:
+        """P22: where a turn cut off by an API restart continues: a step waiting for a confirmation waits again; a read
+        step that was running runs again; a write that was running is not repeated (its outcome is unknown)."""
+        s["timeline"].append({"type": "note", "at": now(), "text": "The API restarted; the agent continues from here."})
+        last = next((it for it in reversed(s["timeline"]) if it["type"] == "step"), None)
+        if not last or last["status"] not in ("awaiting", "running"):
+            return None
+        tool = T.BY_NAME.get(last.get("tool") or "")
+        if last["status"] == "awaiting" or (tool is not None and tool.kind != T.WRITE):
+            return last
+        last.update(status="error", error="cut off by an API restart and not repeated (it changes data); check its outcome")
+        return None
+
+    async def _loop(self, sid: str, resume: bool = False) -> None:
+        s = self.get(sid)
+        self.sessions[sid] = s
         b = s["budget"]
         user = (s["user"] or "user")[:40]
         s["actor"] = f"Vela agent on behalf of {user}"
@@ -486,56 +522,63 @@ class AgentManager:
         transport = httpx.ASGITransport(app=self.app)
         client = httpx.AsyncClient(transport=transport, base_url="http://vela-agent", timeout=900)
         invalid_in_row = 0
+        resume_step = self._resume_point(s) if resume else None
         try:
             while True:
-                b["seconds"] = round(b["seconds"] + (time.monotonic() - t_active), 2)
-                t_active = time.monotonic()
-                if b["steps"] >= b["max_steps"] or b["seconds"] >= b["max_seconds"]:
-                    what = "step" if b["steps"] >= b["max_steps"] else "time"
-                    s["timeline"].append({"type": "note", "at": now(), "text": f"The {what} budget is spent ({b['steps']} calls, "
-                                          f"{b['seconds']:.0f} s); stopping here. Ask again to continue."})
-                    s["status"] = "idle"
-                    break
-                s["status"] = "thinking"
-                self.save(s)
-                obj, meta = await decide(s)
-                if sid in self.stops:  # Stop while the model was choosing (the CLI turns a cancel into a timeout)
-                    raise asyncio.CancelledError
-                if obj is None:
-                    s["timeline"].append({"type": "note", "at": now(), "error": True, "decider": _dmeta(meta),
-                                          "text": f"The model gave no usable reply ({meta.get('reason') or 'no JSON'}); stopping. "
-                                                  "Ask again, or use the pages directly."})
-                    s["status"] = "failed"
-                    break
-                if isinstance(obj.get("answer"), str) and not obj.get("tool"):
-                    await self._answer(s, obj["answer"], meta, decide)
-                    s["status"] = "idle"
-                    break
-                name, args = obj.get("tool"), obj.get("args") if isinstance(obj.get("args"), dict) else {}
-                tool = T.BY_NAME.get(name or "")
-                b["steps"] += 1
-                step = {"type": "step", "id": f"st_{b['steps']}", "n": b["steps"], "tool": name, "args": args,
-                        "why": (obj.get("why") or "")[:300], "kind": tool.kind if tool else "read", "status": "running",
-                        "at": now(), "decider": _dmeta(meta), "tool_use_id": obj.get("tool_use_id")}
-                s["timeline"].append(step)
-                if tool is None:
-                    step.update(status="invalid", error=f"Unknown tool '{name}'. Tools: {', '.join(T.BY_NAME)}")
+                if resume_step is not None:
+                    step, resume_step = resume_step, None
+                    name, args = step["tool"], step.get("args") or {}
+                    tool = T.BY_NAME[name]
+                    t_active = time.monotonic()
                 else:
-                    try:
-                        jsonschema.validate(args, tool.schema())
-                    except jsonschema.ValidationError as e:
-                        step.update(status="invalid", error=f"Arguments do not match the schema: {e.message}")
-                if step["status"] == "invalid":
-                    invalid_in_row += 1
-                    self._audit(s, step)
-                    if invalid_in_row >= 3:
-                        s["timeline"].append({"type": "note", "at": now(), "text": "Three invalid calls in a row; stopping."})
+                    b["seconds"] = round(b["seconds"] + (time.monotonic() - t_active), 2)
+                    t_active = time.monotonic()
+                    if b["steps"] >= b["max_steps"] or b["seconds"] >= b["max_seconds"]:
+                        what = "step" if b["steps"] >= b["max_steps"] else "time"
+                        s["timeline"].append({"type": "note", "at": now(), "text": f"The {what} budget is spent ({b['steps']} calls, "
+                                              f"{b['seconds']:.0f} s); stopping here. Ask again to continue."})
+                        s["status"] = "idle"
+                        break
+                    s["status"] = "thinking"
+                    self.save(s)
+                    obj, meta = await decide(s)
+                    if sid in self.stops:  # Stop while the model was choosing (the CLI turns a cancel into a timeout)
+                        raise asyncio.CancelledError
+                    if obj is None:
+                        s["timeline"].append({"type": "note", "at": now(), "error": True, "decider": _dmeta(meta),
+                                              "text": f"The model gave no usable reply ({meta.get('reason') or 'no JSON'}); stopping. "
+                                                      "Ask again, or use the pages directly."})
                         s["status"] = "failed"
                         break
-                    continue
-                invalid_in_row = 0
-                step["link"] = None
-                step["http"] = T.http_of(name, args)
+                    if isinstance(obj.get("answer"), str) and not obj.get("tool"):
+                        await self._answer(s, obj["answer"], meta, decide)
+                        s["status"] = "idle"
+                        break
+                    name, args = obj.get("tool"), obj.get("args") if isinstance(obj.get("args"), dict) else {}
+                    tool = T.BY_NAME.get(name or "")
+                    b["steps"] += 1
+                    step = {"type": "step", "id": f"st_{b['steps']}", "n": b["steps"], "tool": name, "args": args,
+                            "why": (obj.get("why") or "")[:300], "kind": tool.kind if tool else "read", "status": "running",
+                            "at": now(), "decider": _dmeta(meta), "tool_use_id": obj.get("tool_use_id")}
+                    s["timeline"].append(step)
+                    if tool is None:
+                        step.update(status="invalid", error=f"Unknown tool '{name}'. Tools: {', '.join(T.BY_NAME)}")
+                    else:
+                        try:
+                            jsonschema.validate(args, tool.schema())
+                        except jsonschema.ValidationError as e:
+                            step.update(status="invalid", error=f"Arguments do not match the schema: {e.message}")
+                    if step["status"] == "invalid":
+                        invalid_in_row += 1
+                        self._audit(s, step)
+                        if invalid_in_row >= 3:
+                            s["timeline"].append({"type": "note", "at": now(), "text": "Three invalid calls in a row; stopping."})
+                            s["status"] = "failed"
+                            break
+                        continue
+                    invalid_in_row = 0
+                    step["link"] = None
+                    step["http"] = T.http_of(name, args)
                 if tool.kind == T.WRITE:
                     step["status"] = "awaiting"
                     s["status"] = "awaiting_confirmation"
@@ -587,6 +630,8 @@ class AgentManager:
                 step.pop("progress", None)
                 self._audit(s, step)
         except asyncio.CancelledError:
+            if self.shutting_down:  # leave the turn as it is: the next API process resumes it
+                raise
             for it in s["timeline"]:
                 if it["type"] == "step" and it["status"] in ("running", "awaiting"):
                     it["status"] = "stopped"
@@ -605,6 +650,25 @@ class AgentManager:
             await client.aclose()
             self.events.pop(sid, None)
             self.save(s)
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """P22: an `agent` job, held by the API's embedded worker: run (or resume) the session's turn on the API's loop."""
+    import concurrent.futures
+
+    from ..engine.workerd import Cancelled
+
+    mgr: AgentManager = ctx.worker.app.state.agent
+    sid = ctx.payload["session_id"]
+    fut = asyncio.run_coroutine_threadsafe(mgr._loop(sid, resume=ctx.attempt > 1), ctx.worker.loop)
+    mgr.tasks[sid] = fut
+    try:
+        fut.result()
+    except concurrent.futures.CancelledError:
+        if mgr.shutting_down or ctx.stop_reason == "shutdown":
+            raise Cancelled("shutdown") from None
+    s = mgr.sessions.get(sid) or {}
+    return {"session_id": sid, "status": s.get("status")}
 
 
 def _dmeta(meta: dict[str, Any] | None) -> dict[str, Any]:
