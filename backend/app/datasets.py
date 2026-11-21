@@ -773,7 +773,7 @@ class DatasetStore:
         pdf = self.load_frame(parent_id)
         pschema = FIO.columns(self.schema(parent_id, pdf))
         try:
-            res = DE.apply_ops(pdf, ops, parent["target"])
+            res = DE.apply_ops(pdf, ops, parent["target"], pschema)  # P03: values checked against the schema's types
         except DE.EditError as e:
             raise DatasetError(str(e)) from e
         old_t = parent["target"]
@@ -798,10 +798,15 @@ class DatasetStore:
             inv[new] = inv.pop(old, old)
         hint = {c: pschema.get(inv.get(c, c)) for c in df.columns if pschema.get(inv.get(c, c))}
         schema = FIO.schema_of(df, hint, res["casts"])
-        df = FIO.roundtrip(df, schema)  # exactly what data.csv will read back as
+        try:  # P03 (§4.4): a value the writer can't hold is a typed 400 (the engine text is logged), never a 500
+            df = FIO.roundtrip(df, schema)  # exactly what data.csv will read back as
+            csv_bytes = FIO.to_csv_bytes(df, schema)
+        except (ArithmeticError, ValueError, TypeError) as e:
+            logging.getLogger("ensemble.edit").warning("edit of %s: the writer refused the result: %s: %s", parent_id, type(e).__name__, str(e)[:500])
+            raise DE.edit_invalid(None, None, None) from None
         if df.shape[1] < 2 or len(df) < 2:
             raise DatasetError("A version needs at least two rows and two columns.")
-        sha = hashlib.sha256(FIO.to_csv_bytes(df, schema)).hexdigest()
+        sha = hashlib.sha256(csv_bytes).hexdigest()
         rmap = np.asarray(res["row_map"], dtype=int)
         ib = np.flatnonzero(rmap >= 0)
         ia = rmap[ib]

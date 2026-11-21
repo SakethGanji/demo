@@ -296,7 +296,7 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     new values, an audit row). Nothing is modified in place. preview=true writes nothing. Like an upload, a version with
     contract warnings is not made the default. The same bytes as an existing version return that version (created:
     false)."""
-    from fastapi.responses import JSONResponse
+    from ..lake.values import SafeJSONResponse
 
     body = body if isinstance(body, dict) else {}
     who = _who(body.get("by"))
@@ -312,7 +312,7 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     if preview:
         out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True,
                             set_target=body.get("set_target"))
-        return JSONResponse(json.loads(json.dumps(out, default=str)), status_code=200)
+        return SafeJSONResponse(out, status_code=200)  # P03: non-finite → null, never an Infinity token or a 500
     before = await _thread(D.current_default, request.app, dataset_id)
     try:
         out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, set_target=body.get("set_target"))
@@ -323,7 +323,7 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     from ..main import _detail
 
     if not out.get("created"):
-        return JSONResponse(json.loads(json.dumps({**_detail(out), "created": False, "duplicate_of": out["id"], "edit": out.get("edit"),
+        return SafeJSONResponse(json.loads(json.dumps({**_detail(out), "created": False, "duplicate_of": out["id"], "edit": out.get("edit"),
                                                    "note": "the result has the same bytes as this existing version: nothing new was made"},
                                                   default=str)), status_code=200)
     warnings = out["edit"]["checks"]["warnings"]

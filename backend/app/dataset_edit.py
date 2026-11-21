@@ -16,17 +16,28 @@ Operations (each a dict with "op"):
     fill_missing    {column, strategy: constant | mean | median | mode, value?}
 
 A filter is {column, cmp, value} (cmp: eq ne lt le gt ge contains in is_missing not_missing), or a list of them (all
-must hold). Every mistake raises EditError, shown to the user as a 400."""
+must hold). Every mistake raises EditError, shown to the user as a 400.
+
+P03 (plan §4.4, DLA4 #1): every value is checked against its column's type by `lake.values` before it is set
+(BIGINT: whole numbers in int64; DOUBLE: finite; …), a number column must keep finite statistics, a formula's
+non-finite result is refused (÷0 is missing, as in SQL), and an engine error inside an op is a typed 400
+(`edit_invalid`) whose engine text goes to the log only. Those refusals are `values.ValueRefused` (a 400 with a code)."""
 
 from __future__ import annotations
 
 import ast
+import logging
 import math
 import re
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from .lake import values as V
+from .lake.values import ValueRefused
+
+log_ = logging.getLogger("ensemble.edit")
 
 MAX_OPS = 200
 MAX_CELLS = 5000
@@ -67,34 +78,58 @@ def _cell(v: Any) -> Any:
     return v.item() if hasattr(v, "item") else v
 
 
-def _coerce(value: Any, s: pd.Series, where: str) -> Any:
-    """A value for column `s`: '' / None → missing; numbers for a number column (a text value there is refused: cast
-    the column to text first); bools for a bool column; else text."""
+def _type_of(s: pd.Series, kind: str | None = None) -> str:
+    """The column's type for value checks: an integer column (int dtype, or schema kind 'integer' while it has missing
+    cells) is BIGINT, other numbers DOUBLE, bools BOOLEAN, the rest VARCHAR."""
+    if s.dtype.kind == "b":
+        return "BOOLEAN"
+    if s.dtype.kind in "iu" or (kind == "integer" and s.dtype.kind == "f"):
+        return "BIGINT"
+    if s.dtype.kind == "f":
+        return "DOUBLE"
+    return "VARCHAR"
+
+
+#: an integer column with missing cells is held as float64 on the CSV store (data.csv reads it back that way), so only
+#: whole numbers that float64 holds exactly survive the round trip
+FLOAT_INT_MAX = 2 ** 53
+
+
+def _coerce(value: Any, s: pd.Series, where: str, *, kind: str | None = None, op_index: int | None = None) -> Any:
+    """A value for column `s`: '' / None → missing; checked against the column's type (lake.values: a whole number in
+    int64 for an integer column, a finite number for a number column; a text value there is refused: cast the column
+    to text first); bools for a bool column; else text."""
     if value is None or (isinstance(value, str) and value.strip() == ""):
         return np.nan
-    if _is_num(s):
-        if isinstance(value, bool):
-            raise EditError(f"{where}: {value!r} is not a number, and '{s.name}' is a number column.")
+    t = _type_of(s, kind)
+    col = str(s.name)
+    if t in ("BIGINT", "DOUBLE"):
+        if isinstance(value, (bool, np.bool_)):
+            raise ValueRefused("value_invalid", f"{where}: {value!r} is not a number, and '{col}' is a number column.",
+                               op_index=op_index, column=col, type=t)
         try:
-            f = float(str(value).replace(",", "")) if isinstance(value, str) else float(value)
-        except OverflowError:
-            raise EditError(f"{where}: {str(value)[:40]!r} is too large for a number.") from None
-        except (TypeError, ValueError):
-            raise EditError(f"{where}: {value!r} is not a number, and '{s.name}' is a number column (cast it to text first "
-                            "if it should hold text).") from None
-        if not math.isfinite(f):
-            raise EditError(f"{where}: {value!r} is not a finite number.")
-        return f
-    if s.dtype.kind == "b":
-        t = str(value).strip().lower()
-        if t in ("true", "1", "yes"):
-            return True
-        if t in ("false", "0", "no"):
-            return False
-        raise EditError(f"{where}: {value!r} is not true or false, and '{s.name}' is a true/false column.")
+            v = V.check(value, t, op_index=op_index, column=col)
+        except ValueRefused as e:
+            if e.code == "value_invalid" and isinstance(value, str):
+                e.payload["message"] = (f"{where}: {value[:40]!r} is not a {'whole ' if t == 'BIGINT' else ''}number, and '{col}' is a "
+                                        f"{'whole-number' if t == 'BIGINT' else 'number'} column (cast it to text first if it should hold text).")
+            else:
+                e.payload["message"] = f"{where}: {e.payload['message'].split(': ', 1)[-1]}"
+            raise
+        if t == "BIGINT" and s.dtype.kind == "f" and abs(v) > FLOAT_INT_MAX:
+            raise ValueRefused("value_out_of_range", f"{where}: {value!r} is out of range; '{col}' has missing cells, so it holds "
+                                                     f"whole numbers from -2^53 to 2^53.", op_index=op_index, column=col, type=t,
+                               min=str(-FLOAT_INT_MAX), max=str(FLOAT_INT_MAX))
+        return v
+    if t == "BOOLEAN":
+        try:
+            return V.check(value, "BOOLEAN", op_index=op_index, column=col)
+        except ValueRefused as e:
+            e.payload["message"] = f"{where}: {value!r} is not true or false, and '{col}' is a true/false column."
+            raise
     if isinstance(value, (dict, list)):
         raise EditError(f"{where}: a cell holds one value, not {type(value).__name__}.")
-    return str(value)
+    return V.check(value, "VARCHAR", op_index=op_index, column=col)
 
 
 def _col(df: pd.DataFrame, c: Any, where: str) -> str:
@@ -193,7 +228,12 @@ def _formula(df: pd.DataFrame, expr: str, ctx: str) -> tuple[pd.Series, list[str
                     return a - b
                 if isinstance(n.op, ast.Mult):
                     return a * b
-                return a / b
+                q = a / b  # P03: ÷0 is missing, as in SQL; an overflow is refused below (non_finite_result)
+                if isinstance(b, pd.Series):
+                    return q.mask(b == 0)
+                if b == 0:
+                    return q * np.nan
+                return q
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in FUNCS and not n.keywords:
             ar = FUNC_ARITY[n.func.id]
             ok = len(n.args) in (ar if isinstance(ar, tuple) else (ar,))
@@ -220,10 +260,17 @@ def _formula(df: pd.DataFrame, expr: str, ctx: str) -> tuple[pd.Series, list[str
     except EditError:
         raise
     except (ArithmeticError, ValueError, TypeError, RecursionError, MemoryError) as e:  # DL4 (M-a): never a 500
-        raise EditError(f"{ctx}: can't compute {expr!r} ({type(e).__name__}); {FORMULA_HELP}.") from None
+        log_.info("formula %r failed: %s: %s", expr, type(e).__name__, e)
+        raise EditError(f"{ctx}: can't compute {expr!r}; {FORMULA_HELP}.") from None
     if not isinstance(out, pd.Series):
         out = pd.Series(float(out), index=df.index)
-    out = out.replace([np.inf, -np.inf], np.nan)
+    inf = np.isinf(out.to_numpy(dtype=float))
+    if inf.any():  # P03 (§4.4): an overflow (x * 1e308, exp(1000), log(0)) is refused, never stored as missing
+        idx = np.flatnonzero(inf)
+        raise ValueRefused("non_finite_result", f"{ctx}: {expr!r} is not a finite number in {int(inf.sum())} row(s) (it overflows); "
+                                                "use smaller values or another formula.",
+                           count=int(inf.sum()), examples=[{"row": int(df.index[i]), "value": "inf" if out.iloc[i] > 0 else "-inf"}
+                                                            for i in idx[:5]])
     return out, used
 
 
@@ -247,19 +294,29 @@ def _rows_param(df: pd.DataFrame, rows: Any, ctx: str) -> list[int]:
     return out
 
 
-def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[str, Any]:
-    """See _apply_ops. DL4 (M-a): an error that is not an EditError (a pandas or numpy corner) is still the request's
-    fault, never a 500: it is reported as a 400 naming the operations."""
+def apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None, kinds: dict[str, str] | None = None) -> dict[str, Any]:
+    """See _apply_ops. `kinds` is the version's schema (frame_io kinds), so an integer column with missing cells is
+    still checked as integer. DL4 (M-a) / P03 (§4.4): an error that is not ours (a pandas or numpy corner) is still the
+    request's fault, never a 500: a 400 `edit_invalid` naming the operation and column. The engine's text is logged,
+    never returned."""
+    cur: dict[str, Any] = {}
     try:
-        return _apply_ops(src, ops, target)
-    except EditError:
+        return _apply_ops(src, ops, target, kinds or {}, cur)
+    except (EditError, ValueRefused):
         raise
-    except (ArithmeticError, ValueError, TypeError, KeyError, IndexError, AssertionError, RecursionError, MemoryError) as e:
-        raise EditError(f"These operations can't be applied to this data ({type(e).__name__}: {str(e)[:160]}). Check the values "
-                        "and types in each operation.") from None
+    except (ArithmeticError, ValueError, TypeError, KeyError, IndexError, AssertionError, RecursionError, MemoryError, OverflowError) as e:
+        log_.warning("edit op %s on %r failed in the engine: %s: %s", cur.get("i"), cur.get("column"), type(e).__name__, str(e)[:500])
+        raise edit_invalid(cur.get("i"), cur.get("op"), cur.get("column")) from None
 
 
-def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[str, Any]:
+def edit_invalid(op_index: int | None, op: str | None, column: str | None) -> ValueRefused:
+    where = f"Operation {op_index} ({op})" if op_index else "These operations"
+    return ValueRefused("edit_invalid", f"{where}{f' on {column!r}' if column else ''} can't be applied to this data: a value does "
+                                        "not fit its column's type or range. Check the values and types in the operation.",
+                        op_index=op_index, column=column)
+
+
+def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None, kinds: dict[str, str], cur: dict[str, Any]) -> dict[str, Any]:
     """The ops applied in order to a copy of `src` (rows indexed by their position in `src`). Returns {frame (index reset),
     row_map (position in src or -1 per row), log (one entry per op), renamed, target (after renames / drops)}."""
     if not isinstance(ops, list) or not ops:
@@ -276,10 +333,15 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
     n_added = 0
     touched: dict[str, Any] | None = None  # DL4 (M-c): the first op that drops, renames or casts the target
     casts: dict[str, str] = {}  # DL4 (m-e): column → the kind a cast_column gave it
+    kinds = dict(kinds)  # P03: the schema kind per column, through renames / drops / casts (value checks)
     for i, op in enumerate(ops):
         if not isinstance(op, dict) or op.get("op") not in OPS:
             raise EditError(f"Operation {i + 1}: 'op' is one of {', '.join(OPS)}.")
         kind = op["op"]
+        cur.update(i=i + 1, op=kind, column=op.get("column") if isinstance(op.get("column"), str) else
+                   op.get("name") if isinstance(op.get("name"), str) else None)
+        vk = {"op_index": i + 1}
+        touched_num: set[str] = set()
         ctx = f"Operation {i + 1} ({kind})"
         ex: list[dict[str, Any]] = []
         entry: dict[str, Any] = {"i": i + 1, "op": kind}
@@ -302,7 +364,8 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                     raise EditError(f"{ctx}: each cell is {{row, column, value}}.")
                 col = _col(df, c.get("column"), ctx)
                 (r,) = _rows_param(df, [c.get("row")], ctx)
-                new = _coerce(c.get("value"), df[col], f"{ctx}, row {r}, '{col}'")
+                cur["column"] = col
+                new = _coerce(c.get("value"), df[col], f"{ctx}, row {r}, '{col}'", kind=kinds.get(col), **vk)
                 old = df.at[r, col]
                 if _cell(old) == _cell(new) or (_cell(old) is None and _cell(new) is None):
                     continue
@@ -314,6 +377,7 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                     else:
                         df[col] = df[col].astype(float)
                 df.at[r, col] = new
+                touched_num.add(col)
                 changed += 1
                 rows.add(r)
                 note(r, col, old, new)
@@ -348,7 +412,7 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
             for j, r in enumerate(rows):
                 for k in r:
                     _col(df, k, f"{ctx}, new row {j + 1}")
-                new_rows.append({c: _coerce(r.get(c), df[c], f"{ctx}, new row {j + 1}, '{c}'") for c in df.columns})
+                new_rows.append({c: _coerce(r.get(c), df[c], f"{ctx}, new row {j + 1}, '{c}'", kind=kinds.get(c), **vk) for c in df.columns})
             idx = list(range(next_new, next_new - len(rows), -1))
             next_new -= len(rows)
             add = pd.DataFrame(new_rows, index=idx, columns=df.columns)
@@ -358,6 +422,7 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
             before = df.dtypes
             df = pd.concat([df, add])
             df = _keep_types(df, before)
+            touched_num.update(df.columns)
             for k, r in zip(idx, new_rows):
                 if len(ex) < EXAMPLES_PER_OP:
                     ex.append({"row": _rid(k), "added": {c: _cell(v) for c, v in list(r.items())[:6]}})
@@ -372,6 +437,8 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                 raise EditError(f"{ctx}: there is already a column named {to!r}.")
             df = df.rename(columns={col: to})
             renamed[col] = to
+            if col in kinds:
+                kinds[to] = kinds.pop(col)
             if col in casts:
                 casts[to] = casts.pop(col)
             if tgt == col:
@@ -384,6 +451,7 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                 raise EditError(f"{ctx}: a dataset keeps at least two columns.")
             df = df.drop(columns=[col])
             casts.pop(col, None)
+            kinds.pop(col, None)
             if tgt == col:
                 touched = touched or {"i": i + 1, "op": kind, "what": "drops", "column": col}
                 tgt = None
@@ -418,10 +486,15 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                         v = float(v.replace(",", "")) if v.strip() else np.nan
                     except ValueError:
                         pass
+                if isinstance(v, (int, float)) and not isinstance(v, bool) and not (isinstance(v, float) and math.isnan(v)):
+                    v = V.check(v, "BIGINT" if isinstance(v, int) else "DOUBLE", column=name, **vk)
+                elif isinstance(v, str):
+                    v = V.check(v, "VARCHAR", column=name, **vk)
                 df[name] = v
                 entry.update(column=name, value=_cell(v), summary=f"added '{name}' = {v!r} on every row")
             else:
                 raise EditError(f"{ctx}: send 'value' (a constant), 'formula', or fn with a and b.")
+            touched_num.add(name)
             entry["rows"] = int(len(df))
         elif kind == "cast_column":
             col = _col(df, op.get("column"), ctx)
@@ -446,6 +519,8 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                 note(r, col, s.at[r], None)
             df[col] = new
             casts[col] = {"number": "number", "integer": "integer", "text": "text", "bool": "bool"}[to]
+            kinds[col] = casts[col]
+            touched_num.add(col)
             entry.update(column=col, to=to, became_missing=int(lost.sum()),
                          summary=f"cast '{col}' to {to}" + (f": {int(lost.sum())} value(s) could not be read and are now missing" if lost.any() else ""))
         elif kind == "replace_values":
@@ -464,8 +539,8 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
                 hit = (t != new).fillna(False).astype(bool)
                 new = new.astype(object).where(s.notna(), None)
             else:
-                f = _coerce(op["find"], s, ctx)
-                rep = _coerce(op.get("replace"), s, ctx)
+                f = _coerce(op["find"], s, ctx, kind=kinds.get(col), **vk)
+                rep = _coerce(op.get("replace"), s, ctx, kind=kinds.get(col), **vk)
                 hit = (s == f) if _is_num(s) else (s.astype("string") == str(f)).fillna(False).astype(bool)
                 new = s.copy()
                 if isinstance(rep, str) and new.dtype.kind != "O":
@@ -474,6 +549,7 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
             for r in list(df.index[hit])[:EXAMPLES_PER_OP]:
                 note(r, col, s.at[r], new.at[r])
             df[col] = new
+            touched_num.add(col)
             entry.update(column=col, cells=int(hit.sum()), rows=int(hit.sum()),
                          summary=f"replaced {op['find']!r} → {op.get('replace')!r} in '{col}' ({match}): {int(hit.sum())} cell(s)")
         elif kind == "fill_missing":
@@ -484,7 +560,7 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
             if strat == "constant":
                 if "value" not in op:
                     raise EditError(f"{ctx}: send 'value' for a constant fill.")
-                v = _coerce(op["value"], s, ctx)
+                v = _coerce(op["value"], s, ctx, kind=kinds.get(col), **vk)
             elif strat in ("mean", "median"):
                 if not _is_num(s):
                     raise EditError(f"{ctx}: {strat} needs a number column; '{col}' is not one.")
@@ -503,8 +579,13 @@ def _apply_ops(src: pd.DataFrame, ops: Any, target: str | None = None) -> dict[s
             if isinstance(v, str) and s.dtype.kind != "O":
                 df[col] = s.astype(object)
             df.loc[miss, col] = v
+            touched_num.add(col)
             entry.update(column=col, strategy=strat, value=_cell(v), cells=int(miss.sum()), rows=int(miss.sum()),
                          summary=f"filled {int(miss.sum())} missing value(s) in '{col}' with {strat}" + ("" if strat == "constant" else f" ({_cell(v)!r})"))
+        for c in touched_num:  # P03 (§4.4): a number column keeps finite values and statistics (1.797e308 on every row
+            # is a valid DOUBLE, but the column's mean overflows: refused here, not as a 500 when it is profiled)
+            if c in df.columns and df[c].dtype.kind in "iuf":
+                V.check_column(df[c].to_numpy(dtype=float), column=c, **vk)
         entry["examples"] = ex
         entry["examples_truncated"] = bool((entry.get("cells") or entry.get("rows") or 0) > len(ex)) if ex else False
         log.append(entry)
