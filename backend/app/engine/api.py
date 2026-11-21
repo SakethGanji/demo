@@ -1058,12 +1058,16 @@ async def holdout_predictions(run_id: str, request: Request, by: str = "") -> di
     G.run_read_audit(request.app, "holdout_predictions", run_id, by=by)
 
     def read():
-
+        from ..lake.mask import for_run as mask_for_run
         from . import quantile as qt
         from .jsonsafe import jsonable
 
         df = frames.read_artifact(path)
         prob_cols = [c for c in df.columns if c.startswith("p_")]
+        m = mask_for_run(rec)  # P20: the page holds no feature values; only a PII-tagged label would need masking
+        if m is not None and rec["label"] in m.cols:
+            df["y_true"] = [m.value(rec["label"], v) for v in df["y_true"]]
+            df["y_pred"] = [m.value(rec["label"], v) for v in df["y_pred"]]
         return {"run_id": run_id, "model": (rec.get("result") or {}).get("best_model"), "n_rows": len(df),
                 "rows": jsonable(df["row"].tolist()), "y_true": jsonable(df["y_true"].tolist()),
                 "y_pred": jsonable(df["y_pred"].tolist()),
@@ -1432,7 +1436,9 @@ async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
             if res.get("problem_type") == "quantile":  # F9: the residuals are about the centre level q̂₀.₅
                 body["centre_level"] = (res.get("quantile") or {}).get("centre")
                 body["quantile"] = {k: (res.get("quantile") or {}).get(k) for k in ("levels", "centre", "main_interval", "holdout", "served")}
-        return body
+        return M.run_scrub(rec, body)  # P20: the worst cases' feature values of PII columns are masked
+
+    from ..lake import mask as M
 
     body = await run_in_threadpool(build)
     return {"run_id": run_id, "model": res.get("best_model"), "problem_type": res.get("problem_type"),

@@ -137,6 +137,13 @@ def compute(request: Request, rec: dict[str, Any], body: SliceRequest) -> dict[s
     return out
 
 
+def _masked(rec: dict[str, Any], out: Any) -> Any:
+    """P20 (§6.3): slice definitions, labels and rows with the values of PII-tagged columns masked."""
+    from ..lake import mask as M
+
+    return M.run_scrub(rec, out)
+
+
 def _view(out: dict[str, Any], rows: bool = False) -> dict[str, Any]:
     """The response: slice row lists only when asked (they can be long); their counts are `n`."""
     if rows:
@@ -165,13 +172,13 @@ async def search_slices(run_id: str, body: SliceRequest, request: Request) -> di
     interval, ranked by the interval's lower bound."""
     rec = _rec(request, run_id)
     out = await run_in_threadpool(compute, request, rec, body)
-    return _view(out)
+    return _masked(rec, _view(out))
 
 
 @router.get("/runs/{run_id}/slices")
 async def get_slices(run_id: str, request: Request) -> dict[str, Any]:
     rec = _rec(request, run_id)
-    return _view(await run_in_threadpool(_latest, request, rec))
+    return _masked(rec, _view(await run_in_threadpool(_latest, request, rec)))
 
 
 def _slice(request: Request, rec: dict[str, Any], sid: str) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -205,8 +212,8 @@ async def slice_rows(run_id: str, sid: str, request: Request, limit: int | None 
             items.append({"row": row, "y_true": jsonable(r["y_true"]), "y_pred": jsonable(r["y_pred"]), "loss": float(r["loss"]),
                           "p": {c[2:]: float(r[c]) for c in hp.columns if c.startswith("p_")} or None,
                           "features": jsonable(data.loc[row].to_dict())})
-        return {"run_id": run_id, "slice": {k: v for k, v in s.items() if k != "rows"}, "loss": out["loss"],
-                "total": total, "offset": offset, "rows": items}
+        return _masked(rec, {"run_id": run_id, "slice": {k: v for k, v in s.items() if k != "rows"}, "loss": out["loss"],
+                             "total": total, "offset": offset, "rows": items})
 
     return await run_in_threadpool(work)
 
@@ -247,7 +254,7 @@ async def slice_shap(run_id: str, sid: str, body: ShapRequest, request: Request)
                       "diff": float(xa.mean() - xb.mean()), "in_slice_definition": f in s["columns"]})
     feats.sort(key=lambda d: -abs(d["diff"]))
     first = (res_a or res_b)[0]
-    return {"run_id": run_id, "slice": {k: v for k, v in s.items() if k != "rows"}, "model": first["model"],
+    return _masked(rec, {"run_id": run_id, "slice": {k: v for k, v in s.items() if k != "rows"}, "model": first["model"],
             "target": first["target"], "output": first["output"], "rows_slice": a, "rows_rest": b,
             "base_value": first["base_value"],
             "fx_slice": float(np.mean([r["fx"] for r in res_a])) if res_a else None,
@@ -255,7 +262,7 @@ async def slice_shap(run_id: str, sid: str, body: ShapRequest, request: Request)
             "features": feats, "per_row": [{"row": r["row"], "in_slice": r["row"] in set(a), "fx": r["fx"],
                                             "y_true": r.get("y_true"), "cached": r.get("cached")} for r in res_a + res_b],
             "background_size": first["background_size"], "nsamples": first["nsamples"], "seconds": time.time() - t0,
-            "method": first["method"]}
+            "method": first["method"]})
 
 
 @router.get("/runs/{run_id}/slices/{sid}/pool", dependencies=[require("run.read", path("run_id", "run"))])
@@ -272,8 +279,8 @@ async def slice_pool(run_id: str, sid: str, request: Request) -> dict[str, Any]:
         splits = json.loads(Path(cfg["splits_path"]).read_text())
         is_h = holdout_mask(splits, len(data))
         m = sl.slice_mask(data, s["conditions"]) & ~is_h
-        return {"run_id": run_id, "slice_id": sid, "label": s["label"], "conditions": s["conditions"],
+        return _masked(rec, {"run_id": run_id, "slice_id": sid, "label": s["label"], "conditions": s["conditions"],
                 "train_rows": int((~is_h).sum()), "in_slice": int(m.sum()),
-                "labelled_in_slice": int((m & data[rec["label"]].notna().to_numpy()).sum())}
+                "labelled_in_slice": int((m & data[rec["label"]].notna().to_numpy()).sum())})
 
     return await run_in_threadpool(work)
