@@ -177,3 +177,8 @@ SAMPLE_MIN_CLASS_ROWS = 1000
 #: frame budget is also capped so that estimate × factor stays under FIT_RAM_SHARE of the worker's RAM.
 FIT_PEAK_PER_FRAME_BYTE: dict[str, float] = {}
 FIT_RAM_SHARE = 0.8
+
+
+#: F-X1 C1: the widest file an upload accepts (400 too_many_columns above it). Bank tables of 1-2k columns are real.
+def max_columns() -> int:
+    return int(_env_num("ENSEMBLE_MAX_COLUMNS", 2000, 2))

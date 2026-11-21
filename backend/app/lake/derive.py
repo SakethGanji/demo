@@ -23,7 +23,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .writer import LakeError
+from .writer import LakeError, is_reserved_name
 
 log = logging.getLogger("ensemble.derive")
 
@@ -133,9 +133,9 @@ def frame_arrow(df: pd.DataFrame, ids: np.ndarray) -> Any:
     import pyarrow as pa
 
     names = [str(c) for c in df.columns]
-    bad = [c for c in names if c.startswith("__")]
+    bad = [c for c in names if is_reserved_name(c)]
     if bad:
-        raise LakeError(400, "reserved_column", f"Column {bad[0]!r}: names starting with '__' are reserved.")
+        raise LakeError(400, "reserved_column", f"Column {bad[0]!r} is a reserved name ('__…', '_row_id', '_row').")
     arrays = [pa.array(np.asarray(ids, dtype="int64"))] + [_arrow_column(df.iloc[:, i]) for i in range(df.shape[1])]
     return pa.Table.from_arrays(arrays, names=["__row_id", *names])
 

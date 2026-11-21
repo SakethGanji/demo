@@ -41,6 +41,7 @@ import pandas as pd
 
 from .lake import values as V
 from .lake.values import ValueRefused
+from .lake.writer import is_reserved_name
 
 log_ = logging.getLogger("ensemble.edit")
 
@@ -712,8 +713,8 @@ def _compile(con: Any, base: str, ops: Any, target: str | None, next_row_id: int
             to = to.strip()
             if to in c.names() or to.lower() in {n.lower() for n in c.names() if n != col}:
                 raise EditError(f"{ctx}: there is already a column named {to!r}.")
-            if to.startswith("__"):
-                raise EditError(f"{ctx}: names starting with '__' are reserved.")
+            if is_reserved_name(to):
+                raise EditError(f"{ctx}: {to!r} is reserved (names starting with '__', and '_row_id' / '_row').")
             c.view(f"SELECT {c.select(rename={col: to})} FROM {prev} s")
             out.cols = [[to if n == col else n, t] for n, t in out.cols]
             orig = next((k for k, v in out.renamed.items() if v == col), col)  # renamed = {name in the parent: name now}
@@ -746,8 +747,8 @@ def _compile(con: Any, base: str, ops: Any, target: str | None, next_row_id: int
             name = name.strip()
             if name in c.names() or name.lower() in {n.lower() for n in c.names()}:
                 raise EditError(f"{ctx}: there is already a column named {name!r}.")
-            if name.startswith("__"):
-                raise EditError(f"{ctx}: names starting with '__' are reserved.")
+            if is_reserved_name(name):
+                raise EditError(f"{ctx}: {name!r} is reserved (names starting with '__', and '_row_id' / '_row').")
             formula, fn = op.get("formula"), op.get("fn")
             if fn is not None:
                 if fn not in FN_SHORTCUTS:

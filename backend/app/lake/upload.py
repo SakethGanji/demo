@@ -35,7 +35,7 @@ from typing import Any, BinaryIO
 
 from ..catalog import schema as S
 from . import duck
-from .writer import ROW_ID, LakeError, VersionWriter, _lit, _q
+from .writer import ROW_ID, LakeError, VersionWriter, _lit, _q, is_reserved_name
 
 log = logging.getLogger("ensemble.upload")
 
@@ -447,6 +447,26 @@ def _table_name(plan: dict[str, Any], filename: str) -> str:
     return t
 
 
+#: F-X1 C1: columns per aggregate query in the typing scan (7 aggregates each).
+SCAN_CHUNK_COLS = 64
+
+
+def _guard_names(names: list[str]) -> None:
+    """F-X1 C1 / M5: refuse a file wider than ENSEMBLE_MAX_COLUMNS, and any reserved column name (the system's
+    `__row_id`, and every name the API uses for the row id: a user column must never be hidden by it)."""
+    from .. import config
+
+    cap = config.max_columns()
+    if len(names) > cap:
+        raise LakeError(400, "too_many_columns", f"This file has {len(names):,} columns; the limit is {cap:,} "
+                                                 "(ENSEMBLE_MAX_COLUMNS). Split it into narrower files.")
+    reserved = [h for h in names if is_reserved_name(h)]
+    if reserved:
+        raise LakeError(400, "reserved_column", f"These column names are reserved for the row id: {', '.join(reserved[:10])}. "
+                                                "Rename them (names starting with '__', and '_row_id' / '_row', which "
+                                                "the API uses for the row id, are reserved) and upload again.")
+
+
 def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id: str) -> dict[str, Any]:
     src = tmp / f["src"]
     name = f["filename"] or ""
@@ -492,9 +512,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
         where = "; ".join(f"'{h}' is columns {', '.join(str(i + 1) for i, n in enumerate(names) if n == h)}" for h in dup)
         raise LakeError(400, "duplicate_header", f"The header repeats a column name ({where}). Rename or remove the duplicate "
                                                  "and upload again, so no column is silently renamed.")
-    reserved = [h for h in names if h.startswith("__")]
-    if reserved:
-        raise LakeError(400, "reserved_column", f"Column names starting with '__' are reserved: {', '.join(reserved)}.")
+    _guard_names(names)
     if len(names) < 2:
         raise LakeError(400, "one_column", "No separated columns found (tried comma, semicolon, tab, pipe). Give a CSV with a "
                                            "header row and at least two columns.")
@@ -541,8 +559,14 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
                 aggs.append(f"count(*) FILTER (WHERE {sl})")
             else:
                 aggs += ["0", "0", "0"]
+        # F-X1 C1: one query per chunk of columns. A single SELECT of every aggregate makes DuckDB's planning cost
+        # quadratic in the column count (5,000 columns took the API past 12 GB); chunks keep it linear.
+        row: list[Any] = []
+        step = 1 + 7 * SCAN_CHUNK_COLS
         try:
-            row = con.execute(f"SELECT {', '.join(aggs)} FROM src").fetchone()
+            row += list(con.execute(f"SELECT {aggs[0]} FROM src").fetchone())
+            for k in range(1, len(aggs), step - 1):
+                row += list(con.execute(f"SELECT {', '.join(aggs[k:k + step - 1])} FROM src").fetchone())
         except Exception as e:  # noqa: BLE001 - malformed CSV: a 400 in words
             raise LakeError(400, "csv_unreadable", _err_line(e)) from None
         n_rows = int(row[0])
@@ -651,9 +675,7 @@ def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any]
             log.info("parquet read error: %s", str(e)[:500])
             raise LakeError(400, "parquet_unreadable", f"Could not read {f['filename'] or 'the file'} as Parquet.") from None
         names = [c[0] for c in cols]
-        reserved = [n for n in names if n.startswith("__")]
-        if reserved:
-            raise LakeError(400, "reserved_column", f"Column names starting with '__' are reserved: {', '.join(reserved)}.")
+        _guard_names(names)
         if len(names) < 2:
             raise LakeError(400, "one_column", "A dataset needs at least two columns.")
         if n_rows < 2:

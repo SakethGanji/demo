@@ -40,6 +40,15 @@ from .store import BlobStore
 DEDUPE_OPS = ("shift_weights", "edit", "anomaly_review", "feature_lab", "carry", "upload_version")
 #: P07: derive() ops are written by the writer too; their dedupe follows datasets.DEDUPE_OPS unless the caller says
 ROW_ID = "__row_id"
+#: F-X1 M5: the names the API gives the row id (pages, diff, grid: `_row_id`, and `_row` for a position). A user
+#: column with one of these names would be hidden by the system's value, so it is refused like `__…`.
+API_ID_NAMES = frozenset({"_row_id", "_row"})
+
+
+def is_reserved_name(name: str) -> bool:
+    """A column name a user may not take: `__…` (the system's columns) or an API id key (any case)."""
+    n = str(name)
+    return n.startswith("__") or n.strip().lower() in API_ID_NAMES
 
 
 class LakeError(Exception):
@@ -251,8 +260,9 @@ class VersionWriter:
             raise LakeError(400, "row_id_type", f"{ROW_ID} must be BIGINT (got {cols[0][1]}).")
         seen: set[str] = set()
         for c, _ in cols[1:]:
-            if c.startswith("__"):
-                raise LakeError(400, "reserved_column", f"Column {c!r}: names starting with '__' are reserved.")
+            if is_reserved_name(c):
+                raise LakeError(400, "reserved_column", f"Column {c!r} is a reserved name (names starting with '__', "
+                                                        "and '_row_id' / '_row', which the API uses for the row id).")
             if c.lower() in seen:
                 raise LakeError(400, "duplicate_column", f"Column {c!r} appears twice.")
             seen.add(c.lower())
