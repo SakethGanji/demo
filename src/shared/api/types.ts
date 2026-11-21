@@ -125,6 +125,11 @@ export type DatasetSummary = {
   n_classes: number
   /** Which flows suit the dataset: tabular, forecast, anomaly. */
   flows?: string[]
+  /** DL1: the dataset (root) this version belongs to, its parent and op; archived / deleted ones are hidden from the list. */
+  root_id?: string
+  parent_id?: string | null
+  op?: string | null
+  state?: 'archived' | 'deleted' | null
 }
 
 export type DatasetDetail = DatasetSummary & { profile: Profile }

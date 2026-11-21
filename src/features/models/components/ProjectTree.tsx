@@ -66,7 +66,9 @@ function DatasetNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
       <div className="pt-row"><span className="pt-ico">▤</span><b>{n.name}</b> <span className="mono muted">{n.id}</span>
         <span className="pt-chip">{(n.rows ?? 0).toLocaleString()} rows</span>{n.op && n.op !== 'upload' && n.op !== 'sample' && <span className="pt-chip op">{n.op.replace(/_/g, ' ')}</span>}
         {edge?.inferred && <span className="mono muted" title="no root-row mapping: never paired with its parent">◇</span>}
-        <Tags n={n} /></div>
+        {n.state && <span className={`pt-chip ${n.state === 'deleted' ? 'appr-rejected' : ''}`} title={n.state === 'deleted' ? 'files removed; this record, its lineage and the audit are kept' : 'hidden from Build and the pickers'}>{n.state}</span>}
+        <Tags n={n} />
+        {!edge && <button className="chip-btn" onClick={() => ctx.go(`models?tab=Data&dataset=${n.id}`)} data-testid={`pt-data-${n.id}`} title="Versions, diff, what used each one, card, export">Data →</button>}</div>
       {(versions.length > 0 || runs.length > 0) && <ul>
         {runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} /> : null })}
         {versions.map((e) => { const d = ctx.ix.node.get(`dataset:${e.dst.id}`); return d ? <DatasetNode key={d.id} n={d} ctx={ctx} edge={e} /> : null })}

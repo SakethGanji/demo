@@ -36,6 +36,7 @@ from .registry.store import RegistryStore
 from .engine.serving import PredictorCache
 from .engine.store import RunStore
 from .catalog import api as catalog_api
+from .catalog import datasets_api as catalog_datasets_api
 from .catalog.retention import EvictedError
 
 log = logging.getLogger("ensemble.main")
@@ -76,6 +77,8 @@ def _summary(rec: dict[str, Any]) -> dict[str, Any]:
         "size_bytes": rec["size_bytes"], "rows": rec["rows"], "n_cols": p["n_cols"], "kind": rec["kind"],
         "target": rec["target"], "n_classes": p["n_classes"],
         "flows": {"timeseries": ["forecast"], "transactions": ["anomaly"]}.get(rec["kind"], ["tabular", "anomaly"]),
+        # DL1: where it sits in its dataset (root, parent, op) and whether it is archived / deleted
+        "root_id": rec.get("root_id") or rec["id"], "parent_id": rec.get("parent_id"), "op": rec.get("op"), "state": rec.get("state"),
     }
 
 
@@ -146,10 +149,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                 "engine": engine_api.engine_info()}
 
     @app.get("/api/datasets", response_model=DatasetList)
-    def list_datasets(request: Request) -> dict[str, Any]:
-        # Samples first, in a fixed order; then uploads, oldest first.
+    def list_datasets(request: Request, all: bool = False) -> dict[str, Any]:
+        # Samples first, in a fixed order; then uploads, oldest first. DL1: archived and deleted ones are hidden (all=true shows them).
         order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5, *SAMPLES_G6, *SAMPLES_G7, *SAMPLES_G8]
-        recs = sorted(request.app.state.db.list_datasets(),
+        recs = sorted([r for r in request.app.state.db.list_datasets() if all or not r.get("state")],
                       key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
         return {"datasets": [_summary(r) for r in recs]}
 
@@ -160,7 +163,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     @app.post("/api/datasets", response_model=Dataset, status_code=201)
     async def upload_dataset(request: Request, file: UploadFile = File(...), target: str | None = Form(None),
-                             project_id: str | None = Form(None)) -> dict[str, Any]:
+                             project_id: str | None = Form(None), by: str | None = Form(None)) -> dict[str, Any]:
         """A CSV upload. F-P2: `project_id` puts it in an existing project (default: a new project of its own)."""
         if project_id and not request.app.state.catalog.project(project_id):
             raise HTTPException(404, f"No project '{project_id}'.")
@@ -168,12 +171,13 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         if len(content) > config.MAX_UPLOAD_BYTES:
             raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
         try:
-            rec = await run_in_threadpool(store(request).create_from_upload, file.filename or "", content, target or None)
+            rec = await run_in_threadpool(store(request).create_from_upload, file.filename or "", content, target or None,
+                                           (by or "").strip()[:80] or None)
         except DatasetError as e:
             raise HTTPException(400, str(e)) from e
         if project_id:
             request.app.state.catalog.move_dataset_tree(rec["id"], project_id)
-        return _detail(rec)
+        return _detail(request.app.state.db.get_dataset(rec["id"]) or rec)  # DL1: with root, op, created_by
 
     @app.patch("/api/datasets/{dataset_id}", response_model=Dataset)
     def confirm_target(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
@@ -325,6 +329,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     app.include_router(import_api.router)
     app.include_router(engine_api.router)
+    app.include_router(catalog_datasets_api.router)  # DL1: dataset versions, diff, usage, default, card, archive, delete
     app.include_router(catalog_api.router)  # P1: projects, lineage, compare, annotations, champions, retention
     app.middleware("http")(catalog_api.evicted_guard)
     app.add_exception_handler(EvictedError, catalog_api.evicted_handler)

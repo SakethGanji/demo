@@ -82,7 +82,7 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
                 out += [dict(r) for r in con.execute(sql.format(",".join("?" * len(chunk))), chunk).fetchall()]
             return out
 
-        dsets = q("SELECT id, name, rows, created_at, project_id, parent_id, root_id, sha256, op, target FROM datasets WHERE id IN ({})",
+        dsets = q("SELECT id, name, rows, created_at, project_id, parent_id, root_id, sha256, op, target, state FROM datasets WHERE id IN ({})",
                   ids["dataset"])
         runs = q("SELECT id, name, dataset_id, label, status, created_at, project_id, parent_run_id, source, kind, primary_metric,"
                  " primary_score, greater_is_better, predictor_state, predictor_bytes, json_extract(config, '$.run_dir') AS run_dir"

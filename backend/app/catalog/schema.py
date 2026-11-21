@@ -72,6 +72,36 @@ CREATE TABLE IF NOT EXISTS champions (
 );
 CREATE INDEX IF NOT EXISTS ix_champions_project ON champions (project_id, status);
 
+-- DL1: one card per dataset (keyed by its root): what it is, who owns it, and the default version (a pointer: a
+-- rollback moves it, never the data).
+CREATE TABLE IF NOT EXISTS dataset_cards (
+    root_id            TEXT PRIMARY KEY,
+    description        TEXT NOT NULL DEFAULT '',
+    owner              TEXT NOT NULL DEFAULT '',
+    source             TEXT NOT NULL DEFAULT '',
+    label_definition   TEXT NOT NULL DEFAULT '',
+    known_issues       TEXT NOT NULL DEFAULT '',
+    default_version_id TEXT,
+    updated_at         TEXT,
+    updated_by         TEXT
+);
+
+-- DL1: a delete needs four eyes (or an admin): one person asks, another approves; both audited.
+CREATE TABLE IF NOT EXISTS dataset_requests (
+    id            TEXT PRIMARY KEY,
+    dataset_id    TEXT NOT NULL,
+    root_id       TEXT NOT NULL,
+    action        TEXT NOT NULL CHECK (action IN ('delete')),
+    status        TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'withdrawn')),
+    requested_by  TEXT NOT NULL,
+    requested_at  TEXT NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    decided_by    TEXT,
+    decided_at    TEXT,
+    comment       TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS ix_dataset_requests ON dataset_requests (root_id, status);
+
 CREATE TABLE IF NOT EXISTS catalog_meta (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
@@ -84,7 +114,10 @@ RUN_COLS = {
     "predictor_state": "TEXT", "predictor_bytes": "INTEGER", "state_changed_at": "TEXT",
 }
 DATASET_COLS = {"project_id": "TEXT", "parent_id": "TEXT", "root_id": "TEXT", "sha256": "TEXT", "n_rows": "INTEGER",
-                "op": "TEXT"}
+                "op": "TEXT",
+                # DL1: who made it; archived / deleted (NULL = active) with when and by whom; the last integrity check
+                "created_by": "TEXT", "state": "TEXT", "state_at": "TEXT", "state_by": "TEXT", "verified_at": "TEXT",
+                "verified_ok": "INTEGER"}
 INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_runs_dataset ON runs (dataset_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_runs_project ON runs (project_id, created_at)",
@@ -187,6 +220,14 @@ def add_edge(con: sqlite3.Connection, src: tuple[str, str], dst: tuple[str, str]
         sql = sql.replace("INSERT INTO", "INSERT OR IGNORE INTO")
     con.execute(sql, (src[0], src[1], dst[0], dst[1], relation, actor or "system",
                       json.dumps(meta, default=str) if meta else None, int(inferred), created_at or now()))
+
+
+def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict[str, Any], comment: str = "",
+          run_id: str | None = None) -> None:
+    """DL1: an audit_log row written on the caller's connection (the registry's audit() opens its own). Dataset actions
+    carry details.dataset_id and details.root_id, so a dataset's history is one query."""
+    con.execute("INSERT INTO audit_log (ts, actor, action, run_id, comment, details) VALUES (?, ?, ?, ?, ?, ?)",
+                (now(), actor or "system", action, run_id, comment or "", json.dumps(details, default=str)))
 
 
 def ensure_project(con: sqlite3.Connection, root_id: str, name: str, created_at: str | None = None) -> str:

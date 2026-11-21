@@ -14,6 +14,8 @@ import { useFetch } from '@/shared/hooks/useFetch'
 import { activeRuns, catalog, runsByIds, runsPage } from '@/shared/api/catalog'
 import { api } from '@/shared/api/client'
 import { ProjectTree } from './components/ProjectTree'
+import { DataView } from './data/DataView'
+import { matchTab } from '@/shared/hooks/useHashParam'
 
 export const STATUS_PILL: Record<string, Status> = { succeeded: 'success', running: 'info', queued: 'neutral', failed: 'danger', cancelled: 'warning' }
 export const RUN_COLORS = ['var(--viz-a)', 'var(--viz-c)', 'var(--viz-d)', 'var(--viz-b)', 'var(--viz-e)', '#0F766E']
@@ -35,7 +37,8 @@ const ago = (iso: string) => {
   return s < 60 ? `${Math.round(s)} s ago` : s < 3600 ? `${Math.round(s / 60)} min ago` : s < 86400 ? `${Math.round(s / 3600)} h ago` : new Date(iso).toLocaleDateString()
 }
 
-type Tab = 'Runs' | 'Compare' | 'Parameter Diff' | 'Lineage'
+const TABS = ['Runs', 'Compare', 'Parameter Diff', 'Lineage', 'Data'] as const
+type Tab = typeof TABS[number]
 const projectParam = () => new URLSearchParams(location.hash.split('?')[1] ?? '').get('project')
 type Filters = { dataset: string; type: string; status: string; q: string; min: string }
 
@@ -48,10 +51,20 @@ export function RunList({ go }: { go: (r: string) => void }) {
     const q = new URLSearchParams(location.hash.split('?')[1] ?? ''); if (p) q.set('project', p); else q.delete('project')
     history.replaceState(null, '', `#/models${q.toString() ? `?${q}` : ''}`)
   }
+  useEffect(() => {
+    const f = () => { const t = matchTab(TABS, new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')); if (t) setTabState(t) }
+    addEventListener('hashchange', f); return () => removeEventListener('hashchange', f)
+  }, [])
   const projects = useFetch(() => catalog.projects(), [])
   const [sel, setSel] = useState<string[]>([])
   const { runs, total, err, more, loadingMore } = useRunPages(project, sel)
-  const [tab, setTab] = useState<Tab>('Runs')
+  // DL1: ?tab=Data (from Build's version strip or the lineage tree) opens the datasets
+  const [tab, setTabState] = useState<Tab>(() => matchTab(TABS, new URLSearchParams(location.hash.split('?')[1] ?? '').get('tab')) ?? 'Runs')
+  const setTab = (t: Tab) => {
+    setTabState(t)
+    const q = new URLSearchParams(location.hash.split('?')[1] ?? ''); if (t === 'Runs') q.delete('tab'); else q.set('tab', t); if (t !== 'Data') q.delete('dataset')
+    history.replaceState(null, '', `#/models${q.toString() ? `?${q}` : ''}`)
+  }
   // ?type= (from a setup page's "earlier runs are in Models" link) preselects the problem filter.
   const [f, setF] = useState<Filters>(() => ({ dataset: 'all', type: typeParam(), status: 'all', q: '', min: '' }))
   // #/models?compare=a,b (from a Vela patch's retrain): select those runs and open Compare.
@@ -83,13 +96,21 @@ export function RunList({ go }: { go: (r: string) => void }) {
   const selRuns = sel.map((id) => (runs ?? []).find((r) => r.id === id)).filter((r): r is Run => !!r && tabularLike(r))
   const selOther = (runs ?? []).filter((r) => sel.includes(r.id) && !tabularLike(r)).length
 
+  if (tab === 'Data') return (
+    <div className="page experiments" data-testid="experiments-live">
+      <div className="page-head"><div><h1 className="page-title">Models</h1><p className="helper sub">Data · every dataset, its versions and what used them</p></div>
+        <div className="row"><button className="btn primary" onClick={() => go('build')}>Build</button></div></div>
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
+      <DataView go={go} />
+    </div>
+  )
   if (err && !runs) return <ErrorCard err={err} />
   if (!runs) return <Loading>Reading the runs from the API: their scores, parameters and thresholds…</Loading>
   if (!runs.length) return (
     <div className="page experiments" data-testid="experiments-live">
       <div className="page-head"><div><h1 className="page-title">Models</h1><p className="helper sub" data-testid="exp-summary">0 runs · every run you train, forecast, score for anomalies or import lands here</p></div></div>
       <EmptyState testId="exp-empty" title="No runs yet"
-        actions={<button className="btn primary" onClick={() => go('build')}>Build →</button>}>
+        actions={<><button className="btn primary" onClick={() => go('build')}>Build →</button> <button className="btn" onClick={() => setTab('Data')} data-testid="exp-empty-data">Data</button></>}>
         <p>Each run becomes one row with its own metric s on held-out data, its parameters and its fit time; tabular runs on the same dataset and label are drawn as strings across parallel coordinates, compared side by side (ROC, PR, residuals, Δ on the same holdout) and diffed down to the exact <span className="mono">TabularPredictor(...).fit(...)</span> arguments.</p>
         <p>Six samples are ready: support tickets (text, 6 classes), account churn and credit default (binary, imbalanced), loan amount (regression), transaction volume (forecasting) and card transactions (anomalies).</p>
       </EmptyState>
@@ -133,7 +154,7 @@ export function RunList({ go }: { go: (r: string) => void }) {
           <input className="input" placeholder="run id, name, model, preset…" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} data-testid="exp-filter-q" /></label>
       </div>
 
-      <Tabs tabs={['Runs', 'Compare', 'Parameter Diff', 'Lineage']} value={tab} onChange={setTab} />
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
 
       {tab === 'Runs' && <>
         <div className="card">

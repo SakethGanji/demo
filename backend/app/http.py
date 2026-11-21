@@ -22,6 +22,8 @@ def dataset_or_404(request: Request, dataset_id: str) -> dict[str, Any]:
     ds = request.app.state.db.get_dataset(dataset_id)
     if not ds:
         raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
+    if ds.get("state") == "deleted":  # DL1: the rows are gone; the tombstone is in GET /api/datasets/{id}/history
+        raise HTTPException(410, f"Dataset '{dataset_id}' was deleted ({ds.get('state_at')}, {ds.get('state_by')}); its lineage is kept.")
     return ds
 
 

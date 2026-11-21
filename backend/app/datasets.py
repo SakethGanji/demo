@@ -112,6 +112,54 @@ class DatasetError(ValueError):
     """The file can't be used as a dataset; the message is shown to the user."""
 
 
+def read_upload(filename: str, content: bytes) -> tuple[pd.DataFrame, str, str]:
+    """The uploaded bytes as a frame, the note on how it was read, and the file's stem (A1 #15 checks, in order)."""
+    if not content.strip():
+        raise DatasetError("The file is empty.")
+    if not re.search(r"\.(csv|tsv|txt)$", filename or "", re.I):
+        raise DatasetError(f"{filename or 'This file'} is not a CSV. Upload a .csv or .tsv file with a header row.")
+    text, encoding = decode_upload(content)
+    sep = "\t" if filename.lower().endswith(".tsv") else sniff_sep(text)
+    header = next(csv.reader(io.StringIO(text), delimiter=sep), [])
+    names = [h.strip() for h in header]
+    dup = sorted({h for h in names if h and names.count(h) > 1})
+    if dup:
+        where = "; ".join(f"'{h}' is columns {', '.join(str(i + 1) for i, n in enumerate(names) if n == h)}"
+                          for h in dup)
+        raise DatasetError(f"The header repeats a column name ({where}). Rename or remove the duplicate and "
+                           "upload again, so no column is silently renamed.")
+    try:
+        # ';'-separated files are the European export: decimal commas.
+        df = pd.read_csv(io.StringIO(text), sep=sep, decimal="," if sep == ";" else ".")
+    except pd.errors.EmptyDataError as e:
+        raise DatasetError("The file has no header row.") from e
+    except pd.errors.ParserError as e:
+        m = re.search(r"Expected (\d+) fields in line (\d+), saw (\d+)", str(e))
+        if m:
+            raise DatasetError(f"Line {m[2]} has {m[3]} fields but the header has {m[1]}. Quote values that "
+                               f"contain '{sep}' or fix that line, then upload again.") from e
+        raise DatasetError(f"Could not read {filename} as CSV: {str(e).splitlines()[0]}") from e
+    if df.shape[1] < 2:
+        raise DatasetError("No separated columns found (tried comma, semicolon, tab, pipe). Give a CSV with a "
+                           "header row and at least two columns.")
+    if len(df) < 2:
+        raise DatasetError("This file has fewer than two data rows.")
+    stem = re.sub(r"\.(csv|tsv|txt)$", "", Path(filename).name, flags=re.I)
+    note = "Uploaded file" + ("" if encoding in ("utf-8", "ascii") else f" (read as {encoding})") + \
+        ("" if sep == "," else f" (separator {'tab' if sep == chr(9) else repr(sep)})")
+    return df, note, stem
+
+
+def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Column names stripped and unique, numbers coerced (A1 #5), as every new dataset is written."""
+    df.columns = [str(c).strip() or f"col_{i + 1}" for i, c in enumerate(df.columns)]
+    if df.columns.duplicated().any():
+        raise DatasetError("Column names must be unique.")
+    from .profiling import coerce_numeric
+
+    return coerce_numeric(df)[0]
+
+
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -255,7 +303,7 @@ class DatasetStore:
     # -- create -----------------------------------------------------------
 
     def _register(self, dataset_id: str, df: pd.DataFrame, *, name: str, filename: str, source: str, note: str,
-                  size_bytes: int, target: str | None = None, kind: str | None = None) -> dict[str, Any]:
+                  size_bytes: int, target: str | None = None, kind: str | None = None, by: str | None = None) -> dict[str, Any]:
         try:
             profile = profile_frame(df, target)
         except ValueError as e:
@@ -276,7 +324,7 @@ class DatasetStore:
             "kind": kind or profile["kind"], "profile": profile,
         }
         self.db.insert_dataset(rec)
-        self.catalog.record_root_dataset(rec, self.csv_path(dataset_id), op=source)
+        self.catalog.record_root_dataset(rec, self.csv_path(dataset_id), op=source, actor=by)
         return rec
 
     def sidecar(self, dataset_id: str, name: str) -> dict[str, Any] | None:
@@ -326,14 +374,14 @@ class DatasetStore:
         d.mkdir(parents=True, exist_ok=True)
         df.to_csv(self.csv_path(dataset_id), index=False)
         df = pd.read_csv(self.csv_path(dataset_id))
-        profile = profile_frame(df, parent["target"])
+        profile = profile_frame(df, parent["target"] if parent["target"] in df.columns else None)
         save_splits(self.legacy_splits_path(dataset_id), splits)
         tgt = profile["target"]
         # The given split is stored under its own target (adopted from splits.json, rows unchanged).
         st = splits.get("target") if splits.get("target") in df.columns else tgt
-        _, splits, _ = self.ensure_splits(dataset_id, st)
+        _, splits, _ = self.ensure_splits(dataset_id, st if st in df.columns else None)
         profile["target_source"] = parent["profile"].get("target_source", "given")
-        profile["splits"] = summarize(splits, df[st] if st else None)
+        profile["splits"] = summarize(splits, df[st] if st in df.columns else None)
         (d / "lineage.json").write_text(json.dumps(lineage))
         profile["lineage"] = {k: v for k, v in lineage.items() if k not in ("root_rows", "changes")}
         rec = {
@@ -352,12 +400,18 @@ class DatasetStore:
 
     def derive(self, parent_id: str, df: pd.DataFrame, keep_idx: Any, op: str, changes: list[Any], *, name: str, note: str,
                splits: dict[str, Any] | None = None, extra: dict[str, Any] | None = None, by: str | None = None,
-               new_rows: int = 0) -> dict[str, Any]:
+               new_rows: int = 0, row_map: Any = None, new_holdout_share: float = 0.0) -> dict[str, Any]:
         """P1 step 2: the one way to make a dataset version. `df` is the new frame: the parent's rows `keep_idx` (positions
         in the parent, in order; a bool mask or ints; None = every row) followed by `new_rows` rows with no root row
         (synthetic: root -1-i). Writes data.csv, lineage.json {parent, root, root_rows, changes, op, …extra}, the version's
         columns and a derived_from edge. `splits` defaults to the parent's split mapped through keep_idx (the holdout is the
-        parent's holdout rows that were kept, so scores stay paired)."""
+        parent's holdout rows that were kept, so scores stay paired).
+
+        DL1: `row_map` (one entry per row of `df`: its position in the parent, or -1 for a new row) replaces keep_idx /
+        new_rows when the rows are not "kept rows, then new ones" (an uploaded version: matched rows anywhere, in the
+        file's own order). Matched rows keep their root row and their parent's holdout / fold; new rows get root ids
+        below the parent's lowest, and a seeded `new_holdout_share` of them go to the holdout (0 = none, as for
+        synthetic rows)."""
         import numpy as np
 
         parent = self.db.get_dataset(parent_id)
@@ -367,24 +421,48 @@ class DatasetStore:
         n_parent = int(parent["rows"])
         proots = plin.get("root_rows")
         proots = np.asarray(proots, dtype=int) if proots and len(proots) == n_parent else np.arange(n_parent)
-        if keep_idx is None:
-            keep = np.arange(n_parent)
+        if row_map is None:
+            if keep_idx is None:
+                keep = np.arange(n_parent)
+            else:
+                keep = np.asarray(keep_idx)
+                keep = np.flatnonzero(keep) if keep.dtype == bool else keep.astype(int)
+            if len(keep) + new_rows != len(df):
+                raise DatasetError(f"derive: {len(keep)} kept + {new_rows} new rows ≠ {len(df)} rows in the frame.")
+            rmap = np.concatenate([keep, np.full(new_rows, -1, dtype=int)])
         else:
-            keep = np.asarray(keep_idx)
-            keep = np.flatnonzero(keep) if keep.dtype == bool else keep.astype(int)
-        if len(keep) + new_rows != len(df):
-            raise DatasetError(f"derive: {len(keep)} kept + {new_rows} new rows ≠ {len(df)} rows in the frame.")
-        root_rows = [int(x) for x in proots[keep]] + [-1 - i for i in range(new_rows)]
+            rmap = np.asarray(row_map, dtype=int)
+            if len(rmap) != len(df) or (rmap >= n_parent).any():
+                raise DatasetError(f"derive: row_map has {len(rmap)} entries for {len(df)} rows, or points past the parent's {n_parent}.")
+        new_pos = np.flatnonzero(rmap < 0)
+        neg0 = min(0, int(proots.min()) if len(proots) else 0)  # new rows never reuse a root id the parent's new rows hold
+        root_rows = [int(proots[p]) if p >= 0 else 0 for p in rmap]
+        for i, j in enumerate(new_pos):
+            root_rows[j] = neg0 - 1 - i
         if splits is None:
+            st = parent["target"] if parent["target"] in df.columns else None
             _, sp, _ = self.ensure_splits(parent_id, parent["target"])
-            pos = {int(p): i for i, p in enumerate(keep)}
             k = int(sp.get("n_folds") or config.N_FOLDS)
-            splits = {**sp, "holdout": sorted(pos[h] for h in sp["holdout"] if h in pos),
-                      "fold": [int(sp["fold"][p]) for p in keep] + [i % k for i in range(new_rows)]}
+            ph = set(int(h) for h in sp["holdout"])
+            rng = np.random.default_rng(config.SEED + len(df))
+            new_hold = set(int(j) for j in new_pos[rng.random(len(new_pos)) < new_holdout_share]) if new_holdout_share else set()
+            fold, hold = [], []
+            for i, p in enumerate(rmap):
+                if p >= 0:
+                    fold.append(int(sp["fold"][p]))
+                    if int(p) in ph:
+                        hold.append(i)
+                elif i in new_hold:
+                    fold.append(-1)
+                    hold.append(i)
+                else:
+                    fold.append(i % k)
+            splits = {**sp, "holdout": hold, "fold": fold, **({} if st else {"target": None})}
         splits = {**splits, "derived_from": parent_id}
         lineage = {**(extra or {}), "parent": parent_id, "root": plin.get("root") or parent_id, "kind": (extra or {}).get("kind") or op,
                    "op": op, "rows_before": (extra or {}).get("rows_before", n_parent), "rows_after": int(len(df)),
-                   "root_rows": root_rows, "changes": changes}
+                   "root_rows": root_rows, "changes": changes,
+                   **({"parent_rows": [int(x) for x in rmap]} if row_map is not None else {})}
         if by:
             lineage["by"] = by
         return self.create_version(parent_id, df, splits, name=name, note=note, lineage=lineage, op=op)
@@ -393,44 +471,54 @@ class DatasetStore:
         p = self.dir(dataset_id) / "lineage.json"
         return json.loads(p.read_text()) if p.exists() else None
 
-    def create_from_upload(self, filename: str, content: bytes, target: str | None = None) -> dict[str, Any]:
-        if not content.strip():
-            raise DatasetError("The file is empty.")
-        if not re.search(r"\.(csv|tsv|txt)$", filename or "", re.I):
-            raise DatasetError(f"{filename or 'This file'} is not a CSV. Upload a .csv or .tsv file with a header row.")
-        text, encoding = decode_upload(content)
-        sep = "\t" if filename.lower().endswith(".tsv") else sniff_sep(text)
-        header = next(csv.reader(io.StringIO(text), delimiter=sep), [])
-        names = [h.strip() for h in header]
-        dup = sorted({h for h in names if h and names.count(h) > 1})
-        if dup:
-            where = "; ".join(f"'{h}' is columns {', '.join(str(i + 1) for i, n in enumerate(names) if n == h)}"
-                              for h in dup)
-            raise DatasetError(f"The header repeats a column name ({where}). Rename or remove the duplicate and "
-                               "upload again, so no column is silently renamed.")
-        try:
-            # ';'-separated files are the European export: decimal commas.
-            df = pd.read_csv(io.StringIO(text), sep=sep, decimal="," if sep == ";" else ".")
-        except pd.errors.EmptyDataError as e:
-            raise DatasetError("The file has no header row.") from e
-        except pd.errors.ParserError as e:
-            m = re.search(r"Expected (\d+) fields in line (\d+), saw (\d+)", str(e))
-            if m:
-                raise DatasetError(f"Line {m[2]} has {m[3]} fields but the header has {m[1]}. Quote values that "
-                                   f"contain '{sep}' or fix that line, then upload again.") from e
-            raise DatasetError(f"Could not read {filename} as CSV: {str(e).splitlines()[0]}") from e
-        if df.shape[1] < 2:
-            raise DatasetError("No separated columns found (tried comma, semicolon, tab, pipe). Give a CSV with a "
-                               "header row and at least two columns.")
-        if len(df) < 2:
-            raise DatasetError("This file has fewer than two data rows.")
-        stem = re.sub(r"\.(csv|tsv|txt)$", "", Path(filename).name, flags=re.I)
-        note = "Uploaded file" + ("" if encoding in ("utf-8", "ascii") else f" (read as {encoding})") + \
-            ("" if sep == "," else f" (separator {'tab' if sep == chr(9) else repr(sep)})")
-        return self.create_from_frame(df, name=stem, filename=Path(filename).name, note=note, target=target)
+    def create_from_upload(self, filename: str, content: bytes, target: str | None = None, by: str | None = None) -> dict[str, Any]:
+        df, note, stem = read_upload(filename, content)
+        return self.create_from_frame(df, name=stem, filename=Path(filename).name, note=note, target=target, by=by)
+
+    def upload_version(self, parent_id: str, filename: str, content: bytes, *, by: str, row_key: str | None = None) -> dict[str, Any]:
+        """DL1: a new file as the next version of `parent_id`. Rows are matched to the parent by `row_key` (a column
+        unique in both files) or, without one, by an exact hash of the row over the columns both files share with an
+        unchanged type. Matched rows keep their original row and their holdout / fold, so runs on the two versions
+        pair on those rows; new rows get a seeded share of the holdout. Contract checks warn, never block."""
+        from . import dataset_versions as DV
+
+        parent = self.db.get_dataset(parent_id)
+        if not parent:
+            raise DatasetError(f"No dataset with id '{parent_id}'.")
+        df, note, _ = read_upload(filename, content)
+        df = _normalize_frame(df)
+        df = pd.read_csv(io.StringIO(df.to_csv(index=False)))  # exactly what data.csv will read back as
+        pdf = self.load_frame(parent_id)
+        match = DV.match_rows(pdf, df, row_key)
+        checks = DV.contract_checks(pdf, df, parent["target"])
+        import hashlib
+
+        sha = hashlib.sha256(df.to_csv(index=False).encode()).hexdigest()  # the bytes create_version will write
+        with self.db.connect() as con:
+            same = con.execute("SELECT id FROM datasets WHERE sha256 = ? AND (id = ? OR root_id = ?) AND state IS NOT 'deleted'",
+                               (sha, parent.get("root_id") or parent_id, parent.get("root_id") or parent_id)).fetchone()
+        if same:
+            checks["warnings"].append({"code": "identical_file", "message": f"This file has the same rows as {same[0]} (sha256 "
+                                       f"{sha[:12]}…): the new version adds nothing but a pointer."})
+        extra = {"kind": "upload_version", "filename": Path(filename).name, "matched_by": match["matched_by"],
+                 "row_key": match.get("row_key"), "matched": match["matched"], "changed": match["changed"],
+                 "added": match["added"], "removed": match["removed"], "checks": checks,
+                 "columns_before": int(pdf.shape[1]), "columns_after": int(df.shape[1])}
+        changes = [{"op": "rows_changed", "n": match["changed"]}, {"op": "rows_added", "n": match["added"]},
+                   {"op": "rows_removed", "n": match["removed"]}]
+        changes = [c for c in changes if c["n"]] + [{"op": "column_added", "column": c} for c in checks["columns_added"]] + \
+            [{"op": "column_removed", "column": c} for c in checks["columns_removed"]]
+        n_ver = 1 + len(self.catalog.tree_ids(parent_id))
+        rec = self.derive(parent_id, df, None, "upload_version", changes, name=parent["name"],
+                          note=f"{note} as v{n_ver} of {parent['name']}: {match['matched']:,} rows matched by "
+                               f"{match['matched_by']}, {match['changed']:,} changed, {match['added']:,} new, {match['removed']:,} gone",
+                          extra=extra, by=by, row_map=match["row_map"], new_holdout_share=config.HOLDOUT_SHARE)
+        rec["upload"] = {k: v for k, v in extra.items() if k != "kind"}
+        return rec
+
 
     def create_from_frame(self, df: pd.DataFrame, *, name: str, filename: str, note: str, target: str | None = None,
-                          lineage: dict[str, Any] | None = None) -> dict[str, Any]:
+                          lineage: dict[str, Any] | None = None, by: str | None = None) -> dict[str, Any]:
         """A new dataset from a frame (an upload, or G9's SQL query). `lineage` (G9: the query, the redacted URL, the
         version) goes to lineage.json and the profile, like Autopilot's derived versions."""
         df.columns = [str(c).strip() or f"col_{i + 1}" for i, c in enumerate(df.columns)]
@@ -452,7 +540,7 @@ class DatasetStore:
         df = pd.read_csv(self.csv_path(dataset_id))  # profile exactly what the engine will read back
         try:
             rec = self._register(dataset_id, df, name=name, filename=filename, source="upload", note=note,
-                                 size_bytes=self.csv_path(dataset_id).stat().st_size, target=target)
+                                 size_bytes=self.csv_path(dataset_id).stat().st_size, target=target, by=by)
         except DatasetError:
             shutil.rmtree(d, ignore_errors=True)
             raise

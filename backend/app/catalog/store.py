@@ -22,25 +22,34 @@ class Catalog:
 
     # -- write hooks ----------------------------------------------------------------------------------------------
 
-    def record_root_dataset(self, rec: dict[str, Any], csv_path: Path, op: str | None = None) -> None:
-        """A dataset with no parent (a sample, an upload, a first SQL load): its own root and its own default project."""
+    def record_root_dataset(self, rec: dict[str, Any], csv_path: Path, op: str | None = None, actor: str | None = None) -> None:
+        """A dataset with no parent (a sample, an upload, a first SQL load): its own root and its own default project.
+        DL1: audited as dataset_created, with its hash."""
+        sha = file_sha256(csv_path)
         with self.db.connect() as con:
             pid = ensure_project(con, rec["id"], rec["name"], rec.get("created_at"))
-            con.execute("UPDATE datasets SET project_id = ?, parent_id = NULL, root_id = ?, sha256 = ?, n_rows = ?, op = ?"
-                        " WHERE id = ?", (pid, rec["id"], file_sha256(csv_path), rec.get("rows"), op or rec.get("source"), rec["id"]))
+            con.execute("UPDATE datasets SET project_id = ?, parent_id = NULL, root_id = ?, sha256 = ?, n_rows = ?, op = ?,"
+                        " created_by = ?, verified_at = NULL, verified_ok = NULL WHERE id = ?",
+                        (pid, rec["id"], sha, rec.get("rows"), op or rec.get("source"), actor or "system", rec["id"]))
+            S.audit(con, actor, "dataset_created", {"dataset_id": rec["id"], "root_id": rec["id"], "name": rec["name"],
+                                                    "op": op or rec.get("source"), "rows": rec.get("rows"), "sha256": sha})
 
     def record_version(self, parent_id: str, rec: dict[str, Any], csv_path: Path, *, op: str, actor: str = "system",
                        meta: dict[str, Any] | None = None, paired: bool = True) -> None:
         """A derived dataset: same project and root as the parent, and a derived_from edge. `paired` = False when the
         new rows have no root-row mapping (a monitoring window, a SQL refresh): the edge is marked inferred."""
+        sha = file_sha256(csv_path)
         with self.db.connect() as con:
             p = con.execute("SELECT project_id, root_id FROM datasets WHERE id = ?", (parent_id,)).fetchone()
             root = (p["root_id"] if p and p["root_id"] else parent_id)
             pid = p["project_id"] if p and p["project_id"] else S.project_id_for(root)
-            con.execute("UPDATE datasets SET project_id = ?, parent_id = ?, root_id = ?, sha256 = ?, n_rows = ?, op = ? WHERE id = ?",
-                        (pid, parent_id, root, file_sha256(csv_path), rec.get("rows"), op, rec["id"]))
+            con.execute("UPDATE datasets SET project_id = ?, parent_id = ?, root_id = ?, sha256 = ?, n_rows = ?, op = ?, created_by = ?"
+                        " WHERE id = ?", (pid, parent_id, root, sha, rec.get("rows"), op, actor or "system", rec["id"]))
             add_edge(con, ("dataset", parent_id), ("dataset", rec["id"]), "derived_from", actor=actor,
                      meta={"op": op, **(meta or {})}, inferred=not paired)
+            # DL1: every version, whichever path made it (Doctor, Feature Lab, relabel, label queue, drift window, refresh, upload)
+            S.audit(con, actor, "dataset_version_created", {"dataset_id": rec["id"], "root_id": root, "parent": parent_id, "op": op,
+                                                            "rows": rec.get("rows"), "sha256": sha, "paired": paired, **(meta or {})})
             S.drop_if_phantom(con, S.project_id_for(rec["id"]))  # F-P2: the default project an upload path made for it
 
     def record_run(self, run_id: str, dataset_id: str, cfg: dict[str, Any], actor: str | None = None) -> None:
@@ -149,6 +158,14 @@ class Catalog:
                 con.execute("UPDATE projects SET root_dataset_id = NULL WHERE id = ? AND root_dataset_id = ?", (old_pid, root_id))
                 S.drop_if_phantom(con, old_pid)
         return {"datasets": len(ids), "runs": n_runs}
+
+    def tree_ids(self, dataset_id: str) -> list[str]:
+        """DL1: every dataset in the tree `dataset_id` belongs to (the root first, then its versions by creation)."""
+        with self.db.connect() as con:
+            r = con.execute("SELECT COALESCE(root_id, id) FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+            if not r:
+                return []
+            return [x[0] for x in con.execute("SELECT id FROM datasets WHERE id = ? OR root_id = ? ORDER BY created_at, rowid", (r[0], r[0]))]
 
     def project_roots(self, pid: str) -> list[str]:
         """Every dataset root in the project (a user project can hold several uploads)."""

@@ -10,6 +10,8 @@ import { Segmented } from '@/shared/primitives/Segmented'
 import { DataReport } from './DataReport'
 import { FeatureLab } from './FeatureLab'
 import { SqlLineageLine, SqlSource } from './SqlSource'
+import { VersionStrip } from './VersionStrip'
+import { data as dsApi } from '@/shared/api/catalog'
 
 /** The roles the hero strip names; every other role is listed under "what we found". */
 const EXCLUDED = ['id', 'leak', 'constant', 'protected', 'surname', 'zip', 'decision']  // G4: protected attributes, surname and zip are never model inputs; G7: nor the approve/decline decision
@@ -137,10 +139,12 @@ function BuildLive({ go }: { go: (r: string) => void }) {
             {from === 'CSV file'
               ? <DropZone title={busy || 'Drop a CSV here'} helper="or click to browse. It is uploaded to the local API and profiled there." onFile={upload} onError={setErr} />
               : <SqlSource onLoaded={(d) => { list.reload(); setDs(d.id) }} />}
-            <select className="select" value={dsId ?? ''} onChange={(e) => setDs(e.target.value)} aria-label="Dataset" data-testid="build-dataset">
+            {/* DL1: one entry per dataset (its root); choosing one opens its default version, the strip below picks another */}
+            <select className="select" value={(list.data ?? []).find((d) => d.id === dsId)?.root_id ?? dsId ?? ''} onChange={(e) => { const id = e.target.value; dsApi.history(id).then((h) => setDs(h.default_version_id ?? id)).catch(() => setDs(id)) }} aria-label="Dataset" data-testid="build-dataset">
               <option value="" disabled>…or pick a dataset on this machine</option>
-              {(list.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} rows × {d.n_cols}</option>)}
+              {(list.data ?? []).filter((d) => !d.parent_id || !(list.data ?? []).some((x) => x.id === d.root_id)).map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} rows × {d.n_cols}</option>)}
             </select>
+            {dsId && <VersionStrip dsId={dsId} onPick={setDs} go={go} />}
             {(err || list.err) && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err || list.err}</p>}
             {sqlDs && <SqlLineageLine ds={sqlDs} note={refreshed?.id === sqlDs.id ? refreshed.msg : ''} onRefreshed={(id, msg) => { setRefreshed({ id, msg }); list.reload(); setDs(id) }} />}
           </div>

@@ -30,7 +30,10 @@ export async function request<T>(path: string, init: RequestInit & { timeoutMs?:
   if (res.status === 503 && res.headers.get('X-Ensemble-Proxy') === 'api-unreachable') throw new ApiError('The API is not reachable.', 0)
   const body = await res.json().catch(() => null)
   if (!res.ok) {
-    const detail = body && typeof body.detail === 'string' ? body.detail : `Request failed (${res.status}).`
+    // DL1: a refusal with a list of reasons ({message, blockers}) keeps them, as JSON the caller can read back
+    const d = body?.detail
+    const detail = typeof d === 'string' ? d : d && typeof d === 'object' && Array.isArray(d.blockers) ? JSON.stringify(d)
+      : d && typeof d === 'object' && typeof d.message === 'string' ? d.message : `Request failed (${res.status}).`
     throw new ApiError(detail, res.status)
   }
   return body as T
@@ -46,6 +49,7 @@ export const api = {
       const form = new FormData()
       form.append('file', file)
       if (target) form.append('target', target)
+      const by = actor(); if (by) form.append('by', by)  // DL1: who uploaded it (audit, the version history)
       return request<DatasetDetail>('/datasets', { method: 'POST', body: form, timeoutMs: 120_000 })
     },
     /** G9: a dataset from a read-only SQL query (SQLite/DuckDB files on the server, or Postgres). The password is sent, never stored. */

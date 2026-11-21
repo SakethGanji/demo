@@ -202,11 +202,22 @@ def add_annotation(kind: str, node_id: str, request: Request, body: dict[str, An
         t = str(body["tag"]).strip()
         if not TAG.match(t):
             raise HTTPException(400, "A tag is 1–40 letters, digits, spaces or . _ : / - and starts with a letter or digit.")
+        _ds_audit(request, kind, node_id, by, "dataset_tagged", tag=t)
         return cat.annotate(kind, node_id, "tag", t, by)
     note = str(body.get("note") or "").strip()
     if not note or len(note) > 2000:
         raise HTTPException(400, 'Send {"tag": …} or {"note": …} (1–2,000 characters), with {"by": …}.')
+    _ds_audit(request, kind, node_id, by, "dataset_note_added", note=note[:500])
     return cat.annotate(kind, node_id, "note", note, by)
+
+
+def _ds_audit(request: Request, kind: str, node_id: str, by: str, action: str, **details: Any) -> None:
+    """DL1: tags and notes on a dataset are dataset actions too (audited with its root)."""
+    if kind != "dataset":
+        return
+    ids = request.app.state.catalog.tree_ids(node_id)
+    request.app.state.registry.audit(actor=by, action=action, details={"dataset_id": node_id, "root_id": ids[0] if ids else node_id,
+                                                                       **details})
 
 
 @router.delete("/annotations/{kind}/{node_id}/tags/{tag:path}")
@@ -216,6 +227,7 @@ def remove_tag(kind: str, node_id: str, tag: str, request: Request, by: str = ""
     out = request.app.state.catalog.remove_tag(kind, node_id, tag, _who(by))
     if out is None:
         raise HTTPException(404, f"No tag '{tag}' on {kind} {node_id}.")
+    _ds_audit(request, kind, node_id, by, "dataset_untagged", tag=tag)
     return out
 
 

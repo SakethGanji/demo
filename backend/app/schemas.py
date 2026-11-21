@@ -31,6 +31,10 @@ class DatasetSummary(BaseModel):
     target: str | None
     n_classes: int
     flows: list[str] = []
+    root_id: str | None = None
+    parent_id: str | None = None
+    op: str | None = None
+    state: str | None = None
 
 
 class Dataset(DatasetSummary):

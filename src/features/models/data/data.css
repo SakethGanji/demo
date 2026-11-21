@@ -1,0 +1,30 @@
+/* DL1: Models → Data (dataset list, versions, diff, card, archive / delete, audit). */
+.data-filters { flex-wrap: wrap; }
+.data-list { max-height: 300px; overflow: auto; }
+.data-list .ellip { font-size: 12px; max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.data-msg { font-size: 13px; border-top: 1px solid var(--border-default); }
+.data-msg.ok { color: var(--status-success); }
+.data-msg.bad { color: var(--status-danger); }
+.data-msg ul { margin: 4px 0 0 18px; padding: 0; color: var(--text-primary); font-size: 12.5px; }
+.data-upload { border-top: 1px solid var(--border-default); }
+.data-warn { font-size: 12.5px; background: var(--status-warning-bg); color: var(--text-primary); border-left: 3px solid var(--status-warning); padding: 6px 10px; border-radius: var(--radius-control); width: 100%; }
+.data-versions td { vertical-align: top; }
+.data-versions tr.muted td { opacity: .6; }
+.data-changes { font-size: 12.5px; }
+.data-ok { color: var(--status-success); font-weight: 700; }
+.data-bad { color: var(--status-danger); font-weight: 700; }
+.data-hero { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-12); padding: var(--space-12) var(--space-16); margin: 0; border-radius: 0; }
+.data-hero > div { display: flex; flex-direction: column; gap: 2px; }
+.data-hero b { font-family: var(--font-mono); font-size: 18px; }
+.pt-chip.data-add { background: var(--status-success-bg); color: var(--status-success); }
+.pt-chip.data-rm { background: var(--status-danger-bg); color: var(--status-danger); }
+.pt-chip.data-type { background: var(--status-warning-bg); color: var(--status-warning); }
+.data-cell { display: inline-block; margin-right: 12px; font-size: 12.5px; }
+.data-card-row { display: grid; grid-template-columns: 130px 1fr; gap: 8px; font-size: 13px; }
+.btn.danger { color: var(--status-danger); border-color: var(--status-danger); }
+.data-strip { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+.data-strip .chip-btn.on { background: var(--status-info-bg); color: var(--status-info); font-weight: 700; }
+.data-list .ellip-cell { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.data-actions { border-top: 1px solid var(--border-default); background: var(--bg-subtle, #F8FAFC); }
+.data-versions td, .data-versions th { padding-left: 8px; padding-right: 8px; }
+.data-actions a.btn { text-decoration: none; }
