@@ -62,3 +62,4 @@
 - **Long 10M writes should become jobs with progress:** edit commit (≈38 s), Doctor apply (28–103 s), Feature Lab SQL write (≈50 s). Do this in P23 or a follow-up before X5's scale gates.
 - **duck.job() connections don't preserve ORDER BY into arrow/numpy:** sort explicitly wherever row order matters.
 - **Data Doctor label-quality thread:** still in-process (≤200k rows). It belongs on the queue.
+- **vela/missing.py clean-labels:** shape mismatch (622,2) vs (622,1) on a group-split gapped run. It is caught and recorded in doctor_gaps.errors. Fix it in a follow-up.
