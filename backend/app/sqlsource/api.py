@@ -20,6 +20,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
+from .. import frame_io as FIO
+from .. import frames
 from ..datasets import DatasetError
 from ..http import dataset_or_404
 from . import core
@@ -157,8 +159,8 @@ async def refresh(dataset_id: str, request: Request, body: Refresh | None = None
     version = max((r["profile"]["lineage"].get("version", 1) for r in fam), default=1) + 1
     try:
         res = await run_in_threadpool(core.run_query, url, lin["query"], dd, limit=lin["limit"], password=pw)
-        old = await run_in_threadpool(request.app.state.datasets.load_frame, dataset_id)
-        new = pd.read_csv(pd.io.common.StringIO(res["frame"].to_csv(index=False)))  # compare as the engine reads it
+        old = await run_in_threadpool(frames.read_version, dataset_id)
+        new = FIO.roundtrip(res["frame"], None)  # compare as the engine reads it
         diff = core.row_diff(old, new)
         target = rec["target"] if rec["profile"].get("target_source") in ("given", "confirmed") else None
         base = lin.get("base_name") or rec["name"]

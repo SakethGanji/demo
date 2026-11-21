@@ -13,6 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..db import Database
 from ..engine import explain
 from ..engine.jsonsafe import jsonable
@@ -82,8 +83,24 @@ def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target
     return jsonable(out)
 
 
+def read_batch(path: str | Path, cfg: dict[str, Any] | None, columns: Any = None, nrows: int | None = None) -> pd.DataFrame:
+    """§6.5 R-F: a batch's input file (the user's upload, stored as-is as input.csv: CSV, Parquet or XLSX) with the
+    typed import rules, cast to the kinds of the run's training table (a text code column stays text: '02139', never
+    2139). `columns` (names or a predicate) keeps those that are present; `nrows` the first n rows."""
+    df = frames.read_upload(path, filename="input", kind="batch")  # no extension: the format is sniffed from the bytes
+    if cfg is not None:
+        try:
+            df = frames.align_to(df, frames.resolve(cfg))
+        except (frames.FrameError, FileNotFoundError, OSError):
+            pass  # the run's table is gone: the file's own types
+    if columns is not None:
+        keep = columns if callable(columns) else set(columns).__contains__
+        df = df[[c for c in df.columns if keep(c)]]
+    return df.head(nrows) if nrows is not None else df
+
+
 def _train_frame(cfg: dict[str, Any], features: list[str]) -> pd.DataFrame:
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     is_h = holdout_mask(splits, len(df))
     return df.loc[~is_h & df[cfg["label"]].notna(), [c for c in features if c in df.columns]]
@@ -102,7 +119,7 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         t_start = time.time()
         p = load_predictor(predictor_path)
         features = list(p.original_features)
-        df = pd.read_csv(csv_path)
+        df = read_batch(csv_path, cfg)
         if len(df) == 0:
             raise ValueError("The file has no rows.")
         train = _train_frame(cfg, features)
@@ -167,7 +184,7 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
 
         vdir = Path(predictor_path).parent
         ref_path = vdir / "holdout_predictions.csv"
-        ref_pred = pd.read_csv(ref_path) if ref_path.exists() else pd.read_csv(Path(cfg["run_dir"]) / "holdout_predictions.csv")
+        ref_pred = frames.read_artifact(ref_path if ref_path.exists() else Path(cfg["run_dir"]) / "holdout_predictions.csv")
         pos = str(p.positive_class) if p.problem_type == "binary" else None
         rep = drift.drift_report(train, X, {c: kinds.get(c, "number") for c in present}, problem_type=p.problem_type,
                                  ref_pred=ref_pred, cur_pred=cur_pred, positive=pos)
@@ -279,8 +296,8 @@ def attach_labels(db_path: str, batch_id: str, batch_dir: str, labels_path: str,
 
     reg = RegistryStore(Database(Path(db_path)))
     bdir = Path(batch_dir)
-    scored = pd.read_csv(bdir / "scored.csv")
-    lab = pd.read_csv(labels_path)
+    scored = frames.read_artifact(bdir / "scored.csv")
+    lab = frames.read_artifact(labels_path)
     for c, what in ((id_column, "id"), (label_column, "label")):
         if c not in lab.columns:
             raise ValueError(f"The label file has no {what} column '{c}' (it has {', '.join(map(str, lab.columns))}).")
@@ -318,7 +335,7 @@ def attach_labels(db_path: str, batch_id: str, batch_dir: str, labels_path: str,
         out["performance"] = M.perf_binary(y, p, float(info["threshold"]), info.get("cost"))
         sp = bdir / "shadow.csv"
         if sp.exists():
-            sh = pd.read_csv(sp).set_index("row")
+            sh = frames.read_artifact(sp).set_index("row")
             rows = j["_row"].to_numpy()
             out["paired"] = M.paired_with_labels(y, sh.loc[rows, "p_champion"].to_numpy(), sh.loc[rows, "p_challenger"].to_numpy())
             out["paired"]["challenger_performance"] = M.perf_binary(y, sh.loc[rows, "p_challenger"].to_numpy(),
@@ -417,10 +434,10 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
     try:
         reg.update_batch(batch_id, status="running", stage="loading", progress=0.05)
         t_start = time.time()
-        df = pd.read_csv(csv_path)
+        df = read_batch(csv_path, cfg)
         if len(df) == 0:
             raise ValueError("The file has no rows.")
-        train = pd.read_csv(cfg["csv_path"])
+        train = frames.read(frames.resolve(cfg))
         out_path = out_dir_p / "scored.csv"
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.2)
         if kind == "survival":  # G6: risk score, risk group and Ŝ(τ) per row; PSI of the inputs and of the risk score
@@ -434,7 +451,7 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
             feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns]
             kinds = {c: ("number" if c in meta["numeric"] else "category") for c in feats}
             ref_f = Path(cfg["run_dir"]) / "surv_holdout.csv"
-            ref = pd.read_csv(ref_f)["risk"].to_numpy(dtype=float) if ref_f.exists() else out["risk_score"].to_numpy(dtype=float)
+            ref = frames.read_artifact(ref_f)["risk"].to_numpy(dtype=float) if ref_f.exists() else out["risk_score"].to_numpy(dtype=float)
             reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
             rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=pd.DataFrame({"y_pred": ref}),
                                      cur_pred=pd.DataFrame({"y_pred": out["risk_score"].to_numpy(dtype=float)}), positive=None)
@@ -460,7 +477,7 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
             feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns and c not in meta["text_columns"]]
             kinds = {c: ("number" if c in meta["numeric"] else "category") for c in feats}
             ref_f = Path(cfg["run_dir"]) / "ml_holdout.csv"
-            ref = pd.read_csv(ref_f)["n_labels"].to_numpy(dtype=float) if ref_f.exists() else out["n_labels"].to_numpy(dtype=float)
+            ref = frames.read_artifact(ref_f)["n_labels"].to_numpy(dtype=float) if ref_f.exists() else out["n_labels"].to_numpy(dtype=float)
             reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
             rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=pd.DataFrame({"y_pred": ref}),
                                      cur_pred=pd.DataFrame({"y_pred": out["n_labels"].to_numpy(dtype=float)}), positive=None)
@@ -487,7 +504,7 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
             binary = meta["problem_type"] == "binary"
             col = ("p_" + str(meta["positive_class"])) if binary else "prediction"
             ref_f = Path(cfg["run_dir"]) / "seg_holdout.csv"
-            ref = pd.read_csv(ref_f)["routed"].to_numpy(dtype=float) if ref_f.exists() else out[col].to_numpy(dtype=float)
+            ref = frames.read_artifact(ref_f)["routed"].to_numpy(dtype=float) if ref_f.exists() else out[col].to_numpy(dtype=float)
             reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
             rep = drift.drift_report(train, df, kinds, problem_type="regression", ref_pred=pd.DataFrame({"y_pred": ref}),
                                      cur_pred=pd.DataFrame({"y_pred": out[col].to_numpy(dtype=float)}), positive=None)
@@ -513,7 +530,7 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
             feats = [c for c in meta["inputs"] if c in df.columns and c in train.columns]
             kinds = {c: ("number" if meta["ranges"][c].get("numeric") else "category") for c in feats}
             ref_f = Path(cfg["run_dir"]) / "el_holdout.csv"
-            ref_pred = pd.DataFrame({"y_pred": pd.read_csv(ref_f)["el"].to_numpy(dtype=float)}) if ref_f.exists() \
+            ref_pred = pd.DataFrame({"y_pred": frames.read_artifact(ref_f)["el"].to_numpy(dtype=float)}) if ref_f.exists() \
                 else pd.DataFrame({"y_pred": out["expected_loss"].to_numpy(dtype=float)})
             cur_pred = pd.DataFrame({"y_pred": out["expected_loss"].to_numpy(dtype=float)})
             reg.update_batch(batch_id, stage="drift (PSI per feature)", progress=0.8)
@@ -564,7 +581,7 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
             t0 = time.time()
             res = fc.predict_new(version_path, cfg, csv_path, str(out_path))
             score_s = time.time() - t0
-            out = pd.read_csv(out_path)
+            out = frames.read_artifact(out_path)
             mp = cfg["mapping"]
             cols = [mp["target"]] + [c for c in (mp.get("known_covariates") or []) + (mp.get("past_covariates") or [])
                                      if c in df.columns and c in train.columns]
@@ -572,7 +589,7 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
             obs_new = df[df[mp["target"]].notna()] if mp["target"] in df.columns else df
             kinds = {c: ("number" if pd.api.types.is_numeric_dtype(obs_train[c]) else "category") for c in cols}
             ref_f = Path(cfg["run_dir"]) / "forecast.csv"
-            ref_pred = pd.DataFrame({"y_pred": pd.read_csv(ref_f)["mean"].to_numpy(dtype=float)}) if ref_f.exists() else pd.DataFrame({"y_pred": out["mean"].to_numpy(dtype=float)})
+            ref_pred = pd.DataFrame({"y_pred": frames.read_artifact(ref_f)["mean"].to_numpy(dtype=float)}) if ref_f.exists() else pd.DataFrame({"y_pred": out["mean"].to_numpy(dtype=float)})
             cur_pred = pd.DataFrame({"y_pred": out["mean"].to_numpy(dtype=float)})
             reg.update_batch(batch_id, stage="drift (PSI of the history)", progress=0.8)
             rep = drift.drift_report(obs_train, obs_new, kinds, problem_type="regression", ref_pred=ref_pred, cur_pred=cur_pred, positive=None)
@@ -658,7 +675,7 @@ def benchmark_version(predictor_path: str, cfg: dict[str, Any], n: int = 300) ->
     t0 = time.perf_counter()
     p = load_predictor(predictor_path)
     load_s = time.perf_counter() - t0
-    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     X = h.drop(columns=[cfg["label"]])
     fn = fastpath.predict_fn(p)
     from ..engine.pool import _WARM
@@ -739,7 +756,7 @@ def reasons_stability(predictor_path: str, cfg: dict[str, Any], rconf: dict[str,
     from ..splits import load_splits
 
     rs = reasoner(predictor_path, cfg, rconf, kinds)
-    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     X = h.reindex(columns=rs.features).head(rows)
     out = rc.stability(rs, X, noise=noise, repeats=repeats)
     out.update({"holdout_rows": int(len(X)), "method": rs.att.describe(), "threshold": rs.threshold,
@@ -760,7 +777,7 @@ def recourse_actions(cfg: dict[str, Any], features: list[str], saved: dict[str, 
     """Feature → action: the user's saved choice, else G0's detection (roles + name rules) on the training table."""
     from ..intake import actionability
 
-    df = pd.read_csv(cfg["csv_path"], nrows=20_000)
+    df = frames.read(frames.resolve(cfg), rows=range(0, 20_000))
     det = actionability(df, features)  # the label stays in, so detection sees the real target
     mine = (saved or {}).get("actions") or {}
     acts, rows = {}, []
@@ -819,7 +836,7 @@ def recourse_check(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, An
     from ..splits import load_splits
 
     rc_, acts, _ = recourse_engine(predictor_path, cfg, rconf, kinds, saved)
-    h = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+    h = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
     X = h.reindex(columns=rc_.features)
     adverse, _ = rc_.rs.decide(X)
     idx = np.flatnonzero(adverse)[:n_adverse]

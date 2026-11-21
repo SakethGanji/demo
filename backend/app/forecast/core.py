@@ -28,6 +28,7 @@ import numpy as np
 import pandas as pd
 
 from ..stats import wilson
+from .. import frames
 
 log = logging.getLogger("ensemble.forecast")
 
@@ -93,11 +94,12 @@ class ForecastError(ValueError):
 # --------------------------------------------------------------------------- data
 
 
-def read_long(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None, dict[str, Any]]:
+def read_long(cfg: dict[str, Any], df: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None, dict[str, Any]]:
     """(observed, future, static, info). `observed` has a target on every row; `future` holds rows past each item's
     last observation (their known covariates). Columns renamed to item_id / timestamp / target."""
     m = cfg["mapping"]
-    df = pd.read_csv(cfg["csv_path"])
+    if df is None:  # §6.5 R-E: the run's input through the typed reader (engine_v1: the time column stays a string)
+        df = frames.read(frames.resolve(cfg))
     need = [m["item_id"], m["timestamp"], m["target"], *m.get("known_covariates", []), *m.get("static_features", []),
             *m.get("past_covariates", [])]
     missing = [c for c in need if c and c not in df.columns]
@@ -170,9 +172,9 @@ def seasonal_period(freq: str | None) -> int:
         return 1
 
 
-def preview(csv_path: str, mapping: dict[str, Any]) -> dict[str, Any]:
+def preview(input_ref: dict[str, Any], mapping: dict[str, Any]) -> dict[str, Any]:
     """What the mapping gives: items, lengths, the inferred frequency, the season m, future rows, a few series."""
-    obs, fut, static, info = read_long({"csv_path": csv_path, "mapping": mapping})
+    obs, fut, static, info = read_long({"input_ref": input_ref, "mapping": mapping})
     if obs.empty:
         raise ForecastError("no rows with a timestamp and a target")
     tsdf = to_tsdf(obs, static)
@@ -891,7 +893,12 @@ def predict_new(predictor_path: str, cfg: dict[str, Any], csv_path: str, out_pat
     from autogluon.timeseries import TimeSeriesPredictor
 
     p = TimeSeriesPredictor.load(predictor_path)
-    obs, fut, static, info = read_long({**cfg, "csv_path": csv_path})
+    new = frames.read_upload(csv_path, filename=Path(csv_path).name)  # the user's history file: typed import rules
+    try:
+        new = frames.align_to(new, frames.resolve(cfg))  # … cast to the training table's column kinds
+    except (frames.FrameError, OSError):
+        pass
+    obs, fut, static, info = read_long(cfg, new)
     data = to_tsdf(obs, static)
     if p.freq and data.freq != p.freq:
         data = data.convert_frequency(p.freq)

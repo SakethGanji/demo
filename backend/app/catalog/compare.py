@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .. import stats
+from .. import frames, stats
 
 MIN_ROWS = 30
 
@@ -41,7 +41,7 @@ def _hp(run: dict[str, Any]) -> pd.DataFrame | None:
     p = Path(run["config"].get("run_dir") or "") / "holdout_predictions.csv"
     if not p.exists():
         return None
-    return pd.read_csv(p, dtype={"y_true": str, "y_pred": str})
+    return frames.read_artifact(p, dtype={"y_true": str, "y_pred": str})
 
 
 def root_info(app, dataset_id: str) -> tuple[str, np.ndarray | None, str]:

@@ -12,7 +12,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
-from .. import config
+from .. import config, frames
 from ..datasets import DatasetConflict, DatasetError
 from . import dsets as D
 from . import governance as G
@@ -223,8 +223,8 @@ async def verify_all(request: Request, body: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/datasets/{dataset_id}/export")
 async def export(dataset_id: str, request: Request, by: str = "", format: str = "zip"):
-    """format=zip: data.csv + lineage.json + manifest.json (the chain to the root, the stored and current sha256).
-    format=csv: the file alone. Audited."""
+    """format=zip: data.csv + schema.json (the tables and their column types, §4.1) + lineage.json + manifest.json (the
+    chain to the root, the stored and current sha256). format=csv: the file alone. Audited."""
     who = _who(by)
     if format not in ("zip", "csv"):
         raise HTTPException(400, "format is zip or csv.")
@@ -236,11 +236,12 @@ async def export(dataset_id: str, request: Request, by: str = "", format: str = 
     store = request.app.state.datasets
     fname = f"{man['name']}-v{man['v']}-{dataset_id}".replace("/", "_").replace(" ", "_")
     if format == "csv":
-        return FileResponse(store.csv_path(dataset_id), media_type="text/csv", filename=f"{fname}.csv",
+        return FileResponse(frames.version_file(dataset_id), media_type="text/csv", filename=f"{fname}.csv",
                             headers={"X-Ensemble-SHA256": man["sha256_file"] or ""})
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(store.csv_path(dataset_id), "data.csv")
+        z.write(frames.version_file(dataset_id), "data.csv")
+        z.writestr("schema.json", json.dumps(frames.export_schema(dataset_id), indent=1))
         z.writestr("lineage.json", json.dumps(store.lineage(dataset_id) or {"root": man["root_id"], "parent": None, "op": "upload"}))
         z.writestr("manifest.json", json.dumps(man, indent=1))
     buf.seek(0)
@@ -314,11 +315,7 @@ async def _export_parquet(request: Request, dataset_id: str, who: str, format: s
     hdr = {"X-Ensemble-SHA256": x["csv_sha"], "X-Ensemble-Table-SHA256": x["table_sha256"]}
     if format == "csv":
         return FileResponse(x["path"], media_type="text/csv", filename=f"{fname}.csv", headers=hdr)
-    tables = (x["manifest"] or {}).get("data", {}).get("tables") or [{"name": x["lt"].name, "schema": x["lt"].schema}]
-    schema_json = {"format": "ensemble.export.schema/1", "dataset_id": dataset_id, "primary_table": x["lt"].name,
-                   "files": {"data.csv": x["lt"].name},
-                   "tables": [{"name": t["name"], "table_sha256": t.get("table_sha256"), "n_rows": t.get("n_rows"),
-                               "schema": t.get("schema")} for t in tables]}
+    schema_json = frames.export_schema(dataset_id)  # P04's format; for Parquet, the manifest's table and schema
     info = {"dataset_id": dataset_id, "name": x["name"], "v": x["v"], "root_id": x["root"], "target": x["target"], "rows": x["rows"],
             "storage": "parquet", "table": x["lt"].name, "table_sha256_stored": x["table_sha256"],
             "table_sha256_now": x["table_sha256_now"], "integrity_ok": x["integrity_ok"], "csv_sha256": x["csv_sha"],
@@ -361,7 +358,7 @@ async def grid(dataset_id: str, request: Request, offset: int = 0, limit: int = 
 
         from ..dataset_versions import kind
 
-        df = request.app.state.datasets.load_frame(dataset_id)
+        df = frames.read_version(dataset_id)
         idx = pd.RangeIndex(len(df))
         if q.strip():
             m = pd.Series(False, index=df.index)
@@ -403,11 +400,12 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
     store = request.app.state.datasets
     if preview:
         out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, preview=True,
-                            set_target=body.get("set_target"))
+                            set_target=body.get("set_target"), acknowledge=body.get("acknowledge"))
         return SafeJSONResponse(out, status_code=200)  # P03: non-finite → null, never an Infinity token or a 500
     before = await _thread(D.current_default, request.app, dataset_id)
     try:
-        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, set_target=body.get("set_target"))
+        out = await _thread(store.edit_version, dataset_id, body.get("ops"), by=who, reason=reason, set_target=body.get("set_target"),
+                            acknowledge=body.get("acknowledge"))
     except HTTPException as e:
         if e.status_code == 409:
             G.refused(request.app.state.db, who, "dataset_edit", 409, e.detail, {"dataset_id": dataset_id})
@@ -438,7 +436,7 @@ async def adopt_disk_file(dataset_id: str, request: Request, body: dict[str, Any
     store = request.app.state.datasets
     from .schema import file_sha256
 
-    p = store.csv_path(dataset_id)
+    p = frames.version_file(dataset_id)  # the bytes on disk, hashed and adopted as they are
     now_sha = file_sha256(p)
     if not now_sha:
         raise HTTPException(409, f"{dataset_id}'s file is missing: there is nothing on disk to adopt.")

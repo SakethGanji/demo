@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from ..engine.api import alloc_run, queue_run, run_out, split_record
 from ..datasets import DatasetError
 from ..http import dataset_or_404
+from .. import frames
 from . import core
 
 router = APIRouter(prefix="/api/expected-loss")
@@ -84,7 +85,7 @@ def detect(df: pd.DataFrame) -> dict[str, Any]:
 def detect_route(dataset_id: str, request: Request) -> dict[str, Any]:
     """What an EL run on this table would use, from the G0 roles, with the evidence (the Build page shows it)."""
     dataset_or_404(request, dataset_id)
-    return {"dataset_id": dataset_id, **detect(request.app.state.datasets.load_frame(dataset_id))}
+    return {"dataset_id": dataset_id, **detect(frames.read_version(dataset_id))}
 
 
 @router.post("/runs", status_code=201)
@@ -97,7 +98,7 @@ def _create(body: ElCreate, request: Request) -> dict[str, Any]:
 
     app = request.app
     ds = dataset_or_404(request, body.dataset_id)
-    df = app.state.datasets.load_frame(body.dataset_id)
+    df = frames.read_version(body.dataset_id)
     det = detect(df)
     pd_col = body.pd_column or det["pd_column"]
     lgd_col = body.lgd_column or det["lgd_column"]
@@ -148,7 +149,7 @@ def _create(body: ElCreate, request: Request) -> dict[str, Any]:
         "kind": "expected_loss", "dataset_id": body.dataset_id, "label": pd_col, "lgd_column": lgd_col, "ead_column": ead_col,
         "positive_class": body.positive_class, "segments": segs, "drop_columns": drop, "presets": body.presets,
         "time_limit": body.time_limit, "fit_kwargs": body.fit_kwargs, "split": sp, "splits_path": sp["path"],
-        "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
+        "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(frames.version_file(body.dataset_id)), "input_ref": frames.input_ref_for(body.dataset_id),
         "run_dir": str(run_dir), "predictor_path": str(run_dir / "el"),
         "detected": {"pd_column": det["pd_column"], "lgd_column": det["lgd_column"], "ead_column": det["ead_column"],
                      "segments": det["segments"], "drop_columns": det["drop_columns"], "split": det["split"],
@@ -216,7 +217,7 @@ def _stress(request: Request, rec: dict[str, Any], body: StressBody) -> dict[str
     base_scores = None
     f = Path(cfg["run_dir"]) / "el_holdout.csv"
     if f.exists():  # the run's own holdout scores, in the same row order: only the shocked rows need scoring
-        b = pd.read_csv(f)
+        b = frames.read_artifact(f)
         if len(b) == len(holdout) and (b["row"].to_numpy() == holdout.index.to_numpy()).all():
             base_scores = b[["pd", "lgd", "ead", "el"]].reset_index(drop=True)
     try:

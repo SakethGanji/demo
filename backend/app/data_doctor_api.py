@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 from . import data_doctor as dd
+from . import frames
 from .datasets import DatasetError, DatasetStore, now
 from .http import dataset_or_404
 
@@ -71,10 +72,10 @@ def _roles(store: DatasetStore, dataset_id: str, df) -> list[dict[str, Any]]:
 def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     rec = dataset_or_404(request, dataset_id)
     store = _store(request)
-    df = store.load_frame(dataset_id)
+    df = frames.read_version(dataset_id)
     roles = _roles(store, dataset_id, df)
     target = rec["target"]
-    csv = store.csv_path(dataset_id)
+    csv = frames.version_file(dataset_id)  # keys the label job; read typed by frames
     labels = dd.label_state(store.dir(dataset_id), target, csv)
     task_ok = target is not None and not (df[target].dtype.kind in "fi" and df[target].nunique() > dd.MAX_CLASSES)
     if labels is None and task_ok and df[target].nunique(dropna=True) >= 2:
@@ -110,22 +111,36 @@ async def apply_fixes(dataset_id: str, request: Request, body: dict[str, Any]) -
     the parent's holdout rows that were kept, so scores stay comparable. The decision-time answers carry over."""
     body = body or {}
     # DL3 (m3): a version records a real name: by, else the X-Ensemble-Actor header (derive() refuses neither)
-    return await run_in_threadpool(_apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "").strip()[:80] or None)
+    return await run_in_threadpool(_apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "").strip()[:80] or None,
+                                   body.get("acknowledge"))
 
 
-def _apply(request: Request, dataset_id: str, transforms: Any, by: str) -> dict[str, Any]:
+def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowledge: Any = None) -> dict[str, Any]:
     from .main import _detail
 
     rec = dataset_or_404(request, dataset_id)
     store = _store(request)
-    df = store.load_frame(dataset_id)
+    df = frames.read_version(dataset_id)
     target = rec["target"]
-    try:
-        new_df, keep, effects = dd.apply(df, transforms, target)
+    from . import frame_io as FIO
+    from .datasets import guard_one_class
+    from .lake.values import ValueRefused
+
+    try:  # §4.4: values checked against the version's types; an engine error is a typed 400 (text logged, never sent)
+        new_df, keep, effects = dd.apply(df, transforms, target, FIO.columns(store.schema(dataset_id, df)))
+    except ValueRefused:
+        raise
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    except (ArithmeticError, TypeError, KeyError, IndexError) as e:
+        import logging
+
+        logging.getLogger("ensemble.edit").warning("data doctor apply on %s: %s: %s", dataset_id, type(e).__name__, str(e)[:500])
+        raise ValueRefused("edit_invalid", "A fix could not be applied to these values; nothing was written.") from None
     if len(new_df) < 2:
         raise HTTPException(400, "These fixes leave fewer than two rows.")
+    one_class = guard_one_class(df[target] if target in df.columns else None,
+                                new_df[target] if target in new_df.columns else None, target, acknowledge, what="These fixes leave")
     try:
         _, sp, _ = store.ensure_splits(dataset_id, target)
     except DatasetError as e:
@@ -134,7 +149,7 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str) -> dict[
         raise HTTPException(400, "The dataset's split does not match its rows.")
     at = now()
     extra = {"kind": "data_doctor", "fixes": effects, "applied_at": at, "by": by, "columns_before": int(df.shape[1]),
-             "columns_after": int(new_df.shape[1])}
+             "columns_after": int(new_df.shape[1]), **({"warnings": [one_class]} if one_class else {})}
     base = rec["name"].split(" · fixed")[0]
     root = (store.lineage(dataset_id) or {}).get("root") or dataset_id
     n_ver = sum(1 for d in request.app.state.db.list_datasets() if (d["profile"].get("lineage") or {}).get("root") == root
@@ -173,7 +188,7 @@ def set_decision_time(dataset_id: str, request: Request, body: dict[str, Any]) -
     if not isinstance(known, dict) or not isinstance(fair, list):
         raise HTTPException(400, 'Send {"known": {"<column>": true|false}, "fairness_only": ["<column>"]}.')
     store = _store(request)
-    cols = set(store.load_frame(dataset_id).columns)
+    cols = set(frames.column_names(frames.table(dataset_id)))
     bad = [c for c in [*known, *fair] if c not in cols]
     if bad:
         raise HTTPException(400, f"No column named {bad[0]!r}.")

@@ -27,6 +27,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
+
 
 def _embed(df: pd.DataFrame, text_cols: list[str], num_cols: list[str], cat_cols: list[str]) -> np.ndarray:
     from sklearn.decomposition import TruncatedSVD
@@ -63,7 +65,7 @@ def audit(csv_path: str, label: str, feature_cols: list[str], text_cols: list[st
     from sklearn.neighbors import NearestNeighbors
 
     t0 = time.time()
-    df = pd.read_csv(csv_path)
+    df = frames.read_csv_path(csv_path)  # typed: the schema beside the file (§6.5 R-D)
     y_all = df[label].astype(str).to_numpy()
     rows_a = np.asarray(rows, dtype=int)
     P = np.asarray(proba, dtype=float)
@@ -197,7 +199,7 @@ def measure_latency(predictor_path: str, csv_path: str, label: str, drop: list[s
     from ..engine.pool import load_predictor
 
     p = load_predictor(predictor_path)
-    df = pd.read_csv(csv_path).iloc[rows[: n + 3]].drop(columns=[label, *drop], errors="ignore")
+    df = frames.read_csv_path(csv_path).iloc[rows[: n + 3]].drop(columns=[label, *drop], errors="ignore")
     ts = []
     for i in range(len(df)):
         x = df.iloc[[i]]

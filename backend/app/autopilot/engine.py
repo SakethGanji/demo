@@ -32,7 +32,7 @@ import httpx
 import numpy as np
 import pandas as pd
 
-from .. import llm
+from .. import frames, llm
 from ..engine.store import now
 from . import audit as audit_mod
 from . import metrics as M
@@ -269,7 +269,7 @@ class Pilot:
         cols = {c["name"]: c for c in p["columns"]}
         if label not in cols:
             raise RuntimeError(f"No column {label!r} in {d['name']}")
-        y = pd.read_csv(self.mgr.app.state.datasets.csv_path(b["dataset_id"]), usecols=[label])[label]
+        y = frames.read_version(b["dataset_id"], columns=[label])[label]
         task = p.get("task") if label == d["target"] else None
         shares = y.astype(str).value_counts(normalize=True)
         problem = task or ("regression" if cols[label]["type"] == "number" and cols[label]["unique"] > 50 else
@@ -413,7 +413,7 @@ class Pilot:
         lin = self.mgr.app.state.datasets.lineage(dataset_id)
         if lin:
             return np.asarray(lin["root_rows"], dtype=int)
-        n = len(pd.read_csv(self.mgr.app.state.datasets.csv_path(dataset_id), usecols=[0]))
+        n = frames.n_rows(frames.table(dataset_id))
         return np.arange(n)
 
     def _holdout_rows_local(self, dataset_id: str) -> list[int]:
@@ -424,7 +424,7 @@ class Pilot:
         """(root row → current label, root rows of the current holdout)."""
         ds = self.st["truth_dataset"]
         label = self.st["facts"]["label"]
-        y = pd.read_csv(self.mgr.app.state.datasets.csv_path(ds), usecols=[label])[label]
+        y = frames.read_version(ds, columns=[label])[label]
         roots = self._lineage_rows(ds)
         lab = {int(r): (str(v) if self.st["facts"]["problem_type"] != "regression" else v) for r, v in zip(roots, y)}
         hold = {int(roots[i]) for i in self._holdout_rows_local(ds)}
@@ -500,9 +500,8 @@ class Pilot:
             raise RuntimeError("out-of-fold and holdout classes differ")
         rows = oof["rows"] + h["rows"]
         proba = oof["probabilities"] + h["probabilities"]
-        ds = self.mgr.app.state.datasets
         out = self.mgr.app.state.heavy.submit(
-            audit_mod.audit, str(ds.csv_path(base["dataset_id"])), f["label"], f["features"], f["text_columns"],
+            audit_mod.audit, str(frames.version_file(base["dataset_id"])), f["label"], f["features"], f["text_columns"],
             f["numeric_columns"], f["category_columns"], oof["classes"], rows, proba, h["rows"]).result(timeout=900)
         out["run_id"] = base["run_id"]
         out["model"] = oof["model"]
@@ -590,7 +589,7 @@ class Pilot:
             self.finish(s, status="skipped", relabelled=0, dropped=0, confirmed=confirmed, skipped=skipped)
             self.note(f"No label changed ({confirmed} confirmed, {skipped} skipped), so there is nothing to retrain on.")
             return False
-        df = pd.read_csv(ds.csv_path(src))
+        df = frames.read_version(src)
         sp = json.loads(ds.splits_path(src, self.st["facts"]["label"]).read_text())
         roots = self._lineage_rows(src)
         changes = []
@@ -940,7 +939,7 @@ class Pilot:
         s = self.step("synthesize", f"Write synthetic {cls} examples", decision=d)
         ds = self.mgr.app.state.datasets
         src = self.st["truth_dataset"]
-        df = pd.read_csv(ds.csv_path(src))
+        df = frames.read_version(src)
         sp = json.loads(ds.splits_path(src, self.st["facts"]["label"]).read_text())
         mine = df[df[f["label"]].astype(str) == cls]
         hold = set(sp["holdout"])

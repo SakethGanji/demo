@@ -83,8 +83,10 @@ def check(db: Database, by: str | None, request_id: str | None = None) -> dict[s
         raise ResetRefused(403, f"Only an admin (ENSEMBLE_ADMINS) may reset; {by} is not one.")
     with db.connect() as con:
         live = live_governance(con) + user_data(con)
-        if not live:
+        if not live and not request_id:
             return None
+        # §4.4 (DLA4): a request_id that is sent is always checked and returned, so the reset marks it used even when
+        # nothing is live any more (before, it stayed 'approved': reusable, and it blocked every new request)
         if not request_id:
             raise ResetRefused(409, {"message": "Can't reset: user data, live models or champions would be deleted. Get a "
                                                 "four-eyes approval (POST /api/admin/reset-requests {by, reason}; someone else "

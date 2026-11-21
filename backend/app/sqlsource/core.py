@@ -26,6 +26,8 @@ from typing import Any, Iterator
 
 import pandas as pd
 
+from .. import frames
+
 DEFAULT_LIMIT = 100_000
 MAX_LIMIT = 1_000_000
 PREVIEW_ROWS = 20
@@ -264,7 +266,7 @@ def ensure_demo_db(data_dir: Path, store: Any) -> Path:
     applications + outcomes (credit-default, split in two so the demo query is a join), loans (loan-stream) and
     accounts (account-churn)."""
     path = data_dir / "demo" / "bank.sqlite"
-    srcs = {k: store.csv_path(k) for k in ("credit-default", "loan-stream", "account-churn")}
+    srcs = {k: frames.version_file(k) for k in ("credit-default", "loan-stream", "account-churn")}  # stamped by mtime
     if not all(p.exists() for p in srcs.values()):
         return path
     stamp = DEMO_VERSION + ":" + ",".join(f"{p.stat().st_mtime_ns}" for p in srcs.values())
@@ -274,12 +276,12 @@ def ensure_demo_db(data_dir: Path, store: Any) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.unlink(missing_ok=True)
-    cd = pd.read_csv(srcs["credit-default"])
+    cd = frames.read_version("credit-default")
     with sqlite3.connect(tmp) as con:
         cd.drop(columns=["defaulted"]).to_sql("applications", con, index=False)
         cd[["applicant_id", "defaulted"]].to_sql("outcomes", con, index=False)
-        pd.read_csv(srcs["loan-stream"]).to_sql("loans", con, index=False)
-        pd.read_csv(srcs["account-churn"]).to_sql("accounts", con, index=False)
+        frames.read_version("loan-stream").to_sql("loans", con, index=False)
+        frames.read_version("account-churn").to_sql("accounts", con, index=False)
         con.execute("CREATE INDEX ix_outcomes ON outcomes(applicant_id)")
     tmp.replace(path)
     mark.write_text(stamp)

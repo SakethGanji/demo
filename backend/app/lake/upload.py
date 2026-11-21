@@ -21,7 +21,6 @@ from __future__ import annotations
 import codecs
 import csv
 import hashlib
-import io
 import json
 import logging
 import os
@@ -36,7 +35,6 @@ from typing import Any, BinaryIO
 
 from ..catalog import schema as S
 from . import duck
-from . import manifest as M
 from .writer import ROW_ID, LakeError, VersionWriter, _lit, _q
 
 log = logging.getLogger("ensemble.upload")

@@ -29,6 +29,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
+
 SEGMENT_MAX = 12
 MIN_ROWS = 300
 MIN_CLASS = 30
@@ -245,7 +247,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit, merge) -> dict[str, Any]:
 
     meta = {"label": label, "problem_type": pt, "positive_class": None if pos is None else (pos.item() if isinstance(pos, np.generic) else pos),
             "threshold": t, "segment_column": seg, "inputs": inputs, "numeric": numeric, "models": models, "routes": routes,
-            "train_ref": {k: cfg.get(k) for k in ("csv_path", "splits_path", "label", "drop_columns")},
+            "train_ref": {k: cfg.get(k) for k in ("input_ref", "csv_path", "splits_path", "label", "drop_columns")},
             "features": {GLOBAL: list(g.original_features), **{v: list(preds[v].original_features) for v in models}}}
     (root / "meta.json").write_text(json.dumps(meta, indent=1, default=str))
     m = {"meta": meta, "predictors": preds, "path": str(root)}
@@ -300,7 +302,7 @@ def _train_rows(meta: dict[str, Any], key: str) -> pd.DataFrame:
     from ..splits import holdout_mask
 
     ref = meta["train_ref"]
-    df = pd.read_csv(ref["csv_path"])
+    df = frames.read(frames.resolve(ref))  # input_ref (new models), else the csv_path the fit read
     is_h = holdout_mask(json.loads(Path(ref["splits_path"]).read_text()), len(df))
     keep = ~is_h & df[ref["label"]].notna().to_numpy()
     if key != GLOBAL:

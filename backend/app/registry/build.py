@@ -34,6 +34,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
 from ..db import Database
 from ..engine.jsonsafe import jsonable
 from ..engine.store import RunStore
@@ -231,7 +232,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         from ..splits import load_splits
 
         vdir.mkdir(parents=True, exist_ok=True)
-        holdout = serving.holdout_frame(cfg["csv_path"], load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+        holdout = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
         X = holdout.drop(columns=[cfg["label"]])
 
         step("clone", "running")
@@ -474,7 +475,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
 
         hold = holdout_metrics(final, holdout, cfg["label"])
         src_hp = Path(cfg["run_dir"]) / "holdout_predictions.csv"
-        src_ci = metrics_with_ci(pd.read_csv(src_hp), final.problem_type,
+        src_ci = metrics_with_ci(frames.read_artifact(src_hp), final.problem_type,
                                  final.positive_class if final.problem_type == "binary" else None,
                                  list(final.class_labels) if final.class_labels is not None else None, B=200) if src_hp.exists() else None
         step("measure", "done", seconds=time.time() - t0)
@@ -482,7 +483,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         # 6. hashes
         step("hash", "running")
         model_hash = dir_hash(dest)
-        data_hash = file_hash(Path(cfg["csv_path"]))
+        data_hash = frames.input_sha256(cfg)  # the bytes the fit read (P05: a Parquet table's table_sha256)
         splits_hash = file_hash(Path(cfg["splits_path"]))
         step("hash", "done", model_hash=model_hash[:12])
 
@@ -529,7 +530,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             "refit": refit_info, "infer_limit": limit_info, "distill": distill_info, "serving": serving_info,
             "monotone": mono_info, "quantile": quant_info,
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "splits_sha256": splits_hash,
-                       "data_file": Path(cfg["csv_path"]).name},
+                       "data_file": frames.path_of(frames.resolve(cfg)).name},
             "path": str(dest),
         }
         reg.update_version(version_id, result=result, path=str(dest), model_hash=model_hash)
@@ -632,7 +633,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "expected_loss":  # G3: the three predictors and meta.json, scored together
             from ..el import core as elc
 
-            df = pd.read_csv(cfg["csv_path"])
+            df = frames.read(frames.resolve(cfg))
             elc.score_rows(str(dest), df.head(50).to_dict(orient="records"))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -655,7 +656,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "survival":  # G6: the design, Cox PH and the forest (joblib) and meta.json; the chosen one serves
             from ..survival import core as svc
 
-            df = pd.read_csv(cfg["csv_path"])
+            df = frames.read(frames.resolve(cfg))
             svc.score_rows(str(dest), df.head(50))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -678,7 +679,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "multilabel":  # G8: one predictor per label and meta.json (labels, thresholds); scored together
             from ..multilabel import core as mlc
 
-            df = pd.read_csv(cfg["csv_path"])
+            df = frames.read(frames.resolve(cfg))
             mlc.score_rows(str(dest), df.head(50))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -700,7 +701,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "segmented":  # G5: the global and segment predictors and meta.json, routed per row
             from ..segmented import core as sgc
 
-            df = pd.read_csv(cfg["csv_path"])
+            df = frames.read(frames.resolve(cfg))
             sgc.score_rows(str(dest), df.head(50).to_dict(orient="records"))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -725,7 +726,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         else:
             from ..anomaly import core as an
 
-            df = pd.read_csv(cfg["csv_path"])
+            df = frames.read(frames.resolve(cfg))
             an.score_frame(str(dest), df.head(50), explain_top=0)
             import joblib
 
@@ -750,7 +751,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         step("measure", "done", seconds=time.time() - t0)
         step("hash", "running")
         model_hash = dir_hash(dest)
-        data_hash = file_hash(Path(cfg["csv_path"]))
+        data_hash = frames.input_sha256(cfg)  # the bytes the fit read (P05: a Parquet table's table_sha256)
         step("hash", "done", model_hash=model_hash[:12])
         size = dir_size(dest)
         result = {
@@ -760,7 +761,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                         "problem_type": problem, "eval_metric": metric, "features": res.get("features") or [],
                         "n_models": len(res.get("leaderboard") or [])},
             "kind": kind, "tradeoff": {"size_ratio": 1.0},
-            "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": Path(cfg["csv_path"]).name},
+            "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": frames.path_of(frames.resolve(cfg)).name},
             "path": str(dest),
         }
         if kind == "survival":  # G6: what Try It and the card read

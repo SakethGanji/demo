@@ -20,9 +20,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
-from .. import config
+from .. import config, frames
 from ..http import version_or_404
 from . import credit_report as C
+from .scoring import read_batch
 
 router = APIRouter(prefix="/api", tags=["credit-report"])
 SAMPLE_TAPES = {"loan-stream": "samples_g2"}
@@ -90,7 +91,7 @@ def _holdout(v: dict[str, Any], run: dict[str, Any], pos: str) -> pd.DataFrame:
         hp_path = Path(run["config"]["run_dir"]) / "holdout_predictions.csv"
     if not hp_path.exists():
         raise HTTPException(404, "This version has no saved holdout predictions.")
-    hp = pd.read_csv(hp_path)
+    hp = frames.read_artifact(hp_path)
     return pd.DataFrame({"row": hp["row"].astype(int), "y": (hp["y_true"].astype(str) == pos).astype(int), "p": hp[f"p_{pos}"].astype(float)})
 
 
@@ -106,8 +107,8 @@ def _batches(request: Request, vid: str, pos: str) -> tuple[list[dict[str, Any]]
         if not p.get("performance") or not (d / "labels.csv").exists():
             pending.append({"period": p["period"], "batch_id": p["batch_id"], "n": p["n_rows"], "filename": p["filename"]})
             continue
-        lab = pd.read_csv(d / "labels.csv")
-        sc = pd.read_csv(d / "scored.csv", usecols=[f"p_{pos}"])
+        lab = frames.read_artifact(d / "labels.csv")
+        sc = frames.read_artifact(d / "scored.csv", usecols=[f"p_{pos}"])
         rows.append(pd.DataFrame({"period": p["period"] or p["batch_id"], "batch_id": p["batch_id"],
                                   "y": (lab["y"].astype(str) == pos).astype(int).to_numpy(),
                                   "p": sc[f"p_{pos}"].to_numpy()[lab["row"].to_numpy()]}))
@@ -128,7 +129,23 @@ def _sample_tape(request: Request, dataset_id: str) -> pd.DataFrame:
 
         p.parent.mkdir(parents=True, exist_ok=True)
         performance_tape(config.SEED).to_csv(p, index=False)
-    return pd.read_csv(p, dtype=str, keep_default_na=False)
+    return frames.read_artifact(p, dtype=str, keep_default_na=False)
+
+
+def _read_tape(content: bytes) -> pd.DataFrame:
+    """§6.5 R-F: a user's performance tape (stored as uploaded), every cell as its text ('' for blank): the encoding and
+    the separator detected as for any upload. Errors are a plain message, never the parser's text."""
+    import io
+
+    from ..datasets import DatasetError, decode_upload, sniff_sep
+
+    if not content.strip():
+        raise DatasetError("The file is empty.")
+    text, _enc = decode_upload(content)
+    try:
+        return frames.read_artifact(io.StringIO(text), sep=sniff_sep(text), dtype=str, keep_default_na=False)
+    except Exception as e:  # noqa: BLE001
+        raise DatasetError("Not a readable CSV: give a performance tape with a header row.") from e
 
 
 def map_tape(df: pd.DataFrame) -> dict[str, Any]:
@@ -171,7 +188,7 @@ def _vintage(request: Request, v: dict[str, Any], run: dict[str, Any], train: pd
     up = _tape_path(request, v["model_name"])
     if up.exists():
         meta = json.loads((up.parent / "tape.json").read_text())
-        tape = _normalise(pd.read_csv(up, dtype=str, keep_default_na=False), meta["mapping"])
+        tape = _normalise(_read_tape(up.read_bytes()), meta["mapping"])
         src = {"kind": "uploaded", "file": meta.get("filename"), "by": meta.get("uploaded_by"), "at": meta.get("uploaded_at"),
                "mapping": meta["mapping"]}
     elif run.get("dataset_id") in SAMPLE_TAPES:
@@ -186,8 +203,8 @@ def _vintage(request: Request, v: dict[str, Any], run: dict[str, Any], train: pd
             bdir = request.app.state.settings.data_dir / "registry" / "batches"
             for b in batch_ids:
                 try:
-                    seen |= set(pd.read_csv(bdir / b / "input.csv", usecols=[idc])[idc].astype(str))
-                except (FileNotFoundError, ValueError):
+                    seen |= set(read_batch(bdir / b / "input.csv", run["config"], columns=[idc])[idc].astype(str))
+                except (FileNotFoundError, ValueError, KeyError):
                     pass
             tape = tape[tape["id"].isin(seen)]
         src = {"kind": "sample", "file": f"{SAMPLE_TAPES[run['dataset_id']]}.performance_tape", "mapping": mp,
@@ -208,7 +225,7 @@ def build(request: Request, vid: str, on: str = "holdout", date_column: str | No
     pos = str(ver.get("positive_class"))
     t = ver.get("decision_threshold")
     t = float(t) if t is not None else None
-    train = pd.read_csv(run["config"]["csv_path"])
+    train = frames.read(frames.resolve(run["config"]))
     det = _detected(request, v, run, train, date_column)
     hold = _holdout(v, run, pos)
     points, lab, pending = _batches(request, vid, pos)
@@ -302,12 +319,12 @@ async def upload_tape(vid: str, request: Request, file: UploadFile = File(...), 
     content = await file.read(config.MAX_UPLOAD_BYTES + 1)
     if len(content) > config.MAX_UPLOAD_BYTES:
         raise HTTPException(413, "The tape is too large.")
-    import io
+    from ..datasets import DatasetError
 
     try:
-        df = pd.read_csv(io.BytesIO(content), dtype=str, keep_default_na=False)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(400, f"Not a readable CSV: {e}") from e
+        df = _read_tape(content)
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
     mp = await run_in_threadpool(map_tape, df)
     if not mp["open"] or not mp["default"]:
         raise HTTPException(400, f"The tape needs an origination date and a default date column (found: dates "

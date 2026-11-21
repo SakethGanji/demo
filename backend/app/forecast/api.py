@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from . import core
 from ..http import dataset_or_404, stash_upload
+from .. import frames
 
 router = APIRouter(prefix="/api/forecast")
 
@@ -84,7 +85,7 @@ def suggest_mapping(request: Request, dataset_id: str) -> dict[str, Any]:
                 | {"past_covariates": []}, "source": "sample spec",
                 "prediction_length": f.get("suggested_prediction_length", 28)}
     cols = ds["profile"]["columns"]
-    df = request.app.state.datasets.load_frame(dataset_id).head(500)
+    df = frames.read_version(dataset_id, rows=range(0, 500))
     ts = next((c["name"] for c in cols if re.search(r"date|time|day|month|week|period", c["name"], re.I)
                and pd.to_datetime(df[c["name"]], errors="coerce").notna().mean() > 0.9), None)
     if ts is None:
@@ -118,7 +119,7 @@ def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
 async def preview(body: PreviewRequest, request: Request) -> dict[str, Any]:
     dataset_or_404(request, body.dataset_id)
     try:
-        return await run_in_threadpool(core.preview, str(request.app.state.datasets.csv_path(body.dataset_id)),
+        return await run_in_threadpool(core.preview, frames.input_ref_for(body.dataset_id),
                                        body.mapping.model_dump())
     except core.ForecastError as e:
         raise HTTPException(400, str(e)) from e
@@ -154,8 +155,8 @@ def _create(body: ForecastCreate, request: Request) -> dict[str, Any]:
     settings = app.state.settings
     run_id, run_dir = alloc_run(app)
     cfg = {**body.model_dump(exclude={"name"}), "quantile_levels": q, "kind": "forecast", "label": m.target,
-           "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(app.state.datasets.csv_path(body.dataset_id)),
-           "run_dir": str(run_dir), "predictor_path": str(run_dir / "predictor"), "drop_columns": []}
+           "run_id": run_id, "db_path": str(settings.db_path), "csv_path": str(frames.version_file(body.dataset_id)),
+           "input_ref": frames.input_ref_for(body.dataset_id), "run_dir": str(run_dir), "predictor_path": str(run_dir / "predictor"), "drop_columns": []}
     name = body.name or f"{display_name(ds)} · forecast {m.target} · H={body.prediction_length}"
     store = queue_run(app, run_id, run_dir, name, body.dataset_id, m.target, cfg, kind="forecast", dataset_id=body.dataset_id,
                       label=m.target, prediction_length=body.prediction_length, eval_metric=body.eval_metric,

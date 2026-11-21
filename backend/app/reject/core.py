@@ -38,6 +38,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from .. import frames
+
 METHODS = {
     "approved_only": "Approved only",
     "reweighting": "Reweighting (augmentation)",
@@ -193,7 +195,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit, merge) -> dict[str, Any]:
     from ..splits import holdout_mask
 
     label, pos, k = cfg["label"], cfg["positive_class"], float(cfg.get("k") or DEFAULT_K)
-    df = pd.read_csv(cfg["csv_path"])
+    df = frames.read(frames.resolve(cfg))
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     fold = np.asarray(splits["fold"], dtype=int)
     is_h = holdout_mask(splits, len(df))
