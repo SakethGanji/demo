@@ -1,0 +1,39 @@
+## 1. v1: POST /uploads → check → commit
+v1 ds_ba68572a 1000 rows; profile role of acct: ['ignored']
+## 2. v2 (15 corrected incomes): POST /uploads parent_version_id=v1 → check
+parent ds_ba68572a table v1 parent_rows 1000 parent_holdout 200
+  candidate ['acct'] score 1.0 overlap 1.0 valid True id_like True
+  candidate ['income'] score 0.985 overlap 0.985 valid True id_like False
+  simulate key acct ['best_candidate'] {'matched': 1000, 'changed': 15, 'added': 0, 'removed': 0, 'holdout_identity_lost': 0} warnings [] needs []
+  simulate row content (exact row hash) ['row_hash'] {'matched': 985, 'changed': 0, 'added': 15, 'removed': 15, 'holdout_identity_lost': 3} warnings ['identity_loss', 'better_key_available'] needs ['holdout_identity_loss']
+preselect {'method': 'key', 'columns': ['acct']}
+## 3. commit without match
+HTTP 400 match_required | Say how this file's rows are matched to the parent's: match = {method: key, columns: [...]}, {method: declared}, {method: row_hash} or {method: none}. Nothing is guessed. The candidates and what each method would do are below (and in the check).
+candidates [['acct'], ['income']]
+## 4. commit {match: row_hash}, no acknowledge
+HTTP 400 acknowledge_required | Matching by row content (exact row hash) gives 3 of the parent's 200 holdout rows new ids (1.5%): the holdout is redrawn for them, so runs on the two versions no longer pair on those rows. Key acct would match 15 more rows (1.5% of the file) than row content (exact row hash). Send acknowledge: ["holdout_identity_loss"] to commit it anyway (it is recorded), or choose another match.
+warnings ['identity_loss', 'better_key_available']
+## 5. commit {match: key acct}
+HTTP 201 ds_a96a9f35 v 2 [('v1', 'rewritten')] default {'is_default': True}
+match {'method': 'key', 'columns': ['acct'], 'confirmed_by': 'Ana', 'matched_by': 'key acct', 'candidates': [['acct', '1.0000'], ['income', '0.9850'], ['row_hash', '0.9850']], 'matched': 1000, 'changed': 15, 'added': 0, 'removed': 0, 'holdout_identity_lost': 0, 'parent_holdout': 200, 'acknowledged': [], 'warnings': [], 'parent': 'ds_ba68572a', 'parent_storage': 'parquet', 'next_row_id': 1000, 'best_candidate': {'columns': ['acct'], 'matched': 1000, 'holdout_identity_lost': 0}}
+## 6. GET /datasets/v1/diff/v2
+{'a': 1000, 'b': 1000, 'matched': 1000, 'changed': 15, 'added': 0, 'removed': 0, 'matched_by': "ds_a96a9f35's row map onto its parent (key acct)"}
+## 7. GET …/splits (v1, v2)
+ds_ba68572a random-stratified__y-95cb0bfd holdout_rows 200 sha256 8f3a5a46fe8f1d79 carried None
+ds_a96a9f35 random-stratified__y-95cb0bfd holdout_rows 200 sha256 8f3a5a46fe8f1d79 carried {'from': 'ds_ba68572a', 'by': '__row_id', 'kept_holdout': 200, 'new_rows': 0, 'new_holdout': 0}
+## 8. manifest of v2
+op upload_version ops ['write', 'upload_version'] checks {'warnings': []}
+match {'acknowledged': [], 'added': 0, 'best_candidate': {'columns': ['acct'], 'holdout_identity_lost': 0, 'matched': 1000}, 'candidates': [['acct', '1.0000'], ['income', '0.9850'], ['row_hash', '0.9850']], 'changed': 15, 'columns': ['acct'], 'confirmed_by': 'Ana', 'holdout_identity_lost': 0, 'matched': 1000, 'matched_by': 'key acct', 'method': 'key', 'next_row_id': 1000, 'parent': 'ds_ba68572a', 'parent_holdout': 200, 'parent_storage': 'parquet', 'removed': 0, 'warnings': []}
+keys [{'columns': ['acct'], 'declared_by': 'Ana', 'kind': 'primary', 'valid': True}]
+## 9. repeat commit; the same file again (dedupe by data_sha256)
+HTTP 200 ds_a96a9f35 repeat True
+HTTP 200 ds_a96a9f35 deduped data match declared ['acct']
+## 10. the old route POST /datasets/{id}/versions (today's UI)
+HTTP 400 match_required | Say how rows are matched to the current version: nothing is guessed any more. The best candidate is 'acct' (unique on both sides, 100% of the new keys are in the parent): type it as the key column. Or pick 'exact row hash' to match by row content.
+preview HTTP 200 {'matched_by': 'key acct — the best candidate, not chosen yet: type it as the key to use it', 'matched': 1000, 'changed': 15, 'added': 0, 'removed': 0, 'holdout_identity_lost': 0, 'needs_match': True}
+HTTP 400 acknowledge_required | Matching by row content (exact row hash) gives 3 of the parent's 200 holdout rows new ids (1.5%): the holdout is redrawn for them, so runs on the two versions no longer pair on those rows. Key acct would match 15 more rows (1.5% of the file) than row content (exact row hash). Send acknowledge: ["holdout_identity_loss"] to commit it anyway (it is recorded), or choose another match.
+HTTP 201 ds_c6ad4638 {'matched_by': 'row content (exact row hash)', 'matched': 985, 'changed': 0, 'added': 15, 'removed': 15, 'holdout_identity_lost': 3, 'acknowledged': ['identity_loss', 'better_key_available']} {'is_default': False, 'default_stays': 'ds_a96a9f35', 'why': 'it has warnings: review them', 'how_to_promote': 'POST /api/datasets/ds_ba68572a/default {version_id: ds_c6ad4638}'}
+## 11. holdout by __row_id (files read through frames)
+holdout __row_id sets equal: True | size 200 | holdout acct equal: True
+15 corrected rows keep their v1 __row_id: True | of them in the holdout: 3
+tracebacks in the API log: 0

@@ -341,7 +341,8 @@ class DatasetStore:
         for p in sorted(d.glob("*.json")) if d.exists() else []:
             sp = load_splits(p)
             out.append({**{k: v for k, v in summarize(sp, None).items() if k != "diagram"},
-                        "created_at": sp.get("created_at"), "adopted_from": sp.get("adopted_from")})
+                        "created_at": sp.get("created_at"), "adopted_from": sp.get("adopted_from"),
+                        **({"carried": sp["carried"]} if sp.get("carried") else {})})  # P06: carried by __row_id
         return out
 
     def split_options(self, dataset_id: str, target: str | None) -> dict[str, Any]:

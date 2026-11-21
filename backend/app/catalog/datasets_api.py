@@ -74,12 +74,17 @@ async def history(dataset_id: str, request: Request) -> dict[str, Any]:
 @router.post("/datasets/{dataset_id}/versions", status_code=201)
 async def upload_version(dataset_id: str, request: Request, file: UploadFile = File(...), by: str = Form(""),
                          row_key: str | None = Form(None), preview: bool = Form(False), reason: str = Form(""),
-                         make_default: str = Form("auto")) -> dict[str, Any]:
-    """A new file as the next version of `dataset_id`: rows matched by `row_key` (default: an id-like column, else an
-    exact row hash; "hash" forces the hash), the same holdout on matched rows, contract warnings (never a block).
-    DL2: `preview=true` writes nothing and answers the matching summary, schema changes and warnings. `reason`: an
-    optional reason / change ticket, kept with the version. The new version becomes the default only when it has no
-    contract warnings and `make_default` is not "no"; otherwise POST …/default promotes it after review."""
+                         make_default: str = Form("auto"), acknowledge: str = Form("")) -> dict[str, Any]:
+    """A new file as the next version of `dataset_id`. P06: a wrapper of POST /uploads (parent = dataset_id) → check →
+    commit, so the rows are matched in DuckDB and **nothing is guessed**: `row_key` = a column (or "a,b") → match by that
+    key; "hash" → by row content; "none" → all rows new. Without `row_key` the commit answers 400 match_required with
+    the candidates (the best one first: type it as the key). `acknowledge` (comma list, e.g. holdout_identity_loss) is
+    needed when the match loses ≥ 1 % of the holdout's identities or a better key exists. `preview=true` writes nothing
+    and answers the matching summary (for the given key, else the best candidate, labelled as such). The new version
+    becomes the default only when it has no warnings and `make_default` is not "no"."""
+    from ..lake import upload as U
+    from ..lake.writer import LakeError
+
     who = _who(by)
     if make_default not in ("auto", "yes", "no"):
         raise HTTPException(400, "make_default is auto, yes or no.")
@@ -88,20 +93,122 @@ async def upload_version(dataset_id: str, request: Request, file: UploadFile = F
         raise HTTPException(404, f"No dataset with id '{dataset_id}'.")
     if rec.get("state") == D.DELETED:
         raise HTTPException(410, f"{dataset_id} was deleted.")
-    content = await file.read(config.MAX_UPLOAD_BYTES + 1)
-    if len(content) > config.MAX_UPLOAD_BYTES:
-        raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
-    before = None if preview else await _thread(D.current_default, request.app, dataset_id)
-    out = await _thread(request.app.state.datasets.upload_version, dataset_id, file.filename or "", content, by=who,
-                        row_key=(row_key or None) if row_key != "" else "", preview=preview, reason=reason.strip()[:500] or None)
-    if preview:  # DL4 (m-i): a preview creates nothing: 200, not 201
+    db, lake, ds = request.app.state.db, request.app.state.lake, request.app.state.datasets
+    rk = (row_key or "").strip()
+    match = None if not rk else {"method": "row_hash"} if rk == "hash" else {"method": "none"} if rk == "none" else \
+        {"method": "key", "columns": [c.strip() for c in rk.split(",") if c.strip()]}
+    acks = [a.strip() for a in (acknowledge or "").split(",") if a.strip()]
+    fname = file.filename or ""
+
+    def chunks():
+        while True:
+            b = file.file.read(U.CHUNK)
+            if not b:
+                return
+            yield b
+
+    def run() -> dict[str, Any]:
+        plan = {"parent_version_id": dataset_id, **({"match": match} if match else {}),
+                **({"reason": reason.strip()[:500]} if reason.strip() else {})}
+        u = U.stage_stream(db, lake, by=who, filename=fname, chunks=chunks(), plan=plan)
+        up = u["id"]
+        keep = False
+        try:
+            chk = U.check(db, lake, up, ds)
+            if chk.get("blocks"):
+                raise LakeError(400, "check_blocked", " ".join(b_["message"] for b_ in chk["blocks"]), blocks=chk["blocks"])
+            nv = chk.get("next_version") or {}
+            methods = nv.get("methods") or []
+            if preview:
+                return _legacy_preview(ds, dataset_id, fname, chk, nv, methods, match)
+            if match is None:
+                raise _match_required_legacy(nv)
+            ver, created = U.commit(db, lake, up, by=who, reason=reason.strip()[:500], match=match, acknowledge=acks,
+                                    make_default={"auto": None, "yes": True, "no": False}[make_default], dstore=ds)
+            keep = True
+            rec2 = ds.finish_lake_version(ver["version_id"], target=ver.get("target"), chk=U.get(db, up).get("check") or chk,
+                                          by=who) if created else db.get_dataset(ver["version_id"])
+            return {"ver": ver, "rec": rec2}
+        finally:
+            if not keep:
+                U.discard(db, lake, up)
+
+    try:
+        out = await run_in_threadpool(run)
+    except LakeError as e:
+        raise HTTPException(e.status, e.payload) from e
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+    if "ver" not in out:  # the preview: 200, nothing written
         from fastapi.responses import JSONResponse
 
         return JSONResponse(json.loads(json.dumps(out, default=str)), status_code=200)
-    dflt = await _thread(D.settle_default, request.app, out["id"], before, out["upload"]["checks"]["warnings"], who, make_default)
+    ver = out["ver"]
+    m = ver.get("match") or {}
+    dflt = ver.get("default") or {}
+    if ver.get("deduped"):
+        dflt = {"is_default": False, "why": f"the same data as {ver['version_id']}: no new version was made"}
+    elif not dflt.get("is_default"):
+        dflt = {**dflt, "why": dflt.get("why") or ("it has warnings: review them" if ver.get("warnings") else "make_default was no"),
+                "how_to_promote": f"POST /api/datasets/{ver['root_id']}/default {{version_id: {ver['version_id']}}}"}
     from ..main import _detail
 
-    return {**_detail(request.app.state.db.get_dataset(out["id"]) or out), "upload": {**out["upload"], "default": dflt}}
+    c = ver.get("contract") or {}
+    summary = {"matched_by": m.get("matched_by"), "row_key": (m.get("columns") or [None])[0] if m.get("method") in ("key", "declared") else None,
+               **{k: m.get(k) for k in ("matched", "changed", "added", "removed", "holdout_identity_lost", "acknowledged")},
+               "match": m, "deduped": ver.get("deduped"),
+               "checks": {"warnings": ver.get("warnings") or [], **{k: c.get(k) for k in ("columns_added", "columns_removed", "type_changes",
+                                                                                        "rows_before", "rows_after", "renamed_maybe")}},
+               **({"reason": reason.strip()[:500]} if reason.strip() else {}), "default": dflt}
+    body = {**_detail(db.get_dataset(ver["version_id"]) or out["rec"]), "upload": summary}
+    if ver.get("deduped"):  # nothing new was made: 200 with the existing version
+        from ..lake.values import SafeJSONResponse
+
+        return SafeJSONResponse(body, status_code=200)
+    return body
+
+
+def _match_required_legacy(nv: dict[str, Any]):
+    from ..lake.writer import LakeError
+
+    best = next((c for c in nv.get("candidates") or [] if c.get("valid")), None)
+    hint = (f"The best candidate is '{', '.join(best['columns'])}' (unique on both sides, {best['overlap']:.0%} of the new keys are "
+            f"in the parent): type it as the key column. " if best else "No column is a unique key on both sides. ")
+    return LakeError(400, "match_required", "Say how rows are matched to the current version: nothing is guessed any more. " + hint +
+                     "Or pick 'exact row hash' to match by row content.", candidates=nv.get("candidates") or [],
+                     methods=nv.get("methods") or [], preselect=nv.get("preselect"))
+
+
+def _legacy_preview(ds, dataset_id: str, fname: str, chk: dict[str, Any], nv: dict[str, Any], methods: list[dict[str, Any]],
+                    match: dict[str, Any] | None) -> dict[str, Any]:
+    """The DL2 preview shape (the UI of today), from the P06 check: the given match, else the best candidate."""
+    sim = next((x for x in methods if "chosen" in x.get("roles", [])), None) if match else None
+    if match and sim is None:  # the legacy form sends the key per request (no PATCH): simulate it here
+        sim = next((x for x in methods if x.get("method") == match["method"] and x.get("columns") == match.get("columns")), None)
+    guessed = False
+    if sim is None and match is None:
+        sim = next((x for x in methods if "best_candidate" in x.get("roles", [])), None) or \
+            next((x for x in methods if x.get("method") == "row_hash"), None)
+        guessed = True
+    t = chk["tables"][0]
+    c = nv.get("contract") or {}
+    lbl = (sim or {}).get("label") or "nothing"
+    with ds.db.connect() as con:
+        r = con.execute("SELECT root_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        root = (r[0] if r else None) or dataset_id
+        n_ver = 1 + con.execute("SELECT count(*) FROM datasets WHERE id = ? OR root_id = ?", (root, root)).fetchone()[0]
+    ok = bool(sim and sim.get("valid"))
+    return {"preview": True, "v": n_ver, "parent": dataset_id, "filename": fname, "rows": t["n_rows"], "n_cols": t["n_cols"],
+            "sha256": t.get("source_sha256"),
+            "matched_by": (f"{lbl} — the best candidate, not chosen yet: type it as the key to use it" if guessed and ok else lbl),
+            "row_key": (sim or {}).get("columns", [None])[0] if (sim or {}).get("method") == "key" else None,
+            **{k: (sim or {}).get(k, 0) if ok else 0 for k in ("matched", "changed", "added", "removed", "holdout_identity_lost")},
+            "checks": {"warnings": (c.get("warnings") or []) + ((sim or {}).get("warnings") or []),
+                       **{k: c.get(k) for k in ("columns_added", "columns_removed", "type_changes", "rows_before", "rows_after")}},
+            "candidates": nv.get("candidates") or [], "methods": methods, "needs_match": match is None,
+            "needs_acknowledge": (sim or {}).get("needs_acknowledge") or [], **({"problem": sim.get("problem")} if sim and not ok else {}),
+            "would_be_default": ok and not (c.get("warnings") or sim.get("warnings")),
+            "note": "nothing was written: send the file again without preview (with a row key) to create the version"}
 
 
 @router.get("/datasets/{a}/diff/{b}")
@@ -590,10 +697,13 @@ class _MultipartSink:
 
 @router.post("/uploads", status_code=201)
 async def create_upload(request: Request, filename: str | None = None, by: str | None = None, project_id: str | None = None,
-                        name: str | None = None, target: str | None = None) -> dict[str, Any]:
+                        name: str | None = None, target: str | None = None, parent_version_id: str | None = None,
+                        root_id: str | None = None) -> dict[str, Any]:
     """Stage an upload (§5.1 step 1). multipart/form-data with one file part (`file`) and optional fields by, name,
     target, project_id; or the raw file as the body (any other content type) with ?filename=…. The bytes stream to the
-    lake's tmp directory with sha256 on the fly; the cap is ENSEMBLE_MAX_UPLOAD_GB (5) and the disk must have 3x free."""
+    lake's tmp directory with sha256 on the fly; the cap is ENSEMBLE_MAX_UPLOAD_GB (5) and the disk must have 3x free.
+    P06: `parent_version_id` (or `root_id`: its default version) makes it the next version of that dataset; the check
+    then shows the match candidates and the commit needs `match`."""
     from python_multipart.multipart import parse_options_header
 
     from ..lake import upload as U
@@ -609,6 +719,8 @@ async def create_upload(request: Request, filename: str | None = None, by: str |
     who0 = (by or G.current_actor() or "").strip()
     plan0 = {k: v for k, v in (("name", name), ("target", target)) if v}
     try:
+        if parent_version_id or root_id:
+            plan0["parent_version_id"] = await run_in_threadpool(U.resolve_parent, db, parent_version_id, root_id)
         up, tmp = await run_in_threadpool(U.new_upload, db, lake, by=who0 or "unknown", project_id=project_id, plan=plan0)
         await run_in_threadpool(U.disk_guard, tmp, clen)
     except LakeError as e:
@@ -652,7 +764,12 @@ async def create_upload(request: Request, filename: str | None = None, by: str |
             raise LakeError(400, "no_file", "The upload has no file part (send it as the form field 'file').")
         who = _who((fields.get("by") or by or G.current_actor() or "").strip())
         plan = {**plan0, **{k: fields[k].strip() for k in ("name", "target") if fields.get(k, "").strip()}}
+        if (fields.get("parent_version_id") or fields.get("root_id") or "").strip():
+            plan["parent_version_id"] = await run_in_threadpool(U.resolve_parent, db, (fields.get("parent_version_id") or "").strip()
+                                                                or None, (fields.get("root_id") or "").strip() or None)
         pid = (fields.get("project_id") or project_id or "").strip() or None
+        if plan.get("parent_version_id"):
+            pid = None  # the parent's root decides the project
 
         def save() -> dict[str, Any]:
             with db.connect() as con:
@@ -663,8 +780,11 @@ async def create_upload(request: Request, filename: str | None = None, by: str |
                 con.execute("UPDATE uploads SET files_json = ?, plan_json = ?, created_by = ?, project_id = ?, team_id = ? WHERE id = ?",
                             (json.dumps(files), json.dumps({**plan, **({"project_id": pid} if pid else {})}), who, pid or "",
                              S.team_of_project(con, pid), up))
+                if plan.get("parent_version_id"):
+                    U._set_parent_cols(con, up, plan["parent_version_id"])
                 S.audit(con, who, "upload_staged", {"upload_id": up, "files": [{k: f[k] for k in ("filename", "bytes", "sha256")}
-                                                                                for f in files], "project_id": pid})
+                                                                                for f in files], "project_id": pid,
+                                                    "parent_version_id": plan.get("parent_version_id")})
             return U.public(U.get(db, up))
 
         return await run_in_threadpool(save)
@@ -685,7 +805,9 @@ async def get_upload(up: str, request: Request) -> dict[str, Any]:
 @router.patch("/uploads/{up}")
 async def patch_upload(up: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
     """The plan: {name?, target?, project_id?, table?, types?: {column: VARCHAR|BIGINT|DOUBLE|BOOLEAN|DATE|TIMESTAMP},
-    formats?: {column: strptime format}}. Declared types win over the import's choice. A changed plan needs a new check."""
+    formats?: {column: strptime format}, parent_version_id? | root_id? (P06: the next version of that dataset),
+    match?: {method: key|declared|row_hash|none, columns?} (the check simulates it)}. Declared types win over the
+    import's choice. A changed plan needs a new check."""
     from ..lake import upload as U
 
     return await _lthread(lambda: U.public(U.patch_plan(request.app.state.db, up, body if isinstance(body, dict) else {})))
@@ -698,14 +820,17 @@ async def check_upload(up: str, request: Request) -> dict[str, Any]:
     from ..lake import upload as U
 
     db, lake = request.app.state.db, request.app.state.lake
-    return await _lthread(U.check, db, lake, up)
+    return await _lthread(U.check, db, lake, up, request.app.state.datasets)
 
 
 @router.post("/uploads/{up}/commit", status_code=201)
 async def commit_upload(up: str, request: Request, body: dict[str, Any] | None = None):
-    """{by?, reason?, check_sha256?, make_default?}: the checked upload becomes a new Parquet dataset through the
-    VersionWriter (job_id = the upload id). 201 with the version; a repeat returns the same version (200, repeat: true).
-    409 when it was not checked, the plan or check changed (check_stale), or the check blocks."""
+    """{by?, reason?, check_sha256?, make_default?, match?, acknowledge?}: the checked upload becomes a new Parquet
+    dataset (or, with a parent, its next version) through the VersionWriter (job_id = the upload id). 201 with the
+    version; a repeat returns the same version (200, repeat: true). 409 when it was not checked, the plan or check
+    changed (check_stale), or the check blocks. P06, next version: 400 match_required without `match`; 400
+    acknowledge_required when the chosen match loses ≥ 1 % of the holdout's identities or a better key exists;
+    400 key_invalid for a key that is not unique and present; an identical version returns it (deduped: data)."""
     from ..lake import upload as U
     from ..lake.values import SafeJSONResponse
 
@@ -716,18 +841,19 @@ async def commit_upload(up: str, request: Request, body: dict[str, Any] | None =
 
     def run() -> tuple[dict[str, Any], bool]:
         ver, created = U.commit(db, lake, up, by=who, reason=reason, check_sha256=body.get("check_sha256"),
-                                make_default=body.get("make_default"))
+                                make_default=body.get("make_default"), match=body.get("match"),
+                                acknowledge=body.get("acknowledge"), dstore=request.app.state.datasets)
         rec0 = request.app.state.db.get_dataset(ver["version_id"]) or {}
         if created or "label_candidates" not in (rec0.get("profile") or {}):  # (a repeat finishes an interrupted profile)
             chk = U.get(db, up).get("check") or {}
-            rec = request.app.state.datasets.finish_lake_version(ver["version_id"], target=(U.get(db, up)["plan"] or {}).get("target"),
-                                                                 chk=chk, by=who)
+            rec = request.app.state.datasets.finish_lake_version(ver["version_id"], target=(U.get(db, up)["plan"] or {}).get("target")
+                                                                 or ver.get("target"), chk=chk, by=who)
             ver["profile_target"] = rec.get("target")
             ver["kind"] = rec.get("kind")
         return ver, created
 
     ver, created = await _lthread(run)
-    return SafeJSONResponse({**ver, "repeat": not created}, status_code=201 if created else 200)
+    return SafeJSONResponse({**ver, "repeat": not created and not ver.get("deduped")}, status_code=201 if created else 200)
 
 
 @router.delete("/uploads/{up}")

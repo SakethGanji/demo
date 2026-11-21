@@ -35,8 +35,9 @@ from . import manifest as M
 from .store import BlobStore
 
 #: ops whose result is the existing version when one of the root's live versions already has the same data_sha256
-#: (today's datasets.DEDUPE_OPS, plus a pure carry). An upload of identical data still makes a version (a warning).
-DEDUPE_OPS = ("shift_weights", "edit", "anomaly_review", "feature_lab", "carry")
+#: (today's datasets.DEDUPE_OPS, plus a pure carry). P06: an upload as the next version whose data (row ids, values,
+#: keys) equals a version of the root returns that version; a new dataset's first upload still makes a version.
+DEDUPE_OPS = ("shift_weights", "edit", "anomaly_review", "feature_lab", "carry", "upload_version")
 ROW_ID = "__row_id"
 
 

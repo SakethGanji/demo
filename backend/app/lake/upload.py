@@ -150,6 +150,8 @@ def new_upload(db, store, *, by: str, project_id: str | None = None, plan: dict[
                     " VALUES (?, ?, ?, 'staged', '[]', ?, ?, ?, ?)",
                     (up, team, project_id or "", json.dumps({**(plan or {}), **({"project_id": project_id} if project_id else {})}),
                      by, _iso(now), _iso(now + timedelta(days=STAGING_DAYS))))
+        if (plan or {}).get("parent_version_id"):
+            _set_parent_cols(con, up, plan["parent_version_id"])
     return up, store.tmp_dir(up)
 
 
@@ -172,6 +174,7 @@ def get(db, up: str) -> dict[str, Any]:
 def public(u: dict[str, Any], *, full: bool = True) -> dict[str, Any]:
     out = {"upload_id": u["id"], "status": u["status"], "team_id": u["team_id"], "project_id": u["project_id"] or None,
            "files": [{k: f[k] for k in ("n", "filename", "bytes", "sha256") if k in f} for f in u["files"] or []],
+           "parent_version_id": u.get("parent_version_id"), "root_id": u.get("root_id"),
            "plan": u["plan"] or {}, "check_sha256": u.get("check_sha256"), "committed_version_id": u.get("committed_version_id"),
            "created_by": u["created_by"], "created_at": u["created_at"], "expires_at": u["expires_at"]}
     if full and u.get("check"):
@@ -225,6 +228,16 @@ def patch_plan(db, up: str, body: dict[str, Any]) -> dict[str, Any]:
         if bad:
             raise LakeError(400, "bad_type", f"Declared types are one of {', '.join(DECLARABLE)}: {bad}.")
         plan["types"] = {str(c): str(v).upper() for c, v in t.items()}
+    if "parent_version_id" in body or "root_id" in body:  # P06: the upload is the next version of this dataset
+        plan["parent_version_id"] = resolve_parent(db, body.get("parent_version_id"), body.get("root_id")) \
+            if (body.get("parent_version_id") or body.get("root_id")) else None
+    if "match" in body:  # P06: the match the check also simulates (the commit may still name another)
+        from ..dataset_versions import parse_match
+
+        try:
+            plan["match"] = parse_match(body["match"], plan.get("table") or "") if body["match"] else None
+        except ValueError as e:
+            raise LakeError(400, "bad_match", str(e)) from None
     if "formats" in body:  # a date / timestamp format per column (strptime), e.g. {"opened": "%d/%m/%Y"}
         fm = body["formats"] or {}
         if not isinstance(fm, dict) or not all(isinstance(v, str) and "%" in v for v in fm.values()):
@@ -236,7 +249,37 @@ def patch_plan(db, up: str, body: dict[str, Any]) -> dict[str, Any]:
         # a changed plan makes the stored check stale: the commit asks for a new one
         con.execute("UPDATE uploads SET plan_json = ?, status = 'staged', check_json = NULL, check_sha256 = NULL,"
                     " project_id = COALESCE(?, project_id) WHERE id = ?", (json.dumps(plan), plan.get("project_id"), up))
+        _set_parent_cols(con, up, plan.get("parent_version_id"))
     return get(db, up)
+
+
+def resolve_parent(db, parent_version_id: str | None, root_id: str | None = None) -> str:
+    """P06: the version an upload continues: the version named, else the root's default version."""
+    with db.connect() as con:
+        vid = parent_version_id
+        if not vid and root_id:
+            r = con.execute("SELECT default_version_id FROM dataset_roots WHERE id = ?", (root_id,)).fetchone()
+            vid = (r[0] if r and r[0] else None) or root_id
+        r = con.execute("SELECT id, state FROM datasets WHERE id = ?", (vid,)).fetchone() if vid else None
+        if not r:
+            raise LakeError(404, "parent_not_found", f"No dataset version {vid or root_id!r} to add a version to.")
+        if r["state"] == "deleted":
+            raise LakeError(410, "parent_deleted", f"{vid} was deleted: pick another version as the parent.")
+    return vid
+
+
+def _set_parent_cols(con, up: str, vid: str | None) -> None:
+    """uploads.parent_version_id / root_id / project_id / team_id follow the plan's parent."""
+    if not vid:
+        con.execute("UPDATE uploads SET parent_version_id = NULL, root_id = NULL WHERE id = ?", (up,))
+        return
+    d = con.execute("SELECT root_id, project_id, team_id FROM datasets WHERE id = ?", (vid,)).fetchone()
+    root = (d["root_id"] if d else None) or vid
+    rr = con.execute("SELECT project_id, team_id FROM dataset_roots WHERE id = ?", (root,)).fetchone()
+    pid = (rr["project_id"] if rr else None) or (d["project_id"] if d else None)
+    team = (rr["team_id"] if rr else None) or (d["team_id"] if d else None) or S.team_of_project(con, pid)
+    con.execute("UPDATE uploads SET parent_version_id = ?, root_id = ?, project_id = COALESCE(?, project_id),"
+                " team_id = COALESCE(?, team_id) WHERE id = ?", (vid, root, pid, team, up))
 
 
 # --------------------------------------------------------------------------- detect + type
@@ -366,8 +409,9 @@ def _sniff(con, path: Path, sep: str) -> tuple[dict[str, str], dict[str, str | N
         return {}, {"date": None, "timestamp": None}
 
 
-def check(db, store, up: str) -> dict[str, Any]:
-    """Detect and type the staged file, write tmp/<up>/typed.parquet, store the check (§5.1 steps 2, 3, 6)."""
+def check(db, store, up: str, dstore: Any = None) -> dict[str, Any]:
+    """Detect and type the staged file, write tmp/<up>/typed.parquet, store the check (§5.1 steps 2, 3, 6). P06: an
+    upload with a parent also gets `next_version`: key candidates, every method simulated, warnings (§5.3)."""
     with _lock(up):
         u = get(db, up)
         if u["status"] in ("committed", "discarded", "expired"):
@@ -383,6 +427,8 @@ def check(db, store, up: str) -> dict[str, Any]:
         f = files[0]
         plan = u["plan"] or {}
         out = _check_file(db, tmp, f, plan, u["team_id"])
+        if plan.get("parent_version_id"):
+            out["next_version"] = _check_next(db, store, dstore, tmp, out, plan)
         out.update(upload_id=up, plan_sha256=_plan_sha(plan), seconds=round(time.time() - t0, 2))
         csha = hashlib.sha256(json.dumps({k: v for k, v in out.items() if k != "seconds"}, sort_keys=True,
                                          separators=(",", ":"), default=str).encode()).hexdigest()
@@ -631,12 +677,251 @@ def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any]
             "warnings": [], "blocks": blocks, "notes": [], "typed": f["src"] if not blocks else None}
 
 
+# --------------------------------------------------------------------------- P06: the next version (§4.2, §5.3)
+
+
+class _Parent:
+    """The parent table an upload continues: its relation, its row ids by position, its holdout ids, its keys."""
+
+    def __init__(self, db, store, dstore, vid: str, table: str | None) -> None:
+        from .. import frames
+
+        self.vid = vid
+        with db.connect() as con:
+            r = con.execute("SELECT id, root_id, storage, target, name, primary_table, rows FROM datasets WHERE id = ?",
+                            (vid,)).fetchone()
+            if not r:
+                raise LakeError(404, "parent_not_found", f"No dataset version {vid}.")
+            self.rec = dict(r)
+        self.root = self.rec["root_id"] or vid
+        self.storage = self.rec["storage"] or "csv"
+        self.arrow = None
+        self.declared: list[list[str]] = []
+        if self.storage == "parquet":
+            lt = frames.lake_table(frames.Table(vid, table or frames.PRIMARY_TABLE)) if table else \
+                frames.lake_table(frames.table(vid))
+            self.table, self.sql = lt.name, f"SELECT * FROM {frames.lake_sql(lt)}"
+            self.tables = []
+            with db.connect() as con:
+                self.tables = [x[0] for x in con.execute("SELECT table_name FROM version_tables WHERE version_id = ?"
+                                                         " ORDER BY ordinal", (vid,))]
+                self.declared = [json.loads(k[0]) for k in con.execute(
+                    "SELECT columns_json FROM table_keys WHERE version_id = ? AND table_name = ? AND valid = 1"
+                    " ORDER BY kind, columns_json", (vid, lt.name))]
+            with duck.job() as c:
+                self.ids = c.execute(f"SELECT __row_id FROM ({self.sql}) ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
+        else:
+            # a CSV-era parent (P10 migrates it later with these same ids, §5.11 step 3): lineage root_rows, else
+            # 0..n-1 for a root; a version with no row mapping cannot be continued without breaking identity
+            import numpy as np
+            import pyarrow as pa
+
+            df = frames.read_version(vid)
+            lin = dstore.lineage(vid) if dstore is not None else None
+            rr = (lin or {}).get("root_rows")
+            if rr and len(rr) == len(df):
+                ids = np.asarray(rr, dtype="int64")
+            elif self.root == vid:
+                ids = np.arange(len(df), dtype="int64")
+            else:
+                raise LakeError(409, "parent_unmapped", f"{vid} is a CSV-era version with no row mapping to its root: its rows "
+                                                        "have no stable ids to match against. Add the version to its root's "
+                                                        "default, or wait for the migration (P10).")
+            self.table = (table or "data")
+            self.tables = [self.table]
+            self.ids = ids
+            df = df.reset_index(drop=True)
+            df.insert(0, "__row_id", ids)
+            self.arrow = pa.Table.from_pandas(df, preserve_index=False)
+            self.sql = "SELECT * FROM _parent_csv"
+        tg = self.rec.get("target")
+        self.target = tg
+        self.holdout_ids = None
+        self.split_key = None
+        if dstore is not None:
+            try:
+                _, sp, _ = dstore.ensure_splits(vid, tg)
+                import numpy as np
+
+                pos = np.asarray(sp.get("holdout") or [], dtype="int64")
+                self.holdout_ids = self.ids[pos[pos < len(self.ids)]]
+                self.split = sp
+                self.split_key = sp.get("key")
+            except Exception as e:  # noqa: BLE001 - too few rows for a split: no holdout to lose
+                log.info("parent %s split: %s", vid, str(e)[:200])
+                self.split = None
+
+    def attach(self, con) -> None:
+        if self.arrow is not None:
+            con.register("_parent_csv", self.arrow)
+
+    def next_row_id(self, db) -> int:
+        with db.connect() as con:
+            r = con.execute("SELECT next_row_id FROM dataset_root_tables WHERE root_id = ? AND table_name = ?",
+                            (self.root, self.table)).fetchone()
+        hi = int(self.ids.max()) + 1 if len(self.ids) else 0
+        return max(hi, int(r[0]) if r else 0, 0)
+
+
+def _new_sql(typed: Path) -> str:
+    return (f"SELECT file_row_number::BIGINT AS __fr, * EXCLUDE (file_row_number) FROM read_parquet({_lit(typed)},"
+            " file_row_number = true)")
+
+
+def _matcher(con, parent: "_Parent", typed: Path):
+    from ..dataset_versions import Matcher
+
+    parent.attach(con)
+    return Matcher(con, parent.sql, _new_sql(typed), parent.holdout_ids, parent.declared)
+
+
+def _check_next(db, store, dstore, tmp: Path, out: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """§5.3 steps 1–3 for the check: candidates, the top candidate / declared key / row hash / the plan's match
+    simulated, the warnings each would raise, and what the commit will need."""
+    from ..dataset_versions import ACK_TOKEN
+
+    parent = _Parent(db, store, dstore, plan["parent_version_id"], plan.get("table"))
+    t = out["tables"][0]
+    t["name"] = parent.table  # the next version rewrites the parent's table
+    nv: dict[str, Any] = {"parent_version_id": parent.vid, "root_id": parent.root, "table": parent.table,
+                          "parent_storage": parent.storage, "parent_rows": int(len(parent.ids)),
+                          "parent_target": parent.target, "split_key": parent.split_key}
+    if out.get("blocks") or not out.get("typed"):
+        return {**nv, "note": "the file is blocked: matching runs once the blocks are fixed"}
+    con = duck.connect("job", **_duck_kw())
+    try:
+        mt = _matcher(con, parent, tmp / out["typed"])
+        cands = mt.candidates()
+        nv["parent_holdout"] = mt.n_holdout
+        nv["candidates"] = cands
+        sims: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def sim(m: dict[str, Any], role: str) -> dict[str, Any]:
+            k = json.dumps(m, sort_keys=True)
+            for s_ in sims:
+                if s_["_k"] == k:
+                    s_["roles"].append(role)
+                    return s_
+            r = {**mt.simulate(m), "roles": [role], "_k": k}
+            sims.append(r)
+            seen.add(k)
+            return r
+
+        best = None
+        valid_cands = [c for c in cands if c["valid"]]
+        if valid_cands:
+            best = sim({"method": "key", "columns": valid_cands[0]["columns"]}, "best_candidate")
+        if parent.declared:
+            sim({"method": "declared", "columns": parent.declared[0]}, "declared")
+        sim({"method": "row_hash"}, "row_hash")
+        chosen = None
+        pm = plan.get("match")
+        if pm:
+            m = dict(pm)
+            if m["method"] == "declared":
+                m["columns"] = parent.declared[0] if parent.declared else []
+            chosen = sim(m, "chosen") if m.get("columns") or m["method"] in ("row_hash", "none") else \
+                {"method": "declared", "valid": False, "problem": {"code": "no_declared_key",
+                                                                   "message": f"{parent.vid} has no confirmed key."}}
+        for s_ in sims:
+            s_["warnings"] = mt.warnings_for(s_, best)
+            s_["needs_acknowledge"] = [ACK_TOKEN] if any(w["needs_ack"] for w in s_["warnings"]) else []
+        nv["methods"] = [{k: v for k, v in s_.items() if k != "_k"} for s_ in sims]
+        nv["preselect"] = (dict(pm) if pm else {"method": "declared"} if parent.declared else
+                           {"method": "key", "columns": valid_cands[0]["columns"]} if valid_cands else None)
+        if chosen is not None:
+            nv["chosen"] = {k: v for k, v in chosen.items() if k != "_k"}
+        nv["contract"] = mt.contract(plan.get("target") or parent.target)
+        nv["commit_needs"] = {"match": True, "acknowledge_token": ACK_TOKEN,
+                              "note": "POST …/commit {match: {method: key|declared|row_hash|none, columns}, "
+                                      f"acknowledge: [\"{ACK_TOKEN}\"] when the chosen method shows needs_acknowledge}}"}
+    except ValueError as e:
+        raise LakeError(400, "match_impossible", str(e)) from None
+    finally:
+        _close(con)
+    return nv
+
+
+def _mask(db, root: str, table: str, problem: dict[str, Any]) -> dict[str, Any]:
+    """key_invalid examples: values of a PII-tagged key column are masked (§6.3)."""
+    with db.connect() as con:
+        tags = {r[0]: (r[1], r[2]) for r in con.execute(
+            "SELECT column_name, tag, mask FROM column_tags WHERE root_id = ? AND table_name = ?", (root, table))}
+    cols = problem.get("columns") or []
+    for side in (problem.get("sides") or {}).values():
+        for ex in side.get("examples") or []:
+            vals = []
+            for c, v in zip(cols, ex["value"]):
+                tag, mk = tags.get(c, ("none", "none"))
+                if v is not None and tag in ("pii_direct", "pii_quasi"):
+                    v = ("•••" + v[-4:]) if mk == "last4" and len(v) > 4 else \
+                        hashlib.sha256(v.encode()).hexdigest()[:10] if mk == "hash" else "•••"
+                vals.append(v)
+            ex["value"] = vals
+    return problem
+
+
+def _write_legacy_bridge(dstore, vid: str, parent: "_Parent", rids: Any, pids: Any, match_rec: dict[str, Any],
+                         by: str, reason: str) -> None:
+    """Until splits are Parquet (P09): the new version's DL4 split JSON, carried by __row_id (matched rows keep the
+    parent's fold and holdout; new rows: splitmix64(__row_id ⊕ seed) for the holdout share, §5.7), and a lineage.json
+    so the CSV-era readers (diff pairing, compare root rows) see the same pairing the manifest records."""
+    import numpy as np
+
+    from .. import config
+    from ..splits import save_splits
+    from . import manifest as M
+
+    d = dstore.dir(vid)
+    d.mkdir(parents=True, exist_ok=True)
+    pos_of = {int(r): i for i, r in enumerate(parent.ids.tolist())}
+    parent_rows = [pos_of.get(int(p), -1) if p is not None else -1 for p in pids]
+    sp = parent.split
+    if sp is not None:
+        k = int(sp.get("n_folds") or config.N_FOLDS)
+        ph = set(int(h) for h in sp.get("holdout") or [])
+        pf = sp.get("fold") or []
+        seed = int(sp.get("seed") or config.SEED)
+        mix = M.splitmix64(np.asarray(rids, dtype="int64") ^ np.int64(seed)) if len(rids) else np.zeros(0, dtype="uint64")
+        fold, hold = [], []
+        for i, pp in enumerate(parent_rows):
+            if pp >= 0 and pp < len(pf):
+                fold.append(int(pf[pp]))
+                if pp in ph:
+                    hold.append(i)
+            elif float(mix[i]) / 2 ** 64 < float(config.HOLDOUT_SHARE):
+                fold.append(-1)
+                hold.append(i)
+            else:
+                fold.append(int(mix[i] % np.uint64(k)))
+        new_sp = {k_: v for k_, v in sp.items() if k_ not in ("holdout", "fold", "adopted_from", "created_at", "tuning", "excluded")}
+        new_sp.update(holdout=hold, fold=fold, derived_from=parent.vid,
+                      carried={"from": parent.vid, "by": "__row_id", "kept_holdout": sum(1 for p in parent_rows if p in ph),
+                               "new_rows": sum(1 for p in parent_rows if p < 0), "new_holdout": sum(1 for i in hold if parent_rows[i] < 0)})
+        if sp.get("params"):  # a structured split is not carried row by row: drawn fresh on first use
+            new_sp = None
+        if new_sp is not None:
+            save_splits(dstore.legacy_splits_path(vid), new_sp)
+    lin = {"parent": parent.vid, "root": parent.root, "kind": "upload_version", "op": "upload_version",
+           "storage": "parquet", "root_rows": [int(r) for r in rids], "parent_rows": parent_rows,
+           "matched_by": match_rec["matched_by"], "row_key": (match_rec.get("columns") or [None])[0]
+           if match_rec["method"] in ("key", "declared") and len(match_rec.get("columns") or []) == 1 else None,
+           "match": match_rec, "rows_before": int(len(parent.ids)), "rows_after": int(len(rids)), "by": by,
+           **({"reason": reason} if reason else {}),
+           "note": "P06 bridge: __row_id is the root row; the manifest's provenance.ops[].match is the record"}
+    (d / "lineage.json").write_text(json.dumps(lin))
+
+
 # --------------------------------------------------------------------------- commit
 
 
 def commit(db, store, up: str, *, by: str, reason: str = "", check_sha256: str | None = None,
-           make_default: bool | None = None) -> tuple[dict[str, Any], bool]:
-    """(the committed version, created). Idempotent on the upload id: a repeat returns the version (created=False)."""
+           make_default: bool | None = None, match: Any = None, acknowledge: Any = None,
+           dstore: Any = None) -> tuple[dict[str, Any], bool]:
+    """(the committed version, created). Idempotent on the upload id: a repeat returns the version (created=False).
+    P06: an upload with a parent needs `match` (400 match_required with the candidates otherwise) and, when the chosen
+    method loses ≥ 1 % of the parent's holdout identities or a better key exists, acknowledge: ["holdout_identity_loss"]."""
     with _lock(up):
         u = get(db, up)
         if u["status"] == "committed" and u.get("committed_version_id"):
@@ -661,6 +946,9 @@ def commit(db, store, up: str, *, by: str, reason: str = "", check_sha256: str |
             raise LakeError(409, "check_required", "The checked file is gone from staging; check again.")
         t = chk["tables"][0]
         f = (u["files"] or [])[0]
+        if plan.get("parent_version_id"):
+            return _commit_next(db, store, dstore, u, chk, plan, typed, tmp, by=by, reason=reason, make_default=make_default,
+                                match=match if match is not None else plan.get("match"), acknowledge=acknowledge)
         name = plan.get("name") or re.sub(r"\.(csv|tsv|txt|parquet)$", "", Path(f["filename"] or "upload").name, flags=re.I)
         target = plan.get("target")
         reasons = {c["name"]: c["reason"] for c in t["schema"] if c.get("reason")}
@@ -688,6 +976,143 @@ def commit(db, store, up: str, *, by: str, reason: str = "", check_sha256: str |
         if store and hasattr(store, "remove_tmp"):
             store.remove_tmp(tmp)
         return _version(db, vid, up, out), True
+
+
+def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan: dict[str, Any], typed: Path, tmp: Path, *,
+                 by: str, reason: str, make_default: bool | None, match: Any, acknowledge: Any) -> tuple[dict[str, Any], bool]:
+    """§5.3 steps 3–4 and §5.2: the person's `match`, re-simulated now, warnings acknowledged, ids assigned (matched rows
+    keep the parent's __row_id, new rows get next_row_id + k in file order), written through the VersionWriter with the
+    decision in provenance.ops[].match and the warnings in provenance.checks."""
+    from ..dataset_versions import ACK_TOKEN, parse_match
+
+    up = u["id"]
+    t = chk["tables"][0]
+    f = (u["files"] or [])[0]
+    nv = chk.get("next_version") or {}
+    try:
+        m = parse_match(match, t["name"])
+    except ValueError as e:
+        raise LakeError(400, "bad_match", str(e)) from None
+    if m is None:
+        raise LakeError(400, "match_required",
+                        "Say how this file's rows are matched to the parent's: match = {method: key, columns: [...]}, "
+                        "{method: declared}, {method: row_hash} or {method: none}. Nothing is guessed. The candidates and "
+                        "what each method would do are below (and in the check).",
+                        candidates=nv.get("candidates") or [], methods=nv.get("methods") or [], preselect=nv.get("preselect"))
+    acks = acknowledge if isinstance(acknowledge, list) else [acknowledge] if isinstance(acknowledge, str) and acknowledge else []
+    acks = [str(a) for a in acks]
+    parent = _Parent(db, store, dstore, plan["parent_version_id"], plan.get("table"))
+    if parent.vid != nv.get("parent_version_id", parent.vid):
+        raise LakeError(409, "check_stale", "The parent changed after the check; check again.")
+    if m["method"] == "declared":
+        if not parent.declared:
+            raise LakeError(400, "no_declared_key", f"{parent.vid} has no confirmed key for table {parent.table!r}: choose "
+                                                    "{method: key, columns: [...]} instead.")
+        m["columns"] = parent.declared[0]
+    sources = [{"filename": f["filename"], "sha256": f["sha256"], "bytes": f["bytes"], "kept": True}]
+    reasons = {c["name"]: c["reason"] for c in t["schema"] if c.get("reason")}
+    target = plan.get("target") or (parent.target if parent.target in {c["name"] for c in t["schema"]} else None)
+    w = VersionWriter(db, store, op="upload_version", by=by, parent_id=parent.vid, reason=reason or plan.get("reason") or "",
+                      job_id=up, sources=sources, primary_table=parent.table, duck_kw=_duck_kw())
+    with w:
+        done = w.committed_for_job()
+        if done:
+            _mark_committed(db, up, done)
+            return _version(db, done, up), False
+        try:
+            mt = _matcher(w.con, parent, typed)
+        except ValueError as e:
+            raise LakeError(400, "match_impossible", str(e)) from None
+        if m["method"] in ("key", "declared"):
+            prob = mt.key_problems(m["columns"])
+            if prob:
+                if prob["code"] == "key_invalid":
+                    masked = _mask(db, parent.root, parent.table, prob)
+                    raise LakeError(400, "key_invalid", prob["message"],
+                                    **{k: v for k, v in masked.items() if k not in ("code", "message")})
+                raise LakeError(400, "bad_match", prob["message"], columns=prob["columns"])
+        chosen = mt.simulate(m)
+        cands = mt.candidates()
+        best = next((mt.simulate({"method": "key", "columns": c["columns"]}) for c in cands if c["valid"]), None)
+        if best is not None and best.get("columns") == chosen.get("columns") and m["method"] in ("key", "declared"):
+            best = chosen
+        mw = mt.warnings_for(chosen, best)
+        need = [x for x in mw if x["needs_ack"]]
+        if need and ACK_TOKEN not in acks and not all(x["code"] in acks for x in need):
+            raise LakeError(400, "acknowledge_required",
+                            " ".join(x["message"] for x in need) +
+                            f" Send acknowledge: [\"{ACK_TOKEN}\"] to commit it anyway (it is recorded), or choose another match.",
+                            warnings=need, chosen=chosen, best_candidate=best)
+        for x in mw:
+            x["acknowledged"] = bool(x["needs_ack"])
+        contract = mt.contract(target)
+        warns = [{k: v for k, v in x.items() if k != "examples"} for x in chk.get("warnings") or []] + \
+            [{k: v for k, v in x.items() if k not in ("values",)} for x in contract["warnings"]] + \
+            [{**x, "source": "match"} for x in mw]
+        mt.materialise(m, "_m")
+        nxt = parent.next_row_id(db)
+        w.con.execute("CREATE OR REPLACE TEMP TABLE _ids AS SELECT n.__fr, m.pid,"
+                      f" CASE WHEN m.pid IS NOT NULL THEN m.pid ELSE {int(nxt)} + row_number() OVER"
+                      " (PARTITION BY m.pid IS NULL ORDER BY n.__fr) - 1 END::BIGINT AS rid"
+                      " FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)")
+        cols = ", ".join(f"n.{_q(c['name'])}" for c in t["schema"])
+        w.write(parent.table, f"SELECT i.rid AS {ROW_ID}, {cols} FROM _n n JOIN _ids i USING (__fr)", reasons=reasons,
+                source_file=f["filename"])
+        for other in parent.tables:  # a multi-table parent: the other tables are carried (zero bytes)
+            if other != parent.table:
+                w.carry(other)
+        new_cols = {c["name"] for c in t["schema"]}
+        for k in _parent_keys(db, parent):
+            if all(c in new_cols for c in k["columns"]):
+                w.key(parent.table, k["columns"], kind=k["kind"], declared_by=k["declared_by"])
+        if m["method"] in ("key", "declared"):  # the chosen key is saved as a confirmed key (§5.3 step 3)
+            w.key(parent.table, m["columns"], kind="primary", declared_by=by)
+        rows = w.con.execute("SELECT rid, pid FROM _ids ORDER BY rid").fetchall()
+        rids = [int(r[0]) for r in rows]
+        pids = [None if r[1] is None else int(r[1]) for r in rows]
+        scores = [[",".join(c["columns"]), f"{c['score']:.4f}"] for c in cands]
+        rh = mt.simulate({"method": "row_hash"}) if m["method"] != "row_hash" else chosen
+        if rh.get("valid"):
+            scores.append(["row_hash", f"{rh['matched_share']:.4f}"])
+        rec = {"method": m["method"], **({"columns": m["columns"]} if m.get("columns") else {}), "confirmed_by": by,
+               "matched_by": chosen["label"], "candidates": scores,
+               **{k: chosen[k] for k in ("matched", "changed", "added", "removed", "holdout_identity_lost", "parent_holdout")},
+               "acknowledged": [x["code"] for x in mw if x["needs_ack"]], "warnings": [x["code"] for x in mw],
+               "parent": parent.vid, "parent_storage": parent.storage, "next_row_id": int(nxt),
+               **({"best_candidate": {"columns": best["columns"], "matched": best["matched"],
+                                      "holdout_identity_lost": best["holdout_identity_lost"]}} if best else {})}
+        w.extra_ops.append({"op": "upload_version", "table": parent.table, "match": rec})
+        w.warnings = warns
+        out = w.commit(make_default=make_default, target=target, kind="tabular",
+                       note=f"Uploaded file {f['filename']} as the next version of {parent.vid}: {chosen['matched']:,} rows "
+                            f"matched by {chosen['label']}, {chosen['changed']:,} changed, {chosen['added']:,} new, "
+                            f"{chosen['removed']:,} gone")
+    vid = out["version_id"]
+    created = not out.get("deduped")
+    if created and dstore is not None:
+        _write_legacy_bridge(dstore, vid, parent, rids, pids, rec, by, reason or plan.get("reason") or "")
+    _keep_source(db, store, tmp / f["src"], f, up, vid)
+    _mark_committed(db, up, vid)
+    with db.connect() as con:
+        S.audit(con, by, "upload_committed", {"upload_id": up, "dataset_id": vid, "root_id": parent.root, "parent": parent.vid,
+                                              "check_sha256": u["check_sha256"], "source_sha256": f["sha256"],
+                                              "match": {k: rec[k] for k in ("method", "matched", "changed", "added", "removed",
+                                                                            "holdout_identity_lost", "acknowledged")}
+                                              | ({"columns": rec["columns"]} if rec.get("columns") else {}),
+                                              "deduped": out.get("deduped")})
+    if store and hasattr(store, "remove_tmp"):
+        store.remove_tmp(tmp)
+    res = _version(db, vid, up, out)
+    res.update(match=rec, warnings=warns, contract=contract, deduped=out.get("deduped"))
+    return res, created
+
+
+def _parent_keys(db, parent: "_Parent") -> list[dict[str, Any]]:
+    if parent.storage != "parquet":
+        return []
+    with db.connect() as con:
+        return [{"columns": json.loads(r["columns_json"]), "kind": r["kind"], "declared_by": r["declared_by"]}
+                for r in con.execute("SELECT * FROM table_keys WHERE version_id = ? AND table_name = ?", (parent.vid, parent.table))]
 
 
 def _keep_source(db, store, src: Path, f: dict[str, Any], up: str, vid: str) -> None:
