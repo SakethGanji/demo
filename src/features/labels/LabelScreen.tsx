@@ -6,7 +6,7 @@ import { usePoc } from '@/shared/hooks/usePoc'
 import { Badge, CardHead, Callout, CoverageBar, Flash, Stats, Why } from '@/shared/components/DataKit'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { int, pct, plural } from '@/shared/lib/format'
-import { Busy, Kbd, errText, show } from './parts'
+import { Busy, Kbd, ReadErr, errText, show } from './parts'
 
 type Mode = 'label' | 'review' | 'quality'
 const MODES: Mode[] = ['label', 'review', 'quality']
@@ -193,7 +193,7 @@ function Review({ task, classes, by, root }: { task: Task; classes: ReturnType<t
         actions={<div className="seg" role="group">{KINDS.map((k) => <button key={k} className={k === kind ? 'on' : ''} aria-pressed={k === kind} onClick={() => { setKind(k); setSel(0) }} data-testid={`lbl-review-${k}`}>{k.replace('_', ' ')}</button>)}</div>} />
       <div className="card-body stack" style={{ gap: 8 }}>
         <Flash msg={msg} testId="lbl-review-msg" />
-        {r.err && !r.data ? <Callout tone="danger">{r.err}</Callout> : !r.data ? <Busy>Reading the {kind.replace('_', ' ')} items…</Busy>
+        {r.err && !r.data ? <ReadErr err={r.err} what="Review" /> : !r.data ? <Busy>Reading the {kind.replace('_', ' ')} items…</Busy>
           : !items.length ? <span className="muted">Nothing {kind.replace('_', ' ')} right now.</span>
           : items.map((x, j) => {
             const lock = !poc && !!x.you_voted
@@ -213,7 +213,7 @@ function Review({ task, classes, by, root }: { task: Task; classes: ReturnType<t
 }
 
 function QualityView({ q, err }: { q?: Quality | null; err: string }) {
-  if (err && !q) return <Callout tone="danger" title="Quality not available">{err}</Callout>
+  if (err && !q) return <ReadErr err={err} what="Quality" />
   if (!q) return <Busy>Measuring agreement and gold accuracy…</Busy>
   const k = q.kappa ?? q.fleiss_kappa ?? null
   return (

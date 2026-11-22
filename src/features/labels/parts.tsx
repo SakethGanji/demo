@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { Callout } from '@/shared/components/DataKit'
 import { int } from '@/shared/lib/format'
 import { refusal } from '@/shared/api/governance'
 import type { ColStatus, LayerStatus, StatusCounts } from '@/shared/api/labels'
@@ -65,3 +66,9 @@ export const who = (id?: string | null, name?: string | null) => name || id || '
 
 /** The busy line inside a card (the page-level Loading is a card of its own). */
 export const Busy = ({ children }: { children: ReactNode }) => <div className="row muted lbl-busy"><ResonanceWave /> {children}</div>
+
+/** A read that failed: a route this API does not have yet (404 / 501) reads as "not available", anything else as an error. */
+export function ReadErr({ err, what }: { err: string; what: string }) {
+  if (/not found|not_built|not built|501/i.test(err)) return <Callout tone="neutral" title={`${what}: not available on this API yet`}>The API answered “{err}”. The screen fills in once the route is deployed.</Callout>
+  return <Callout tone="danger" title={`${what} could not be read`}>{err}</Callout>
+}

@@ -115,6 +115,7 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
           {at > 0 && <button className="btn sm ghost" onClick={() => setAt(at - 1)}>← Back</button>}
           {at < 3 ? <button className="btn sm primary" disabled={!okStep[at]} onClick={() => setAt(at + 1)} data-testid="lbl-task-next">Next: {STEPS[at + 1]} →</button>
             : <button className="btn sm primary" disabled={busy || !by || !can?.allow || !okStep.every(Boolean)} title={why(can, 'Create the task and queue the rows')} onClick={create} data-testid="lbl-task-create">{busy ? 'Creating…' : 'Create task and queue rows'}</button>}
+          {at < 3 && !okStep[at] && <Why>{at === 0 ? (!column ? 'Choose the column labelled.' : 'At least two classes, comma-separated.') : at === 2 ? 'How many rows to queue.' : ''}</Why>}
           <span className="spacer" />
           <button className="btn sm ghost" onClick={onCancel}>Cancel</button>
           {at === 3 && can && !can.allow && <Why>{why(can)}</Why>}

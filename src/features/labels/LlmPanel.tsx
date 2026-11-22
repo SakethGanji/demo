@@ -5,7 +5,7 @@ import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { Badge, CardHead, Callout, ConfirmButton, CopyId, CoverageBar, Field, Flash, Stats, Why } from '@/shared/components/DataKit'
 import { day, int, pct, plural } from '@/shared/lib/format'
-import { Busy, errText, show } from './parts'
+import { Busy, ReadErr, errText, show } from './parts'
 import { settle } from './LabelsTab'
 
 const DEFAULT_TEMPLATE = 'You label rows of a table.\nClasses: {classes}\n\nGuidelines:\n{guidelines}\n\nRow:\n{row}\n\nAnswer with one class and a confidence from 0 to 1.'
@@ -76,7 +76,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
               {!edit && <button className="btn sm" disabled={gate} title={gateWhy || 'Edit as a new version'} onClick={() => setEdit({ template: p?.template ?? DEFAULT_TEMPLATE, context, model: p?.model ?? 'claude-haiku-5-5' })} data-testid="lbl-llm-edit">{p ? 'New version…' : 'Write prompt…'}</button>}
             </span>} />
           <div className="card-body stack" style={{ gap: 8 }}>
-            {ps.err && !ps.data ? <Callout tone="danger">{ps.err}</Callout> : edit ? <>
+            {ps.err && !ps.data ? <ReadErr err={ps.err} what="Prompts" /> : edit ? <>
               <Field label="Template" hint="{classes}, {guidelines}, {row} are filled in; the row holds only the columns sent"><textarea className="input mono lbl-guide-edit" rows={8} value={edit.template} onChange={(e) => setEdit({ ...edit, template: e.target.value })} data-testid="lbl-llm-template" /></Field>
               <Field label="Model" hint="a full model id, never an alias"><input className="input mono" value={edit.model} onChange={(e) => setEdit({ ...edit, model: e.target.value })} /></Field>
               <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== specCol(layer.schema?.spec)?.column).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
@@ -123,7 +123,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
       <div className="card" data-testid="lbl-llm-runs">
         <CardHead title="Runs" badge={runs.data ? <Badge status="none">{runs.data.length}</Badge> : undefined} sub="preview, calibration and labeling runs: rows, spend against the cap, PII redactions" />
         <div className="card-body">
-          {runs.err && !runs.data ? <Callout tone="danger">{runs.err}</Callout> : !runs.data ? <Busy>Reading runs…</Busy> : !runs.data.length ? <span className="muted">No run yet.</span>
+          {runs.err && !runs.data ? <ReadErr err={runs.err} what="Runs" /> : !runs.data ? <Busy>Reading runs…</Busy> : !runs.data.length ? <span className="muted">No run yet.</span>
             : <div className="table-wrap"><table className="table">
               <thead><tr><th>Run</th><th>Purpose</th><th>Rows</th><th className="r">Spent / cap</th><th className="r">Redactions</th><th>Status</th><th>Made</th></tr></thead>
               <tbody>{runs.data.map((r) => <tr key={r.id} className={r.id === cur?.id ? 'sel' : ''} onClick={() => setRunSel(r.id)} style={{ cursor: 'pointer' }} data-testid={`lbl-llm-runrow-${r.purpose}`}>
