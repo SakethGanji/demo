@@ -79,9 +79,27 @@ def install(app, settings) -> None:
         m = blob_re.search(str(exc))
         return _missing(m.group(1) if m else None, exc, request)
 
+    ds_re = _re.compile(r"/datasets/([A-Za-z0-9_.-]{1,200})/")
+
     async def _fnf(request: Request, exc: FileNotFoundError):
         m = blob_re.search(f"{exc.filename or ''} {exc}")
-        return _missing(m.group(1), exc, request) if m else _server_error(exc)
+        if m:
+            return _missing(m.group(1), exc, request)
+        d = ds_re.search(str(exc.filename or exc))
+        if d:  # F-X5b (X4 m4): a file of a deleted version (its split, its CSV) is gone on purpose → 410
+            try:
+                with request.app.state.db.connect() as con:
+                    st = con.execute("SELECT state FROM datasets WHERE id = ?", (d.group(1),)).fetchone()
+            except Exception:  # noqa: BLE001
+                st = None
+            if st and st[0] == "deleted":
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse({"detail": {"code": "version_deleted", "version_id": d.group(1),
+                                                "message": f"{d.group(1)} was deleted: what this needs from it (its rows, "
+                                                           "its split) is gone; only its tombstone and lineage are kept."}},
+                                    status_code=410)
+        return _server_error(exc)
 
     async def _duck_io(request: Request, exc: duckdb.IOException):
         m = blob_re.search(str(exc))
