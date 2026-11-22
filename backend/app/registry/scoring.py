@@ -196,6 +196,11 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
                                    "model": p.model_best, "problem_type": p.problem_type}
         if reasons_summary is not None:
             summary["reasons"] = reasons_summary
+        if cfg.get("_batch_join"):  # P15: the batch's files, joined with the model's saved join
+            bj = cfg["_batch_join"]
+            summary["join"] = {**{k: v for k, v in bj.items() if k != "path"}, "rows_equal_grain": n == bj["grain_rows"]}
+            summary["missing_columns"] = [c for c in missing]
+            summary["extra_columns"] = [c for c in extra if c != "__row_id"]
         if clf:
             vc = pred.astype(str).value_counts()
             summary["predicted"] = {str(k): int(v) for k, v in vc.items()}
@@ -867,3 +872,140 @@ def _batch_recourse(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, A
     n_ok = sum(any(o["valid"] for o in r["options"]) for r in res)
     return jsonable({"k": RECOURSE_BATCH_K, "rows_searched": int(len(idx)), "with_valid": int(n_ok),
                      "seconds": rc_.last_seconds if len(idx) else 0.0, "rows": rows})
+
+
+# --------------------------------------------------------------------------- P15: batches for join models
+
+
+class BatchInputError(ValueError):
+    """A batch's files do not fit the model's join (400): a missing table, an unknown file, a missing column."""
+
+    def __init__(self, code: str, message: str, **extra: Any) -> None:
+        super().__init__(message)
+        self.code, self.message, self.extra = code, message, extra
+
+    def detail(self) -> dict[str, Any]:
+        return {"code": self.code, "message": self.message, **self.extra}
+
+
+def _sheets(name: str, content: bytes) -> list[tuple[str, bytes, str]]:
+    """(table name, bytes, file label) per input: a workbook gives one per sheet, any other file one by its stem."""
+    import io
+    import re as _re
+
+    if _re.search(r"\.xlsx$", name, _re.I) or (content[:2] == b"PK" and not _re.search(r"\.(csv|tsv|txt)$", name, _re.I)):
+        xl = pd.ExcelFile(io.BytesIO(content))
+        if len(xl.sheet_names) > 1:
+            out = []
+            for sh in xl.sheet_names:
+                buf = io.BytesIO()
+                xl.parse(sh, dtype=str).to_excel(buf, index=False)  # one sheet as its own workbook: the typed reader runs on it
+                out.append((str(sh), buf.getvalue(), f"{name} › {sh}"))
+            return out
+    return [(Path(name).stem, content, name)]
+
+
+def _as_pinned(s: pd.Series, typ: str) -> pd.Series:
+    """A user column in the kind of the pinned table's column (DuckDB then TRY_CASTs to the exact type)."""
+    k = frames.kind_of_type(typ)
+    if k in ("integer", "number"):
+        return pd.to_numeric(s, errors="coerce") if s.dtype.kind not in "biuf" else s
+    if k == "text" or typ.upper() in ("VARCHAR", "TEXT", "STRING"):
+        if s.dtype.kind == "M":
+            ts = pd.to_datetime(s, errors="coerce")
+            midnight = bool(((ts.dt.hour == 0) & (ts.dt.minute == 0) & (ts.dt.second == 0)).all())
+            return ts.dt.strftime("%Y-%m-%d" if midnight else "%Y-%m-%d %H:%M:%S").where(ts.notna(), None).astype(object)
+        if s.dtype.kind != "O":
+            return s.map(lambda v: None if pd.isna(v) else (str(int(v)) if isinstance(v, float) and v.is_integer() else str(v))).astype(object)
+    return s
+
+
+def join_batch_frame(db_path: str, cfg: dict[str, Any], uploads: list[tuple[str, bytes]], out_dir: str | Path) -> dict[str, Any]:
+    """P15 (§5.3): a batch for a join model is one file per input table (or one workbook with a sheet per table). Each
+    file is checked against its pinned table's schema (400 naming a missing column), cast to the pinned types, given
+    __row_id 0…n-1, and the saved join is applied with `frames.materialise`, the path training used. The frame has
+    exactly the batch grain's rows (asserted). Returns {path, tables, grain_rows, frame_rows, spec_sha256, …}."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from ..lake import duck
+    from ..lake import manifest as M
+
+    jn = cfg["join"]
+    db = Database(Path(db_path))
+    with db.connect() as con:
+        jr = con.execute("SELECT name, spec_json, spec_sha256 FROM joins WHERE id = ?", (jn["join_id"],)).fetchone()
+    if not jr:
+        raise BatchInputError("join_gone", f"The model's join {jn['join_id']} no longer exists.")
+    spec = json.loads(jr["spec_json"])
+    pinned = [{**x, "role": x.get("role") or ("grain" if i == 0 else f"join:{i - 1}")} for i, x in enumerate(jn.get("inputs") or [])]
+    names = [x["table"] for x in pinned]
+    if len(set(names)) != len(names):
+        raise BatchInputError("ambiguous_tables", "The model's join reads two tables with the same name; name the files "
+                                                  "by role is not supported yet.", tables=names)
+    got: dict[str, tuple[bytes, str]] = {}
+    for fname, content in uploads:
+        for tname, b, label in _sheets(fname, content):
+            match = tname if tname in names else next((n for n in names if n.lower() == tname.lower()), None)
+            if match is None:
+                raise BatchInputError("batch_table_unknown", f"{label}: the model's join has no table {tname!r}. Send one "
+                                      f"file per input table, named after it: {', '.join(n + '.csv' for n in names)} "
+                                      "(or one .xlsx with a sheet per table).", file=label, tables=names)
+            if match in got:
+                raise BatchInputError("batch_table_twice", f"Two files are table {match!r}: {got[match][1]} and {label}.", table=match)
+            got[match] = (b, label)
+    missing_tables = [n for n in names if n not in got]
+    if missing_tables:
+        raise BatchInputError("batch_table_missing", f"The model's join reads {len(names)} tables; the batch has no file for "
+                              f"{', '.join(missing_tables)}. Send one file per input table: {', '.join(n + '.csv' for n in names)}.",
+                              tables=missing_tables, expected=names)
+    out_dir = Path(out_dir)
+    (out_dir / "tables").mkdir(parents=True, exist_ok=True)
+    not_needed = {cfg["label"], *(cfg.get("drop_columns") or [])}
+    lts, info = [], {}
+    for x in pinned:
+        t = x["table"]
+        b, label = got[t]
+        schema = frames.lake_table(frames.Table(x["version_id"], t)).schema
+        cols = [c for c in schema if c["name"] != "__row_id"]
+        df = frames.read_upload(b, filename=label, kind="batch")
+        optional = not_needed if x.get("role") == "grain" else set()
+        miss = [c["name"] for c in cols if c["name"] not in df.columns and c["name"] not in optional]
+        if miss:
+            raise BatchInputError("batch_column_missing", f"{label} (table {t}) has no column {', '.join(repr(m) for m in miss)}: "
+                                  f"the model's join reads it from {t} as trained (pinned {x['version_id']}).",
+                                  table=t, file=label, columns=miss)
+        n = len(df)
+        if n == 0 and x.get("role") == "grain":
+            raise BatchInputError("batch_empty", f"{label} (the grain table {t}) has no rows.")
+        raw = pd.DataFrame({"__row_id": np.arange(n, dtype=np.int64)})
+        for c in cols:
+            raw[c["name"]] = _as_pinned(df[c["name"]], c["type"]) if c["name"] in df.columns else None
+        rp = out_dir / "tables" / f"{t}.raw.parquet"
+        pq.write_table(pa.Table.from_pandas(raw, preserve_index=False), rp)
+        tp = out_dir / "tables" / f"{t}.parquet"
+        src, dst = str(rp).replace("'", "''"), str(tp).replace("'", "''")
+        sel = ", ".join(f"TRY_CAST({frames._qi(c['name'])} AS {c['type']}) AS {frames._qi(c['name'])}" for c in cols)
+        fails = ", ".join(f"sum(CASE WHEN {frames._qi(c['name'])} IS NOT NULL AND TRY_CAST({frames._qi(c['name'])} AS {c['type']}) IS NULL"
+                          f" THEN 1 ELSE 0 END)" for c in cols)
+        with duck.job() as con:
+            con.execute("SET preserve_insertion_order=true")
+            con.execute(f"COPY (SELECT __row_id, {sel} FROM read_parquet('{src}') ORDER BY __row_id) TO '{dst}' (FORMAT parquet)")
+            bad = con.execute(f"SELECT {fails} FROM read_parquet('{src}')").fetchone() if cols else ()
+        rp.unlink()
+        sha, nbytes = M.file_sha256(tp)
+        lts.append(frames.LakeTable(f"batch:{t}", t, sha, n, schema,
+                                    [{"part": 0, "role": "base", "sha256": sha, "key": None, "n_rows": n, "bytes": nbytes, "path": str(tp)}]))
+        info[t] = {"file": label, "rows": n, "sha256": sha, "role": x.get("role"),
+                   "cast_failures": {c["name"]: int(v) for c, v in zip(cols, bad) if v},
+                   "extra_columns": [c for c in df.columns if c not in {k["name"] for k in cols}][:50]}
+    out = out_dir / "frame.parquet"
+    try:
+        res = frames.materialise(spec, lts, out)
+    except frames.GrainError as e:
+        raise BatchInputError("batch_grain_violated", f"The batch does not keep the grain: {e}") from e
+    grain = pinned[0]["table"]
+    return {"path": str(out), "join_id": jn["join_id"], "join_name": jr["name"], "spec_sha256": jr["spec_sha256"],
+            "spec_frozen": jr["spec_sha256"] == jn.get("spec_sha256"), "tables": info, "grain": grain,
+            "grain_rows": info[grain]["rows"], "frame_rows": res["n_rows"], "frame_sha256": M.file_sha256(out)[0],
+            "seconds": res["seconds"], "method": "frames.materialise (the training join path) over the batch files"}

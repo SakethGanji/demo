@@ -161,6 +161,7 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
             "sampling": _sampling(data),
             "warnings": prof.get("warnings") or [],
             "sql": _sql_lineage(prof),
+            **_inputs_section(version, run, features),
         },
         "training": {
             "call": fit_call(res.get("resolved") or {}, {"forecast": "TimeSeriesPredictor", "anomaly": "IsolationForest"}.get(cfg.get("kind"), "TabularPredictor")), "resolved": res.get("resolved"),
@@ -212,6 +213,55 @@ def build_card(version: dict[str, Any], run: dict[str, Any], dataset: dict[str, 
         "scorecard": _scorecard_section(res),
         "diagnostics": _diagnostics_section(cfg, res),
     }
+
+
+def _inputs_section(version: dict[str, Any], run: dict[str, Any], features: list[str]) -> dict[str, Any]:
+    """P15 (C §4.6): the model-risk input record frozen at registration (tables, upload events, join spec and sha,
+    coverage, split, PII features) and the serving parity result. A version registered before P15 gets the record
+    computed now from the run's pins, marked `recorded: false`."""
+    vres = version.get("result") or {}
+    rec, recorded = vres.get("inputs"), True
+    if not rec:
+        recorded = False
+        try:
+            from . import build
+
+            rec = build.input_record(frames._settings().db_path, run["config"], features, (vres.get("hashes") or {}).get("data_sha256"))
+        except Exception as e:  # noqa: BLE001
+            rec = {"error": f"{type(e).__name__}: {e}"[:300]}
+    par = vres.get("parity") or {"status": "not_applicable" if not run["config"].get("join") else "not_checked",
+                                 "reason": "single-table model" if not run["config"].get("join") else "registered before P15"}
+    return {"inputs": {**rec, "recorded": recorded}, "parity": par}
+
+
+def _inputs_md(d: dict[str, Any]) -> list[str]:
+    rec, par = d.get("inputs") or {}, d.get("parity") or {}
+    if not rec or rec.get("error"):
+        return []
+    L = ["", "**Data used in development** (input record" + (", frozen at registration" if rec.get("recorded") else ", computed now: registered before P15") + ")", ""]
+    fr, ds, ver = rec.get("frame") or {}, rec.get("dataset") or {}, rec.get("version") or {}
+    L.append(f"- Frame: {fr.get('kind')} `{fr.get('id')}`, {fr.get('rows') if fr.get('rows') is not None else '—'} rows, SHA-256 `{fr.get('sha256')}`")
+    L.append(f"- Dataset: {ds.get('name')} (`{ds.get('root')}`), team {ds.get('team')}, project {ds.get('project')}")
+    cert = ver.get("certification") or {}
+    L.append(f"- Version: `{ver.get('dv')}` v{ver.get('v')} by {ver.get('created_by')}"
+             + (f", reason “{ver['reason']}”" if ver.get("reason") else "")
+             + f"; contract {((ver.get('contract') or {}).get('result')) or 'none'}"
+             + (f"; certified {cert.get('level')} by {cert.get('by')} at {cert.get('at')}" if cert else "; not certified"))
+    L += ["", "| Table | Role | Version | Rows | SHA-256 | Source file | Uploaded by |", "| --- | --- | --- | ---: | --- | --- | --- |"]
+    for t in rec.get("tables") or []:
+        L.append(f"| {t.get('name')} | {t.get('role')} | `{t.get('dv')}`{' ← ' + t['from_dv'] if t.get('from_dv') else ''} | "
+                 f"{t.get('rows') if t.get('rows') is not None else '—'} | `{str(t.get('sha256'))[:16]}…` | {t.get('source_file') or '—'} | {t.get('uploaded_by') or '—'} |")
+    jn = rec.get("join")
+    if jn:
+        cov = jn.get("coverage") or {}
+        L += ["", f"Join **{jn.get('name')}** (`{jn.get('id')}`, spec v{jn.get('spec_version')}), spec SHA-256 `{jn.get('spec_sha256')}`; coverage "
+              + (", ".join(f"{k} {v:.1%}" for k, v in cov.items() if isinstance(v, (int, float))) or "—") + "."]
+    sp = rec.get("split") or {}
+    L.append(f"Split `{sp.get('id')}` SHA-256 `{sp.get('sha256')}`. PII features: {', '.join(rec.get('pii_features') or []) or 'none'}. "
+             f"Protected columns left out: {', '.join(rec.get('excluded_protected') or []) or 'none'}.")
+    if par.get("status") in ("ok", "mismatch"):
+        L += ["", f"**Serving parity: {par['status']}.** {par.get('summary', '')}"]
+    return L
 
 
 def _sampling(data: dict[str, Any]) -> dict[str, Any] | None:
@@ -454,6 +504,7 @@ def to_markdown(c: dict[str, Any]) -> str:
                    ("features", "Features used"), ("train_rows", "Training rows"), ("holdout_rows", "Holdout rows"),
                    ("dropped_missing_label", "Rows dropped (no label)"), ("sha256", "File SHA-256"), ("splits_sha256", "Split SHA-256")):
         L.append(f"| {lab} | {_fmt(d.get(k)) if isinstance(d.get(k), (int, float)) else (d.get(k) or '—')} |")
+    L += _inputs_md(d)
     if d.get("sql"):
         q = d["sql"]
         L += ["", f"**Loaded by SQL query** (version {q['version']}, `{q['url']}`, fetched {q['fetched_at']}, "
@@ -933,3 +984,63 @@ def _diagnostics_md(d: dict[str, Any] | None) -> list[str]:
     doc = d.get("doctor")
     L.append(f"| Model Doctor (F17) | {doc['headline']} |".replace("\n", " ") if doc else "| Model Doctor (F17) | not run (Explain → Model Doctor) |")
     return L + [""]
+
+
+def inputs_zip(version: dict[str, Any], run: dict[str, Any]) -> bytes:
+    """C §4.6: GET …/inputs.zip — the input record (manifest), the join spec, contract results and every hash. No rows:
+    the rows are a separate, masked export."""
+    import io
+    import zipfile
+
+    from ..db import Database
+
+    vres = version.get("result") or {}
+    feats = (vres.get("version") or {}).get("features") or (run.get("result") or {}).get("features") or []
+    sec = _inputs_section(version, run, feats)
+    rec, par, hashes = sec["inputs"], sec["parity"], vres.get("hashes") or {}
+    db = Database(frames._settings().db_path)
+    contracts = []
+    with db.connect() as con:
+        for dv in sorted({t["dv"] for t in rec.get("tables") or [] if t.get("dv")}):
+            r = con.execute("SELECT id, root_id, version_no, contract_result FROM datasets WHERE id = ?", (dv,)).fetchone()
+            certs = [dict(c) for c in con.execute("SELECT id, level, status, contract_id, contract_result, requested_by, requested_at,"
+                                                  " decided_by, decided_at FROM certifications WHERE version_id = ? ORDER BY requested_at", (dv,))]
+            for c in certs:
+                if isinstance(c.get("contract_result"), str):
+                    try:
+                        c["contract_result"] = json.loads(c["contract_result"])
+                    except ValueError:
+                        pass
+            cr = r["contract_result"] if r else None
+            try:
+                cr = json.loads(cr) if isinstance(cr, str) else cr
+            except ValueError:
+                pass
+            contracts.append({"dv": dv, "root": r["root_id"] if r else None, "v": r["version_no"] if r else None,
+                              "contract_result": cr, "certifications": certs})
+    manifest = {"format": "ensemble.model_inputs_export/1", "model": version["model_name"], "version": version["version"],
+                "version_id": version["id"], "run_id": run["id"], "model_sha256": version.get("model_hash"),
+                "registered_at": version["created_at"], "registered_by": version["created_by"], "inputs": rec, "parity": par,
+                "files": ["manifest.json", "hashes.json", "contracts.json"] + (["join_spec.json"] if rec.get("join") else []) + ["README.txt"],
+                "rows_included": False}
+    hash_doc = {"model_sha256": hashes.get("model_sha256") or version.get("model_hash"), "data_sha256": hashes.get("data_sha256"),
+                "data_file": hashes.get("data_file"), "splits_sha256": hashes.get("splits_sha256"),
+                "frame": rec.get("frame"), "tables": [{k: t.get(k) for k in ("name", "role", "dv", "sha256", "rows")} for t in rec.get("tables") or []],
+                "join": {"id": rec["join"]["id"], "spec_sha256": rec["join"]["spec_sha256"]} if rec.get("join") else None,
+                "split": rec.get("split")}
+    readme = (f"Inputs of {version['model_name']} v{version['version']} ({version['id']}), run {run['id']}.\n\n"
+              "manifest.json  the model-risk input record (C §4.6): frame, dataset, version, tables with their upload,\n"
+              "               join spec sha and coverage, split, PII features; and the serving parity result.\n"
+              "hashes.json    every SHA-256: model, frame/data, split, each input table, the join spec.\n"
+              "contracts.json the contract result and certifications of each input version.\n"
+              + ("join_spec.json the saved join (ensemble.join/1), canonical form; its sha256 is in hashes.json.\n" if rec.get("join") else "")
+              + "\nNo data rows are included. Rows are a separate, masked export.\n")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("manifest.json", json.dumps(manifest, indent=2, default=str))
+        z.writestr("hashes.json", json.dumps(hash_doc, indent=2, default=str))
+        z.writestr("contracts.json", json.dumps(contracts, indent=2, default=str))
+        if rec.get("join"):
+            z.writestr("join_spec.json", json.dumps(rec["join"]["spec"], indent=2, sort_keys=True))
+        z.writestr("README.txt", readme)
+    return buf.getvalue()
