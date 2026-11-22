@@ -777,14 +777,44 @@ def _qi(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
 
 
+def key_family(t: str) -> str:
+    """F-X3b (M6): the family a join key compares in. 'number' (integers and decimals: compared as DOUBLE), 'temporal'
+    (DATE and TIMESTAMP without a time zone: compared as TIMESTAMP, so 2024-01-05 = 2024-01-05 00:00:00),
+    'temporal_tz' (TIMESTAMP WITH TIME ZONE: only with itself), 'bool', 'text' (VARCHAR), else 'other:<TYPE>'. Two keys
+    of different families never compare (400 at validation); nothing is compared as text across types."""
+    u = (t or "").upper().strip()
+    if u in ("TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE"):
+        return "temporal_tz"
+    if u == "DATE" or u.startswith("TIMESTAMP"):
+        return "temporal"
+    k = kind_of_type(t)
+    if k in ("integer", "number"):
+        return "number"
+    if k == "bool":
+        return "bool"
+    if u in ("VARCHAR", "TEXT", "STRING") or u.startswith("VARCHAR"):
+        return "text"
+    return "other:" + u
+
+
+def is_date_type(t: str) -> bool:
+    """F-X3b (M5): a column a date window can use (DATE or a TIMESTAMP without a time zone)."""
+    return key_family(t) == "temporal"
+
+
 def _key_expr(alias: str, col: str, typ: str, other: str) -> str:
-    """One side of a join condition. Equal types compare as stored; otherwise both sides are cast to one family (text
-    for text kinds, DOUBLE for numbers) so DuckDB never guesses an implicit cast."""
+    """One side of a join condition. Equal types compare as stored; otherwise both sides are cast to their family's
+    type (DOUBLE for numbers, TIMESTAMP for DATE against TIMESTAMP) so DuckDB never guesses an implicit cast. Mixed
+    families are refused by validation before SQL is built (F-X3b M6: never VARCHAR across types)."""
     x = f"{alias}.{_qi(col)}"
     if (typ or "").upper() == (other or "").upper():
         return x
-    k = kind_of_type(typ)
-    return f"CAST({x} AS DOUBLE)" if k in ("integer", "number") else f"CAST({x} AS VARCHAR)"
+    f = key_family(typ)
+    if f == "number":
+        return f"CAST({x} AS DOUBLE)"
+    if f == "temporal" and key_family(other) == "temporal":
+        return f"CAST({x} AS TIMESTAMP)"
+    return f"CAST({x} AS VARCHAR)"  # same family, other spelling (VARCHAR(n)); validation refuses the rest
 
 
 def _agg_expr(a: dict[str, Any], src: str, window: str | None) -> str:
@@ -897,3 +927,35 @@ def materialise(spec: dict[str, Any], inputs: list[LakeTable], out: Path) -> dic
                          "repeats a key: declare it n:1 only when its key is unique, or aggregate it.")
     schema = [{"name": r[0], "type": r[1]} for r in desc if r[0] != "__row_id"]
     return {"n_rows": int(n), "schema": schema, "seconds": round(time.perf_counter() - t0, 3)}
+
+
+def compare_frames(a: str | Path, b: str | Path) -> dict[str, Any]:
+    """F-X3b: two frame files compared by __row_id, every cell (IS DISTINCT FROM), as registration parity compares
+    the training and serving frames. {ok, rows, ids_unmatched, columns_equal, types_equal, mismatched_cells, summary}."""
+    from .lake import duck
+
+    pa_, pb = str(a).replace("'", "''"), str(b).replace("'", "''")
+    with duck.job() as con:
+        da = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{pa_}')").fetchall()}
+        db_ = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{pb}')").fetchall()}
+        common = [c for c in da if c in db_ and c != "__row_id"]
+        diffs = ", ".join(f"sum(CASE WHEN t.{_qi(c)} IS DISTINCT FROM s.{_qi(c)} THEN 1 ELSE 0 END)" for c in common)
+        row = con.execute(
+            f"SELECT (SELECT count(*) FROM read_parquet('{pa_}')), (SELECT count(*) FROM read_parquet('{pb}')),"
+            f" sum(CASE WHEN t.__row_id IS NULL OR s.__row_id IS NULL THEN 1 ELSE 0 END){', ' + diffs if diffs else ''}"
+            f" FROM read_parquet('{pa_}') t FULL OUTER JOIN read_parquet('{pb}') s ON t.__row_id = s.__row_id").fetchone()
+    na, nb, unmatched = int(row[0]), int(row[1]), int(row[2] or 0)
+    bad = {c: int(v or 0) for c, v in zip(common, row[3:]) if v}
+    cols_eq, types_eq = list(da) == list(db_), all(da[c] == db_[c] for c in common)
+    problems = []
+    if na != nb or unmatched:
+        problems.append(f"rows differ: {na:,} vs {nb:,}, {unmatched:,} __row_id without a partner")
+    if not cols_eq:
+        problems.append("the columns differ: " + ", ".join(sorted(set(da) ^ set(db_)) or ["order"]))
+    if not types_eq:
+        problems.append("types differ: " + ", ".join(f"{c} {da[c]} vs {db_[c]}" for c in common if da[c] != db_[c]))
+    if bad:
+        problems.append("cells differ: " + ", ".join(f"{c} ({n:,} rows)" for c, n in bad.items()))
+    return {"ok": not problems, "rows": {"cache": na, "rebuilt": nb, "ids_unmatched": unmatched}, "columns_equal": cols_eq,
+            "types_equal": types_eq, "mismatched_cells": bad,
+            "summary": "cache = the frame the pinned inputs join to (every cell)" if not problems else "; ".join(problems)}

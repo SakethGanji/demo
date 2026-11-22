@@ -38,12 +38,19 @@ def _by(request: Request, body: dict[str, Any]) -> str:
     return s
 
 
+def _vid_ok(v: Any) -> None:
+    """X3 m6: a version id is a string (a number reached Postgres as `text = smallint`, a 500)."""
+    if v not in (None, "") and not isinstance(v, str):
+        raise HTTPException(400, {"code": "bad_request", "message": "version_id is a dataset version id (a string, ds_…)."})
+
+
 @router.post("/datasets/{root_id}/joins", status_code=201, dependencies=[require("data.version", path("root_id", "dataset"))])
 async def save_join(root_id: str, request: Request, body: dict[str, Any]) -> Any:
     from fastapi.responses import JSONResponse
 
     body = body if isinstance(body, dict) else {}
     who = _by(request, body)
+    _vid_ok(body.get("version_id"))
     out, created = await _run(J.save, request.app.state.db, root_id, body.get("name"), body.get("spec"), who,
                               body.get("version_id") or None)
     return out if created else JSONResponse(out, status_code=200)
@@ -70,7 +77,8 @@ async def get_join(root_id: str, join_id: str, request: Request) -> dict[str, An
 @router.post("/datasets/{root_id}/joins/{join_id}/validate", dependencies=[require("data.read_meta", path("root_id", "dataset"))])
 async def validate_join(root_id: str, join_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     db = request.app.state.db
-    vid = (body or {}).get("version_id")
+    vid = (body or {}).get("version_id") if isinstance(body, dict) else None
+    _vid_ok(vid)
 
     def work():
         j = J.get(db, join_id, root_id)
@@ -130,8 +138,14 @@ async def get_frame(root_id: str, frame_id: str, request: Request, verify: int =
             except frames.FrameError as e:
                 now, rec = f"unreadable: {e}", fr["cache_blob"]
             ins = J.check_inputs(app.state.db, fr)
-            fr["verify"] = {"cache": {"recorded": fr["cache_blob"], "now": now, "ok": now == fr["cache_blob"]}, "inputs": ins,
-                            "ok": now == fr["cache_blob"] and all(x["ok"] for x in ins)}
+            cache_ok = now == fr["cache_blob"]
+            # F-X3b (M8): the cache is also rebuilt from the (good) inputs and compared: a frame built from other bytes fails
+            derived = (J.derived_check(app.state.db, app.state.lake, fr) if cache_ok and all(x["ok"] for x in ins)
+                       else {"ok": None, "summary": "not checked: the cache or an input does not verify"})
+            fr["verify"] = {"cache": {"recorded": fr["cache_blob"], "now": now, "ok": cache_ok}, "inputs": ins, "derived": derived,
+                            "ok": cache_ok and all(x["ok"] for x in ins) and derived["ok"] is True}
+            if any(x.get("state") == "deleted" for x in ins):
+                fr["verify"]["inputs_deleted"] = [x["version_id"] for x in ins if x.get("state") == "deleted"]
         with app.state.db.connect() as con:
             fr["runs"] = [dict(r) for r in con.execute(
                 "SELECT DISTINCT run_id FROM run_inputs WHERE join_frame_id = ? ORDER BY run_id", (frame_id,))]

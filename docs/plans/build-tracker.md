@@ -58,7 +58,7 @@
 | X4 | ⟂ | started (governance + authz check, read-only) | session_018upNdSGESUQJY6eP9UgTAw | |
 | U3 | U | started (retention/GC/purge screens, unmask on analysis pages, delta options) | session_018upNdQ3Mz7mjSkUZ1urQpx | |
 | F-X3a | D | started (X3 M1–M4 + upload minors) | session_018upNdRABXoDbSW2JzwdBD3 | |
-| F-X3b | D2 | started (X3 C1, M5–M9 + join/S3 minors) | session_018upNdNRgcBZ8JsYzNBvr4T | |
+| F-X3b | D2 | done (C1: /predict and /score on a join model go through the join (batch path; tables as rows or "pinned"; 400 naming missing tables/columns; 600 holdout rows online = holdout predictions, \|Δp\| 1e-16); M5 window_type; M6 DATE=TIMESTAMP as TIMESTAMP, else key_type_mismatch; M7 aliases cust.join0/cust.join1; M8 inputs re-hashed around the build (409 input_integrity) + verify rebuilds (derived); M9 delete/purge release join caches → GC; m5 m6 m7 m8 m9 m15 m16; batches byte-equal head vs fix; P14/P15 chains equal on SQLite and Postgres; S3 on MinIO) | session_018upNdNRgcBZ8JsYzNBvr4T | see report |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
@@ -124,3 +124,12 @@
 - **P15 → all lanes:** don't `git pull` under a running API: a heavy-pool thread imported a merged module mid-run (F-JOBS `finish(attempt=…)` TypeError). Restart before verifying.
 - **U2 → follow-up:** not built: Unmask (reason) / unmasked_refused on the F-PII screens (anomaly top rows, shift, AL, annotations, Feature Lab, split options, intake); retention / GC / purge screens (P24); editing a delta's op_column / ops / allow_new_columns in the plan view. U2 added `GET /datasets/{root}/frames/{id}/rows` (masked, `data.preview`).
 - **X3 → F-X3 / U2 / P24:** see docs/progress/X3.md. Don't offer /predict or /score for join models until C1 is fixed; join coverage 0.0 is an error state; M9 (join cache of a deleted pinned version) belongs to P24.
+- **F-X3b → U lane:** `/predict` and `/score` work for join models: `{row | rows, tables: {<alias>: [rows] | "pinned"}}`
+  (aliases = batch file stems; listed in a 400's `inputs` and in `validation.inputs[].alias`); `/predict` adds `frame_row`
+  and `join`. Two inputs with one name are `cust.join0` / `cust.join1` (files too). New 4xx codes: `window_type`,
+  `key_type_mismatch`, `input_integrity` (409), `batch_file_unreadable`, `batch_grain_key_repeated`, `blob_missing` (409),
+  `blob_stacked` (409, fix: `POST /admin/lake/blobs/{sha}/restore {by, confirm: "restore"}`). Frame verify has `derived` and
+  `inputs_deleted`. Batch form field `pinned` (comma-separated aliases).
+- **F-X3b → all lanes:** a deleted / purged version releases the `(join_frame, cache)` refs of frames that read it
+  (`joins.release_frames_of`, called by `dsets.drop_version_refs`). The S3 read cache trusts only this process's stat
+  record (first use per process re-hashes). Open from X3, not in F-X3b's files: m10 (`_min_rows_check` 500), m11.

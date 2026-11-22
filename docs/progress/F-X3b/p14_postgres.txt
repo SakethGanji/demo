@@ -1,0 +1,82 @@
+## 0. GET /datasets/credit-book/versions/credit-book
+primary applications [('applications', 4000, [['app_id']]), ('bureau', 3194, [['customer_id']]), ('payments', 19395, [['payment_id']])]
+## 1. POST /datasets/credit-book/joins: 1:n without an aggregate, and other bad specs → 400
+HTTP 400 {'code': 'one_to_many', 'message': "joins[0] is 1:n: a grain row would repeat. Use type 'aggregate' with aggs (count, sum, mean, min, max, count_distinct; optionally over a date window).", 'join': 0}
+HTTP 400 {'code': 'one_to_many', 'message': "joins[0] is n:1, but payments(app_id) is not a key: 15,699 repeated value(s), so a grain row would repeat (1:n). Use type 'aggregate' with aggs, or join on a key.", 'join': 0, 'repeated': 15699}
+HTTP 400 {'code': 'column_unknown', 'message': "joins[0] (bureau): table 'bureau' has no column 'cust_no'.", 'join': 0, 'column': 'cust_no'}
+HTTP 400 {'code': 'agg_type', 'message': 'joins[0] (payments).aggs[0]: sum needs a number column; paid_on is VARCHAR.', 'join': 0}
+HTTP 400 {'code': 'column_collision', 'message': "Two frame columns would be named 'amount' (grain and join:0): set a prefix on the join.", 'column': 'amount'}
+HTTP 400 {'code': 'table_unknown', 'message': "credit-book has no table 'nope' (its tables: applications, bureau, payments)."}
+HTTP 400 {'code': 'column_unknown', 'message': "joins[0] (bureau): table 'bureau' has no column 'amount'.", 'join': 0, 'column': 'amount'}
+## 2. fixed: n:1 bureau + aggregate payments → 201 with coverage; the same again → 200 (same row)
+HTTP 201 jn_efdcce9874 apps_full v 1 spec_sha256 4a205cc7d5931ee5
+   bureau n:1 on [['customer_id', 'customer_id']]: matched 3780 of 4000, coverage 0.945, orphans 220, key {'columns': ['customer_id'], 'how': 'declared', 'unique': True, 'repeated': 0}
+   payments aggregate on [['app_id', 'app_id']]: matched 3696 of 4000, coverage 0.924, orphans 304, key {'columns': ['app_id']}, rows aggregated 19395
+   columns 17 ['bureau__score', 'bureau__n_inquiries_12m', 'bureau__n_open_accounts', 'bureau__oldest_account_years', 'pay__n_pay', 'pay__late_mean', 'pay__late_max', 'pay__late_180d']
+HTTP 200 jn_efdcce9874 v 1
+HTTP 409 {'code': 'same_spec', 'message': "This spec is already saved on credit-book as 'apps_full' (v1, jn_efdcce9874)."}
+HTTP 200 [('jn_efdcce9874', 'apps_full', 1, True)]
+## 3. POST /datasets/credit-book/versions/credit-book/frames {join_id} → rows = grain rows; again → cached
+HTTP 201 jf_345934be26 n_rows 4000 cached False grain applications frame_sha256 580444248db84f11 cache_blob 6fbecdf9e34dc5f4 81109 bytes 0.075 s
+   schema ['bureau__score BIGINT', 'bureau__n_inquiries_12m BIGINT', 'bureau__n_open_accounts BIGINT', 'bureau__oldest_account_years DOUBLE', 'pay__n_pay BIGINT', 'pay__late_mean DOUBLE', 'pay__late_max BIGINT', 'pay__late_180d DOUBLE']
+   inputs [('grain', 'credit-book', 'applications', '1bfe38b901ae'), ('join:0', 'credit-book', 'bureau', 'f4c114a62a3a'), ('join:1', 'credit-book', 'payments', '7608b9f3bd39')]
+HTTP 200 jf_345934be26 n_rows 4000 cached True cache_blob 6fbecdf9e34dc5f4
+HTTP 200 verify True cache True inputs [('applications', True), ('bureau', True), ('payments', True)]
+## 3b. independent check (pandas recomputation from the lake)
+cache blob 6fbecdf9e34dc5f4 sha256 of the file 6fbecdf9e34dc5f4 equal True
+frame rows 4000 grain rows 4000 __row_id equal and ordered True
+columns 17 | cells equal to the pandas recomputation: all
+   missing in bureau__score 220
+   missing in bureau__n_inquiries_12m 220
+   missing in bureau__n_open_accounts 220
+   missing in bureau__oldest_account_years 220
+   missing in pay__late_mean 304
+   missing in pay__late_max 304
+   missing in pay__late_180d 304
+## 4. POST /runs: a table run, a join run, a join run under a small frame budget (P11 sample)
+HTTP 201 run_ce0c8a87
+HTTP 201 run_05120b93 Credit book (sample, 3 tables) ⋈ apps_full · defaulted
+HTTP 201 run_2b86359a
+HTTP 400 {'code': 'label_not_in_grain', 'message': "The label 'pay__n_pay' is not a column of the grain table 'applications': the split (holdout) is drawn on the grain, so the label lives there."}
+HTTP 404 {'code': 'not_found', 'message': 'No saved join jn_nope.'}
+run_ce0c8a87 succeeded
+run_05120b93 succeeded
+run_2b86359a succeeded
+run_ce0c8a87 succeeded input_ref {'kind': 'table', 'version_id': 'credit-book', 'table': 'applications'} | data_sha256 1bfe38b901aecf02 | read parquet | rows used 3200 of 4000 | sampled False | split spl_f30335ee7479
+run_05120b93 succeeded input_ref {'kind': 'join_frame', 'join_frame_id': 'jf_345934be26'} | data_sha256 6fbecdf9e34dc5f4 | read frame | rows used 3200 of 4000 | sampled False | split spl_f30335ee7479
+run_2b86359a succeeded input_ref {'kind': 'join_frame', 'join_frame_id': 'jf_345934be26'} | data_sha256 6fbecdf9e34dc5f4 | read frame | rows used 1011 of 4000 | sampled True | split spl_f30335ee7479
+   features ['customer_id', 'product', 'amount', 'income', 'term_months', 'applied_on', 'channel', 'bureau__score', 'bureau__n_inquiries_12m', 'bureau__n_open_accounts', 'bureau__oldest_account_years', 'pay__n_pay', 'pay__late_mean', 'pay__late_max', 'pay__late_180d']
+   frame trained on 1,011 of 3,200 training rows (stratified sample, seed 42, sample_sha256 0f97747b12f6…); holdout scored on all 800 rows
+  run_ce0c8a87 train credit-book applications None 1bfe38b901aecf02 1bfe38b901aecf02 match 1 spl_f30335ee7479
+  run_05120b93 join_input credit-book applications jf_345934be26 1bfe38b901aecf02 1bfe38b901aecf02 match 1 None
+  run_05120b93 join_input credit-book bureau jf_345934be26 f4c114a62a3a7e4d f4c114a62a3a7e4d match 1 None
+  run_05120b93 join_input credit-book payments jf_345934be26 7608b9f3bd39b0b4 7608b9f3bd39b0b4 match 1 None
+  run_05120b93 train credit-book applications jf_345934be26 6fbecdf9e34dc5f4 6fbecdf9e34dc5f4 match 1 spl_f30335ee7479
+  run_2b86359a join_input credit-book applications jf_345934be26 1bfe38b901aecf02 1bfe38b901aecf02 match 1 None
+  run_2b86359a join_input credit-book bureau jf_345934be26 f4c114a62a3a7e4d f4c114a62a3a7e4d match 1 None
+  run_2b86359a join_input credit-book payments jf_345934be26 7608b9f3bd39b0b4 7608b9f3bd39b0b4 match 1 None
+  run_2b86359a train credit-book applications jf_345934be26 6fbecdf9e34dc5f4 6fbecdf9e34dc5f4 match 1 spl_f30335ee7479
+## 4b. re-verify (GET /admin/lake/runs/{id}/verify)
+HTTP 200 run_ce0c8a87 ok True | data True 1bfe38b901aecf02 1bfe38b901aecf02 {'kind': 'table', 'version_id': 'credit-book', 'table': 'applications'} | split True
+HTTP 200 run_05120b93 ok True | data True 6fbecdf9e34dc5f4 6fbecdf9e34dc5f4 {'kind': 'join_frame', 'join_frame_id': 'jf_345934be26'} | split True
+HTTP 200 run_2b86359a ok True | data True 6fbecdf9e34dc5f4 6fbecdf9e34dc5f4 {'kind': 'join_frame', 'join_frame_id': 'jf_345934be26'} | split True
+## 5. POST /compare {a: table run, b: join run} → paired
+HTTP 200 paired True | the same holdout rows 800 | metric accuracy a 0.84875 b 0.855 delta 0.00625 | ci [-0.0024999999999999467, 0.015031249999999984]
+## 6. bureau.csv as its own dataset; a join on credit-book pins its version; a run; delete the bureau version → blocked
+check csv []
+HTTP 201 bureau version ds_ef0f4dbd
+HTTP 201 jn_fc16f5be35 [('bureau', 'ds_ef0f4dbd', 0.945, 220, 'checked')]
+HTTP 201 jf_f3f2c9c9e6 4000 False [('credit-book', 'applications'), ('ds_ef0f4dbd', 'bureau')]
+HTTP 201 run_42df202e succeeded
+HTTP 200 usage runs [('run_42df202e', 'succeeded', 'ds_ef0f4dbd', {'join_frame_id': 'jf_f3f2c9c9e6', 'tables': ['bureau'], 'relation': 'merged_from'})] | join_frames [('jf_f3f2c9c9e6', 'merged_from', ['bureau'])]
+blocks_archive_or_delete []
+HTTP 409 {'message': "Can't delete: a version is in use. Each line below says how to clear it.", 'blockers': ['run run_42df202e (Credit book (sample, 3 tables) ⋈ apps_bureau_ext · defaulted, succeeded) was trained on ds_ef0f4dbd (table bureau through join frame jf_f3f2c9c9e6): deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send "irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).']}
+HTTP 409 ['run run_42df202e (Credit book (sample, 3 tables) ⋈ apps_bureau_ext · defaulted, succeeded) was trained on credit-book: deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send "irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).', 'run run_2b86359a (Credit book (sample, 3 tables) ⋈ apps_full · defaulted, succeeded) was trained on credit-book: deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send "irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).', 'run run_05120b93 (Credit book (sample, 3 tables) ⋈ apps_full · defaulted, succeeded) was trained on credit-book: deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send "irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).', 'run run_ce0c8a87 (Credit book (sample, 3 tables) · defaulted, succeeded) was trained on credit-book: deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send "irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).']
+HTTP 200 lineage of the bureau dataset {'datasets': 1, 'runs': 1, 'versions': 0, 'join_frames': 1, 'edges': 2} [('join_frame', 'jf_f3f2c9c9e6', 'trained_on', 'run', 'run_42df202e'), ('dataset', 'ds_ef0f4dbd', 'merged_from', 'join_frame', 'jf_f3f2c9c9e6')]
+HTTP 200 lineage of the join run: root {'kind': 'dataset', 'id': 'credit-book'} {'datasets': 1, 'runs': 4, 'versions': 0, 'join_frames': 2, 'edges': 9}
+cache blob 2ce0595a7c717e4c sha256 of the file 2ce0595a7c717e4c equal True
+frame rows 4000 grain rows 4000 __row_id equal and ordered True
+columns 11 | cells equal to the pandas recomputation: all
+  run_42df202e join_input credit-book applications jf_f3f2c9c9e6 1bfe38b901aecf02 1bfe38b901aecf02 match 1 None
+  run_42df202e join_input ds_ef0f4dbd bureau jf_f3f2c9c9e6 4e42b1714a56bb8e 4e42b1714a56bb8e match 1 None
+  run_42df202e train credit-book applications jf_f3f2c9c9e6 2ce0595a7c717e4c 2ce0595a7c717e4c match 1 spl_f30335ee7479

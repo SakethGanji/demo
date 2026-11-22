@@ -5,6 +5,7 @@ training data)."""
 from __future__ import annotations
 
 import json
+import re
 import time
 import traceback
 from pathlib import Path
@@ -643,6 +644,13 @@ def score_with(p, rows: list[dict[str, Any]], t_all: float | None = None) -> dic
     for c in _raw_numeric(p) & set(features):
         if X[c].dtype == object:
             X[c] = pd.to_numeric(X[c], errors="coerce")
+    out = _predict_frame(p, X)
+    out["missing_columns"] = [c for c in features if all(c not in r for r in rows)]  # X3 C1: said, as /predict says it
+    out["worker_ms"] = (time.perf_counter() - t_all) * 1e3
+    return out
+
+
+def _predict_frame(p, X: pd.DataFrame) -> dict[str, Any]:
     t0 = time.perf_counter()
     out: dict[str, Any] = {"model": p.model_best, "problem_type": p.problem_type, "n_rows": len(X)}
     if p.problem_type in ("binary", "multiclass"):
@@ -666,7 +674,6 @@ def score_with(p, rows: list[dict[str, Any]], t_all: float | None = None) -> dic
         out["predict_ms"] = (time.perf_counter() - t0) * 1e3
         out["predictions"] = jsonable(pred.tolist())
         out["probabilities"] = None
-    out["worker_ms"] = (time.perf_counter() - t_all) * 1e3
     return out
 
 
@@ -878,14 +885,22 @@ def _batch_recourse(predictor_path: str, cfg: dict[str, Any], rconf: dict[str, A
 
 
 class BatchInputError(ValueError):
-    """A batch's files do not fit the model's join (400): a missing table, an unknown file, a missing column."""
+    """A batch's files do not fit the model's join (400): a missing table, an unknown file, a missing column.
+    `status` 409 for a pinned table whose bytes no longer verify."""
 
-    def __init__(self, code: str, message: str, **extra: Any) -> None:
+    def __init__(self, code: str, message: str, status: int = 400, **extra: Any) -> None:
         super().__init__(message)
-        self.code, self.message, self.extra = code, message, extra
+        self.code, self.message, self.extra, self.status = code, message, extra, status
 
     def detail(self) -> dict[str, Any]:
         return {"code": self.code, "message": self.message, **self.extra}
+
+    def __reduce__(self):  # raised in a predict worker process: pickled back to the API with its code and status
+        return (_batch_input_error, (self.code, self.message, self.status, self.extra))
+
+
+def _batch_input_error(code: str, message: str, status: int, extra: dict[str, Any]) -> "BatchInputError":
+    return BatchInputError(code, message, status, **extra)
 
 
 def _sheets(name: str, content: bytes) -> list[tuple[str, bytes, str]]:
@@ -894,7 +909,11 @@ def _sheets(name: str, content: bytes) -> list[tuple[str, bytes, str]]:
     import re as _re
 
     if _re.search(r"\.xlsx$", name, _re.I) or (content[:2] == b"PK" and not _re.search(r"\.(csv|tsv|txt)$", name, _re.I)):
-        xl = pd.ExcelFile(io.BytesIO(content))
+        try:
+            xl = pd.ExcelFile(io.BytesIO(content))
+        except Exception as e:  # noqa: BLE001 - X3 m5: an unreadable workbook is the caller's file, a 400
+            raise BatchInputError("batch_file_unreadable", f"{name}: could not read it as an Excel workbook ({type(e).__name__}).",
+                                  file=name) from e
         if len(xl.sheet_names) > 1:
             out = []
             for sh in xl.sheet_names:
@@ -905,85 +924,151 @@ def _sheets(name: str, content: bytes) -> list[tuple[str, bytes, str]]:
     return [(Path(name).stem, content, name)]
 
 
-def _as_pinned(s: pd.Series, typ: str) -> pd.Series:
-    """A user column in the kind of the pinned table's column (DuckDB then TRY_CASTs to the exact type)."""
+def _as_pinned(s: pd.Series, typ: str) -> tuple[pd.Series, int]:
+    """A user column in the kind of the pinned table's column (DuckDB then TRY_CASTs to the exact type), and how many
+    non-empty values could not be read as that kind (X3 m15: counted, not silently made missing)."""
     k = frames.kind_of_type(typ)
     if k in ("integer", "number"):
-        return pd.to_numeric(s, errors="coerce") if s.dtype.kind not in "biuf" else s
+        if s.dtype.kind in "biuf":
+            return s, 0
+        out = pd.to_numeric(s, errors="coerce")
+        given = s.notna() & (s.astype(str).str.strip() != "")
+        return out, int((given & out.isna()).sum())
     if k == "text" or typ.upper() in ("VARCHAR", "TEXT", "STRING"):
         if s.dtype.kind == "M":
             ts = pd.to_datetime(s, errors="coerce")
             midnight = bool(((ts.dt.hour == 0) & (ts.dt.minute == 0) & (ts.dt.second == 0)).all())
-            return ts.dt.strftime("%Y-%m-%d" if midnight else "%Y-%m-%d %H:%M:%S").where(ts.notna(), None).astype(object)
+            return ts.dt.strftime("%Y-%m-%d" if midnight else "%Y-%m-%d %H:%M:%S").where(ts.notna(), None).astype(object), 0
         if s.dtype.kind != "O":
-            return s.map(lambda v: None if pd.isna(v) else (str(int(v)) if isinstance(v, float) and v.is_integer() else str(v))).astype(object)
-    return s
+            return s.map(lambda v: None if pd.isna(v) else (str(int(v)) if isinstance(v, float) and v.is_integer() else str(v))).astype(object), 0
+    return s, 0
 
 
-def join_batch_frame(db_path: str, cfg: dict[str, Any], uploads: list[tuple[str, bytes]], out_dir: str | Path) -> dict[str, Any]:
-    """P15 (§5.3): a batch for a join model is one file per input table (or one workbook with a sheet per table). Each
-    file is checked against its pinned table's schema (400 naming a missing column), cast to the pinned types, given
-    __row_id 0…n-1, and the saved join is applied with `frames.materialise`, the path training used. The frame has
-    exactly the batch grain's rows (asserted). Returns {path, tables, grain_rows, frame_rows, spec_sha256, …}."""
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    from ..lake import duck
-    from ..lake import manifest as M
+def _join_meta(db: Database, cfg: dict[str, Any]) -> tuple[dict[str, Any], Any, list[dict[str, Any]], list[str]]:
+    from ..catalog import joins as J
 
     jn = cfg["join"]
-    db = Database(Path(db_path))
     with db.connect() as con:
         jr = con.execute("SELECT name, spec_json, spec_sha256 FROM joins WHERE id = ?", (jn["join_id"],)).fetchone()
     if not jr:
-        raise BatchInputError("join_gone", f"The model's join {jn['join_id']} no longer exists.")
-    spec = json.loads(jr["spec_json"])
+        raise BatchInputError("join_gone", f"The model's join {jn['join_id']} no longer exists.", status=409)
     pinned = [{**x, "role": x.get("role") or ("grain" if i == 0 else f"join:{i - 1}")} for i, x in enumerate(jn.get("inputs") or [])]
-    names = [x["table"] for x in pinned]
-    if len(set(names)) != len(names):
-        raise BatchInputError("ambiguous_tables", "The model's join reads two tables with the same name; name the files "
-                                                  "by role is not supported yet.", tables=names)
-    got: dict[str, tuple[bytes, str]] = {}
+    return jn, jr, pinned, J.input_aliases(pinned)
+
+
+def join_inputs_expected(db_path: str, cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    """What a join model's batch or online request supplies: one entry per input, in spec order (alias = file name)."""
+    _jn, _jr, pinned, aliases = _join_meta(Database(Path(db_path)), cfg)
+    return [{"alias": a, "table": x["table"], "role": x["role"], "version_id": x["version_id"]} for x, a in zip(pinned, aliases)]
+
+
+def join_batch_frame(db_path: str, cfg: dict[str, Any], uploads: list[tuple[str, Any]], out_dir: str | Path, *,
+                     pinned_tables: Any = (), online: bool = False) -> dict[str, Any]:
+    """P15 (§5.3): a batch for a join model is one file per input table (or one workbook with a sheet per table). Each
+    file is checked against its pinned table's schema (400 naming a missing column), cast to the pinned types, given
+    __row_id 0…n-1, and the saved join is applied with `frames.materialise`, the path training used. The frame has
+    exactly the batch grain's rows (asserted). Returns {path, tables, grain_rows, frame_rows, spec_sha256, …}.
+
+    F-X3b: files are named by the inputs' aliases (`joins.input_aliases`: the table name, or `cust.join1` when two
+    inputs share a name: M7). `pinned_tables` (aliases, never the grain) are read from the model's pinned versions,
+    re-hashed first (409 `input_integrity` when they no longer verify): lookup tables the caller does not send. An
+    upload's content may be a DataFrame (the online path's empty tables). `online` words the errors for /predict and
+    /score (C1: they build their frame here, through the same function as batches)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from ..datasets import DatasetError
+    from ..lake import duck
+    from ..lake import manifest as M
+
+    db = Database(Path(db_path))
+    jn, jr, pinned, aliases = _join_meta(db, cfg)
+    spec = json.loads(jr["spec_json"])
+    what = "table in `tables`" if online else "file"
+    hint = (("`row`/`rows` for the grain and `tables`: {" + ", ".join(f'"{a}": [rows] or "pinned"' for a in aliases[1:]) + "}")
+            if online else "one file per input table: " + ", ".join(a + ".csv" for a in aliases))
+    pinned_tables = set(pinned_tables or ())
+    bad_pin = [a for a in pinned_tables if a not in aliases]
+    if bad_pin:
+        raise BatchInputError("batch_table_unknown", f"The model's join has no table {bad_pin[0]!r}; it reads {', '.join(aliases)}.",
+                              tables=aliases)
+    if aliases[0] in pinned_tables:
+        raise BatchInputError("pinned_grain", f"{aliases[0]} is the grain: its rows are the ones to score, so they are sent, "
+                                              "not read from the pinned version.", table=aliases[0])
+    dups = {x["table"] for x in pinned if [y["table"] for y in pinned].count(x["table"]) > 1}
+    got: dict[str, tuple[Any, str]] = {}
     for fname, content in uploads:
-        for tname, b, label in _sheets(fname, content):
-            match = tname if tname in names else next((n for n in names if n.lower() == tname.lower()), None)
+        parts = [(Path(fname).stem, content, fname)] if isinstance(content, pd.DataFrame) else _sheets(fname, content)
+        for tname, b, label in parts:
+            match = tname if tname in aliases else next((n for n in aliases if n.lower() == tname.lower()), None)
+            if match is None and tname.lower() in {d.lower() for d in dups}:
+                raise BatchInputError("ambiguous_tables", f"{label}: the model's join reads two tables named {tname!r}; name each "
+                                      f"{what} by its role: " + ", ".join(f"{a} ({x['version_id']}, {x['role']})"
+                                                                         for x, a in zip(pinned, aliases) if x["table"].lower() == tname.lower())
+                                      + ".", file=label, tables=aliases)
             if match is None:
-                raise BatchInputError("batch_table_unknown", f"{label}: the model's join has no table {tname!r}. Send one "
-                                      f"file per input table, named after it: {', '.join(n + '.csv' for n in names)} "
-                                      "(or one .xlsx with a sheet per table).", file=label, tables=names)
-            if match in got:
-                raise BatchInputError("batch_table_twice", f"Two files are table {match!r}: {got[match][1]} and {label}.", table=match)
+                raise BatchInputError("batch_table_unknown", f"{label}: the model's join has no table {tname!r}. Send {hint.replace('per input table:', 'per input table, named after it:')} "
+                                      + ("" if online else "(or one .xlsx with a sheet per table)") + ".", file=label, tables=aliases)
+            if match in got or match in pinned_tables:
+                raise BatchInputError("batch_table_twice", f"Two {what}s are table {match!r}: {got[match][1] if match in got else 'pinned'} "
+                                                           f"and {label}.", table=match)
             got[match] = (b, label)
-    missing_tables = [n for n in names if n not in got]
+    missing_tables = [a for a in aliases if a not in got and a not in pinned_tables]
     if missing_tables:
-        raise BatchInputError("batch_table_missing", f"The model's join reads {len(names)} tables; the batch has no file for "
-                              f"{', '.join(missing_tables)}. Send one file per input table: {', '.join(n + '.csv' for n in names)}.",
-                              tables=missing_tables, expected=names)
+        raise BatchInputError("batch_table_missing", f"The model's join reads {len(aliases)} tables; "
+                              + ("the request has no table in `tables` for " if online else "the batch has no file for ") +
+                              f"{', '.join(missing_tables)}. Send {hint}.", tables=missing_tables, expected=aliases)
     out_dir = Path(out_dir)
     (out_dir / "tables").mkdir(parents=True, exist_ok=True)
     not_needed = {cfg["label"], *(cfg.get("drop_columns") or [])}
     lts, info = [], {}
-    for x in pinned:
+    for x, alias in zip(pinned, aliases):
         t = x["table"]
-        b, label = got[t]
-        schema = frames.lake_table(frames.Table(x["version_id"], t)).schema
+        lt_pin = frames.lake_table(frames.Table(x["version_id"], t))
+        if alias in pinned_tables:  # a lookup table read as trained: its bytes re-hashed now
+            now, committed, _b = frames.hash_table(frames.Table(x["version_id"], t))
+            if not (now == committed == x["table_sha256"]):
+                raise BatchInputError("input_integrity", f"The pinned table {alias} ({x['version_id']}) reads {str(now)[:12]}…, pinned "
+                                      f"{x['table_sha256'][:12]}…: send its rows instead, or verify the version.", status=409,
+                                      table=alias, version_id=x["version_id"])
+            lts.append(lt_pin)
+            info[alias] = {"source": "pinned", "version_id": x["version_id"], "rows": lt_pin.n_rows, "sha256": lt_pin.table_sha256,
+                           "role": x.get("role"), "cast_failures": {}, "extra_columns": []}
+            continue
+        b, label = got[alias]
+        schema = lt_pin.schema
         cols = [c for c in schema if c["name"] != "__row_id"]
-        df = frames.read_upload(b, filename=label, kind="batch")
+        if isinstance(b, pd.DataFrame):
+            df = b
+        else:
+            try:
+                df = frames.read_upload(b, filename=label, kind="batch")
+            except (DatasetError, ValueError, OSError) as e:  # X3 m5: binary bytes, garbage Parquet / xlsx → 400, not 500
+                raise BatchInputError("batch_file_unreadable", f"{label} (table {alias}): {e}", table=alias, file=label) from e
         optional = not_needed if x.get("role") == "grain" else set()
         miss = [c["name"] for c in cols if c["name"] not in df.columns and c["name"] not in optional]
         if miss:
-            raise BatchInputError("batch_column_missing", f"{label} (table {t}) has no column {', '.join(repr(m) for m in miss)}: "
+            raise BatchInputError("batch_column_missing", f"{label} (table {alias}) has no column {', '.join(repr(m) for m in miss)}: "
                                   f"the model's join reads it from {t} as trained (pinned {x['version_id']}).",
-                                  table=t, file=label, columns=miss)
+                                  table=alias, file=label, columns=miss)
         n = len(df)
         if n == 0 and x.get("role") == "grain":
-            raise BatchInputError("batch_empty", f"{label} (the grain table {t}) has no rows.")
+            raise BatchInputError("batch_empty", f"{label} (the grain table {alias}) has no rows.")
+        if x.get("role") == "grain":  # X3 m16: the grain's declared key holds in the batch too (one score per entity)
+            _grain_key_check(db, x, df, label)
         raw = pd.DataFrame({"__row_id": np.arange(n, dtype=np.int64)})
+        coerced: dict[str, int] = {}
         for c in cols:
-            raw[c["name"]] = _as_pinned(df[c["name"]], c["type"]) if c["name"] in df.columns else None
-        rp = out_dir / "tables" / f"{t}.raw.parquet"
+            if c["name"] in df.columns:
+                raw[c["name"]], k = _as_pinned(df[c["name"]].reset_index(drop=True), c["type"])
+                if k:
+                    coerced[c["name"]] = k
+            else:
+                raw[c["name"]] = None
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", alias)
+        rp = out_dir / "tables" / f"{safe}.raw.parquet"
         pq.write_table(pa.Table.from_pandas(raw, preserve_index=False), rp)
-        tp = out_dir / "tables" / f"{t}.parquet"
+        tp = out_dir / "tables" / f"{safe}.parquet"
         src, dst = str(rp).replace("'", "''"), str(tp).replace("'", "''")
         sel = ", ".join(f"TRY_CAST({frames._qi(c['name'])} AS {c['type']}) AS {frames._qi(c['name'])}" for c in cols)
         fails = ", ".join(f"sum(CASE WHEN {frames._qi(c['name'])} IS NOT NULL AND TRY_CAST({frames._qi(c['name'])} AS {c['type']}) IS NULL"
@@ -994,18 +1079,133 @@ def join_batch_frame(db_path: str, cfg: dict[str, Any], uploads: list[tuple[str,
             bad = con.execute(f"SELECT {fails} FROM read_parquet('{src}')").fetchone() if cols else ()
         rp.unlink()
         sha, nbytes = M.file_sha256(tp)
-        lts.append(frames.LakeTable(f"batch:{t}", t, sha, n, schema,
+        lts.append(frames.LakeTable(f"batch:{alias}", t, sha, n, schema,
                                     [{"part": 0, "role": "base", "sha256": sha, "key": None, "n_rows": n, "bytes": nbytes, "path": str(tp)}]))
-        info[t] = {"file": label, "rows": n, "sha256": sha, "role": x.get("role"),
-                   "cast_failures": {c["name"]: int(v) for c, v in zip(cols, bad) if v},
-                   "extra_columns": [c for c in df.columns if c not in {k["name"] for k in cols}][:50]}
+        cf = {c["name"]: int(v) for c, v in zip(cols, bad) if v}
+        for c, k in coerced.items():
+            cf[c] = cf.get(c, 0) + k
+        info[alias] = {"file": label, "rows": n, "sha256": sha, "role": x.get("role"), "cast_failures": cf,
+                       "extra_columns": [c for c in df.columns if c not in {k["name"] for k in cols}][:50]}
+    # F-X3b (M5): a window column kept as text must read as dates in the batch too (else the window counts nothing)
+    for ji, jj in enumerate(spec["joins"]):
+        for a in jj.get("aggs") or []:
+            w = a.get("window")
+            for idx, col in ((ji + 1, (w or {}).get("date")), (0, (w or {}).get("relative_to"))):
+                alias, lt = aliases[idx], lts[idx]
+                typ = next((c["type"] for c in lt.schema if c["name"] == col), None)
+                if not w or typ is None or frames.key_family(typ) != "text" or info[alias].get("source") == "pinned":
+                    continue
+                key = f"{col} (as a date)"
+                if key in info[alias]["cast_failures"]:
+                    continue
+                with duck.job() as con:
+                    nbad = con.execute(f"SELECT count(*) FROM {frames.lake_sql(lt)} WHERE {frames._qi(col)} IS NOT NULL"
+                                       f" AND TRY_CAST({frames._qi(col)} AS DATE) IS NULL").fetchone()[0]
+                if nbad:
+                    info[alias]["cast_failures"][key] = int(nbad)
     out = out_dir / "frame.parquet"
     try:
         res = frames.materialise(spec, lts, out)
     except frames.GrainError as e:
         raise BatchInputError("batch_grain_violated", f"The batch does not keep the grain: {e}") from e
-    grain = pinned[0]["table"]
+    grain = aliases[0]
+    warn = {a: x["cast_failures"] for a, x in info.items() if x["cast_failures"]}  # counted once: the window check never double-counts
     return {"path": str(out), "join_id": jn["join_id"], "join_name": jr["name"], "spec_sha256": jr["spec_sha256"],
             "spec_frozen": jr["spec_sha256"] == jn.get("spec_sha256"), "tables": info, "grain": grain,
             "grain_rows": info[grain]["rows"], "frame_rows": res["n_rows"], "frame_sha256": M.file_sha256(out)[0],
-            "seconds": res["seconds"], "method": "frames.materialise (the training join path) over the batch files"}
+            "seconds": res["seconds"], "method": "frames.materialise (the training join path) over the batch files",
+            **({"warnings": [f"{a}: {sum(v.values())} value(s) could not be read as the pinned type (or as a date, for a window) and are missing "
+                             f"({', '.join(f'{c} {n}' for c, n in v.items())})" for a, v in warn.items()]} if warn else {})}
+
+
+def _grain_key_check(db: Database, x: dict[str, Any], df: pd.DataFrame, label: str) -> None:
+    with db.connect() as con:
+        keys = [json.loads(r[0]) for r in con.execute("SELECT columns_json FROM table_keys WHERE version_id = ? AND table_name = ?"
+                                                      " AND valid = 1", (x["version_id"], x["table"]))]
+    for k in keys:
+        if not k or any(c not in df.columns for c in k):
+            continue
+        sub = df[k].dropna()
+        rep = sub[sub.duplicated(keep=False)]
+        if len(rep):
+            ex = rep.drop_duplicates().head(5).astype(str).agg("|".join, axis=1).tolist()
+            raise BatchInputError("batch_grain_key_repeated", f"{label}: the grain {x['table']}'s key ({', '.join(k)}) repeats in "
+                                  f"{len(rep)} rows (e.g. {', '.join(ex)}): one row per {', '.join(k)}, so each gets one score.",
+                                  table=x["table"], key=k, rows=int(len(rep)), examples=ex)
+
+
+# --------------------------------------------------------------------------- F-X3b (C1): online scoring of join models
+
+
+def _rows_upload(name: str, rows: Any, cols: list[str]) -> tuple[str, Any]:
+    """Online rows as the batch path reads a file: a CSV of them (the same typed reader), or an empty frame with the
+    pinned columns when there are none (no payments for this application)."""
+    if not isinstance(rows, list) or not all(isinstance(r, dict) for r in rows):
+        raise BatchInputError("bad_rows", f"tables.{name} is a list of row objects or \"pinned\".", table=name)
+    if not rows:
+        return f"{name}.csv", pd.DataFrame({c: pd.Series([], dtype=object) for c in cols})
+    return f"{name}.csv", pd.DataFrame(rows).to_csv(index=False).encode()
+
+
+_NUMERIC: dict[str, set[str]] = {}
+
+
+def _numeric_features(predictor_path: str, cfg: dict[str, Any], features: list[str]) -> set[str]:
+    """The training frame's numeric features (what `_coerce` casts), read once per worker process and version."""
+    if predictor_path not in _NUMERIC:
+        train = _train_frame(cfg, features)
+        _NUMERIC[predictor_path] = {c for c in train.columns if pd.api.types.is_numeric_dtype(train[c].dtype)}
+    return _NUMERIC[predictor_path]
+
+
+def score_join_rows(db_path: str, predictor_path: str, cfg: dict[str, Any], rows: list[dict[str, Any]],
+                    tables: dict[str, Any] | None, work_dir: str) -> dict[str, Any]:
+    """C1 (§7 risk 11): /predict and /score on a join model. The rows are the grain's; `tables` gives each other input
+    (by alias) as rows, or "pinned" to read the model's pinned version. They go through `join_batch_frame`, the batch
+    path (CSV reader, pinned types, `frames.materialise`), then are read and cast exactly as `score_batch` reads a batch
+    (`read_batch` + `_coerce`). Returns score_with's shape plus `missing_columns`, `join` and `_frame_rows`."""
+    import shutil
+
+    t_all = time.perf_counter()
+    if not rows:
+        raise BatchInputError("bad_rows", "Give at least one row.")
+    tables = tables or {}
+    if not isinstance(tables, dict):
+        raise BatchInputError("bad_rows", "tables is an object: {table: [rows] or \"pinned\"}.")
+    exp = join_inputs_expected(db_path, cfg)
+    cols_of = {e["alias"]: [c["name"] for c in frames.lake_table(frames.Table(e["version_id"], e["table"])).schema if c["name"] != "__row_id"]
+               for e in exp}
+    grain = exp[0]["alias"]
+    if grain in tables:
+        raise BatchInputError("pinned_grain", f"{grain} is the grain: send its rows as `rows` (or `row`), not in `tables`.", table=grain)
+    ups = [_rows_upload(grain, rows, cols_of[grain])]
+    pinned = set()
+    for name, val in tables.items():
+        if val == "pinned":
+            pinned.add(name)
+        else:
+            ups.append(_rows_upload(name, val, cols_of.get(name, [])))
+    work = Path(work_dir)
+    try:
+        info = join_batch_frame(db_path, cfg, ups, work, pinned_tables=pinned, online=True)
+        p = load_predictor(predictor_path)
+        features = list(p.original_features)
+        df = read_batch(info["path"], cfg)  # as score_batch reads the batch's frame
+        missing = [c for c in features if c not in df.columns]
+        X = df.reindex(columns=features)
+        for c in _numeric_features(predictor_path, cfg, features):
+            if c in X.columns:
+                X[c] = pd.to_numeric(X[c], errors="coerce")
+        out = _predict_frame(p, X)
+        out["missing_columns"] = missing
+        out["join"] = {k: info[k] for k in ("join_id", "join_name", "spec_sha256", "spec_frozen", "grain", "grain_rows", "frame_rows",
+                                            "frame_sha256", "method")}
+        out["join"]["tables"] = {a: {k: v for k, v in t.items() if k in ("source", "version_id", "rows", "cast_failures")}
+                                 for a, t in info["tables"].items()}
+        if info.get("warnings"):
+            out["warnings"] = info["warnings"]
+        out["_frame_rows"] = jsonable(X.astype(object).where(X.notna(), None).to_dict(orient="records"))
+        out["worker_ms"] = (time.perf_counter() - t_all) * 1e3
+        return out
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

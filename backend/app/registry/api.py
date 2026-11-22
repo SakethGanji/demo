@@ -732,6 +732,26 @@ class TryRequest(BaseModel):
     row: dict[str, Any]
     explain: bool = True
     target: str | None = None
+    tables: dict[str, Any] | None = Field(None, description="F-X3b (C1), a model on a join: the other input tables, by "
+                                          "name (see `inputs`), each as a list of rows or \"pinned\" (read from the model's "
+                                          "pinned version). `row` is the grain row.")
+
+
+async def _join_online(request: Request, v: dict[str, Any], cfg: dict[str, Any], rows: list[dict[str, Any]],
+                       tables: dict[str, Any] | None) -> dict[str, Any]:
+    """F-X3b (C1): a join model scores online through its join: the rows and tables go through the batch path
+    (`scoring.join_batch_frame` → `frames.materialise`), in a predict worker. 400 naming a missing table or column."""
+    work = _dir(request) / "batches" / ("_online_" + secrets.token_hex(4))
+    try:
+        return await request.app.state.heavy.run(scoring.score_join_rows, str(request.app.state.settings.db_path), v["path"],
+                                                 cfg, rows, tables, str(work))
+    except scoring.BatchInputError as e:
+        det = e.detail()
+        if e.status == 400 and e.code in ("batch_table_missing", "batch_table_unknown", "ambiguous_tables", "bad_rows"):
+            det["inputs"] = scoring.join_inputs_expected(str(request.app.state.settings.db_path), cfg)
+        raise HTTPException(e.status, det) from e
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 @router.post("/registry/versions/{vid}/predict", dependencies=[require("model.use", path("vid", "model_version"))])
@@ -783,6 +803,30 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
         except an.AnomalyError as e:
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": "anomaly", **out}
+    if run["config"].get("join"):  # F-X3b (C1): the grain row joined as training and batches join it
+        j = await _join_online(request, v, run["config"], [body.row], body.tables)
+        frame_row = j.pop("_frame_rows")[0]
+        out = {k: j[k] for k in ("model", "problem_type", "missing_columns", "join") if k in j}
+        out["features"] = list(frame_row)
+        out["frame_row"] = frame_row
+        if "classes" in j:
+            out["classes"] = j["classes"]
+            out["probabilities"] = j["probabilities"][0]
+        out["prediction"] = j["predictions"][0]
+        if "quantiles" in j:
+            out["quantiles"] = j["quantiles"][0]
+        if j.get("warnings"):
+            out["warnings"] = j["warnings"]
+        if body.explain:  # SHAP and reason codes on the joined row (the prediction above is the batch-path one)
+            try:
+                rc_args = _reason_args(request, v, run)
+                ex = await request.app.state.heavy.run(scoring.try_it, run["config"], v["path"], frame_row, body.target, True,
+                                                       explain.SHAP_NSAMPLES, *(rc_args or (None, None)))
+            except explain.ExplainError as e:
+                raise HTTPException(400, str(e)) from e
+            out.update({k: ex[k] for k in ("shap", "reasons", "positive_class", "threshold", "calibration") if k in ex})
+            out["explained_prediction"] = ex.get("prediction")
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], **out}
     try:
         rc_args = _reason_args(request, v, run)
         out = await request.app.state.heavy.run(scoring.try_it, run["config"], v["path"], body.row, body.target, body.explain,
@@ -800,6 +844,8 @@ class ScoreRequest(BaseModel):
                                              "for adverse ones, the top reason codes (computed in a predict worker).")
     reasons_reference: bool = Field(False, description="F10 audit: also estimate the same SHAP game with 4,096 "
                                                        "coalitions for every explained row (slow).")
+    tables: dict[str, Any] | None = Field(None, description="F-X3b (C1), a model on a join: the other input tables by name, "
+                                          "each a list of rows or \"pinned\". `rows` are the grain's rows.")
 
 
 INPROC_MAX_BYTES = 200 * 1024 * 1024
@@ -880,7 +926,7 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
         v = _ready_version(request, vid)
         run = request.app.state.runs.get(v["run_id"])
         meta = {"path": v["path"], "kind": run["config"].get("kind"), "model_name": v["model_name"],
-                "version": v["version"], "inproc": _inproc_ok(v, 1)}
+                "version": v["version"], "inproc": _inproc_ok(v, 1), "join": bool(run["config"].get("join"))}
         _SCORE_META[vid] = meta
     v = meta
     kind = meta["kind"]
@@ -933,6 +979,20 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
         except an.AnomalyError as e:
             raise HTTPException(400, str(e)) from e
         return {"version_id": vid, "kind": "anomaly", "results": outs, "server_ms": (_t.perf_counter() - t0) * 1e3}
+    if meta.get("join"):  # F-X3b (C1): through the join (the batch path), always in a predict worker
+        full = _version(request, vid)
+        run = request.app.state.runs.get(full["run_id"])
+        out = await _join_online(request, full, run["config"], body.rows, body.tables)
+        frame_rows = out.pop("_frame_rows")
+        if body.reasons:
+            rc_args = _reason_args_or_400(request, full, run)
+            try:
+                out["reasons"] = await request.app.state.heavy.run(scoring.reasons_rows, full["path"], run["config"], *rc_args,
+                                                                   frame_rows, True, body.reasons_reference)
+            except ValueError as e:
+                raise HTTPException(400, str(e)) from e
+        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], **out, "where": "worker",
+                "server_ms": (_t.perf_counter() - t0) * 1e3}
     inproc = body.where == "api" or (body.where == "auto" and meta["inproc"] and len(body.rows) <= INPROC_MAX_ROWS)
     was_warm = _SERVE.has(v["path"]) if inproc else None
     try:
@@ -987,7 +1047,8 @@ def _kinds(request: Request, run: dict[str, Any]) -> dict[str, str]:
 
 @router.post("/registry/versions/{vid}/batches", status_code=202, dependencies=[require("model.use", path("vid", "model_version"))])
 async def create_batch(vid: str, request: Request, file: UploadFile | None = File(None), created_by: str = Form(""),
-                       data_date: str | None = Form(None), files: list[UploadFile] | None = File(None)) -> dict[str, Any]:
+                       data_date: str | None = Form(None), files: list[UploadFile] | None = File(None),
+                       pinned: str | None = Form(None)) -> dict[str, Any]:
     """Score a CSV with the version, in a worker process: progress on GET /registry/batches/{id}, then a preview,
     the scored CSV (predictions and probabilities) and PSI drift of every feature and of the predictions. F18:
     `data_date` (YYYY-MM-DD) is the date of the data in the batch (default: the latest date in the run's time column
@@ -1008,20 +1069,21 @@ async def create_batch(vid: str, request: Request, file: UploadFile | None = Fil
         got.append((Path(f.filename or "batch.csv").name, content))
     cfg = (request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}
     if cfg.get("join"):  # P15: one file per input table; the model's saved join applied to them (frames.materialise)
-        return await run_in_threadpool(submit_join_batch, request, v, cfg, got, who, data_date)
+        pins = [x.strip() for x in (pinned or "").split(",") if x.strip()]  # F-X3b: lookup tables read as pinned
+        return await run_in_threadpool(submit_join_batch, request, v, cfg, got, who, data_date, pins)
     if len(got) > 1:
         raise HTTPException(400, f"This model reads one table: send one file, not {len(got)}.")
     return submit_batch(request, v, got[0][1], got[0][0], who, data_date)
 
 
 def submit_join_batch(request: Request, v: dict[str, Any], cfg: dict[str, Any], got: list[tuple[str, bytes]], who: str,
-                      data_date: str | None) -> dict[str, Any]:
+                      data_date: str | None, pinned: list[str] | None = None) -> dict[str, Any]:
     bdir = _dir(request) / "batches" / ("_join_" + secrets.token_hex(4))
     try:
-        info = scoring.join_batch_frame(str(request.app.state.settings.db_path), cfg, got, bdir)
+        info = scoring.join_batch_frame(str(request.app.state.settings.db_path), cfg, got, bdir, pinned_tables=pinned or ())
     except scoring.BatchInputError as e:
         shutil.rmtree(bdir, ignore_errors=True)
-        raise HTTPException(400, e.detail()) from e
+        raise HTTPException(e.status, e.detail()) from e
     name = " + ".join(t["file"] for t in info["tables"].values())[:300]
     try:
         out = submit_batch(request, v, Path(info["path"]).read_bytes(), name, who, data_date, join_info=info)

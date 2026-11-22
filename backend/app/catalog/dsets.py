@@ -623,6 +623,9 @@ def drop_version_refs(con, vid: str) -> int:
     n += sweep_split_refs(con)
     n += con.execute("DELETE FROM blob_refs WHERE owner_kind = 'upload' AND owner_id IN (SELECT id FROM uploads"
                      " WHERE committed_version_id = ?)", (vid,)).rowcount or 0
+    from .joins import release_frames_of  # F-X3b (M9): join caches built from it lose their frame ref (GC candidates)
+
+    n += len(release_frames_of(con, vid))
     return n
 
 

@@ -39,6 +39,54 @@ def install(app, settings) -> None:
 
     app.add_exception_handler(CacheIntegrityError, _integrity)
 
+    # F-X3b (X3 m7): a blob missing from the store (S3 NoSuchKey, a deleted local file, DuckDB "No files found" on its
+    # path) is a typed 409 `blob_missing` naming the sha, not a 500. Errors on other paths stay 500s (logged).
+    import re as _re
+
+    import duckdb
+
+    from .s3store import BlobMissing, BlobStacked
+
+    blob_re = _re.compile(r"blobs/[0-9a-f]{2}/([0-9a-f]{64})\.[a-z0-9]{1,10}")
+
+    def _missing(sha: str | None, exc: Exception):
+        from fastapi.responses import JSONResponse
+
+        log.error("blob missing: %s", exc)
+        return JSONResponse({"detail": {"code": "blob_missing", "sha256": sha,
+                                        "message": f"A file of this data ({(sha or '?')[:12]}…) is missing from the lake. "
+                                                   "GET /api/datasets/{version}/verify names the version and table; restore the "
+                                                   "object or delete the version."}}, status_code=409)
+
+    def _server_error(exc: Exception):
+        from fastapi.responses import PlainTextResponse
+
+        log.exception("unhandled %s", type(exc).__name__, exc_info=exc)
+        return PlainTextResponse("Internal Server Error", status_code=500)
+
+    async def _blob_missing(request: Request, exc: BlobMissing):
+        m = blob_re.search(str(exc))
+        return _missing(m.group(1) if m else None, exc)
+
+    async def _fnf(request: Request, exc: FileNotFoundError):
+        m = blob_re.search(f"{exc.filename or ''} {exc}")
+        return _missing(m.group(1), exc) if m else _server_error(exc)
+
+    async def _duck_io(request: Request, exc: duckdb.IOException):
+        m = blob_re.search(str(exc))
+        return _missing(m.group(1), exc) if m and ("No files found" in str(exc) or "No such file" in str(exc)) else _server_error(exc)
+
+    async def _stacked(request: Request, exc: BlobStacked):  # X3 m8
+        from fastapi.responses import JSONResponse
+
+        log.error("blob stacked: %s", exc)
+        return JSONResponse({"detail": exc.payload}, status_code=409)
+
+    app.add_exception_handler(BlobMissing, _blob_missing)
+    app.add_exception_handler(FileNotFoundError, _fnf)
+    app.add_exception_handler(duckdb.IOException, _duck_io)
+    app.add_exception_handler(BlobStacked, _stacked)
+
 
 def _err(e: LakeError) -> HTTPException:
     return HTTPException(e.status, e.payload)
@@ -81,6 +129,38 @@ async def cache_verify(request: Request) -> dict[str, Any]:
     if not hasattr(st, "cache"):
         return {"store": st.root, "cache": None, "note": "the local store reads blobs in place; there is no cache"}
     return {"store": st.root, **(await run_in_threadpool(st.cache.verify_all)), "cache": st.cache.info()}
+
+
+@router.post("/admin/lake/blobs/{sha256}/restore", dependencies=[require("admin.lake")])
+async def restore_blob(sha256: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """F-X3b (X3 m8): the fix path for 409 `blob_stacked`. The newest object version whose bytes hash to the key is
+    verified and every version stacked above it is removed (governance bypass), so commits that dedupe onto the blob
+    work again. Audited `blob_restored` with the removed versions (their ids, sizes and times stay in the audit)."""
+    body = body if isinstance(body, dict) else {}
+    by = _admin(request, body.get("by"), "lake_blob_restore")
+    if body.get("confirm") != "restore":
+        raise HTTPException(400, {"code": "confirm_required", "message": 'Send {"confirm": "restore"}: stacked versions are removed.'})
+    st, db = request.app.state.lake, request.app.state.db
+    if not hasattr(st, "restore_stacked"):
+        raise HTTPException(409, {"code": "not_s3", "message": "The local store writes blobs once; nothing is stacked on them."})
+    with db.connect() as con:
+        r = con.execute("SELECT key FROM blobs WHERE sha256 = ?", (sha256,)).fetchone()
+    from .store import blob_key, SHA_RE
+
+    if not SHA_RE.match(sha256 or ""):
+        raise HTTPException(400, "Not a sha256.")
+    key = r[0] if r else blob_key(sha256, "parquet")
+    from .store import StoreError
+
+    try:
+        out = await run_in_threadpool(st.restore_stacked, key, sha256)
+    except StoreError as e:
+        with db.connect() as con:
+            S.audit(con, by, "blob_restore_refused", {"sha256": sha256, "key": key, "error": str(e)}, object_kind="blob", object_id=sha256)
+        raise HTTPException(409, {"code": getattr(e, "code", "restore_refused"), "message": str(e)}) from e
+    with db.connect() as con:
+        S.audit(con, by, "blob_restored", out, comment=body.get("reason") or "stacked object version", object_kind="blob", object_id=sha256)
+    return out
 
 
 @router.post("/admin/lake/sync-s3", dependencies=[require("admin.lake")])

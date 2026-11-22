@@ -1,0 +1,91 @@
+# setup (X3 A setup.sh)
+HTTP 201 apps key -> ds_033128c3
+HTTP 201 cust key -> ds_cb5b2b2d
+HTTP 201 pays key -> ds_9697d2d0
+HTTP 201 daily key -> ds_c8e3278a
+# M5, M6 (X3 A joins1.sh J1–J4)
+## J1 n:1 on DATE (apps.applied_on) = TIMESTAMP (daily.day): validation passes?, coverage
+HTTP 201 [('daily', 3000, 1.0, 0, 0)]
+   control: TIMESTAMP applied_day = TIMESTAMP day
+HTTP 201 [('daily', 3000, 1.0, 0)]
+## J2 window on a BIGINT date column (Excel serial paid_serial)
+HTTP 400 {'code': 'window_type', 'message': 'joins[0] (pays).aggs[0].window.date: paid_serial is BIGINT, not a date, so no row would fall in the window. Re-type the column as a DATE (a new version) and join that.', 'join': 0, 'column': 'paid_serial'}
+## J3 window on a text date column (dd/mm/yyyy)
+HTTP 400 {'code': 'window_type', 'message': "joins[0] (pays).aggs[0].window.date: paid_dmy of pays is text and 34,735 of 34,735 values don't read as an ISO date (e.g. '01/01/2024'): no row would fall in the window. Re-type it as a DATE (a new version) and join that.", 'join': 0, 'column': 'paid_dmy'}
+## J4 window on DATE paid_on (boundaries, NULL dates) + skew (A00001 has 30k pays) + NULL keys
+HTTP 201 [('cust', 2735, 0.9117, 225, 40, None), ('pays', 2533, 0.8443, 467, 0, 38569)]
+HTTP 201 ('jf_709048b738', 3000, 0.053, ['y:BIGINT', 'c__score:BIGINT', 'p__n:BIGINT', 'p__amt:DOUBLE', 'p__amt90:DOUBLE', 'p__n90:BIGINT', 'p__n30f:BIGINT', 'p__last:DATE'])
+## J5 n:1 to a non-unique side via a version whose cust has a repeated key (fan-out)
+# M6 more: DATE = VARCHAR key, and the DATE = TIMESTAMP frame's cells
+): apps.applied_on is DATE and pays.paid_dmy is VARCHAR: they don't compare (a date with text, a time zone with none, a bool with a number …). Give both the same type (a new version with the column re-typed), then join.","join":0,"left":{"column":"applied_on","type":"DATE"},"right":{"column":"paid_dmy","type":"VARCHAR"}}} 400
+
+frame rows ['x1', 'y', 'd__rate'] [[0.3481, 0, 6.173], [-0.3621, 0, 4.515], [-1.8434, 0, 4.73]]
+# C1, M7 (X3 A reg.sh: a join model, the two-cust model and its batch)
+## R0 ext = cust.csv as its own dataset, key cust
+HTTP 201 ds_de94b4e4
+HTTP 201 ext keyed ds_d6ac9490
+HTTP 201 join jn_84a4c95dc6
+HTTP 201 join (two tables named cust) jn_a7157e0069
+## R1 runs on both joins (time_limit 20)
+HTTP 201 HTTP 201 run_622c2413 succeeded
+run_ce85f42c succeeded
+## R2 register the join model
+HTTP 202 mv_3744eef4 ready
+HTTP 200 parity ok | serving frame = training frame (every cell, by __row_id); the version's predictions on 600 holdout rows equal | tables [('apps', 'ds_c8e3278a'), ('cust', 'ds_d6ac9490'), ('pays', 'ds_c8e3278a')]
+HTTP 202 mv_e98cb78d ready
+HTTP 200 parity ok | serving frame = training frame (every cell, by __row_id); the version's predictions on 600 holdout rows equal
+## R3 batch on the two-cust model (tables share a name)
+HTTP 400 {'code': 'ambiguous_tables', 'message': "cust.csv: the model's join reads two tables named 'cust'; name each file by its role: cust.join0 (ds_c8e3278a, join:0), cust.join1 (ds_d6ac9490, join:1)."}
+# C1 on rows (c1.py)
+## 1. /predict on a join model without the other tables → 400 naming them
+400 batch_table_missing ['cust', 'pays'] | inputs [('apps', 'grain'), ('cust', 'join:0'), ('pays', 'join:1')]
+## 2. /score with a table lacking a column → 400 batch_column_missing
+400 batch_column_missing cust ['score']
+## 3. /score, grain rows + cust rows + pays rows (all 300 batch rows) vs the batch of the same files
+200 n_rows 300 missing_columns [] | join {'grain_rows': 300, 'frame_rows': 300, 'spec_frozen': True} | tables {'apps': 300, 'cust': 241, 'pays': 30834} | 0.6s
+   batch batch_8e33cfa3 succeeded rows 300 | online vs batch: predictions equal True | max |Δp| 4.45e-07 (batch rounds to 6 dp)
+## 4. the same with cust "pinned" (read from the model's pinned version, re-hashed)
+200 source {'source': 'pinned', 'version_id': 'ds_d6ac9490', 'rows': 1100, 'cast_failures': {}} | max |Δp| vs rows-sent 0.00e+00
+## 5. /predict, 5 rows one at a time (their pays only) = /score
+   200 A00001 pays 29982 p1 0.258553445 | /score 0.258553445 | Δ 0.0e+00 | frame {'x__score': 383, 'p__n': 29982, 'p__amt90': 2338004.0} | shap reasons 5, explained p 0
+   200 A00002 pays 9 p1 0.064968385 | /score 0.064968385 | Δ 0.0e+00 | frame {'x__score': 679, 'p__n': 9, 'p__amt90': 933.0} 
+   200 A00003 pays 2 p1 0.064968385 | /score 0.064968385 | Δ 0.0e+00 | frame {'x__score': 404, 'p__n': 2, 'p__amt90': 94.0} 
+   200 A00051 pays 1 p1 0.258553445 | /score 0.258553445 | Δ 0.0e+00 | frame {'x__score': None, 'p__n': 1, 'p__amt90': None} 
+   200 A00300 pays 5 p1 0.064968385 | /score 0.064968385 | Δ 0.0e+00 | frame {'x__score': 346, 'p__n': 5, 'p__amt90': 477.0} 
+## 6. training/serving parity on rows: the version's holdout rows scored online from the pinned tables
+200 holdout rows 600 | online predictions = holdout predictions: True | max |Δp| 5.55e-17 | missing_columns []
+# M7: role-named files
+batch succeeded 300 ['apps', 'cust.join0', 'cust.join1']
+0,A00001,C0638,2024-12-10,2024-12-10 00:00:00,0.3481,,383.0,383.0,0,0.742218,0.257782,False
+predict 0 {'0': 0.7422175407409668, '1': 0.2577824294567108}
+# M9 (X3 A pins3.sh), then GC
+HTTP 201 ds_d787f1d8
+HTTP 201 HTTP 201 join jn_5cb526633c frame jf_5e3793f05e (cache 2d605ebe79d6)
+HTTP 200 usage [] ['jf_5e3793f05e'] []
+HTTP 201 request dsr_39ebcc7e
+HTTP 200 approved
+HTTP 410 Dataset 'ds_d787f1d8' was deleted (2026-11-22T02:12:04+00:00, Ben); its lineage is kept.
+HTTP 409 {'code': 'version_deleted', 'message': "ds_d787f1d8 was deleted: the join can't read its table 'cust'."}
+HTTP 200 ('verify', False, [('apps', True), ('cust', False)], 'cache', True)
+HTTP 200 ('get join', 'pin_e9')
+HTTP 409 {'code': 'version_deleted', 'message': "ds_d787f1d8 was deleted: the join can't read its table 'cust'."}
+HTTP 409 {'code': 'version_deleted', 'message': "ds_d787f1d8 was deleted: the join can't read its table 'cust'."}
+frame verify ok False inputs [('apps', True, None), ('cust', False, 'deleted')] inputs_deleted ['ds_d787f1d8']
+gc dry run join_cache candidates [('2d605ebe79d6', 'join_cache')]
+gc run {'deleted': 1, 'skipped': 0}
+delete a pinned input a run trained on: {'message': "Can't delete: a version is in use. Each line below says how to clear it.", 'blockers': ['x3-join v1 (pending) was built from run run_622c2413 on ds
+# M8 (m8.py)
+1. flipped y in the apps part 18bc6c2c288a
+2. save join 201 jn_a0b529c06f
+3. POST frames while the bytes are wrong 409 {'code': 'input_integrity', 'message': "The join's input bytes are not the committed ones: apps (ds_c8e3278a) reads 0720a03fd331…, committed c0bd47a08432…. No frame was built: GET /api/datasets/{version}/verify names the part; restore it or re-upload.", 'inputs': [{'version_id': 'ds_c8e3278a', 'table': 'apps', 'pinned': 'c0bd47a084322a091c044b5794e4155805fb0c1779e6c7c92425cff733b56882', 'committed': 'c0bd47a084322a091c044b5794e4155805fb0c1779e6c7c92425cff733b56882', 'now': '0720a03fd3311b169ce0964b7570492718ba707a9fdc6ecc80b59de403a95904', 'ok': False}]}
+4. restored the part
+7. POST frames (bytes good) 201 jf_5706f9eb3a cached False
+# minors: m5 unreadable batch files, m16 repeated grain key, m15 cast failures, m6 numeric version_id
+{"detail":{"code":"batch_file_unreadable","message":"apps.csv (table apps): This looks like a binary file, not a CSV. Upload a .csv or .tsv text file.","table":"apps","file":"apps.csv"}} 400
+{"detail":{"code":"batch_file_unreadable","message":"apps.parquet (table apps): Could not read apps.parquet as Parquet.","table":"apps","file":"apps.parquet"}} 400
+{"detail":{"code":"batch_file_unreadable","message":"book.xlsx: could not read it as an Excel workbook (BadZipFile).","file":"book.xlsx"}} 400
+.csv: the grain apps's key (app_id) repeats in 4 rows (e.g. A00001, A00002): one row per app_id, so each gets one score.","table":"apps","key":["app_id"],"rows":4,"examples":["A00001","A00002"]}} 400
+coerce batch succeeded {'apps': {'applied_on': 10, 'x1': 10}, 'cust': {}, 'pays': {}} ['apps: 20 value(s) could not be read as the pinned type (or as a date, for a window) and are missing (applied_on 10, x1 10)']
+{"detail":{"code":"bad_request","message":"version_id is a dataset version id (a string, ds_…)."}} 400
+{"detail":{"code":"bad_request","message":"version_id is a dataset version id (a string, ds_…)."}} 400
+tracebacks in api.log: 0

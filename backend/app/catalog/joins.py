@@ -319,6 +319,32 @@ def _declared_key(db, version_id: str, table: str, cols: list[str]) -> bool:
     return False
 
 
+def _window_text_check(con, j: dict[str, Any], i: int, tname: str, jsrc: str, jcols: dict[str, str], gsrc: str,
+                       gcols: dict[str, str]) -> None:
+    """F-X3b (M5): a window column stored as text must hold ISO dates: every non-empty value reads as a DATE (as the
+    window's TRY_CAST reads it), and at least one does. 'dd/mm/yyyy' text or serials as text → 400 `window_type`."""
+    q = frames._qi
+    seen: set[tuple[str, str]] = set()
+    for k, a in enumerate(j["aggs"]):
+        w = a.get("window")
+        if not w:
+            continue
+        for side, col, typ, src, who in (("date", w["date"], jcols[w["date"]], jsrc, tname), ("relative_to", w["relative_to"],
+                                         gcols[w["relative_to"]], gsrc, "the grain")):
+            if frames.key_family(typ) != "text" or (src, col) in seen:
+                continue
+            seen.add((src, col))
+            n, bad, ex = con.execute(
+                f"SELECT count({q(col)}), count(*) FILTER (WHERE {q(col)} IS NOT NULL AND TRY_CAST({q(col)} AS DATE) IS NULL),"
+                f" min({q(col)}) FILTER (WHERE {q(col)} IS NOT NULL AND TRY_CAST({q(col)} AS DATE) IS NULL) FROM {src}").fetchall()[0]
+            if int(bad) or not int(n):
+                raise _bad("window_type",
+                           f"joins[{i}] ({tname}).aggs[{k}].window.{side}: {col} of {who} is text and "
+                           + (f"{int(bad):,} of {int(n):,} values don't read as an ISO date (e.g. {ex!r}): " if int(n) else "is empty: ")
+                           + "no row would fall in the window. Re-type it as a DATE (a new version) and join that.",
+                           join=i, agg=k, column=col, type=typ, not_dates=int(bad), values=int(n), example=ex)
+
+
 def validate(db, spec: dict[str, Any], version_id: str, by: str | None = None) -> dict[str, Any]:
     """§5.8: the spec against a concrete version. Columns exist and compare; an n:1 / 1:1 right side is a key (declared,
     else counted now); 1:n without an aggregate → 400; output names don't collide. Returns the inputs and the coverage of
@@ -340,11 +366,16 @@ def validate(db, spec: dict[str, Any], version_id: str, by: str | None = None) -
                 raise _bad("column_unknown", f"{where}: the grain table {spec['grain']!r} has no column {l!r}.", join=i, column=l)
             if r not in jcols:
                 raise _bad("column_unknown", f"{where}: table {inp['table']!r} has no column {r!r}.", join=i, column=r)
-            kl, kr = frames.kind_of_type(gcols[l]), frames.kind_of_type(jcols[r])
-            num = ("integer", "number")
-            if kl != kr and not (kl in num and kr in num):
+            fl, fr_ = frames.key_family(gcols[l]), frames.key_family(jcols[r])
+            if {fl, fr_} == {"number", "text"}:
                 raise _bad("join_types", f"{where}: {spec['grain']}.{l} ({gcols[l]}) and {inp['table']}.{r} ({jcols[r]}) "
                                          "don't compare (a number and a text column).", join=i)
+            if fl != fr_:  # F-X3b (M6): DATE = TIMESTAMP compares as TIMESTAMP; any other mix is refused, never text
+                raise _bad("key_type_mismatch",
+                           f"{where}: {spec['grain']}.{l} is {gcols[l]} and {inp['table']}.{r} is {jcols[r]}: they don't "
+                           "compare (a date with text, a time zone with none, a bool with a number …). Give both the same "
+                           "type (a new version with the column re-typed), then join.",
+                           join=i, left={"column": l, "type": gcols[l]}, right={"column": r, "type": jcols[r]})
         if j["type"] == "aggregate":
             for k, a in enumerate(j["aggs"]):
                 if a["column"] and a["column"] not in jcols:
@@ -361,6 +392,14 @@ def validate(db, spec: dict[str, Any], version_id: str, by: str | None = None) -
                     if w["relative_to"] not in gcols:
                         raise _bad("column_unknown", f"{where}.aggs[{k}].window: the grain table has no column "
                                                      f"{w['relative_to']!r}.", join=i, column=w["relative_to"])
+                    for side, col, typ in (("date", w["date"], jcols[w["date"]]), ("relative_to", w["relative_to"], gcols[w["relative_to"]])):
+                        # F-X3b (M5): a window needs dates. DATE / TIMESTAMP pass; text is checked on the data below (every
+                        # value must read as an ISO date); a number (an Excel serial), a bool or a zoned timestamp: 400.
+                        if not frames.is_date_type(typ) and frames.key_family(typ) != "text":
+                            raise _bad("window_type",
+                                       f"{where}.aggs[{k}].window.{side}: {col} is {typ}, not a date, so no row would fall in "
+                                       "the window. Re-type the column as a DATE (a new version) and join that.",
+                                       join=i, agg=k, column=col, type=typ)
         else:
             for c in j.get("columns") or []:
                 if c not in jcols:
@@ -415,6 +454,7 @@ def validate(db, spec: dict[str, Any], version_id: str, by: str | None = None) -
                                    "coverage": round(int(matched) / g.n_rows, 4) if g.n_rows else None,
                                    "orphans": int(with_key) - int(matched), "missing_key": g.n_rows - int(with_key), "key": key}
             if j["type"] == "aggregate":
+                _window_text_check(con, j, i, inp["table"], jsrc, jcols, gsrc, gcols)
                 jn = con.execute(f"SELECT count(*) FROM {jsrc} p WHERE EXISTS (SELECT 1 FROM {gsrc} g WHERE {on})").fetchall()[0][0]
                 ent["rows_aggregated"] = int(jn)
                 ent["columns"] = [j["prefix"] + a["name"] for a in j["aggs"]]
@@ -423,7 +463,8 @@ def validate(db, spec: dict[str, Any], version_id: str, by: str | None = None) -
             report.append(ent)
     cols = frames.join_output_columns(spec, [x["lt"] for x in ins])
     return {"version_id": version_id, "grain": spec["grain"], "grain_rows": g.n_rows,
-            "inputs": [{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")} for x in ins],
+            "inputs": [{**{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")}, "alias": a}
+                       for x, a in zip(ins, input_aliases(ins))],
             "coverage": report, "columns": [{"name": n, "from": o} for n, o, _ in cols], "n_columns": len(cols),
             **({"shared_inputs": shared} if shared else {}), "_inputs": ins}
 
@@ -532,10 +573,38 @@ def list_joins(db, root_id: str) -> list[dict[str, Any]]:
 # --------------------------------------------------------------------------- join frames
 
 
-def frame_sha256(spec_sha: str, inputs: list[dict[str, Any]]) -> str:
-    """§5.8: the frame's identity = hash(spec sha + the ordered input table shas)."""
-    return M.sha256_hex(M.canonical({"format": "ensemble.join_frame/1", "spec_sha256": spec_sha,
-                                     "inputs": [x["table_sha256"] for x in inputs]}))
+def frame_sha256(spec_sha: str, inputs: list[dict[str, Any]], engine: str | None = None) -> str:
+    """§5.8: the frame's identity = hash(spec sha + the ordered input table shas). F-X3b (M6): `engine` names a join
+    rule that changed what the same spec computes (DATE = TIMESTAMP keys compared as TIMESTAMP, not text), so a frame
+    built by the old rule is never reused as the new one; every other frame keeps its identity."""
+    d: dict[str, Any] = {"format": "ensemble.join_frame/1", "spec_sha256": spec_sha, "inputs": [x["table_sha256"] for x in inputs]}
+    if engine:
+        d["engine"] = engine
+    return M.sha256_hex(M.canonical(d))
+
+
+def frame_engine(spec: dict[str, Any], lts: list[Any]) -> str | None:
+    """'temporal_key_cast/1' when a join key pairs two different date types (DATE with TIMESTAMP), else None."""
+    g = {c["name"]: c["type"] for c in lts[0].schema}
+    for i, j in enumerate(spec["joins"]):
+        t = {c["name"]: c["type"] for c in lts[i + 1].schema}
+        for l, r in j["on"]:
+            a, b = g.get(l, ""), t.get(r, "")
+            if a.upper() != b.upper() and frames.key_family(a) == frames.key_family(b) == "temporal":
+                return "temporal_key_cast/1"
+    return None
+
+
+def input_aliases(pinned: list[dict[str, Any]]) -> list[str]:
+    """F-X3b (M7): the name a batch file (or an online request's table) gives each input, in spec order. A table name
+    read once is its own alias; a name read twice (a local `cust` and another dataset's `cust`) gets its role:
+    `cust.grain`, `cust.join0`, `cust.join1`. The same rule everywhere (validation, batches, /predict, /score)."""
+    names = [x["table"] for x in pinned]
+    out = []
+    for i, x in enumerate(pinned):
+        role = x.get("role") or ("grain" if i == 0 else f"join:{i - 1}")
+        out.append(x["table"] if names.count(x["table"]) == 1 else f"{x['table']}.{role.replace(':', '')}")
+    return out
 
 
 def frame_out(r: Any) -> dict[str, Any]:
@@ -562,7 +631,8 @@ def frame(db, store: Any, join_id: str, version_id: str, by: str) -> dict[str, A
     spec = j["spec"]
     rep = validate(db, spec, version_id, by)  # F-PII: a revoked share refuses here, the cached frame too
     ins = rep.pop("_inputs")
-    fsha = frame_sha256(j["spec_sha256"], ins)
+    fsha = frame_sha256(j["spec_sha256"], ins, frame_engine(spec, [x["lt"] for x in ins]))
+    _inputs_intact(db, ins, join_id, version_id, by, "before")  # F-X3b (M8): the bytes read are the pinned bytes
     with db.connect() as con:
         r = con.execute("SELECT * FROM join_frames WHERE frame_sha256 = ?", (fsha,)).fetchone()
     if r and _cache_ok(db, store, r["cache_blob"]):
@@ -578,12 +648,13 @@ def frame(db, store: Any, join_id: str, version_id: str, by: str) -> dict[str, A
             with db.connect() as con:
                 S.audit(con, by, "join_frame_refused", details={"join_id": join_id, "version_id": version_id, "why": str(e)[:500]})
             raise JoinError(409, "grain_violated", str(e)) from e
+        _inputs_intact(db, ins, join_id, version_id, by, "after")  # nothing changed under the build
         bsha, nbytes = M.file_sha256(f)
         key = store.put_file(f, bsha, "parquet")
     finally:
         if hasattr(store, "remove_tmp"):
             store.remove_tmp(tmp)
-    pinned = [{**{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")},
+    pinned = [{**{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")}, "verified": True,
                **({"share_id": x["share"]["share_id"], "share_pii": x["share"]["pii"]} if x.get("share") else {})} for x in ins]
     with db.connect() as con:
         con.execute("INSERT INTO blobs (sha256, key, kind, bytes, n_rows, state, created_at) VALUES (?, ?, 'join_cache', ?, ?, 'live', ?)"
@@ -621,6 +692,59 @@ def frame(db, store: Any, join_id: str, version_id: str, by: str) -> dict[str, A
             "join": {k: j[k] for k in ("id", "name", "spec_version", "spec_sha256")}, "coverage": rep["coverage"]}
 
 
+def _inputs_intact(db, ins: list[dict[str, Any]], join_id: str, version_id: str, by: str, when: str) -> None:
+    """F-X3b (M8): every input table's parts re-hashed (on S3, the read-cache files DuckDB reads) against the committed
+    table sha. A frame is built, or a cached one handed out, only from the pinned bytes; else 409 `input_integrity`
+    naming the tables (audited `join_frame_refused`)."""
+    bad = [x for x in check_inputs(db, {"inputs": [{k: i[k] for k in ("version_id", "table", "table_sha256")} for i in ins]})
+           if not x["ok"]]
+    if not bad:
+        return
+    with db.connect() as con:
+        S.audit(con, by, "join_frame_refused", details={"join_id": join_id, "version_id": version_id, "why": "input_integrity",
+                                                        "when": when, "inputs": bad})
+    raise JoinError(409, "input_integrity",
+                    "The join's input bytes are not the committed ones: "
+                    + "; ".join(f"{x['table']} ({x['version_id']}) reads {str(x['now'])[:12]}…, committed {str(x['committed'])[:12]}…"
+                                for x in bad)
+                    + ". No frame was built: GET /api/datasets/{version}/verify names the part; restore it or re-upload.",
+                    inputs=bad)
+
+
+def release_frames_of(con, version_id: str) -> list[str]:
+    """F-X3b (M9): a deleted (or purged) version gives up the join frames that read it: their `(join_frame, cache)` refs
+    are dropped, so a cache no run pins becomes a GC candidate (a run's `(run, join_frame)` pin keeps it, as the
+    delete rules say). Returns the frame ids."""
+    out = []
+    for r in con.execute("SELECT id, version_id, inputs_json FROM join_frames WHERE version_id = ? OR inputs_json LIKE ?",
+                         (version_id, f"%{version_id}%")):
+        if r["version_id"] == version_id or any(x.get("version_id") == version_id for x in json.loads(r["inputs_json"] or "[]")):
+            out.append(r["id"])
+    for fid in out:
+        con.execute("DELETE FROM blob_refs WHERE owner_kind = 'join_frame' AND owner_id = ? AND role = 'cache'", (fid,))
+    return out
+
+
+def derived_check(db, store: Any, fr: dict[str, Any]) -> dict[str, Any]:
+    """F-X3b (M8): is the cache what the pinned inputs join to? The frame is rebuilt from them with
+    `frames.materialise` (the one join path) and compared with the cache file by __row_id, every cell, like
+    registration parity. Catches a frame built from other bytes that were restored since."""
+    j = get(db, fr["join_id"])
+    tmp = store.tmp_dir("verify-" + secrets.token_hex(4))
+    try:
+        lts = [frames.lake_table(frames.Table(x["version_id"], x["table"])) for x in fr["inputs"]]
+        out = Path(tmp) / "rebuilt.parquet"
+        frames.materialise(j["spec"], lts, out)
+        cache = frames.lake_table(frames.JoinFrame(fr["id"])).parts[0]["path"]
+        cmp = frames.compare_frames(cache, out)
+    except Exception as e:  # noqa: BLE001 - verify reports, it does not fail
+        return {"ok": False, "summary": f"could not rebuild: {type(e).__name__}: {e}"[:300]}
+    finally:
+        if hasattr(store, "remove_tmp"):
+            store.remove_tmp(tmp)
+    return {**cmp, "method": "rebuilt from the pinned inputs with frames.materialise, compared by __row_id, every cell"}
+
+
 def get_frame(db, frame_id: str) -> dict[str, Any]:
     with db.connect() as con:
         r = con.execute("SELECT * FROM join_frames WHERE id = ?", (frame_id,)).fetchone()
@@ -640,7 +764,15 @@ def check_inputs(db, fr: dict[str, Any]) -> list[dict[str, Any]]:
     """Every pinned input re-hashed now: [{version_id, table, pinned, now, ok}] (a run on the frame is refused when one
     differs: the cache would no longer be what those tables join to)."""
     out = []
+    with db.connect() as con:
+        states = {x["version_id"]: (con.execute("SELECT state FROM datasets WHERE id = ?", (x["version_id"],)).fetchone() or [None])[0]
+                  for x in fr["inputs"]}
     for x in fr["inputs"]:
+        st = states.get(x["version_id"])
+        if st == "deleted":  # F-X3b (M9): a deleted input is reported, whatever its (shared) bytes still hash to
+            out.append({"version_id": x["version_id"], "table": x["table"], "pinned": x["table_sha256"], "committed": None,
+                        "now": "version_deleted", "state": "deleted", "ok": False})
+            continue
         try:
             now, committed, _bad_parts = frames.hash_table(frames.Table(x["version_id"], x["table"]))
         except Exception as e:  # noqa: BLE001
