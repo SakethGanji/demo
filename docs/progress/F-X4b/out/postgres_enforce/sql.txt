@@ -1,0 +1,130 @@
+# mode enforce
+
+# 1. X4's repro: files under the data dir
+## 1a Fay sqlite:///mlflow/mlflow.db (registered_models) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_error", "message": "No database file at /var/tmp/fx4b/w2/import/mlflow/mlflow.db."}}
+## 1b Fay sqlite:///ensemble.sqlite3 → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_error", "message": "No database file at /var/tmp/fx4b/w2/import/ensemble.sqlite3."}}
+## 1c Fay sqlite:////<abs data dir>/ensemble.sqlite3 → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_platform_db", "message": "That is one of the workbench's own databases, not a data source."}}
+## 1d Fay sqlite:////<abs data dir>/mlflow/mlflow.db → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_platform_db", "message": "That is one of the workbench's own databases, not a data source."}}
+## 1e Fay sqlite:///<import>/innocent.sqlite (a symlink to the platform DB) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_platform_db", "message": "That is one of the workbench's own databases, not a data source."}}
+## 1f Fay sqlite:////etc/hosts (outside the import dir) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_path_refused", "message": "Database files are read only from the import directories (ENSEMBLE_SQL_IMPORT_DIRS: /var/tmp/fx4b/w2/import); /etc/hosts is outside them."}}
+
+# 2. X4's repro: the platform's own Postgres (the server's connection settings: socket + trust)
+## 2 Fay /fx_enf?host=/var/tmp/fx4b/sock&port=55432 SELECT actor, action, team_id FROM audit_log … → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_option", "message": "Connection options host, port are not allowed: give host, port, user, password and database in the URL (sslmode may be set)."}}
+## 2 Fay /fx_enf?host=/var/tmp/fx4b/sock&port=55432 SELECT display_name, is_admin FROM principals… → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_option", "message": "Connection options host, port are not allowed: give host, port, user, password and database in the URL (sslmode may be set)."}}
+## 2 Fay /fx_enf?host=/var/tmp/fx4b/sock&port=55432 SELECT pg_read_file('/etc/hostname') AS f… → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+## 2d Fay postgresql://postgres:x@localhost:55432/<platform db> (same server over TCP) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_host_refused", "message": "localhost resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for local development)."}}
+## 2e Fay postgresql://postgres:x@192.0.2.2:55432/<platform db> (a local address of the platform server) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_error", "message": "Could not connect: connection failed: connection to server at \"192.0.2.2\", port 55432 failed: Connection refused"}}
+
+# 3. no inherited identity: the API process holds PGPASSWORD=extpw and a ~/.pgpass for the external DB
+## 3a no host (socket default) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_no_host", "message": "Give the database server's host name or address (postgresql://user:password@host:5432/db): local sockets are not allowed."}}
+## 3b socket in the query → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_option", "message": "Connection options host, port are not allowed: give host, port, user, password and database in the URL (sslmode may be set)."}}
+## 3c no password (PGPASSWORD / .pgpass would supply it) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_no_credentials", "message": "Give the password for this source (the URL's password, or `password`): the server never connects with its own identity."}}
+## 3d empty password → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_no_credentials", "message": "Give the password for this source (the URL's password, or `password`): the server never connects with its own identity."}}
+## 3e wrong password (no fallback to .pgpass) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_error", "message": "Could not connect: connection failed: connection to server at \"192.0.2.2\", port 55433 failed: FATAL:  password authentication failed for user \"extuser\""}}
+## 3f loopback address of the external server → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_host_refused", "message": "localhost resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for local development)."}}
+## 3g passfile option in the URL → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_pg_option", "message": "Connection options passfile are not allowed: give host, port, user, password and database in the URL (sslmode may be set)."}}
+
+# 4. statement guard on an allowed external DB (extuser may pg_read_file there)
+## 4a pg_read_file → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+## 4b quoted pg_read_file → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+## 4c pg_catalog.pg_read_binary_file → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls pg_read_binary_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+## 4d lo_import → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls lo_import: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+## 4e query_to_xml (SQL in a string) → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls query_to_xml: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+## 4f COPY … FROM PROGRAM → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_error", "message": "Only SELECT queries (or WITH … SELECT) can load data; the source is read-only."}}
+## 4g two statements → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_error", "message": "One statement only: remove the ';' between statements."}}
+## 4h U& identifier → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "Unicode-escaped identifiers or strings (U&\"…\") are not allowed in a SQL source query."}}
+## 4i dblink → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "sql_function", "message": "The query calls dblink: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source."}}
+
+# 5. project and right
+## 5a no project_id → HTTP 400 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "project_required", "message": "Say which project this import is for: project_id (query or body). data.import is checked on it."}}
+## 5b Vic (Credit Risk viewer) into Credit Risk's project → HTTP 403 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "forbidden", "action": "data.import", "team": "tm_d2430059", "needed": "member", "message": "data.import needs member in tm_d2430059; you are viewer"}}
+## 5c Fay into Credit Risk's project → HTTP 403 | pii 0
+    {"rows": null, "n_rows": null, "detail": {"code": "forbidden", "action": "data.import", "team": "tm_d2430059", "needed": "member", "message": "data.import needs member in tm_d2430059; you are not a member"}}
+## 5d Fay POST /sql/tables without project_id → HTTP 400 | pii 0
+    {"detail": {"code": "project_required", "message": "Say which project this import is for: project_id (query or body). data.import is checked on it."}}
+
+# 6. the legitimate paths
+## 6a Fay POST /sql/tables?project_id=fp (external Postgres) → HTTP 200 | pii 0
+    {"tables": [{"name": "applicants", "kind": "table", "columns": [{"name": "id", "type": "integer"}, {"name": "income", "type": "integer"}, {"name": "segment", "type": "text"}], "rows": null}]}
+## 6b Fay preview (external Postgres) → HTTP 200 | pii 0
+    {"n_rows": 39, "dialect": "postgresql", "url": "postgresql://extuser:***@192.0.2.2:55433/bankext", "rows": [{"id": 462, "income": 36006, "segment": "retail"}, {"id": 463, "income": 36019, "segment": "sme"}, {"id": 464, "income": 36032, "segment": "corporate"}, {"id": 465, "income": 36045, "segment": "retail"}, {"id": 466, "income": 36058, "segment": "sme"}, {"id": 467, "income": 36071, "segment": 
+## 6c Fay preview with the password in `password` → HTTP 200 | pii 0
+    {"rows": [{"n": 500}], "url": "postgresql://extuser:***@192.0.2.2:55433/bankext"}
+## 6d Fay POST /sql/datasets {project_id: fp} (load) → HTTP 201 | pii 0
+    {"id": "ds_cc61d3c2", "name": "ext applicants", "rows": 500, "project_id": null, "team_id": null}
+## 6e GET /datasets/{id} (as Fay) → HTTP 200 | pii 0
+    {"id": "ds_cc61d3c2", "rows": 500}
+    datasets row: project_id prj_c4ae1e3e (fp = prj_c4ae1e3e), team_id tm_ab77a8ea (Fraud = tm_ab77a8ea)
+## 6f Fay sqlite file in the import dir → HTTP 200 | pii 0
+    {"rows": [{"n": 12000}], "dialect": "sqlite"}
+## 6g Fay the bundled demo database → HTTP 200 | pii 0
+    {"rows": [{"n": 12000}], "dialect": "sqlite"}
+## 6h Fay a relative path → the import dir → HTTP 200 | pii 0
+    {"rows": [{"a": 1, "b": "x"}, {"a": 2, "b": "y"}], "dialect": "sqlite"}
+
+# 7. audit rows in Fraud's chain
+  sql_previewed      Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=sqlite:///plain.sqlite q='SELECT * FROM t' rows=2
+  sql_previewed      Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=sqlite:///demo/bank.sqlite q='SELECT count(*) AS n FROM applications' rows=1
+  sql_previewed      Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=sqlite:////var/tmp/fx4b/w2/import/bank_copy.sqlite q='SELECT count(*) AS n FROM applications' rows=1
+  dataset_loaded     Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT id, income, segment FROM applicants' rows=500
+  sql_previewed      Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT count(*) AS n FROM applicants' rows=1
+  sql_previewed      Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT id, income, segment FROM applicants WHERE i' rows=39
+  sql_tables_listed  Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=None url=postgresql://extuser:***@192.0.2.2:55433/bankext q='None' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q="SELECT * FROM dblink('dbname=postgres', 'select 1'" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT U&"\\0070g_read_file"(\'/etc/hostname\')' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_error url=postgresql://extuser:***@192.0.2.2:55433/bankext q="SELECT 1; SELECT pg_read_file('/etc/hostname')" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_error url=postgresql://extuser:***@192.0.2.2:55433/bankext q="COPY applicants FROM PROGRAM 'id'" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q="SELECT query_to_xml('select pg_read_file(''/etc/ho" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q="SELECT lo_import('/etc/hostname') AS f" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q="SELECT pg_catalog.pg_read_binary_file('/etc/hostna" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT "pg_read_file"(\'/etc/hostname\') AS f' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://extuser:***@192.0.2.2:55433/bankext q="SELECT pg_read_file('/etc/hostname') AS f" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_option url=postgresql://extuser:***@192.0.2.2:55433/bankext?passfile=%2Ftmp%2Fp q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_host_refused url=postgresql://extuser:***@localhost:55433/bankext q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_error url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_no_credentials url=postgresql://extuser:***@192.0.2.2:55433/bankext q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_no_credentials url=postgresql://extuser@192.0.2.2:55433/bankext q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_option url=postgresql://extuser:***@/bankext?host=%2Fvar%2Ftmp%2Ffx4b%2Fsock&port=55433 q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_no_host url=postgresql://extuser@/bankext q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_error url=postgresql://postgres:***@192.0.2.2:55432/sock%26port%3D55432 q='SELECT count(*) FROM audit_log' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_host_refused url=postgresql://postgres:***@localhost:55432/sock%26port%3D55432 q='SELECT count(*) FROM audit_log' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_function url=postgresql://postgres@/fx_enf?host=%2Fvar%2Ftmp%2Ffx4b%2Fsock&port=55432 q="SELECT pg_read_file('/etc/hostname') AS f" rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_option url=postgresql://postgres@/fx_enf?host=%2Fvar%2Ftmp%2Ffx4b%2Fsock&port=55432 q='SELECT display_name, is_admin FROM principals WHER' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_pg_option url=postgresql://postgres@/fx_enf?host=%2Fvar%2Ftmp%2Ffx4b%2Fsock&port=55432 q='SELECT actor, action, team_id FROM audit_log ORDER' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_path_refused url=sqlite:////etc/hosts q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_platform_db url=sqlite:////var/tmp/fx4b/w2/import/innocent.sqlite q='SELECT actor FROM audit_log LIMIT 2' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_platform_db url=sqlite:////var/tmp/fx4b/w2/data/mlflow/mlflow.db q='SELECT name FROM registered_models' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_platform_db url=sqlite:////var/tmp/fx4b/w2/data/ensemble.sqlite3 q='SELECT actor FROM audit_log LIMIT 2' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_error url=sqlite:///ensemble.sqlite3 q='SELECT 1 AS x' rows=None
+  sql_refused        Fay   principal=pr_92beaa3938dc project=prj_c4ae1e3e code=sql_error url=sqlite:///mlflow/mlflow.db q='SELECT name, description FROM registered_models' rows=None
+  any password in the audit rows: False
+  verify fraud: True

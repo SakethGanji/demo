@@ -1,0 +1,70 @@
+# mode enforce
+
+# 1. Fay (Fraud member, no role in Credit Risk) reads Credit Risk directly
+## 1a Fay GET /datasets/v1/rows → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "data.preview", "team": "tm_f02d3cdc", "needed": "viewer", "message": "data.preview needs viewer in tm_f02d3cdc; you 
+
+# 2. X4 C1 repro: Fay starts a conversation naming Ben
+## 2a Fay POST /agent/sessions {user: Ben} → HTTP 409 | pii 0
+    {"detail": "You are signed in as Fay; 'user' says Ben. The agent acts only on behalf of the person who starts it."}
+## 2b anonymous POST /agent/sessions {user: Ben} → HTTP 401 | pii 0
+    {"detail": {"code": "unauthenticated", "action": "agent.use", "message": "no credentials (send X-Ensemble-Actor; sign-in comes with SSO)"}}
+
+# 3. Fay's own conversation asks for a batch on Ben's team's model: the agent has Fay's rights only
+## 3a Fay POST /agent/sessions (no user) → HTTP 201 | pii 0
+    {"id": "as_a179d6cf66c3e807", "user": "Fay", "owner_id": "pr_92beaa3938dc", "status": "thinking"}
+    steps: [('batch_score', 'awaiting', '')]
+## 3b Fay confirms her own pending step → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'error', 'POST /api/registry/versions/mv_63d91ec3/batches → 403: {"code": "forbidden", "action": "model.use", "team": "tm_f02d3cdc", "needed": "member", "message": "model')]
+    batches on Credit Risk's model: [('batch_4f345719', 'Ana', 'succeeded')]
+
+# 4. Ana (Credit Risk maintainer) runs the agent as herself (the legitimate path)
+## 4a Ana POST /agent/sessions {user: Ana} → HTTP 201 | pii 0
+    {"id": "as_76fa9699e23010de", "user": "Ana", "owner_id": "pr_24d4b96f58da", "status": "thinking"}
+    steps: [('batch_score', 'awaiting', '')]
+
+# 5. Fay against Ana's conversation (X4: list, read, confirm, stop all worked)
+## 5a Fay GET /agent/sessions → HTTP 200 | pii 0
+    owners listed to Fay: ['Fay']
+## 5b Fay GET /agent/sessions/{Ana's sid} → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_76fa9699e23010de belongs to someone else.", "action": "read"}}
+## 5c Fay POST …/{Ana's sid}/confirm → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_76fa9699e23010de belongs to someone else.", "action": "confirm"}}
+## 5d Fay POST …/{Ana's sid}/messages → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_76fa9699e23010de belongs to someone else.", "action": "message"}}
+## 5e Fay POST …/{Ana's sid}/stop → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_76fa9699e23010de belongs to someone else.", "action": "stop"}}
+
+# 6. Ada (admin) reads Ana's conversation, cannot act in it
+## 6a Ada GET /agent/sessions → HTTP 200 | pii 0
+    owners listed to Ada: ['Ana', 'Fay']
+## 6b Ada GET …/{Ana's sid} → HTTP 200 | pii 0
+    {"id": "as_76fa9699e23010de", "user": "Ana", "status": "awaiting_confirmation"}
+## 6c Ada POST …/{Ana's sid}/confirm → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_76fa9699e23010de belongs to someone else; an admin may read it but not act in it.", "action": "confirm"}}
+
+# 7. Ana confirms her own step
+## 7a Ana POST …/confirm → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+    answer: Batch batch_01d650e3 scored 12000 rows with mv_63d91ec3. Yes: age drifted (PSI above 0.25). Max PSI 0.2547; highest: age PSI 0.2547.
+    batches on Credit Risk's model: [('batch_01d650e3', 'Vela agent on behalf of Ana', 'succeeded'), ('batch_4f345719', 'Ana', 'succeeded')]
+
+# 8. the audit rows
+  tm_f02d3cdc    agent:batch_score        actor='Vela agent on behalf of Ana'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_24d4b96f58da session=as_76fa9699e23010de
+  tm_f02d3cdc    batch_scored             actor='Vela agent on behalf of Ana'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_24d4b96f58da session=None
+  tm_f02d3cdc    agent:batch_score        actor='Vela agent on behalf of Fay'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=as_a179d6cf66c3e807
+  tm_f02d3cdc    authz_denied             actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_default     agent_step_confirmed     actor='Ana'                                principal=pr_24d4b96f58da auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_session_refused    actor='Ada'                                principal=pr_fdee430d40bd auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_session_started    actor='Ana'                                principal=pr_24d4b96f58da auth=typed on_behalf_of=None session=as_76fa9699e23010de
+  tm_default     agent_step_confirmed     actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_a179d6cf66c3e807
+  tm_default     agent_session_started    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_a179d6cf66c3e807
+  Ana's principal id: pr_24d4b96f58da | Fay's: pr_92beaa3938dc
+  verify tm_f02d3cdc: {"ok": true, "rows": 27, "anchored": {"audit_heads": 101, "checkpoint": {"audit_id": 92, "at": "2026-11-22T02:08:12+00:00"}}}
+  verify tm_default: {"ok": true, "rows": 65, "anchored": {"audit_heads": 99, "checkpoint": {"audit_id": 99, "at": "2026-11-22T02:08:12+00:00"}}}

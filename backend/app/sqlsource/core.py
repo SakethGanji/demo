@@ -201,7 +201,12 @@ def _platform_servers() -> list[tuple[set[Any], int, str]]:
         host = u.host or str(u.query.get("host") or "")
         if isinstance(host, (list, tuple)):
             host = host[0] if host else ""
-        port = int(u.port or 5432)
+        qp = u.query.get("port")
+        qp = qp[0] if isinstance(qp, (list, tuple)) and qp else qp
+        try:
+            port = int(u.port or qp or 5432)
+        except ValueError:
+            port = 5432
         if not host or host.startswith("/"):
             addrs = _local_addrs()  # a socket: the server is on this machine, so every local address reaches it
         else:
