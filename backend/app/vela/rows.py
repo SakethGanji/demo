@@ -64,6 +64,10 @@ def load(cfg: dict[str, Any], hp: pd.DataFrame | None, *, need_frame: bool = Tru
     ref = frames.resolve(cfg)
     if not _big(ref):
         df = frames.read(ref) if need_frame else pd.DataFrame()
+        if need_frame and cfg.get("labels"):  # LB-A (review C1): the run's training labels (holdout stays base)
+            from ..labels.overlay import apply_run
+
+            df = apply_run(cfg, df)
         sp = json.loads(Path(cfg["splits_path"]).read_text())
         return Bounded(df, sp, hp, 0 if hp is None else len(hp), None)
     from ..engine import serving

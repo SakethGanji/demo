@@ -598,7 +598,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             "refit": refit_info, "infer_limit": limit_info, "distill": distill_info, "serving": serving_info,
             "monotone": mono_info, "quantile": quant_info,
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "splits_sha256": splits_hash,
-                       "data_file": _data_file(cfg), **_input_hashes(inputs)},
+                       "data_file": _data_file(cfg), **_input_hashes(inputs), **_label_hashes(cfg)},
             "inputs": inputs, "parity": parity,
             "path": str(dest),
         }
@@ -1050,6 +1050,19 @@ def _data_file(cfg: dict[str, Any]) -> str:
         return frames.path_of(frames.resolve(cfg)).name
     except Exception:  # noqa: BLE001
         return str(cfg.get("dataset_id"))
+
+
+def _label_hashes(cfg: dict[str, Any]) -> dict[str, Any]:
+    """LB-A (labeling review C1): data_sha256 covers the base bytes only; an overlay run also records what it trained on."""
+    if not cfg.get("labels") or not cfg.get("run_id") or not cfg.get("db_path"):
+        return {}
+    from ..db import Database
+
+    with Database(Path(cfg["db_path"])).connect() as con:
+        r = con.execute("SELECT label_snapshot_id, label_snapshot_sha256, overlay_sha256, labels_fitted_sha256 FROM run_inputs"
+                        " WHERE run_id = ? AND role = 'train'", (cfg["run_id"],)).fetchone()
+    return {"label_snapshot_id": r[0], "label_snapshot_sha256": r[1], "overlay_sha256": r[2],
+            "labels_fitted_sha256": r[3]} if r and r[0] else {}
 
 
 def _input_hashes(rec: dict[str, Any] | None) -> dict[str, Any]:

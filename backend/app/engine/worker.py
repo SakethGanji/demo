@@ -164,7 +164,9 @@ def load_frames(cfg: dict[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame, dict[s
         "frame": frame,
     }
     if overlay is not None:
-        info["labels"] = overlay.info
+        from ..labels.overlay import labels_fitted_sha
+
+        info["labels"] = {**overlay.info, "labels_fitted_sha256": labels_fitted_sha(train.index.to_numpy(), train[label])}
     frame["text"] = LF.card_text(info)
     if structured:
         info["tuning_rows"] = 0 if tuning is None else len(tuning)
@@ -770,8 +772,8 @@ def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str
                 "INSERT INTO run_inputs (id, run_id, role, version_id, table_name, join_frame_id, table_sha256, read_sha256, match,"
                 " legacy_csv_sha256, split_id, split_sha256, split_legacy_sha256, read_mode, rows_total, rows_used,"
                 " columns_dropped, sample_spec, sample_sha256, frame_mb, created_at,"
-                " label_snapshot_id, label_snapshot_sha256, overlay_sha256, overlay_blob, overlay_spec)"
-                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " label_snapshot_id, label_snapshot_sha256, overlay_sha256, overlay_blob, overlay_spec, labels_fitted_sha256)"
+                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 ("ri_" + _secrets.token_hex(6), run_id, cfg.get("dataset_id"), it.get("table") or "data",
                  it.get("join_frame_id"),  # P14: a run on a join frame (table_sha256 = its cache file's sha256)
                  it.get("table_sha256") if parquet else None, sha, None if ok is None else int(ok),
@@ -782,7 +784,7 @@ def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str
                  json.dumps((info or {}).get("dropped_columns") or cfg.get("drop_columns") or []),
                  LF.spec_json(fr.get("sample_spec")), fr.get("sample_sha256"), frame_mb, _now(),
                  lab.get("snapshot_id"), lab.get("snapshot_sha256"), lab.get("overlay_sha256"), lab.get("overlay_blob"),
-                 json.dumps(lab["spec"], sort_keys=True) if lab.get("spec") else None))
+                 json.dumps(lab["spec"], sort_keys=True) if lab.get("spec") else None, lab.get("labels_fitted_sha256")))
     except Exception as e:  # noqa: BLE001 - the record must not cost the run; the gate below still decides
         log.warning("run_inputs not recorded for %s: %s", run_id, e)
 

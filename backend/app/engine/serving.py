@@ -275,6 +275,16 @@ class RunRows:
         self.label = cfg["label"]
         self.ids, self.label_ok = read_ids(self.ref, self.label)
         self.fold = folds_by_read_order(cfg, self.ids)
+        from ..labels.overlay import run_applied  # LB-A (review C1): an overlay run's training labels, not the base's
+
+        self.overlay = run_applied(cfg)
+        if self.overlay and self.label_ok is not None:
+            keys = np.fromiter(self.overlay.keys(), dtype="int64")
+            nonnull = np.fromiter((k for k, v in self.overlay.items() if v is not None), dtype="int64")
+            m = np.isin(self.ids, keys) & (self.fold != -1)
+            ok = self.label_ok.copy()
+            ok[m] = np.isin(self.ids[m], nonnull)
+            self.label_ok = ok
         self.plan = nulls_plan(self.ref)
         self.n_rows = int(len(self.ids))
         self.seed = int(cfg.get("sample_seed") if cfg.get("sample_seed") is not None else (cfg.get("split") or {}).get("seed") or 42)
@@ -292,7 +302,10 @@ class RunRows:
     def read(self, ids: np.ndarray, columns: list[str]) -> pd.DataFrame:
         from ..lake import frame as LF
 
-        return LF.cast_column_types(self.cfg, LF.read_rows(self.ref, np.sort(np.asarray(ids, dtype="int64")), columns, self.plan))
+        from ..labels.overlay import apply_dict
+
+        df = LF.read_rows(self.ref, np.sort(np.asarray(ids, dtype="int64")), columns, self.plan)
+        return LF.cast_column_types(self.cfg, apply_dict(df, self.label, self.overlay))
 
     def batches(self, ids: np.ndarray, columns: list[str], batch_rows: int | None = None):
         from .. import config
@@ -300,7 +313,9 @@ class RunRows:
 
         for df in LF.iter_rows(self.ref, np.sort(np.asarray(ids, dtype="int64")), columns, self.plan,
                                batch_rows=int(batch_rows or config.HOLDOUT_BATCH_ROWS)):
-            yield LF.cast_column_types(self.cfg, df)
+            from ..labels.overlay import apply_dict
+
+            yield LF.cast_column_types(self.cfg, apply_dict(df, self.label, self.overlay))
 
 
 def iter_file_rows(path: str, ids: np.ndarray, columns: list[str], plan: dict[str, Any], batch_rows: int):
@@ -377,4 +392,6 @@ def bounded_train(cfg: dict[str, Any], columns: list[str], cap: int | None = Non
     t = rr.train_ids()
     t = t[keep_at_most(t, cap, rr.seed, _SALT_TRAIN)]
     have = set(table_columns(ref))
-    return LF.read_rows(ref, t, [c for c in columns if c in have], rr.plan)
+    from ..labels.overlay import apply_dict
+
+    return apply_dict(LF.read_rows(ref, t, [c for c in columns if c in have], rr.plan), rr.label, rr.overlay)
