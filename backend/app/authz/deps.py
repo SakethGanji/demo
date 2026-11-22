@@ -149,6 +149,19 @@ def _decide(request: Request, action: str, objs: tuple[Obj, ...], also: tuple[tu
     return out
 
 
+AGENT_PREFIX = "Vela agent on behalf of "
+
+
+def by_ok(by: str, p: identity.Principal) -> bool:
+    """A body `by` names the principal. F-X4b (X4 C1): the agent is no longer exempt: its `by` must be the caller who
+    started the session ("Vela agent on behalf of <caller>" or the caller's name)."""
+    from ..catalog.governance import same_person
+
+    if p.auth == "agent" and by.startswith(AGENT_PREFIX):
+        by = by[len(AGENT_PREFIX):]
+    return same_person(by, p.display_name)
+
+
 def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, when: Variant | None = None,
             default: str = "tm_default") -> Any:
     if action not in policy.ACTIONS:
@@ -186,10 +199,8 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
                                     headers={"WWW-Authenticate": 'Typed realm="ensemble"'})
             raise HTTPException(403, {"code": "forbidden", "action": d["action"], "team": d["team"], "needed": d["needed"],
                                       "message": d["reason"]})
-        if p is not None and by and p.auth != "agent":
-            from ..catalog.governance import same_person
-            if not same_person(by, p.display_name):
-                raise HTTPException(409, f"You are signed in as {p.display_name}; 'by' says {by}.")
+        if p is not None and by and not by_ok(by, p):
+            raise HTTPException(409, f"You are signed in as {p.display_name}; 'by' says {by}.")
 
     authz_dependency.authz = {"action": action, "objs": [str(o) for o in objs],  # type: ignore[attr-defined]
                               "also": [[a, str(o)] for a, o in also_t],

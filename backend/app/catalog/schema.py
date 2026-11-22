@@ -279,6 +279,7 @@ def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict
     row.update({"ts": now(), "actor": actor or "system", "action": action, "run_id": run_id, "comment": comment or "",
                 "details": json.dumps(d, default=str)})
     row.update({k: v for k, v in cols.items() if k in AUDIT_CHAIN_COLS and k not in ("prev_hash",)})
+    row["on_behalf_of"] = cols.get("on_behalf_of")
     if isinstance(row["decision"], dict):
         row["decision"] = json.dumps(row["decision"], sort_keys=True, default=str)
     _audit_scope(con, row, d)
@@ -291,10 +292,13 @@ def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict
     head = con.execute(f"SELECT value FROM catalog_meta WHERE key = ?{lock}", (key,)).fetchone()[0] or ""
     row["prev_hash"] = head
     h = audit_row_hash(row)
-    names = list(AUDIT_CHAIN_COLS) + ["row_hash"]
+    names = list(AUDIT_CHAIN_COLS) + ["on_behalf_of", "row_hash"]
     new_id = con.execute(f"INSERT INTO audit_log ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) RETURNING id",
-                         [row[c] for c in AUDIT_CHAIN_COLS] + [h]).fetchone()[0]
+                         [row[c] for c in AUDIT_CHAIN_COLS] + [row["on_behalf_of"], h]).fetchone()[0]
     con.execute("UPDATE catalog_meta SET value = ? WHERE key = ?", (h, key))
+    # F-X4b (X4 M6 / m1): the head is also recorded write-once in audit_heads (no UPDATE / DELETE: triggers, and on
+    # Postgres the app role has SELECT, INSERT only), so deleting the tail and rewinding catalog_meta fails verify
+    con.execute("INSERT INTO audit_heads (team_id, audit_id, head, ts) VALUES (?, ?, ?, ?)", (row["team_id"], int(new_id), h, row["ts"]))
     return int(new_id)
 
 
@@ -304,9 +308,19 @@ AUDIT_CHAIN_COLS = ("ts", "actor", "action", "model_name", "version", "version_i
                     "auth", "request_id", "decision", "prev_hash")
 
 
+def _col(row: Any, c: str) -> Any:
+    try:
+        return row[c]
+    except (KeyError, IndexError):
+        return None
+
+
 def audit_row_hash(row: Any) -> str:
-    """sha256(prev_hash + "\\n" + canonical JSON of the chained columns): the same bytes on SQLite and Postgres."""
+    """sha256(prev_hash + "\\n" + canonical JSON of the chained columns): the same bytes on SQLite and Postgres.
+    F-X4b: `on_behalf_of` (the agent's caller) is covered when it is set; rows without it hash as before."""
     r = {c: row[c] for c in AUDIT_CHAIN_COLS}
+    if _col(row, "on_behalf_of") is not None:
+        r["on_behalf_of"] = _col(row, "on_behalf_of")
     body = json.dumps({k: v for k, v in r.items() if k != "prev_hash"}, sort_keys=True, separators=(",", ":"),
                       ensure_ascii=False, default=str)
     return hashlib.sha256(f"{r['prev_hash'] or ''}\n{body}".encode()).hexdigest()
@@ -366,8 +380,25 @@ def _audit_who(con: sqlite3.Connection, row: dict[str, Any]) -> None:
         row["request_id"] = row.get("request_id") or ctx.request_id
     k = identity_key(row["actor"])
     p = ctx.principal if ctx is not None else None
-    if not row.get("principal_id") and p is not None and (identity_key(p.display_name) == k or p.auth == "agent"):
-        row["principal_id"], row["auth"] = p.id, row.get("auth") or p.auth  # the agent writes as "Vela agent on behalf of X"
+    if p is not None and p.auth == "agent" and row.get("principal_id") in (None, p.id, p.agent_id):
+        # F-X4b (X4 C1/M6): a row written while the agent acts: its own service principal, auth agent, and the caller
+        # who started the session (on_behalf_of), whatever name the body carried
+        row["principal_id"], row["auth"], row["on_behalf_of"] = p.agent_id, "agent", p.on_behalf_of
+        return
+    if not row.get("principal_id") and p is not None and identity_key(p.display_name) == k:
+        row["principal_id"], row["auth"] = p.id, row.get("auth") or p.auth
+    agent_prefix = "Vela agent on behalf of "
+    if not row.get("principal_id") and str(row["actor"]).startswith(agent_prefix):
+        # F-X4b: a row a background job writes for the agent (batch_scored, …): the actor text was set from the session's
+        # bound principal (and checked against it by require() in enforce): the agent's principal + that caller
+        try:
+            ag = con.execute("SELECT id FROM principals WHERE identity_key = ? AND kind = 'service'", (identity_key("Vela agent"),)).fetchone()
+            ow = con.execute("SELECT id FROM principals WHERE identity_key = ?", (identity_key(row["actor"][len(agent_prefix):]),)).fetchone()
+        except sqlite3.Error:
+            ag = ow = None
+        if ag and ow:
+            row["principal_id"], row["auth"], row["on_behalf_of"] = ag[0], "agent", row.get("on_behalf_of") or ow[0]
+            return
     if not row.get("principal_id") and k:
         try:
             r = con.execute("SELECT id, kind FROM principals WHERE identity_key = ?", (k,)).fetchone()
@@ -380,13 +411,23 @@ def _audit_who(con: sqlite3.Connection, row: dict[str, Any]) -> None:
         row["auth"] = "system" if k in ("", "system") else "typed"
 
 
-def verify_audit_chain(con: sqlite3.Connection, team_id: str) -> dict[str, Any]:
+def verify_audit_chain(con: sqlite3.Connection, team_id: str, data_dir: Any = None) -> dict[str, Any]:
     """Walk a team's chain from its first hashed row: every row re-hashes to its row_hash, links to the previous one, no
-    unhashed row appears after the chain starts, and the last row is the recorded head (a deleted tail shows)."""
+    unhashed row appears after the chain starts, and the last row is the recorded head (a deleted tail shows).
+
+    F-X4b (X4 M6 / m1): the tail is also checked against anchors the app cannot rewrite (catalog/audit_anchor.py):
+    the latest write-once `audit_heads` row must be the chain's last row, and with `data_dir` the latest signed
+    checkpoint's row must still be in the chain with the same hash (and no checkpoint line may fail its signature)."""
+    from . import audit_anchor as A
+
     rows = con.execute("SELECT * FROM audit_log WHERE team_id = ? ORDER BY id", (team_id,)).fetchall()
     head = con.execute("SELECT value FROM catalog_meta WHERE key = ?", (f"audit_head:{team_id}",)).fetchone()
     head = head[0] if head else ""
-    prev, n, legacy, started = "", 0, 0, False
+    anchor = A.latest_head(con, team_id)
+    cps, bad = A.read(data_dir) if data_dir is not None else ({}, [])
+    cp = cps.get(team_id)
+    cp_seen = None
+    prev, n, legacy, started, last_id = "", 0, 0, False, None
     for r in rows:
         if r["row_hash"] is None:
             if not started:
@@ -405,12 +446,30 @@ def verify_audit_chain(con: sqlite3.Connection, team_id: str) -> dict[str, Any]:
             return {"ok": False, "rows": n, "legacy_rows": legacy, "first_break": {
                 "id": r["id"], "ts": r["ts"], "action": r["action"], "problem": "the row does not re-hash to its row_hash "
                 "(it was edited)", "row_hash": r["row_hash"][:16], "recomputed": h[:16]}}
-        prev, n = h, n + 1
+        if cp is not None and int(r["id"]) == int(cp["audit_id"]):
+            cp_seen = h
+        prev, n, last_id = h, n + 1, int(r["id"])
     if prev != head:
         return {"ok": False, "rows": n, "legacy_rows": legacy, "first_break": {
             "id": None, "problem": "the last row is not the recorded head (rows were removed from the end)",
             "head": head[:16], "last": prev[:16]}}
-    return {"ok": True, "rows": n, "legacy_rows": legacy, "head": head}
+    anchored: dict[str, Any] = {"audit_heads": anchor["audit_id"] if anchor else None,
+                                "checkpoint": {"audit_id": int(cp["audit_id"]), "at": cp["at"]} if cp else None}
+    if anchor is not None and (anchor["head"] != prev or anchor["audit_id"] != last_id):
+        return {"ok": False, "rows": n, "legacy_rows": legacy, "anchored": anchored, "first_break": {
+            "id": anchor["audit_id"], "problem": "the chain ends before the latest head recorded in audit_heads (rows were "
+            "removed from the end and the head rewound)", "recorded_head": anchor["head"][:16], "last": prev[:16],
+            "last_id": last_id}}
+    if cp is not None and cp_seen != cp["head"]:
+        return {"ok": False, "rows": n, "legacy_rows": legacy, "anchored": anchored, "first_break": {
+            "id": int(cp["audit_id"]), "problem": "a signed checkpoint names a row that is no longer in the chain with that "
+            "hash (rows were removed from the end, and their audit_heads too)", "checkpoint_head": cp["head"][:16],
+            "checkpoint_at": cp["at"], "last_id": last_id}}
+    if bad:
+        return {"ok": False, "rows": n, "legacy_rows": legacy, "anchored": anchored, "first_break": {
+            "id": None, "problem": f"{len(bad)} checkpoint line(s) fail their signature (the checkpoint file was edited)",
+            "lines": [b["line"] for b in bad[:10]]}}
+    return {"ok": True, "rows": n, "legacy_rows": legacy, "head": head, "anchored": anchored}
 
 
 def audit_link(con: sqlite3.Connection, audit_id: int) -> tuple[bool, str]:
@@ -827,6 +886,9 @@ CREATE TABLE IF NOT EXISTS column_tags (root_id TEXT NOT NULL, table_name TEXT N
   PRIMARY KEY (root_id, table_name, column_name));
 CREATE TABLE IF NOT EXISTS data_contracts (id TEXT PRIMARY KEY, root_id TEXT NOT NULL, version INTEGER NOT NULL, spec TEXT NOT NULL,
   created_by TEXT NOT NULL, created_at TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, UNIQUE (root_id, version));
+-- F-X4b (X4 M6 / m1): every audit head, write-once (ahead_ro_u / ahead_ro_d; on Postgres the app role has SELECT, INSERT).
+CREATE TABLE IF NOT EXISTS audit_heads (team_id TEXT NOT NULL, audit_id INTEGER NOT NULL, head TEXT NOT NULL, ts TEXT NOT NULL,
+  PRIMARY KEY (team_id, audit_id));
 """
 
 #: columns added to existing tables (none removed); SQLite allows a CHECK and a constant default on an added column
@@ -841,7 +903,7 @@ P01_COLS: dict[str, list[tuple[str, str]]] = {
                  ("reason", "TEXT NOT NULL DEFAULT ''"), ("job_id", "TEXT"), ("contract_result", "TEXT")],
     "runs": [("team_id", "TEXT"), ("created_by", "TEXT")],
     "audit_log": [(c, "TEXT") for c in ("team_id", "project_id", "object_kind", "object_id", "principal_id", "auth", "request_id",
-                                        "decision", "prev_hash", "row_hash")],
+                                        "decision", "prev_hash", "row_hash", "on_behalf_of")],
     "jobs": [("progress", "TEXT")],  # F-JOBS: {pct, phase, at} JSON text, written by the holder
 }
 P01_INDEXES = [
@@ -866,6 +928,9 @@ IMMUTABLE_TRIGGERS = {
                " BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END",
     # F-X1 M6: a deleted run_inputs row would remove split check 4's evidence (the hash a run trained on)
     "ri_ro_d": "CREATE TRIGGER IF NOT EXISTS ri_ro_d BEFORE DELETE ON run_inputs BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END",
+    # F-X4b: the audit heads are write-once (verify compares the chain's last row with the latest one)
+    "ahead_ro_u": "CREATE TRIGGER IF NOT EXISTS ahead_ro_u BEFORE UPDATE ON audit_heads BEGIN SELECT RAISE(ABORT, 'audit heads are write-once'); END",
+    "ahead_ro_d": "CREATE TRIGGER IF NOT EXISTS ahead_ro_d BEFORE DELETE ON audit_heads BEGIN SELECT RAISE(ABORT, 'audit heads are write-once'); END",
     "blobs_key_ro": "CREATE TRIGGER IF NOT EXISTS blobs_key_ro BEFORE UPDATE OF sha256, key, bytes ON blobs"
                     " BEGIN SELECT RAISE(ABORT, 'blob identity is immutable'); END",
 }
@@ -930,6 +995,7 @@ def migrate_p01(con: sqlite3.Connection) -> None:
         con.execute(q)
     for q in IMMUTABLE_TRIGGERS.values():
         con.execute(q)
+    seed_audit_heads(con)
     _step(con, "p01_ddl")
     # lineage_edges: kinds += join_frame, relations += joined_from / merged_from. SQLite cannot alter a CHECK: rebuild
     # once, ids kept (the champions pattern of F-P2, in one transaction).
@@ -952,6 +1018,16 @@ def migrate_p01(con: sqlite3.Connection) -> None:
     if con.execute("SELECT 1 FROM catalog_meta WHERE key = 'backfill_p01'").fetchone():
         for q in AUDIT_TRIGGERS.values():
             con.execute(q)
+
+
+def seed_audit_heads(con: Any) -> int:
+    """F-X4b: a database whose chains started before audit_heads existed gets each team's current head recorded once,
+    so the anchor starts there (rows before it are covered by the chain links only)."""
+    return con.execute(
+        "INSERT INTO audit_heads (team_id, audit_id, head, ts) SELECT a.team_id, a.id, a.row_hash, a.ts FROM audit_log a"
+        " JOIN catalog_meta m ON m.key = 'audit_head:' || a.team_id AND m.value = a.row_hash"
+        " WHERE a.team_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM audit_heads h WHERE h.team_id = a.team_id)"
+        " ON CONFLICT (team_id, audit_id) DO NOTHING").rowcount
 
 
 def ensure_default_team(con: sqlite3.Connection) -> None:

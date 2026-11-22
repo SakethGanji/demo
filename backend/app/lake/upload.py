@@ -201,9 +201,31 @@ def stage_stream(db, store, *, by: str, filename: str, chunks, project_id: str |
     return get(db, up)
 
 
+def _actor() -> str:
+    """Who is acting in this request (the principal, else the typed actor), for the audit row."""
+    from ..catalog import governance as G
+
+    try:
+        from ..authz.context import current
+
+        ctx = current()
+        p = ctx.principal if ctx is not None else None
+    except Exception:  # noqa: BLE001
+        p = None
+    return p.display_name if p is not None else (G.current_actor() or "system")
+
+
 def discard(db, store, up: str, why: str = "discarded") -> None:
+    from ..catalog.schema import audit
+
     with db.connect() as con:
-        con.execute("UPDATE uploads SET status = 'discarded' WHERE id = ? AND status <> 'committed'", (up,))
+        r = con.execute("SELECT status, team_id, project_id, created_by FROM uploads WHERE id = ?", (up,)).fetchone()
+        n = con.execute("UPDATE uploads SET status = 'discarded' WHERE id = ? AND status NOT IN ('committed', 'discarded')",
+                        (up,)).rowcount
+        if n and r is not None:  # F-X4b (X4 M6): a discarded upload (and its staged bytes) is audited
+            audit(con, _actor(), "upload_discarded", {"upload_id": up, "why": why, "status_was": r["status"],
+                                                      "created_by": r["created_by"], "project_id": r["project_id"]},
+                  team_id=r["team_id"], project_id=r["project_id"], object_kind="upload", object_id=up)
     remove = getattr(store, "remove_tmp", None)
     if remove:
         remove(store.tmp_dir(up))

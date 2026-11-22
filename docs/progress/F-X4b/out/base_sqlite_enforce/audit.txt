@@ -1,0 +1,47 @@
+# mode enforce
+
+# 1. actions in the chains
+  tm_d436c41a: 34 rows: {'agent:batch_score': 2, 'agent:get_results': 1, 'authz_denied': 3, 'batch_scored': 3, 'certification_approved': 1, 'certification_requested': 1, 'contract_set': 1, 'dataset_created': 1, 'dataset_default_set': 1, 'pii_tags_set': 1, 'pii_tags_suggested': 1, 'project_created': 1, 'registered': 1, 'share_approved': 1, 'share_requested': 1, 'split_created': 1, 'team_created': 1, 'team_member_added': 6, 'team_member_removed': 1, 'team_member_role_changed': 3, 'upload_committed': 1, 'upload_staged': 1}
+  tm_dcc6c429: 5 rows: {'project_created': 1, 'share_received': 1, 'team_created': 1, 'team_member_added': 2}
+  tm_3a4f0911: 4 rows: {'project_created': 1, 'team_created': 1, 'team_member_added': 2}
+  tm_default: 57 rows: {'agent:find_rows': 1, 'agent:list_versions': 1, 'dataset_created': 15, 'dataset_default_set': 15, 'principal_created': 10, 'split_created': 15}
+    'agent_session_started': MISSING
+    'fairness': MISSING
+    'pii_tags_set': ['pii_tags_set']
+    'pii_tags_confirmed': MISSING
+    'team_member_role_changed': ['team_member_role_changed']
+    'team_member_removed': ['team_member_removed']
+    'legal_hold_placed': MISSING
+    'legal_hold_released': MISSING
+    'purge_requested': MISSING
+    'purge_executed': MISSING
+    'share_approved': ['share_approved']
+    'share_revoked': MISSING
+    'certification_approved': ['certification_approved']
+    'batch_scored': ['batch_scored']
+    'approved': ['certification_approved', 'share_approved']
+    'dataset_rows_read': MISSING
+    'upload_discarded': MISSING
+    'sql_preview': MISSING
+    'run_cancelled': MISSING
+    'dataset_exported': MISSING
+  agent rows (auth agent): []
+  rows naming Fay's fairness GET / agent session ids: ['agent:batch_score', 'agent:batch_score', 'agent:get_results', 'agent:find_rows', 'agent:list_versions']
+
+# 3. admin reset under a legal hold (ENSEMBLE_DEMO_MODE=1)
+## 3a Ada POST /legal-holds {team credit-risk} → HTTP 201 | pii 0
+    {"id": "lh_1c811c5723", "active": true}
+## 3b Ada POST /admin/reset-requests → HTTP 201 | pii 0
+    {"id": "arq_1f9eb618", "status": "pending"}
+## 3c Adam approves → HTTP 200 | pii 0
+    {"status": "approved"}
+## 3d Ada POST /admin/reset {request_id} → HTTP 200 | pii 0
+    {"deleted": {"run_events": 182, "runs": 2, "batch_jobs": 3, "model_versions": 1, "registered_models": 1, "run_inputs": 2, "join_frames": 0, "joins": 0, "splits": 16, "table_relations": 2, "table_keys": 3, "table_files": 18, "version_tables": 18, "dataset_root_tables": 18, "dataset_roots": 16, "uploads": 1, "certifications": 1, "column_tags": 4, "data_contracts": 1, "datasets": 16, "lineage_edges": 3, "champions": 0, "dataset_cards": 16, "dataset_requests": 0, "version_requests": 0, "annotations": 0, "projects": 18, "lake_migrations": 0, "split_files": 0}, "four_eyes": "arq_1f9eb618"}
+## 3e GET /legal-holds?team=cr → HTTP 200 | pii 0
+    {"holds": [{"id": "lh_1c811c5723", "scope_kind": "team", "scope_id": "tm_d436c41a", "case_ref": "CASE-RESET", "reason": "regulator inquiry", "placed_by": "Ada", "placed_at": "2026-11-22T02:03:26+00:00", "released_by": null, "released_at": null, "active": true, "team_id": "tm_d436c41a", "label": "Cre
+## 3f GET /datasets/{v1} → HTTP 404 | pii 0
+    {"detail": "No dataset with id 'ds_1d36142e'."}
+## 3g GET /runs/{run} → HTTP 404 | pii 0
+    {"detail": "No run with id 'run_721103b3'."}
+## 3h verify credit-risk chain → HTTP 200 | pii 0
+    {"ok": true, "rows": 35}
