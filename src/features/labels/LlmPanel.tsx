@@ -105,7 +105,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
         <div className="card-body stack" style={{ gap: 10 }}>
           <div className="form-row">
             <Field label="Rows to label" hint="unlabelled rows, holdout excluded"><input className="input mono" type="number" min={1} style={{ width: 100 }} value={nRows} onChange={(e) => setNRows(Number(e.target.value) || 0)} data-testid="lbl-llm-n" /></Field>
-            <Field label="Budget (max)"><span className="row" style={{ gap: 4 }}>$<input className="input mono" type="number" min={0} step={0.5} style={{ width: 80 }} value={maxUsd} onChange={(e) => setMaxUsd(Number(e.target.value) || 0)} data-testid="lbl-llm-budget" /></span></Field>
+            <Field label="Budget" hint="a hard cap"><span className="row" style={{ gap: 4 }}>$<input className="input mono" type="number" min={0} step={0.5} style={{ width: 80 }} value={maxUsd} onChange={(e) => setMaxUsd(Number(e.target.value) || 0)} data-testid="lbl-llm-budget" /></span></Field>
             <Field label="Gold set from task" hint="calibration grades the model on it"><select className="select" value={task} onChange={(e) => setTask(e.target.value)} data-testid="lbl-llm-task">
               <option value="">none</option>{(tasks.data ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
             <Stats items={[{ label: 'estimated cost', value: usd(cur?.purpose === 'preview' && cur.est_usd != null ? cur.est_usd : est), sub: dest === 'fake' ? 'fake: $0' : `${int(nRows)} rows × ${sent.length} cols`, testId: 'lbl-llm-est' }]} />
