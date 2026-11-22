@@ -17,7 +17,7 @@ running API.
 | **J2** sync-s3 without a bucket stops the API | **fixed**: 400 `s3_not_configured`; no route can stop the server with SystemExit |
 | Minors | m-a, X3 m10/m11/m17, X4 m3/m4, X2 m4, X1 m2, m-j, N2, the sweep families B1–B10 → fixed (details below) |
 | Sweep | X5's sweep, SQLite × Postgres × audit × enforce: full passes 1 / 2 / 5 / 13 × 5xx (two causes, fixed after), the re-run of those routes **0 × 5xx** on all four (§6). X5's Postgres audit pass had 6,163 |
-| Grep gates | gate 2: 0 lines; gate 1: 7 lines left, all in F-X5a's files (§7) |
+| Grep gates | gate 2: 0 lines; gate 1: 13 → 7 lines on my side; after merging F-X5a 8, all in F-X5a's files (§7) |
 | No regression | P13 delta chain identical to P13's recording on SQLite and Postgres; U2 walk 18/18 in audit and enforce, 0 × 5xx (§8) |
 
 ## 1. K3: NUL in Postgres audit rows
@@ -238,6 +238,11 @@ Gate 2 prints nothing (the `pg_schema.py` docstring no longer names the CSV-era 
   place that writes DuckDB's Parquet reader into SQL (lake/ is outside the gate).
 - `engine/api.py` scorecard.csv → `frames.run_artifact_csv` (a run's own artifact, not a version).
 - `sqlsource/core.py` comment reworded.
+
+**After merging F-X5a (`8e53b26`)** the gate prints 8: F-X5a's K1 fix added `engine/serving.py:181`
+(`pq.read_table` of a lake part, column-pruned, for the holdout rows), and moved the build.py lines (now 1075,
+1136–1143) and scoring.py (1112–1113). serving.py:181 does read version data outside `frames.py` / `lake/`, by part
+path; it should go through `frames` (or a `lake/` helper) to keep the one-reader rule. Reported to the orchestrator.
 
 **Left, allowed:** `registry/scoring.py:1100–1101` (the batch scratch file written by the scoring itself),
 `registry/build.py:1021` (`_frame_v1`: a join frame's cache file) and `1082–1089` (the serving-parity comparison of two
