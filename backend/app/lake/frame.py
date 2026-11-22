@@ -296,11 +296,11 @@ def iter_rows(ref: frames.Table, ids: np.ndarray, columns: list[str], p: dict[st
             pending.append(t)
             n_pending += t.num_rows
             if batch_rows and n_pending >= batch_rows:
-                yield _to_frame(pa.concat_tables(pending), columns, nulls)
+                yield _to_frame(pa.concat_tables(pending, promote_options="default"), columns, nulls)
                 pending, n_pending = [], 0
         del buf
     if pending:
-        yield _to_frame(pa.concat_tables(pending), columns, nulls)
+        yield _to_frame(pa.concat_tables(pending, promote_options="default"), columns, nulls)
     elif batch_rows is None:
         yield pd.DataFrame({c: pd.Series([], dtype=object) for c in columns}, index=pd.Index([], dtype="int64"))
 
@@ -321,7 +321,7 @@ def read_ids_label(ref: frames.Table, label: str, p: dict[str, Any]) -> pd.DataF
             pieces.append(pq.read_table(str(part["path"]), columns=[ROW_ID, label]))
         except FileNotFoundError as e:
             raise frames.FrameError(f"A file of {ref.version_id} ({part['sha256'][:12]}…) is missing from the lake.") from e
-    at = pa.concat_tables(pieces) if len(pieces) > 1 else pieces[0]
+    at = pa.concat_tables(pieces, promote_options="default") if len(pieces) > 1 else pieces[0]
     return _to_frame(at, [label], _has_nulls(p))
 
 

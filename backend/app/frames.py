@@ -337,7 +337,9 @@ def _read_parquet(ref: Table, columns: Any, rows: range | None, mode: str, hash_
             pieces.append(pq.read_table(src, columns=["__row_id", *want]))
         except FileNotFoundError as e:
             raise FrameError(f"A file of {ref.version_id} ({p['sha256'][:12]}…) is missing from the lake.") from e
-    at = pa.concat_tables(pieces) if len(pieces) > 1 else pieces[0]
+    # P13: parts written at different times may differ in Parquet nullability (DuckDB writes REQUIRED for a column it
+    # knows has no nulls): an append part next to its base must still concatenate
+    at = pa.concat_tables(pieces, promote_options="default") if len(pieces) > 1 else pieces[0]
     if rows is not None:
         at = at.slice(rows.start, max(0, len(rows)))
     idx = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False), name=None)
