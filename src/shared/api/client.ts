@@ -17,7 +17,7 @@ const BASE = '/api'
 
 export type RetireRequest = { id: string; version_id: string; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; requested_by: string; requested_at: string; reason: string; decided_by: string | null; decided_at: string | null; comment: string }
 
-type SqlQuery = { url: string; query: string; limit?: number; password?: string }
+type SqlQuery = { url: string; query: string; limit?: number; password?: string; /** F-X4b: required; data.import is checked on it */ project_id?: string }
 
 export async function request<T>(path: string, init: RequestInit & { timeoutMs?: number } = {}): Promise<T> {
   const { timeoutMs = 15_000, ...rest } = init
@@ -74,7 +74,7 @@ export const api = {
     /** G9: a dataset from a read-only SQL query (SQLite/DuckDB files on the server, or Postgres). The password is sent, never stored. */
     sql: {
       demo: () => request<SqlDemo>('/sql/demo'),
-      tables: (url: string, password?: string) => json<{ tables: SqlTable[] }>('/sql/tables', 'POST', { url, password }),
+      tables: (url: string, password?: string, project_id?: string) => json<{ tables: SqlTable[] }>('/sql/tables', 'POST', { url, password, project_id }),
       preview: (q: SqlQuery) => json<SqlPreview>('/sql/preview', 'POST', q, 120_000),
       create: (q: SqlQuery & { name?: string }) => json<DatasetDetail>('/sql/datasets', 'POST', { ...q, created_by: actor() }, 300_000),
       refresh: (id: string, password?: string) => json<DatasetDetail & { refresh: { parent: string; version: number; diff: SqlLineage['diff']; unchanged: boolean } }>(`/sql/datasets/${encodeURIComponent(id)}/refresh`, 'POST', { password, created_by: actor() }, 300_000),
