@@ -120,3 +120,31 @@
 :where(.input, .select):disabled { background: var(--bg-subtle); color: var(--text-muted); cursor: not-allowed; }
 :where(.input)::placeholder { color: #94A3B8; }
 :where(input[type="checkbox"], input[type="radio"]) { accent-color: var(--accent-primary); }
+
+/* ---------- U4: purge (request form, detail, impact, executed) and the mask bar ---------- */
+.purge-form { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--status-danger) 25%, var(--border-default)); border-radius: var(--radius-card); background: color-mix(in srgb, var(--status-danger-bg) 45%, var(--bg-surface)); }
+.purge-form .field { max-width: 640px; }
+.purge-cols { display: flex; flex-wrap: wrap; gap: 6px; }
+.purge-col { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface); font-size: 12px; cursor: pointer; }
+.purge-col.on { border-color: var(--status-danger); background: var(--status-danger-bg); color: var(--status-danger); }
+.purge-note { margin: 0; font-size: 12px; line-height: 17px; }
+.purge-detail { border: 1px solid var(--border-default); border-radius: var(--radius-card); padding: 12px 14px; background: var(--bg-surface); }
+.purge-top { display: flex; flex-direction: column; gap: 6px; }
+.purge-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--text-primary); }
+.purge-impact { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: 0; overflow: hidden; }
+.purge-impact > * { margin-left: 12px; margin-right: 12px; }
+.purge-impact > .purge-teams { margin: 0; width: 100%; }
+.purge-impact-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 8px 0; color: var(--text-primary); }
+.purge-impact details { margin-top: 8px; margin-bottom: 10px; }
+.purge-teams th { background: var(--bg-table-header); }
+.purge-teams td { padding: 8px 12px !important; }
+.purge-executed { border: 1px solid color-mix(in srgb, var(--status-success) 25%, var(--border-default)); border-left: 3px solid var(--status-success) !important; background: var(--status-success-bg) !important; padding: 10px 12px !important; display: flex; flex-direction: column; gap: 6px; }
+.lc-t { border-collapse: collapse; }
+.lc-t th { height: 28px; }
+.lc-t td { height: auto !important; }
+.callout-like { border-radius: var(--radius-control); }
+
+.mask-bar { padding: 8px 12px; gap: 10px; background: var(--bg-surface); border-left: 3px solid var(--accent-secondary); }
+.mask-bar [data-testid="unmasked-on"] { color: var(--text-primary); }
+.mask-bar .mono { background: var(--bg-subtle); border-radius: var(--radius-badge); padding: 0 4px; margin-right: 2px; }
+.mask-refused { border: 1px solid color-mix(in srgb, var(--status-warning) 28%, transparent); border-left: 3px solid var(--status-warning); }

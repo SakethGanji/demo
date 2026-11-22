@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { CardHead } from '@/shared/components/DataKit'
 import { data, type DsEditOp, type DsEditPreview, type DsGrid, type DsHistory, type DsVersion } from '@/shared/api/catalog'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { pctText, settle, type JobProgress } from '@/shared/api/jobs'
@@ -106,36 +107,32 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
   const ck = pv?.checks
   return (
     <div className="card" data-testid="data-editor">
-      <div className="card-head">
-        <div className="left"><h3 className="card-title">Edit v{v.v}{table ? <span className="mono"> · {table}</span> : null}</h3>
-          <span className="helper" style={{ fontSize: 12 }}>changes are saved as a new version (v{d.versions.length + 1}); v{v.v} is never modified</span></div>
-        <button className="btn sm ghost" onClick={onClose} data-testid="edit-close">Close</button>
-      </div>
+      <CardHead title={<>Edit v{v.v}{table ? <span className="mono"> · {table}</span> : null}</>} sub={`changes are saved as a new version (v${d.versions.length + 1}); v${v.v} is never modified`}
+        actions={<button className="btn sm ghost" onClick={onClose} data-testid="edit-close">Close</button>} />
       <div className="card-body row edit-bar">
         <input className="input" style={{ width: 200 }} placeholder="search rows…" value={q} onChange={(e) => { setQ(e.target.value); setPage(0) }} data-testid="edit-q" />
         {g && <span className="helper mono">{g.matching ? `${(g.offset + 1).toLocaleString()}–${Math.min(g.offset + PAGE, g.matching).toLocaleString()} of ${g.matching.toLocaleString()}` : '0 rows'}{g.matching !== g.total ? ` (of ${g.total.toLocaleString()})` : ''}</span>}
         <button className="btn sm ghost" disabled={page === 0} onClick={() => setPage(page - 1)} aria-label="previous page">‹</button>
         <button className="btn sm ghost" disabled={!g || (page + 1) * PAGE >= g.matching} onClick={() => setPage(page + 1)} aria-label="next page" data-testid="edit-next">›</button>
         <span className="edit-sep" />
-        <button className="btn sm ghost" onClick={() => setNewRow(Object.fromEntries(cols.map((c) => [c.name, ''])))} data-testid="edit-add-row">+ Row</button>
-        {(g?.masked_columns?.length || unmask.on) ? <>
-          <span className="edit-sep" />
+        <button className="btn sm" onClick={() => setNewRow(Object.fromEntries(cols.map((c) => [c.name, ''])))} data-testid="edit-add-row">+ Row</button>
+      </div>
+      {(g?.masked_columns?.length || unmask.on) ? <div className="mask-bar edit-mask" data-testid="edit-mask">
           {unmask.on ? <span className="unmask-bar" data-testid="unmasked-on">{g?.unmasked ? <>🔓 <b>unmasked</b> <span className="helper">“{unmask.reason}” · this read is audited</span></> : null}
             <button className="btn sm ghost" onClick={() => setUnmask({ open: false, reason: '', on: false })} data-testid="unmask-off">Mask again</button></span>
             : unmask.open ? <span className="unmask-bar"><input className="input" style={{ width: 200 }} placeholder="why you need the clear values (audited)" value={unmask.reason} onChange={(e) => setUnmask({ ...unmask, reason: e.target.value })} data-testid="unmask-reason" />
               <button className="btn sm" disabled={unmask.reason.trim().length < 2} onClick={() => { setUnmask({ ...unmask, on: true }); setPage(0) }} data-testid="unmask-go">Show</button>
               <button className="btn sm ghost" onClick={() => setUnmask({ open: false, reason: '', on: false })}>✕</button></span>
               : <button className="btn sm" disabled={!by || canUnmask?.allow === false} title={why(canUnmask, 'Show the clear values of the masked columns: give a reason; the read is audited')} onClick={() => setUnmask({ ...unmask, open: true })} data-testid="unmask">Unmask (reason)…</button>}
-          {!unmask.on && <span className="helper" data-testid="masked-note">🔒 {g!.masked_columns!.length} masked: {g!.masked_columns!.join(', ')}</span>}
-          {!unmask.on && canUnmask?.allow === false && <span className="helper" data-testid="unmask-why">· {why(canUnmask)}</span>}
-        </> : null}
-      </div>
-      {g?.unmasked_refused && <div className="card-body data-warn" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {g.unmasked_refused.message} (needs {g.unmasked_refused.needed}{g.unmasked_refused.role ? `, you are ${g.unmasked_refused.role}` : ''}). The rows below are still masked; the request was recorded.</div>}
+          {!unmask.on && <span className="helper" data-testid="masked-note">🔒 {g!.masked_columns!.length} masked column{g!.masked_columns!.length === 1 ? '' : 's'}: {g!.masked_columns!.map((c) => <span key={c} className="mono">{c}</span>)} · their values show as •••</span>}
+          {!unmask.on && canUnmask?.allow === false && <span className="why" data-testid="unmask-why"><span aria-hidden>⊘</span> {why(canUnmask)}</span>}
+        </div> : null}
+      {g?.unmasked_refused && <div className="card-body data-warn edit-refused" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {g.unmasked_refused.message} (needs {g.unmasked_refused.needed}{g.unmasked_refused.role ? `, you are ${g.unmasked_refused.role}` : ''}). The rows below are still masked; the request was recorded.</div>}
       {/* enforce mode answers 403 to an unmasked read that is not allowed: say so (the rows shown stay the masked ones) */}
-      {grid.err && g && unmask.on && <div className="card-body data-warn" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {grid.err}{/[.!?]$/.test(String(grid.err)) ? '' : '.'} The rows below are still masked; the request was recorded.</div>}
+      {grid.err && g && unmask.on && <div className="card-body data-warn edit-refused" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {grid.err}{/[.!?]$/.test(String(grid.err)) ? '' : '.'} The rows below are still masked; the request was recorded.</div>}
       {grid.err && !g ? <ErrorCard inline err={grid.err} /> : !g ? <Loading inline>Reading rows…</Loading> : (
         <div className="table-wrap edit-grid-wrap"><table className="table edit-grid" data-testid="edit-grid">
-          <thead><tr><th className="r">_row</th>{g.columns.map((c) => <th key={c.name} title={c.masked ? `PII: masked (${c.mask}); edits to it still go to the stored value` : undefined} data-testid={c.masked ? `masked-col-${c.name}` : undefined}>{c.masked ? '🔒 ' : ''}{c.name} <span className="muted" style={{ fontWeight: 400 }}>{c.masked ? `masked · ${c.mask}` : c.kind}</span></th>)}<th /></tr></thead>
+          <thead><tr><th className="r">_row</th>{g.columns.map((c) => <th key={c.name} className={['number', 'integer', 'decimal', 'float'].includes(c.kind) ? 'r' : undefined} title={c.masked ? `PII: masked (${c.mask}); edits to it still go to the stored value` : undefined} data-testid={c.masked ? `masked-col-${c.name}` : undefined}>{c.masked ? '🔒 ' : ''}{c.name} <span className="th-kind">{c.masked ? `masked · ${c.mask}` : c.kind}</span></th>)}<th /></tr></thead>
           <tbody>
             {newRow && <tr className="edit-newrow">
               <td className="r mono">new</td>
@@ -153,7 +150,7 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
                     if (editing === k) return <td key={c.name}><input className="input edit-cell-input" autoFocus defaultValue={p ? p.value : show(r[c.name])}
                       onBlur={(e) => setCell(row, c.name, e.target.value, r[c.name])}
                       onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setEditing(null) }} data-testid="edit-cell-input" /></td>
-                    return <td key={c.name} className={`edit-cell ${p ? 'edit-pending' : ''} ${c.kind === 'number' ? 'r mono' : ''}`} title={p ? `was ${show(p.old) || '(missing)'}` : 'click to edit'}
+                    return <td key={c.name} className={`edit-cell ${p ? 'edit-pending' : ''} ${['number', 'integer', 'decimal', 'float'].includes(c.kind) ? 'r mono' : ''}`} title={p ? `was ${show(p.old) || '(missing)'}` : 'click to edit'}
                       onClick={() => !gone && setEditing(k)} data-testid={`edit-cell-${row}-${c.name}`}>{p ? p.value : show(r[c.name]) || <span className="muted">—</span>}</td>
                   })}
                   <td><button className="chip-btn" onClick={() => toggleDelete(row)} title={gone ? 'keep this row' : 'delete this row'} data-testid={`edit-del-${row}`}>{gone ? 'undo' : '✕'}</button></td>

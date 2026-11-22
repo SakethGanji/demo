@@ -265,3 +265,9 @@
 .up-issue { margin: 6px 0; }
 .up-ack { cursor: pointer; }
 .up-delta-opts .select { width: auto; max-width: 240px; }
+.edit-bar { padding: 10px 16px; }
+.edit-grid th { background: var(--bg-table-header); }
+.edit-mask { margin: 0 !important; border-radius: 0 !important; border-left: 0 !important; border-right: 0 !important; border-top: 0 !important; background: var(--bg-band, var(--bg-subtle)) !important; padding: 8px 16px !important; }
+.edit-mask .unmask-bar { display: inline-flex; }
+.edit-refused { margin: 8px 16px; border-radius: var(--radius-control); }
+.th-kind { display: block; font-size: 10px; font-weight: 500; letter-spacing: .02em; text-transform: none; color: var(--text-muted); }
