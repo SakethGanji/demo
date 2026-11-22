@@ -34,8 +34,8 @@ const ACTION_HELP: Record<string, string> = {
 }
 const accept = '.csv,.tsv,.txt,.parquet,.xlsx,.xlsm'
 /** The parent table a delta file most likely changes: the one whose columns hold every file column but the op column. */
-const guessTable = (cols: string[], parents: VTable[]) => {
-  const want = cols.filter((c) => c !== '_op')
+const guessTable = (cols: string[], parents: VTable[], op = '_op') => {
+  const want = cols.filter((c) => c !== op)
   return parents.find((t) => want.every((c) => (t.schema ?? []).some((s) => s.name === c)))?.name ?? parents.find((t) => t.primary)?.name ?? parents[0]?.name ?? ''
 }
 
@@ -127,7 +127,11 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
     } catch (e) { setErr(errText(e)) } finally { setBusy('') }
   }
   /** P13: the looks_like_delta hint as one action: apply the file as a delta of a parent table, by key. */
-  const asDelta = (table: string) => replan({ table, tables: { [table]: { action: 'delta' } } }, `Applying ${label} as a delta of ${table}…`)
+  const asDelta = (table: string, o: TablePlan = {}) => replan({ table, tables: { [table]: { action: 'delta', ...(o.op_column && o.op_column !== '_op' ? { op_column: o.op_column } : {}), ...(o.ops && Object.keys(o.ops).length ? { ops: o.ops } : {}), ...(o.allow_new_columns ? { allow_new_columns: true } : {}) } } },
+    `Applying ${label} as a delta of ${table}${o.op_column && o.op_column !== '_op' ? ` (operations in ${o.op_column})` : ''}…`)
+  // U3: a change set whose operation column is not _op gets no looks_like_delta hint: the person opens the same box
+  const [deltaOpen, setDeltaOpen] = useState(false)
+  const showPlan = !!chk && (multi || chk.tables.some((t) => t.delta || t.action === 'delta'))
   /** Another candidate key: the plan's match is simulated by a fresh check (PATCH plan → /check). */
   const simulate = async (m: MatchSpec, table?: string) => {
     if (!up) return
@@ -185,10 +189,11 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
       {!chk && <span className="helper" style={{ fontSize: 12 }}>Several files make one version: each CSV or Parquet file is a table, and each sheet of a workbook (.xlsx) is one.</span>}
       {busy && <p className="helper" role="status" data-testid="up-busy">… {busy}</p>}
       {err && <p className="helper up-err" role="alert" data-testid="up-err">✕ {err}</p>}
-      {chk && looksDelta && ptables && <DeltaHint chk={chk} parents={ptables} busy={!!busy} onApply={asDelta} />}
-      {chk && multi && <PlanView chk={chk} next={next} parents={ptables ?? []} parentRels={prels} plan={plan} setPlan={(p) => { setPlan(p); setDirty(true) }} dirty={dirty} busy={!!busy} apply={() => replan(plan)} />}
+      {chk && !showPlan && (looksDelta || deltaOpen) && ptables && <DeltaHint chk={chk} parents={ptables} busy={!!busy} onApply={asDelta} hinted={!!looksDelta} />}
+      {chk && !showPlan && !looksDelta && !deltaOpen && next && !multi && ptables && <button className="chip-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setDeltaOpen(true)} data-testid="up-delta-open">This file is a change set (insert / update / delete by key)…</button>}
+      {chk && showPlan && <PlanView chk={chk} next={next} parents={ptables ?? []} parentRels={prels} plan={plan} setPlan={(p) => { setPlan(p); setDirty(true) }} dirty={dirty} busy={!!busy} apply={() => replan(plan)} />}
       {chk && <CheckView chk={chk} label={label} />}
-      {chk && !multi && next && nv && (looksDelta
+      {chk && !showPlan && next && nv && (looksDelta || deltaOpen
         ? <details data-testid="up-replace-instead"><summary className="micro-label">or replace the table with this file as it is (match rows to v{parent!.v})</summary>
           <MatchView nv={nv} parentV={parent!.v} match={match} setMatch={(m) => { setMatch(m); setAck(false) }} simulate={(m) => simulate(m)} busy={!!busy} /></details>
         : <MatchView nv={nv} parentV={parent!.v} match={match} setMatch={(m) => { setMatch(m); setAck(false) }} simulate={(m) => simulate(m)} busy={!!busy} />)}
@@ -221,18 +226,25 @@ const resultText = (r: UpCommitted, label: string, parent?: UpParent | null) => 
 
 /** P13: a plain next-version file with an _op column. The check says so (looks_like_delta); one click applies it as a
  *  delta of the parent table it most likely changes (the table can be changed). */
-function DeltaHint({ chk, parents, busy, onApply }: { chk: UpCheck; parents: VTable[]; busy: boolean; onApply: (t: string) => void }) {
-  const w = chk.warnings.find((x) => x.code === 'looks_like_delta')!
-  const [t, setT] = useState(() => guessTable(chk.tables[0]?.schema.map((c) => c.name) ?? [], parents))
+function DeltaHint({ chk, parents, busy, onApply, hinted }: { chk: UpCheck; parents: VTable[]; busy: boolean; onApply: (t: string, o: TablePlan) => void; hinted: boolean }) {
+  const w = chk.warnings.find((x) => x.code === 'looks_like_delta')
+  const cols = chk.tables[0]?.schema.map((c) => c.name) ?? []
+  // U3: the operation column: _op when the file has one, else the person picks it (the plan's op_column), its values'
+  // mapping (ops) and allow_new_columns, all sent with the plan
+  const [opt, setOpt] = useState<TablePlan>(() => ({ op_column: cols.includes('_op') ? '_op' : cols.find((c) => /^(op|operation|change|action|_?change_type)$/i.test(c)) ?? cols[cols.length - 1] ?? '_op' }))
+  const op = opt.op_column ?? '_op'
+  const [t, setT] = useState(() => guessTable(cols, parents, op))
   return (
     <div className="data-warn up-delta-hint" data-testid="up-delta-hint">
-      <b>This file looks like a change set.</b> It has an <span className="mono">_op</span> column: as it stands it would replace the table, with <span className="mono">_op</span> as a column.
+      {hinted ? <><b>This file looks like a change set.</b> It has an <span className="mono">_op</span> column: as it stands it would replace the table, with <span className="mono">_op</span> as a column.</>
+        : <><b>Apply this file as a change set.</b> Each row names its operation in one column; the other columns are the table's, matched by its key.</>}
       <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className="helper">apply it by key to</span>
         <select className="select" value={t} onChange={(e) => setT(e.target.value)} data-testid="up-delta-table">{parents.map((p) => <option key={p.name} value={p.name}>{p.name}{p.keys.some((k) => k.valid) ? ` (key ${p.keys.find((k) => k.valid)!.columns.join('+')})` : ' (no key yet)'}</option>)}</select>
-        <button className="btn sm primary" disabled={busy || !t} onClick={() => onApply(t)} data-testid="up-apply-delta">Apply as delta</button>
-        <span className="helper" title={w.message}>rows marked I are inserted, U updated, D deleted; the other tables are carried</span>
+        <button className="btn sm primary" disabled={busy || !t || Object.keys(opt.ops ?? {}).some((k) => !k.trim())} onClick={() => onApply(t, opt)} data-testid="up-apply-delta">Apply as delta</button>
+        <span className="helper" title={w?.message}>the other tables are carried</span>
       </div>
+      {chk.tables[0] && <DeltaOptions t={chk.tables[0]} tp={opt} blocks={chk.blocks} set={(x) => { const n = { ...opt, ...x }; setOpt(n); if (x.op_column) setT(guessTable(cols, parents, x.op_column)) }} />}
     </div>
   )
 }
@@ -283,7 +295,8 @@ function PlanView({ chk, next, parents, parentRels, plan, setPlan, dirty, busy, 
                   {k && <div className={k.valid ? 'data-ok' : 'up-colwarn'} style={{ fontSize: 11.5 }}>{k.valid ? '✓ unique, no missing' : `✕ ${n(k.n_duplicates)} repeated · ${n(k.n_nulls)} missing`}</div>}</td>
                 <td className="helper">{t.delta ? <DeltaCounts d={t.delta} table={t.name} /> : t.action === 'append' && (t.rows_added ?? t.append?.rows_added) != null
                   ? <span>+{n(t.rows_added ?? t.append?.rows_added)} rows after the parent's {n(t.parent_rows ?? t.append?.parent_rows)} → {n(t.rows_after ?? t.append?.rows_after)}</span>
-                  : ACTION_HELP[a]}{a === 'delta' && !t.delta && <span> · check again to count it</span>}</td>
+                  : ACTION_HELP[a]}{a === 'delta' && !t.delta && <span> · check again to count it</span>}
+                  {a === 'delta' && <DeltaOptions t={t} tp={tp(t.name)} blocks={chk.blocks.filter((b) => (b as { table?: string }).table === t.name || !(b as { table?: string }).table)} set={(x) => setT(t.name, x)} />}</td>
                 <td>{t.contract && <span className={`pt-chip up-ct-${t.contract}`} title="the dataset contract on this table">contract {t.contract}</span>}
                   {(t.pii ?? []).map((p) => <span key={p.column} className="pt-chip up-pii" title={`${p.tag} · masked ${p.mask} · ${p.source}${p.why ? ` (${p.why})` : ''}`} data-testid={`up-pii-${t.name}-${p.column}`}>🔒 {p.column}</span>)}</td>
               </tr>)
@@ -316,6 +329,35 @@ function PlanView({ chk, next, parents, parentRels, plan, setPlan, dirty, busy, 
       {(chk.sheets?.length ?? 0) > 0 && <details><summary className="micro-label">{chk.sheets!.length} sheet{chk.sheets!.length === 1 ? '' : 's'} read</summary>
         <ul className="helper up-sheets">{chk.sheets!.map((s) => <li key={`${s.file}/${s.sheet}`}><span className="mono">{s.file} › {s.sheet}</span> → {s.included ? <b>{s.table}</b> : <span className="muted">{s.why ?? (s.hidden ? 'hidden' : 'left out')}</span>} {s.included && <span className="muted">{n(s.rows)} × {s.columns}</span>}</li>)}</ul></details>}
       {dirty && <div className="row" style={{ gap: 8 }}><button className="btn primary" disabled={busy} onClick={apply} data-testid="up-recheck">Check again with this plan</button><span className="helper">the plan changed: nothing is created until it is checked</span></div>}
+    </div>
+  )
+}
+
+const OP_KINDS = ['insert', 'update', 'delete', 'upsert'] as const
+/** U3 (P13 plan options): a delta's operation column (default _op), the mapping of its values to insert / update /
+ *  delete / upsert (unmapped values: I, U, D, insert, update, delete, upsert), and whether new columns may be added
+ *  (existing rows get missing values). Every change marks the plan dirty: Check again recounts the delta. */
+function DeltaOptions({ t, tp, blocks, set }: { t: UpTable; tp: TablePlan; blocks: { code?: string; message: string; columns?: string[] }[]; set: (x: TablePlan) => void }) {
+  const cols = t.schema.map((c) => c.name)
+  const op = tp.op_column ?? t.delta?.op_column ?? (cols.includes('_op') ? '_op' : '')
+  const ops = Object.entries(tp.ops ?? {})
+  const newCols = blocks.find((b) => b.code === 'delta_new_columns')
+  const setOps = (rows: [string, string][]) => set({ ops: rows.length ? Object.fromEntries(rows) : undefined })
+  return (
+    <div className="up-delta-opts stack" style={{ gap: 4, marginTop: 4 }} data-testid={`up-delta-opts-${t.name}`}>
+      <span className="row" style={{ gap: 4, flexWrap: 'wrap' }}><span className="micro-label">op column</span>
+        <select className="select" value={op} onChange={(e) => set({ op_column: e.target.value })} data-testid={`up-opcol-${t.name}`}>
+          {!cols.includes(op) && <option value={op}>{op || '—'} (not in the file)</option>}{cols.map((c) => <option key={c}>{c}</option>)}</select></span>
+      <span className="row" style={{ gap: 4, flexWrap: 'wrap' }}><span className="micro-label">ops</span>
+        {ops.map(([v, k], i) => <span key={i} className="row" style={{ gap: 2 }}>
+          <input className="input mono" style={{ width: 70 }} value={v} placeholder="value" onChange={(e) => setOps(ops.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} data-testid={`up-opval-${t.name}-${i}`} />→
+          <select className="select" value={k} onChange={(e) => setOps(ops.map((x, j) => (j === i ? [x[0], e.target.value] : x)))} data-testid={`up-opkind-${t.name}-${i}`}>{OP_KINDS.map((o) => <option key={o}>{o}</option>)}</select>
+          <button className="chip-btn" onClick={() => setOps(ops.filter((_, j) => j !== i))} title="remove this mapping">✕</button></span>)}
+        <button className="chip-btn" onClick={() => setOps([...ops, ['', 'upsert']])} data-testid={`up-opadd-${t.name}`}>+ map a value</button>
+        {!ops.length && <span className="helper" style={{ fontSize: 11.5 }}>unmapped: I / U / D, insert / update / delete / upsert</span>}</span>
+      <label className="row helper" style={{ gap: 4, fontSize: 12 }}><input type="checkbox" checked={!!tp.allow_new_columns} onChange={(e) => set({ allow_new_columns: e.target.checked || undefined })} data-testid={`up-allownew-${t.name}`} />
+        allow new columns{newCols?.columns?.length ? <b className="up-colwarn"> ({newCols.columns.join(', ')} not in the table)</b> : ''}: existing rows get missing values</label>
+      {(t.delta?.columns_new?.length ?? 0) > 0 && <span className="helper" style={{ fontSize: 11.5 }}>adds column{t.delta!.columns_new.length > 1 ? 's' : ''} {t.delta!.columns_new.join(', ')}</span>}
     </div>
   )
 }

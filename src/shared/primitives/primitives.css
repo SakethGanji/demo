@@ -7,6 +7,9 @@
 .btn.ghost:hover { background: var(--bg-subtle); color: var(--text-primary); }
 .btn.vela { border-color: var(--border-default); }
 .btn.vela.on { background: var(--bg-wave-tint); border-color: var(--accent-secondary); color: var(--text-primary); }
+.btn:disabled, .btn:disabled:hover, .chip-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.primary:disabled:hover { background: var(--accent-primary); border-color: var(--accent-primary); }
+.btn:not(.primary):not(.ghost):disabled:hover { background: var(--bg-surface); border-color: var(--border-default); }
 .btn.sm { height: 26px; font-size: 12px; padding: 0 var(--space-8); }
 
 /* ---------- cards ---------- */

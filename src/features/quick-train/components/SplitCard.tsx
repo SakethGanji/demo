@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { MaskInfo, Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { SplitDescription, SplitOptions, SplitSpec, SplitStrategy } from '@/shared/api/types'
 import { ParamChip } from '@/shared/primitives/ParamChip'
@@ -31,16 +33,17 @@ export function specFor(strategy: SplitStrategy, o: SplitOptions | null, cur?: S
  * drawn by the API (POST /datasets/{id}/splits) and drawn here as a timeline or a group diagram with its row counts.
  */
 export function SplitCard({ ds, label, spec, onSpec }: { ds: Dataset; label: string; spec: SplitSpec | null; onSpec: (s: SplitSpec | null) => void }) {
-  const [opts, setOpts] = useState<SplitOptions | null>(null)
+  const [opts, setOpts] = useState<(SplitOptions & MaskInfo) | null>(null)
+  const [unmask, setUnmask] = useState<Unmask>(null)
   const [desc, setDesc] = useState<SplitDescription | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const strategy: SplitStrategy = spec?.strategy ?? 'random-stratified'
   useEffect(() => {
     let alive = true
-    api.datasets.splitOptions(ds.id!, label).then((o) => { if (alive) setOpts(o) }).catch((e) => { if (alive) setErr((e as Error).message) })
+    api.datasets.splitOptions(ds.id!, label, unmask ?? undefined).then((o) => { if (alive) setOpts(o) }).catch((e) => { if (alive) setErr((e as Error).message) })
     return () => { alive = false }
-  }, [ds.id, label])
+  }, [ds.id, label, unmask])
   const specKey = JSON.stringify(spec)
   useEffect(() => {
     let alive = true
@@ -67,6 +70,7 @@ export function SplitCard({ ds, label, spec, onSpec }: { ds: Dataset; label: str
           : <StatusPill status={strategy === 'random-stratified' ? 'info' : 'success'}>{STRATEGY_NAME[strategy]}</StatusPill>}
       </div>
       <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
+        <MaskBar info={opts} kind="dataset" id={ds.id ?? null} value={unmask} onChange={setUnmask} what="date ranges" />
         <div className="seg" role="tablist" data-testid="split-strategy">
           {(['random-stratified', 'group', 'time', 'time-group'] as SplitStrategy[]).map((s) => (
             <button key={s} role="tab" aria-selected={strategy === s} className={strategy === s ? 'on' : ''} disabled={!can(s)}

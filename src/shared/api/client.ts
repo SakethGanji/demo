@@ -1,6 +1,7 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
 import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, Ladder, FeatureLabJob, FeatureLabList, FeatureTransform, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus, Review, ReviewList, ChangesState, ChangeItem } from './types'
+import { withUnmask, type MaskInfo, type Unmask } from './unmask'
 
 /** Who is acting (typed once in the Registry; there is no sign-in): recorded in the audit log. */
 const actor = () => { try { return localStorage.getItem('ensemble.actor') || undefined } catch { return undefined } }
@@ -82,7 +83,7 @@ export const api = {
     /** F4: confirm the column to predict; the API re-profiles and draws (or reuses) that target's own holdout. */
     setTarget: (id: string, target: string) => request<DatasetDetail>(`/datasets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ target }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
     /** G0 Smart Intake: column roles and what can be built; `roles` applies the user's edits. */
-    intake: (id: string, roles?: Record<string, string>) => request<Intake>(`/datasets/${encodeURIComponent(id)}/intake`, roles ? { method: 'POST', body: JSON.stringify({ roles }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 } : { timeoutMs: 60_000 }),
+    intake: (id: string, roles?: Record<string, string>, u?: Unmask) => request<Intake & MaskInfo>(roles ? `/datasets/${encodeURIComponent(id)}/intake` : withUnmask(`/datasets/${encodeURIComponent(id)}/intake`, u), roles ? { method: 'POST', body: JSON.stringify({ roles, ...(u ? { unmasked: '1', reason: u.reason, by: actor() } : {}) }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 60_000 } : { timeoutMs: 60_000 }),
     /** D1 Data Doctor: every check with its rule, numbers, example rows and fix; the decision-time question. */
     doctor: (id: string) => request<DataReport>(`/datasets/${encodeURIComponent(id)}/data-doctor`, { timeoutMs: 120_000 }),
     /** D1: apply typed fixes into a new dataset version (lineage kept; the original is never changed). */
@@ -93,10 +94,10 @@ export const api = {
     featureLab: (id: string) => request<FeatureLabList>(`/datasets/${encodeURIComponent(id)}/feature-lab`),
     featureLabStart: (id: string, body: { target?: string; entity?: string | null; candidates?: FeatureTransform[]; max_candidates?: number; time_limit?: number }) =>
       json<FeatureLabJob>(`/datasets/${encodeURIComponent(id)}/feature-lab`, 'POST', { ...body, by: actor() }, 60_000),
-    featureLabJob: (id: string, job: string) => request<FeatureLabJob>(`/datasets/${encodeURIComponent(id)}/feature-lab/${encodeURIComponent(job)}`),
+    featureLabJob: (id: string, job: string, u?: Unmask) => request<FeatureLabJob & MaskInfo>(withUnmask(`/datasets/${encodeURIComponent(id)}/feature-lab/${encodeURIComponent(job)}`, u)),
     splits: (id: string) => request<DatasetSplits>(`/datasets/${encodeURIComponent(id)}/splits`),
     /** F6: strategies, date and entity columns found, and warnings for a random split. */
-    splitOptions: (id: string, target?: string) => request<SplitOptions>(`/datasets/${encodeURIComponent(id)}/split-options${target ? `?target=${encodeURIComponent(target)}` : ''}`, { timeoutMs: 60_000 }),
+    splitOptions: (id: string, target?: string, u?: Unmask) => request<SplitOptions & MaskInfo>(withUnmask(`/datasets/${encodeURIComponent(id)}/split-options${target ? `?target=${encodeURIComponent(target)}` : ''}`, u), { timeoutMs: 60_000 }),
     /** F6: draw (or reuse) a split and describe it: rows, groups, dates per role; timeline for time splits. */
     drawSplit: (id: string, target: string, spec: SplitSpec) => request<SplitDescription>(`/datasets/${encodeURIComponent(id)}/splits`, { method: 'POST', body: JSON.stringify({ target, ...spec }), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
   },
@@ -138,7 +139,7 @@ export const api = {
       request<LearningCurve>(`/runs/${encodeURIComponent(id)}/learning-curve`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
     cancelLearningCurve: (id: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/learning-curve/cancel`, { method: 'POST' }),
     /** F13: the active-learning labelling queue, its rounds and the simulated active-vs-random comparison. */
-    activeLearning: (id: string) => request<ActiveLearning>(`/runs/${encodeURIComponent(id)}/active-learning`),
+    activeLearning: (id: string, u?: Unmask) => request<ActiveLearning & MaskInfo>(withUnmask(`/runs/${encodeURIComponent(id)}/active-learning`, u)),
     startActiveLearning: (id: string, body: ALRequest = {}) =>
       request<ActiveLearning>(`/runs/${encodeURIComponent(id)}/active-learning`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
     answerActiveLearning: (id: string, answers: { id: string; answer: 'confirm' | 'relabel' | 'skip' | null; label?: string }[], reviewer = 'you') =>
@@ -172,17 +173,17 @@ export const api = {
     slicePool: (id: string, sid: string) => request<SlicePool>(`/runs/${encodeURIComponent(id)}/slices/${encodeURIComponent(sid)}/pool`),
     /** F15: the run's shift checks (adversarial validation) and what a new one can compare. */
     shifts: (id: string) => request<ShiftList>(`/runs/${encodeURIComponent(id)}/shift`),
-    shift: (id: string, key: string) => request<ShiftCheck>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}`),
+    shift: (id: string, key: string, u?: Unmask) => request<ShiftCheck & MaskInfo>(withUnmask(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}`, u)),
     startShift: (id: string, body: ShiftRequest) =>
       request<ShiftCheck>(`/runs/${encodeURIComponent(id)}/shift`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
     cancelShift: (id: string, key: string) => request<{ cancelled: boolean }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/cancel`, { method: 'POST' }),
     shiftWeightsVersion: (id: string, key: string) =>
       request<{ dataset_version: NonNullable<ShiftCheck['versions']>[number]; patch: NonNullable<ShiftAction['patch']> }>(`/runs/${encodeURIComponent(id)}/shift/${encodeURIComponent(key)}/weights-version${actor() ? `?by=${encodeURIComponent(actor()!)}` : ''}`, { method: 'POST', timeoutMs: 60_000 }),
     /** F14: annotators' agreement, quality, the CROWDLAB consensus and the disagreement queue. */
-    annotations: (id: string, q: { offset?: number; limit?: number; include?: 'queue' | 'all' } = {}) => {
+    annotations: (id: string, q: { offset?: number; limit?: number; include?: 'queue' | 'all' } = {}, u?: Unmask) => {
       const p = new URLSearchParams()
       Object.entries(q).forEach(([k, v]) => { if (v != null) p.set(k, String(v)) })
-      return request<Annotations>(`/runs/${encodeURIComponent(id)}/annotations${p.toString() ? `?${p}` : ''}`)
+      return request<Annotations & MaskInfo>(withUnmask(`/runs/${encodeURIComponent(id)}/annotations${p.toString() ? `?${p}` : ''}`, u))
     },
     loadSampleAnnotations: (id: string, body: { n_rows?: number; per_row?: number; seed?: number } = {}) =>
       request<Annotations>(`/runs/${encodeURIComponent(id)}/annotations/sample`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
