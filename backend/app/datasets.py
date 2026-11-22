@@ -254,33 +254,46 @@ class DatasetStore:
             raise DatasetError(str(e)) from e
         if frames.is_parquet(dataset_id):  # P09: a Parquet version's split is a content-addressed blob (lake/splitstore)
             return self._ensure_lake_split(dataset_id, target, strategy, params, path)
-        with self._split_lock:
-            if path.exists():
-                self.record_split_file(dataset_id, path, "first seen (drawn before DL4)", only_new=True)
-                return path, load_splits(path), False
-            legacy = self.legacy_splits_path(dataset_id)
-            sp = load_splits(legacy) if legacy.exists() and strategy == RANDOM_STRATIFIED else None
-            if sp is not None and sp.get("target") == target and sp.get("strategy", RANDOM_STRATIFIED) == strategy:
-                sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": legacy.name}
-            else:
-                # P05: a random split needs only the target (a 10M-row Parquet version is not read whole for it)
-                df = frames.read_version(dataset_id, None if strategy != RANDOM_STRATIFIED or target is None else [target])
-                if target is not None and target not in df.columns:
-                    raise DatasetError(f"Column '{target}' is not in the dataset.")
-                y = df[target] if target is not None else None
-                n = len(df) if target is not None or strategy != RANDOM_STRATIFIED else self.n_rows(dataset_id)
-                try:
-                    sp = make_splits(y, n, config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy,
-                                     frame=df if strategy != RANDOM_STRATIFIED else None, params=params)
-                except ValueError as e:
-                    raise DatasetError(str(e)) from e
-            sp["created_at"] = sp.get("created_at") or now()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
-            save_splits(tmp, sp)
-            tmp.replace(path)
-            self.record_split_file(dataset_id, path, "drawn")  # DL4 (M-d)
-            return path, sp, True
+        from .lake.migrate import MigrateError, csv_write_hold
+
+        try:  # F-X2 C1: no split is drawn on a CSV-era version while it is being migrated
+            with self._split_lock, csv_write_hold(self.db, dataset_id, "drawing a split"):
+                return self._ensure_csv_split(dataset_id, target, strategy, params, path)
+        except MigrateError as e:
+            if e.code == "version_migrated":  # it is in the lake now: its split is a Parquet split
+                return self._ensure_lake_split(dataset_id, target, strategy, params, path)
+            err = DatasetConflict(e.message)
+            err.code = e.code  # version_migrating: the run is refused with this code, not split_integrity
+            raise err from e
+
+    def _ensure_csv_split(self, dataset_id: str, target: str | None, strategy: str, params: dict[str, Any],
+                          path: Path) -> tuple[Path, dict[str, Any], bool]:
+        if path.exists():
+            self.record_split_file(dataset_id, path, "first seen (drawn before DL4)", only_new=True)
+            return path, load_splits(path), False
+        legacy = self.legacy_splits_path(dataset_id)
+        sp = load_splits(legacy) if legacy.exists() and strategy == RANDOM_STRATIFIED else None
+        if sp is not None and sp.get("target") == target and sp.get("strategy", RANDOM_STRATIFIED) == strategy:
+            sp = {**sp, "strategy": strategy, "key": split_key(target, strategy), "adopted_from": legacy.name}
+        else:
+            # P05: a random split needs only the target (a 10M-row Parquet version is not read whole for it)
+            df = frames.read_version(dataset_id, None if strategy != RANDOM_STRATIFIED or target is None else [target])
+            if target is not None and target not in df.columns:
+                raise DatasetError(f"Column '{target}' is not in the dataset.")
+            y = df[target] if target is not None else None
+            n = len(df) if target is not None or strategy != RANDOM_STRATIFIED else self.n_rows(dataset_id)
+            try:
+                sp = make_splits(y, n, config.SEED, config.HOLDOUT_SHARE, config.N_FOLDS, strategy,
+                                 frame=df if strategy != RANDOM_STRATIFIED else None, params=params)
+            except ValueError as e:
+                raise DatasetError(str(e)) from e
+        sp["created_at"] = sp.get("created_at") or now()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        save_splits(tmp, sp)
+        tmp.replace(path)
+        self.record_split_file(dataset_id, path, "drawn")  # DL4 (M-d)
+        return path, sp, True
 
     def _ensure_lake_split(self, dataset_id: str, target: str | None, strategy: str, params: dict[str, Any],
                            path: Path) -> tuple[Path, dict[str, Any], bool]:
@@ -1048,6 +1061,10 @@ class DatasetStore:
         if pr.storage == "parquet":
             con.execute(f"CREATE OR REPLACE TEMP VIEW _e0 AS SELECT * FROM ({pr.p.sql})")
             return
+        if getattr(pr, "fresh", False):  # F-X2 m2: a CSV-era version with no row map has no row ids to edit by yet
+            raise DatasetConflict(f"{pr.vid} was made before row maps (a SQL refresh or a monitoring window): its rows have no ids "
+                                  "to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches "
+                                  "them to its parent's rows. Edit it after that, or edit its parent.")
         pr.p.attach(con)
         sql, _ = LD.typed_select(con, "_parent_csv", pr.types)
         con.execute(f"CREATE OR REPLACE TEMP VIEW _e0 AS SELECT {sql} FROM _parent_csv")

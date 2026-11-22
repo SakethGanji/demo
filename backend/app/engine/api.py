@@ -174,10 +174,34 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
         pass
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
     store = app.state.runs
-    store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
+    with _csv_hold(app, dataset_id, cfg, run_dir):
+        store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
     store.emit(run_id, "run_queued", **queued)
     app.state.runner.submit(run_id)
     return store
+
+
+def _csv_hold(app: Any, dataset_id: str, cfg: dict[str, Any], run_dir: Path) -> Any:
+    """F-X2 C1: a run whose split was drawn from its version's CSV-era files (cfg.split without a split_id) is recorded
+    only while that version is not being migrated, and is still CSV-era (409 otherwise: start it again)."""
+    import contextlib
+
+    sp = cfg.get("split")
+    if not (isinstance(sp, dict) and cfg.get("splits_path") and not sp.get("split_id")):
+        return contextlib.nullcontext()
+    from ..lake.migrate import MigrateError, csv_write_hold
+
+    @contextlib.contextmanager
+    def hold():
+        try:
+            with csv_write_hold(app.state.db, dataset_id, "creating a run"):
+                yield
+        except MigrateError as e:
+            import shutil
+
+            shutil.rmtree(run_dir, ignore_errors=True)  # the run is not recorded: its folder goes too
+            raise HTTPException(409, e.payload) from e
+    return hold()
 
 
 def _parquet_input(app: Any, cfg: dict[str, Any], ref: Any) -> None:
@@ -457,7 +481,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     except ValueError as e:  # P09: DatasetConflict (the split's file is missing or unreadable): a 409, not a 500
         if type(e).__name__ != "DatasetConflict":
             raise
-        raise HTTPException(409, {"code": "split_integrity", "message": "split_integrity: " + str(e)}) from e
+        code = getattr(e, "code", None) or "split_integrity"  # F-X2: version_migrating while its migration holds it
+        raise HTTPException(409, {"code": code, "message": f"{code}: {e}"}) from e
     _min_rows_check(app, body.dataset_id, label, split, task, body.problem_type)  # DL3 (m5)
     if body.drop_columns is None and (split.get("params") or {}).get("group_column"):
         # The entity id is what the split keeps apart; as a feature it can only memorise customers.

@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "card-transactions",
+    "now": "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10",
+    "v": 1
+   }
+  ],
+  "root_id": "card-transactions"
+ },
+ "status": 200
+}

@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "support-tickets",
+    "now": "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a",
+    "v": 1
+   }
+  ],
+  "root_id": "support-tickets"
+ },
+ "status": 200
+}

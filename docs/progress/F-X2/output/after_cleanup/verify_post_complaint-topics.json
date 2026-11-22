@@ -1,0 +1,66 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "complaint-topics",
+    "now": "56b1a78a85764cb25e2cd06f436260d7a0c5e5b3e37441e6f2bae4e1aef8afb6",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "66a06ad906dc8940ad182f2f99670853d47ee9b0d1d78fb20f37168a33def5bf",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/56/56b1a78a85764cb25e2cd06f436260d7a0c5e5b3e37441e6f2bae4e1aef8afb6.csv",
+      "csv_reproducible": true,
+      "now": "56b1a78a85764cb25e2cd06f436260d7a0c5e5b3e37441e6f2bae4e1aef8afb6",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__topics-b729ffe0.json",
+        "recorded": null,
+        "sha256": "03c5d67d437d42ee2379e6a4c0157e6b37e25e223c3e0f61a6a6b3aea6a6daea",
+        "split_id": "spl_97eed986f189",
+        "split_sha256": "3bc1a9f9f0a0acf2c89b22cfd5856402164ba67dc476d3dbd50a5cc64b876bab"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "00a977caf283a0daf39b662cd44bfe481b4cf3fb258572e86a65b1facce20dc0",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "56b1a78a85764cb25e2cd06f436260d7a0c5e5b3e37441e6f2bae4e1aef8afb6"
+     },
+     "manifest_sha256": "e9def7527d3dd6184e233e357cd4e13aec2d99f6beff1dd5e90a746146e6e101",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_97eed986f189",
+       "split_key": "random-stratified__topics-b729ffe0",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "56b1a78a85764cb25e2cd06f436260d7a0c5e5b3e37441e6f2bae4e1aef8afb6",
+    "v": 1
+   }
+  ],
+  "root_id": "complaint-topics"
+ },
+ "status": 200
+}
