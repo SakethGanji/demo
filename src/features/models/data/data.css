@@ -119,3 +119,54 @@
 .up-issue-t td, .up-issue-t th { padding: 2px 8px; font-size: 12px; }
 .up-integrity { display: flex; flex-direction: column; gap: 4px; }
 .up-integrity label { align-items: center; }
+
+/* ---------- U4: polish (the catalog, the dataset page, versions, diff, usage, card, remove, audit) ---------- */
+.data-catalog .exp-filters { border-top: 1px solid var(--border-row); padding: var(--space-12) var(--space-16); gap: var(--space-12); }
+.data-catalog .exp-filters .input, .data-catalog .exp-filters .select { height: 30px; }
+.data-upload-panel { border-top: 1px solid var(--border-default); background: var(--bg-band, var(--bg-table-header)); }
+.data-list { max-height: 340px; border-top: 1px solid var(--border-default); }
+.data-list td { height: auto; padding-top: 7px; padding-bottom: 7px; vertical-align: top; }
+.ds-name { font-weight: 600; color: var(--text-primary); }
+.ds-shared { display: inline-flex; margin-left: 6px; font-size: 11px; font-weight: 600; color: var(--status-info); background: var(--status-info-bg); border-radius: var(--radius-badge); padding: 0 6px; height: 18px; align-items: center; white-space: nowrap; }
+.data-list .ellip-cell { max-width: 220px; }
+.data-ds-cell { max-width: 380px; white-space: normal !important; }
+.data-ds-cell .sub-line.trunc { display: block; max-width: 360px; }
+.empty-row td { padding: var(--space-20) var(--space-16) !important; white-space: normal; color: var(--text-primary); }
+
+.ds-head { overflow: hidden; }
+.ds-head-top { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-24); padding: var(--space-16) var(--space-20) var(--space-12); background: linear-gradient(180deg, var(--bg-surface), var(--bg-table-header)); border-bottom: 1px solid var(--border-default); }
+.ds-head-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ds-title { white-space: normal; overflow-wrap: anywhere; }
+.ds-head-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-body); }
+.ds-head-meta > span:not(.champ-badge):not(.kit-badge):not(.pill) + span:not(.champ-badge)::before { content: none; }
+.ds-actor { flex: none; }
+.ds-next { background: var(--bg-surface); }
+.ds-msg { border-bottom: 0; border-top: 1px solid var(--border-row); }
+.ds-msg ul { margin: 4px 0 0 18px; padding: 0; font-size: 12.5px; }
+
+.v-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: var(--radius-badge); background: var(--bg-shell); color: var(--text-on-shell); font-size: 11.5px; font-weight: 600; }
+.data-versions td { height: auto; padding-top: 8px; padding-bottom: 8px; }
+.data-versions th.ab, .data-versions td:nth-child(1), .data-versions td:nth-child(2) { width: 28px; text-align: center; padding-left: 4px !important; padding-right: 4px !important; }
+.data-versions .used-by { font-size: 12px; }
+.data-changes { max-width: 320px; }
+.data-changes .sub-line { max-width: 300px; }
+.data-actions { align-items: center; padding: 10px 16px; background: var(--bg-band, var(--bg-subtle)); }
+.data-actions-who { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
+.data-actions .callout.full, .data-actions .data-warn { flex-basis: 100%; }
+
+.diff-tables { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.diff-bar-row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-row); }
+.col-kind { font-family: var(--font-sans); font-size: 11.5px; margin-left: 4px; }
+[data-testid="diff-columns"] td { font-size: 12.5px; }
+
+.usage .use-group { display: flex; flex-direction: column; gap: 2px; }
+.use-row { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 2px 0; border-bottom: 1px solid var(--border-row); flex-wrap: wrap; }
+.use-group .use-row:last-of-type { border-bottom: 0; }
+.use-ico { width: 14px; text-align: center; color: var(--text-muted); font-size: 11px; }
+.use-metric { font-size: 12px; color: var(--text-primary); }
+.data-card-row { padding: 6px 0; border-bottom: 1px solid var(--border-row); align-items: baseline; }
+.data-card-row:last-child { border-bottom: 0; }
+.dc-val { color: var(--text-primary); }
+.audit-act { font-weight: 600; color: var(--text-primary); font-size: 12.5px; text-transform: capitalize; }
+[data-testid="data-audit"] td { height: auto; padding-top: 6px; padding-bottom: 6px; vertical-align: top; }
+.data-warn { line-height: 18px; }
