@@ -47,7 +47,7 @@
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
 | F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
 | F-X2 | D | done: C1 (per-version migration lock + commit re-check + run pins/re-verify), M1–M6, m1–m3 fixed and shown against base repros; replay identical, GC 0 candidates | session_018upNdNvnaG9wjQHpViW7q9 | see report |
-| P13 | D | started (deltas) | session_018upNdMmQyXrKkqxx22sMTS | |
+| P13 | D | done (delta action per table by key + _op; check counts = diff counts; insert-only → append part; holdout ids kept; dup keys / no key 400; identical on SQLite and Postgres) | session_018upNdMmQyXrKkqxx22sMTS | see report |
 | P14 | D2 | started (saved joins) | session_018upNdRR2Vg6fMS5HYdUAeG | |
 | P21 | G | started (contracts/certify/shares + decide_check rewire + share pii) | session_018upNdNeZFRrGECEyFj5531 | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
@@ -90,3 +90,6 @@
 - **F-X2 → all lanes:** a CSV-era split draw or run creation is refused with 409 `version_migrating` while its version is migrated (`lake/migrate.csv_write_hold`; catalog_meta `lake_migrate:lock:<id>` / `lake_migrate:hold:<id>:<token>`). Any new CSV-era writer must hold it. An edit of a CSV-era version with no row map answers 409 until it is migrated.
 - **F-X2 → P24:** `verify_all:passes` stays a list of end times; the start times are in `verify_all:passes_started`. Cleanup counts, per folder, the passes that started after that folder's commit. Verify-all does not re-hash `legacy_json` blobs (cleanup now does): consider it for GC arming. **P23:** carry `verify_all:passes_started`.
 - **F-X2 (pre-existing):** two versions created in the same second get their `v` numbers in a different order on the head than on acfe988 (`POST …/verify` `v` 4↔5); `datasets.version_no` is unchanged.
+- **P13 → U2:** the `delta` action (plan `tables.<t>: {action: 'delta', key?, op_column?, ops?, allow_new_columns?}`; a single file takes the plan's `table`), `tables[].delta` in the check (counts, `mode`, `key_from`), `deltas` in the commit answer, 400s `delta_key_required` / `delta_duplicate_keys` (`keys`) / `delta_op_unknown`, the `looks_like_delta` warning on a plain upload.
+- **P13 → all lanes:** a table can hold parts that differ only in Parquet nullability (an append part next to its base). Concatenate parts with `pa.concat_tables(…, promote_options="default")` (frames.read and lake/frame do now); DuckDB `read_parquet([...])` is unaffected.
+- **P13 → T2 (triggered, not built):** delta parts as `table_files.role ∈ upsert/delete` with merge-on-read, and the two-file upserts + deletes form.
