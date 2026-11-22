@@ -189,9 +189,20 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
         ctx = current()
         if ctx is not None:
             ctx.decisions.extend(decisions)
+        p = ctx.principal if ctx is not None else None
+        if m == "audit" and p is not None and who and p.auth != "agent":
+            # F-X4a (X4 M1): a name field that is not the principal is refused in enforce (409 below); audit mode
+            # records it as would-deny (`by_mismatch`) so tuning sees the spoof before enforce is switched on
+            from ..catalog.governance import same_person
+            bad = next((n for n in who if not same_person(n, p.display_name)), None)
+            if bad is not None:
+                d0 = decisions[0] if decisions else {}
+                await run_in_threadpool(record, request, {
+                    "allow": False, "action": "by_mismatch", "team": d0.get("team"), "needed": "the signed-in person",
+                    "role": d0.get("role"), "object_kind": d0.get("object_kind"), "object_id": d0.get("object_id"),
+                    "reason": f"You are signed in as {p.display_name}; a name field says {bad} (refused in enforce)"}, by)
         if m != "enforce":
             return
-        p = ctx.principal if ctx is not None else None
         for d in decisions:
             if d["allow"]:
                 continue
