@@ -131,6 +131,8 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
         </> : null}
       </div>
       {g?.unmasked_refused && <div className="card-body data-warn" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {g.unmasked_refused.message} (needs {g.unmasked_refused.needed}{g.unmasked_refused.role ? `, you are ${g.unmasked_refused.role}` : ''}). The rows below are still masked; the request was recorded.</div>}
+      {/* enforce mode answers 403 to an unmasked read that is not allowed: say so (the rows shown stay the masked ones) */}
+      {grid.err && g && unmask.on && <div className="card-body data-warn" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {grid.err}{/[.!?]$/.test(String(grid.err)) ? '' : '.'} The rows below are still masked; the request was recorded.</div>}
       {grid.err && !g ? <ErrorCard inline err={grid.err} /> : !g ? <Loading inline>Reading rows…</Loading> : (
         <div className="table-wrap edit-grid-wrap"><table className="table edit-grid" data-testid="edit-grid">
           <thead><tr><th className="r">_row</th>{g.columns.map((c) => <th key={c.name} title={c.masked ? `PII: masked (${c.mask}); edits to it still go to the stored value` : undefined} data-testid={c.masked ? `masked-col-${c.name}` : undefined}>{c.masked ? '🔒 ' : ''}{c.name} <span className="muted" style={{ fontWeight: 400 }}>{c.masked ? `masked · ${c.mask}` : c.kind}</span></th>)}<th /></tr></thead>

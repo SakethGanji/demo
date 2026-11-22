@@ -789,6 +789,16 @@ async def _join_online(request: Request, v: dict[str, Any], cfg: dict[str, Any],
         shutil.rmtree(work, ignore_errors=True)
 
 
+def _masked_answer(request: Request, run: dict[str, Any], out: dict[str, Any], read: str) -> dict[str, Any]:
+    """U3 (F-X4a hand-off): an expected-loss / survival / segmented answer that quotes the row's values (reasons, the row
+    echoed back) goes through the run input's mask like the other run pages: PII-tagged columns masked, and
+    `?unmasked=1&reason=…` (data.read_unmasked, audited) shows them."""
+    from ..lake import mask as M
+
+    q = request.query_params
+    return M.run_page(request, run, out, by=q.get("by", ""), unmasked=q.get("unmasked", ""), reason=q.get("reason", ""), read=read)
+
+
 @router.post("/registry/versions/{vid}/predict", dependencies=[require("model.use", path("vid", "model_version"))])
 async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]:
     """One row through the version's predictor: the prediction, the class probabilities and (explain) Kernel SHAP
@@ -805,7 +815,7 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
             out = await run_in_threadpool(elc.score_rows, v["path"], [body.row])
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
-        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
+        return _masked_answer(request, run, {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}, "try_it")
     if kind == "survival":  # G6: one subject → its survival curve, Ŝ(τ) at the horizons, and (Cox) what moves its hazard
         from ..survival import core as svc
 
@@ -813,7 +823,7 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
             out = await run_in_threadpool(svc.try_row, v["path"], body.row)
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
-        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
+        return _masked_answer(request, run, {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}, "try_it")
     if kind == "multilabel":  # G8: one row → p̂ per label against its threshold, and the label set
         from ..multilabel import core as mlc
 
@@ -829,7 +839,7 @@ async def try_it(vid: str, body: TryRequest, request: Request) -> dict[str, Any]
             out = await request.app.state.heavy.run(sgc.try_row, v["path"], body.row, *(_reason_args(request, v, run) or (None, None)))
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
-        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}
+        return _masked_answer(request, run, {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out}, "try_it")
     if kind == "anomaly":
         from ..anomaly import core as an
 
@@ -974,8 +984,9 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
             out = await run_in_threadpool(elc.score_rows, v["path"], body.rows)
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
-        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
-                "server_ms": (_t.perf_counter() - t0) * 1e3}
+        return _masked_answer(request, request.app.state.runs.get(_version(request, vid)["run_id"]),
+                              {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
+                               "server_ms": (_t.perf_counter() - t0) * 1e3}, "score")
     if kind == "survival":  # G6: risk score, risk group, Ŝ(τ) and P(event by τ) per row
         from ..survival import core as svc
 
@@ -983,8 +994,9 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
             out = await run_in_threadpool(svc.score_rows, v["path"], body.rows)
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
-        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
-                "server_ms": (_t.perf_counter() - t0) * 1e3}
+        return _masked_answer(request, request.app.state.runs.get(_version(request, vid)["run_id"]),
+                              {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
+                               "server_ms": (_t.perf_counter() - t0) * 1e3}, "score")
     if kind == "multilabel":  # G8: a label set per row
         from ..multilabel import core as mlc
 
@@ -1004,8 +1016,8 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
             out = await request.app.state.heavy.run(sgc.score_rows, v["path"], body.rows, *(rc_args or (None, None)))
         except (ValueError, KeyError) as e:
             raise HTTPException(400, str(e)) from e
-        return {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
-                "server_ms": (_t.perf_counter() - t0) * 1e3}
+        return _masked_answer(request, run, {"version_id": vid, "model_name": v["model_name"], "version": v["version"], "kind": kind, **out,
+                                             "server_ms": (_t.perf_counter() - t0) * 1e3}, "score")
     if kind == "anomaly":
         from ..anomaly import core as an
 

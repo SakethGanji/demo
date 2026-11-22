@@ -151,8 +151,12 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
     setMsg({ ok: false, text: t })
   }
   const act = <T,>(p: Promise<T>, ok: (r: T) => string) => { setMsg(null); return p.then((r) => { setMsg({ ok: true, text: ok(r) }); reload(); return r }).catch(fail) }
+  // F-X4a: a share grantee reads what the share covers: the version-level panels (lineage, notes, contract) ask for
+  // the shared version, not the root (v1 may be outside the share), and no diff opens on its own
+  const shared = !!h.data && ((h.data as { access?: string }).access === 'shared' || (!!ownerTeam && !!team && ownerTeam !== team.id))
   useEffect(() => {
     if (!h.data || pair) return
+    if (shared) { setFocus(h.data.default_version_id); return }
     const live = h.data.versions.filter((v) => v.state !== 'deleted')
     const dv = live.find((v) => v.id === h.data!.default_version_id)
     const par = dv && live.find((v) => v.id === dv.parent_id)
@@ -166,6 +170,7 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
   const vOf = (vid: string | null) => d.versions.find((v) => v.id === vid)
   const def = vOf(d.default_version_id)
   const focusV = vOf(focus) ?? def
+  const nodeId = shared ? (focusV ?? d.versions.find((v) => v.state !== 'deleted'))?.id ?? d.root_id : d.root_id
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-page" data-root={d.root_id}>
       <div className="card">
@@ -210,8 +215,8 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
       </div>
       {focusV && focusV.state !== 'deleted' && <Governance d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
       {focusV && focusV.state !== 'deleted' && <PurgeCard key={`pg:${focusV.id}`} d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
-      <NotesStrip kind="dataset" id={d.root_id} />
-      <div className="card card-body"><h3 className="card-title" style={{ marginBottom: 8 }}>Lineage</h3><ProjectTree kind="dataset" id={d.root_id} go={go} compact /></div>
+      <NotesStrip key={`n:${nodeId}`} kind="dataset" id={nodeId} />
+      <div className="card card-body"><h3 className="card-title" style={{ marginBottom: 8 }}>Lineage</h3><ProjectTree key={`l:${nodeId}`} kind="dataset" id={nodeId} go={go} compact /></div>
       <div className="grid two">
         <RemoveCard d={d} by={by} act={act} />
         <AuditCard d={d} />

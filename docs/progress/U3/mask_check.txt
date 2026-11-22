@@ -1,0 +1,18 @@
+## forecast transaction-volume ['item_id', 'timestamp', 'volume', 'holiday', 'payday', 'segment']
+  mapping item_id timestamp volume
+  tag transaction-volume.item_id pii_quasi/hash → 200 masked None
+  run run_3a0c9521 succeeded
+  forecast.csv masked: 200 X-Ensemble-Masked-Columns=item_id first item 'd0824c872705'
+  forecast.csv unmasked=1&reason: 200 header=None first item 'branch-city'
+  no reason: 400
+  predictions/fc_4b3de19f.csv masked: 200 header=item_id first item 'da1ca909b058'
+## el loan-losses ['loan_id', 'application_date', 'product', 'region', 'income', 'credit_score', 'debt_to_income', 'utilization', 'credit_limit', 'current_balance', 'collateral_value', 'term_months', 'defaulted', 'lgd', 'ead']
+## el mv_17390f83: application_date = '2023-01-01'
+  predict masked 200 masked_columns ['application_date'] raw in body 0 '•••' 0 | unmasked+reason 200 masked_columns [] raw in body 0 | no reason 400
+  score   masked 200 masked_columns ['application_date'] raw in body 0 '•••' 0 | unmasked+reason 200 masked_columns [] raw in body 0 | no reason 400
+## survival mv_fc0e8825: product = 'current'
+  predict masked 200 masked_columns ['product'] raw in body 0 '•••' 1 | unmasked+reason 200 masked_columns [] raw in body 1 | no reason 400
+  score   masked 200 masked_columns ['product'] raw in body 0 '•••' 0 | unmasked+reason 200 masked_columns [] raw in body 0 | no reason 400
+## segmented mv_20de6a55: customer_type = 'salaried'
+  predict masked 200 masked_columns ['customer_type'] raw in body 0 '•••' 2 | unmasked+reason 200 masked_columns [] raw in body 2 | no reason 400
+  score   masked 200 masked_columns ['customer_type'] raw in body 0 '•••' 2 | unmasked+reason 200 masked_columns [] raw in body 2 | no reason 400

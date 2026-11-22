@@ -129,7 +129,7 @@ const from = Number(FROM || 0)
   }
   if (from <= 6) {
     mark('6. Ana · register the join run → the card: input record, parity ok, inputs.zip')
-    for (let i = 0; i < 180; i++) { const r = await (await fetch(`http://127.0.0.1:8000/api/runs/${st.run}`)).json(); if (r.status === 'succeeded') break; if (r.status === 'failed') throw new Error('run failed'); await p.waitForTimeout(2000) }
+    for (let i = 0; i < 180; i++) { const r = await (await fetch(`http://127.0.0.1:8000/api/runs/${st.run}`, { headers: { 'X-Ensemble-Actor': 'Ana' } })).json();  /* U3 (F-X4a): the poll names its actor (enforce answers 401 otherwise) */ if (r.status === 'succeeded') break; if (r.status === 'failed') throw new Error('run failed'); await p.waitForTimeout(2000) }
     await as('Ana', CR, `registry?register=${st.run}`)
     await p.waitForSelector(tid('register-submit'), { timeout: 60000 })
     await p.fill(tid('register-name'), 'pd-join')
@@ -213,9 +213,13 @@ const from = Number(FROM || 0)
     await p.waitForSelector(`${tid('unmask')}:not([disabled])`, { timeout: 30000 })
     await p.click(tid('unmask'))
     await p.fill(tid('unmask-reason'), 'collections QA')
+    // audit mode: 200, still masked, unmasked_refused shown; enforce mode: the API answers 403 (P20, by design)
+    const refusedResp = p.waitForResponse((r) => /\/grid\?.*unmasked=1/.test(r.url()), { timeout: 60000 })
     await p.click(tid('unmask-go'))
-    await p.waitForSelector(tid('unmasked-refused'), { timeout: 60000 })
-    await shot('21-carl-unmasked-refused', tid('data-editor'))
+    const rr = await refusedResp
+    if (rr.status() === 403) { calls.push(`(enforce) the unmasked grid read is refused: 403`); await p.waitForTimeout(800) }
+    else await p.waitForSelector(tid('unmasked-refused'), { timeout: 60000 })
+    await shot(rr.status() === 403 ? '21-carl-unmasked-refused-enforce' : '21-carl-unmasked-refused', tid('data-editor'))
     await p.unroute('**/api/authz/check')
     await p.click(tid('edit-close'))
     mark('12. Carl trains the shared version into his own project (project_id)')

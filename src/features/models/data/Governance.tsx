@@ -19,7 +19,7 @@ export function Governance({ d, vid, v, table, by, onChanged }: { d: DsHistory; 
   return (
     <div className="grid two gov-grid" data-testid="governance">
       <PiiPanel vid={vid} table={table} by={by} onChanged={onChanged} />
-      <ContractPanel root={d.root_id} vid={vid} v={v} by={by} onChanged={onChanged} />
+      <ContractPanel root={d.root_id} readAs={vid} vid={vid} v={v} by={by} onChanged={onChanged} />
       <CertPanel root={d.root_id} vid={vid} v={v} d={d} by={by} onChanged={onChanged} />
       <SharePanel root={d.root_id} vid={vid} by={by} onChanged={onChanged} />
     </div>
@@ -60,9 +60,10 @@ function PiiPanel({ vid, table, by, onChanged }: { vid: string; table: string | 
   )
 }
 
-function ContractPanel({ root, vid, v, by, onChanged }: { root: string; vid: string; v: number; by: string; onChanged: (t: string) => void }) {
+function ContractPanel({ root, readAs, vid, v, by, onChanged }: { root: string; readAs: string; vid: string; v: number; by: string; onChanged: (t: string) => void }) {
   const [tick, setTick] = useState(0)
-  const c = useFetch(() => contracts.get(root), [root, tick])
+  // F-X4a: read through the version in view (GET …/contract resolves it to the root), so a share grantee reads it too
+  const c = useFetch(() => contracts.get(readAs), [readAs, tick])
   const can = useCan('data.contract', 'dataset', vid, by)
   const [res, setRes] = useState<ContractResult | null>(null)
   const [text, setText] = useState<string | null>(null)

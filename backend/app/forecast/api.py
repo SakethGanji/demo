@@ -190,7 +190,7 @@ def download(run_id: str, request: Request, which: str = "future"):
     p = Path(rec["config"]["run_dir"]) / name
     if not p.exists():
         raise HTTPException(409, "No forecast yet.")
-    return FileResponse(p, media_type="text/csv", filename=f"{run_id}_{name}")
+    return _masked_csv(request, rec, p, f"{run_id}_{name}")
 
 
 @router.post("/runs/{run_id}/predict", dependencies=[require("run.use", path("run_id", "run"))])
@@ -218,4 +218,28 @@ def download_prediction(run_id: str, pid: str, request: Request):
     p = Path(rec["config"]["run_dir"]) / "predictions" / pid / "forecast.csv"
     if not p.exists():
         raise HTTPException(404, "No such forecast.")
-    return FileResponse(p, media_type="text/csv", filename=f"{run_id}_{pid}.csv")
+    return _masked_csv(request, rec, p, f"{run_id}_{pid}.csv")
+
+
+def _masked_csv(request: Request, rec: dict[str, Any], p: Path, filename: str):
+    """U3 (F-X4a hand-off): a forecast CSV names the series `item_id` and the time `timestamp`; when the run's mapped
+    item / time column is PII-tagged, that column is masked in the file (`lake.mask.batch_mask` + `csv_stream`, as batch
+    downloads). `?unmasked=1&reason=…` is data.export_unmasked on the run's input, audited."""
+    import dataclasses
+
+    from fastapi.responses import StreamingResponse
+
+    from ..lake import mask as M
+
+    q = request.query_params
+    m = M.batch_mask(request, rec, unmasked=q.get("unmasked", ""), reason=q.get("reason", ""), by=q.get("by", ""),
+                     export=True, read="forecast_download")
+    mp = (rec.get("config") or {}).get("mapping") or {}
+    cols = {out: m.cols[src] for out, src in (("item_id", mp.get("item_id")), ("timestamp", mp.get("timestamp")))
+            if m is not None and src in m.cols} if m is not None else {}
+    if not cols:
+        return FileResponse(p, media_type="text/csv", filename=filename)
+    fm = dataclasses.replace(m, cols=cols)
+    return StreamingResponse(M.csv_stream(p, fm), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                                      "X-Ensemble-Masked-Columns": ",".join(sorted(cols))})

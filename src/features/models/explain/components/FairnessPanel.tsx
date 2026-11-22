@@ -7,6 +7,8 @@ import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { FairLendingPanel } from './FairLendingPanel'
+import { useCan, why } from '@/shared/hooks/useCan'
+import { readActor } from '@/shared/lib/team'
 
 const BISG = '__bisg'
 
@@ -36,6 +38,8 @@ export function FairnessPanel({ run, ex, initialGroup }: { run: Run; ex: Explain
   const pref = cands.find((c) => c.column === initialGroup) ?? cands.find((c) => c.type === 'category' && /region|segment|gender|sex|age|group|employment|home/i.test(c.column)) ?? cands[0]
   const [group, setGroup] = useState(ex.bisg_surname && (!initialGroup || initialGroup === 'bisg') ? BISG : pref?.column ?? '')
   const [f, setF] = useState<Fairness | null>(null)
+  // F-X4a: saving into the run is run.train on it (greyed with the API's reason otherwise)
+  const canSave = useCan('run.train', 'run', run.id, readActor())
   const [err, setErr] = useState('')
   const [saved, setSaved] = useState('')
   const [ref, W] = useWidth<HTMLDivElement>()
@@ -60,7 +64,7 @@ export function FairnessPanel({ run, ex, initialGroup }: { run: Run; ex: Explain
       {f?.threshold != null && <ParamChip sym="t" value={f.threshold.toFixed(3)} />}
       {!f && !err && group !== BISG && <ResonanceWave />}
       {f && group !== BISG && (
-        <button className="btn sm" data-testid="fair-save" disabled={saved === '…'} title="Save this report into the run; the model card's Fairness section shows it"
+        <button className="btn sm" data-testid="fair-save" disabled={saved === '…' || canSave?.allow === false} title={why(canSave, "Save this report into the run; the model card's Fairness section shows it")}
           onClick={() => { setSaved('…'); api.runs.saveFairness(run.id, group).then(() => setSaved('saved to the model card')).catch((e) => setSaved(`✕ ${(e as Error).message}`)) }}>
           Save to Model Card
         </button>

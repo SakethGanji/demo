@@ -4,6 +4,7 @@ import { purges, type PurgeRow } from '@/shared/api/lifecycle'
 import { tables as tablesApi, type VTable } from '@/shared/api/tables'
 import { PurgeDetail, lifecycleLine } from '@/shared/components/PurgeDetail'
 import { useCan, why } from '@/shared/hooks/useCan'
+import { useTeam } from '@/shared/lib/team'
 
 /** U3 (P24, plan §5.10, §11 item 5): purge values out of a dataset for good, e.g. a column that should never have been
  *  kept, or the rows of a person who asked to be forgotten. The request writes a new version without them and an
@@ -23,7 +24,9 @@ export function PurgeCard({ d, vid, v, table, by, onChanged }: { d: DsHistory; v
   const [sel, setSel] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
   useEffect(() => { tablesApi.version(d.root_id, vid).then((r) => { setTabs(r.tables); setT((x) => x || table || r.tables.find((y) => y.primary)?.name || r.tables[0]?.name || '') }).catch(() => setTabs([])) }, [d.root_id, vid, table])
-  useEffect(() => { purges.list().then((l) => { const mine = l.filter((p) => p.root_id === d.root_id); setList(mine); setSel((s) => s ?? mine.find((p) => p.status === 'pending')?.id ?? null) }).catch(() => setList([])) }, [d.root_id, tick])
+  // F-X4a: GET /purges without ?team= is admin-only: list the purges that involve the current team
+  const { team: cur } = useTeam()
+  useEffect(() => { if (!cur) { setList([]); return } purges.list(cur.id).then((l) => { const mine = l.filter((p) => p.root_id === d.root_id); setList(mine); setSel((s) => s ?? mine.find((p) => p.status === 'pending')?.id ?? null) }).catch(() => setList([])) }, [d.root_id, tick, cur?.id])
   useEffect(() => setCols([]), [t])
   const schema = tabs.find((x) => x.name === t)?.schema ?? []
   const ids = rows.split(/[\s,]+/).filter(Boolean)

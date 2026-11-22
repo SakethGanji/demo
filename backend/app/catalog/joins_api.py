@@ -57,12 +57,13 @@ async def save_join(root_id: str, request: Request, body: dict[str, Any]) -> Any
     return out if created else JSONResponse(out, status_code=200)
 
 
-@router.get("/datasets/{root_id}/joins", dependencies=[require("data.read_meta", path("root_id", "dataset"))])
+# U3 (F-X4a hand-off): a root-level listing, so a grantee whose share covers any version of the root may read it
+@router.get("/datasets/{root_id}/joins", dependencies=[require("data.read_meta", path("root_id", "dataset_root"))])
 async def list_joins(root_id: str, request: Request) -> dict[str, Any]:
     return {"root_id": root_id, "joins": await _run(J.list_joins, request.app.state.db, root_id)}
 
 
-@router.get("/datasets/{root_id}/joins/{join_id}", dependencies=[require("data.read_meta", path("root_id", "dataset"))])
+@router.get("/datasets/{root_id}/joins/{join_id}", dependencies=[require("data.read_meta", path("root_id", "dataset_root"))])
 async def get_join(root_id: str, join_id: str, request: Request) -> dict[str, Any]:
     db = request.app.state.db
 
