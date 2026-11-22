@@ -10,7 +10,7 @@ import { Badge, CardHead, Callout, ConfirmButton, CopyId, CoverageBar, Field, Fl
 import { EmptyState } from '@/shared/components/EmptyState'
 
 import { day, int, plural, when } from '@/shared/lib/format'
-import { Busy, CarryBar, ReadErr, columnsOf, errText, STATUS_KEYS, STATUS_WORDS, totals } from './parts'
+import { Busy, CarryBar, Md, ReadErr, columnsOf, errText, STATUS_KEYS, STATUS_WORDS, totals } from './parts'
 import { TaskSetup } from './TaskSetup'
 import { LabelScreen } from './LabelScreen'
 import { LlmPanel } from './LlmPanel'
@@ -150,7 +150,7 @@ function LayerDetail({ layer, d, vid, v, cols, by, tick, go, open, done, fail }:
             {L.schema ? <>
               <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">{(L.schema.spec.columns ?? []).map((c) => `${c.column} · ${c.type ?? 'class'}`).join(', ')}</span>
                 {classes.map((c) => <span key={c.value} className="pt-chip lbl-class">{c.hotkey && <kbd className="kbd">{c.hotkey}</kbd>}{c.label ?? c.value}</span>)}</div>
-              {L.schema.guidelines ? <pre className="lbl-guidelines">{L.schema.guidelines}</pre> : <span className="muted">No guidelines written yet.</span>}
+              {L.schema.guidelines ? <Md text={L.schema.guidelines} /> : <span className="muted">No guidelines written yet.</span>}
             </> : <span className="muted">No schema yet: a task sets one.</span>}
             <div className="row" style={{ gap: 6, marginTop: 4 }}>
               <button className="btn sm" onClick={() => open({ kind: 'llm' })} disabled={!L.schema} title={L.schema ? 'Prompts, the PII guard, calibration against gold and runs' : 'A schema first'} data-testid="lbl-open-llm">LLM labeling…</button>
@@ -231,7 +231,7 @@ function TaskRow({ t: t0, open }: { t: Task; open: (v: View) => void }) {
     <tr data-testid={`lbl-task-${t.name}`}>
       <td><b>{t.name}</b><span className="sub-line">{t.task_type.replace(/_/g, ' ')} · {t.votes_per_row ?? 1} vote{(t.votes_per_row ?? 1) > 1 ? 's' : ''}/row · gold {Math.round(Number(t.gold_share ?? 0) * 100)}%
         {t.members ? ` · ${plural(ann.length, 'annotator')}` : ''}{guests.length ? ` (${guests.length} guest)` : ''}</span></td>
-      <td><CoverageBar m={done} N={total || null} /><span className="sub-line mono">{int(done)} / {int(total)} done{c.leased ? ` · ${int(c.leased)} leased` : ''}</span></td>
+      <td><div className="lbl-prog"><CoverageBar m={done} N={total || null} /><span className="sub-line mono">{int(done)} / {int(total)} done{c.leased ? ` · ${int(c.leased)} leased` : ''}</span></div></td>
       <td><Badge status={t.state} /></td>
       <td className="r nowrap">
         <button className="btn sm primary" onClick={() => open({ kind: 'label', task: t.id })} data-testid={`lbl-task-open-${t.name}`}>Label</button>{' '}

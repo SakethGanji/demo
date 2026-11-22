@@ -26,9 +26,10 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const team = useFetch(() => teamsApi.get(layer.team_id ?? 'tm_default'), [layer.team_id, tick])
   const ps = useFetch(() => labels.prompts(layer.id), [layer.id, tick])
   const tasks = useFetch(() => labels.tasks(layer.id), [layer.id])
-  const tags = useFetch(() => pii.get(vid, layer.table_name).catch(() => null), [vid, layer.table_name])
+  const tags = useFetch(() => pii.get(vid, layer.table_name).catch(() => null), [vid, layer.table_name, tick])
   const can = useCan('label.llm_run', 'dataset', root, by)
   const canTeam = useCan('team.settings', 'team', layer.team_id ?? 'tm_default', by)
+  const canTag = useCan('data.tag_pii', 'dataset', root, by)
   const [runIds, setRunIds] = useState<string[]>(() => loadRuns(layer.id))
   const [sel, setSel] = useState<string | null>(null)
   const [edit, setEdit] = useState<{ template: string; context: string[]; model: string } | null>(null)
@@ -39,6 +40,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [runSel, setRunSel] = useState<string | null>(runIds[0] ?? null)
   const [prev, setPrev] = useState<LlmPreview | null>(null)
+  const [cap, setCap] = useState(20)
   useEffect(() => { if (tasks.data?.length && !task) setTask(tasks.data[0].id) }, [tasks.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const target = specCol(layer.schema?.spec)?.column ?? ''
   const prompts = (ps.data ?? []).slice().sort((a, b) => b.version - a.version)
@@ -51,7 +53,10 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
     : `Allowed by the team policy and the admin allowlist: rows go to ${dest}.`
   const context = edit?.context ?? p?.spec?.context ?? cols.filter((c) => c !== target).slice(0, 8)
   const masked = new Set(tags.data?.masked_columns ?? [])
-  const plan: LlmCols = prev?.columns ?? { sent: context.filter((c) => !masked.has(c)), excluded: [...context.filter((c) => masked.has(c)).map((c) => ({ column: c, reason: 'pii' })), ...(target ? [{ column: target, reason: 'target' }] : [])] }
+  // LB-B: every column sent needs a steward-reviewed PII tag (409 pii_unreviewed); a suggested tag is not reviewed
+  const tagOf = new Map((tags.data?.tags ?? []).map((t) => [t.column, t]))
+  const unreviewed = tags.data ? context.filter((c) => { const t = tagOf.get(c); return !t || t.source === 'suggested' }) : []
+  const plan: LlmCols = prev?.columns ?? { sent: context.filter((c) => !masked.has(c) && !unreviewed.includes(c)), excluded: [...context.filter((c) => masked.has(c)).map((c) => ({ column: c, reason: 'pii' })), ...(target ? [{ column: target, reason: 'target' }] : [])] }
   const sent = [...(plan.sent ?? []), ...(plan.masked ?? []).map((c) => `${c} (masked)`), ...(plan.free_text ?? []).map((c) => `${c} (redacted)`)]
   const excluded = plan.excluded ?? []
   const nPii = excluded.filter((x) => x.reason.startsWith('pii')).length
@@ -61,17 +66,22 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
     setBusy(key); setMsg(null)
     try { const r = await f(); if (isRun) addRun((r as { id: string }).id); setMsg({ ok: true, text: ok(r) }); setTick((x) => x + 1) } catch (e) { setMsg({ ok: false, text: errText(e) }) } finally { setBusy('') }
   }
-  const turnOn = () => act('on', () => teamsApi.update(layer.team_id ?? 'tm_default', { policy: { ...(team.data?.policy ?? {}), llm_labeling: { ...policy, enabled: true, destinations: Array.from(new Set([...(policy.destinations ?? []), 'fake'])) } } }, by),
-    () => 'LLM labeling is on for this team, with the fake destination (team policy, audited).')
+  const setPolicy = (next: LlmPolicy, text: string) => act('on', () => teamsApi.update(layer.team_id ?? 'tm_default', { policy: { ...(team.data?.policy ?? {}), llm_labeling: next } }, by), () => text)
+  const turnOn = () => setPolicy({ ...policy, enabled: true, destinations: Array.from(new Set([...(policy.destinations ?? []), 'fake'])), max_usd_month: policy.max_usd_month || cap },
+    `LLM labeling is on for this team: the fake destination, a monthly cap of $${policy.max_usd_month || cap} (team policy, audited).`)
+  const monthCap = Number(policy.max_usd_month ?? 0)
   const save = async () => {
     if (!edit) return
     setBusy('save')
     try { const np = await labels.createPrompt(layer.id, { name: p?.name ?? `${layer.name}-prompt`, column: target, template: edit.template, context: edit.context, model: edit.model }, by); setSel(np.id); setEdit(null); setPrev(null); setTick((x) => x + 1); setMsg({ ok: true, text: `Prompt v${np.version} saved (sha ${np.prompt_sha256?.slice(0, 10) ?? '…'}).` }) }
     catch (e) { setMsg({ ok: false, text: errText(e) }) } finally { setBusy('') }
   }
+  const review = () => act('tag', () => pii.set(vid, layer.table_name, unreviewed.map((c) => ({ column: c, tag: 'none', mask: 'none' })), by),
+    () => `${plural(unreviewed.length, 'column')} reviewed as holding no PII (tag none, audited): ${unreviewed.join(', ')}.`)
   const off = dest === 'off'
   const gate = !by || !can?.allow || off
   const gateWhy = off ? 'LLM labeling is off for this team' : why(can, '')
+  const sendWhy = unreviewed.length ? `${unreviewed.join(', ')} ${unreviewed.length === 1 ? 'has' : 'have'} no reviewed PII tag yet: review first` : ''
   return (
     <div className="stack lbl" style={{ gap: 'var(--space-12)' }} data-testid="lbl-llm">
       <div className="card lbl-taskbar"><div className="lbl-taskbar-row">
@@ -82,8 +92,15 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
       </div></div>
       {off && team.data && <Callout tone="info" title="LLM labeling is off for this team" testId="lbl-llm-off">
         {destWhy} Turning it on with the <b>fake</b> destination sends nothing outside: it is for trying the flow and for verification.
-        <div className="row" style={{ gap: 6, marginTop: 6 }}><button className="btn sm primary" disabled={!by || !canTeam?.allow || busy === 'on'} title={why(canTeam, 'Set the team policy llm_labeling: {enabled, destinations: [fake]}')} onClick={turnOn} data-testid="lbl-llm-enable">Turn on (fake destination)</button>
+        <div className="row" style={{ gap: 6, marginTop: 6, alignItems: 'center' }}>
+          <label className="helper row" style={{ gap: 4 }}>monthly cap $<input className="input mono" type="number" min={1} style={{ width: 70 }} value={cap} onChange={(e) => setCap(Number(e.target.value) || 0)} data-testid="lbl-llm-cap" /></label>
+          <button className="btn sm primary" disabled={!by || !canTeam?.allow || busy === 'on' || cap <= 0} title={why(canTeam, 'Set the team policy llm_labeling: {enabled, destinations: [fake], max_usd_month}')} onClick={turnOn} data-testid="lbl-llm-enable">Turn on (fake destination)</button>
           {canTeam && !canTeam.allow && <Why>{why(canTeam)}</Why>}</div></Callout>}
+      {!off && team.data && monthCap <= 0 && <Callout tone="warn" title="No monthly budget for LLM labeling" testId="lbl-llm-nocap">
+        The team policy has no <span className="mono">max_usd_month</span>, so every run is refused (over_month_budget), even on the fake destination.
+        <div className="row" style={{ gap: 6, marginTop: 6, alignItems: 'center' }}>
+          <label className="helper row" style={{ gap: 4 }}>monthly cap $<input className="input mono" type="number" min={1} style={{ width: 70 }} value={cap} onChange={(e) => setCap(Number(e.target.value) || 0)} /></label>
+          <button className="btn sm" disabled={!by || !canTeam?.allow || cap <= 0} title={why(canTeam, 'Set max_usd_month in the team policy')} onClick={() => setPolicy({ ...policy, max_usd_month: cap }, `Monthly cap set to $${cap} (team policy, audited).`)} data-testid="lbl-llm-setcap">Set the cap</button></div></Callout>}
       <Flash msg={msg} testId="lbl-llm-msg" />
       <div className="grid two">
         <div className="card" data-testid="lbl-llm-prompt">
@@ -113,6 +130,12 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
             <div className="lbl-pii-row"><span className="micro-label">sent</span><span className="lbl-chips" data-testid="lbl-llm-sent">{sent.length ? sent.map((c) => <span key={c} className="pt-chip">{c}</span>) : <span className="muted">nothing</span>}</span></div>
             <div className="lbl-pii-row"><span className="micro-label">excluded</span><span className="lbl-chips" data-testid="lbl-llm-excluded">{excluded.length ? excluded.map((x) => <span key={x.column} className={`pt-chip ${x.reason.startsWith('pii') ? 'lbl-excl' : ''}`} title={reasonOf(x.reason)}>{x.reason.startsWith('pii') && '🔒 '}{x.column} <span className="muted">· {x.reason === 'target' ? 'the label' : x.reason.startsWith('pii') ? 'PII' : x.reason.replace('_', ' ')}</span></span>) : <span className="muted">none</span>}</span></div>
             {nPii > 0 && <Callout tone="info" title="Why they are excluded">Columns tagged PII on this dataset are dropped from the row before the prompt is built; free text in the sent columns is scanned and card / account numbers become <span className="mono">[REDACTED:…]</span>. Sending one unmasked needs a request with a reason, approved by an owner other than you.</Callout>}
+            {unreviewed.length > 0 && <Callout tone="warn" title={`${plural(unreviewed.length, 'column')} without a reviewed PII tag`} testId="lbl-llm-unreviewed">
+              Nothing is sent until a steward has looked at every column in the row: {unreviewed.map((c) => <span key={c} className="pt-chip" style={{ marginRight: 4 }}>{c}</span>)}
+              <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                <ConfirmButton className="btn sm" disabled={!by || !canTag?.allow || busy === 'tag'} title={why(canTag, 'Tag these columns "none" (no PII), as a steward; audited')} onConfirm={review} testId="lbl-llm-review-pii"
+                  confirm="They hold no PII" warning={unreviewed.join(', ')}>Review as no PII…</ConfirmButton>
+                <span className="muted" style={{ fontSize: 12 }}>or tag them on the dataset's Governance card</span></div></Callout>}
             <div className="lbl-pii-row"><span className="micro-label">destination</span><span><Badge status={dest}>{dest}</Badge> <span className="muted">{destWhy}</span></span></div>
             {prev && <div className="lbl-pii-row"><span className="micro-label">preview</span><span className="muted">{plural(prev.labels?.length ?? 0, 'row')} · {usd(prev.spent_usd)} · {int(prev.pii_redactions ?? 0)} redactions</span></div>}
           </div>
@@ -127,17 +150,18 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
             <Field label="Budget" hint="a hard cap"><span className="row" style={{ gap: 4 }}>$<input className="input mono" type="number" min={0} step={0.5} style={{ width: 80 }} value={maxUsd} onChange={(e) => setMaxUsd(Number(e.target.value) || 0)} data-testid="lbl-llm-budget" /></span></Field>
             <Field label="Task" hint="its calibration gold; where low-confidence rows go"><select className="select" value={task} onChange={(e) => setTask(e.target.value)} data-testid="lbl-llm-task">
               <option value="">none</option>{(tasks.data ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></Field>
-            <Stats items={[{ label: 'estimated cost', value: est == null ? 'preview first' : usd(est), sub: dest === 'fake' ? 'fake destination: $0' : prev ? `from the preview, × ${int(nRows)} rows` : 'a preview prices it', testId: 'lbl-llm-est' }]} />
+            <Stats items={[{ label: 'estimated cost', value: est == null ? 'preview first' : usd(est), sub: dest === 'fake' ? 'fake destination: $0' : prev ? `from the preview, × ${int(nRows)} rows` : 'a preview prices it', testId: 'lbl-llm-est' },
+              { label: 'team monthly cap', value: monthCap ? usd(monthCap) : 'none', sub: 'team policy; runs reserve their cap' }]} />
           </div>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <button className="btn sm" disabled={gate || !p || !!busy} title={gateWhy || (!p ? 'Write a prompt first' : 'Label up to 20 rows to see what it does (audited; counts toward the budget)')}
+            <button className="btn sm" disabled={gate || !p || !!busy || !!sendWhy} title={gateWhy || sendWhy || (!p ? 'Write a prompt first' : 'Label up to 20 rows to see what it does (audited; counts toward the budget)')}
               onClick={() => act('prev', async () => { const r = await labels.preview(p!.id, 20, vid, by, dest); setPrev(r); return r }, (r) => `Preview: ${plural(r.labels?.length ?? 0, 'row')} labelled on ${dest}, ${usd(r.spent_usd)} spent.`)} data-testid="lbl-llm-preview">{busy === 'prev' ? 'Previewing…' : 'Preview on 20 rows'}</button>
-            <button className="btn sm" disabled={gate || !p || !task || !!busy} title={gateWhy || (!task ? 'A task with calibration gold' : 'Label the calibration gold and find τ*')}
+            <button className="btn sm" disabled={gate || !p || !task || !!busy || !!sendWhy} title={gateWhy || sendWhy || (!task ? 'A task with calibration gold' : 'Label the calibration gold and find τ*')}
               onClick={() => act('cal', () => labels.calibrate(p!.id, { version_id: vid, task_id: task, max_usd: maxUsd, destination: dest }, by), (r) => `Calibration ${r.id} started on ${plural(r.rows ?? 0, 'gold row')}.`, true)} data-testid="lbl-llm-calibrate">{busy === 'cal' ? 'Starting…' : 'Calibrate against gold'}</button>
-            <ConfirmButton className="btn sm primary" disabled={gate || !p || !!busy || nRows <= 0} title={gateWhy || `Label ${int(nRows)} rows, at most $${maxUsd}`} testId="lbl-llm-run" confirm={`Run on ${int(nRows)} rows`}
+            <ConfirmButton className="btn sm primary" disabled={gate || !p || !!busy || nRows <= 0 || !!sendWhy} title={gateWhy || sendWhy || `Label ${int(nRows)} rows, at most $${maxUsd}`} testId="lbl-llm-run" confirm={`Run on ${int(nRows)} rows`}
               warning={`${dest} · cap $${maxUsd} · ${sent.length} columns sent`}
               onConfirm={() => act('run', () => labels.run(p!.id, { version_id: vid, selector: { strategy: 'unlabelled', n: nRows }, k: 1, max_usd: maxUsd, stop_at_cap: true, destination: dest, ...(task ? { task_id: task } : {}) }, by), (r) => `Run ${r.id} started on ${plural(r.rows ?? nRows, 'row')}.`, true)}>{busy === 'run' ? 'Starting…' : 'Run…'}</ConfirmButton>
-            {gate && gateWhy && <Why>{gateWhy}</Why>}
+            {(gate && gateWhy) || sendWhy ? <Why>{gateWhy || sendWhy}</Why> : null}
           </div>
           {prev && (prev.labels?.length ?? 0) > 0 && <details data-testid="lbl-llm-preview-rows"><summary>Preview: {plural(prev.labels!.length, 'row')}</summary>
             <table className="table"><tbody>{prev.labels!.map((y) => <tr key={y.row_id}><td className="mono">#{y.row_id}</td><td><b>{y.label}</b></td><td className="mono muted">{y.confidence != null ? Number(y.confidence).toFixed(2) : ''}</td><td className="muted lbl-ctx-v">{y.rationale}</td></tr>)}</tbody></table></details>}
@@ -209,6 +233,7 @@ function RunReport({ id, layer, vid, task, by, gate, gateWhy, onDone, onErr }: {
             onClick={() => labels.snapshot(layer.id, { method: 'majority', accept: { llm: { min_confidence: tau } } }, by).then(settle).then((s) => onDone(`Accepted ≥ τ* in snapshot ${(s as { id?: string }).id ?? ''}: ${int((s as { counts?: { applied?: number } }).counts?.applied ?? 0)} labels applied.`)).catch(onErr)} data-testid="lbl-llm-accept">Accept ≥ τ* (snapshot)</button>
           <button className="btn sm" disabled={gate || !task} title={gateWhy || (!task ? 'Pick the task' : 'Queue the rows below τ* for people, with the LLM answer as a pre-label (never on gold or blind items)')}
             onClick={() => labels.fill(task, { strategy: 'llm_low_conf', n: Math.max(1, x.rows_done ?? 50), version_id: vid }, by).then((f) => onDone(`${int((f as { items?: number }).items ?? 0)} low-confidence rows sent to people, the LLM answer as a pre-label.`)).catch(onErr)} data-testid="lbl-llm-humans">Send the rest to people</button>
+          {tau == null && !gate && <Why>{cal && !cal.passed ? `Accept needs τ*: the calibration did not reach the ${pct(cal.target ?? null, 0)} target, so every LLM label stays a pre-label for people.` : 'Accept needs τ*: calibrate first.'}</Why>}
         </div>}
         {x.error && <Callout tone="danger">{x.error}</Callout>}
         {x.result?.pii_values_found ? <span className="muted">{int(x.result.pii_values_found)} PII values found in free text and redacted before sending.</span> : null}

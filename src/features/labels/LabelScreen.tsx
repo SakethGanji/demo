@@ -7,7 +7,7 @@ import { usePoc } from '@/shared/hooks/usePoc'
 import { Badge, CardHead, Callout, CoverageBar, Flash, Stats, Why } from '@/shared/components/DataKit'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { int, pct, plural } from '@/shared/lib/format'
-import { Busy, Kbd, ReadErr, errText, show } from './parts'
+import { Busy, Kbd, Md, ReadErr, errText, show } from './parts'
 
 type Mode = 'label' | 'review' | 'quality'
 const MODES: Mode[] = ['label', 'review', 'quality']
@@ -164,7 +164,7 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
       </div>
       {showGuide && <div className="card lbl-guide" data-testid="lbl-guide">
         <CardHead title="Guidelines" sub={`schema s${task.schema_version ?? '—'}`} actions={<button className="btn sm ghost" onClick={() => setShowGuide(false)} aria-label="hide guidelines">✕</button>} />
-        <div className="card-body">{guidelines ? <pre className="lbl-guidelines">{guidelines}</pre> : <span className="muted">No guidelines for this task.</span>}
+        <div className="card-body">{guidelines ? <Md text={guidelines} testId="lbl-guide-text" /> : <span className="muted">No guidelines for this task.</span>}
           <div className="lbl-legend">{classes.map((c) => <div key={c.value}><kbd className="kbd">{c.hotkey ?? '·'}</kbd> <b>{c.label ?? c.value}</b>{c.description && <span className="muted"> {c.description}</span>}</div>)}</div>
         </div>
       </div>}

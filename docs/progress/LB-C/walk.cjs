@@ -79,7 +79,7 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.click(tid('lbl-person-add'))
     await p.fill(tid('lbl-person-2'), 'Gus')  // no role in the team: joins as a guest
     await p.fill(tid('lbl-task-gold'), '3 = Billing\n7 = Technical\n11 = Shipping')
-    await p.locator(`${tid('lbl-task-calib')} input[type=number]`).fill('400')
+    await p.locator(`${tid('lbl-task-calib')} input[type=number]`).fill('1000')
     await shot('02-task-setup-people-gold', tid('lbl-task-setup'))
     await p.click(tid('lbl-task-create'))
     await p.waitForSelector(tid('lbl-tasks'), { timeout: 60000 })
@@ -125,6 +125,12 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.click(tid('lbl-llm-edit'))
     await p.click(tid('lbl-llm-save'))
     await p.waitForFunction(() => /v1/.test(document.querySelector('[data-testid="lbl-llm-prompt"]')?.textContent ?? ''), null, { timeout: 15000 })
+    if (await p.locator(tid('lbl-llm-unreviewed')).count()) {
+      await shot('08a-llm-pii-unreviewed', tid('lbl-llm-pii'))
+      await p.click(tid('lbl-llm-review-pii'))
+      await p.click(tid('lbl-llm-review-pii-confirm'))
+      await p.waitForFunction(() => !document.querySelector('[data-testid="lbl-llm-unreviewed"]'), null, { timeout: 15000 })
+    }
     await p.click(tid('lbl-llm-preview'))
     await p.waitForSelector(tid('lbl-llm-preview-rows'), { timeout: 60000 })
     console.log('sent:', (await p.locator(tid('lbl-llm-sent')).innerText()).replace(/\s+/g, ' '), '| excluded:', (await p.locator(tid('lbl-llm-excluded')).innerText()).replace(/\s+/g, ' '))
@@ -140,6 +146,11 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.waitForFunction(() => { const t = document.querySelector('[data-testid="lbl-llm-report"]')?.textContent ?? ''; return /Run llr|Run /.test(t) && /label ·/.test(t) && !/queued|running/.test(t) }, null, { timeout: 120000 })
     console.log('msg:', (await p.locator(tid('lbl-llm-msg')).innerText().catch(() => '')).replace(/\s+/g, ' '))
     console.log('report:', (await p.locator(tid('lbl-llm-report')).innerText()).replace(/\s+/g, ' ').slice(0, 400))
+    if (await p.locator(tid('lbl-llm-humans')).isEnabled()) {
+      await p.click(tid('lbl-llm-humans'))
+      await p.waitForFunction(() => /sent to people/.test(document.querySelector('[data-testid="lbl-llm-msg"]')?.textContent ?? ''), null, { timeout: 30000 })
+      console.log('msg:', (await p.locator(tid('lbl-llm-msg')).innerText()).replace(/\s+/g, ' '))
+    }
     await view('09-llm-page')
     await shot('10-llm-run-report', tid('lbl-llm-report'))
     await p.click(tid('lbl-back'))
@@ -164,8 +175,12 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     console.log('edit →', r.status, j.id ?? j.version_id ?? JSON.stringify(j).slice(0, 200))
     await open()
     await p.waitForSelector(tid('lbl-status-stats'), { timeout: 30000 })
-    const opts = await p.locator(`${tid('lbl-status-version')} option`).allInnerTexts()
-    await p.selectOption(tid('lbl-status-version'), { index: opts.findIndex((o) => o.startsWith('v2')) })
+    await p.waitForTimeout(1000)
+    const title = await p.locator(`${tid('lbl-status')} .card-title`).innerText()
+    if (!/v2/.test(title)) {
+      const v2 = await p.locator(`${tid('lbl-status-version')} option`).evaluateAll((os) => os.find((o) => o.textContent.startsWith('v2'))?.value)
+      await p.selectOption(tid('lbl-status-version'), v2)
+    }
     await p.waitForFunction(() => /v2/.test(document.querySelector('[data-testid="lbl-status"] .card-title')?.textContent ?? ''), null, { timeout: 15000 })
     await p.waitForTimeout(1500)
     console.log('status v2:', (await p.locator(tid('lbl-status-stats')).innerText()).replace(/\s+/g, ' '))

@@ -35,7 +35,7 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
   const [people, setPeople] = useState<Person[]>([{ name: by, role: 'annotator' }, { name: by, role: 'reviewer' }])
   const [gold, setGold] = useState('')
   const [calib, setCalib] = useState(true)
-  const [calibN, setCalibN] = useState(300)
+  const [calibN, setCalibN] = useState(1000)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const cs = classes.split(',').map((x) => x.trim()).filter(Boolean)
@@ -117,7 +117,7 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
             <textarea className="input mono" rows={4} value={gold} onChange={(e) => setGold(e.target.value)} placeholder={'12 = fraud\n57 = ok'} data-testid="lbl-task-gold" /></Field>
           <label className="helper row" style={{ gap: 6 }} data-testid="lbl-task-calib"><input type="checkbox" checked={calib} onChange={(e) => setCalib(e.target.checked)} />
             Calibration gold for LLM labeling: <input className="input mono" type="number" min={0} style={{ width: 80 }} value={calibN} onChange={(e) => setCalibN(Number(e.target.value) || 0)} disabled={!calib} />
-            rows drawn from v{v}'s current values (a separate pool: never shown to annotators, never used as QA)</label>
+            rows drawn from v{v}'s current values (a separate pool, never shown to annotators; calibration needs ≥ 200 rows and ≥ 20 per class, so draw enough for the rarest class)</label>
           {badGold.length > 0 && <Callout tone="danger" title={`${badGold.length} gold line${badGold.length > 1 ? 's' : ''} not understood`}>{badGold.slice(0, 3).map((g) => `${g.row_id} = ${g.value}`).join(' · ')}</Callout>}
         </>}
         <Flash msg={msg} testId="lbl-task-msg" />

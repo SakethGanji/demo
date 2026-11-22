@@ -72,3 +72,22 @@ export function ReadErr({ err, what }: { err: string; what: string }) {
   if (/not found|not_built|not built|501/i.test(err)) return <Callout tone="neutral" title={`${what}: not available on this API yet`}>The API answered “{err}”. The screen fills in once the route is deployed.</Callout>
   return <Callout tone="danger" title={`${what} could not be read`}>{err}</Callout>
 }
+
+/** The guidelines' markdown, the small subset people write (## headings, - bullets, **bold**, `code`), as elements:
+ *  no HTML is injected. */
+export function Md({ text, testId }: { text: string; testId?: string }) {
+  const inline = (s: string, k: number) => s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((p, i) =>
+    p.startsWith('**') && p.endsWith('**') ? <b key={`${k}:${i}`}>{p.slice(2, -2)}</b> : p.startsWith('`') && p.endsWith('`') ? <code key={`${k}:${i}`}>{p.slice(1, -1)}</code> : p)
+  const out: ReactNode[] = []
+  let list: ReactNode[] = []
+  const flush = () => { if (list.length) { out.push(<ul key={`u${out.length}`}>{list}</ul>); list = [] } }
+  text.split('\n').forEach((l, k) => {
+    const t = l.trim()
+    if (/^[-*] /.test(t)) { list.push(<li key={k}>{inline(t.slice(2), k)}</li>); return }
+    flush()
+    if (/^#{1,6} /.test(t)) out.push(<div key={k} className="md-h">{inline(t.replace(/^#+ /, ''), k)}</div>)
+    else if (t) out.push(<p key={k}>{inline(t, k)}</p>)
+  })
+  flush()
+  return <div className="lbl-md" data-testid={testId}>{out}</div>
+}

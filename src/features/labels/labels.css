@@ -90,3 +90,8 @@
 .lbl-pin { display: flex; flex-direction: column; gap: 6px; }
 
 @media (max-width: 1200px) { .lbl-work.with-guide { grid-template-columns: 1fr; } }
+.lbl-md { font-size: 13px; line-height: 1.5; color: var(--text-body); background: var(--bg-subtle); border: 1px solid var(--border-row); border-radius: var(--radius-control); padding: 10px 12px; max-height: 360px; overflow: auto; }
+.lbl-md p { margin: 0 0 6px; } .lbl-md ul { margin: 0 0 6px; padding-left: 18px; } .lbl-md li { margin: 2px 0; }
+.lbl-md .md-h { font-weight: 600; color: var(--text-primary); margin: 2px 0 6px; }
+.lbl-md code { font-family: var(--font-mono); font-size: 12px; }
+.lbl-prog { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
