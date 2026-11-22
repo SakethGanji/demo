@@ -1,0 +1,182 @@
+POS /admin/lake/cache/verify | admin.lake |  |  | 
+POS /admin/lake/gc | admin.lake |  |  | 
+POS /admin/lake/migrate | admin.lake |  |  | 
+POS /admin/lake/migrate/cleanup | admin.lake |  |  | 
+POS /admin/lake/seed | admin.lake |  |  | 
+POS /admin/lake/sync-s3 | admin.lake |  |  | 
+POS /admin/reset | admin.reset |  |  | 
+POS /admin/reset-requests | admin.reset |  |  | 
+POS /admin/reset-requests/{rid}/decide | admin.reset |  |  | 
+POS /agent/sessions | agent.use |  |  | 
+POS /agent/sessions/{sid}/confirm | agent.use |  |  | 
+POS /agent/sessions/{sid}/messages | agent.use |  |  | 
+POS /agent/sessions/{sid}/stop | agent.use |  |  | 
+POS /annotations/{kind}/{node_id} | annotate | path:node_id→node |  | 
+DEL /annotations/{kind}/{node_id}/notes/{note_id} | annotate | path:node_id→node |  | 
+PAT /annotations/{kind}/{node_id}/notes/{note_id} | annotate | path:node_id→node |  | 
+DEL /annotations/{kind}/{node_id}/tags/{tag:path} | annotate | path:node_id→node |  | 
+POS /anomaly/runs | run.train | body:dataset_id→dataset |  | 
+GET /anomaly/runs/{run_id}/batches/{bid}.csv | run.read | path:run_id→run |  | 
+POS /anomaly/runs/{run_id}/labels | run.train | path:run_id→run |  | 
+POS /anomaly/runs/{run_id}/score | run.use | path:run_id→run |  | 
+GET /anomaly/runs/{run_id}/scores | run.read | path:run_id→run |  | 
+GET /anomaly/runs/{run_id}/scores.csv | run.read | path:run_id→run |  | 
+POS /anomaly/runs/{run_id}/supervised | run.train | path:run_id→run |  | 
+GET /anomaly/runs/{run_id}/top | run.read | path:run_id→run |  | 
+POS /authz/check | PUBLIC:a question about a decision; it changes nothing |  |  | 
+POS /autopilot | run.train | body:dataset_id→dataset |  | 
+POS /autopilot/{aid}/cancel | run.train | path:aid→autopilot |  | 
+POS /autopilot/{aid}/inbox/answer | run.train | path:aid→autopilot |  | 
+POS /autopilot/{aid}/inbox/bulk | run.train | path:aid→autopilot |  | 
+POS /autopilot/{aid}/resume | run.train | path:aid→autopilot |  | 
+POS /certifications/{cid}/decide | data.certify_decide | path:cid→certification |  | 
+POS /champions/{request_id}/decide | champion.decide | path:request_id→champion |  | 
+POS /compare | run.read | body:a→run | [['run.read', 'body:b→run']] | 
+POS /data/verify-all | admin.config |  |  | 
+POS /dataset-requests/{rid}/decide | data.delete_decide | path:rid→dataset_request |  | 
+POS /datasets | data.upload | body:project_id→project |  | 
+GET /datasets/diff | data.preview | query:a→dataset | [['data.preview', 'query:b→dataset']] | 
+POS /datasets/match | data.upload | query:project_id→project |  | 
+GET /datasets/{a}/diff/{b} | data.preview | path:a→dataset | [['data.preview', 'path:b→dataset']] | 
+PAT /datasets/{dataset_id} | run.train | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/adopt-disk-file | data.restore | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/archive | data.archive | path:dataset_id→dataset |  | 
+PAT /datasets/{dataset_id}/card | data.card | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/certifications | data.certify | path:dataset_id→dataset |  | 
+PUT /datasets/{dataset_id}/contract | data.contract | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/contract/check | data.read_meta | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/contract/from-version/{version_id} | data.contract | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/data-doctor/apply | data.version | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/decision-time | data.card | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/default | data.set_default | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/delete | data.delete | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/edit | data.version | path:dataset_id→dataset |  | 
+GET /datasets/{dataset_id}/export | data.export | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/feature-lab | data.version | path:dataset_id→dataset |  | 
+GET /datasets/{dataset_id}/grid | data.preview | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/intake | data.read_meta | path:dataset_id→dataset |  | 
+PUT /datasets/{dataset_id}/pii | data.tag_pii | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/purge | data.purge | path:dataset_id→dataset |  | 
+DEL /datasets/{dataset_id}/relations/{name} | data.version | path:dataset_id→dataset |  | 
+PUT /datasets/{dataset_id}/relations/{name} | data.version | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/restore-splits | data.restore | path:dataset_id→dataset |  | 
+GET /datasets/{dataset_id}/rows | data.preview | path:dataset_id→dataset |  | 
+GET /datasets/{dataset_id}/rows/count | data.preview | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/rows/preview | data.preview | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/splits | run.train | path:dataset_id→dataset |  | 
+GET /datasets/{dataset_id}/stats | data.preview | path:dataset_id→dataset |  | 
+PUT /datasets/{dataset_id}/tables/{table}/key | data.version | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/verify | data.verify | path:dataset_id→dataset |  | 
+POS /datasets/{dataset_id}/versions | data.version | path:dataset_id→dataset |  | 
+POS /datasets/{root_id}/joins | data.version | path:root_id→dataset |  | 
+POS /datasets/{root_id}/joins/{join_id}/validate | data.read_meta | path:root_id→dataset |  | 
+POS /datasets/{root_id}/versions/{version_id}/frames | run.train | path:version_id→dataset |  | 
+POS /expected-loss/runs | run.train | body:dataset_id→dataset |  | 
+POS /expected-loss/runs/{run_id}/stress | run.train | path:run_id→run |  | 
+POS /forecast/preview | data.read_meta | body:dataset_id→dataset |  | 
+POS /forecast/runs | run.train | body:dataset_id→dataset |  | 
+GET /forecast/runs/{run_id}/forecast.csv | run.read | path:run_id→run |  | 
+POS /forecast/runs/{run_id}/predict | run.use | path:run_id→run |  | 
+GET /forecast/runs/{run_id}/predictions/{pid}.csv | run.read | path:run_id→run |  | 
+POS /gym/validate | data.read_meta | body:dataset_id→dataset |  | 
+POS /legal-holds | legal_hold.place |  |  | 
+POS /legal-holds/{hid}/release | legal_hold.release |  |  | 
+POS /llm/cache/clear | admin.config |  |  | 
+PUT /llm/settings | admin.config |  |  | 
+POS /multilabel/runs | run.train | body:dataset_id→dataset |  | 
+PAT /principals/{principal} | principal.manage | path:principal→principal |  | 
+POS /projects | project.create | body:team_id→team |  | 
+PAT /projects/{project_id} | project.manage | path:project_id→project |  | 
+POS /projects/{project_id}/champion | champion.request | path:project_id→project |  | 
+POS /projects/{project_id}/datasets | data.upload | path:project_id→project |  | 
+POS /purges/{pid}/decide | data.purge_decide | body:team→team,path:pid→purge |  | 
+POS /purges/{pid}/resume | data.purge_decide | path:pid→purge |  | 
+GET /registry/audit | model.read | query:version_id→model_version,query:model→model |  | 
+GET /registry/batches/{bid}/download | model.read | path:bid→batch |  | 
+POS /registry/batches/{bid}/labels | model.use | path:bid→batch |  | 
+POS /registry/batches/{bid}/shift | model.use | path:bid→batch |  | 
+PUT /registry/models/{name}/monitoring | model.card | path:name→model |  | 
+POS /registry/version-requests/{rid}/decide | model.retire_decide | path:rid→version_request |  | 
+POS /registry/versions/{vid}/batches | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/benchmark | model.use | path:vid→model_version |  | 
+PUT /registry/versions/{vid}/card | model.card | path:vid→model_version |  | 
+POS /registry/versions/{vid}/changes | model.card | path:vid→model_version |  | 
+POS /registry/versions/{vid}/changes/{cid}/request | model.register | path:vid→model_version |  | 
+DEL /registry/versions/{vid}/credit-report/tape | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/credit-report/tape | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/monitoring/retrain | run.train | path:vid→model_version |  | 
+POS /registry/versions/{vid}/monitoring/stream | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/predict | model.use | path:vid→model_version |  | 
+PUT /registry/versions/{vid}/reasons | model.card | path:vid→model_version |  | 
+POS /registry/versions/{vid}/reasons/stability | model.use | path:vid→model_version |  | 
+PUT /registry/versions/{vid}/recourse | model.card | path:vid→model_version |  | 
+POS /registry/versions/{vid}/recourse | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/recourse/check | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/retire | model.retire | path:vid→model_version |  | 
+POS /registry/versions/{vid}/review | model.review | path:vid→model_version |  | 
+POS /registry/versions/{vid}/score | model.use | path:vid→model_version |  | 
+POS /registry/versions/{vid}/transition | model.promote | path:vid→model_version |  | {'Production': 'model.promote_production'}
+POS /reject-inference/runs | run.train | body:dataset_id→dataset |  | 
+POS /retention/dry-run | retention.plan | body:team→team |  | 
+POS /retention/run | retention.run | body:team→team,body:team_id→team |  | 
+POS /runs | run.train | body:project_id→project,body:dataset_id→dataset | [['data.preview', 'body:dataset_id→dataset']] | 
+POS /runs/import | run.train | body:dataset_id→dataset |  | 
+DEL /runs/{run_id} | run.manage | path:run_id→run |  | 
+POS /runs/{run_id}/active-learning | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/active-learning/answer | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/active-learning/cancel | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/active-learning/simulate | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/active-learning/submit | data.version | path:run_id→run |  | 
+POS /runs/{run_id}/annotations/answer | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/annotations/sample | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/annotations/simulate-adjudication | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/annotations/upload | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/annotations/version | data.version | path:run_id→run |  | 
+POS /runs/{run_id}/cancel | run.manage | path:run_id→run |  | 
+POS /runs/{run_id}/ensemble | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/experiments | run.train | path:run_id→run |  | 
+GET /runs/{run_id}/explain | run.read | path:run_id→run |  | 
+GET /runs/{run_id}/holdout-predictions | run.read | path:run_id→run |  | 
+POS /runs/{run_id}/learning-curve | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/learning-curve/cancel | run.manage | path:run_id→run |  | 
+POS /runs/{run_id}/metric-twin | run.train | path:run_id→run |  | 
+GET /runs/{run_id}/oof | run.read | path:run_id→run |  | 
+POS /runs/{run_id}/predict | run.use | path:run_id→run |  | 
+POS /runs/{run_id}/register | model.register | path:run_id→run |  | 
+POS /runs/{run_id}/review | run.train | path:run_id→run |  | 
+GET /runs/{run_id}/scorecard.csv | run.read | path:run_id→run |  | 
+POS /runs/{run_id}/scorecard/score | run.use | path:run_id→run |  | 
+GET /runs/{run_id}/shap | run.read | path:run_id→run |  | 
+POS /runs/{run_id}/shift | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/shift/{key}/cancel | run.manage | path:run_id→run |  | 
+GET /runs/{run_id}/shift/{key}/rows | run.read | path:run_id→run |  | 
+POS /runs/{run_id}/shift/{key}/weights-version | data.version | path:run_id→run |  | 
+POS /runs/{run_id}/slices | run.train | path:run_id→run |  | 
+GET /runs/{run_id}/slices/{sid}/pool | run.read | path:run_id→run |  | 
+GET /runs/{run_id}/slices/{sid}/rows | run.read | path:run_id→run |  | 
+POS /runs/{run_id}/slices/{sid}/shap | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/split-twin | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/threshold | run.train | path:run_id→run |  | 
+POS /runs/{run_id}/vela/wording | run.read | path:run_id→run |  | 
+POS /segmented/runs | run.train | body:dataset_id→dataset |  | 
+POS /shares | data.share | body:object_id→shareable |  | 
+POS /shares/{sid}/decide | data.share_decide | path:sid→share |  | 
+POS /shares/{sid}/revoke | data.share | path:sid→share |  | 
+POS /sql/datasets | data.upload | body:project_id→project |  | 
+POS /sql/datasets/{dataset_id}/refresh | data.version | path:dataset_id→dataset |  | 
+POS /sql/preview | data.upload | query:project_id→project |  | 
+POS /sql/tables | data.upload | query:project_id→project |  | 
+POS /survival/runs | run.train | body:dataset_id→dataset |  | 
+POS /teams | team.create |  |  | 
+PAT /teams/{team} | team.settings | path:team→team |  | 
+GET /teams/{team}/audit | audit.read | path:team→team |  | 
+GET /teams/{team}/audit/verify | audit.read | path:team→team |  | 
+POS /teams/{team}/members | team.manage | path:team→team |  | {'owner': 'team.settings', 'maintainer': 'team.settings'}
+DEL /teams/{team}/members/{principal} | team.manage | path:team→team |  | 
+PAT /teams/{team}/members/{principal} | team.manage | path:team→team |  | {'owner': 'team.settings', 'maintainer': 'team.settings'}
+POS /uploads | data.upload | query:parent_version_id→dataset,query:root_id→dataset,query:project_id→project |  | 
+DEL /uploads/{up} | data.upload | path:up→upload |  | 
+PAT /uploads/{up} | data.upload | path:up→upload |  | 
+POS /uploads/{up}/check | data.upload | path:up→upload |  | 
+POS /uploads/{up}/commit | data.upload | path:up→upload |  | 
+POS /vela/ask | run.read | body:run_id→run,body:autopilot_id→autopilot |  | 

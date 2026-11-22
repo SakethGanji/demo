@@ -1,0 +1,47 @@
+# mode enforce
+
+# 1. actions in the chains
+  tm_598f43aa: 72 rows: {'authz_denied': 12, 'batch_scored': 1, 'certification_approved': 1, 'certification_requested': 1, 'contract_set': 1, 'dataset_created': 1, 'dataset_default_set': 2, 'dataset_delete_refused': 1, 'dataset_exported': 4, 'dataset_read': 5, 'dataset_rows_read': 6, 'dataset_version_created': 1, 'legal_hold_placed': 1, 'legal_hold_released': 1, 'pii_tags_set': 1, 'pii_tags_suggested': 1, 'project_created': 1, 'purge_approved': 3, 'purge_bytes_deleted': 1, 'purge_executed': 1, 'purge_refused': 1, 'purge_requested': 1, 'registered': 1, 'retire_requested': 1, 'run_delete_refused': 1, 'share_approved': 2, 'share_requested': 2, 'share_revoked': 1, 'split_created': 2, 'team_created': 1, 'team_member_added': 6, 'team_member_removed': 1, 'team_member_role_changed': 3, 'upload_committed': 1, 'upload_staged': 2}
+  tm_660453ca: 15 rows: {'blob_deleted': 3, 'project_created': 1, 'purge_approved': 3, 'purge_bytes_deleted': 1, 'purge_executed': 1, 'purge_requested': 1, 'share_received': 1, 'share_revoked': 1, 'team_created': 1, 'team_member_added': 2}
+  tm_34f6c932: 21 rows: {'dataset_created': 1, 'dataset_default_set': 1, 'join_frame_materialised': 1, 'join_input_refused': 3, 'join_saved': 1, 'project_created': 1, 'purge_approved': 3, 'purge_bytes_deleted': 1, 'purge_executed': 1, 'purge_requested': 1, 'share_received': 1, 'split_created': 1, 'team_created': 1, 'team_member_added': 2, 'upload_committed': 1, 'upload_staged': 1}
+  tm_default: 55 rows: {'dataset_created': 15, 'dataset_default_set': 15, 'principal_created': 10, 'split_created': 15}
+    'agent_session_started': MISSING
+    'fairness': MISSING
+    'pii_tags_set': ['pii_tags_set']
+    'pii_tags_confirmed': MISSING
+    'team_member_role_changed': ['team_member_role_changed']
+    'team_member_removed': ['team_member_removed']
+    'legal_hold_placed': ['legal_hold_placed']
+    'legal_hold_released': ['legal_hold_released']
+    'purge_requested': ['purge_requested']
+    'purge_executed': ['purge_executed']
+    'share_approved': ['share_approved']
+    'share_revoked': ['share_revoked']
+    'certification_approved': ['certification_approved']
+    'batch_scored': ['batch_scored']
+    'approved': ['certification_approved', 'purge_approved', 'share_approved']
+    'dataset_rows_read': ['dataset_rows_read']
+    'upload_discarded': MISSING
+    'sql_preview': MISSING
+    'run_cancelled': MISSING
+    'dataset_exported': ['dataset_exported']
+  agent rows (auth agent): []
+  rows naming Fay's fairness GET / agent session ids: []
+
+# 3. admin reset under a legal hold (ENSEMBLE_DEMO_MODE=1)
+## 3a Ada POST /legal-holds {team credit-risk} → HTTP 201 | pii 0
+    {"id": "lh_5dc04bbb8e", "active": true}
+## 3b Ada POST /admin/reset-requests → HTTP 201 | pii 0
+    {"id": "arq_b1c43011", "status": "pending"}
+## 3c Adam approves → HTTP 200 | pii 0
+    {"status": "approved"}
+## 3d Ada POST /admin/reset {request_id} → HTTP 200 | pii 0
+    {"deleted": {"run_events": 188, "runs": 5, "batch_jobs": 1, "model_versions": 1, "registered_models": 1, "run_inputs": 2, "join_frames": 1, "joins": 1, "splits": 18, "table_relations": 2, "table_keys": 3, "table_files": 20, "version_tables": 20, "dataset_root_tables": 19, "dataset_roots": 17, "uploads": 3, "certifications": 1, "column_tags": 4, "data_contracts": 1, "datasets": 18, "lineage_edges": 9, "champions": 0, "dataset_cards": 17, "dataset_requests": 0, "version_requests": 1, "annotations": 0, "projects": 18, "lake_migrations": 0, "split_files": 0}, "four_eyes": "arq_b1c43011"}
+## 3e GET /legal-holds?team=cr → HTTP 200 | pii 0
+    {"holds": [{"id": "lh_5dc04bbb8e", "scope_kind": "team", "scope_id": "tm_598f43aa", "case_ref": "CASE-RESET", "reason": "regulator inquiry", "placed_by": "Ada", "placed_at": "2026-11-22T01:49:33+00:00", "released_by": null, "released_at": null, "active": true, "team_id": "tm_598f43aa", "label": "Cre
+## 3f GET /datasets/{v1} → HTTP 404 | pii 0
+    {"detail": "No dataset with id 'ds_216af299'."}
+## 3g GET /runs/{run} → HTTP 404 | pii 0
+    {"detail": "No run with id 'run_d4437760'."}
+## 3h verify credit-risk chain → HTTP 200 | pii 0
+    {"ok": true, "rows": 73}

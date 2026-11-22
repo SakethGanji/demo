@@ -1,0 +1,107 @@
+# mode enforce
+## 0 Adam releases the hold → HTTP 409 | pii 0
+    {"active": null}
+
+# 1. before the purge
+    API (before): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 200, 500
+      export v1 (unmasked): HTTP 200, 0
+      stats v1: HTTP 200, 0
+      explain run: HTTP 200, 0
+      shap row 1: HTTP 200, 0
+      fairness ssn: HTTP 200, 2
+      scorecard: HTTP 200, 2
+      model card: HTTP 200, 2
+      recourse: HTTP 200, 2
+      batch: HTTP 200, 50
+      batch download: HTTP 200, 50
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 200, 0
+      data doctor: HTTP 200, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (before): 17 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      ensemble.sqlite3: [1, 62, 0]
+      lake/blobs: [2, 600, 3]
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [1, 50, 0]
+      registry/batch_*/scored.csv: [1, 50, 0]
+      runs/predictor/models/LightGBM/model.pkl: [1, 3, 0]
+      runs/predictor/models/LightGBMLarge/model.pkl: [1, 11, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/models/NeuralNetTorch/model.pkl: [1, 0, 1]
+      runs/predictor/models/RandomForestEntr/model.pkl: [1, 0, 6]
+      runs/predictor/models/RandomForestGini/model.pkl: [1, 0, 9]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+    database (before): tables with raw SSNs (distinct values per table): {'datasets': 2, 'runs': 11, 'batch_jobs': 50, 'uploads': 5, 'table_stats': 2}
+
+# 2. purge loans.ssn
+## 2a Ana POST /datasets/v1/purge {loans, [ssn]} → HTTP 201 | pii 0
+    {"id": "pur_5ef42a6131", "status": "pending", "new_version_id": "ds_754d86d2", "teams_needed": ["tm_3e0dc8d2", "tm_47c416a1", "tm_83571e88"]}
+    impact teams: ['tm_3e0dc8d2', 'tm_47c416a1', 'tm_83571e88'] | runs: [('run_2a915345', 'tm_3e0dc8d2', 'trained on an affected version'), ('run_38bd736c', 'tm_3e0dc8d2', 'trained on an affected version'), ('run_c9734a2c', 'tm_83571e88', 'trained on an affected version'), ('run_079b0826', 'tm_47c416a1', 'trained on an affected version'), ('run_4aa203dd', 'tm_83571e88', 'trained on an affected version')] | models: [{'id': 'mv_c39536bd', 'model_name': 'pd-x4', 'version': 1, 'approval': 'approved', 'stage': 'None', 'run_id': 'run_2a915345'}] | shares: [None] | join frames: ['jf_ee00ae67d2'] | blobs: 3
+## 2b Ben approves for tm_3e0dc8d2 → HTTP 200 | pii 0
+    {"status": "pending", "waiting_for": ["tm_47c416a1", "tm_83571e88"]}
+## 2b Fox approves for tm_47c416a1 → HTTP 200 | pii 0
+    {"status": "pending", "waiting_for": ["tm_83571e88"]}
+## 2b Cole approves for tm_83571e88 → HTTP 200 | pii 0
+    {"status": "used", "waiting_for": []}
+    executed: used | blobs deleted: 3 | failed: []
+
+# 3. after the purge
+    API (after): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 410, 0
+      export v1 (unmasked): HTTP 500, 0
+      stats v1: ReadError
+      explain run: HTTP 500, 0
+      shap row 1: ReadError
+      fairness ssn: HTTP 400, 0
+      scorecard: HTTP 200, 2
+      model card: HTTP 200, 2
+      recourse: HTTP 400, 0
+      batch: HTTP 200, 50
+      batch download: HTTP 200, 50
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 410, 0
+      data doctor: HTTP 410, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (after): 16 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      ensemble.sqlite3: [1, 62, 0]
+      ensemble.sqlite3-wal: [1, 2, 0]
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [1, 50, 0]
+      registry/batch_*/scored.csv: [1, 50, 0]
+      runs/predictor/models/LightGBM/model.pkl: [1, 3, 0]
+      runs/predictor/models/LightGBMLarge/model.pkl: [1, 11, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/models/NeuralNetTorch/model.pkl: [1, 0, 1]
+      runs/predictor/models/RandomForestEntr/model.pkl: [1, 0, 6]
+      runs/predictor/models/RandomForestGini/model.pkl: [1, 0, 9]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+       ensemble.sqlite3 (62, 0)
+       ensemble.sqlite3-wal (2, 0)
+       lake/exports/ds_f132fdb9/loans.csv (600, 0)
+       registry/batches/batch_aacf5e12/input.csv (50, 0)
+       registry/batches/batch_aacf5e12/scored.csv (50, 0)
+       runs/run_2a915345/predictor/models/LightGBM/model.pkl (3, 0)
+       runs/run_2a915345/predictor/models/LightGBMLarge/model.pkl (11, 0)
+       runs/run_2a915345/predictor/models/LightGBMXT/model.pkl (6, 0)
+       runs/run_2a915345/predictor/models/NeuralNetTorch/model.pkl (0, 1)
+       runs/run_2a915345/predictor/models/RandomForestEntr/model.pkl (0, 6)
+       runs/run_2a915345/predictor/models/RandomForestGini/model.pkl (0, 9)
+       runs/run_2a915345/predictor/utils/data/X.pkl (0, 384)
+       runs/run_2a915345/predictor/utils/data/X_val.pkl (0, 96)
+       runs/run_2a915345/scorecard/report.json (2, 0)
+       runs/run_2a915345/shap/1_1_50_2048_WeightedEnsemble_L2.json (1, 0)
+       runs/run_38bd736c/top.json (200, 0)
+    database (after): tables with raw SSNs (distinct values per table): {'datasets': 2, 'runs': 11, 'batch_jobs': 50, 'uploads': 5, 'table_stats': 2}
+## 3a GET /admin/lake/runs/{run}/verify → HTTP 200 | pii 0
+    {"ok": null, "status": "purged"}

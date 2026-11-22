@@ -55,7 +55,7 @@
 | F-PII | G | done (masked + unmask-with-reason audited on anomaly top rows, shift check/rows, AL queue, annotations, Feature Lab jobs, split options, intake; dataset_read q as salted hash; cross-team join input needs a live share: 403 input_not_shared; masked share → 409 pii_masked_share (refuse, frames never masked); revoke blocks new frames/runs, existing verify; SQLite = Postgres in audit and enforce) | session_018upNdRhzDSuoPeKuvRD8Vv | see report |
 | X3 | ⟂ | started (P10–P15 check, read-only) | session_018upNdPtviqqbSpcsvwvUEz | |
 | U2 | U | started (tables/deltas/joins/lineage/registry/governance UI) | session_018upNdSRY3CE7Ts1T2Z1JqP | |
-| X4 | ⟂ | started (governance + authz check, read-only) | session_018upNdSGESUQJY6eP9UgTAw | |
+| X4 | ⟂ | done: 4 critical (agent runs as any named user; 130 GETs without require(), batch preview raw PII to anyone; purge leaves values in run artifacts/caches/batches/results; SQL source reads the platform DB on Postgres), 6 major (review `reviewer` spoof, maintainer demotes/removes owners + self-appoints risk reviewer, batches unmasked, admin reset ignores holds, /registry/audit unfiltered, audit lacks the real principal) → fixes needed | session_018upNdSGESUQJY6eP9UgTAw | see report |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
