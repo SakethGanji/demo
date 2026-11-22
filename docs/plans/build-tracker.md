@@ -171,3 +171,13 @@
 **Plan:** docs/plans/labeling.md (plan only, no code). Label layers attached to a dataset root, keyed by `(layer, table, __row_id, column)`, append-only; carry over across versions by `__row_id` with HMAC row-hash staleness; runs pin a frozen snapshot (overlay at read, like joins) or materialise it into a version; holdout never overlaid in training. Sources: human, LLM (calibrated on gold, off by default, PII-governed), model, rule, import, cleanlab. F13/F14 migrate into layers (L09).
 **Phases:** L01a–L10, UL1, UL2, XL1 (16 sessions ≈ 32–37 h); §13 of the plan. §15 "How it grows" (plug-in registries, staged scale path, versioned contracts, first slice); §12.1 independent red-team folded in. Not started: waiting on the user's answers to §14 (defaults apply if none).
 **Note → all lanes:** new tables are `label_*` and actions `label.*` (the existing `annotations` table and `annotate` action are lineage tags/notes, unrelated).
+
+**LBL-VERIFY (2026-11-22, independent review):** docs/plans/labeling-review.md: **sound with changes**. 3 critical, 16 major, 14 minor; required changes folded into labeling.md and marked "(LBL-VERIFY)" (§12.2 lists them).
+- Overlay as `LabelledTable(Table)` / `LabelledJoin(JoinFrame)`, also applied in `serving.read_ids`, `RunRows`, `vela/rows` and `gym/export`, with `labels_fitted_sha256` as evidence.
+- Per-epoch resolution with `item_key` + `epoch_hash` in `labelsnap/1`.
+- Guest annotators through `Rule.task_role` in L01a.
+- `absorbed` status; immutability triggers; hash-only purge redaction; `inputs_sha256`; a fail-closed overlay gate stub in L04a.
+- Calibration v2, a PII allowlist, and spend reservations.
+
+**Phases now 19 sessions (≈ 38–44 h):** L01a, L01b, L02, L03, L04a, L04b, L07a, XL0 (slice check), L05, L06a, L06b, L07b, L08a, L08b, L09, L10, UL1, UL2, XL1.
+**Note → L01a:** don't start until it carries the authz rule, the triggers and the format fields listed in the review's "Required changes before L01a".

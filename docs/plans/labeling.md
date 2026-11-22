@@ -2,7 +2,9 @@
 
 **Status:** plan only (LBL-PLAN, 2026-11-22). No product code yet.
 **Builds on:** docs/plans/data-platform-final.md (cited as "DP §n"), the P/F/X/U phases in build-tracker.md.
-**Phases:** §13 (L01a … L10, UL1, UL2, XL1; 16 sessions). **Red-team pass:** §12.1. **Open questions:** §14.
+**Phases:** §13 (L01a … L10, UL1, UL2, XL0, XL1; 19 sessions after LBL-VERIFY). **Red-team pass:** §12.1. **Open questions:** §14.
+**Independent verification (LBL-VERIFY):** docs/plans/labeling-review.md: sound with changes (3 critical, 16 major,
+14 minor). The required changes are folded in below and marked **(LBL-VERIFY)**; §12.2 lists them.
 
 ---
 
@@ -55,7 +57,7 @@ v4. Nobody can label a dataset without first training a run on it. **There is no
 
 - **It is built to grow** (§15): sources, task types, consensus methods and queue strategies are registered plug-ins with fixed contracts; the event key already covers spans, pairs and lists; a staged path (Postgres partitioning, lake event segments, incremental snapshots, sharded queues) takes it from the POC to millions of labels without changing stored data.
 
-Cost: **16 sessions (~32–37 h)**: 13 backend, 2 UI, 1 independent check (§13).
+Cost: **19 sessions (~38–44 h)**: 15 backend, 2 UI, 2 independent checks (§13). (LBL-VERIFY: L07 and L08 split, XL0 added.)
 
 ---
 
@@ -87,7 +89,7 @@ Platform pieces reused: `__row_id` + `dataset_root_tables` high-water mark (ids 
 | D1 | **Append-only event log per layer** (`label_events`), never UPDATE/DELETE except a one-way purge redaction enforced by trigger | (a) a mutable "current label" table: loses history, can't reproduce a past snapshot, can't show disagreement. (b) labels as columns in a new version per save (today): a version per click, 10M-row rewrites, no carry-over. |
 | D2 | **Layer = (root, table, owning team)**, many layers per root allowed (e.g. "complaint category", "fraud review"); one default per team | one global layer per root: two projects labelling different questions collide; cross-team labels need a separate owner anyway |
 | D3 | Key **`(layer_id, table, __row_id, column)`**; carry-over is implicit through `__row_id`, **plus** a `label_identity_lost` check and an explicit remap where ids do not survive (§5.1a) | key by business key: not every table has one (DP §5.3 makes keys explicit, not guaranteed). `__row_id` survives edits, deltas and upload-as-version **with a key match**; with `row_hash` a changed row is removed + added and with `none` every row is new (`lake/upload.py:1166`, `dataset_versions.py:111`), so the plan guards those cases instead of assuming survival |
-| D4 | **Staleness by keyed row hash** at label time (context columns and whole row) + **base-value hash** for cell corrections | (a) by version id (label valid only on the version it was made on): kills carry-over. (b) compare to parent diff chain: expensive and breaks across branches |
+| D4 | **Staleness by keyed row hash** at label time (context columns and whole row) + **base-value hash** for cell corrections. **(LBL-VERIFY)** Votes are resolved per **epoch** (same `row_hash_ctx`, §5.3 step 0), so a re-review on changed content is never outvoted by votes about the old content; a base equal to the label's value is `absorbed`, not a conflict (§5.1) | (a) by version id (label valid only on the version it was made on): kills carry-over. (b) compare to parent diff chain: expensive and breaks across branches |
 | D5 | **Training = read-time overlay of a pinned snapshot** (default) **+ explicit materialise** to a version (on demand) | overlay only: other run kinds, exports, certification and other teams' tools don't understand overlays. Materialise only: a version per labelling session at 10M rows (≈ 1 min each, P07), and certification reset every time |
 | D6 | **Snapshots are frozen blobs** (Parquet + canonical manifest, sha-identified); resolution (consensus) runs once at snapshot time | recompute on read: CROWDLAB and floats are not bit-stable across library versions; reproducibility would depend on cleanlab's version |
 | D7 | **Holdout:** never overlaid in training; "corrected" evaluation only by explicit run option, human-sourced labels only, both metrics reported | (a) relabel holdout freely: model-influenced labels (LLM, cleanlab, pre-labels) would grade the model by its own opinion. (b) forbid labelling holdout rows: then known-wrong evaluation labels can never be fixed and gold sets can't include them |
@@ -95,7 +97,7 @@ Platform pieces reused: `__row_id` + `dataset_root_tables` high-water mark (ids 
 | D9 | **LLM labels are pre-labels by default**; auto-accept only with a calibration record on a human gold set (Wilson lower bound ≥ target) | trust the LLM's verbalised confidence: uncalibrated; never auto-accept: wastes the main benefit at 10k+ rows |
 | D10 | **Corrections share the layer** (any column); feature corrections are proposals → materialised, not overlaid by default | separate "corrections" subsystem: two of everything (queues, review, purge); overlaying feature fixes into training: train/serve skew, since serving data is not corrected |
 | D11 | **Native build** inside ENSEMBLE (§11) | embed Label Studio / Argilla: second user store, second PII copy, second audit trail, purge and legal hold would not reach it |
-| D12 | **Annotators may be "guest annotators"**: principals with **no team role**, only `label_task_members` rows; they see only their leased items (masked). Team viewers can also annotate, but they already see every team dataset through `data.preview` (`authz/policy.py:39`) | a new `annotator` team role: needs a `team_members.role` CHECK rebuild and would still be team-wide; making every annotator a viewer: gives outsourced staff preview of all team data |
+| D12 | **Annotators may be "guest annotators"**: principals with **no team role**, only `label_task_members` rows; they see only their leased items (masked). Team viewers can also annotate, but they already see every team dataset through `data.preview` (`authz/policy.py:39`) | a new `annotator` team role: needs a `team_members.role` CHECK rebuild and would still be team-wide; making every annotator a viewer: gives outsourced staff preview of all team data. **(LBL-VERIFY)** `require()` has no membership grant today (`policy.py:150-181`), so L01a adds `Rule.task_role` + scope kind `label_task` (§6.1); without it a guest gets 403 and the fallback would be the viewer leak |
 
 ---
 
@@ -190,6 +192,23 @@ CREATE TRIGGER le_ro_u BEFORE UPDATE ON label_events
             AND NEW.schema_version = OLD.schema_version AND NEW.confidence IS OLD.confidence
             AND NEW.seen_version_id = OLD.seen_version_id AND NEW.ctx_cols_sha256 IS OLD.ctx_cols_sha256)
   BEGIN SELECT RAISE(ABORT, 'label events are append-only (only a purge may redact)'); END;
+-- (LBL-VERIFY, review M13) a SECOND allowed UPDATE form, hash-only redaction: when a purged column was in an event's
+-- context (not its labelled cell), row_hash_ctx/row_hash_all → NULL with hash_redacted_at + purge_id set and value,
+-- provenance and every other column frozen; the label then evaluates stale (context_changed). The HMAC salt lives in
+-- the same DB, so a keyed hash over a low-entropy purged column is a recoverable derivative and must go.
+--   ALTER: label_events ADD hash_redacted_at TEXT; le_ro_u's WHEN becomes NOT (<full redaction as above> OR
+--   (OLD.hash_redacted_at IS NULL AND NEW.hash_redacted_at IS NOT NULL AND NEW.purge_id IS NOT NULL
+--    AND NEW.row_hash_ctx IS NULL AND NEW.row_hash_all IS NULL AND NEW.value IS OLD.value AND NEW.provenance = OLD.provenance
+--    AND NEW.base_value_hash IS OLD.base_value_hash AND NEW.purged_at IS OLD.purged_at AND <every other column frozen>)).
+
+-- (LBL-VERIFY, review M4) insert-only / forward-only triggers on every table the plan calls immutable:
+--   lsc_ro_u/_d  label_schemas: no UPDATE/DELETE.       lp_ro_u/_d  label_prompts: no UPDATE/DELETE (calibration moved
+--   lcal_ro_u/_d label_calibrations: no UPDATE/DELETE.  out to label_calibrations below).
+--   lg_ro_u/_d   label_gold: no DELETE; the only UPDATE is retired_at NULL → set (and value → NULL when a purge retires it).
+--   ls_ro_u      label_snapshots: content columns frozen (layer_id, through_seq, schema_version, policy, policy_sha256,
+--                blob_sha256, manifest_blob, snapshot_sha256, values_sha256, inputs_sha256, counts, contract_result,
+--                created_*); state moves forward only: draft → approved → superseded, any → purged.
+--   On Postgres all of them join APPEND_ONLY (label_gold and label_snapshots with column-level UPDATE of the movable columns).
 
 -- ═════ tasks, membership, queue, gold ══════════════════════════════════════════════════════════════════════════
 CREATE TABLE label_tasks (
@@ -223,6 +242,16 @@ CREATE UNIQUE INDEX ux_la_once ON label_assignments (task_id, row_id, item_key, 
 CREATE TABLE label_gold (task_id TEXT NOT NULL REFERENCES label_tasks(id), row_id BIGINT NOT NULL, column_name TEXT NOT NULL,
   value TEXT, pool TEXT NOT NULL CHECK (pool IN ('qa','few_shot','calibration')),  -- disjoint pools (§5.10)
   set_by TEXT NOT NULL, set_at TEXT NOT NULL, PRIMARY KEY (task_id, row_id, column_name));
+-- (LBL-VERIFY, review M3/M8/M9) gold is per LAYER and versioned, not per task: columns layer_id (NOT NULL), gold_id (PK,
+-- lg_), provenance TEXT NOT NULL ('blind' | 'expert' | 'consensus_blind'; values made while a pre-label was shown are
+-- refused for the calibration pool), retired_at TEXT. Pools are disjoint per layer among live rows (checked on insert).
+-- The few_shot and calibration pools exclude the root's PROTECTED SET (holdout rows of every split, every split_key, of
+-- every version of the root; §5.7). gold_version_sha256 = sha over the live gold rows, recorded in snapshot manifests.
+CREATE TABLE label_calibrations (                           -- (LBL-VERIFY, review M3/M9) insert-only; replaces label_prompts.calibration
+  id TEXT PRIMARY KEY, prompt_id TEXT NOT NULL, prompt_sha256 TEXT NOT NULL, samples_k INTEGER NOT NULL, mode TEXT NOT NULL,
+  gold_version_sha256 TEXT NOT NULL, pick_rows TEXT NOT NULL, certify_rows TEXT NOT NULL,  -- the split-sample halves (§5.10)
+  record TEXT NOT NULL, record_sha256 TEXT NOT NULL, tau_star TEXT, passed INTEGER NOT NULL CHECK (passed IN (0,1)),
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL);
 
 -- ═════ snapshots (frozen, content-addressed) ═══════════════════════════════════════════════════════════════════
 CREATE TABLE label_snapshots (
@@ -236,6 +265,10 @@ CREATE TABLE label_snapshots (
   state TEXT NOT NULL DEFAULT 'draft' CHECK (state IN ('draft','approved','superseded','purged')),
   created_at TEXT NOT NULL, created_by TEXT NOT NULL, approved_by TEXT, approved_at TEXT, approval_comment TEXT);
 CREATE INDEX ix_lsn_layer ON label_snapshots (layer_id, created_at);
+-- (LBL-VERIFY, review M3/M6) label_snapshots also has: inputs_sha256 TEXT NOT NULL (§4.3), approval_request_id TEXT
+-- (the approval_requests row of action 'label.snapshot_approve' / '…_model'; approved_by/at are copies for display),
+-- approved_on_version_id TEXT, approved_table_sha256 TEXT, approved_applied_sha256 TEXT (what the approver was shown),
+-- approved_under_poc INTEGER NOT NULL DEFAULT 0.
 
 -- ═════ proposals (corrections and relabels awaiting review) ═══════════════════════════════════════════════════
 CREATE TABLE label_proposals (id TEXT PRIMARY KEY, layer_id TEXT NOT NULL, origin TEXT NOT NULL
@@ -251,7 +284,7 @@ CREATE TABLE label_prompts (                                -- insert-only versi
   effort TEXT NOT NULL DEFAULT 'low', template TEXT NOT NULL, context_json TEXT NOT NULL,
   few_shot TEXT NOT NULL DEFAULT '{}',                       -- {per_class, seed, pool:'few_shot'} → resolved ids at run time
   output_schema TEXT NOT NULL, prompt_sha256 TEXT NOT NULL,
-  calibration TEXT,                                          -- §5.10: the latest calibration record (JSON), or NULL
+  -- (LBL-VERIFY) no mutable calibration column here: calibrations are rows of label_calibrations (insert-only)
   created_at TEXT NOT NULL, created_by TEXT NOT NULL, UNIQUE (layer_id, name, version));
 CREATE TABLE label_llm_runs (
   id TEXT PRIMARY KEY, prompt_id TEXT NOT NULL, job_id TEXT NOT NULL, purpose TEXT NOT NULL
@@ -267,6 +300,15 @@ CREATE TABLE label_llm_cache (                               -- re-creatable; pu
   layer_id TEXT NOT NULL, row_id BIGINT NOT NULL, response TEXT NOT NULL, tokens_in INTEGER, tokens_out INTEGER,
   created_at TEXT NOT NULL);
 CREATE INDEX ix_llc_row ON label_llm_cache (layer_id, row_id);
+-- (LBL-VERIFY, review M10) the cache key uses HMAC(layer.salt, payload), not a plain sha (dictionary oracle).
+-- (LBL-VERIFY, review M11) spend reservations and resumable Batches:
+CREATE TABLE label_llm_spend (id TEXT PRIMARY KEY, team_id TEXT NOT NULL, run_id TEXT NOT NULL, month TEXT NOT NULL,
+  reserved_usd TEXT NOT NULL, actual_usd TEXT NOT NULL DEFAULT '0', state TEXT NOT NULL CHECK (state IN ('reserved','settled','released')),
+  created_at TEXT NOT NULL);                                 -- reserved under the team row lock (UPDATE teams … RETURNING)
+CREATE TABLE label_llm_batches (run_id TEXT NOT NULL, chunk INTEGER NOT NULL, batch_id TEXT, n_requests INTEGER NOT NULL,
+  reserved_usd TEXT NOT NULL, state TEXT NOT NULL, submitted_at TEXT, finished_at TEXT, PRIMARY KEY (run_id, chunk));
+  -- the row is written (state 'submitting') before the API call and gets batch_id in the same job step; a restart
+  -- looks the batch up instead of re-submitting
 
 -- ═════ run pins (columns added; the role CHECK is not rebuilt) ════════════════════════════════════════════════
 ALTER TABLE run_inputs ADD COLUMN label_snapshot_id TEXT;
@@ -274,6 +316,8 @@ ALTER TABLE run_inputs ADD COLUMN label_snapshot_sha256 TEXT;
 ALTER TABLE run_inputs ADD COLUMN overlay_sha256 TEXT;       -- §4.4
 ALTER TABLE run_inputs ADD COLUMN overlay_blob TEXT;          -- the applied entries (blob), for re-verify
 ALTER TABLE run_inputs ADD COLUMN overlay_spec TEXT;          -- {columns, holdout:'original'|'corrected', stale, rows_applied}
+ALTER TABLE run_inputs ADD COLUMN labels_fitted_sha256 TEXT;  -- (LBL-VERIFY, review C1) sha over (__row_id, label) of the
+                                                              -- rows actually fitted (the sample when sampled); re-verify recomputes it
 -- ri_ro_u is in schema.py's CREATE TRIGGER IF NOT EXISTS dict (catalog/schema.py:971): L01b DROPs and re-creates it
 -- (a migration step) so existing databases get the extended column list; same on Postgres.
 -- run_inputs rows are written by the worker at fit time (engine/worker.py:729); the run's cfg carries the label spec
@@ -360,6 +404,8 @@ base_value_hash = HMAC(salt, "ensemble.cell/1\n" + canon(old value))   # cell co
 |---|---|---|
 | `__row_id` | BIGINT | |
 | `column` | VARCHAR | |
+| `item_key` | VARCHAR | **(LBL-VERIFY, M5)** `''` for cells; in `/1` from day one so spans / pairs / lists need no `/2` |
+| `epoch_hash` | VARCHAR | **(LBL-VERIFY, C2)** the `row_hash_ctx` (and `base_value_hash` for corrections) this entry was resolved for; one entry per `(row, column, item_key, epoch_hash)` for the latest K epochs (default 2) |
 | `value` | VARCHAR | canonical text, NULL if `is_null` or not applied |
 | `is_null` | BOOLEAN | |
 | `status` | VARCHAR | `applied` · `disputed` · `prelabel_only` · `schema_dropped` · `immature` |
@@ -386,16 +432,26 @@ base_value_hash = HMAC(salt, "ensemble.cell/1\n" + canon(old value))   # cell co
 ```
 
 ```
+# (LBL-VERIFY, review M5) every frozen column, each field 0x1F-terminated, NULL = 0x00; purged_at included so a
+# redaction changes the hash visibly
 events_sha256   = sha256("ensemble.labelevents/1\n" + ⨁ included events in seq order:
-                         utf8(id) ‖ 0x1F ‖ int64-LE(seq) ‖ 0x1F ‖ kind ‖ source ‖ actor ‖ (value | 0x00) ‖ 0x1E)   # content, not ids only
-values_sha256   = sha256("ensemble.labels/1\n" + ⨁ rows in (__row_id, column) order:
-                         int64-LE(__row_id) ‖ utf8(column) ‖ 0x1F ‖ (utf8(value) | 0x00) ‖ 0x1F ‖ utf8(status) ‖ 0x1E)
+                         ⨁_{f in (id, seq as int64-LE, row_id as int64-LE, column_name, item_key, kind, value|0x00, is_null,
+                               source, actor, task_id, assignment_id, refers_to, schema_version, confidence, seen_version_id,
+                               row_hash_ctx, row_hash_all, ctx_cols_sha256, base_value_hash, created_at, purged_at, hash_redacted_at)}
+                         (utf8(f) ‖ 0x1F) ‖ 0x1E)
+values_sha256   = sha256("ensemble.labels/1\n" + ⨁ rows in (__row_id, column, item_key, epoch_hash) order:
+                         int64-LE(__row_id) ‖ utf8(column) ‖ 0x1F ‖ utf8(item_key) ‖ 0x1F ‖ utf8(epoch_hash) ‖ 0x1F
+                         ‖ (utf8(value) | 0x00) ‖ 0x1F ‖ utf8(status) ‖ 0x1E)
+inputs_sha256   = sha256(canonical JSON of manifest.inputs)   # (LBL-VERIFY, review M3)
+                  inputs = {calibrations:[{id, record_sha256}], gold_version_sha256, identity_map_sha256,
+                            reference_run:{id, probs_sha256}, schema_chain_sha256, as_of}
 snapshot_sha256 = sha256(canonical manifest)
 ```
 
 `values_sha256` is independent of the Parquet writer (as the split hash). Re-verify = rehash the blob's rows and
 compare; the manifest is also a blob. `snapshot_sha256` includes `created_by/at` and engine versions, so two builds
-never share it: **"same result"** means equal `events_sha256` + `policy_sha256` + `values_sha256`. Blob refs: `owner_kind='label_snapshot'`, roles `snapshot`, `manifest`.
+never share it: **"same result"** means equal `events_sha256` + `policy_sha256` + `inputs_sha256` + `values_sha256`
+**(LBL-VERIFY: inputs added; gold weights, calibration, identity map, p̂ and as_of change results without any event)**. Blob refs: `owner_kind='label_snapshot'`, roles `snapshot`, `manifest`.
 
 ### 4.4 The overlay hash (what a run trained on)
 
@@ -426,7 +482,11 @@ id cannot be reassigned to a different entity.
 | cell correction whose current cell ≠ `base_value_hash` | **conflict**: data changed under the correction; never applied; `stale` queue |
 | row absent (deleted, filtered, purged) | **orphaned**: kept, not applied, counted |
 | new row (id above every labelled id or never labelled) | **unlabelled**: eligible for queues |
-| the labelled cell's **base value** changed (e.g. the target corrected in a later upload) | **base_changed** (`base_value_hash` differs): policy `base_changed: conflict` (default: not applied, `stale` queue) or `layer_wins` |
+| the labelled cell's **base value** changed (e.g. the target corrected in a later upload) | **base_changed** (`base_value_hash` differs **and** the current base ≠ the label's value): policy `base_changed: conflict` (default: not applied, `stale` queue) or `layer_wins` |
+| **(LBL-VERIFY, M2)** the current base value **equals** the label's value (after materialise, an approved proposal, an F13/F14 adapter, or upstream catching up) | **absorbed**: live, a no-op in the overlay, counted; never a conflict |
+| **(LBL-VERIFY, M1)** the labelled column was renamed / dropped / re-typed in V | rename: `label_schemas.column_map` (appended automatically from the manifest's `rename_column` op) maps it; drop → **column_missing** (409 at run creation, never silent); cast of a context column → stale with reason **type_changed** (bulk "re-anchor": a reviewer confirms a page, each confirm starts a new epoch) |
+| **(LBL-VERIFY, M1)** V came from a writer that assigns fresh ids (SQL refresh, `derive()` with `row_map = -1` for labelled ids) | **orphaned**, but only after `label_identity_lost` was shown and acknowledged (§5.1a); never silently |
+| **(LBL-VERIFY, C2)** the row's content changed and it was re-reviewed on V | the re-review is its own **epoch**; the snapshot entry for V's `epoch_hash` is decided by the votes on V's content only; older-epoch votes still serve older versions |
 | a context column dropped or renamed in V | the ctx hash can't be recomputed (`ctx_cols_sha256` names a missing column) → **stale** with reason `context_changed` |
 | branch versions of one root (v4a, v4b) | same layer, each version evaluates staleness against its own rows |
 | join frame | the overlay applies to the grain table's column by grain `__row_id` (frames are keyed by it, P14); the join cache and `frame_sha256` are unchanged |
@@ -443,6 +503,12 @@ id cannot be reassigned to a different entity.
   counts if not unique), and appends copies of each row's effective events with `source='remap'` (registered,
   non-machine), `refers_to` = the original event, new `row_id`, hashes recomputed on `to_version` (a changed row
   therefore comes out stale, as it should). Unmatched rows stay orphaned and are reported.
+- **(LBL-VERIFY, review M1)** `label_identity_lost` is not only an upload check. Every writer that gives a root's rows
+  fresh ids reports it and needs the same ack: **SQL refresh** (`sqlsource/api.py:212` → `datasets.create_from_frame`,
+  "a refresh is a version of its parent with fresh row ids (unpaired)", `datasets.py:1500`): every labelled row would be
+  orphaned on every refresh; `POST /datasets/{id}/refresh` gains `acknowledge` and offers `match: {key}` when the layer's
+  table has a declared key; `derive()` with `row_map = -1` on previously labelled ids. `GET …/status` also lists orphaned
+  rows whose declared key **reappears** in V (deleted, then re-added) and offers remap.
 
 ### 5.2 Staleness computation (bounded)
 
@@ -465,8 +531,13 @@ Snapshot **policy** (canonical JSON):
  "stale":"exclude","stale_on":"ctx","exclude_simulated":true,"reference_run":null,"through_seq":"latest"}
 ```
 
-Per `(row, column)`, over events with `seq ≤ through_seq`, `purged_at IS NULL`:
+Per `(row, column, item_key)`, over events with `seq ≤ through_seq`, `purged_at IS NULL`:
 
+0. **Epochs (LBL-VERIFY, review C2).** Group the events by `epoch_hash` (= `row_hash_ctx`, plus `base_value_hash` for
+   corrections). Steps 1–6 run **per epoch**; votes never cross epochs. The snapshot keeps the latest K epochs per key
+   (default 2, by max seq) and the overlay (§5.5) picks the entry whose `epoch_hash` equals the version's recomputed hash.
+   Without this, a re-review of a stale row (one new vote on new content) is outvoted by the old votes and the row stays
+   stale forever.
 1. **Effective votes.** Per `(actor, source)`, the latest `label`/`confirm` event wins; `retract` removes the actor's
    vote; `confirm` of a pre-label counts as that actor's human vote for the confirmed value; `reject` of a pre-label
    removes it from consideration for that actor and is a vote "not X" (used only for agreement stats).
@@ -488,6 +559,11 @@ Per `(row, column)`, over events with `seq ≤ through_seq`, `purged_at IS NULL`
 Disagreement handling: `disputed` rows feed the task's `disputed` queue; reviewers adjudicate; the next snapshot picks
 it up. No vote is ever deleted.
 
+**(LBL-VERIFY, review M3)** The non-event inputs of steps 3–6 (gold version for `weights: gold`, calibration ids for
+`τ*`, the legacy identity map, the reference run's p̂, the schema chain, `as_of`) are written into the manifest's
+`inputs` and hashed (`inputs_sha256`, §4.3). Resolution for `majority` / `single` runs as DuckDB SQL over the paged
+events (not pandas), so the stage-1 full rebuild of a 20M-event layer stays within the `duck` resource's memory limit.
+
 ### 5.4 Append and snapshot consistency
 
 - `POST …/events` (or a job's batch of ≤ 500 events) in one transaction:
@@ -496,13 +572,22 @@ it up. No vote is ever deleted.
   with `through_seq = next_seq − 1` read after a commit sees every event ≤ it.
 - Human rates (< 50 events/s per layer) and job batches of 500 make the lock irrelevant (§10).
 - Snapshot build is a job (`kind='label_snapshot'`, resource `duck`): read events ≤ `through_seq` in pages, resolve
-  (5.3), compute staleness against the **latest default version** for the counts only (the stored snapshot is
+  (5.3), compute staleness against the **latest default version** for the counts only (**LBL-VERIFY:** approval
+  binds to the version it was shown on, §8.2) (the stored snapshot is
   version-independent; staleness is applied per run in 5.5), write blob + manifest via the blob store, insert
   `label_snapshots`, audit `label_snapshot_created`.
 
 ### 5.5 Overlay at read time (training)
 
 New input ref in `frames.py`: `Labelled(base: Table | JoinFrame, snapshot_id, columns, holdout, stale)`.
+
+**(LBL-VERIFY, review C1) It is a subclass, not a sibling:** `LabelledTable(Table)` and `LabelledJoin(JoinFrame)`
+(frozen dataclasses adding `overlay_blob`, `overlay_sha256`, `columns`, `holdout`). A sibling type would fail the 24
+`isinstance(ref, (Table, JoinFrame))` / `serving.parquet_ref()` checks in 8 files (vela/rows, vela/experiments,
+lake/mask, lake/frame, engine/serving, engine/api, gym/export, registry/build) and fall to `path_of()` or the legacy
+branch. As a subclass, every existing check and `lake_table()` keep working on the base parts, and each label reader
+applies the overlay when `ref` is labelled. Post-fit readers apply the **pinned** overlay blob (`run_inputs.overlay_blob`)
+and never recompute it.
 
 ```
 at run creation (POST /runs with label_snapshot_id):
@@ -517,13 +602,30 @@ at read — ONE overlay step, `labels/overlay.apply(ref, arrow_or_frame)`, calle
     lake/frame.py:262-330, 487); engine/worker.py load_frames (has_label is computed AFTER the overlay, worker.py:85);
   post-fit consumers that re-read labels via frames.resolve(cfg): engine/serving.holdout_frame / bounded_holdout,
     registry/build.py holdout read (:274), vela/doctor, engine/heavy, engine/custom_ensemble, registry/scoring.
+  (LBL-VERIFY, review C1) also the direct part readers that frames.read does not cover:
+    engine/serving.read_ids (serving.py:169-189: read_part_columns on [__row_id, label]) and so RunRows.label_ok
+    (:276), bounded_holdout (:353), bounded_train; vela/rows.sample_table (:111); these are the >ENSEMBLE_DOCTOR_ROWS
+    paths of the build, Model Doctor, Vela findings and the scoring reference (F-X5a);
+    gym/export.build_script (gym/export.py:69-75) ships the overlay blob and applies it in the script, or answers
+    409 labels_export_unsupported; registry/build.py:551,838 records overlay_sha256 beside data_hash (input_sha256 is
+    base bytes only); and every other frames.resolve(cfg) consumer (31 files, among them slices_api, explain,
+    learning_curve, shift_api, fairlending/api, credit_report_api, multilabel/segmented/reject core), which get the
+    overlay through frames.read and are checked in L04b's chain.
   The overlay is a dict-free Arrow join on __row_id (overlay ≤ 100k rows, sorted; numpy searchsorted per batch).
   Grep gate 3 (new, every L-phase): label-column reads outside frames.py / lake/ / labels/ must go through
   frames.read / lake.frame (no frames.lake_table / read_part_columns on the label column).
+  (LBL-VERIFY) gate 3 also flags read_ids / read_part_columns / lake_table used with a run's label column outside
+  frames.py, lake/frame.py, engine/serving.py and labels/: read_part_columns is a sanctioned helper, so the old wording
+  missed serving.read_ids.
 hashing: ReadHash / hash_into stays on the BASE bytes only (data_gate compares it with table_sha256, worker.py:771-815);
   the overlay is checked separately: the worker rehashes the overlay blob = run_inputs.overlay_blob and recomputes
   overlay_sha256 before the fit (409 overlay_integrity otherwise)
 rows whose target is NULL after the overlay are dropped from training as today (has_label); counted
+(LBL-VERIFY, review C1) evidence: the worker records labels_fitted_sha256 = sha256 over (__row_id, label) of the rows
+  actually fitted (the sample when sampled) in run_inputs; GET /admin/lake/runs/{id}/verify recomputes it from base +
+  pinned overlay + split; mismatch = 409 labels_fitted_mismatch
+(LBL-VERIFY, review M7) until L06b, inputs_gate (certify.py:218) refuses at promotion every run with overlay_sha256
+  under require_certified_inputs (409 labels_not_approved): fail closed, so the slice has no gate hole
 the staleness / applied computation (§4.4) runs in the run's job before the fit, never inside POST /runs (≤ 15 s at 10M)
 CSV-era (storage='csv') versions: 409 labels_need_lake_version (every P10-migrated version is Parquet)
 ```
@@ -564,6 +666,17 @@ Contract checks and DP §4.2 acks run as for any version. 10M rows: as an edit c
 4. The split itself never changes (labels don't move rows between folds). Stratification of an already-pinned split
    used the original labels; documented on the card.
 5. Rows whose target was NULL in the holdout and got a label: excluded from `original`, included in `corrected`.
+6. **(LBL-VERIFY, review M8) Protected set.** "Holdout" for queues and pools = the **protected set**: the holdout rows of
+   every split (every `split_key`) of every version of the root. Fills other than `gold`/`manual` never draw from it.
+   The `few_shot` and `calibration` gold pools never contain it (checked on insert), because few-shot rows are shown to
+   the LLM whose labels train the model, which would carry holdout information into training labels.
+7. **(LBL-VERIFY, review M8) Who may grade.** `import` is seeded `may_grade_holdout = 0`. An import may count for
+   `corrected` only when it declares `provenance.human_attested` with a reason (audited, `label.task_manage`), since a
+   file can hold another model's output. Data Doctor proposals keep `source='cleanlab'` (never `edit`). The "shown
+   without a pre-label" rule applies to imports as "attested blind".
+8. **(LBL-VERIFY, review M8) Maturity is a row exclusion, not a label change** (§5.12): immature rows leave **both**
+   training and the holdout (`original` and `corrected`), counted on the card. Otherwise the headline metric still
+   grades 3-month-old loans as "no default".
 
 ### 5.8 Queues and assignment
 
@@ -591,14 +704,22 @@ per vote slot) with a `fill_id`:
   immediately; accuracy < `min_gold_accuracy` over ≥ 20 gold items → the member is **paused** on the task (audited);
   a reviewer can resume.
 - Expired leases return to `open` (janitor in the existing job janitor loop).
+- **(LBL-VERIFY, review M12)** Annotators write **only** through `answers` against their own leased `assignment_id`.
+  `POST /label-layers/{l}/events` needs `label.task_manage`. Otherwise an annotator could label any `row_id` with no
+  lease, gold or blind check (targeted poisoning of one customer's label).
+- **(LBL-VERIFY, review M16)** Task `exclude_if` (e.g. `{column: "officer_id", equals: "principal.attr.employee_id"}`)
+  keeps annotators off rows they are party to (segregation of duties); it is applied at `next`.
 
 ### 5.9 Quality and agreement
 
-`GET /label-tasks/{t}/quality`: per annotator: items, items/h (median `ms_spent`), gold accuracy (Wilson 95 %),
+`GET /label-tasks/{t}/quality` (**LBL-VERIFY, M12:** `label.review` or `label.task_manage`, never shares; it is personnel
+data): per annotator: items, items/h (median `ms_spent`), gold accuracy (Wilson 95 %),
 agreement with consensus, Cohen's κ per pair with ≥ 30 shared items, Fleiss' κ over rows with `votes_per_row`
 complete (reuse `annotations.cohen_kappa` / `fleiss_kappa`), **anchoring**: agreement with the pre-label on shown
 items vs blind items (a gap > 10 points with p < 0.05 by McNemar — `annotations.mcnemar_exact` — is flagged).
 Per class: confusion between annotators and consensus. Per task: throughput, backlog, ETA.
+**(LBL-VERIFY, review M16)** Gold accuracy and agreement are also split by protected-group proxies (the fairlending
+module's groups, used for analysis only, never shown per row), for annotators and for LLM prompts.
 
 ### 5.10 LLM labeling pipeline
 
@@ -623,7 +744,9 @@ any other model or a `refusal` as `rows_failed`):
 
 **Few-shot**: k per class from gold pool `few_shot` (seeded), ids recorded → `few_shot_sha256`. Gold pools
 `few_shot`, `calibration`, `qa` are **disjoint** (enforced on insert), so calibration never grades rows the prompt has
-seen.
+seen. **(LBL-VERIFY, M8/M9/M10)** Pools are disjoint **per layer** (prompts are per layer; per-task disjointness let
+task A's few-shot overlap task B's calibration). Pools exclude the protected set (§5.7). Few-shot rows pass the same
+column policy and redaction as the labelled rows.
 
 **Self-consistency**: `samples_k` (default 1). With k ≥ 2 the label is the majority; `confidence = vote share ×
 verbalised confidence`. Mode `adaptive`: k=1, then 2 more samples only for rows below the threshold (≈ 20–30 % of
@@ -635,6 +758,20 @@ decile, and for each threshold τ the coverage and accuracy with a Wilson 95 % l
 record stores `{n, accuracy, per_class, thresholds:[{tau, coverage, acc, acc_lo}], target, tau_star}` where `tau_star`
 = the smallest τ with `acc_lo ≥ target` (default target 0.95). A prompt version change (any byte of the hashed
 spec) or a new schema version invalidates the record.
+
+**(LBL-VERIFY, review M9) Calibration v2**, a row of `label_calibrations`:
+- **Split sample.** A seeded half of the pool picks `τ*`; the other half certifies `acc_lo` at that τ. Choosing τ by
+  scanning thresholds and then quoting that τ's Wilson bound on the same rows is optimistic.
+- **Per class.** Classes the schema marks `critical: true` (e.g. Fraud) need their own `acc_lo` (and recall) ≥
+  `target_class`. Overall accuracy is reweighted to the population when the pool was stratified (≥ 20 per class).
+- **Gold provenance.** Gold values must be `blind` or `expert` (made without a pre-label); others → 409 `gold_anchored`.
+- **Bound to the run.** A calibration holds for `(prompt_sha, samples_k, mode)`. Adaptive k changes the confidence
+  distribution, so it is calibrated in adaptive mode.
+- **Audit sample.** Every `label` run draws a seeded random 1 % (≥ 50 rows) of its auto-acceptable rows into a blind
+  `qa` fill. The snapshot accepts that run's LLM labels only once its audit `acc_lo ≥ target`, which catches the gap
+  between the gold pool and the labelled population.
+- **Fairness.** `acc_lo` per protected-group proxy (§5.9). A group below `target − fairness_margin` (default 0.03)
+  blocks auto-acceptance.
 
 **Acceptance**: LLM events are always written (`source='llm'`, provenance with model, prompt sha, few-shot sha, k,
 tokens, cost). The snapshot policy decides: applied only if `accept.llm` lists the prompt and confidence ≥ τ* (with
@@ -650,6 +787,16 @@ are skipped on restart); `ENSEMBLE_LABEL_LLM_CONCURRENCY` (default 8) in-flight 
 - Before a run, `est_usd` from `count_tokens` on 20 sample rows × n × k (input split cached/uncached) + an output
   estimate from the preview; the run is refused (409 `over_budget`) if `est_usd > max_usd` or it would pass the team's
   monthly `llm_labeling.max_usd_month`; spend is tracked from `usage` per reply and the job stops at `max_usd`.
+- **(LBL-VERIFY, review M10)** `count_tokens` sends row content to the vendor. The pre-approval estimate uses a local
+  approximation (chars / 3.5 + 20 % margin). `count_tokens` and preview are data sends: they go through the same
+  destination, PII guard and audit.
+- **(LBL-VERIFY, review M11)** The caps are **reservations**. A run reserves its worst case (rows × k × (input +
+  `max_tokens` output)) in `label_llm_spend` under the team row lock, so two jobs cannot both pass the monthly cap, and
+  the reservation is settled from `usage`.
+  - **Batch mode** submits in chunks of ≤ 10k requests, each reserved before submit. `label_llm_batches` holds the batch
+    id before the job step ends, so a restart never re-submits.
+  - Polling is a re-enqueued job (`jobs.queue.enqueue(…, not_before=)`), so a 24 h batch holds no `light` slot.
+  - `max_tokens` is always set, since thinking tokens are billed output.
 - Team policy (DP §6.4) gains:
   `"llm_labeling":{"enabled":false,"destinations":[],"max_usd_month":"0","max_rows_job":100000,"allow_unmasked":false}`.
 - Kill switch: `ENSEMBLE_LABEL_LLM=off` refuses new runs and cancels running ones.
@@ -660,6 +807,13 @@ prompt over the same rows costs nothing; a changed row (payload) is asked again.
 **PII and data residency** (§8.3 for approvals):
 - Columns tagged `pii_direct`, `pii_quasi`, `sensitive` or `protected` are **excluded** from `context_json` by
   default; `send_masked: true` sends them masked with `lake/mask.mask_value` (e.g. `year_only`, `bucket`).
+- **(LBL-VERIFY, review M10) Allowlist, not denylist.** A column may be sent only if a steward has set its PII
+  classification (`pii_reviewed`, including "none"). Unreviewed columns → 409 `pii_unreviewed` listing them. Tag
+  coverage is never complete, and an untagged 15-character `customer_name` would otherwise go out.
+- **(LBL-VERIFY, review M10) Rationale.** The model's `rationale` is PII-scanned before it is stored. It is masked per
+  viewer and never shown to annotators when unmasked columns were sent, because it can quote them. Accepted labels keep
+  the scanned rationale in event provenance for model-risk audit (minor 14). Errors and logs carry codes and row ids,
+  never row text or model output.
 - Untagged **free-text** columns (type text, mean length > 40) are **excluded by default** too: regexes do not find
   names or addresses in complaint text. Including one needs the same approval as unmasked columns. When included, they
   are scanned before sending (card numbers with Luhn, IBAN, account-number patterns,
@@ -678,6 +832,11 @@ prompt over the same rows costs nothing; a changed row (payload) is asked again.
   destination (below) works.
 - **Prompt injection**: a free-text row matching an injection heuristic ("ignore", "instruction", "label this as",
   role words, long imperative runs) has its confidence capped at 0.5 and is never auto-accepted; counts are shown.
+  **(LBL-VERIFY)** Heuristics do not stop a customer writing text that steers a classifier away from `Fraud`. Policy
+  `accept.llm.never_auto_from: [<critical classes>]`: a non-critical machine label on a row that a rule, a prior label or
+  another sample marks critical is never auto-accepted and goes to people.
+- **(LBL-VERIFY, minor 12)** The API specifics above (thinking per model, Batches vs. server-side fallbacks,
+  `output_config.format`) are checked against the current SDK docs at the start of L08a before any code.
 - `ENSEMBLE_LABEL_LLM_FAKE=oracle|noisy` (demo/verification only, refused in `enforce` mode): a deterministic stub that
   answers from the sample's hidden truth with a set error profile, so the pipeline can be verified without sending data.
 
@@ -705,6 +864,11 @@ accuracy per rule (Snorkel's LF analysis). No generative label model (§11).
 
 ### 5.12 Outcomes, maturity and delayed labels (credit)
 
+- **(LBL-VERIFY, review M8/minor 6)** Maturity is applied as a **row exclusion** over every row of the version (not only
+  rows with events), to training **and** holdout; the excluded set is part of the pinned overlay blob, so the overlay
+  can hold millions of rows (gate in L04a at 2M). Outcome layers require `as_of` (from the import or the policy);
+  without it → 409 `as_of_required`. Corrections on outcome layers carry `known_at`; materialising a correction into
+  rows observed before `known_at` warns `lookahead_correction` (review M16).
 - A column with `outcome` in the schema (e.g. `default_12m`, window 12 months from `app_date`) gets **maturity**: a
   row is mature when `observation_date + window ≤ as_of`, where `as_of` = the outcome feed's date (import provenance
   `as_of`) or the snapshot's policy `as_of`. Immature rows are `status = immature` and the overlay **sets the target to
@@ -728,8 +892,8 @@ accuracy per rule (Snorkel's LF analysis). No generative label model (§11).
 | Action | Min role | Notes |
 |---|---|---|
 | `label.read` | viewer (rr, admin, shared) | layer, status, snapshots (approved ones only through a share), history; values of PII-tagged columns masked |
-| `label.annotate` | viewer | **plus** task membership `annotator` (handler check); events with source `human` only |
-| `label.review` | viewer | **plus** task membership `reviewer`; adjudicate an item only if the reviewer has no vote on it — new code `labels/governance.item_four_eyes` (`decide_check` compares single fields only) |
+| `label.annotate` | **(LBL-VERIFY, C3)** `Rule(task_role='annotator')`: task membership, no team role needed | `answers` / `next` only (direct events need `label.task_manage`, §5.8); events with source `human` only |
+| `label.review` | **(LBL-VERIFY, C3)** `Rule(task_role='reviewer')` | adjudicate an item only if the reviewer has no vote on it — new code `labels/governance.item_four_eyes` (`decide_check` compares single fields only) |
 | `label.task_manage` | maintainer | tasks, members, gold, fills, schemas/guidelines |
 | `label.layer_manage` | maintainer | create/freeze/archive layers, schema versions |
 | `label.import` | member | import a labels/outcomes file |
@@ -741,6 +905,13 @@ accuracy per rule (Snorkel's LF analysis). No generative label model (§11).
 | `label.propose` | member | edit/Doctor proposals |
 | `label.proposal_decide` | maintainer | ≠ proposer |
 | materialise | `data.version` + the rules of §8.2 | |
+
+**(LBL-VERIFY, review C3) Membership-scoped rule.** `decide()` (`policy.py:150-181`) only knows team roles, `rr`, admin,
+shares and `anyone`, so the plan's "viewer plus membership (handler check)" would 403 a guest in `require()` before the
+handler runs. L01a adds `Rule.task_role: 'annotator'|'reviewer'|None` and scope kind `label_task` (team via task →
+layer). `decide()` allows it when `label_task_members` has `(task, principal, role)` with `paused_at IS NULL`, before
+the team-role branch. `/authz/coverage` lists the new kind. It is in L01a because `policy.py` is frozen after it (lane
+rule).
 
 `FOUR_EYES` gains `label.snapshot_approve: {not: [created_by]}`, `label.proposal_decide: {not: [proposed_by]}`,
 `label.llm_unmasked_decide: {not: [requested_by]}`. `ENSEMBLE_POC_MODE=1` relaxes them like every other decide path
@@ -755,10 +926,10 @@ accuracy per rule (Snorkel's LF analysis). No generative label model (§11).
 | `GET /label-layers/{l}` · `PATCH` (state, name) | label.read · label.layer_manage | |
 | `POST /label-layers/{l}/schemas` `{spec, guidelines, class_map?}` | label.layer_manage | new schema version |
 | `GET /label-layers/{l}/status?version_id=` | label.read | live / stale / conflict / orphaned / unlabelled per column |
-| `POST /label-layers/{l}/events` `{events:[…]}` (≤ 500) | label.annotate (task) or label.task_manage | direct labels/corrections; server computes hashes |
+| `POST /label-layers/{l}/events` `{events:[…]}` (≤ 500) | label.task_manage (**LBL-VERIFY, M12**: not annotators) | direct labels/corrections; server computes hashes; PII-tagged columns refused until L06a (409 `pii_column_needs_purge_support`, review M14) |
 | `GET /label-layers/{l}/rows/{row_id}` | label.read | the row's events, resolved value, staleness |
 | `GET /label-layers/{l}/events?after_seq=&limit=` | label.read | keyset page |
-| `POST /label-layers/{l}/import` (multipart: file, id_column \| `__row_id`, annotator_column?, label columns, as_of?) | label.import | 202 job; unmatched ids reported, never guessed |
+| `POST /label-layers/{l}/import` (multipart: file, **version_id** (LBL-VERIFY), id_column \| `__row_id`, annotator_column?, label columns, as_of?, human_attested?+reason) | label.import | 202 job; unmatched ids reported, never guessed |
 | `POST /label-layers/{l}/tasks` · `GET/PATCH /label-tasks/{t}` | label.task_manage · label.read | |
 | `POST /label-tasks/{t}/members` · `DELETE …/{p}` | label.task_manage | |
 | `POST /label-tasks/{t}/gold` · `GET` | label.task_manage | gold values never returned to annotators |
@@ -766,7 +937,7 @@ accuracy per rule (Snorkel's LF analysis). No generative label model (§11).
 | `POST /label-tasks/{t}/next?n=` | label.annotate | leased items, masked context, pre-labels |
 | `POST /label-tasks/{t}/answers` `{items:[{assignment_id, value \| skip \| flag, note?, ms}]}` | label.annotate | |
 | `GET /label-tasks/{t}/review?kind=disputed\|gold_fail\|stale\|flagged` · `POST …/adjudicate` | label.review | |
-| `GET /label-tasks/{t}/quality` | label.read | §5.9 |
+| `GET /label-tasks/{t}/quality` | label.review or label.task_manage (**LBL-VERIFY, M12**) | §5.9 |
 | `POST /label-layers/{l}/prompts` · `GET` | label.llm_run | versions |
 | `POST /label-prompts/{p}/preview` `{n≤20, version_id}` | label.llm_run | sends data: audited, counts toward budget |
 | `POST /label-prompts/{p}/calibrate` · `POST …/runs` `{selector, k, mode, max_usd}` | label.llm_run | 202 jobs |
@@ -839,6 +1010,17 @@ actor, time and seq, and the snapshot hash chain covers what was used. Unmasked 
   warning (`labels_unapproved`) so experiments are not blocked.
 - Approving a snapshot (four eyes) runs the root's active contract rules on the resolved columns (allowed values,
   null share, class balance bounds) → `contract_result`; a blocking violation refuses approval (409 naming the rule).
+- **(LBL-VERIFY, review M4/M6)** Approval goes through an `approval_requests` row (action `label.snapshot_approve` /
+  `label.snapshot_approve_model`) and `policy.four_eyes`, like certifications and shares. It records what the approver
+  was shown: `approved_on_version_id`, `approved_table_sha256` and `approved_applied_sha256` (the applied set's values
+  hash on that version). `inputs_gate` passes an overlay only when the run's version has that `table_sha256`, or the
+  run's applied set is a subset of the approved one (same `epoch_hash` per row). Otherwise 409
+  `labels_approved_on_other_version`, offering a re-approval.
+- **(LBL-VERIFY, review M6)** Approvals made with `ENSEMBLE_POC_MODE=1` are stored `approved_under_poc = 1`.
+  `inputs_gate` refuses them when POC mode is off (409 `labels_approved_under_poc`).
+- **(LBL-VERIFY, minor 13; review M16)** The approver must not have authored > 20 % of the applied decisions
+  (adjudications included). A policy `min_kappa` (default unset; recommended 0.6) blocks approval when the applied
+  columns' agreement is lower.
 - Materialising onto a certified root needs an approved snapshot; the new version is **not** certified until
   certified as usual (its contract runs at commit).
 - Proposals on certified roots: §5.11 (`edits_require_review`).
@@ -863,6 +1045,14 @@ actor, time and seq, and the snapshot hash chain covers what was used. Unmasked 
   file are `record()`ed (`kind='label_llm_cache'|'label_export'`, columns); the F-X4c walker already searches every DB
   JSON column, which now includes `label_events.provenance` and `label_llm_cache.response`.
 - The impact report lists layers, events, snapshots, tasks and runs affected.
+- **(LBL-VERIFY, review M13)** Derivatives:
+  - Events whose **context** included a purged column get the hash-only redaction (§3.1). Their keyed hashes are
+    recoverable with the DB-resident salt.
+  - Any event whose provenance matches a purge needle is fully redacted, since the generic scrub skips `label_events`.
+  - Gold rows on purged rows or columns are retired with the value nulled.
+  - The sweep searches every `label_*` table, including the skipped ones.
+- **(LBL-VERIFY, review M16)** Label data gets a retention class under the P24 retention plan per team (events, LLM
+  cache, snapshots not pinned by a run, gold); manual like the rest of P24.
 
 ### 8.5 Legal holds
 
@@ -879,6 +1069,8 @@ LLM cache eviction (409 `legal_hold` naming the case). Appending events stays al
   annotators see rows masked per the share. Revoke: no new events, snapshots or runs on that layer; existing runs
   re-verify (as F-PII revoke). The owner can see that a grantee layer exists (name, counts), not its values.
 - Masked shares and LLM: a grantee layer can't send unmasked columns (`pii_masked_share`).
+- **(LBL-VERIFY, minor 11)** On revoke a grantee layer is frozen and listed in the owner's retention plan; the owner can
+  purge it.
 
 ---
 
@@ -926,8 +1118,8 @@ Assumptions: 10M-row table, 30 columns; labelled 1k–100k rows; 3 votes per row
 
 | Item | Size / time (estimate; L-phase gate in brackets) |
 |---|---|
-| Events per layer | 100k rows × (3 human + up to 3 LLM + adjudications ~5 %) ≈ 0.6M; ~350 B/row incl. indexes on PG → ≈ 210 MB. 10 such layers per deployment ≈ 2 GB: fine on PG, no partitioning needed below ~50M events. |
-| Append | batches of 500 events/txn ≈ 5–10k events/s on PG; humans ≈ 0.1–1 event/s each. Per-layer row lock never contended at these rates. [L01: 10k events in < 5 s] |
+| Events per layer | 100k rows × (3 human + up to 3 LLM + adjudications ~5 %) ≈ 0.6M. **(LBL-VERIFY, minor 1)** ≈ 700–950 B/event incl. 5 indexes on PG, not 350: four 64-hex hashes ≈ 256 B, LLM provenance ≈ 250 B, ~6 TEXT ids, tuple header → ≈ 0.5 GB per layer; 10 layers ≈ 5 GB; 10⁹ events (stage 2) ≈ 1 TB before segments. Still fine at stage 0. Optional: store keyed hashes as 32 hex (128-bit). |
+| Append | batches of 500 events/txn ≈ 5–10k events/s on PG; humans ≈ 0.1–1 event/s each. Per-layer row lock never contended at these rates. [L01: 10k events in < 5 s] **(LBL-VERIFY, minor 2)** At stage 2 (one hot layer, 1 000 annotators ≈ 300 events/s, plus 500-event LLM batches holding the lock 50–100 ms) the single row lock nears its ceiling (≈ 200–500 commits/s): stage 2 adds group commit or block-allocated seqs with a committed-prefix watermark, keeping the `through_seq` prefix contract. |
 | Next item | SKIP LOCKED pick < 10 ms; row fetch by `__row_id` = one 122 880-row group of the context columns: 30–80 ms local, 150–300 ms on MinIO cold, < 20 ms amortised with 25-item prefetch grouped by row group. [L07: p95 `next?n=25` < 400 ms at 10M on MinIO; per-item < 50 ms] |
 | Staleness (5.2) | 100k labelled rows on a 10M table: semi-join + read of ≤ 30 columns ≤ 5 s (full column scan worst case ≈ 2 GB decode in DuckDB under the B limits), HMAC 100k rows ≈ 1–2 s. [L02: < 15 s, < 1.5 GB] |
 | Snapshot build | 0.6M events paged → resolve in pandas/DuckDB ≈ 3–5 s; CROWDLAB on 100k rows × 5 annotators × ≤ 20 classes ≈ 10–40 s; blob ≈ 3–6 MB. [L03: < 90 s, < 1 GB] |
@@ -954,6 +1146,20 @@ Assumptions: 10M-row table, 30 columns; labelled 1k–100k rows; 3 votes per row
 **Bank-specific additions** (not in the generic tools): outcome maturity / performance windows (§5.12); immature
 rows excluded rather than labelled 0; outcome history by `as_of`; holdout evaluation rules for model risk (§5.7);
 PII-governed LLM use with destinations and approvals; four eyes on labels used for certified data.
+
+**(LBL-VERIFY, review M16) Also missing from the survey, now in the plan:**
+- **Fairness of labels**: annotator and LLM accuracy by protected-group proxy, and LLM acceptance blocked per group
+  (§5.9, §5.10).
+- **Label-quality statement on the model card** (model risk, SR 11-7 / SS1/23 style):
+  - estimated label noise with CI per class, from gold and IAA;
+  - the share of training labels by source and method;
+  - the share auto-accepted from machines;
+  - the guideline version.
+  It is built in L04b (card) from the snapshot counts and the L07b quality numbers.
+- **Segregation of duties**: task `exclude_if` (§5.8).
+- **Retention class for label data** (§8.4).
+- **Look-ahead corrections** (`known_at`, §5.12).
+- **An IAA gate on approval** (§8.2).
 
 **Decision: build natively.** The value is the integration with what ENSEMBLE already has: `__row_id` carry-over,
 splits, run pins, masking, authz, audit, purge, holds, shares, the job queue, cleanlab and AL code. An embedded tool
@@ -1020,6 +1226,34 @@ were checked against the code and resolved in the text above:
 | M16 sizes and file conflicts | 16 sessions, routers per module, shared files only in L01a — §13 |
 | m17–m22 wrong routes/files, blob kind, L03 counts, POC mode, cost (uncached default), staleness in the job, hashes before the seq lock, CSV-era refusal, `parquet_rel`, multipart guard | corrected in §5.5, §5.10, §5.11, §6, §10, §13 |
 
+### 12.2 LBL-VERIFY pass (folded in)
+
+An independent adversarial review (docs/plans/labeling-review.md) checked the plan against the code and found 3
+critical, 16 major and 14 minor issues. Required changes and where they now live:
+
+| Finding | Resolution |
+|---|---|
+| C1 overlay bypassed on the bounded/10M path (`serving.read_ids`, `RunRows`, `vela/rows`, `gym/export`); a sibling ref type breaks 24 isinstance checks | `LabelledTable(Table)` / `LabelledJoin(JoinFrame)` subclasses; reader list extended; gate 3 reworded; `labels_fitted_sha256` evidence — §5.5, §3.1, L04a/L04b |
+| C2 stale re-review outvoted by votes on old content | per-epoch resolution; `epoch_hash` in the snapshot — §5.3 step 0, §4.3, §5.1 |
+| C3 guests can't pass `require()`; Q3 default made them viewers | `Rule.task_role` + scope `label_task` in L01a; Q3 default = guests — §6.1, D12, §14 |
+| M1 identity loss via SQL refresh, column rename/drop/cast, re-added rows | `label_identity_lost` on every fresh-id writer, `column_map`, `column_missing`, `type_changed` re-anchor — §5.1, §5.1a |
+| M2 materialised labels become conflicts | `absorbed` status — §5.1 |
+| M3 results depend on unhashed inputs | `inputs_sha256`, `label_calibrations`, versioned gold; incremental only with unchanged inputs — §4.3, §5.3, §15.2 |
+| M4 immutability not enforced | triggers on snapshots/schemas/prompts/calibrations/gold; approval via `approval_requests` — §3.1, §8.2 |
+| M5 hashes not content hashes; no `item_key` in snapshots | full-column `events_sha256`; `item_key` + `epoch_hash` in `/1` — §4.3 |
+| M6 approval not bound to a version; POC approvals carry over | approved-on version / applied sha; `approved_under_poc` — §8.2 |
+| M7 gate blind L04a→L06b | fail-closed stub in L04a — §5.5 |
+| M8 holdout via few-shot, `import`, immature 0s; "holdout" undefined across splits | protected set, `import` grading 0, maturity as row exclusion — §5.7, §5.12 |
+| M9 calibration selection bias, class imbalance, anchored gold | calibration v2 (split sample, per-class, blind gold, bound to k/mode, audit sample, fairness) — §5.10 |
+| M10 untagged columns sent; rationale echo; `count_tokens` sends data; plain-sha cache key | allowlist (`pii_unreviewed`), rationale scan/mask, local estimate, HMAC key — §5.10, §3.1 |
+| M11 cap races; batch cap/resume | spend reservations, chunked batches, `label_llm_batches`, `not_before` poller — §5.10, §3.1 |
+| M12 annotators write any row; quality visible to viewers | events → `task_manage`; quality → reviewer/manager — §5.8, §6 |
+| M13 purge leaves keyed hashes, provenance needles, gold values | hash-only redaction form; needle redaction; gold retire — §3.1, §8.4 |
+| M14 slice ships unpurgeable PII corrections | PII columns refused until L06a; XL0 — §6.2, §15.4 |
+| M15 L07/L08 oversized; slice check missing | L07a/b, L08a/b, XL0; L01a carries authz + immutability + format fields — §13 |
+| M16 sector gaps (label fairness, card quality statement, SoD, retention, look-ahead, IAA gate) | §11, §5.8–5.10, §5.12, §8.2, §8.4 |
+| minors 1–14 | §10, §15.1–15.2, §5.10, §5.12, §8.6 and the review file |
+
 ---
 
 ## 13. Phases (sessions of about 2 h)
@@ -1032,33 +1266,38 @@ plus **gate 3**: no label-column read outside `frames.py` / `lake/` / `labels/` 
 every decide passes (`policy.py:144`) and the four-eyes steps cannot fail. Run each chain on SQLite and on Postgres 16 (+ MinIO for blob phases), audit and enforce.
 `$A`/`$B`/`$C` = Ana (owner), Ben (maintainer), Cole (member); `$V` = Vik (viewer, task annotator).
 
-**Lanes:** D (data core: L01a–L05, L09), G (L06a, L06b), O (L07, L08, L10), U (UL1, UL2), ⟂ (XL1). Shared files are
+**Lanes:** D (data core: L01a–L05, L09), G (L06a, L06b), O (L07a, L07b, L08a, L08b, L10), U (UL1, UL2), ⟂ (XL0, XL1).
+**(LBL-VERIFY)** L01a also carries the membership-scoped authz rule, the immutability triggers and the format fields
+(`item_key`, `epoch_hash`, full-column hashes), because `policy.py` and the DDL are frozen for later lanes. Shared files are
 touched once: `authz/policy.py` and `catalog/governance.py` only in L01a; each later lane owns its `labels/api_*.py`.
 
 | # | Lane | Goal | Files touched | Manual API verification chain | Done when | Depends on |
 |---|---|---|---|---|---|---|
-| **L01a** | D | Schema core + plug-in skeleton: §3.1 tables (layers, schemas, registries + seed rows, events + triggers, tasks, assignments, gold, snapshots, proposals, prompts, llm runs/cache) on SQLite; `labels/store.py` (append: hashes computed **before** the seq transaction, 500-event batches, canonical values, schema validation); `labels/registry.py` + protocols + slice plug-ins; **all** `label.*` actions in `policy.py`, all team-policy keys in `governance.py` and **one router file per module** (`labels/api_layers.py`, `api_tasks.py`, `api_llm.py`, `api_snapshots.py`, `api_proposals.py`, empty except layers/schemas/events) so later lanes don't share files | `catalog/schema.py`, `authz/policy.py`, `catalog/governance.py` (policy keys only), `labels/__init__.py`, `labels/store.py`, `labels/values.py`, `labels/registry.py`, `labels/plugins/{sources,tasks,consensus,strategies}/`, `labels/api_*.py`, `main.py` (routers) | restart twice (idempotent); `$A POST /datasets/{root}/label-layers {table:"data",name:"category"}` → 201 default; `POST …/schemas` (4 classes); `$A POST …/events` 3 events → seqs 1–3; class "Bogus" → 400; NaN → 400; source `bogus` → 400 listing sources; INSERT a `test_src` registry row + module → accepted; `GET …/rows/{rid}` history; `sqlite3 "UPDATE label_events SET value='x'"` → abort; UPDATE `task_id` with purged_at set → abort; DELETE → abort; 10k events in 20 batches < 5 s; `/authz/coverage` 100 % | append-only log with registries; later phases add files, not edits to shared ones | — |
-| **L01b** | D | Postgres + lake side: PG DDL (TEXT JSON, `APPEND_ONLY` + column-level UPDATE grant, plpgsql triggers, `FOR UPDATE SKIP LOCKED`-ready indexes), blobs/blob_refs CHECK rebuilds (+ trigger re-create), `run_inputs` columns, `ri_ro_u` DROP + re-create, `artifacts.SKIP_TABLES` += label tables | `catalog/pg_schema.py`, `catalog/schema.py` (rebuild steps), `catalog/artifacts.py` (SKIP_TABLES only), `lake/migrate_pg.py` (copy the new tables) | L01a chain on PG 16 → same outputs; `migrate_pg` copy of a SQLite DB with events → counts equal, `audit verify` ok; `INSERT blobs kind='label_snapshot'` ok on both; `UPDATE run_inputs SET overlay_sha256=…` on an existing row → abort on both; app-role `UPDATE label_events SET actor=…` → permission denied on PG | both engines identical | L01a |
-| **L02** | D | Row hashes + carry-over + status: `labels/rowhash.py` (HMAC canonical), `labels/rows.py` (read rows by id via DuckDB semi-join through `lake.duck.parquet_rel`, masked), staleness (§5.2), `GET …/status?version_id=` | `labels/rowhash.py`, `labels/rows.py`, `labels/store.py`, `labels/api_layers.py`, `lake/upload.py` + `dataset_versions.py` (`label_identity_lost`) | seed 1M (`app.lake.seed`) v1; label 50 rows on v1; `POST /datasets/v1/edit` set_cells on a context column of 5 labelled rows → v2; delete 3 labelled rows → v3; upload-as-version with 1 000 appended rows → v4; `GET status?version_id=v4` → live 42, stale 5, orphaned 3, unlabelled +1000; cell correction then change that cell → conflict 1; re-upload v5 with the target corrected on 2 labelled rows (key match) → base_changed 2; re-upload with `match:row_hash` → `/check` shows `label_identity_lost` and commit without ack → 400; `POST …/remap {key:[acct]}` → orphans re-attached (changed ones stale); 10M seed + 100k labels: status < 15 s, RSS < 1.5 GB | carry-over and staleness proven across edit, delete, append | L01b |
-| **L03** | D | Resolution + snapshots: `labels/resolve.py` (votes, adjudication, majority/weights, CROWDLAB via the annotations core, machine precedence, schema maps), `labels/snapshot.py` (job, blob, manifest, hashes, verify, diff) | `labels/resolve.py`, `labels/snapshot.py`, `labels/api_snapshots.py`, `engine/annotations.py` (extract the CROWDLAB core into a pure function, no behaviour change), `jobs/queue.py` (kind) | 3 annotators on 30 rows (2 agree, 1 split 1-1-1, 1 adjudicated) → `POST …/snapshots {policy majority}` → 202 → counts applied 29 (of which adjudicated 1), disputed 1; `GET …/verify` ok; rebuild with the same policy + through_seq → same `events_sha256` + `values_sha256` (new `snapshot_sha256`); flip a blob byte → verify mismatch; policy `crowdlab` with `reference_run` = an F14 sample run → labels equal to `GET /runs/{r}/annotations` consensus on the same rows; schema v2 renames a class → old votes mapped; 0.6M events snapshot < 90 s | snapshots are frozen, hash-stable, CROWDLAB-equal to F14 | L02 |
-| **L04a** | D2 | Overlay in the training read: `frames.Labelled` + `resolve(cfg)`, `labels/overlay.py` (applied set as a job step before the fit, overlay blob, `overlay_sha256`), `lake/frame.py` (`read_ids_label`, `read_rows`, `holdout_batches/iter_rows`), `worker.load_frames` (`has_label` after overlay), worker pins in `run_inputs` + `overlay_integrity` check (base `hash_into` unchanged), `RunCreate.labels`, holdout original/corrected rules, grep gate 3 | `frames.py`, `lake/frame.py`, `engine/worker.py`, `engine/api.py` (`RunCreate.labels`), `labels/overlay.py` | `POST /runs {dataset_id, label, labels:{snapshot_id}}` → succeeded, `data_hashed match:true` (base hash unchanged); `run_inputs` has snapshot/overlay sha; repeat → same `overlay_sha256`; rows labelled only by the overlay (base NULL) are in training (count); holdout labels in the frame = base; sampled path (frame_budget_mb small) → stratified on overlaid y, same `sample_sha256` on repeat; `holdout:"corrected"` with LLM or crowdlab rows → 409 `holdout_machine_labels`; human blind-only → `metrics.original` + `metrics.corrected`; tamper overlay blob → 409 `overlay_integrity`; CSV-storage version → 409; forecast → 400 `labels_unsupported_kind`; 10M + 100k overlay: Δ frame time < 10 s, Δ RSS < 200 MB; grep gate 3 empty for the files touched | the fit trains on exactly the pinned labels | L03 |
-| **L04b** | D2 | Post-fit consumers and evidence: `serving.holdout_frame` / `bounded_holdout`, `registry/build.py` (holdout read, join parity with overlay), `vela/doctor`, `engine/heavy`, `engine/custom_ensemble`, `registry/scoring` reference reads through the overlay; `POST /compare` labels; admin run verify; card Labels section + `inputs.zip` snapshot manifest; grep gate 3 to zero | `engine/serving.py`, `registry/build.py`, `registry/card.py`, `registry/scoring.py`, `vela/doctor.py`, `engine/heavy.py`, `engine/custom_ensemble.py`, `catalog/compare.py`, `lake/api.py` (verify), `catalog/api.py` (compare) | on the L04a run: Doctor findings use overlaid labels (a row relabelled by the overlay shows its new label in `GET /runs/{id}/doctor` examples); register → card Labels, holdout metrics equal the run's `metrics.original`; join run with overlay → parity ok; `POST /compare {a: base-run, b: overlay-run}` → "training labels differ"; `GET /admin/lake/runs/{id}/verify` ok, after purge of the snapshot → `purged`; grep gate 3 prints nothing | every label read after the fit is overlay-aware | L04a |
-| **L05** | D | Materialise + proposals: `apply_labels` derive, `edit?mode=propose`, Doctor "send to review"/propose, proposals decide → version, `edits_require_review` policy | `labels/materialise.py`, `labels/proposals.py`, `dataset_edit.py` (propose mode), `data_doctor_api.py`, `doctor_sql.py` (propose branch), `datasets.py` (`derive` op) | `POST /label-snapshots/{s}/materialise {version_id}` → v5; `GET /datasets/diff?a=v4&b=v5` changed = applied non-holdout cells only; manifest op `apply_labels` with sha; split holdout ids unchanged; `$C POST /datasets/v5/edit?mode=propose` set_cells 3 cells → proposal; drop_column propose → 400 `not_proposable`; `$C decide` → 409 four eyes; `$B decide approve` → v6; Doctor clean_labels `{propose:true}` → cleanlab fill; policy on + certified root → immediate edit 409 `review_required` | labels and corrections reach versions only by explicit, reviewed steps | L04b |
-| **L06a** | G | Purge, holds, identity: `labels/purge.py` redactor (only path; `approval_requests` purge check), `purge.affected/impact` with layers, snapshot/overlay blobs and run markers, LLM cache deletion, `derived_artifacts` records, sweep covers events; holds on layer/snapshot keys | `catalog/purge.py`, `catalog/artifacts.py` (records), `catalog/holds.py`, `labels/purge.py` | purge rows {10 labelled} + column `ssn` (corrected via events) → impact lists layer, snapshot, run → owner approvals → events redacted (`value NULL`, `purged_at`, `purge_id`), other columns unchanged, snapshot blob gone, run verify `purged`, sweep `clean` (no SSN in DB / lake / MinIO, incl. `label_llm_cache`); redactor with a non-approved purge id → 0 rows; hold on project → purge 409 `legal_hold`; SQLite = PG | purge reaches every label copy | L05 |
-| **L06b** | G | Four eyes and sharing: snapshot approve (both levels) + contract on resolved columns, `inputs_gate` overlay check at promotion, proposals/unmasked decide paths, `item_four_eyes`, shares of approved snapshots (masked), grantee layers + revoke, guest annotators, audit kinds | `catalog/certify.py`, `catalog/contracts.py`, `catalog/shares.py`, `labels/governance.py`, `labels/api_snapshots.py` | (POC off) `$C` approve own snapshot → 409; `$B` → approved + contract_result; version `approved_for_model` → `$B` approve → 403, risk reviewer → ok; promote a model trained with a draft snapshot under `require_certified_inputs` → 409 `labels_not_approved`, approved → ok; share to Collections → they see the approved snapshot masked, not drafts; grantee layer then revoke → append 403, old run verifies; guest annotator `GET /datasets/{id}/rows` → 403, `next` → masked items; audit verify ok; audit = enforce | governance parity with the platform | L06a |
-| **L07** | O | Tasks + queues + quality: tasks/members/gold, fills (random, active, cleanlab, disputed, stale, gold, manual), next/answers with leases, gold grading + auto-pause, review/adjudicate, quality (κ, anchoring), rules (§5.11) | `labels/tasks.py`, `labels/queue.py`, `labels/quality.py`, `labels/rules.py`, `labels/api_tasks.py`, `engine/active_learning.py` (export `select` for reuse; no behaviour change), `jobs/` janitor hook | task with votes 2, gold 5 %, blind 10 %; `$V next?n=25` → masked context, no pre-label on gold; answers → events actor=Vik (body `by` ignored); `$V` answers 20 gold wrong → paused 409; `$B` resume; second annotator → disputed fill → `$B adjudicate` an item `$B` voted on → 409; quality shows κ, anchoring; fill `active` from a finished run → 200 rows not in holdout; rule `amount > 10000 → Fraud` → coverage/conflicts; 10M on MinIO: p95 `next` < 400 ms | humans can label at scale with QA | L03 (parallel with L04a–L06b: own files `labels/api_tasks.py`, `labels/tasks.py` …) |
-| **L08** | O | LLM labeling: prompts, PII guard (+ free-text redaction), destinations, preview, calibration, runs (online + batch), budget, cache, self-consistency, fake oracle | `labels/llm_label.py`, `labels/prompts.py`, `labels/pii_scan.py`, `llm.py` (expose the SDK client + usage; no change to narration paths), `labels/api_llm.py`, `jobs/queue.py` (kind) | policy `enabled:false` → 409; enable with destination `fake`; prompt v1 → preview 20 → estimate + labels; context incl. `ssn` → excluded by default, `send_masked` masked; free text with a card number → `[REDACTED:card]`, count 1; unmasked request `$B` → `$B` decide 409, `$A` approve → run records it; calibrate on 300 gold → τ*; run 10k rows `max_usd` small → stops at cap, partial counted; rerun → all cache hits; snapshot with `accept.llm` → applied above τ*, rest `prelabel_only`; with `ANTHROPIC_API_KEY` + allowed destination (if granted): 20-row preview real, `usage` recorded; audit lists columns sent | LLM labels flow, governed and calibrated | L07, L06b |
-| **L09** | D | Migration F13/F14 + adapters: migrate job, idempotent ids, simulated flags, run routes dual-write and snapshot+materialise | `labels/migrate_runs.py`, `engine/annotations_api.py`, `engine/active_learning_api.py`, `lake/api.py` (admin trigger) | before: save `GET /runs/{r}/annotations`, `/active-learning` for 3 runs; `POST /api/admin/labels/migrate?dry_run=1` → plan (imported/unmapped/simulated); run → done; re-run → 0 new; after: same GETs equal; layer events count = csv rows; snapshot with F14 policy equals F14 consensus; `POST …/annotations/answer` → event appended; `…/annotations/version` → version with `apply_labels` provenance | old work carried, old runs unchanged | L05, L07 |
+| **L01a** | D | Schema core + plug-in skeleton: §3.1 tables (layers, schemas, registries + seed rows, events + triggers, tasks, assignments, gold, snapshots, proposals, prompts, llm runs/cache) on SQLite; `labels/store.py` (append: hashes computed **before** the seq transaction, 500-event batches, canonical values, schema validation); `labels/registry.py` + protocols + slice plug-ins; **all** `label.*` actions in `policy.py`, all team-policy keys in `governance.py` and **one router file per module** (`labels/api_layers.py`, `api_tasks.py`, `api_llm.py`, `api_snapshots.py`, `api_proposals.py`, empty except layers/schemas/events) so later lanes don't share files **(LBL-VERIFY)** also: `Rule.task_role` + scope kind `label_task` in `policy.py` (C3); immutability triggers on snapshots/schemas/prompts/calibrations/gold and the hash-only redaction form of `le_ro_u` (M4, M13); `label_calibrations`, layer-scoped versioned gold, `label_llm_spend`, `label_llm_batches`, `run_inputs.labels_fitted_sha256` DDL; `item_key` + `epoch_hash` + full-column `events_sha256` in the format code (C2, M5); events route = `label.task_manage`; PII-tagged columns refused until L06a (M14) | `catalog/schema.py`, `authz/policy.py`, `catalog/governance.py` (policy keys only), `labels/__init__.py`, `labels/store.py`, `labels/values.py`, `labels/registry.py`, `labels/plugins/{sources,tasks,consensus,strategies}/`, `labels/api_*.py`, `main.py` (routers) | restart twice (idempotent); `$A POST /datasets/{root}/label-layers {table:"data",name:"category"}` → 201 default; `POST …/schemas` (4 classes); `$A POST …/events` 3 events → seqs 1–3; class "Bogus" → 400; NaN → 400; source `bogus` → 400 listing sources; INSERT a `test_src` registry row + module → accepted; `GET …/rows/{rid}` history; `sqlite3 "UPDATE label_events SET value='x'"` → abort; UPDATE `task_id` with purged_at set → abort; DELETE → abort; 10k events in 20 batches < 5 s; `/authz/coverage` 100 % **(LBL-VERIFY)** guest `$G` (no team role) on a task: `next` → 200, `GET /datasets/{id}/rows` → 403, `GET …/quality` → 403; `$V` (annotator) `POST …/events` → 403; `UPDATE label_snapshots SET blob_sha256=…` → abort; `UPDATE label_prompts …` → abort; hash-only redaction UPDATE with an approved purge id → ok, with `value` changed → abort; event on a PII-tagged column → 409 `pii_column_needs_purge_support`; `events_sha256` changes when a row_id is altered with triggers dropped (simulated tamper) | append-only log with registries; later phases add files, not edits to shared ones | — |
+| **L01b** | D | Postgres + lake side: PG DDL (TEXT JSON, `APPEND_ONLY` + column-level UPDATE grant, plpgsql triggers, `FOR UPDATE SKIP LOCKED`-ready indexes), blobs/blob_refs CHECK rebuilds (+ trigger re-create), `run_inputs` columns, `ri_ro_u` DROP + re-create, `artifacts.SKIP_TABLES` += label tables | `catalog/pg_schema.py`, `catalog/schema.py` (rebuild steps), `catalog/artifacts.py` (SKIP_TABLES only), `lake/migrate_pg.py` (copy the new tables) | L01a chain on PG 16 → same outputs; `migrate_pg` copy of a SQLite DB with events → counts equal, `audit verify` ok; `INSERT blobs kind='label_snapshot'` ok on both; `UPDATE run_inputs SET overlay_sha256=…` on an existing row → abort on both; app-role `UPDATE label_events SET actor=…` → permission denied on PG **(LBL-VERIFY)** the new triggers and grants on PG: app-role UPDATE of `label_snapshots.blob_sha256` → denied; `label_task` scope in `/authz/coverage` on both engines | both engines identical | L01a |
+| **L02** | D | Row hashes + carry-over + status: `labels/rowhash.py` (HMAC canonical), `labels/rows.py` (read rows by id via DuckDB semi-join through `lake.duck.parquet_rel`, masked), staleness (§5.2), `GET …/status?version_id=` **(LBL-VERIFY)** + `absorbed`, `column_map` / `column_missing`, `type_changed` + re-anchor, `label_identity_lost` on SQL refresh and fresh-id `derive()`, reappeared-key listing (M1, M2) | `labels/rowhash.py`, `labels/rows.py`, `labels/store.py`, `labels/api_layers.py`, `lake/upload.py` + `dataset_versions.py` (`label_identity_lost`) **(LBL-VERIFY)** `sqlsource/api.py` (refresh ack), `datasets.py` (`create_from_frame` / `derive` identity count), `labels/status.py` | seed 1M (`app.lake.seed`) v1; label 50 rows on v1; `POST /datasets/v1/edit` set_cells on a context column of 5 labelled rows → v2; delete 3 labelled rows → v3; upload-as-version with 1 000 appended rows → v4; `GET status?version_id=v4` → live 42, stale 5, orphaned 3, unlabelled +1000; cell correction then change that cell → conflict 1; re-upload v5 with the target corrected on 2 labelled rows (key match) → base_changed 2; re-upload with `match:row_hash` → `/check` shows `label_identity_lost` and commit without ack → 400; `POST …/remap {key:[acct]}` → orphans re-attached (changed ones stale); 10M seed + 100k labels: status < 15 s, RSS < 1.5 GB **(LBL-VERIFY)** materialise-free check of absorbed: upstream re-upload sets the target of 3 labelled rows to the labels' values → absorbed 3, conflict 0; `rename_column category→cat` → status via `column_map` live; `drop_column` → `column_missing` and `POST /runs {labels}` 409; `cast_column` on a context column → stale `type_changed` N, re-anchor 10 → live 10; SQL-sourced dataset with 20 labelled rows → `POST …/refresh` without ack → 400 `label_identity_lost` 20, with ack → orphaned 20; delete a keyed row in v6, re-add in v7 → status lists 1 reappeared key, remap re-attaches it | carry-over and staleness proven across edit, delete, append | L01b |
+| **L03** | D | Resolution + snapshots: `labels/resolve.py` (votes, adjudication, majority/weights, CROWDLAB via the annotations core, machine precedence, schema maps), `labels/snapshot.py` (job, blob, manifest, hashes, verify, diff) **(LBL-VERIFY)** + per-epoch resolution (C2), manifest `inputs` / `inputs_sha256` (M3), majority/single as DuckDB SQL | `labels/resolve.py`, `labels/snapshot.py`, `labels/api_snapshots.py`, `engine/annotations.py` (extract the CROWDLAB core into a pure function, no behaviour change), `jobs/queue.py` (kind) | 3 annotators on 30 rows (2 agree, 1 split 1-1-1, 1 adjudicated) → `POST …/snapshots {policy majority}` → 202 → counts applied 29 (of which adjudicated 1), disputed 1; `GET …/verify` ok; rebuild with the same policy + through_seq → same `events_sha256` + `values_sha256` (new `snapshot_sha256`); flip a blob byte → verify mismatch; policy `crowdlab` with `reference_run` = an F14 sample run → labels equal to `GET /runs/{r}/annotations` consensus on the same rows; schema v2 renames a class → old votes mapped; 0.6M events snapshot < 90 s **(LBL-VERIFY)** worked example C2: A, B vote Fraud on v3; context edit → v4; C votes Other on v4 → snapshot has 2 entries for R; overlay on v4 = Other (min_votes 1), on v3 = Fraud; change gold (weights gold) then rebuild → `inputs_sha256` differs and the "same result" check says so; Parquet has `item_key` and `epoch_hash` | snapshots are frozen, hash-stable, CROWDLAB-equal to F14 | L02 |
+| **L04a** | D2 | Overlay in the training read: `frames.Labelled` + `resolve(cfg)`, `labels/overlay.py` (applied set as a job step before the fit, overlay blob, `overlay_sha256`), `lake/frame.py` (`read_ids_label`, `read_rows`, `holdout_batches/iter_rows`), `worker.load_frames` (`has_label` after overlay), worker pins in `run_inputs` + `overlay_integrity` check (base `hash_into` unchanged), `RunCreate.labels`, holdout original/corrected rules, grep gate 3 **(LBL-VERIFY)** as subclasses `LabelledTable(Table)` / `LabelledJoin(JoinFrame)`; overlay in `serving.read_ids` / `RunRows` / `bounded_*` too; `labels_fitted_sha256`; fail-closed overlay stub in `certify.inputs_gate` (C1, M7); maturity row-exclusion hook | `frames.py`, `lake/frame.py`, `engine/worker.py`, `engine/api.py` (`RunCreate.labels`), `labels/overlay.py` **(LBL-VERIFY)** `engine/serving.py` (`read_ids`, `RunRows`, `bounded_*`), `catalog/certify.py` (stub only) | `POST /runs {dataset_id, label, labels:{snapshot_id}}` → succeeded, `data_hashed match:true` (base hash unchanged); `run_inputs` has snapshot/overlay sha; repeat → same `overlay_sha256`; rows labelled only by the overlay (base NULL) are in training (count); holdout labels in the frame = base; sampled path (frame_budget_mb small) → stratified on overlaid y, same `sample_sha256` on repeat; `holdout:"corrected"` with LLM or crowdlab rows → 409 `holdout_machine_labels`; human blind-only → `metrics.original` + `metrics.corrected`; tamper overlay blob → 409 `overlay_integrity`; CSV-storage version → 409; forecast → 400 `labels_unsupported_kind`; 10M + 100k overlay: Δ frame time < 10 s, Δ RSS < 200 MB; grep gate 3 empty for the files touched **(LBL-VERIFY)** `labels_fitted_sha256` in `run_inputs` equals sha over (row_id, base ⊕ overlay) of the fitted rows, recomputed by verify; promote the overlay run under `require_certified_inputs` → 409 `labels_not_approved` (stub); every `isinstance(ref, Table)` caller exercised with a `LabelledTable` (no FrameError); 2M-row overlay: Δ RSS < 400 MB | the fit trains on exactly the pinned labels | L03 |
+| **L04b** | D2 | Post-fit consumers and evidence: `serving.holdout_frame` / `bounded_holdout`, `registry/build.py` (holdout read, join parity with overlay), `vela/doctor`, `engine/heavy`, `engine/custom_ensemble`, `registry/scoring` reference reads through the overlay; `POST /compare` labels; admin run verify; card Labels section + `inputs.zip` snapshot manifest; grep gate 3 to zero **(LBL-VERIFY)** + `vela/rows`, `gym/export` (overlay in the script or 409), `registry/build.py:551,838` overlay sha beside data_hash, card label-quality statement (M16), every `frames.resolve(cfg)` consumer | `engine/serving.py`, `registry/build.py`, `registry/card.py`, `registry/scoring.py`, `vela/doctor.py`, `engine/heavy.py`, `engine/custom_ensemble.py`, `catalog/compare.py`, `lake/api.py` (verify), `catalog/api.py` (compare) **(LBL-VERIFY)** `vela/rows.py`, `gym/export.py`, `engine/slices_api.py`, `engine/explain.py`, `fairlending/api.py`, `registry/credit_report_api.py` (only if a read bypasses `frames.read`) | on the L04a run: Doctor findings use overlaid labels (a row relabelled by the overlay shows its new label in `GET /runs/{id}/doctor` examples); register → card Labels, holdout metrics equal the run's `metrics.original`; join run with overlay → parity ok; `POST /compare {a: base-run, b: overlay-run}` → "training labels differ"; `GET /admin/lake/runs/{id}/verify` ok, after purge of the snapshot → `purged`; grep gate 3 prints nothing **(LBL-VERIFY)** on a table above `ENSEMBLE_DOCTOR_ROWS`, flip 10 labels by overlay: the Doctor (RunRows path), registration holdout, slices, explain, fairness, credit report, learning curve and the exported script all show the flipped labels for training rows and base labels for holdout; grep for `read_ids(`/`read_part_columns(` with the label outside the allowed files prints nothing | every label read after the fit is overlay-aware | L04a |
+| **L05** | D | Materialise + proposals: `apply_labels` derive, `edit?mode=propose`, Doctor "send to review"/propose, proposals decide → version, `edits_require_review` policy | `labels/materialise.py`, `labels/proposals.py`, `dataset_edit.py` (propose mode), `data_doctor_api.py`, `doctor_sql.py` (propose branch), `datasets.py` (`derive` op) | `POST /label-snapshots/{s}/materialise {version_id}` → v5; `GET /datasets/diff?a=v4&b=v5` changed = applied non-holdout cells only; manifest op `apply_labels` with sha; split holdout ids unchanged; `$C POST /datasets/v5/edit?mode=propose` set_cells 3 cells → proposal; drop_column propose → 400 `not_proposable`; `$C decide` → 409 four eyes; `$B decide approve` → v6; Doctor clean_labels `{propose:true}` → cleanlab fill; policy on + certified root → immediate edit 409 `review_required` **(LBL-VERIFY)** after materialise, `GET …/status?version_id=v5` → absorbed = rows_changed, conflict 0 (M2) | labels and corrections reach versions only by explicit, reviewed steps | L04b |
+| **L06a** | G | Purge, holds, identity: `labels/purge.py` redactor (only path; `approval_requests` purge check), `purge.affected/impact` with layers, snapshot/overlay blobs and run markers, LLM cache deletion, `derived_artifacts` records, sweep covers events; holds on layer/snapshot keys **(LBL-VERIFY)** + hash-only redaction of context hashes, provenance-needle redaction, gold retire, sweep over every `label_*` table, label retention class (M13, M16) | `catalog/purge.py`, `catalog/artifacts.py` (records), `catalog/holds.py`, `labels/purge.py` | purge rows {10 labelled} + column `ssn` (corrected via events) → impact lists layer, snapshot, run → owner approvals → events redacted (`value NULL`, `purged_at`, `purge_id`), other columns unchanged, snapshot blob gone, run verify `purged`, sweep `clean` (no SSN in DB / lake / MinIO, incl. `label_llm_cache`); redactor with a non-approved purge id → 0 rows; hold on project → purge 409 `legal_hold`; SQLite = PG **(LBL-VERIFY)** purge `ssn` where `ssn` was context of 30 `category` labels → their hashes NULL, values kept, status stale(context_changed) 30; an LLM rationale quoting the purged name on another row → event redacted; gold on a purged row retired; sweep clean incl. `label_*` | purge reaches every label copy | L05 |
+| **L06b** | G | Four eyes and sharing: snapshot approve (both levels) + contract on resolved columns, `inputs_gate` overlay check at promotion, proposals/unmasked decide paths, `item_four_eyes`, shares of approved snapshots (masked), grantee layers + revoke, guest annotators, audit kinds **(LBL-VERIFY)** approval via `approval_requests`, bound to the version/applied set, `approved_under_poc`, author-share and `min_kappa` rules; replaces the L04a gate stub (M4, M6) | `catalog/certify.py`, `catalog/contracts.py`, `catalog/shares.py`, `labels/governance.py`, `labels/api_snapshots.py` | (POC off) `$C` approve own snapshot → 409; `$B` → approved + contract_result; version `approved_for_model` → `$B` approve → 403, risk reviewer → ok; promote a model trained with a draft snapshot under `require_certified_inputs` → 409 `labels_not_approved`, approved → ok; share to Collections → they see the approved snapshot masked, not drafts; grantee layer then revoke → append 403, old run verifies; guest annotator `GET /datasets/{id}/rows` → 403, `next` → masked items; audit verify ok; audit = enforce **(LBL-VERIFY)** approve on v4, train on v5 with 2 more stale rows (subset) → gate ok; v5 with a different applied value → 409 `labels_approved_on_other_version`; approve with POC on, then POC off → 409 `labels_approved_under_poc`; adjudicator with 30 % of decisions approves → 409 | governance parity with the platform | L06a |
+| **L07a** | O | **(LBL-VERIFY: L07 split)** Tasks + human queues: tasks/members (guests via `task_role`), gold (layer pools, provenance), fills (random, disputed, stale, gold, manual; protected set excluded), next/answers with leases, `exclude_if`, gold grading + auto-pause, review/adjudicate | `labels/tasks.py`, `labels/queue.py`, `labels/api_tasks.py`, `jobs/` janitor hook | task with votes 2, gold 5 %, blind 10 %; guest `$G` `next?n=25` → masked context, no pre-label on gold; answers → events actor=`$G` (body `by` ignored); answer on someone else's assignment → 403; `$G` answers 20 gold wrong → paused 409; `$B` resume; second annotator → disputed fill → `$B adjudicate` an item `$B` voted on → 409; fill `random` never returns protected-set rows; `exclude_if officer_id` hides own rows; 10M on MinIO: p95 `next` < 400 ms | humans can label at scale with QA | L03 (beside L04a–L04b: own files) |
+| **L07b** | O | **(LBL-VERIFY: L07 split)** Quality + model-driven queues + rules: quality (κ, anchoring, by protected proxy), `active` and `cleanlab` strategies (reuse `active_learning.select`), rules (§5.11) | `labels/quality.py`, `labels/rules.py`, `labels/plugins/strategies/{active,cleanlab}.py`, `engine/active_learning.py` (export `select`; no behaviour change) | quality shows κ, anchoring flag on a seeded anchored annotator, per-proxy accuracy; quality as viewer → 403; fill `active` from a finished run → 200 rows not in the protected set; Doctor `clean_labels` send-to-review → `cleanlab` fill with `source='cleanlab'`; rule `amount > 10000 → Fraud` → coverage/conflicts/gold accuracy | quality and model-driven queues | L07a |
+| **L08a** | O | **(LBL-VERIFY: L08 split)** LLM core: SDK specifics checked against current docs; prompts, PII allowlist (`pii_unreviewed`), free-text redaction, rationale scan/mask, destinations, fake oracle, preview, online runs, HMAC cache, spend reservations, kill switch | `labels/llm_label.py`, `labels/prompts.py`, `labels/pii_scan.py`, `labels/spend.py`, `llm.py` (expose the SDK client + usage; no change to narration paths), `labels/api_llm.py`, `jobs/queue.py` (kind) | policy `enabled:false` → 409; enable with destination `fake`; prompt v1 → preview 20 → local estimate + labels; context incl. `ssn` → excluded; an unreviewed column → 409 `pii_unreviewed`; free text with a card number → `[REDACTED:card]`; rationale quoting an unmasked column → masked for `$G`; unmasked request `$B` → `$B` decide 409, `$A` approve → run records it; two runs racing the monthly cap → second 409 `over_budget`; run 10k rows `max_usd` small → stops at cap, partial counted; rerun → all cache hits; audit lists columns sent | LLM labels flow, governed and capped | L07a, L06b |
+| **L08b** | O | **(LBL-VERIFY: L08 split)** Calibration v2 + batch + acceptance: split-sample τ*, per-class and per-proxy bounds, blind-gold check, binding to (prompt, k, mode), post-run audit sample, adaptive self-consistency, Batches in reserved chunks with `label_llm_batches` + `not_before` poller, `never_auto_from`, snapshot acceptance | `labels/calibrate.py`, `labels/llm_batch.py`, `labels/resolve.py` (acceptance), `labels/api_llm.py` | calibrate on 400 gold → τ* from the pick half, `acc_lo` from the certify half; anchored gold → 409 `gold_anchored`; Fraud recall below target → `passed:0`; run → 1 % audit fill; snapshot `accept.llm` before audit → `prelabel_only`, after audit passes → applied above τ*; batch run, kill the worker after submit → restart finds the batch id, no second submit; Fraud→Other on a rule-flagged row → never auto; with `ANTHROPIC_API_KEY` + allowed destination (if granted): 20-row preview real, `usage` recorded | LLM labels calibrated and audited | L08a |
+| **L09** | D | Migration F13/F14 + adapters: migrate job, idempotent ids, simulated flags, run routes dual-write and snapshot+materialise | `labels/migrate_runs.py`, `engine/annotations_api.py`, `engine/active_learning_api.py`, `lake/api.py` (admin trigger) | before: save `GET /runs/{r}/annotations`, `/active-learning` for 3 runs; `POST /api/admin/labels/migrate?dry_run=1` → plan (imported/unmapped/simulated); run → done; re-run → 0 new; after: same GETs equal; layer events count = csv rows; snapshot with F14 policy equals F14 consensus; `POST …/annotations/answer` → event appended; `…/annotations/version` → version with `apply_labels` provenance | old work carried, old runs unchanged | L05, L07a |
 | **L10** | O | Outcomes + drift: maturity in resolution and overlay (immature → NULL), outcome imports with `as_of`, snapshot diff (PSI, χ²), maturity in the monitoring retrain proposal | `labels/outcomes.py`, `labels/resolve.py`, `labels/overlay.py`, `labels/snapshot.py` (diff), `registry/monitoring_api.py` (proposal maturity only) | seed credit sample with `app_date`, `default_12m` 0/1; schema outcome window 12 m; import outcomes `as_of 2026-06` → rows after 2025-06 immature; run with overlay → training rows exclude them (count on card); import `as_of 2026-12` → fewer immature; snapshot diff shows default rate by as_of + PSI; retrain proposal counts immature excluded | credit outcomes are maturity-aware | L04b |
-| **UL1** | U | Labels tab, task setup, labelling screen (keyboard), review queue, quality | `src/features/labels/*`, `src/shared/api/labels.ts`, links from `src/features/build/*` and run panels | `npm run build`; record the UI's calls for create layer → task → fill → label 20 items by keyboard → review → snapshot in `UL1.md`; screenshots at 1366 × 900 | a person can run a labelling project end to end | L07 |
-| **UL2** | U | LLM screen (PII panel, preview, calibration, runs), snapshot screen (diff, approve, materialise), run form labels + card, proposals inbox, F13/F14 banners | `src/features/labels/*`, `src/features/models/*` (run form, card, panels) | `npm run build`; record calls: prompt → preview → calibrate → run (fake) → snapshot → approve (second user) → train with labels → card → materialise; proposals approve | the whole flow in the UI | UL1, L08, L05 |
+| **UL1** | U | Labels tab, task setup, labelling screen (keyboard), review queue, quality | `src/features/labels/*`, `src/shared/api/labels.ts`, links from `src/features/build/*` and run panels | `npm run build`; record the UI's calls for create layer → task → fill → label 20 items by keyboard → review → snapshot in `UL1.md`; screenshots at 1366 × 900 | a person can run a labelling project end to end | L07b |
+| **UL2** | U | LLM screen (PII panel, preview, calibration, runs), snapshot screen (diff, approve, materialise), run form labels + card, proposals inbox, F13/F14 banners | `src/features/labels/*`, `src/features/models/*` (run form, card, panels) | `npm run build`; record calls: prompt → preview → calibrate → run (fake) → snapshot → approve (second user) → train with labels → card → materialise; proposals approve | the whole flow in the UI | UL1, L08b, L05 |
+| **XL0** | ⟂ | **(LBL-VERIFY)** Independent slice check (§15.4): carry-over/epoch/absorbed cases, overlay readers incl. the bounded path, `labels_fitted_sha256`, gate stub, guest reach, immutability triggers, PII refusal, "dummy source plug-in by INSERT + module" | read-only | `docs/progress/XL0.md` with findings by severity | no open critical/major in the slice | L04b, L07a |
 | **XL1** | ⟂ | Independent check: carry-over and staleness edge cases (branches, joins, renamed columns), holdout guarantees, reproducibility (rebuild, tamper, purge), four eyes, PII to LLM (incl. free text, shares), cost caps, queue concurrency, migration equality, 10M scale gates | read-only | `docs/progress/XL1.md` with findings by severity | no open critical/major findings | all |
 
-**Count:** 13 build (L01a, L01b, L02, L03, L04a, L04b, L05, L06a, L06b, L07, L08, L09, L10) + 2 UI + 1 check =
-**16 sessions ≈ 32 h** serial, plus ~15 % fix-up ≈ **37 h**; a realistic range is 16–20 sessions (the red-team pass
-estimated up to 20: L07 and L08 are the likeliest to spill into a second session). **Critical path:** L01a → L01b →
-L02 → L03 → L04a → L04b → L05 → L06a → L06b → L08 → UL2 → XL1 (12 sessions ≈ 24 h); L07 runs beside L04a–L06b
-(own files), L10 beside L05–L06b, UL1 after L07.
+**Count (LBL-VERIFY):** 15 build (L01a, L01b, L02, L03, L04a, L04b, L05, L06a, L06b, L07a, L07b, L08a, L08b, L09, L10)
++ 2 UI + 2 checks (XL0, XL1) = **19 sessions ≈ 38 h** serial, plus ~15 % fix-up ≈ **44 h**; realistic range 19–22
+(L04b and L08b are now the likeliest to spill). **Critical path:** L01a → L01b → L02 → L03 → L04a → L04b → L05 → L06a
+→ L06b → L08a → L08b → UL2 → XL1 (13 sessions ≈ 26 h); L07a runs beside L04a–L04b (own files), XL0 after L04b + L07a,
+L07b beside L05–L06b, L10 beside L05–L06b, L09 after L05 + L07a, UL1 after L07b.
 
 ---
 
@@ -1071,7 +1310,9 @@ L02 → L03 → L04a → L04b → L05 → L06a → L06b → L08 → UL2 → XL1 
    `claude-sonnet-5-5` (≈ $37) and `claude-haiku-5-5` (≈ $3) selectable per prompt version; calibration decides what
    is accepted, whatever the model.
 3. **Who may label?** Default: principals of the owning team (viewer and up) added to a task; no external crowd, no
-   new team role. Outsourced operations staff would be added as principals in the team with viewer role.
+   new team role. **(LBL-VERIFY, review C3)** Outsourced operations staff are **guest annotators** (principals with no
+   team role, authorised by task membership through `Rule.task_role`), **never** viewers: a viewer previews every team
+   dataset (`data.preview`).
 4. **Corrected-holdout evaluation.** Default: allowed per run, human-sourced labels only, both metrics always shown;
    model risk may turn it off per team (`allow_corrected_holdout:false`).
 5. **Review required for edits on certified datasets?** Default: `edits_require_review = false` for every team
@@ -1090,7 +1331,14 @@ about) is a **registered plug-in** behind a contract, chosen by name from a regi
 
 Registries: `label_source_types`, `label_task_types`, `label_consensus_methods`, `label_queue_strategies` (§3.1).
 At startup `labels/registry.py` imports each row's `module` and checks it implements the protocol; an unknown name in
-a body → 400 listing the registered ones. Contracts are `typing.Protocol`s; every method is pure except the source's
+a body → 400 listing the registered ones. **(LBL-VERIFY, minor 10)** Registry rows are seeded from code (a plug-in
+module ships its seed row); there is no runtime insert API. A row added while running is loaded on the next
+registry refresh (`POST /api/admin/labels/registry/reload`, admin, audited), so no restart is needed. A source with
+`may_grade_holdout = 1` is a governance change: admin only, audited, and listed on the card of any run that used it.
+**(LBL-VERIFY, minor 4)** The closed CHECK lists on extensible values (`label_events.kind`,
+`label_task_types.item_shape`, `label_proposals.origin`, `label_llm_runs.purpose`) are dropped in favour of registry
+validation, so extending them needs no SQLite table rebuild. `ranking` still adds one table (`label_items`); "never DDL"
+holds for sources, strategies, methods and cell/pair/span tasks. Contracts are `typing.Protocol`s; every method is pure except the source's
 `run`, which appends through `store.append` only.
 
 **Label source** (`plugins/sources/<name>.py`):
@@ -1132,6 +1380,8 @@ class TaskType(Protocol):
 | ranking (order a list) | list (`item_key='list:<list_id>'`, list rows in `label_items`, added with the type) | JSON array of row ids | no | Borda / Kemeny |
 
 The key `(layer, table, row_id, column, item_key)` already covers all shapes; `item_key=''` everywhere in the POC.
+**(LBL-VERIFY, review M5)** That now holds end to end: the snapshot Parquet, `values_sha256` and `events_sha256` carry
+`item_key` in `labelsnap/1` (§4.3). Before this, the event key covered all shapes but the snapshot did not.
 Staleness for pair/list hashes every row in `context_rows` (one hash over the concatenation in id order).
 
 **Consensus method** (`plugins/consensus/<name>.py`):
@@ -1169,7 +1419,7 @@ for picking only, never shown).
 | Size | ≤ 5 teams, ≤ 1M events/layer, ≤ 5M events total, ≤ 20 concurrent annotators, LLM ≤ 10k rows/job | ≤ 30 teams, ≤ 50M events, ≤ 200 annotators, LLM ≤ 200k rows/job | 100+ teams, 10⁹ events, 1 000+ annotators, LLM 1M+ rows/month |
 | Trigger to move on | any of: > 5M events, a layer > 2M events, > 50 concurrent annotators, p95 `next` > 400 ms, snapshot build > 5 min | any of: > 50M events, a layer > 20M events, > 200 annotators, snapshot > 15 min, PG `label_events` > 50 GB | — |
 | Event store | one `label_events` table (SQLite dev / PG) | PG **declarative hash partitioning by `layer_id`** (32 partitions; the PK `(layer_id, seq)` already includes the key) | partitions + **cold segments**: events with `seq ≤` the last approved snapshot's `through_seq` and older than 90 days are compacted into Parquet **event segments** in the lake (blob kind `label_event_segment`, sorted by `(row_id, column, item_key, seq)`, manifest with `seq` range and sha), deleted from PG after a verify; reads = segments ∪ hot tail via DuckDB |
-| Snapshots | full rebuild from events → Parquet blob in the lake (already from L03) | **incremental**: resolve only keys with events in `(prev.through_seq, through_seq]`, merge with the previous snapshot blob (anti-join + union); full rebuild weekly as a check (hashes must match) | incremental + segment-aware; snapshot diff stored |
+| Snapshots | full rebuild from events → Parquet blob in the lake (already from L03) | **incremental**: resolve only keys with events in `(prev.through_seq, through_seq]`, merge with the previous snapshot blob (anti-join + union); full rebuild weekly as a check (hashes must match). **(LBL-VERIFY, M3)** Only when `inputs_sha256` is unchanged and the policy has no time-dependent field (maturity `as_of: now`); otherwise rebuild in full: a new gold answer re-weights every row its annotator voted on | incremental + segment-aware; snapshot diff stored |
 | Staleness | recompute hashes per run (§5.2) | `label_rowhash_cache` blob per `(table_sha256, ctx_cols_sha256)` (Parquet: `__row_id`, hash) built once per version and reused by every run/status call | same, built at version commit for tables with a layer (a job) |
 | Queue | `label_assignments`, SKIP LOCKED | list-partitioned by `task_id` hash; prefetch 25 per annotator; janitor per partition | per-task lease service in `workerd` (in-memory ring per task, durable in PG every 5 s), sharded by task across workers; PG remains the record |
 | LLM | online, 8 in flight; Batches API ≥ 2 000 rows | Batches by default; resource `llm` added to `jobs/queue.RESOURCES` with per-team fair share and per-destination rate limits | chunks of 10k requests per batch, many in flight; spend ledger per team per day; cache in Parquet segments |
@@ -1177,6 +1427,12 @@ for picking only, never shown).
 
 Purge at stage 2 also rewrites affected event segments (new segment without the values, old blob purged), the same way
 P24 purges table parts. Legal holds pin segments by ref.
+
+**(LBL-VERIFY, minor 3)** Moving events to segments must not need a row DELETE, which `le_ro_d` forbids and which
+would weaken the append-only guarantee. Stage 1 partitions `PARTITION BY HASH (layer_id)`, sub-partitioned
+`BY RANGE (seq)` in blocks. The PK `(layer_id, seq)` supports both. Stage-2 compaction detaches a verified, fully
+segmented seq-range partition (an owner-role DDL step, audited) instead of deleting rows. The stage-2 hot-layer lock
+limit is in §10.
 
 ### 15.3 Versioned contracts
 
@@ -1191,15 +1447,26 @@ P24 purges table parts. Legal holds pin segments by ref.
 
 ### 15.4 The minimal first slice (nothing thrown away)
 
-Build **L01a–L04b plus the human core of L07** first, with the full contracts but few plug-ins:
+Build **L01a–L04b plus L07a** first (the human core), with the full contracts but few plug-ins, then **XL0**:
 
 - **Contracts in place from day one:** registries (§3.1), `item_key`, PK `(layer_id, seq)`, `fmt`, canonical values,
   HMAC row hashes, snapshot blob + manifest in the lake, overlay pin in `run_inputs`, `label.*` actions.
+  **(LBL-VERIFY)** Also, so nothing in the slice is rewritten later:
+  - `item_key` and `epoch_hash` in the snapshot and its hashes;
+  - full-column `events_sha256` and `inputs_sha256`;
+  - `labels_fitted_sha256`;
+  - the membership-scoped authz rule;
+  - the immutability triggers, including the hash-only redaction form.
+- **Safety limits of the slice (LBL-VERIFY, review M7/M14):**
+  - PII-tagged columns cannot be labelled or corrected until L06a ships the redactor (409);
+  - `inputs_gate` refuses every overlay run at promotion until L06b (fail-closed stub);
+  - LLM labelling is not in the slice.
 - **Plug-ins in the slice:** sources `human`, `import`, `migration`; task types `class`, `cell_correction`; consensus
   `majority` (+ adjudication), `single`; strategies `random`, `manual`, `disputed`, `stale`, `gold`.
 - **Deferred, each a plug-in or a stage change:** LLM (L08), rules, cleanlab/active strategies, CROWDLAB, outcomes
   (L10), span/pairwise/ranking, partitioning, segments, incremental snapshots.
 
 Why this is safe: every deferred item writes the same events, reads the same snapshots and pins the same overlay; none
-needs a column, a hash or a format that the slice lacks. The slice is checked by XL1-lite: the L01a–L04b chains plus
-"add a dummy source plug-in by INSERT + module, append and snapshot without a restart of the schema".
+needs a column, a hash or a format that the slice lacks. The slice is checked by **XL0** (now a phase in §13): the
+L01a–L04b + L07a chains plus "add a dummy source plug-in by seed row + module, registry reload, append and snapshot with
+no schema change".
