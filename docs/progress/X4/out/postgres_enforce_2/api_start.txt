@@ -1,0 +1,1 @@
+{"status":"ok","version":"0.4.0","datasets":15,"data_dir":"/var/tmp/x4/pf/data","runs":0,"engine":{"name":"AutoGluon","version":"1.6.3","timeseries":"1.6.3"}}
