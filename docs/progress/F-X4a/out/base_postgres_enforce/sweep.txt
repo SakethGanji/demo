@@ -1,0 +1,258 @@
+# mode enforce | GET routes 155 | cells: status[W=would-deny]/pii as Fay (no relation) · Carl (masked share) · Vic (viewer)
+/api/admin/lake/selfcheck | - | 200/0 | 200/0 | 200/0
+/api/admin/lake/status | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/manifest | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/verify | - | 200/0 | 200/0 | 200/0
+/api/admin/lake/gc/armed | admin.lake | 403/0 | 403/0 | 403/0
+/api/admin/lake/migrate | admin.lake | 403/0 | 403/0 | 403/0
+/api/admin/lake/verify-all | admin.lake | 403/0 | 403/0 | 403/0
+/api/admin/lake/runs/{run_id}/verify | admin.lake | 403/0 | 403/0 | 403/0
+/api/health | - | 200/0 | 200/0 | 200/0
+/api/datasets | - | 200/0 | 200/0 | 200/0
+/api/datasets/diff | data.preview | 400/0 | 400/0 | 400/0
+/api/datasets/{dataset_id} | data.read_meta | 403/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/splits | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/split-options | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/intake | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/rows | data.preview | 403/0 | 200/0 | 200/0
+/api/admin/reset-requests | - | 200/0 | 200/0 | 200/0
+/api/models | - | 200/0 | 200/0 | 200/0
+/api/runs | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id} | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/split-comparison | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/events | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/monotone | - | 400/0 | 400/0 | 400/0
+/api/runs/{run_id}/scorecard | - | 200/2 | 200/2 | 200/2
+/api/runs/{run_id}/scorecard.csv | run.read | 403/0 | 403/0 | 200/0
+/api/runs/{run_id}/ladder | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/oof | run.read | 403/0 | 403/0 | 400/0
+/api/runs/{run_id}/feature-importance | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/holdout-predictions | run.read | 403/0 | 403/0 | 200/0
+/api/runs/{run_id}/threshold | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/cost | - | 400/0 | 400/0 | 400/0
+/api/runs/{run_id}/cost-comparison | - | 400/0 | 400/0 | 400/0
+/api/runs/{run_id}/explain | run.read | 403/0 | 403/0 | 200/0
+/api/runs/{run_id}/fairness | - | 200/2 | 200/2 | 200/2
+/api/runs/{run_id}/shap | run.read | 403/0 | 403/0 | 400/0
+/api/status | - | 200/0 | 200/0 | 200/0
+/api/data/search | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/history | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/pii | data.read_meta | 403/0 | 200/0 | 200/0
+/api/datasets/{a}/diff/{b} | data.preview | 403/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/usage | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/export | data.export | 403/0 | 200/0 | 403/0
+/api/datasets/{dataset_id}/grid | data.preview | 403/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/rows/count | data.preview | 403/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/stats | data.preview | 403/0 | 200/0 | 200/0
+/api/uploads/{up} | - | unfilled |  |  | 
+/api/datasets/{root_id}/versions/{version_id} | data.read_meta | 403/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/relations | data.read_meta | 403/0 | 200/0 | 200/0
+/api/projects | - | 200/0 | 200/0 | 200/0
+/api/projects/{project_id} | - | 200/0 | 200/0 | 200/0
+/api/lineage/{kind}/{node_id} | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/children | - | 200/0 | 200/0 | 200/0
+/api/annotations/{kind}/{node_id} | - | 200/0 | 200/0 | 200/0
+/api/retention/plan | retention.plan | 403/0 | 403/0 | 403/0
+/api/me | - | 200/0 | 200/0 | 200/0
+/api/teams | - | 200/0 | 200/0 | 200/0
+/api/teams/{team} | - | 200/0 | 200/0 | 200/0
+/api/teams/{team}/members | - | 200/0 | 200/0 | 200/0
+/api/principals | - | 200/0 | 200/0 | 200/0
+/api/principals/{principal} | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/contract | data.read_meta | 403/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/certifications | - | 200/0 | 200/0 | 200/0
+/api/certifications/{cid} | - | 200/0 | 200/0 | 200/0
+/api/shares | - | 200/0 | 200/0 | 200/0
+/api/shares/{sid} | - | 200/0 | 200/0 | 200/0
+/api/jobs | - | 200/0 | 200/0 | 200/0
+/api/jobs/{job_id} | - | unfilled |  |  | 
+/api/workers | - | 200/0 | 200/0 | 200/0
+/api/datasets/{root_id}/joins | data.read_meta | 403/0 | 200/0 | 200/0
+/api/datasets/{root_id}/joins/{join_id} | data.read_meta | unfilled |  |  | 
+/api/datasets/{root_id}/versions/{version_id}/frames | data.read_meta | 403/0 | 200/0 | 200/0
+/api/datasets/{root_id}/frames/{frame_id} | data.read_meta | unfilled |  |  | 
+/api/datasets/{root_id}/frames/{frame_id}/rows | data.preview | unfilled |  |  | 
+/api/legal-holds | data.read_meta | 403/0 | 403/0 | 403/0
+/api/purges | data.read_meta | 403/0 | 403/0 | 403/0
+/api/purges/{pid} | data.read_meta | unfilled |  |  | 
+/api/runs/{run_id}/learning-curve | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/active-learning | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/annotations | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/shift | - | 200/2 | 200/2 | 200/2
+/api/runs/{run_id}/shift/{key} | - | unfilled |  |  | 
+/api/runs/{run_id}/shift/{key}/rows | run.read | unfilled |  |  | 
+/api/registry/batches/{bid}/shift | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/slices | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/slices/{sid}/rows | run.read | 403/0 | 403/0 | 404/0
+/api/runs/{run_id}/slices/{sid}/pool | run.read | 403/0 | 403/0 | 404/0
+/api/forecast/options | - | 200/0 | 200/0 | 200/0
+/api/forecast/mapping/{dataset_id} | - | 200/0 | 200/0 | 200/0
+/api/forecast/runs/{run_id}/chart | - | 404/0 | 404/0 | 404/0
+/api/forecast/runs/{run_id}/forecast.csv | run.read | 403/0 | 403/0 | 404/0
+/api/forecast/runs/{run_id}/predictions/{pid}.csv | run.read | unfilled |  |  | 
+/api/anomaly/mapping/{dataset_id} | - | 200/0 | 200/0 | 200/0
+/api/anomaly/runs/{run_id}/top | run.read | 403/0 | 403/0 | 200/0
+/api/anomaly/runs/{run_id}/labels | - | 200/0 | 200/0 | 200/0
+/api/anomaly/runs/{run_id}/supervised | - | 200/0 | 200/0 | 200/0
+/api/anomaly/runs/{run_id}/scores | run.read | 403/0 | 403/0 | 200/0
+/api/anomaly/runs/{run_id}/scores.csv | run.read | 403/0 | 403/0 | 200/0
+/api/anomaly/runs/{run_id}/batches/{bid}.csv | run.read | 403/0 | 403/0 | 404/0
+/api/runs/{run_id}/latency | - | 200/0 | 200/0 | 200/0
+/api/registry | - | 200/0 | 200/0 | 200/0
+/api/registry/summary | - | 200/0 | 200/0 | 200/0
+/api/registry/versions | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid} | - | 200/0 | 200/0 | 200/0
+/api/registry/audit | model.read | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/mlflow | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/retire | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/card | - | 200/2 | 200/2 | 200/2
+/api/registry/versions/{vid}/inputs.zip | model.read | 403/0 | 403/0 | 200/0
+/api/registry/versions/{vid}/monotone | - | 400/0 | 400/0 | 400/0
+/api/registry/serving | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/batches | - | 200/0 | 200/0 | 200/0
+/api/registry/batches/{bid} | - | 200/200 | 200/200 | 200/200
+/api/registry/batches/{bid}/download | model.read | 403/0 | 403/0 | 200/200
+/api/registry/versions/{vid}/reasons | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/recourse | - | 200/4 | 200/4 | 200/4
+/api/registry/versions/{vid}/monitoring | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/monitoring/retrain | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/changes | - | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/credit-report | - | 200/2 | 200/2 | 200/2
+/api/expected-loss/detect | - | 422/0 | 422/0 | 422/0
+/api/expected-loss/runs/{run_id} | - | 404/0 | 404/0 | 404/0
+/api/runs/{run_id}/fair-lending | - | 200/0 | 200/0 | 200/0
+/api/segmented/detect | - | 422/0 | 422/0 | 422/0
+/api/segmented/runs/{run_id} | - | 404/0 | 404/0 | 404/0
+/api/survival/detect | - | 422/0 | 422/0 | 422/0
+/api/survival/runs/{run_id} | - | 404/0 | 404/0 | 404/0
+/api/multilabel/detect | - | 422/0 | 422/0 | 422/0
+/api/multilabel/runs/{run_id} | - | 404/0 | 404/0 | 404/0
+/api/sql/demo | - | 200/0 | 200/0 | 200/0
+/api/sql/datasets/{dataset_id}/versions | - | 200/0 | 200/0 | 200/0
+/api/reject-inference/detect | - | 422/0 | 422/0 | 422/0
+/api/reject-inference/runs/{run_id} | - | 404/0 | 404/0 | 404/0
+/api/gym/schema | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/gym | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/export.py | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/vela | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/doctor | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/experiments | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/review | - | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/review/{review_id} | - | unfilled |  |  | 
+/api/autopilot | - | 200/0 | 200/0 | 200/0
+/api/autopilot/{aid} | - | unfilled |  |  | 
+/api/autopilot/{aid}/inbox | - | unfilled |  |  | 
+/api/llm | - | 200/0 | 200/0 | 200/0
+/api/agent/tools | - | 200/0 | 200/0 | 200/0
+/api/agent/status | - | 200/0 | 200/0 | 200/0
+/api/agent/sessions | - | 200/0 | 200/0 | 200/0
+/api/agent/sessions/{sid} | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/data-doctor | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/decision-time | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/feature-lab | - | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/feature-lab/{job_id} | - | unfilled |  |  | 
+/api/authz/coverage | - | 200/0 | 200/0 | 200/0
+/api/teams/{team}/audit | audit.read | 403/0 | 403/0 | 200/0
+/api/teams/{team}/audit/verify | audit.read | 403/0 | 403/0 | 200/0
+
+# Fay (no role, no share) got 200 on 90 of 155 GET routes for Credit Risk objects:
+    /api/admin/lake/selfcheck | - | 200/0
+    /api/admin/lake/status | - | 200/0
+    /api/datasets/{dataset_id}/manifest | - | 200/0
+    /api/datasets/{dataset_id}/verify | - | 200/0
+    /api/health | - | 200/0
+    /api/datasets | - | 200/0
+    /api/datasets/{dataset_id}/splits | - | 200/0
+    /api/datasets/{dataset_id}/split-options | - | 200/0
+    /api/datasets/{dataset_id}/intake | - | 200/0
+    /api/admin/reset-requests | - | 200/0
+    /api/models | - | 200/0
+    /api/runs | - | 200/0
+    /api/runs/{run_id} | - | 200/0
+    /api/runs/{run_id}/split-comparison | - | 200/0
+    /api/runs/{run_id}/events | - | 200/0
+    /api/runs/{run_id}/scorecard | - | 200/2
+    /api/runs/{run_id}/ladder | - | 200/0
+    /api/runs/{run_id}/feature-importance | - | 200/0
+    /api/runs/{run_id}/threshold | - | 200/0
+    /api/runs/{run_id}/fairness | - | 200/2
+    /api/status | - | 200/0
+    /api/data/search | - | 200/0
+    /api/datasets/{dataset_id}/history | - | 200/0
+    /api/datasets/{dataset_id}/usage | - | 200/0
+    /api/projects | - | 200/0
+    /api/projects/{project_id} | - | 200/0
+    /api/lineage/{kind}/{node_id} | - | 200/0
+    /api/runs/{run_id}/children | - | 200/0
+    /api/annotations/{kind}/{node_id} | - | 200/0
+    /api/me | - | 200/0
+    /api/teams | - | 200/0
+    /api/teams/{team} | - | 200/0
+    /api/teams/{team}/members | - | 200/0
+    /api/principals | - | 200/0
+    /api/principals/{principal} | - | 200/0
+    /api/datasets/{dataset_id}/certifications | - | 200/0
+    /api/certifications/{cid} | - | 200/0
+    /api/shares | - | 200/0
+    /api/shares/{sid} | - | 200/0
+    /api/jobs | - | 200/0
+    /api/workers | - | 200/0
+    /api/runs/{run_id}/learning-curve | - | 200/0
+    /api/runs/{run_id}/active-learning | - | 200/0
+    /api/runs/{run_id}/annotations | - | 200/0
+    /api/runs/{run_id}/shift | - | 200/2
+    /api/registry/batches/{bid}/shift | - | 200/0
+    /api/runs/{run_id}/slices | - | 200/0
+    /api/forecast/options | - | 200/0
+    /api/forecast/mapping/{dataset_id} | - | 200/0
+    /api/anomaly/mapping/{dataset_id} | - | 200/0
+    /api/anomaly/runs/{run_id}/labels | - | 200/0
+    /api/anomaly/runs/{run_id}/supervised | - | 200/0
+    /api/runs/{run_id}/latency | - | 200/0
+    /api/registry | - | 200/0
+    /api/registry/summary | - | 200/0
+    /api/registry/versions | - | 200/0
+    /api/registry/versions/{vid} | - | 200/0
+    /api/registry/audit | model.read | 200/0
+    /api/registry/versions/{vid}/mlflow | - | 200/0
+    /api/registry/versions/{vid}/retire | - | 200/0
+    /api/registry/versions/{vid}/card | - | 200/2
+    /api/registry/serving | - | 200/0
+    /api/registry/versions/{vid}/batches | - | 200/0
+    /api/registry/batches/{bid} | - | 200/200
+    /api/registry/versions/{vid}/reasons | - | 200/0
+    /api/registry/versions/{vid}/recourse | - | 200/4
+    /api/registry/versions/{vid}/monitoring | - | 200/0
+    /api/registry/versions/{vid}/monitoring/retrain | - | 200/0
+    /api/registry/versions/{vid}/changes | - | 200/0
+    /api/registry/versions/{vid}/credit-report | - | 200/2
+    /api/runs/{run_id}/fair-lending | - | 200/0
+    /api/sql/demo | - | 200/0
+    /api/sql/datasets/{dataset_id}/versions | - | 200/0
+    /api/gym/schema | - | 200/0
+    /api/runs/{run_id}/gym | - | 200/0
+    /api/runs/{run_id}/export.py | - | 200/0
+    /api/runs/{run_id}/vela | - | 200/0
+    /api/runs/{run_id}/doctor | - | 200/0
+    /api/runs/{run_id}/experiments | - | 200/0
+    /api/runs/{run_id}/review | - | 200/0
+    /api/autopilot | - | 200/0
+    /api/llm | - | 200/0
+    /api/agent/tools | - | 200/0
+    /api/agent/status | - | 200/0
+    /api/agent/sessions | - | 200/0
+    /api/agent/sessions/{sid} | - | 200/0
+    /api/datasets/{dataset_id}/data-doctor | - | 200/0
+    /api/datasets/{dataset_id}/decision-time | - | 200/0
+    /api/datasets/{dataset_id}/feature-lab | - | 200/0
+    /api/authz/coverage | - | 200/0
+
+# any raw PII in a body (any caller):
+    ('/api/runs/{run_id}/scorecard', '-', '200/2', '200/2', '200/2')
+    ('/api/runs/{run_id}/fairness', '-', '200/2', '200/2', '200/2')
+    ('/api/runs/{run_id}/shift', '-', '200/2', '200/2', '200/2')
+    ('/api/registry/versions/{vid}/card', '-', '200/2', '200/2', '200/2')
+    ('/api/registry/batches/{bid}', '-', '200/200', '200/200', '200/200')
+    ('/api/registry/batches/{bid}/download', 'model.read', '403/0', '403/0', '200/200')
+    ('/api/registry/versions/{vid}/recourse', '-', '200/4', '200/4', '200/4')
+    ('/api/registry/versions/{vid}/credit-report', '-', '200/2', '200/2', '200/2')

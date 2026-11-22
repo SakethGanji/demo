@@ -104,6 +104,6 @@ after: [('Ana', 'maintainer'), ('Ben', 'owner'), ('Bo', 'owner'), ('Mo', 'member
 # M5. /registry/audit and /registry/summary with no filter
    Fay: /registry/audit 4 rows by team {'fraud': 4} | summary audit teams ['fraud']
    Carl: /registry/audit 5 rows by team {'collections': 5} | summary audit teams ['collections']
-   Vic: /registry/audit 236 rows by team {'credit-risk': 236} | summary audit teams ['credit-risk']
-   Ada: /registry/audit 335 rows by team {'credit-risk': 236, 'default': 90, 'collections': 5, 'fraud': 4} | summary audit teams ['credit-risk']
+   Vic: /registry/audit 238 rows by team {'credit-risk': 238} | summary audit teams ['credit-risk']
+   Ada: /registry/audit 341 rows by team {'credit-risk': 238, 'default': 94, 'collections': 5, 'fraud': 4} | summary audit teams ['credit-risk']
 ## Fay /registry/audit?version_id=<cr mv> → HTTP 403 forbidden | pii 0

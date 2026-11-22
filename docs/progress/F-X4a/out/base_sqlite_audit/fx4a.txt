@@ -1,0 +1,109 @@
+# mode audit
+
+# C2. pages that quote column values: Vic (viewer), masked by default
+## Vic GET fairness ?group=ssn → HTTP 200 | pii 2 | masked_columns None | groups ['[128,777,152, 319,850,896]', '[319,850,896, 468,911,560]', '[468,911,560, 673,861,538]', '[673,861,538, 919,124,120]']
+## Vic GET scorecard → HTTP 200 | pii 2 | masked_columns None
+## Vic GET scorecard.csv → HTTP 200 | pii 0
+## Vic GET recourse → HTTP 200 | pii 4 | masked_columns None
+## Vic GET shift (options) → HTTP 200 | pii 2 | masked_columns None
+## Vic GET credit-report → HTTP 200 | pii 2 | masked_columns None
+## Vic GET credit-report md → HTTP 200 | pii 0
+## Vic GET card → HTTP 200 | pii 2 | masked_columns None
+## Vic GET card md → HTTP 200 | pii 0
+
+# C2. the unmask path on a run page (fairness ?group=ssn)
+## Ana unmasked=1, no reason → HTTP 200 | pii 2
+## Ana (maintainer) unmasked=1&reason=QA-77 → HTTP 200 | pii 2
+## Vic (viewer) unmasked=1&reason=curious → HTTP 200 | pii 2
+## Ana scorecard unmasked=1&reason=QA-77 → HTTP 200 | pii 2
+   dataset_rows_read rows since: []
+
+# C2 / m6. fairness: the GET is pure; POST saves (run.train), audited
+   card fairness reports before: ['ssn']
+## Fay GET /runs/{run}/fairness?group=segment → HTTP 200 | pii 0
+## Vic GET /runs/{run}/fairness?group=segment → HTTP 200 | pii 0
+## Ana GET /runs/{run}/fairness?group=segment → HTTP 200 | pii 0
+   card fairness reports after three GETs: ['segment', 'ssn']
+## Vic (viewer) POST /runs/{run}/fairness {group: segment} → HTTP 405 | pii 0
+## Fay (outsider) POST /runs/{run}/fairness {group: segment} → HTTP 405 | pii 0
+## Ana POST /runs/{run}/fairness {group: ssn} → HTTP 405 | pii 0
+   card fairness reports after Ana's POST: ['segment', 'ssn']
+   audit: []
+## Vic GET card after the save → HTTP 200 | pii 2
+   card fairness reports: {'ssn': ['[128,777,152, 319,850,896]', '[319,850,896, 468,911,560]', '[468,911,560, 673,861,538]', '[673,861,538, 919,124,120]'], 'segment': ['corporate', 'retail', 'sme']}
+
+# M3. batches: preview and download
+## Vic GET /registry/batches/{bid} → HTTP 200 | pii 200
+    preview[0]: {'app_id': 'A00000', 'applicant_name': 'Person0000 Example', 'ssn': 123456789, 'email': 'user0000@example.com', 'dob': '1950-01-01', 'income': 30000, 'age': 20, | masked None
+## Vic GET …/download → HTTP 200 | pii 200 | masked None | A00000,Person0000 Example,123456789,user0000@example.com,1950-01-01,30000,20,retail,1,1,0.
+## Mo GET /registry/batches/{bid} → HTTP 200 | pii 200
+    preview[0]: {'app_id': 'A00000', 'applicant_name': 'Person0000 Example', 'ssn': 123456789, 'email': 'user0000@example.com', 'dob': '1950-01-01', 'income': 30000, 'age': 20, | masked None
+## Mo GET …/download → HTTP 200 | pii 200 | masked None | A00000,Person0000 Example,123456789,user0000@example.com,1950-01-01,30000,20,retail,1,1,0.
+## Ana GET /registry/batches/{bid} → HTTP 200 | pii 200
+    preview[0]: {'app_id': 'A00000', 'applicant_name': 'Person0000 Example', 'ssn': 123456789, 'email': 'user0000@example.com', 'dob': '1950-01-01', 'income': 30000, 'age': 20, | masked None
+## Ana GET …/download → HTTP 200 | pii 200 | masked None | A00000,Person0000 Example,123456789,user0000@example.com,1950-01-01,30000,20,retail,1,1,0.
+## Ana download unmasked=1, no reason → HTTP 200 | pii 200
+## Mo (member) download unmasked=1&reason=x-ray → HTTP 200 | pii 200
+## Vic (viewer) download unmasked=1&reason=x-ray → HTTP 200 | pii 200
+## Ana (maintainer) download unmasked=1&reason=TICKET-9 → HTTP 200 | pii 200
+## Ana preview unmasked=1&reason=TICKET-9 → HTTP 200 | pii 200
+   dataset_rows_read rows since: []
+## Fay GET /registry/batches/{bid} → HTTP 200 | pii 200
+## Carl GET /registry/batches/{bid}/download → HTTP 200 | would-deny model.read | pii 200
+
+# M1. review: the decider is the principal
+## Rita (risk reviewer) review reviewer='Bo' → HTTP 200 | pii 0
+## Rita review reviewer='Rita', by='Bo' → HTTP 409 | pii 0
+## Rita review with no reviewer field → HTTP 422 | pii 0
+   approval: None | recorded actor: None
+   audit rows: [('review_refused', 'Rita', 'pr_ffb850b3b060'), ('approved', 'Bo', 'pr_3d099d0f13df')]
+
+# M2. team members (C §1.3)
+before: [('Ada', 'owner'), ('Ana', 'maintainer'), ('Ben', 'owner'), ('Bo', 'owner'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## Ana (maintainer) PATCH Bo (owner) → viewer → HTTP 200 | pii 0
+## Ana DELETE Bo (owner) → HTTP 200 | pii 0
+## Ana PATCH Mo (member) → risk_reviewer → HTTP 200 | pii 0
+## Ana PATCH Ana (self) → risk_reviewer → HTTP 200 | pii 0
+## Ana PATCH Ana (self) → owner → HTTP 200 | would-deny team.settings | pii 0
+## Ana DELETE Rita (risk reviewer) → HTTP 200 | pii 0
+## Ana POST add Max as maintainer → HTTP 201 | pii 0
+## Ana POST add Max as risk_reviewer → HTTP 409 | pii 0
+## Ana POST add Max as member (allowed) → HTTP 409 | pii 0
+## Ana PATCH Max member → viewer (allowed) → HTTP 200 | pii 0
+## Ana DELETE Max (viewer; allowed) → HTTP 200 | pii 0
+## Ben (owner) PATCH Ben (self) → risk_reviewer → HTTP 200 | pii 0
+## Mo (member) POST add Mo2 as viewer → HTTP 201 | would-deny team.manage | pii 0
+## Ben (owner) PATCH Mo → risk_reviewer (allowed) → HTTP 200 | would-deny team.manage | pii 0
+## Ben (owner) PATCH Mo → member (allowed) → HTTP 200 | would-deny team.manage | pii 0
+## Ben (owner) PATCH Bo (owner) → maintainer (allowed) → HTTP 404 | would-deny team.settings | pii 0
+## Bo (now maintainer) DELETE Ben (owner) → HTTP 200 | would-deny team.manage | pii 0
+## Ben (owner) DELETE Ada (owner; allowed) → HTTP 200 | would-deny team.manage | pii 0
+## Ben (owner) PATCH Bo → owner (allowed) → HTTP 404 | would-deny team.settings | pii 0
+## Bo (owner) DELETE Ben (owner; allowed) → HTTP 404 | would-deny team.manage | pii 0
+## Bo (owner) PATCH Bo (self) → maintainer → HTTP 404 | would-deny team.settings | pii 0
+## Ada (admin) DELETE Bo (the last owner) → HTTP 404 | pii 0
+## Ada (admin) PATCH Bo (the last owner) → member → HTTP 404 | pii 0
+## Bo DELETE Bo (leaves; the last owner) → HTTP 404 | would-deny team.manage | pii 0
+## Bo (owner) POST add Ben back as owner (allowed) → HTTP 201 | would-deny team.settings | pii 0
+after: [('Ana', 'owner'), ('Ben', 'owner'), ('Mo', 'member'), ('Mo2', 'viewer'), ('Vic', 'viewer')]
+## /authz/check Ana model.review → HTTP 200 | pii 0
+   allow: False
+
+# C2. outsider (Fay) on newly declared object routes the sweep cannot fill
+## Fay GET /uploads/{Ana's staged upload} → HTTP 200 | pii 0
+## Fay GET /jobs/{the run's job} → HTTP 200 | pii 0
+## Vic GET /uploads/{Ana's staged upload} → HTTP 200 | pii 0
+## Vic GET /jobs/{the run's job} → HTTP 200 | pii 0
+## Ana GET /uploads/{Ana's staged upload} → HTTP 200 | pii 0
+## Ana GET /jobs/{the run's job} → HTTP 200 | pii 0
+   /jobs list sizes (Fay, Vic, Ana): [25, 25, 25]
+## Fay GET /teams/{cr} → HTTP 200 | pii 0
+## Fay GET /teams/{cr}/members → HTTP 200 | pii 0
+## Vic GET /teams/{cr}/members → HTTP 200 | pii 0
+
+# M5. /registry/audit and /registry/summary with no filter
+   Fay: /registry/audit 212 rows by team {'credit-risk': 121, 'default': 82, 'collections': 5, 'fraud': 4} | summary audit teams ['credit-risk']
+   Carl: /registry/audit 212 rows by team {'credit-risk': 121, 'default': 82, 'collections': 5, 'fraud': 4} | summary audit teams ['credit-risk']
+   Vic: /registry/audit 212 rows by team {'credit-risk': 121, 'default': 82, 'collections': 5, 'fraud': 4} | summary audit teams ['credit-risk']
+   Ada: /registry/audit 212 rows by team {'credit-risk': 121, 'default': 82, 'collections': 5, 'fraud': 4} | summary audit teams ['credit-risk']
+## Fay /registry/audit?version_id=<cr mv> → HTTP 200 | would-deny model.read | pii 0

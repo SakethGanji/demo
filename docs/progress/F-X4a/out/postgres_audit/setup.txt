@@ -1,17 +1,26 @@
 # authz mode: audit
-members: {'tm_33438e9b': [('Ada', 'owner'), ('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')], 'tm_aa88e6b4': [('Ada', 'owner'), ('Cole', 'owner'), ('Carl', 'member')], 'tm_bbb10e19': [('Ada', 'owner'), ('Fox', 'owner'), ('Fay', 'member')]}
+members: {'tm_74ad3972': [('Ada', 'owner'), ('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')], 'tm_ba84e9b3': [('Ada', 'owner'), ('Cole', 'owner'), ('Carl', 'member')], 'tm_47d980ec': [('Ada', 'owner'), ('Fox', 'owner'), ('Fay', 'member')]}
 ## v1 commit → HTTP 201 | pii 0
-    {"version_id": "ds_de4fd3f6"}
+    {"version_id": "ds_a6f455e5"}
 ## pii confirm → HTTP 200 | pii 0
     {"changed": [{"column": "applicant_name", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source": "suggested"}}, {"column": "dob", "tag": "pii_quasi", "mask": "year_only", "was": {"tag": "pii_quasi", "mask": "year_only", "source": "suggested"}}, {"column": "email", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source"
 tags: [('applicant_name', 'pii_direct', 'redact'), ('dob', 'pii_quasi', 'year_only'), ('email', 'pii_direct', 'redact'), ('ssn', 'pii_direct', 'redact')]
 ## contract → HTTP 201 | pii 0
-    {"id": "dc_936923bf91", "version": 1}
+    {"id": "dc_ac5c2f4fb2", "version": 1}
 ## cert request → HTTP 201 | pii 0
-    {"id": "cert_e2e498a954", "status": "pending"}
+    {"id": "cert_2b2ca6f45e", "status": "pending"}
 ## cert decide Ben → HTTP 200 | pii 0
-    {"status": "active", "expires_at": "2027-11-22T02:19:34+00:00"}
+    {"status": "active", "expires_at": "2027-11-22T02:47:35+00:00"}
 ## share → collections (certified, masked) → HTTP 201 | pii 0
-    {"id": "sh_0d1349b040"}
+    {"id": "sh_c2b176c295"}
 ## share decide Bo → HTTP 200 | pii 0
     {"status": "active"}
+## run → HTTP 201 | pii 0
+    {"id": "run_9f465b38"}
+run: succeeded
+## register → HTTP 202 | pii 0
+    {"id": "mv_54222c0f", "status": "building"}
+version: ready
+batch: batch_d61cd497 succeeded
+anomaly: succeeded
+state: {'mode': 'audit', 'cr': 'tm_74ad3972', 'co': 'tm_ba84e9b3', 'fr': 'tm_47d980ec', 'pd': 'prj_58367f08', 'rp': 'prj_bb299e94', 'fp': 'prj_5dc5ead0', 'v1': 'ds_a6f455e5', 'root': 'ds_a6f455e5', 'cert': 'cert_2b2ca6f45e', 'share_co': 'sh_c2b176c295', 'run': 'run_9f465b38', 'mv': 'mv_54222c0f', 'batch': 'batch_d61cd497', 'anomaly': 'run_e500b0f2'}

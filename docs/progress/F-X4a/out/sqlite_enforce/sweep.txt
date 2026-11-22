@@ -49,9 +49,9 @@
 /api/datasets/{dataset_id}/relations | data.read_meta | 403/0 | 200/0 | 200/0
 /api/projects | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
 /api/projects/{project_id} | data.read_meta | 403/0 | 403/0 | 200/0
-/api/lineage/{kind}/{node_id} | data.read_meta | 400/0 | 400/0 | 400/0
+/api/lineage/{kind}/{node_id} | data.read_meta | 403/0 | 200/0 | 200/0
 /api/runs/{run_id}/children | run.read | 403/0 | 403/0 | 200/0
-/api/annotations/{kind}/{node_id} | data.read_meta | 400/0 | 400/0 | 400/0
+/api/annotations/{kind}/{node_id} | data.read_meta | 403/0 | 200/0 | 200/0
 /api/retention/plan | retention.plan | 403/0 | 403/0 | 403/0
 /api/me | public:the caller's own principal and teams | 200/0 | 200/0 | 200/0
 /api/teams | public:team directory: names and counts; members need team.read | 200/0 | 200/0 | 200/0
@@ -146,7 +146,7 @@
 /api/agent/tools | public:the agent's tool list; no data | 200/0 | 200/0 | 200/0
 /api/agent/status | public:the agent's deciders and budget; no data | 200/0 | 200/0 | 200/0
 /api/agent/sessions | agent.use | 200/0 | 200/0 | 200/0
-/api/agent/sessions/{sid} | agent.use | 200/0 | 200/0 | 200/0
+/api/agent/sessions/{sid} | agent.use | 403/0 | 403/0 | 403/0
 /api/datasets/{dataset_id}/data-doctor | data.preview | 403/0 | 200/0 | 200/0
 /api/datasets/{dataset_id}/decision-time | data.read_meta | 403/0 | 200/0 | 200/0
 /api/datasets/{dataset_id}/feature-lab | data.read_meta | 403/0 | 200/0 | 200/0
@@ -155,7 +155,7 @@
 /api/teams/{team}/audit | audit.read | 403/0 | 403/0 | 200/0
 /api/teams/{team}/audit/verify | audit.read | 403/0 | 403/0 | 200/0
 
-# Fay (no role, no share) got 200 on 28 of 155 GET routes for Credit Risk objects:
+# Fay (no role, no share) got 200 on 27 of 155 GET routes for Credit Risk objects:
     /api/admin/lake/selfcheck | public:re-hashes fixed test vectors in code; no data | 200/0
     /api/health | public:liveness | 200/0
     /api/datasets | public:list: rows filtered to visible_teams() in enforce mode | 200/0
@@ -182,7 +182,6 @@
     /api/agent/tools | public:the agent's tool list; no data | 200/0
     /api/agent/status | public:the agent's deciders and budget; no data | 200/0
     /api/agent/sessions | agent.use | 200/0
-    /api/agent/sessions/{sid} | agent.use | 200/0
     /api/authz/coverage | public:the route map and its markers; no data | 200/0
 
 # any raw PII in a body (any caller):

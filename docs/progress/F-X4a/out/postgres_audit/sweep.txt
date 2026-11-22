@@ -1,0 +1,278 @@
+# mode audit | GET routes 155 | cells: status[W=would-deny]/pii as Fay (no relation) · Carl (masked share) · Vic (viewer)
+/api/admin/lake/selfcheck | public:re-hashes fixed test vectors in code; no data | 200/0 | 200/0 | 200/0
+/api/admin/lake/status | admin.lake | 200W/0 | 200W/0 | 200W/0
+/api/datasets/{dataset_id}/manifest | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/verify | data.verify | 200W/0 | 200W/0 | 200/0
+/api/admin/lake/gc/armed | admin.lake | 200W/0 | 200W/0 | 200W/0
+/api/admin/lake/migrate | admin.lake | 200W/0 | 200W/0 | 200W/0
+/api/admin/lake/verify-all | admin.lake | 403W/0 | 403W/0 | 403W/0
+/api/admin/lake/runs/{run_id}/verify | admin.lake | 200W/0 | 200W/0 | 200W/0
+/api/health | public:liveness | 200/0 | 200/0 | 200/0
+/api/datasets | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/datasets/diff | data.preview | 400/0 | 400/0 | 400/0
+/api/datasets/{dataset_id} | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/splits | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/split-options | data.preview | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/intake | data.preview | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/rows | data.preview | 200W/0 | 200/0 | 200/0
+/api/admin/reset-requests | admin.reset | 200W/0 | 200W/0 | 200W/0
+/api/models | public:the model-family catalogue; no data | 200/0 | 200/0 | 200/0
+/api/runs | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/runs/{run_id} | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/split-comparison | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/events | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/monotone | run.read | 400W/0 | 400W/0 | 400/0
+/api/runs/{run_id}/scorecard | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/scorecard.csv | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/ladder | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/oof | run.read | 400W/0 | 400W/0 | 400/0
+/api/runs/{run_id}/feature-importance | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/holdout-predictions | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/threshold | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/cost | run.read | 400W/0 | 400W/0 | 400/0
+/api/runs/{run_id}/cost-comparison | run.read | 400W/0 | 400W/0 | 400/0
+/api/runs/{run_id}/explain | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/fairness | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/shap | run.read | 400W/0 | 400W/0 | 400/0
+/api/status | public:machine status bar: active run ids only for visible teams | 200/0 | 200/0 | 200/0
+/api/data/search | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/history | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/pii | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{a}/diff/{b} | data.preview | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/usage | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/export | data.export | 200W/0 | 200/0 | 200W/0
+/api/datasets/{dataset_id}/grid | data.preview | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/rows/count | data.preview | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/stats | data.preview | 200W/0 | 200/0 | 200/0
+/api/uploads/{up} | data.upload | unfilled |  |  | 
+/api/datasets/{root_id}/versions/{version_id} | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/relations | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/projects | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/projects/{project_id} | data.read_meta | 200W/0 | 200W/0 | 200/0
+/api/lineage/{kind}/{node_id} | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/runs/{run_id}/children | run.read | 200W/0 | 200W/0 | 200/0
+/api/annotations/{kind}/{node_id} | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/retention/plan | retention.plan | 200W/0 | 200W/0 | 200W/0
+/api/me | public:the caller's own principal and teams | 200/0 | 200/0 | 200/0
+/api/teams | public:team directory: names and counts; members need team.read | 200/0 | 200/0 | 200/0
+/api/teams/{team} | team.read | 200W/0 | 200W/0 | 200/0
+/api/teams/{team}/members | team.read | 200W/0 | 200W/0 | 200/0
+/api/principals | public:people directory for the member picker | 200/0 | 200/0 | 200/0
+/api/principals/{principal} | public:people directory: one principal and its team names | 200/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/contract | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/certifications | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/certifications/{cid} | data.read_meta | 200W/0 | 200W/0 | 200/0
+/api/shares | public:list: filtered to shares from or to the caller's teams in enforce mode | 200/0 | 200/0 | 200/0
+/api/shares/{sid} | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/jobs | public:list: filtered to the caller's visible teams in enforce mode | 200/0 | 200/0 | 200/0
+/api/jobs/{job_id} | data.read_meta | unfilled |  |  | 
+/api/workers | admin.config | 200W/0 | 200W/0 | 200W/0
+/api/datasets/{root_id}/joins | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{root_id}/joins/{join_id} | data.read_meta | unfilled |  |  | 
+/api/datasets/{root_id}/versions/{version_id}/frames | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{root_id}/frames/{frame_id} | data.read_meta | unfilled |  |  | 
+/api/datasets/{root_id}/frames/{frame_id}/rows | data.preview | unfilled |  |  | 
+/api/legal-holds | data.read_meta | 200W/0 | 200W/0 | 200W/0
+/api/purges | data.read_meta | 200W/0 | 200W/0 | 200W/0
+/api/purges/{pid} | data.read_meta | unfilled |  |  | 
+/api/runs/{run_id}/learning-curve | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/active-learning | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/annotations | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/shift | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/shift/{key} | run.read | unfilled |  |  | 
+/api/runs/{run_id}/shift/{key}/rows | run.read | unfilled |  |  | 
+/api/registry/batches/{bid}/shift | model.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/slices | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/slices/{sid}/rows | run.read | 404W/0 | 404W/0 | 404/0
+/api/runs/{run_id}/slices/{sid}/pool | run.read | 404W/0 | 404W/0 | 404/0
+/api/forecast/options | public:forecast presets and metrics; no data | 200/0 | 200/0 | 200/0
+/api/forecast/mapping/{dataset_id} | data.preview | 200W/0 | 200/0 | 200/0
+/api/forecast/runs/{run_id}/chart | run.read | 404W/0 | 404W/0 | 404/0
+/api/forecast/runs/{run_id}/forecast.csv | run.read | 404W/0 | 404W/0 | 404/0
+/api/forecast/runs/{run_id}/predictions/{pid}.csv | run.read | unfilled |  |  | 
+/api/anomaly/mapping/{dataset_id} | data.preview | 200W/0 | 200/0 | 200/0
+/api/anomaly/runs/{run_id}/top | run.read | 200W/0 | 200W/0 | 200/0
+/api/anomaly/runs/{run_id}/labels | run.read | 200W/0 | 200W/0 | 200/0
+/api/anomaly/runs/{run_id}/supervised | run.read | 200W/0 | 200W/0 | 200/0
+/api/anomaly/runs/{run_id}/scores | run.read | 200W/0 | 200W/0 | 200/0
+/api/anomaly/runs/{run_id}/scores.csv | run.read | 200W/0 | 200W/0 | 200/0
+/api/anomaly/runs/{run_id}/batches/{bid}.csv | run.read | 404W/0 | 404W/0 | 404/0
+/api/runs/{run_id}/latency | run.read | 200W/0 | 200W/0 | 200/0
+/api/registry | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/registry/summary | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/registry/versions | public:list: rows filtered to visible_teams() in enforce mode | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid} | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/audit | model.read | 200/0 | 200/0 | 200/0
+/api/registry/versions/{vid}/mlflow | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/retire | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/card | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/inputs.zip | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/monotone | model.read | 400W/0 | 400W/0 | 400/0
+/api/registry/serving | admin.config | 200W/0 | 200W/0 | 200W/0
+/api/registry/versions/{vid}/batches | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/batches/{bid} | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/batches/{bid}/download | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/reasons | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/recourse | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/monitoring | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/monitoring/retrain | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/changes | model.read | 200W/0 | 200W/0 | 200/0
+/api/registry/versions/{vid}/credit-report | model.read | 200W/0 | 200W/0 | 200/0
+/api/expected-loss/detect | data.preview | 422/0 | 422/0 | 422/0
+/api/expected-loss/runs/{run_id} | run.read | 404W/0 | 404W/0 | 404/0
+/api/runs/{run_id}/fair-lending | run.read | 200W/0 | 200W/0 | 200/0
+/api/segmented/detect | data.preview | 422/0 | 422/0 | 422/0
+/api/segmented/runs/{run_id} | run.read | 404W/0 | 404W/0 | 404/0
+/api/survival/detect | data.preview | 422/0 | 422/0 | 422/0
+/api/survival/runs/{run_id} | run.read | 404W/0 | 404W/0 | 404/0
+/api/multilabel/detect | data.preview | 422/0 | 422/0 | 422/0
+/api/multilabel/runs/{run_id} | run.read | 404W/0 | 404W/0 | 404/0
+/api/sql/demo | public:the bundled demo SQLite file's tables | 200/0 | 200/0 | 200/0
+/api/sql/datasets/{dataset_id}/versions | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/reject-inference/detect | data.preview | 422/0 | 422/0 | 422/0
+/api/reject-inference/runs/{run_id} | run.read | 404W/0 | 404W/0 | 404/0
+/api/gym/schema | public:the Gym's request schema; no data | 200/0 | 200/0 | 200/0
+/api/runs/{run_id}/gym | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/export.py | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/vela | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/doctor | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/experiments | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/review | run.read | 200W/0 | 200W/0 | 200/0
+/api/runs/{run_id}/review/{review_id} | run.read | unfilled |  |  | 
+/api/autopilot | public:list: filtered to the caller's visible teams in enforce mode | 200/0 | 200/0 | 200/0
+/api/autopilot/{aid} | run.read | unfilled |  |  | 
+/api/autopilot/{aid}/inbox | run.read | unfilled |  |  | 
+/api/llm | public:LLM route status and latencies; no keys | 200/0 | 200/0 | 200/0
+/api/agent/tools | public:the agent's tool list; no data | 200/0 | 200/0 | 200/0
+/api/agent/status | public:the agent's deciders and budget; no data | 200/0 | 200/0 | 200/0
+/api/agent/sessions | agent.use | 200/0 | 200/0 | 200/0
+/api/agent/sessions/{sid} | agent.use | 403/0 | 403/0 | 403/0
+/api/datasets/{dataset_id}/data-doctor | data.preview | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/decision-time | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/feature-lab | data.read_meta | 200W/0 | 200/0 | 200/0
+/api/datasets/{dataset_id}/feature-lab/{job_id} | data.preview | unfilled |  |  | 
+/api/authz/coverage | public:the route map and its markers; no data | 200/0 | 200/0 | 200/0
+/api/teams/{team}/audit | audit.read | 200W/0 | 200W/0 | 200/0
+/api/teams/{team}/audit/verify | audit.read | 200W/0 | 200W/0 | 200/0
+
+# Fay (no role, no share) got 200 on 118 of 155 GET routes for Credit Risk objects:
+    /api/admin/lake/selfcheck | public:re-hashes fixed test vectors in code; no data | 200/0
+    /api/admin/lake/status | admin.lake | 200W/0
+    /api/datasets/{dataset_id}/manifest | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/verify | data.verify | 200W/0
+    /api/admin/lake/gc/armed | admin.lake | 200W/0
+    /api/admin/lake/migrate | admin.lake | 200W/0
+    /api/admin/lake/runs/{run_id}/verify | admin.lake | 200W/0
+    /api/health | public:liveness | 200/0
+    /api/datasets | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/datasets/{dataset_id} | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/splits | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/split-options | data.preview | 200W/0
+    /api/datasets/{dataset_id}/intake | data.preview | 200W/0
+    /api/datasets/{dataset_id}/rows | data.preview | 200W/0
+    /api/admin/reset-requests | admin.reset | 200W/0
+    /api/models | public:the model-family catalogue; no data | 200/0
+    /api/runs | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/runs/{run_id} | run.read | 200W/0
+    /api/runs/{run_id}/split-comparison | run.read | 200W/0
+    /api/runs/{run_id}/events | run.read | 200W/0
+    /api/runs/{run_id}/scorecard | run.read | 200W/0
+    /api/runs/{run_id}/scorecard.csv | run.read | 200W/0
+    /api/runs/{run_id}/ladder | run.read | 200W/0
+    /api/runs/{run_id}/feature-importance | run.read | 200W/0
+    /api/runs/{run_id}/holdout-predictions | run.read | 200W/0
+    /api/runs/{run_id}/threshold | run.read | 200W/0
+    /api/runs/{run_id}/explain | run.read | 200W/0
+    /api/runs/{run_id}/fairness | run.read | 200W/0
+    /api/status | public:machine status bar: active run ids only for visible teams | 200/0
+    /api/data/search | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/datasets/{dataset_id}/history | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/pii | data.read_meta | 200W/0
+    /api/datasets/{a}/diff/{b} | data.preview | 200W/0
+    /api/datasets/{dataset_id}/usage | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/export | data.export | 200W/0
+    /api/datasets/{dataset_id}/grid | data.preview | 200W/0
+    /api/datasets/{dataset_id}/rows/count | data.preview | 200W/0
+    /api/datasets/{dataset_id}/stats | data.preview | 200W/0
+    /api/datasets/{root_id}/versions/{version_id} | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/relations | data.read_meta | 200W/0
+    /api/projects | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/projects/{project_id} | data.read_meta | 200W/0
+    /api/lineage/{kind}/{node_id} | data.read_meta | 200W/0
+    /api/runs/{run_id}/children | run.read | 200W/0
+    /api/annotations/{kind}/{node_id} | data.read_meta | 200W/0
+    /api/retention/plan | retention.plan | 200W/0
+    /api/me | public:the caller's own principal and teams | 200/0
+    /api/teams | public:team directory: names and counts; members need team.read | 200/0
+    /api/teams/{team} | team.read | 200W/0
+    /api/teams/{team}/members | team.read | 200W/0
+    /api/principals | public:people directory for the member picker | 200/0
+    /api/principals/{principal} | public:people directory: one principal and its team names | 200/0
+    /api/datasets/{dataset_id}/contract | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/certifications | data.read_meta | 200W/0
+    /api/certifications/{cid} | data.read_meta | 200W/0
+    /api/shares | public:list: filtered to shares from or to the caller's teams in enforce mode | 200/0
+    /api/shares/{sid} | data.read_meta | 200W/0
+    /api/jobs | public:list: filtered to the caller's visible teams in enforce mode | 200/0
+    /api/workers | admin.config | 200W/0
+    /api/datasets/{root_id}/joins | data.read_meta | 200W/0
+    /api/datasets/{root_id}/versions/{version_id}/frames | data.read_meta | 200W/0
+    /api/legal-holds | data.read_meta | 200W/0
+    /api/purges | data.read_meta | 200W/0
+    /api/runs/{run_id}/learning-curve | run.read | 200W/0
+    /api/runs/{run_id}/active-learning | run.read | 200W/0
+    /api/runs/{run_id}/annotations | run.read | 200W/0
+    /api/runs/{run_id}/shift | run.read | 200W/0
+    /api/registry/batches/{bid}/shift | model.read | 200W/0
+    /api/runs/{run_id}/slices | run.read | 200W/0
+    /api/forecast/options | public:forecast presets and metrics; no data | 200/0
+    /api/forecast/mapping/{dataset_id} | data.preview | 200W/0
+    /api/anomaly/mapping/{dataset_id} | data.preview | 200W/0
+    /api/anomaly/runs/{run_id}/top | run.read | 200W/0
+    /api/anomaly/runs/{run_id}/labels | run.read | 200W/0
+    /api/anomaly/runs/{run_id}/supervised | run.read | 200W/0
+    /api/anomaly/runs/{run_id}/scores | run.read | 200W/0
+    /api/anomaly/runs/{run_id}/scores.csv | run.read | 200W/0
+    /api/runs/{run_id}/latency | run.read | 200W/0
+    /api/registry | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/registry/summary | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/registry/versions | public:list: rows filtered to visible_teams() in enforce mode | 200/0
+    /api/registry/versions/{vid} | model.read | 200W/0
+    /api/registry/audit | model.read | 200/0
+    /api/registry/versions/{vid}/mlflow | model.read | 200W/0
+    /api/registry/versions/{vid}/retire | model.read | 200W/0
+    /api/registry/versions/{vid}/card | model.read | 200W/0
+    /api/registry/versions/{vid}/inputs.zip | model.read | 200W/0
+    /api/registry/serving | admin.config | 200W/0
+    /api/registry/versions/{vid}/batches | model.read | 200W/0
+    /api/registry/batches/{bid} | model.read | 200W/0
+    /api/registry/batches/{bid}/download | model.read | 200W/0
+    /api/registry/versions/{vid}/reasons | model.read | 200W/0
+    /api/registry/versions/{vid}/recourse | model.read | 200W/0
+    /api/registry/versions/{vid}/monitoring | model.read | 200W/0
+    /api/registry/versions/{vid}/monitoring/retrain | model.read | 200W/0
+    /api/registry/versions/{vid}/changes | model.read | 200W/0
+    /api/registry/versions/{vid}/credit-report | model.read | 200W/0
+    /api/runs/{run_id}/fair-lending | run.read | 200W/0
+    /api/sql/demo | public:the bundled demo SQLite file's tables | 200/0
+    /api/sql/datasets/{dataset_id}/versions | data.read_meta | 200W/0
+    /api/gym/schema | public:the Gym's request schema; no data | 200/0
+    /api/runs/{run_id}/gym | run.read | 200W/0
+    /api/runs/{run_id}/export.py | run.read | 200W/0
+    /api/runs/{run_id}/vela | run.read | 200W/0
+    /api/runs/{run_id}/doctor | run.read | 200W/0
+    /api/runs/{run_id}/experiments | run.read | 200W/0
+    /api/runs/{run_id}/review | run.read | 200W/0
+    /api/autopilot | public:list: filtered to the caller's visible teams in enforce mode | 200/0
+    /api/llm | public:LLM route status and latencies; no keys | 200/0
+    /api/agent/tools | public:the agent's tool list; no data | 200/0
+    /api/agent/status | public:the agent's deciders and budget; no data | 200/0
+    /api/agent/sessions | agent.use | 200/0
+    /api/datasets/{dataset_id}/data-doctor | data.preview | 200W/0
+    /api/datasets/{dataset_id}/decision-time | data.read_meta | 200W/0
+    /api/datasets/{dataset_id}/feature-lab | data.read_meta | 200W/0
+    /api/authz/coverage | public:the route map and its markers; no data | 200/0
+    /api/teams/{team}/audit | audit.read | 200W/0
+    /api/teams/{team}/audit/verify | audit.read | 200W/0
+
+# any raw PII in a body (any caller):

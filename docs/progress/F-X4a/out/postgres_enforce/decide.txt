@@ -2,7 +2,7 @@
 
 # 1. registry review: the reviewer's name is body.reviewer (BY_FIELDS = by, actor, created_by, requested_by)
 ## 1a Ana (registrant, maintainer) reviews her own version, reviewer=Rita → HTTP 403 | pii 0
-    {"detail": {"code": "forbidden", "action": "model.review", "team": "tm_9f0caf74", "needed": "risk_reviewer", "message": "model.review needs risk_reviewer in tm_9f0caf74; you are maintainer"}}
+    {"detail": {"code": "forbidden", "action": "model.review", "team": "tm_7c41c648", "needed": "risk_reviewer", "message": "model.review needs risk_reviewer in tm_7c41c648; you are maintainer"}}
 ## 1b Rita reviews, reviewer='Ana' (the registrant) → HTTP 409 | pii 0
     {"detail": "You are signed in as Rita; 'by' says Ana."}
 ## 1c Rita reviews, by='Bo' (a by field ≠ principal) → HTTP 409 | pii 0

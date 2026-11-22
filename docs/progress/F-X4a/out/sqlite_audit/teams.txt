@@ -1,0 +1,24 @@
+# mode audit
+# 0. PATCH /datasets/{id} is guarded by run.train (a member)
+## 2a Mo (member) PATCH /datasets/{v} {description} → HTTP 400 | pii 0
+    {"detail": "Send {\"target\": \"<column to predict>\"}."}
+
+# 1. team management
+before: [('Ada', 'owner'), ('Ben', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Mo2', 'viewer'), ('Vic', 'viewer')]
+## 1a Ana (maintainer) PATCH /teams/cr/members/Bo {role: viewer}  (demote an owner) → HTTP 404 | pii 0
+    {"display_name": null, "role": null}
+## 1b Ana (maintainer) DELETE /teams/cr/members/Bo  (remove an owner) → HTTP 404 | pii 0
+    {"detail": "Bo is not a member of Credit Risk."}
+## 1c Ana (maintainer) PATCH /teams/cr/members/Mo {role: risk_reviewer} → HTTP 200 | would-deny team.settings | pii 0
+    {"team_id": "tm_8e4cb8ba", "members": [{"principal_id": "pr_fdee430d40bd", "display_name": "Ada", "identity_key": "ada", "kind": "person", "email": null, "is_admin": true, "role": "owner", "source": "
+## 1d Ana (maintainer) PATCH /teams/cr/members/Ana {role: risk_reviewer}  (herself) → HTTP 403 | would-deny team.settings | pii 0
+    {"detail": {"code": "self_grant", "message": "Ana cannot give themselves a role in Credit Risk: another owner (or a platform admin) must make the change."}}
+after: [('Ada', 'owner'), ('Ben', 'owner'), ('Ana', 'maintainer'), ('Mo', 'risk_reviewer'), ('Mo2', 'viewer'), ('Vic', 'viewer')]
+## 1e /authz/check Ana model.review on the team → HTTP 200 | pii 0
+    {"allow": false, "reason": "model.review needs risk_reviewer in tm_8e4cb8ba; you are maintainer"}
+
+# 3. the SQL source reads other databases under the data dir (Fay, Fraud member, in her own project)
+## 3a Fay POST /sql/preview {sqlite:///mlflow/mlflow.db, SELECT name FROM registered_models} → HTTP 400 | pii 0
+    {"rows": null}
+## 3b Fay POST /sql/preview {sqlite:///ensemble.sqlite3} → HTTP 400 | pii 0
+    {"detail": {"code": "sql_platform_db", "message": "That is one of the workbench's own databases, not a data source."}}

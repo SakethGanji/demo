@@ -1,0 +1,3 @@
+Fay GET /certifications/cert_89d9d1084f → 403
+Carl GET /certifications/cert_89d9d1084f → 200
+Vic GET /certifications/cert_89d9d1084f → 200

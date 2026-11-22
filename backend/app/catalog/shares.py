@@ -145,6 +145,9 @@ def grant(con: Any, principal_id: str, scope: Any, *, unmasked: bool = False) ->
                 if g:
                     return g
             return None
+        if k == "certification" and i:  # F-X4a: a certification is read like the version it certifies
+            r = con.execute("SELECT version_id FROM certifications WHERE id = ?", (i,)).fetchone()
+            return grant_for_version(con, teams, r[0], unmasked=unmasked) if r else None
         if k == "share" and i and not unmasked:  # F-X4a: the grantee team reads its own share
             r = con.execute("SELECT grantee_team FROM shares WHERE id = ?", (i,)).fetchone()
             return get(con, i) if r and r[0] in teams else None

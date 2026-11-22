@@ -8,17 +8,17 @@ before: [('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'membe
 ## 1a Ana (maintainer) PATCH /teams/cr/members/Bo {role: viewer}  (demote an owner) → HTTP 403 | pii 0
     {"display_name": null, "role": null}
 ## 1b Ana (maintainer) DELETE /teams/cr/members/Bo  (remove an owner) → HTTP 403 | pii 0
-    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_2d325616", "needed": "owner", "message": "team.settings needs owner in tm_2d325616; you are maintainer"}}
+    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_1b78401b", "needed": "owner", "message": "team.settings needs owner in tm_1b78401b; you are maintainer"}}
 ## 1c Ana (maintainer) PATCH /teams/cr/members/Mo {role: risk_reviewer} → HTTP 403 | pii 0
-    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_2d325616", "needed": "owner", "message": "team.settings needs owner in tm_2d325616; you are maintainer"}}
+    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_1b78401b", "needed": "owner", "message": "team.settings needs owner in tm_1b78401b; you are maintainer"}}
 ## 1d Ana (maintainer) PATCH /teams/cr/members/Ana {role: risk_reviewer}  (herself) → HTTP 403 | pii 0
-    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_2d325616", "needed": "owner", "message": "team.settings needs owner in tm_2d325616; you are maintainer"}}
+    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_1b78401b", "needed": "owner", "message": "team.settings needs owner in tm_1b78401b; you are maintainer"}}
 after: [('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
 ## 1e /authz/check Ana model.review on the team → HTTP 200 | pii 0
-    {"allow": false, "reason": "model.review needs risk_reviewer in tm_2d325616; you are maintainer"}
+    {"allow": false, "reason": "model.review needs risk_reviewer in tm_1b78401b; you are maintainer"}
 
 # 3. the SQL source reads other databases under the data dir (Fay, Fraud member, in her own project)
-## 3a Fay POST /sql/preview {sqlite:///mlflow/mlflow.db, SELECT name FROM registered_models} → HTTP 200 | pii 0
-    {"rows": [{"name": "pd-x4", "description": ""}]}
+## 3a Fay POST /sql/preview {sqlite:///mlflow/mlflow.db, SELECT name FROM registered_models} → HTTP 400 | pii 0
+    {"rows": null}
 ## 3b Fay POST /sql/preview {sqlite:///ensemble.sqlite3} → HTTP 400 | pii 0
-    {"detail": "That is the workbench's own database, not a data source."}
+    {"detail": {"code": "sql_platform_db", "message": "That is one of the workbench's own databases, not a data source."}}
