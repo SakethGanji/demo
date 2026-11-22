@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { ActiveLearning, ALItem, ALRequest, Run, SlicePool } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
@@ -33,7 +35,8 @@ const U_FORMULA = {
  *  Every number is GET /api/runs/{id}/active-learning. */
 export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: string }) {
   const [busy, setBusy] = useState(false)
-  const { data: al, setData: setAl, err, setErr, reload } = useFetch(() => api.runs.activeLearning(run.id), [run.id], { pollMs: 2000, while: (d) => d?.status === 'queued' || d?.status === 'running' || !!d?.queue?.submitted_pending })
+  const [unmask, setUnmask] = useState<Unmask>(null)
+  const { data: al, setData: setAl, err, setErr, reload } = useFetch(() => api.runs.activeLearning(run.id, unmask ?? undefined), [run.id, unmask], { pollMs: 2000, while: (d) => d?.status === 'queued' || d?.status === 'running' || !!d?.queue?.submitted_pending })
   const working = al?.status === 'queued' || al?.status === 'running' || !!al?.queue?.submitted_pending
   const [body, setBody] = useState<ALRequest>(sliceId ? { slice_id: sliceId } : {})
   const [pool, setPool] = useState<SlicePool | null>(null)
@@ -64,6 +67,7 @@ export function LabellingQueuePanel({ run, sliceId }: { run: Run; sliceId?: stri
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="al-panel" data-status={al?.status}>
       {err && <div className="card card-body" role="alert" data-testid="al-error"><p className="helper">✕ {err}</p></div>}
+      <MaskBar info={al} kind="run" id={run.id} value={unmask} onChange={setUnmask} what="feature values in the queue" />
       {al && started && s && <Hero al={al} metric={metric} />}
       {al && started && al.slice && (
         <p className="helper" style={{ fontSize: 12.5 }} data-testid="al-slice-on">Pool pre-filtered to the weak slice <span className="mono">{al.slice.label}</span> (F16): {nfmt(al.slice.n_pool)} unlabelled training rows inside it of {nfmt(al.slice.n_train_in_slice)}; active and random pick from the same restricted pool.</p>

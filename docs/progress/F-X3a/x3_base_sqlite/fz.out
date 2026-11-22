@@ -1,0 +1,12 @@
+522 requests; 11 5xx
+  ('PUT', '/datasets/ds_68dc66b4/tables/customers/key', "{'columns': ['cust_id'], 'by': 7}", 500, 'Internal Server Error')
+  ('POST', '/uploads/up_66590401febb/commit', "{'columns': ['cust_id'], 'by': 7}", 500, 'Internal Server Error')
+  ('POST', '/uploads/up_d9d0e5d250a8/check', 'None', 500, 'Internal Server Error')
+  ('POST', '/uploads/up_fdeb6af87b9c/check', 'None', 500, 'Internal Server Error')
+  ('POST', '/uploads/up_8c6d83402b8a/check', 'None', 500, 'Internal Server Error')
+  ('GET', '/datasets/ds_68dc66b4/diff/nope', 'None', 500, 'Internal Server Error')
+  ('GET', '/datasets/ds_68dc66b4/diff/ds_00000000', 'None', 500, 'Internal Server Error')
+  ('GET', '/datasets/ds_68dc66b4/diff/%2e%2e', 'None', 500, 'Internal Server Error')
+  ('GET', "/datasets/ds_68dc66b4/diff/ds_' OR 1=1--", 'None', 500, 'Internal Server Error')
+  ('GET', '/datasets/ds_68dc66b4/diff/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'None', 500, 'Internal Server Error')
+  ('GET', '/datasets/ds_68dc66b4/diff/ds_\x00', 'None', 500, 'Internal Server Error')

@@ -1,0 +1,166 @@
+# mode enforce
+
+# 1. before the purge
+    API (before): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 200, 500
+      export v1 (unmasked): HTTP 200, 0
+      stats v1: HTTP 200, 0
+      explain run: HTTP 200, 0
+      shap row 1: HTTP 200, 0
+      fairness ssn: HTTP 200, 2
+      scorecard: HTTP 200, 2
+      model card: HTTP 200, 2
+      recourse: HTTP 200, 2
+      batch: HTTP 200, 50
+      batch download: HTTP 200, 50
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 200, 0
+      data doctor: HTTP 200, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (before): 14 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      ensemble.sqlite3: [1, 111, 0]
+      lake/blobs: [2, 600, 3]
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [2, 50, 0]
+      registry/batch_*/scored.csv: [2, 50, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+    database (before): tables with raw SSNs (distinct values per table): {'datasets': 2, 'runs': 10, 'batch_jobs': 100, 'uploads': 5, 'table_stats': 2}
+
+# 2. purge loans.ssn
+## 2a Ana POST /datasets/v1/purge {loans, [ssn]} → HTTP 201 | pii 0
+    {"id": "pur_c49a9e1dcb", "status": "pending", "new_version_id": "ds_6ac96c55", "teams_needed": ["tm_752fbd4c"]}
+    impact teams: ['tm_752fbd4c'] | runs: [('run_6bbed6c5', 'tm_752fbd4c', 'trained on an affected version'), ('run_158f66dd', 'tm_752fbd4c', 'trained on an affected version'), ('run_c0aacdb5', 'tm_752fbd4c', 'trained on an affected version')] | models: [{'id': 'mv_0b874a2e', 'model_name': 'pd-x4', 'version': 1, 'approval': 'pending', 'stage': 'None', 'run_id': 'run_6bbed6c5'}, {'id': 'mv_03b6c872', 'model_name': 'pd-x4-nossn', 'version': 1, 'approval': 'pending', 'stage': 'None', 'run_id': 'run_c0aacdb5'}] | shares: [None] | join frames: [] | blobs: 2
+## 2b Ben approves for tm_752fbd4c → HTTP 200 | pii 0
+    {"status": "used", "waiting_for": []}
+    executed: used | blobs deleted: 2 | failed: []
+    derived: {"n_deleted": null, "n_redacted": null, "purged_models": null, "model_versions_purged": null, "error": null}
+    deleted: None
+    redacted: []
+    db: null
+    SWEEP: {"status": null, "values": null, "values_total": null, "files_searched": null, "n_hits": null, "hits": null, "s3": null, "skipped": null}
+    impact report derived: files []
+    impact report purged models: None | model versions: None
+
+# 3. after the purge
+    API (after): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 410, 0
+      export v1 (unmasked): HTTP 500, 0
+      stats v1: ReadError
+      explain run: HTTP 500, 0
+      shap row 1: ReadError
+      fairness ssn: HTTP 400, 0
+      scorecard: HTTP 200, 2
+      model card: HTTP 200, 2
+      recourse: HTTP 400, 0
+      batch: HTTP 200, 50
+      batch download: HTTP 200, 50
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 410, 0
+      data doctor: HTTP 410, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (after): 13 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      ensemble.sqlite3: [1, 111, 0]
+      ensemble.sqlite3-wal: [1, 2, 0]
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [2, 50, 0]
+      registry/batch_*/scored.csv: [2, 50, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+       ensemble.sqlite3 (111, 0)
+       ensemble.sqlite3-wal (2, 0)
+       lake/exports/ds_93e1359a/loans.csv (600, 0)
+       registry/batches/batch_3c5acdd5/input.csv (50, 0)
+       registry/batches/batch_3c5acdd5/scored.csv (50, 0)
+       registry/batches/batch_5cda3cd1/input.csv (50, 0)
+       registry/batches/batch_5cda3cd1/scored.csv (50, 0)
+       runs/run_158f66dd/top.json (200, 0)
+       runs/run_6bbed6c5/predictor/models/LightGBMXT/model.pkl (6, 0)
+       runs/run_6bbed6c5/predictor/utils/data/X.pkl (0, 384)
+       runs/run_6bbed6c5/predictor/utils/data/X_val.pkl (0, 96)
+       runs/run_6bbed6c5/scorecard/report.json (2, 0)
+       runs/run_6bbed6c5/shap/1_1_50_2048_WeightedEnsemble_L2.json (1, 0)
+    database (after): tables with raw SSNs (distinct values per table): {'datasets': 2, 'runs': 10, 'batch_jobs': 100, 'uploads': 5, 'table_stats': 2}
+## 3a GET /admin/lake/runs/{run}/verify → HTTP 200 | pii 0
+    {"ok": null, "status": "purged"}
+## 3b GET /admin/lake/runs/{run2}/verify → HTTP 200 | pii 0
+    {"ok": null, "status": "purged"}
+## 3c predict mv2 (did not use ssn) → HTTP 500 | pii 0
+    "Internal Server Error"
+Traceback (most recent call last):
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/connection_pool.py", line 256, in handle_request
+    raise exc from None
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/connection_pool.py", line 236, in handle_request
+    response = connection.handle_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/connection.py", line 103, in handle_request
+    return self._connection.handle_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/http11.py", line 136, in handle_request
+    raise exc
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/http11.py", line 106, in handle_request
+    ) = self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/http11.py", line 177, in _receive_response_headers
+    event = self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_sync/http11.py", line 217, in _receive_event
+    data = self._network_stream.read(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_backends/sync.py", line 126, in read
+    with map_exceptions(exc_map):
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ReadError: [Errno 104] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/var/tmp/x4/base/docs/progress/F-X4c/purge.py", line 205, in <module>
+    show("3d predict run2", post("Ana", f"/runs/{st['run2']}/predict", {"rows": [row]}), None, cut=300)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/base/docs/progress/F-X4c/x4lib.py", line 75, in post
+    return c.post(B + url, json=js, headers=h(who, hd), **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_client.py", line 1144, in post
+    return self.request(
+           ^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_client.py", line 914, in send
+    response = self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+  File "/usr/lib/python3.12/contextlib.py", line 158, in __exit__
+    self.gen.throw(value)
+  File "/var/tmp/x4/venv/lib/python3.12/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ReadError: [Errno 104] Connection reset by peer

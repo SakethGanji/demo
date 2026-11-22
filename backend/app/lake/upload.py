@@ -201,12 +201,39 @@ def stage_stream(db, store, *, by: str, filename: str, chunks, project_id: str |
     return get(db, up)
 
 
+def _actor() -> str:
+    """Who is acting in this request (the principal, else the typed actor), for the audit row."""
+    from ..catalog import governance as G
+
+    try:
+        from ..authz.context import current
+
+        ctx = current()
+        p = ctx.principal if ctx is not None else None
+    except Exception:  # noqa: BLE001
+        p = None
+    return p.display_name if p is not None else (G.current_actor() or "system")
+
+
 def discard(db, store, up: str, why: str = "discarded") -> None:
+    from ..catalog.schema import audit
+
     with db.connect() as con:
-        con.execute("UPDATE uploads SET status = 'discarded' WHERE id = ? AND status <> 'committed'", (up,))
+        r = con.execute("SELECT status, team_id, project_id, created_by FROM uploads WHERE id = ?", (up,)).fetchone()
+        n = con.execute("UPDATE uploads SET status = 'discarded' WHERE id = ? AND status NOT IN ('committed', 'discarded')",
+                        (up,)).rowcount
+        if n and r is not None:  # F-X4b (X4 M6): a discarded upload (and its staged bytes) is audited
+            audit(con, _actor(), "upload_discarded", {"upload_id": up, "why": why, "status_was": r["status"],
+                                                      "created_by": r["created_by"], "project_id": r["project_id"]},
+                  team_id=r["team_id"], project_id=r["project_id"], object_kind="upload", object_id=up)
     remove = getattr(store, "remove_tmp", None)
     if remove:
         remove(store.tmp_dir(up))
+
+
+#: the fields PATCH /uploads/{u} takes (`by` is the actor, read by the route)
+PLAN_KEYS = frozenset({"name", "target", "project_id", "table", "reason", "types", "parent_version_id", "root_id", "match",
+                       "formats", "tables", "primary_table", "relations", "by"})
 
 
 def patch_plan(db, up: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -214,6 +241,10 @@ def patch_plan(db, up: str, body: dict[str, Any]) -> dict[str, Any]:
     if u["status"] in ("committed", "discarded", "expired"):
         raise LakeError(409, f"upload_{u['status']}", f"Upload {up} is {u['status']}.")
     plan = dict(u["plan"] or {})
+    unknown = sorted(str(k) for k in body if k not in PLAN_KEYS)
+    if unknown:  # F-X3a m7: a typo (`tabels`) is a 400, never silently dropped
+        raise LakeError(400, "bad_plan", f"Unknown plan field(s) {unknown}: the plan takes {', '.join(sorted(PLAN_KEYS - {'by'}))}.",
+                        fields=unknown)
     for k in ("name", "target", "project_id", "table", "reason"):
         if k in body:
             v = body[k]
@@ -437,7 +468,8 @@ def check(db, store, up: str, dstore: Any = None) -> dict[str, Any]:
             s0 = srcs[0]
             p0 = {**plan, "table": plan.get("table") or s0["table"]} if s0.get("sheet") is not None else plan
             try:
-                out = _check_file(db, tmp, s0["f"], p0, u["team_id"], sep=s0.get("sep"))
+                out = _check_file(db, tmp, s0["f"], p0, u["team_id"], sep=s0.get("sep"),
+                                  min_rows=1 if plan.get("parent_version_id") else 2)
             except LakeError as e:
                 if s0.get("sheet") is None:
                     raise
@@ -446,8 +478,10 @@ def check(db, store, up: str, dstore: Any = None) -> dict[str, Any]:
                 out["tables"][0].update(source_file=s0["source_file"], source_sha256=s0["source_sha256"], sheet=s0["sheet"])
                 out["kind"] = "xlsx"
                 out["sheets"] = sheet_notes
+                out["warnings"] += [{**x, "table": out["tables"][0]["name"]} for x in s0.get("excel_warnings") or []]
             if plan.get("parent_version_id"):
                 out["next_version"] = _check_next(db, store, dstore, tmp, out, plan)
+                out["warnings"] += _next_integrity(db, tmp, out, plan)
                 if any(c["name"] == "_op" for c in out["tables"][0]["schema"]):  # P13: not applied unless the plan says
                     tn = out["tables"][0]["name"]
                     out["warnings"].append({"code": "looks_like_delta", "table": tn,
@@ -474,8 +508,43 @@ def _table_name(plan: dict[str, Any], filename: str) -> str:
     return t
 
 
-#: F-X1 C1: columns per aggregate query in the typing scan (7 aggregates each).
+#: F-X1 C1: columns per aggregate query in the typing scan (AGGS_PER_COL aggregates each).
 SCAN_CHUNK_COLS = 64
+#: non-null, leading zeros, cast failures, DOUBLE failures, slash dates (3), lossy casts (F-X3a M2)
+AGGS_PER_COL = 8
+
+
+def _lossy_pred(n: str, want: str, fmt: str | None, decimal_comma: bool) -> str | None:
+    """F-X3a M2: the values that read as `want` only by changing: a decimal into BIGINT (TRY_CAST rounds 1.5 to 2), a
+    date-time into DATE (the time is dropped). None when the type has no such cast."""
+    c = _q(n)
+    if want == "BIGINT":
+        b = _cast_expr(n, "BIGINT")
+        return f"{b} IS NOT NULL AND {_cast_expr(n, 'DOUBLE', decimal_comma=decimal_comma)} IS DISTINCT FROM {b}::DOUBLE"
+    if want == "DATE" and not fmt:
+        return (f"TRY_CAST(trim({c}) AS DATE) IS NOT NULL AND TRY_CAST(trim({c}) AS TIMESTAMP) IS DISTINCT FROM "
+                f"TRY_CAST(trim({c}) AS DATE)::TIMESTAMP")
+    return None
+
+
+def _lossy_agg(n: str, want: str, fmt: str | None, decimal_comma: bool) -> str:
+    p = _lossy_pred(n, want, fmt, decimal_comma)
+    return f"count(*) FILTER (WHERE {p})" if p else "0"
+
+
+def _lossy_examples(con, n: str, want: str, fmt: str | None, decimal_comma: bool) -> list[str]:
+    p = _lossy_pred(n, want, fmt, decimal_comma)
+    if not p:
+        return []
+    rows = con.execute(f"SELECT DISTINCT {_q(n)} FROM (SELECT {_q(n)} FROM src WHERE {p} LIMIT 1000) LIMIT 3").fetchall()
+    return [str(r[0])[:60] for r in rows]
+
+
+def _slash_examples(con, n: str) -> list[str]:
+    c = _q(n)
+    rows = con.execute(f"SELECT DISTINCT {c} FROM (SELECT {c} FROM src WHERE regexp_matches({c}, '{SLASH_DATE_RE}') LIMIT 1000)"
+                       " LIMIT 3").fetchall()
+    return [str(r[0])[:60] for r in rows]
 
 
 def _guard_names(names: list[str]) -> None:
@@ -495,9 +564,10 @@ def _guard_names(names: list[str]) -> None:
 
 
 def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id: str, *, typed_name: str = "typed.parquet",
-                sep: str | None = None, soft_types: dict[str, str] | None = None) -> dict[str, Any]:
+                sep: str | None = None, soft_types: dict[str, str] | None = None, min_rows: int = 2) -> dict[str, Any]:
     """One CSV / Parquet file (or an Excel sheet written as CSV, P12: `sep` forced) typed into tmp/`typed_name`.
-    `soft_types` (P12, an append): the parent table's types, declared for the columns the file has."""
+    `soft_types` (P12, an append): the parent table's types, declared for the columns the file has.
+    `min_rows` (F-X3a M4): two data rows for a new dataset; one for a file that continues a parent (a one-row delta)."""
     src = tmp / f["src"]
     name = f["filename"] or ""
     with open(src, "rb") as fh:
@@ -507,7 +577,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
     notes: list[str] = []
     table = _table_name(plan, name)
     if head[:4] == b"PAR1" or name.lower().endswith(".parquet"):
-        return _check_parquet(tmp, src, f, plan, table)
+        return _check_parquet(tmp, src, f, plan, table, min_rows=min_rows)
     if head[:2] == b"PK" or re.search(r"\.(xlsx|xlsm|xls)$", name, re.I):  # P12: expanded into sheets before this
         raise LakeError(400, "excel_unreadable", f"{name or 'This file'} looks like an Excel workbook: upload it as .xlsx.")
     if not re.search(r"\.(csv|tsv|txt)$", name, re.I):
@@ -536,11 +606,16 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
     decimal_comma = sep == ";"
     raw_names = _header(path, sep)
     names = [h.strip() or f"col_{i + 1}" for i, h in enumerate(raw_names)]
-    dup = sorted({h for h in names if names.count(h) > 1})
+    # F-X3a m1: names are compared without case (DuckDB's identifiers are case-insensitive: 'a' and 'A' are one column)
+    lows = [h.lower() for h in names]
+    dup = sorted({h.lower() for h in names if lows.count(h.lower()) > 1})
     if dup:
-        where = "; ".join(f"'{h}' is columns {', '.join(str(i + 1) for i, n in enumerate(names) if n == h)}" for h in dup)
-        raise LakeError(400, "duplicate_header", f"The header repeats a column name ({where}). Rename or remove the duplicate "
-                                                 "and upload again, so no column is silently renamed.")
+        where = "; ".join(f"'{h}' is columns {', '.join(str(i + 1) for i, n in enumerate(lows) if n == h)}"
+                          f"{' (' + ', '.join(repr(names[i]) for i, n in enumerate(lows) if n == h) + ')' if len({names[i] for i, n in enumerate(lows) if n == h}) > 1 else ''}"
+                          for h in dup)
+        raise LakeError(400, "duplicate_header", f"The header repeats a column name ({where}; names that differ only in "
+                                                 "case are the same column). Rename or remove the duplicate and upload again, "
+                                                 "so no column is silently renamed.")
     _guard_names(names)
     if len(names) < 2:
         raise LakeError(400, "one_column", "No separated columns found (tried comma, semicolon, tab, pipe). Give a CSV with a "
@@ -590,11 +665,12 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
                 aggs.append(f"count(*) FILTER (WHERE {sl})")
             else:
                 aggs += ["0", "0", "0"]
+            aggs.append(_lossy_agg(n, want, fmt, decimal_comma))  # F-X3a M2: a cast that would change the value
         # F-X1 C1: one query per chunk of columns. A single SELECT of every aggregate makes DuckDB's planning cost
         # quadratic in the column count (5,000 columns took the API past 12 GB); chunks keep it linear.
         # (count(*) rides with the first chunk: a narrow file is still one scan of the CSV)
         row: list[Any] = []
-        step = 7 * SCAN_CHUNK_COLS
+        step = AGGS_PER_COL * SCAN_CHUNK_COLS
         try:
             for k in range(1, len(aggs), step):
                 head = [aggs[0]] if k == 1 else []
@@ -602,21 +678,44 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
         except Exception as e:  # noqa: BLE001 - malformed CSV: a 400 in words
             raise LakeError(400, "csv_unreadable", _err_line(e)) from None
         n_rows = int(row[0])
-        if n_rows < 2:
-            raise LakeError(400, "too_few_rows", "This file has fewer than two data rows.")
+        if n_rows < min_rows:
+            raise LakeError(400, "too_few_rows", "This file has no data rows." if min_rows <= 1 else
+                            "This file has fewer than two data rows (a new dataset needs at least two).")
         schema: list[dict[str, Any]] = []
         exprs: list[str] = []
         kept_text: list[str] = []
         for i, (n, want, fmt) in enumerate(spec):
-            nn, lz, fail, fail_dbl, gt12a, gt12b, n_slash = (int(x) for x in row[1 + i * 7: 8 + i * 7])
+            nn, lz, fail, fail_dbl, gt12a, gt12b, n_slash, lossy = \
+                (int(x) for x in row[1 + i * AGGS_PER_COL: 1 + (i + 1) * AGGS_PER_COL])
             typ, reason = want, None
             is_declared = n in declared
-            if is_declared:
+            own_fmt = bool((plan.get("formats") or {}).get(n))
+            if is_declared and n in soft and want == "DATE" and n_slash and not gt12a and not gt12b and not own_fmt:
+                # F-X3a M3: the parent's DATE type does not settle dd/mm against mm/dd. As in a plain upload (§11), the
+                # column is kept as text with date_ambiguous (the delta / append then blocks on its type): the order
+                # must come from the plan's formats, never from what the other rows of this file happen to hold.
+                typ, reason = "VARCHAR", "ambiguous day/month order: kept as text; give the format"
+                warnings.append({"code": "date_ambiguous", "column": n, "n": n_slash,
+                                 "examples": _slash_examples(con, n),
+                                 "message": f"'{n}' could be dd/mm or mm/dd: no value has a day above 12, so the table's DATE "
+                                            f"type cannot be applied safely. It is kept as text; send the format in the plan "
+                                            f"(tables.<table>.formats {{\"{n}\": \"%d/%m/%Y\"}} or \"%m/%d/%Y\") to read it as "
+                                            "a date."})
+            elif is_declared:
                 reason = f"the parent table's type ({want})" if n in soft else f"declared {want}"
                 if fail and want != "VARCHAR":  # (P12: any value reads as text; the scan's VARCHAR slots hold other counts)
                     blocks.append({"code": "declared_type_mismatch", "column": n,
                                    "message": f"'{n}' is declared {want} but {fail:,} value(s) do not read as {want}.",
                                    "examples": _examples(con, n, want, fmt, decimal_comma)})
+                elif lossy:  # F-X3a M2: 1.5 into BIGINT is 2, a time into DATE is dropped: refused, never applied
+                    ex = _lossy_examples(con, n, want, fmt, decimal_comma)
+                    blocks.append({"code": "lossy_cast", "column": n, "type": want, "n": lossy, "examples": ex,
+                                   "message": f"'{n}' is {reason} but {lossy:,} value(s) would change when read as {want} "
+                                              f"(e.g. {', '.join(repr(x) for x in ex)}"
+                                              f"{': decimals would be rounded' if want == 'BIGINT' else ': the time of day would be dropped' if want == 'DATE' else ''}). "
+                                              "Nothing is rounded silently: fix the values, or "
+                                              + ("change the table's type first (a rewrite)." if n in soft else
+                                                 f"declare another type for '{n}'.")})
             elif want == "VARCHAR" and decimal_comma and nn and not fail and not lz:
                 typ, reason = "DOUBLE", "numbers (decimal comma)"
             elif want == "VARCHAR":
@@ -640,7 +739,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
                 warnings.append({"code": "date_ambiguous", "column": n,
                                  "message": f"'{n}' could be dd/mm or mm/dd: no value has a day above 12. It is kept as text; "
                                             "declare its type (PATCH the upload's types) to read it as a date."})
-            elif fail and want == "BIGINT" and not fail_dbl:
+            elif (fail or lossy) and want == "BIGINT" and not fail_dbl:
                 typ, reason = "DOUBLE", "numbers with decimals"
             elif fail:
                 ex = _examples(con, n, want, fmt, decimal_comma)
@@ -696,7 +795,7 @@ def _examples(con, n: str, want: str, fmt: str | None, decimal_comma: bool) -> l
     return [str(r[0])[:60] for r in rows]
 
 
-def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any], table: str) -> dict[str, Any]:
+def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any], table: str, *, min_rows: int = 2) -> dict[str, Any]:
     con = duck.connect("job", **_duck_kw())
     blocks: list[dict[str, Any]] = []
     try:
@@ -708,10 +807,16 @@ def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any]
             raise LakeError(400, "parquet_unreadable", f"Could not read {f['filename'] or 'the file'} as Parquet.") from None
         names = [c[0] for c in cols]
         _guard_names(names)
+        lows = [h.lower() for h in names]
+        dup = sorted({h for h in lows if lows.count(h) > 1})
+        if dup:  # F-X3a m1
+            raise LakeError(400, "duplicate_header", f"The file repeats a column name ({', '.join(repr(h) for h in dup)}; names "
+                                                     "that differ only in case are the same column). Rename one and upload again.")
         if len(names) < 2:
             raise LakeError(400, "one_column", "A dataset needs at least two columns.")
-        if n_rows < 2:
-            raise LakeError(400, "too_few_rows", "This file has fewer than two data rows.")
+        if n_rows < min_rows:
+            raise LakeError(400, "too_few_rows", "This file has no data rows." if min_rows <= 1 else
+                            "This file has fewer than two data rows (a new dataset needs at least two).")
         nested = [f"{c[0]} ({c[1]})" for c in cols if any(k in c[1] for k in ("STRUCT", "MAP", "[]", "LIST", "UNION"))]
         if nested:
             blocks.append({"code": "nested_type", "message": f"Nested columns are not supported: {', '.join(nested)}."})
@@ -752,6 +857,15 @@ class _Parent:
         self.arrow = None
         self.declared: list[list[str]] = []
         if self.storage == "parquet":
+            if table:  # F-X3a m2: a plan `table` the parent does not have is a 400 (not a FrameError 500)
+                with db.connect() as con:
+                    have = [x[0] for x in con.execute("SELECT table_name FROM version_tables WHERE version_id = ?"
+                                                      " ORDER BY ordinal", (vid,))]
+                if have and table not in have:
+                    raise LakeError(400, "table_not_in_parent",
+                                    f"{vid} has no table '{table}' (its tables: {', '.join(have)}). To add it as a new table, "
+                                    f"PATCH {{tables: {{{table}: {{action: 'new'}}}}}}; to continue a table, name one of these.",
+                                    table=table, tables=have)
             lt = frames.lake_table(frames.Table(vid, table or frames.PRIMARY_TABLE)) if table else \
                 frames.lake_table(frames.table(vid))
             self.table, self.sql = lt.name, f"SELECT * FROM {frames.lake_sql(lt)}"
@@ -906,6 +1020,31 @@ def _check_next(db, store, dstore, tmp: Path, out: dict[str, Any], plan: dict[st
     return nv
 
 
+def _next_integrity(db, tmp: Path, out: dict[str, Any], plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """F-X3a M1 on the one-file path (P06): the rewritten table against the parent's keys and relations."""
+    pvid = plan["parent_version_id"]
+    if out.get("blocks") or not out.get("typed"):
+        return []
+    with db.connect() as con:
+        r = con.execute("SELECT storage FROM datasets WHERE id = ?", (pvid,)).fetchone()
+    if not r or r["storage"] != "parquet":
+        return []
+    prec, ptabs = _parent_tables(db, pvid)
+    t = out["tables"][0]
+    name = t["name"]
+    if name not in ptabs or (not prec.get("relations") and not ptabs[name].get("all_keys")):
+        return []
+    rel = {n: _rel_sql(db, tmp, pvid, None, n) for n in ptabs if n != name}
+    rel[name] = f"(SELECT * FROM read_parquet({_lit(tmp / out['typed'])}))"
+    cols_of = {n: [c["name"] for c in ptabs[n]["schema"]] for n in ptabs}
+    cols_of[name] = [c["name"] for c in t["schema"]]
+    con = duck.connect("job", **_duck_kw())
+    try:
+        return _integrity_warnings(con, prec, ptabs, rel, cols_of, {name}, list(ptabs), {}, plan)
+    finally:
+        _close(con)
+
+
 def _mask(db, root: str, table: str, problem: dict[str, Any]) -> dict[str, Any]:
     """key_invalid examples: values of a PII-tagged key column are masked (§6.3; P20: the masks of lake.mask, with
     the team's salt, like every other masked read)."""
@@ -1029,6 +1168,7 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
                         candidates=nv.get("candidates") or [], methods=nv.get("methods") or [], preselect=nv.get("preselect"))
     acks = acknowledge if isinstance(acknowledge, list) else [acknowledge] if isinstance(acknowledge, str) and acknowledge else []
     acks = [str(a) for a in acks]
+    integrity = _need_integrity_acks(chk, acks)  # F-X3a M1
     parent = _Parent(db, store, dstore, plan["parent_version_id"], plan.get("table"))
     if parent.vid != nv.get("parent_version_id", parent.vid):
         raise LakeError(409, "check_stale", "The parent changed after the check; check again.")
@@ -1041,13 +1181,18 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
     target = plan.get("target") or (parent.target if parent.target in {c["name"] for c in t["schema"]} else None)
     w = VersionWriter(db, store, op="upload_version", by=by, parent_id=parent.vid, reason=reason or plan.get("reason") or "",
                       job_id=up, sources=sources, primary_table=parent.table, duck_kw=_duck_kw())
+    if parent.storage == "parquet":
+        w.relations_acknowledged = {x["relation"] for x in integrity if x["code"] == "relation_dropped"}
     with w:
         done = w.committed_for_job()
         if done:
             _mark_committed(db, up, done)
             return _version(db, done, up), False
         rec, mw, contract, chosen, rids = _write_matched(w, db, parent, t, typed, m, acks, by, target, f["filename"])
-        warns = [{k: v for k, v in x.items() if k != "examples"} for x in chk.get("warnings") or []] + \
+        if parent.storage == "parquet":
+            _guard_keys(w, _parent_tables(db, parent.vid)[1], integrity)
+        warns = [{k: v for k, v in x.items() if k != "examples"} | ({"acknowledged": True} if x.get("needs_ack")
+                 and x.get("code") in INTEGRITY_ACKS else {}) for x in chk.get("warnings") or []] + \
             [{k: v for k, v in x.items() if k not in ("values",)} for x in contract["warnings"]] + \
             [{**x, "source": "match"} for x in mw]
         for other in parent.tables:  # a multi-table parent: the other tables are carried (zero bytes)
@@ -1308,9 +1453,10 @@ def _sources(tmp: Path, files: list[dict[str, Any]], plan: dict[str, Any]) -> tu
         info = X.read_workbook(src, tmp, str(f["n"]), filename=name)
         used = 0
         for sh in info:
-            t = _table_name({}, sh["sheet"])
+            t, renamed = X.sheet_table_name(sh["sheet"], sh["index"])  # F-X3a m14: accents folded, no `data` collisions
             e = {"file": name, "sheet": sh["sheet"], "table": t, "hidden": sh["hidden"], "rows": sh["n_rows"],
-                 "columns": sh["n_cols"], "reader": sh["reader"]}
+                 "columns": sh["n_cols"], "reader": sh["reader"], **({"renamed": renamed} if renamed else {}),
+                 **({"notes": sh["notes"]} if sh.get("notes") else {})}
             act = (ptables.get(t) or {}).get("action")
             if sh["empty"]:
                 sheets.append({**e, "skipped": "empty sheet"})
@@ -1325,7 +1471,10 @@ def _sources(tmp: Path, files: list[dict[str, Any]], plan: dict[str, Any]) -> tu
             ff = {"n": f"{f['n']}.s{sh['index']}", "src": sh["csv"], "filename": f"{t}.csv", "bytes": csvp.stat().st_size,
                   "sha256": f["sha256"], "utf8": True}
             srcs.append({"table": t, "f": ff, "sep": ",", "sheet": sh["sheet"], "source_file": name,
-                         "source_sha256": f["sha256"], "file_n": f["n"]})
+                         "source_sha256": f["sha256"], "file_n": f["n"],
+                         "excel_warnings": X.note_warnings(sh["sheet"], sh.get("notes"))
+                         + ([{"code": "sheet_renamed", "sheet": sh["sheet"], "table": t,
+                              "message": f"Sheet '{sh['sheet']}' is table '{t}' ({renamed})."}] if renamed else [])})
             sheets.append({**e, "included": True})
             used += 1
         if not used:
@@ -1360,13 +1509,22 @@ def _parent_tables(db, vid: str) -> tuple[dict[str, Any], dict[str, dict[str, An
         tabs = {t["table_name"]: {"schema": json.loads(t["schema_json"]), "n_rows": int(t["n_rows"]), "sha": t["table_sha256"],
                                   "ordinal": t["ordinal"], "row_id_max": t["row_id_max"]}
                 for t in con.execute("SELECT * FROM version_tables WHERE version_id = ? ORDER BY ordinal", (vid,))}
-        keys = {}
-        for k in con.execute("SELECT table_name, columns_json, valid FROM table_keys WHERE version_id = ? AND valid = 1"
+        keys: dict[str, list[list[str]]] = {}
+        allk: dict[str, list[dict[str, Any]]] = {}
+        for k in con.execute("SELECT table_name, columns_json, valid, kind FROM table_keys WHERE version_id = ?"
                              " ORDER BY kind, columns_json", (vid,)):
-            keys.setdefault(k[0], []).append(json.loads(k[1]))
+            if int(k[2]):
+                keys.setdefault(k[0], []).append(json.loads(k[1]))
+            allk.setdefault(k[0], []).append({"columns": json.loads(k[1]), "valid": bool(int(k[2])), "kind": k[3]})
+        rels = [{"name": x["name"], "from": {"table": x["from_table"], "columns": json.loads(x["from_cols_json"])},
+                 "to": {"table": x["to_table"], "columns": json.loads(x["to_cols_json"])}, "cardinality": x["cardinality"]}
+                for x in con.execute("SELECT * FROM table_relations WHERE version_id = ? ORDER BY name", (vid,))]
         for t in tabs:
             tabs[t]["keys"] = keys.get(t, [])
-    return dict(r), tabs
+            tabs[t]["all_keys"] = allk.get(t, [])
+    out = dict(r)
+    out["relations"] = rels
+    return out, tabs
 
 
 def _rel_sql(db, tmp: Path, parent_vid: str | None, t: dict[str, Any] | None, name: str) -> str:
@@ -1418,7 +1576,8 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
                  "formats": pt.get("formats") or (plan.get("formats") if top else None)}
         soft = {c["name"]: _norm_type(c["type"]) for c in ptabs[name]["schema"]} if act in ("append", "delta") else None
         try:
-            r = _check_file(db, tmp, s_["f"], tplan, team_id, typed_name=f"typed.{i}.parquet", sep=s_.get("sep"), soft_types=soft)
+            r = _check_file(db, tmp, s_["f"], tplan, team_id, typed_name=f"typed.{i}.parquet", sep=s_.get("sep"), soft_types=soft,
+                            min_rows=1 if pvid else 2)
         except LakeError as e:
             raise LakeError(e.status, e.code, f"{_label(s_)}: {e.message}", table=name, **e.extra) from None
         t = r["tables"][0]
@@ -1439,8 +1598,14 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
                                                                 + ". Rewrite the table instead, or fix the file."})
             else:
                 ptype = {c["name"]: _norm_type(c["type"]) for c in ptabs[name]["schema"]}
+                amb = [c["name"] for c in t["schema"] if str(c.get("reason") or "").startswith("ambiguous day/month")
+                       and ptype[c["name"]] in ("DATE", "TIMESTAMP")]
+                if amb:  # F-X3a M3
+                    tb.append({"code": "date_ambiguous", "columns": amb,
+                               "message": f"Rows appended to '{name}' have dates in {', '.join(amb)} that could be dd/mm or "
+                                          f"mm/dd. Send the format in the plan: tables.{name}.formats {{\"{amb[0]}\": \"%d/%m/%Y\"}}."})
                 bad = [f"{c['name']} ({c['type']}, the table has {ptype[c['name']]})" for c in t["schema"]
-                       if _norm_type(c["type"]) != ptype[c["name"]]]
+                       if _norm_type(c["type"]) != ptype[c["name"]] and c["name"] not in amb]
                 if bad:
                     tb.append({"code": "append_type", "message": f"These columns of '{name}' do not read as the table's types: "
                                                                  f"{', '.join(bad)}."})
@@ -1448,7 +1613,7 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
                            "rows_after": ptabs[name]["n_rows"] + t["n_rows"]}
         if act == "delta":  # P13 (§5.6): the key, the columns and types; the counts come from the parent below
             t["delta"] = _delta_check(name, pt, ptabs[name], t, tb)
-        warnings += [{**w_, "table": name} for w_ in r["warnings"]]
+        warnings += [{**w_, "table": name} for w_ in r["warnings"] + (s_.get("excel_warnings") or [])]
         blocks += [{**b_, "table": name} for b_ in tb]
         notes += [f"{name}: {n}" for n in r["notes"]]
         t["blocked"] = bool(tb)
@@ -1486,11 +1651,23 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
         for i, t in enumerate(tables):  # P13: each delta applied to its parent table (counts, warnings, the result)
             if t["action"] == "delta" and t.get("typed"):
                 d, par, allow = _delta_for(db, store, dstore, con, pvid, t, tmp, ptables.get(t["name"]) or {}, f"_dl{i}")
+                lossy = d.lossy()
+                if lossy:  # F-X3a M2: a value the parent's type would change is refused, never rounded
+                    blocks.append(_lossy_block(t["name"], lossy))
+                    t["blocked"], t["typed"] = True, None
+                    continue
                 t["delta"].update(d.counts, mode=d.mode(allow))
                 warnings += [{**x, "table": t["name"]} for x in d.warnings()]
                 delta_rel[t["name"]] = f"({d.result_sql(par.next_row_id(db), allow)})"
         rel = {n: delta_rel.get(n) or _rel_sql(db, tmp, pvid, by_name.get(n), n) for n in final
                if n not in by_name or by_name[n].get("typed")}
+        for t in tables:  # F-X3a M2: an append's typed values written in the parent's exact types (DECIMAL, INTEGER…)
+            if t["action"] == "append" and t.get("typed"):
+                pt_ = {c["name"]: c["type"] for c in ptabs[t["name"]]["schema"]}
+                lossy = _dv_lossy(con, f"SELECT * FROM read_parquet({_lit(tmp / t['typed'])})",
+                                  {c["name"]: c["type"] for c in t["schema"] if c["name"] in pt_}, pt_)
+                if lossy:
+                    blocks.append(_lossy_block(t["name"], lossy))
         cols_of = {n: [c["name"] for c in (by_name[n]["schema"] if n in by_name else ptabs[n]["schema"])] for n in final}
         for n, spec in ptables.items():
             if spec.get("key") and n in rel:
@@ -1525,6 +1702,9 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
                                           "join with an aggregate (P14)."})
         sugg = _suggest_relations(con, rel, cols_of, {n: (([ptables[n]["key"]] if (ptables.get(n) or {}).get("key") else [])
                                                          + (ptabs.get(n, {}).get("keys") or [])) for n in final}, declared)
+        if pvid:  # F-X3a M1: what the parent declared and this upload would break, said at the check
+            changed = {t["name"] for t in tables if t["action"] in ("delta", "append", "rewrite")}
+            warnings += _integrity_warnings(con, prec, ptabs, rel, cols_of, changed, final, ptables, plan)
     finally:
         _close(con)
     out = {"kind": "multi", "tables": tables, "primary_table": primary, "carried": carried, "dropped": dropped,
@@ -1549,8 +1729,20 @@ def _delta_check(name: str, spec: dict[str, Any], ptab: dict[str, Any], t: dict[
     from ..dataset_versions import DELTA_OP_COLUMN
 
     key, src = spec.get("key"), "plan"
-    if not key and ptab.get("keys"):
-        key, src = ptab["keys"][0], "parent"
+    allk = ptab.get("all_keys") or [{"columns": k, "valid": True, "kind": "primary"} for k in ptab.get("keys") or []]
+    prim = [k for k in allk if k["kind"] == "primary"]
+    broken = [k for k in prim if not k["valid"]]
+    if not key and broken:  # F-X3a M1: the table's primary key no longer holds: never fall back to another key silently
+        bk = broken[0]["columns"]
+        raise LakeError(400, "delta_key_required", f"A delta of '{name}' is applied by key, and the primary key of '{name}' "
+                                                   f"({', '.join(bk)}) is no longer valid in this version (it repeats or has "
+                                                   f"missing values). Name the key in the plan (tables: {{{name}: {{action: "
+                                                   "delta, key: [...]}}}}) or declare a valid one first "
+                                                   f"(PUT …/tables/{name}/key).", table=name, invalid_key=bk)
+    if not key:
+        valid = [k for k in prim if k["valid"]] or [k for k in allk if k["valid"]]
+        if valid:
+            key, src = valid[0]["columns"], "parent"
     if not key:
         raise LakeError(400, "delta_key_required", f"A delta of '{name}' is applied by key, and '{name}' has no confirmed key: "
                                                    f"name it in the plan (tables: {{{name}: {{action: delta, key: [...]}}}}) "
@@ -1560,9 +1752,22 @@ def _delta_check(name: str, spec: dict[str, Any], ptab: dict[str, Any], t: dict[
     fcols = [c for c in t["schema"] if c["name"] != opc]
     bad = [f"{c['name']} ({c['type']}, the table has {ptype[c['name']]})" for c in fcols
            if c["name"] in ptype and _norm_type(c["type"]) != ptype[c["name"]]]
+    amb = [c["name"] for c in fcols if str(c.get("reason") or "").startswith("ambiguous day/month") and c["name"] in ptype]
+    if amb:  # F-X3a M3: as on a plain upload, ambiguous slash dates are not read as dates without a format
+        tb.append({"code": "date_ambiguous", "columns": amb,
+                   "message": f"The delta of '{name}' has dates in {', '.join(amb)} that could be dd/mm or mm/dd (no day above "
+                              f"12), and the table's type is a date. Send the format in the plan: tables.{name}.formats "
+                              f"{{\"{amb[0]}\": \"%d/%m/%Y\"}} (or \"%m/%d/%Y\")."})
+        bad = [b for b in bad if b.split(" (")[0] not in amb]
     if bad:
         tb.append({"code": "delta_type", "message": f"These columns of the delta of '{name}' do not read as the table's types: "
                                                     f"{', '.join(bad)}."})
+    if not spec.get("op_column") and opc in ptype and any(c["name"] == opc for c in t["schema"]):
+        # F-X3a (X3 m12): the table already has a data column named _op: never consume it as operations unannounced
+        tb.append({"code": "delta_op_column_ambiguous", "column": opc,
+                   "message": f"'{name}' already has a data column {opc}, so the delta's {opc} could be data or the operation "
+                              f"of each row. Say which: tables.{name}.op_column = \"{opc}\" to read it as operations (I / U / D), "
+                              "or name another op column (or send no op column: every row is an upsert)."})
     new = [c["name"] for c in fcols if c["name"] not in ptype]
     if new and not spec.get("allow_new_columns"):
         tb.append({"code": "delta_new_columns", "columns": new,
@@ -1588,6 +1793,105 @@ def _delta_for(db, store, dstore, con, pvid: str, t: dict[str, Any], tmp: Path, 
                         **{k: v for k, v in prob.items() if k not in ("code", "message")})
     d.classify()
     return d, par, bool(spec.get("allow_new_columns"))
+
+
+#: F-X3a M1: check warnings that the commit needs acknowledged by code (acknowledge: ["key_invalidated", …])
+INTEGRITY_ACKS = ("key_invalidated", "relation_dropped")
+
+
+def _dv_lossy(con, rel_sql: str, src: dict[str, str], dst: dict[str, str]) -> list[dict[str, Any]]:
+    from ..dataset_versions import lossy_columns
+
+    return lossy_columns(con, rel_sql, src, dst)
+
+
+def _lossy_block(table: str, lossy: list[dict[str, Any]]) -> dict[str, Any]:
+    """F-X3a M2: one block for a table, a count and examples per column."""
+    parts = [f"{x['column']}: {x['n']:,} value(s) ({x['from']} → {x['to']}, e.g. {', '.join(repr(e) for e in x['examples'])})"
+             for x in lossy]
+    return {"code": "lossy_cast", "table": table, "columns": lossy,
+            "message": f"Values of '{table}' would change when written in the table's column types: {'; '.join(parts)}. "
+                       "Nothing is rounded or truncated silently: fix the values, or change the table's types first."}
+
+
+def _integrity_warnings(con, prec: dict[str, Any], ptabs: dict[str, dict[str, Any]], rel: dict[str, str],
+                        cols_of: dict[str, list[str]], changed: set[str], final: list[str], ptables: dict[str, Any],
+                        plan: dict[str, Any]) -> list[dict[str, Any]]:
+    """F-X3a M1: the parent's valid keys and its relations, checked on the tables as this upload leaves them. A key that
+    stops being unique and present (`key_invalidated`) and a relation the version would lose (`relation_dropped`:
+    its `to` side repeats, or a column is gone) need the commit's acknowledge; a relation lost because the plan drops
+    one of its tables is listed too (the drop is the person's own action, no acknowledgement)."""
+    out: list[dict[str, Any]] = []
+    for n in sorted(changed):
+        if n not in rel:
+            continue
+        own = (ptables.get(n) or {}).get("key")
+        for k in ptabs.get(n, {}).get("all_keys") or []:
+            if not k["valid"] or (own and list(own) == k["columns"]):
+                continue
+            gone = [c for c in k["columns"] if c not in cols_of.get(n, [])]
+            if gone:
+                out.append({"code": "key_invalidated", "table": n, "columns": k["columns"], "kind": k["kind"], "needs_ack": True,
+                            "why": "column_gone",
+                            "message": f"'{n}' loses its {k['kind']} key {', '.join(k['columns'])}: the new table has no "
+                                       f"{', '.join(gone)}. Send acknowledge: [\"key_invalidated\"] to commit it anyway."})
+                continue
+            st = _key_stats(con, rel[n], k["columns"])
+            if not st["valid"]:
+                out.append({"code": "key_invalidated", "table": n, "columns": k["columns"], "kind": k["kind"], "needs_ack": True,
+                            "why": "not_unique", "n_duplicates": st["n_duplicates"], "n_nulls": st["n_nulls"],
+                            "message": f"After this upload, {', '.join(k['columns'])} is no longer a key of '{n}' "
+                                       f"({st['n_duplicates']:,} repeated, {st['n_nulls']:,} missing). Its {k['kind']} key "
+                                       "is kept but marked invalid, and later deltas must name their key. Send "
+                                       "acknowledge: [\"key_invalidated\"] to commit it anyway, or fix the file."})
+    redeclared = {r["name"] for r in plan.get("relations") or []}
+    for r in prec.get("relations") or []:
+        if r["name"] in redeclared:
+            continue
+        a, b = r["from"]["table"], r["to"]["table"]
+        base = {"code": "relation_dropped", "relation": r["name"], "from": r["from"], "to": r["to"], "table": b}
+        if a not in final or b not in final:
+            out.append({**base, "needs_ack": False, "why": "table_dropped",
+                        "message": f"Relation {r['name']} ({a} → {b}) is left out: the plan drops "
+                                   f"{a if a not in final else b}."})
+            continue
+        if a not in changed and b not in changed:
+            continue
+        gone = [f"{a}.{c}" for c in r["from"]["columns"] if c not in cols_of.get(a, [])] + \
+            [f"{b}.{c}" for c in r["to"]["columns"] if c not in cols_of.get(b, [])]
+        if gone:
+            out.append({**base, "needs_ack": True, "why": "column_gone",
+                        "message": f"Relation {r['name']} ({a} → {b}) would be dropped: {', '.join(gone)} is gone. Send "
+                                   "acknowledge: [\"relation_dropped\"] to commit it anyway."})
+            continue
+        if a not in rel or b not in rel:
+            continue
+        try:
+            st = _relation_stats(con, rel[a], r["from"]["columns"], rel[b], r["to"]["columns"])
+        except Exception:  # noqa: BLE001 - the columns no longer compare
+            out.append({**base, "needs_ack": True, "why": "relation_types",
+                        "message": f"Relation {r['name']} ({a} → {b}) would be dropped: its columns no longer compare. Send "
+                                   "acknowledge: [\"relation_dropped\"] to commit it anyway."})
+            continue
+        if not st["to_unique"]:
+            out.append({**base, "needs_ack": True, "why": "relation_to_not_unique", "to_duplicates": st["to_duplicates"],
+                        "message": f"Relation {r['name']} ({a} → {b}, {r['cardinality']}) would be dropped: "
+                                   f"{b}.{', '.join(r['to']['columns'])} would repeat ({st['to_duplicates']:,} repeated "
+                                   "value(s)), so it is no longer what each row points at. Send acknowledge: "
+                                   "[\"relation_dropped\"] to commit it anyway, or fix the file."})
+    return out
+
+
+def _need_integrity_acks(chk: dict[str, Any], acks: list[str]) -> list[dict[str, Any]]:
+    """F-X3a M1: the check's key_invalidated / relation_dropped warnings the commit has not acknowledged → 400."""
+    need = [x for x in chk.get("warnings") or [] if x.get("needs_ack") and x.get("code") in INTEGRITY_ACKS]
+    missing = sorted({x["code"] for x in need if x["code"] not in acks})
+    if missing:
+        raise LakeError(400, "acknowledge_required",
+                        " ".join(x["message"] for x in need if x["code"] in missing),
+                        acknowledge=missing, warnings=[{k: v for k, v in x.items() if k != "message"} | {"message": x["message"]}
+                                                       for x in need if x["code"] in missing])
+    return need
 
 
 def _mask_keys(db, root: str, table: str, cols: list[str], keys: list[dict[str, Any]]) -> None:
@@ -1671,6 +1975,7 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
             raise LakeError(409, "check_required", "A checked file is gone from staging; check again.")
     acks = acknowledge if isinstance(acknowledge, list) else [acknowledge] if isinstance(acknowledge, str) and acknowledge else []
     acks = [str(a) for a in acks]
+    integrity = _need_integrity_acks(chk, acks)  # F-X3a M1: a broken key / dropped relation is acknowledged first
     rewrites = [t for t in tabs if t["action"] == "rewrite"]
     matches: dict[str, dict[str, Any]] = {}
     for t in rewrites:
@@ -1711,6 +2016,11 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
     contracts: dict[str, Any] = {}
     deltas: dict[str, Any] = {}
     warns = [{k: v for k, v in x.items() if k != "examples"} for x in chk.get("warnings") or []]
+    for x in warns:
+        if x.get("needs_ack") and x.get("code") in INTEGRITY_ACKS:
+            x["acknowledged"] = True
+    # F-X3a M1: the writer refuses to leave out any other relation (the check and the commit read the same bytes)
+    w.relations_acknowledged = {x["relation"] for x in integrity if x["code"] == "relation_dropped"}
     with w:
         done = w.committed_for_job()
         if done:
@@ -1768,7 +2078,9 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
                 warns += [{**{k: v for k, v in x.items() if k not in ("values",)}, "table": n} for x in contract["warnings"]]
                 warns += [{**x, "source": "match", "table": n} for x in mw]
         for n, spec in ptables.items():
-            if spec.get("key") and n in w.tables:
+            # (F-X3a M1: a delta's `key` is the key it is applied by: _write_delta records it, as the primary key only
+            # when the table has none)
+            if spec.get("key") and n in w.tables and spec.get("action") != "delta":
                 k = w.key(n, spec["key"], declared_by=by)
                 if not k["valid"]:
                     raise LakeError(400, "key_invalid", f"Key {', '.join(spec['key'])} of '{n}' is not unique and present: "
@@ -1776,6 +2088,7 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
         for r in plan.get("relations") or []:
             w.relation(r["name"], r["from"]["table"], r["from"]["columns"], r["to"]["table"], r["to"]["columns"],
                        cardinality=r["cardinality"], declared_by=by)
+        _guard_keys(w, ptabs, integrity)
         w.warnings = warns
         acts = {t["name"]: t["action"] for t in tabs}
         out = w.commit(make_default=(True if make_default is None else make_default) if not pvid else make_default,
@@ -1802,6 +2115,21 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
     if contracts:
         res["contract"] = contracts
     return res, created
+
+
+def _guard_keys(w, ptabs: dict[str, dict[str, Any]], integrity: list[dict[str, Any]]) -> None:
+    """F-X3a M1: a parent key that the written tables no longer satisfy must have been acknowledged at commit."""
+    ok = {(x["table"], tuple(x["columns"])) for x in integrity if x["code"] == "key_invalidated"}
+    for n, t in w.tables.items():
+        if t.change == "carried" or n not in ptabs:
+            continue
+        was = {tuple(k["columns"]) for k in ptabs[n].get("all_keys") or [] if k["valid"]}
+        for k in t.keys:
+            if not k["valid"] and tuple(k["columns"]) in was and (n, tuple(k["columns"])) not in ok:
+                raise LakeError(400, "acknowledge_required",
+                                f"After this upload, {', '.join(k['columns'])} is no longer a key of '{n}'. Check the upload "
+                                "again and send acknowledge: [\"key_invalidated\"] to commit it anyway.",
+                                acknowledge=["key_invalidated"], table=n, columns=k["columns"])
 
 
 def _write_delta(w, db, store, dstore, pvid: str, t: dict[str, Any], tmp: Path, spec: dict[str, Any], tag: str,
@@ -1835,7 +2163,10 @@ def _write_delta(w, db, store, dstore, pvid: str, t: dict[str, Any], tmp: Path, 
             if all(x in cols for x in k["columns"]):
                 w.key(n, k["columns"], kind=k["kind"], declared_by=k["declared_by"])
     if mode != "carry":
-        k = w.key(n, d.key, kind="primary", declared_by=by)  # the key the delta was applied by is a confirmed key
+        # the key the delta was applied by is a confirmed key; F-X3a M1: it becomes the primary key only when the table
+        # has none, else it is kept as a unique key, so later deltas never switch to it without being told
+        prim = [k["columns"] for k in _parent_keys(db, par) if k["kind"] == "primary"]
+        k = w.key(n, d.key, kind="primary" if not prim or list(d.key) in prim else "unique", declared_by=by)
         if not k["valid"]:
             raise LakeError(400, "key_invalid", f"After the delta, {', '.join(d.key)} is not a key of '{n}': "
                                                 f"{k['n_duplicates']:,} repeated, {k['n_nulls']:,} missing.", table=n)

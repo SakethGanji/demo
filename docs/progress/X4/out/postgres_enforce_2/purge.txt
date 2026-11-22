@@ -1,0 +1,102 @@
+# mode enforce
+## 0 Adam releases the hold → HTTP 200 | pii 0
+    {"active": false}
+
+# 1. before the purge
+    API (before): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 200, 500
+      export v1 (unmasked): HTTP 200, 0
+      stats v1: HTTP 200, 0
+      explain run: HTTP 200, 0
+      shap row 1: HTTP 200, 0
+      fairness ssn: HTTP 200, 2
+      scorecard: HTTP 200, 2
+      model card: HTTP 200, 2
+      recourse: HTTP 200, 2
+      batch: HTTP 200, 50
+      batch download: HTTP 200, 50
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 200, 0
+      data doctor: HTTP 200, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (before): 16 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      lake/blobs: [2, 600, 3]
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [1, 50, 0]
+      registry/batch_*/scored.csv: [1, 50, 0]
+      runs/predictor/models/LightGBM/model.pkl: [1, 3, 0]
+      runs/predictor/models/LightGBMLarge/model.pkl: [1, 11, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/models/NeuralNetTorch/model.pkl: [1, 0, 1]
+      runs/predictor/models/RandomForestEntr/model.pkl: [1, 0, 6]
+      runs/predictor/models/RandomForestGini/model.pkl: [1, 0, 9]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+    database (before): tables with raw SSNs (distinct values per table): {'batch_jobs': 50, 'uploads': 5, 'table_stats': 2, 'datasets': 2, 'runs': 11}
+
+# 2. purge loans.ssn
+## 2a Ana POST /datasets/v1/purge {loans, [ssn]} → HTTP 201 | pii 0
+    {"id": "pur_112acefac1", "status": "pending", "new_version_id": "ds_06b19752", "teams_needed": ["tm_34f6c932", "tm_598f43aa", "tm_660453ca"]}
+    impact teams: ['tm_34f6c932', 'tm_598f43aa', 'tm_660453ca'] | runs: [('run_f21ec7a8', 'tm_598f43aa', 'trained on an affected version'), ('run_d4437760', 'tm_598f43aa', 'trained on an affected version'), ('run_a116c891', 'tm_660453ca', 'trained on an affected version'), ('run_c95df587', 'tm_660453ca', 'trained on an affected version'), ('run_65d23685', 'tm_34f6c932', 'trained on an affected version')] | models: [{'id': 'mv_d3f6a914', 'model_name': 'pd-x4', 'version': 1, 'approval': 'pending', 'stage': 'None', 'run_id': 'run_d4437760'}] | shares: [None] | join frames: ['jf_478793c620'] | blobs: 3
+## 2b Fox approves for tm_34f6c932 → HTTP 200 | pii 0
+    {"status": "pending", "waiting_for": ["tm_598f43aa", "tm_660453ca"]}
+## 2b Ben approves for tm_598f43aa → HTTP 200 | pii 0
+    {"status": "pending", "waiting_for": ["tm_660453ca"]}
+## 2b Cole approves for tm_660453ca → HTTP 200 | pii 0
+    {"status": "used", "waiting_for": []}
+    executed: used | blobs deleted: 3 | failed: []
+
+# 3. after the purge
+    API (after): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 410, 0
+      export v1 (unmasked): HTTP 500, 0
+      stats v1: ReadError
+      explain run: HTTP 500, 0
+      shap row 1: ReadError
+      fairness ssn: HTTP 400, 0
+      scorecard: HTTP 200, 2
+      model card: HTTP 200, 2
+      recourse: HTTP 400, 0
+      batch: HTTP 200, 50
+      batch download: HTTP 200, 50
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 410, 0
+      data doctor: HTTP 410, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (after): 14 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [1, 50, 0]
+      registry/batch_*/scored.csv: [1, 50, 0]
+      runs/predictor/models/LightGBM/model.pkl: [1, 3, 0]
+      runs/predictor/models/LightGBMLarge/model.pkl: [1, 11, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/models/NeuralNetTorch/model.pkl: [1, 0, 1]
+      runs/predictor/models/RandomForestEntr/model.pkl: [1, 0, 6]
+      runs/predictor/models/RandomForestGini/model.pkl: [1, 0, 9]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+       lake/exports/ds_216af299/loans.csv (600, 0)
+       registry/batches/batch_de2d1c04/input.csv (50, 0)
+       registry/batches/batch_de2d1c04/scored.csv (50, 0)
+       runs/run_d4437760/predictor/models/LightGBM/model.pkl (3, 0)
+       runs/run_d4437760/predictor/models/LightGBMLarge/model.pkl (11, 0)
+       runs/run_d4437760/predictor/models/LightGBMXT/model.pkl (6, 0)
+       runs/run_d4437760/predictor/models/NeuralNetTorch/model.pkl (0, 1)
+       runs/run_d4437760/predictor/models/RandomForestEntr/model.pkl (0, 6)
+       runs/run_d4437760/predictor/models/RandomForestGini/model.pkl (0, 9)
+       runs/run_d4437760/predictor/utils/data/X.pkl (0, 384)
+       runs/run_d4437760/predictor/utils/data/X_val.pkl (0, 96)
+       runs/run_d4437760/scorecard/report.json (2, 0)
+       runs/run_d4437760/shap/1_1_50_2048_WeightedEnsemble_L2.json (1, 0)
+       runs/run_f21ec7a8/top.json (200, 0)
+    database (after): tables with raw SSNs (distinct values per table): {'batch_jobs': 50, 'uploads': 5, 'table_stats': 2, 'datasets': 2, 'runs': 11}
+## 3a GET /admin/lake/runs/{run}/verify → HTTP 200 | pii 0
+    {"ok": null, "status": "purged"}

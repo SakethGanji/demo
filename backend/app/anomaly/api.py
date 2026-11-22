@@ -457,6 +457,9 @@ async def score_batch(run_id: str, request: Request, file: UploadFile = File(...
     """Score a new batch with the run's model: s(x,n), E[h(x)], the percentile among the fitted rows, the flag at
     the saved threshold, reasons for the top rows; the scored CSV to download."""
     rec = _run(request, run_id)
+    from ..catalog.artifacts import refuse_purged  # F-X4c
+
+    refuse_purged(rec)
     bid, d = await stash_upload(rec, file, "batches", "ab_")
     try:
         out = await request.app.state.heavy.run(core.score_batch, rec["config"]["predictor_path"], str(d / "input.csv"),

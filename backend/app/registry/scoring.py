@@ -33,6 +33,15 @@ def _coerce(frame: pd.DataFrame, train: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _numeric_like(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    for c in out.columns:
+        n = pd.to_numeric(out[c], errors="coerce")
+        if n.notna().sum() == out[c].notna().sum():
+            out[c] = n
+    return out
+
+
 def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target: str | None = None,
            explain_row: bool = True, nsamples: int = explain.SHAP_NSAMPLES, rconf: dict[str, Any] | None = None,
            kinds: dict[str, str] | None = None) -> dict[str, Any]:
@@ -40,8 +49,12 @@ def try_it(cfg: dict[str, Any], predictor_path: str, row: dict[str, Any], target
     features = list(p.original_features)
     given = {k: v for k, v in row.items() if k in features and v is not None and v != ""}
     missing = [c for c in features if c not in given]
-    _, train, bg = explain._shap_background(cfg, features, explain.SHAP_BACKGROUND)
-    x = _coerce(pd.DataFrame([{c: given.get(c, np.nan) for c in features}]), train)
+    try:
+        _, train, bg = explain._shap_background(cfg, features, explain.SHAP_BACKGROUND)
+    except frames.FrameError:  # F-X4c: the training data was purged; the model still predicts (no SHAP background)
+        train, bg, explain_row = None, None, False
+    x = pd.DataFrame([{c: given.get(c, np.nan) for c in features}])
+    x = _coerce(x, train) if train is not None else _numeric_like(x)
     t0 = time.perf_counter()
     out: dict[str, Any] = {"model": p.model_best, "problem_type": p.problem_type, "missing_columns": missing,
                            "features": features}
@@ -123,14 +136,17 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         df = read_batch(csv_path, cfg)
         if len(df) == 0:
             raise ValueError("The file has no rows.")
-        train = _train_frame(cfg, features)
+        try:
+            train = _train_frame(cfg, features)
+        except frames.FrameError:  # F-X4c: the training data was purged; the model still scores (no feature PSI)
+            train = None
         present = [c for c in features if c in df.columns]
         if not present:
             raise ValueError(f"None of the model's features are in the file (it needs {', '.join(features)}).")
         missing = [c for c in features if c not in df.columns]
         extra = [c for c in df.columns if c not in features]
         X = df.reindex(columns=features)
-        X = _coerce(X, train)
+        X = _coerce(X, train) if train is not None else _numeric_like(X)
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.05)
         n = len(X)
         chunk = max(200, int(np.ceil(n / 20)))
@@ -169,7 +185,9 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
             for t in qa.columns:
                 out[qt.col(t)] = qa[t].to_numpy()
         reasons_summary = None
-        if p.problem_type == "binary" and rconf is not None and rconf.get("enabled", True):
+        if p.problem_type == "binary" and rconf is not None and rconf.get("enabled", True) and train is None:
+            reasons_summary = {"skipped": "the training data was purged: no reference for reason codes"}  # F-X4c
+        elif p.problem_type == "binary" and rconf is not None and rconf.get("enabled", True):
             reasons_summary = _batch_reasons(reg, batch_id, predictor_path, cfg, rconf, kinds, X, out, pred)
             if recourse_conf is not None:
                 reg.update_batch(batch_id, stage=f"recourse for the first {RECOURSE_BATCH_K} adverse rows", progress=0.84)
@@ -187,8 +205,12 @@ def score_batch(db_path: str, batch_id: str, predictor_path: str, cfg: dict[str,
         ref_path = vdir / "holdout_predictions.csv"
         ref_pred = frames.read_artifact(ref_path if ref_path.exists() else Path(cfg["run_dir"]) / "holdout_predictions.csv")
         pos = str(p.positive_class) if p.problem_type == "binary" else None
-        rep = drift.drift_report(train, X, {c: kinds.get(c, "number") for c in present}, problem_type=p.problem_type,
-                                 ref_pred=ref_pred, cur_pred=cur_pred, positive=pos)
+        rep = drift.drift_report(train if train is not None else X.iloc[:0], X,
+                                 {c: kinds.get(c, "number") for c in present} if train is not None else {},
+                                 problem_type=p.problem_type, ref_pred=ref_pred, cur_pred=cur_pred, positive=pos)
+        if train is None:
+            rep["features"] += [{"feature": c, "kind": kinds.get(c, "number"), "psi": None, "band": "no_reference",
+                                 "note": "the training data was purged: no reference for PSI"} for c in present]
         for c in missing:
             rep["features"].append({"feature": c, "kind": kinds.get(c, "number"), "psi": None, "band": "missing",
                                     "note": "column not in the file; scored as missing"})
@@ -1193,9 +1215,16 @@ def score_join_rows(db_path: str, predictor_path: str, cfg: dict[str, Any], rows
         df = read_batch(info["path"], cfg)  # as score_batch reads the batch's frame
         missing = [c for c in features if c not in df.columns]
         X = df.reindex(columns=features)
-        for c in _numeric_features(predictor_path, cfg, features):
-            if c in X.columns:
-                X[c] = pd.to_numeric(X[c], errors="coerce")
+        try:
+            num = _numeric_features(predictor_path, cfg, features)
+        except frames.FrameError:  # F-X4c: the training data was purged; cast as score_batch then does
+            num = None
+        if num is None:
+            X = _numeric_like(X)
+        else:
+            for c in num:
+                if c in X.columns:
+                    X[c] = pd.to_numeric(X[c], errors="coerce")
         out = _predict_frame(p, X)
         out["missing_columns"] = missing
         out["join"] = {k: info[k] for k in ("join_id", "join_name", "spec_sha256", "spec_frozen", "grain", "grain_rows", "frame_rows",

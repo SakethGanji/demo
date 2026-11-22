@@ -1,0 +1,84 @@
+## 1. POST /uploads book.xlsx + bureau.csv
+up_631b62d3e74d staged [('book.xlsx', 631348), ('bureau.csv', 49080)]
+## 2. POST /check
+kind multi | primary applications | blocks [] | warnings []
+   applications new book.xlsx / sheet Applications 3000 x 10
+   payments new book.xlsx / sheet Payments 14064 x 6
+   products new book.xlsx / sheet Products 4 x 3
+   bureau new bureau.csv 2410 x 5
+   applications schema: [('app_id', 'VARCHAR', 'text'), ('customer_id', 'VARCHAR', 'text'), ('product', 'VARCHAR', 'text'), ('amount', 'BIGINT', 'whole numbers'), ('income', 'BIGINT', 'whole numbers'), ('term_months', 'BIGINT', 'whole numbers'), ('applied_on', 'DATE', 'dates (%Y-%m-%d)'), ('channel', 'VARCHAR', 'text'), ('defaulted', 'BIGINT', 'whole numbers'), ('branch', 'VARCHAR', 'leading zeros: kept as text')]
+   sheets: [('Applications', 'included'), ('Payments', 'included'), ('Products', 'included'), ('Notes', 'hidden sheet: name it in the plan (tables: {notes: {action: new}}) to include it'), ('Empty', 'empty sheet')]
+   suggested relations: [('payments_applications', ['app_id'], 0, '1.0000'), ('applications_bureau', ['customer_id'], 156, '0.9480')]
+## 2b. PATCH the plan (keys, relations), check again
+staged ['applications', 'payments', 'products'] ['payments_applications', 'applications_products']
+blocks [] | keys [('applications', ['app_id'], True), ('payments', ['payment_id'], True), ('products', ['product'], True)] | relations [('payments_applications', 0, True), ('applications_products', 0, True)]
+## 3. POST /commit
+HTTP 201
+ds_26100b9a v 1 n_tables 4 primary applications target defaulted
+## 4. GET /datasets/{root}/versions/{v}
+data_sha256 f154555827a3d35d0d7121066cdf75ceba24f669aa605d21dd94ac609e01077f | manifest_sha256 b23f183d30b1a18c50339f2cd4157f27ea09cdda19c9089ff213940037ef957f
+   0 applications new 3000 rows 61d66aa109cc8e04c3829994b16bad2b01350b0978e11c8ca837ea3d77d8a946 keys [['app_id']] splits ['random-stratified__defaulted-883cb8a7']
+   1 payments new 14064 rows 62362333879d3fc3cdbec553455bb29918d47f8090621f4f1611c8d9565c352f keys [['payment_id']] splits []
+   2 products new 4 rows 120608609883eea1b273d487cb09c203464a349d74cb007bf0fe3808f554371e keys [['product']] splits []
+   3 bureau new 2410 rows e23d69b0e6f1fa9a73a0b4b99cbe9cca11c389cbe7c0292287b5bf4fc997186b keys [] splits []
+   relations [('applications_products', 0), ('payments_applications', 0)]
+## 5. POST /uploads?parent_version_id=v1 payments_more.xlsx, PATCH payments: append, check, commit
+blocks [] | tables [('payments', 'append', {'parent_rows': 14064, 'rows_added': 500, 'rows_after': 14564})] | carried ['applications', 'products', 'bureau']
+HTTP 201
+ds_fc10767a v 2 {'is_default': True}
+   applications carried 61d66aa109cc8e04 same sha as v1 3000 [('base', 3000, 0, 2999, '1aab41fe9c5c')]
+   payments appended 65790f5a9ea54224 new sha 14564 [('base', 14064, 0, 14063, 'b3b706d5dbcc'), ('append', 500, 14064, 14563, '31b98a26e505')]
+   products carried 120608609883eea1 same sha as v1 4 [('base', 4, 0, 3, '08aaac494821')]
+   bureau carried e23d69b0e6f1fa9a same sha as v1 2410 [('base', 2410, 0, 2409, 'a7ca4dbe14fd')]
+   relations [('applications_products', 0), ('payments_applications', 0)] | ops ['carry', 'append', 'carry', 'carry', 'upload_append']
+## 6. PUT /datasets/v2/tables/bureau/key {columns: [customer_id]}
+HTTP 201
+ds_b08b8d5d v 3 declare_key keys [{'columns': ['customer_id'], 'kind': 'primary', 'valid': True, 'declared_by': 'Ana', 'n_duplicates': 0, 'n_nulls': 0}] | changes [('applications', 'carried'), ('payments', 'carried'), ('products', 'carried'), ('bureau', 'carried')]
+HTTP 200 (again)
+ds_b08b8d5d deduped data
+HTTP 400 (bureau.score)
+{"detail":{"code":"key_invalid","message":"score is not a key of 'bureau': 2,073 repeated value(s), 0 missing.","table":"bureau","columns":["score"],"n_duplicates":2073,"n_nulls":0}}
+## 6b. PUT /datasets/v3/relations/applications_bureau
+HTTP 201
+ds_0bdb1441 v 4 {'name': 'applications_bureau', 'from': {'table': 'applications', 'columns': ['customer_id']}, 'to': {'table': 'bureau', 'columns': ['customer_id']}, 'cardinality': 'n:1', 'n_orphans': 156, 'declared_by': 'Ana', 'n_from_rows': 3000, 'n_from_missing': 0, 'coverage': '0.9480', 'to_unique': True}
+## 7. GET /datasets/v4/relations
+   applications_bureau applications ['customer_id'] -> bureau ['customer_id'] n_orphans 156 of 3000 coverage 0.9480
+   applications_products applications ['product'] -> products ['product'] n_orphans 0 of 3000 coverage 1.0000
+   payments_applications payments ['app_id'] -> applications ['app_id'] n_orphans 0 of 14564 coverage 1.0000
+   suggested []
+## 8. POST /runs {dataset_id: v4, table: applications}  and  {table: payments, label: days_late}
+HTTP 201
+run_12c05a4b {'kind': 'table', 'version_id': 'ds_0bdb1441', 'table': 'applications'} 61d66aa109cc8e04 applications spl_a16f7cbde406
+HTTP 201
+run_814743a1 {'kind': 'table', 'version_id': 'ds_0bdb1441', 'table': 'payments'} 14564 payments spl_162cec877f4f
+  run_12c05a4b succeeded
+     data_hashed {'match': True, 'table': 'applications', 'storage': 'parquet'}
+     run_succeeded {'best_model': 'WeightedEnsemble_L2', 'score_test': 0.8433333333333334}
+  run_814743a1 succeeded
+     data_hashed {'match': True, 'table': 'payments', 'storage': 'parquet'}
+     run_succeeded {'best_model': 'WeightedEnsemble_L2', 'score_test': 0.596292481977343}
+HTTP 400 (table nope)
+{"detail":{"code":"table_unknown","message":"ds_0bdb1441 has no table 'nope' (its tables: applications, payments, products, bureau)."}}
+## also: diff, edit and verify on one table
+HTTP 200
+payments {'a': 14064, 'b': 14564, 'matched': 14064, 'changed': 0, 'added': 500, 'removed': 0} [('applications', 'unchanged'), ('payments', 'changed'), ('products', 'unchanged'), ('bureau', 'unchanged')]
+HTTP 201
+ds_a0df4d7f table bureau target defaulted rows (primary) 3000 removed 1
+primary applications [('applications', 'carried', 3000, ['random-stratified__defaulted']), ('payments', 'carried', 14564, ['random-stratified__days-late']), ('products', 'carried', 4, []), ('bureau', 'rewritten', 2409, [])] [('applications_bureau', 157), ('applications_products', 0), ('payments_applications', 0)]
+HTTP 200
+{'a': 2410, 'b': 2409, 'matched': 2409, 'changed': 0, 'added': 0, 'removed': 1} [('applications', 'unchanged'), ('payments', 'unchanged'), ('products', 'unchanged'), ('bureau', 'changed')]
+HTTP 200
+ok True [('applications', 0, 'ok'), ('bureau', 0, 'ok'), ('payments', 0, 'ok'), ('payments', 1, 'ok'), ('products', 0, 'ok')]
+## also: bad workbooks
+  bad.xlsx HTTP 400 {"detail":{"code":"excel_unreadable","message":"Could not read bad.xlsx as an Excel workbook (it may be damaged or password-protected). Open it in Excel, save it as .xlsx and upload again, or upload the sheets as CSV files."}}
+  fake.xlsx HTTP 400 {"detail":{"code":"excel_unreadable","message":"fake.xlsx is not an Excel workbook (.xlsx). Upload a .xlsx file, or the sheets as CSV files."}}
+  empty.xlsx HTTP 400 {"detail":{"code":"empty_workbook","message":"empty.xlsx has no sheet with data (every sheet is empty, hidden or left out). Fill a sheet (a header row and at least two rows) and upload again."}}
+  header_only.xlsx HTTP 400 {"detail":{"code":"too_few_rows","message":"header_only.xlsx, sheet 'only_header': This file has fewer than two data rows."}}
+  dup_sheets.xlsx HTTP 400 {"detail":{"code":"duplicate_table","message":"dup_sheets.xlsx sheet 'Pay ments' and dup_sheets.xlsx sheet 'pay-ments' would both become table 'pay_ments'. Rename one of them (a sheet or a file) and upload again: nothing is renamed silently.","table":"pay_ments"}}
+## also: one CSV, unchanged (P05 / P06)
+csv typed.parquet [('loans', 1000, [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('opened', 'DATE'), ('income', 'BIGINT'), ('y', 'BIGINT')])]
+HTTP 201
+ds_35d28970 1 [('loans', 'new')]
+HTTP 400 match_required
+HTTP 201
+ds_ce8e99ee v 2 {'matched': 1000, 'changed': 10, 'added': 0, 'removed': 0}

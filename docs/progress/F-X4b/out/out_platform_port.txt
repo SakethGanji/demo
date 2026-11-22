@@ -1,0 +1,4 @@
+REF sql_platform_db postgresql://postgres:x@192.0.2.2:55432/fx_enf
+REF sql_platform_db postgresql://postgres:x@localhost:55432/fx_enf
+OK  postgresql://extuser:extpw@localhost:55433/bankext
+OK  postgresql://extuser:extpw@192.0.2.2:55433/bankext

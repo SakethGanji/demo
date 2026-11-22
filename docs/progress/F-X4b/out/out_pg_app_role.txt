@@ -1,0 +1,16 @@
+grant: {'role': 'fx_app', 'append_only': ['audit_log', 'audit_heads', 'splits', 'run_inputs', 'version_tables', 'table_files'], 'tables': 47}
+grants on audit_heads:
+fx_app|INSERT,SELECT
+postgres|DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE
+fx_app> DELETE FROM audit_heads WHERE audit_id = (SELECT max(audit_id) FROM audit_heads)
+ERROR:  permission denied for table audit_heads
+fx_app> UPDATE audit_heads SET head = 'x'
+ERROR:  permission denied for table audit_heads
+fx_app> ALTER TABLE audit_heads DISABLE TRIGGER USER
+ERROR:  must be owner of table audit_heads
+fx_app> DROP TRIGGER ahead_ro_d ON audit_heads
+ERROR:  must be owner of relation audit_heads
+fx_app> DELETE FROM audit_log WHERE id = (SELECT max(id) FROM audit_log)
+ERROR:  permission denied for table audit_log
+fx_app> SELECT count(*) FROM audit_heads
+194

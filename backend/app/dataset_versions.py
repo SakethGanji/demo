@@ -789,6 +789,13 @@ class Delta:
                                    "tables.<t>.ops {\"<value>\": \"insert\" | \"update\" | \"delete\" | \"upsert\"}."}
         return None
 
+    def lossy(self) -> list[dict[str, Any]]:
+        """F-X3a M2: the delta's values are written in the parent's column types (`CAST(n.c AS <parent type>)`). A cast
+        that changes a value (1.5 → 2 into BIGINT, 1.234 → 1.23 into DECIMAL(10,2), a time dropped into DATE) or cannot
+        hold it is listed per column with a count and examples: the caller refuses it (`lossy_cast`), never applies it."""
+        return lossy_columns(self.con, f"SELECT * FROM {self.t}_n",
+                             {c: self.ntypes[c] for c in self.data_cols if c in self.ptypes}, self.ptypes)
+
     # -- classify + count ---------------------------------------------------------------------------------------------
 
     def classify(self) -> dict[str, Any]:
@@ -863,7 +870,34 @@ class Delta:
         if c["holdout_rows_deleted"]:
             w.append({"code": "delta_holdout_deleted", "n": c["holdout_rows_deleted"],
                       "message": f"{c['holdout_rows_deleted']:,} deleted row(s) were in the holdout."})
+        near = self._near_keys() if c["inserted"] else None
+        if near:
+            w.append(near)
         return w
+
+    def _near_keys(self) -> dict[str, Any] | None:
+        """F-X3a (X3 m13): inserted rows whose one-column text key equals a parent key once spaces and leading zeros are
+        removed (`3` next to `00003`, `" 00021"` next to `00021`): counted as new rows, said in a warning."""
+        if len(self.key) != 1:
+            return None
+        k = self.key[0]
+        if type_family(self.ptypes.get(k, "")) != "text" or type_family(self.ntypes.get(k, "")) != "text":
+            return None
+        q, t = _qi(k), self.t
+        norm = "nullif(ltrim(trim(CAST({} AS VARCHAR)), '0'), '')"
+        rows = self.con.execute(
+            f"SELECT n.{q}, p.{q} FROM (SELECT * FROM {t} WHERE __op <> 'delete' AND __pid IS NULL) n"
+            f" JOIN {t}_p p ON {norm.format('p.' + q)} = {norm.format('n.' + q)} ORDER BY n.__fr LIMIT 5").fetchall()
+        if not rows:
+            return None
+        n = int(self.con.execute(
+            f"SELECT count(*) FROM (SELECT * FROM {t} WHERE __op <> 'delete' AND __pid IS NULL) n"
+            f" SEMI JOIN {t}_p p ON {norm.format('p.' + q)} = {norm.format('n.' + q)}").fetchone()[0])
+        return {"code": "delta_key_near_match", "n": n, "column": k,
+                "examples": [{"delta": _cell_py(a), "parent": _cell_py(b)} for a, b in rows],
+                "message": f"{n:,} inserted row(s) have a {k} that equals an existing one once spaces and leading zeros are "
+                           f"removed (e.g. {rows[0][0]!r} next to {rows[0][1]!r}): they are added as new rows. If they "
+                           "meant the existing rows, send the key exactly as the table holds it."}
 
     def mode(self, allow_new_columns: bool = False) -> str:
         """'carry' (nothing changes), 'append' (insert-only: one append part), or 'rewrite'."""
@@ -899,6 +933,27 @@ class Delta:
                 f" UNION ALL SELECT n.__pid AS __row_id, {', '.join(upd)} FROM {t} n JOIN {t}_p p ON p.__row_id = n.__pid"
                 f" WHERE n.__op <> 'delete'"
                 f" UNION ALL {self.insert_sql(start, allow_new_columns)}")
+
+
+def lossy_columns(con: Any, rel_sql: str, src_types: dict[str, str], dst_types: dict[str, str]) -> list[dict[str, Any]]:
+    """F-X3a M2: for each column whose source type differs from its destination type, the values that the cast
+    `CAST(x AS <dst>)` would change (cast back to the source type, the value is not the same) or could not hold.
+    [{column, from, to, n, examples}] — only the columns with at least one such value."""
+    out: list[dict[str, Any]] = []
+    for c, st in src_types.items():
+        dt = dst_types.get(c)
+        if not dt or str(st).upper() == str(dt).upper():
+            continue
+        q = _qi(c)
+        bad = f"{q} IS NOT NULL AND (TRY_CAST({q} AS {dt}) IS NULL OR TRY_CAST(TRY_CAST({q} AS {dt}) AS {st}) IS DISTINCT FROM {q})"
+        try:
+            n = int(con.execute(f"SELECT count(*) FROM ({rel_sql}) WHERE {bad}").fetchone()[0])
+        except Exception:  # noqa: BLE001 - types that do not cast at all: the type checks report them
+            continue
+        if n:
+            ex = [_cell_py(r[0]) for r in con.execute(f"SELECT DISTINCT {q} FROM ({rel_sql}) WHERE {bad} LIMIT 3").fetchall()]
+            out.append({"column": c, "from": str(st), "to": str(dt), "n": n, "examples": ex})
+    return out
 
 
 def _cell_py(v: Any) -> Any:

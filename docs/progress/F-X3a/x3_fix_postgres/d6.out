@@ -1,0 +1,13 @@
+plain upload of 03/02/2024…: types [('k', 'BIGINT'), ('d', 'VARCHAR')] warnings [('date_ambiguous', "'d' could be dd/mm or mm/dd: no value has a day above 12. It is kept as text; declare its type (PATCH the upload's types) to read it as a da")]
+
+### US dates 02/03/2024 + 02/13/2024 in a delta: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['k'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 30}
+  schema [('k', 'BIGINT'), ('d', 'DATE'), ('target', 'BIGINT')]
+  warnings []
+  rows [{'k': 1, 'd': '2024-02-03', 'target': 1, '_row_id': 1, '_row': 1}, {'k': 2, 'd': '2024-02-13', 'target': 0, '_row_id': 2, '_row': 2}]
+
+### US dates only ambiguous 02/03/2024, 02/04/2024: stage=check check=200 commit=None
+  blocks [{'code': 'date_ambiguous', 'columns': ['d'], 'message': 'The delta of \'t\' has dates in d that could be dd/mm or mm/dd (no day above 12), and the table\'s type is a date. Send the format in the plan: tables.t.formats {"d": "%d/%m/%Y"} (or "%m/%d/%Y").', 'table': 't'}]
+  delta {'mode': None, 'key': ['k'], 'inserted': None, 'updated': None, 'updated_unchanged': None, 'deleted': None, 'missing': None, 'update_of_missing_key': None, 'insert_of_existing_key': None, 'rows_after': None}
+  schema [('k', 'BIGINT'), ('d', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings [('date_ambiguous', "'d' could be dd/mm or mm/dd: no value has a day above 12, so the table's DATE type cannot be applied safely. I")]

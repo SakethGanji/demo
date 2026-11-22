@@ -1,0 +1,15 @@
+check 200
+blocks []
+warnings []
+sheets [{'file': 'edge.xlsx', 'sheet': 'Données €', 'table': 'donn_es', 'hidden': False, 'rows': 10, 'columns': 6, 'reader': 'calamine', 'included': True}, {'file': 'edge.xlsx', 'sheet': '表 1 😀', 'table': 't_1', 'hidden': False, 'rows': 6, 'columns': 3, 'reader': 'calamine', 'included': True}, {'file': 'edge.xlsx', 'sheet': 'serials', 'table': 'serials', 'hidden': False, 'rows': 7, 'columns': 5, 'reader': 'calamine', 'included': True}, {'file': 'edge.xlsx', 'sheet': 'sheet 1', 'table': 'sheet_1', 'hidden': False, 'rows': 3, 'columns': 2, 'reader': 'calamine', 'included': True}, {'file': 'edge.xlsx', 'sheet': 'blank header', 'table': 'blank_header', 'hidden': False, 'rows': 3, 'columns': 4, 'reader': 'calamine', 'included': True}]
+ table 'donn_es' 10 [('id', 'VARCHAR'), ('name', 'VARCHAR'), ('amount', 'DOUBLE'), ('opened', 'DATE'), ('formula', 'VARCHAR'), ('pct', 'DOUBLE')]
+ table 't_1' 6 [('Group', 'VARCHAR'), ('col_2', 'VARCHAR'), ('x', 'VARCHAR')]
+ table 'serials' 7 [('id', 'BIGINT'), ('d_serial_num', 'BIGINT'), ('d_fmt', 'DATE'), ('mixed', 'VARCHAR'), ('t', 'VARCHAR')]
+ table 'sheet_1' 3 [('a', 'BIGINT'), ('b', 'BIGINT')]
+ table 'blank_header' 3 [('a', 'BIGINT'), ('col_2', 'BIGINT'), ('col_3', 'VARCHAR'), ('b', 'BIGINT')]
+commit 201 ds_5c08428c
+ rows 'donn_es' 200 [{'id': '0001', 'name': '•••', 'amount': 10.5, 'opened': '2024-01-01', 'formula': None, 'pct': 0.1}, {'id': '0002', 'name': '•••', 'amount': 21.0, 'opened': '2024-01-02', 'formula': None, 'pct': 0.2}, {'id': '0003', 'name': None, 'amount': 31.5, 'opened': '2024-01-03', 'formula': None, 'pct': 0.3}, {'id': '0004', 'name': None, 'amount': 42.0, 'opened': '2024-01-04', 'formula': None, 'pct': 0.4}]
+ rows 't_1' 200 [{'Group': 'k', 'col_2': 'v', 'x': 'x'}, {'Group': 'k0', 'col_2': '0', 'x': '0'}, {'Group': 'k1', 'col_2': '1', 'x': '2'}, {'Group': 'k2', 'col_2': '2', 'x': '4'}]
+ rows 'serials' 200 [{'id': 1, 'd_serial_num': 45001, 'd_fmt': '2023-03-16', 'mixed': '2024-02-01', 't': '09:01:00'}, {'id': 2, 'd_serial_num': 45002, 'd_fmt': '2023-03-17', 'mixed': 'n/a', 't': '09:02:00'}, {'id': 3, 'd_serial_num': 45003, 'd_fmt': '2023-03-18', 'mixed': '2024-02-03', 't': '09:03:00'}, {'id': 4, 'd_serial_num': 45004, 'd_fmt': '2023-03-19', 'mixed': 'n/a', 't': '09:04:00'}]
+ rows 'sheet_1' 200 [{'a': 0, 'b': 0}, {'a': 1, 'b': 1}, {'a': 2, 'b': 2}]
+ rows 'blank_header' 200 [{'a': 0, 'col_2': 0, 'col_3': None, 'b': 0}, {'a': 1, 'col_2': 10, 'col_3': None, 'b': 1}, {'a': 2, 'col_2': 20, 'col_3': None, 'b': 2}]

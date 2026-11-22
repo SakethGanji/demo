@@ -9,6 +9,9 @@ DL3 (C1): a reset is governed like every other destructive action, on both paths
   unless a four-eyes approval is in place: someone asks (POST /api/admin/reset-requests), another person approves, and
   an admin runs the reset with that request id (used once);
 - the audit log (and the reset requests) are never deleted; the reset writes its own audit row (who, counts, approval);
+- F-X4b (X4 M4): refused with 409 `legal_hold` (naming the cases) while any legal hold is active, checked again in the
+  delete transaction: a reset deletes every team's data, so any hold covers it, and no active hold is ever left
+  pointing at nothing (holds, like the audit log, are kept);
 - the catalog goes with the data it describes (lineage edges, champions, cards, requests, annotations, projects), so no
   champion or edge is left pointing at nothing."""
 
@@ -71,6 +74,14 @@ def user_data(con) -> list[str]:
     return out
 
 
+def holds_refusal(con) -> dict[str, Any] | None:
+    """F-X4b (X4 M4): the 409 body when any legal hold is active (P24's rule: a destructive path calls catalog/holds)."""
+    from .catalog import holds as H
+
+    hs = [dict(r) for r in con.execute("SELECT * FROM legal_holds WHERE released_at IS NULL ORDER BY placed_at")]
+    return H.refusal(hs, "reset the workbench (it deletes every team's data)") if hs else None
+
+
 def check(db: Database, by: str | None, request_id: str | None = None) -> dict[str, Any] | None:
     """Raise ResetRefused unless this reset may run; returns the four-eyes approval it uses (or None)."""
     from .catalog import governance as G
@@ -83,6 +94,9 @@ def check(db: Database, by: str | None, request_id: str | None = None) -> dict[s
     if not G.is_admin(by):
         raise ResetRefused(403, f"Only an admin (ENSEMBLE_ADMINS) may reset; {by} is not one.")
     with db.connect() as con:
+        held = holds_refusal(con)
+        if held:
+            raise ResetRefused(409, held)
         live = live_governance(con) + user_data(con)
         if not live and not request_id:
             return None
@@ -112,6 +126,9 @@ def reset(settings: config.Settings, by: str | None = None, request_id: str | No
     approval = check(db, by, request_id)
     counts = {}
     with db.connect() as con:
+        held = holds_refusal(con)  # again, in the delete transaction: a hold placed since check() still stops it
+        if held:
+            raise ResetRefused(409, held)
         live = live_governance(con)
         for t in TABLES:
             # a table this build doesn't have is skipped (checked first: a failed statement aborts a Postgres transaction)

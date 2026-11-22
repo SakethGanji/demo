@@ -1,0 +1,31 @@
+# mode enforce
+
+# 1. a delta whose key is a tagged column (email), with duplicate keys
+## 1a Mo POST /uploads/{u}/check (delta keyed on email, one email twice) → HTTP 400 | pii 0
+    {"detail": {"code": "delta_duplicate_keys", "message": "Delta of 'loans': 1 key(s) appear more than once in the delta (the first 1 are listed): a delta names each key once. Keep one row per key and upload again.", "table": "loans", "columns": ["email"], "n_duplicate_keys": 1, "keys": [{"value": ["•••"], "rows": 2}]}}
+## 1b Mo POST /uploads/{u}/commit → HTTP 409 | pii 0
+    {"detail": {"code": "check_required", "message": "Check upload up_65d9d8432e01 first (POST /api/uploads/up_65d9d8432e01/check): the commit writes what the check showed."}}
+
+# 2. a delta keyed on ssn with an op column holding an SSN
+## 2a Mo POST /uploads/{u}/check → HTTP 400 | pii 2
+    {"detail": {"code": "delta_op_unknown", "message": "Delta of 'loans': Column op has value(s) 886764072 that are not an operation: use I / U / D (insert / update / delete) or upsert, or map them with tables.<t>.ops {\"<value>\": \"insert\" | \"update\" | \"delete\" | \"upsert\"}.", "table": "loans", "values": ["886764072"]}}
+
+# 3. rows filter on a tagged column (Vic)
+## 3a Vic GET /datasets/v1/rows?filter={ssn eq <an SSN>} → HTTP 200 | pii 0
+    {"rows": [], "matching": null, "detail": null}
+## 3b Vic GET /datasets/v1/rows/count?filter={applicant_name eq 'Person0007 Example'} → HTTP 200 | pii 0
+    {"dataset_id": "ds_5419056f", "table": "loans", "q": "", "searched_columns": null, "total": 600, "count": 0, "timed_out": false, "exact": true}
+## 3c Vic GET /datasets/v1/rows/count?filter={ssn gt 500000000} → HTTP 400 | pii 0
+    {"detail": {"code": "filter_invalid", "message": "filter: 'gt' compares numbers, and 'ssn' is not a number column."}}
+
+# 4. Mo edit preview: replace_values on ssn / cast applicant_name
+## 4a Mo POST edit preview {replace_values ssn find <SSN>} → HTTP 200 | pii 0
+    {"preview": true, "v": 2, "parent": "ds_5419056f", "rows": 600, "n_cols": 9, "sha256": null, "matched": 600, "changed": 1, "added": 0, "removed": 0, "columns_before": 9, "columns_after": 9, "checks": {"warnings": [], "columns_added": [], "columns_removed": [], "type_changes": [], "rows_before": 600, "rows_after": 600, "renamed_maybe": []}, "renamed": {}, "edit_log": [{"i": 1, "op": "replace_values", "column": "ssn", "cells": 1, "rows": 1, "summary": "replaced ••• → 1 in 'ssn' (exact): 1 cell(s)", "examples": [{"row_id": 9, "column": "ssn", "old": "•••", "new": "•••"}], "examples_truncated": fa
+## 4b Mo POST edit preview {cast applicant_name → number} → HTTP 200 | pii 0
+    {"preview": true, "v": 2, "parent": "ds_5419056f", "rows": 600, "n_cols": 9, "sha256": null, "matched": 600, "changed": 0, "added": 0, "removed": 0, "columns_before": 9, "columns_after": 9, "checks": {"warnings": [{"code": "type_changed", "column": "applicant_name", "message": "'applicant_name' changed type: ••• (•••) → ••• (•••)."}], "columns_added": [], "columns_removed": [], "type_changes": [{"column": "applicant_name", "from": "•••", "to": "•••", "kind_from": "•••", "kind_to": "•••"}], "rows_before": 600, "rows_after": 600, "renamed_maybe": []}, "renamed": {}, "edit_log": [{"i": 1, "op": "
+## 4c Mo POST edit preview {filter_rows dob eq '1957-08-08'}  → HTTP 400 | pii 0
+    {"detail": "A version needs at least two rows and two columns."}
+
+# 5. diff between v1 and an edited version (Vic)
+## 5a Vic GET /datasets/{v1}/diff/{v2} → HTTP 200 | pii 0
+    {"a_table": "loans", "b_table": "loans", "tables": [{"table": "loans", "status": "changed", "a_sha256": "cd169aa8022b4e7e2c97b752e2b330863920d65a7c5757a28ca39377e7244c77", "b_sha256": "98463fb949a9702039167a999dcd164c42b73d7f40965753565e47340365de0d", "rows": [600, 600]}], "schema": {"columns_added": [], "columns_removed": [], "type_changes": [], "dtype_changes": [], "n_columns": [9, 9]}, "method"

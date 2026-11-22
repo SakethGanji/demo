@@ -134,6 +134,18 @@ async def _verify_timer(app: FastAPI) -> None:
             log.exception("scheduled verify failed")
 
 
+async def _audit_checkpoint_timer(app: FastAPI) -> None:
+    """F-X4b (X4 M6): a signed checkpoint of every team's audit head at start and every ENSEMBLE_AUDIT_CHECKPOINT_SECONDS."""
+    from .catalog import audit_anchor
+
+    while True:
+        try:
+            await run_in_threadpool(audit_anchor.checkpoint, app.state.db, app.state.settings.data_dir)
+        except Exception:  # noqa: BLE001
+            log.exception("audit checkpoint failed")
+        await asyncio.sleep(audit_anchor.every_seconds())
+
+
 def create_app(settings: config.Settings | None = None) -> FastAPI:
     settings = settings or config.load_settings()
 
@@ -167,6 +179,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
         loop = asyncio.get_running_loop()
         verify_task = asyncio.ensure_future(_verify_timer(app)) if config.verify_every_hours() else None
+        from .catalog import audit_anchor as _aa
+
+        checkpoint_task = asyncio.ensure_future(_audit_checkpoint_timer(app)) if _aa.every_seconds() else None
         app.state.runner.on_success = lambda rid: loop.call_soon_threadsafe(lambda: asyncio.ensure_future(warm_doctor(app, rid)))
         for mod in (learning_curve_api, active_learning_api, review_mod, annotations_api, shift_api):  # F-JOBS: +2
             mod.bind(db)
@@ -179,6 +194,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         yield
         if verify_task:
             verify_task.cancel()
+        if checkpoint_task:
+            checkpoint_task.cancel()
         app.state.agent.shutting_down = True
         app.state.worker.stop(requeue=True, kill=not dev_reload())  # held jobs go back on the queue
         app.state.agent.shutdown()
@@ -207,6 +224,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         reach the audit log of paths that take no `by` (reads, in-app versions)."""
         from .catalog import governance as G
 
+        if "\x00" in (request.scope.get("path") or ""):  # F-X3a (X3 m6): never an id; Postgres text refuses it (a 500)
+            return SafeJSONResponse({"detail": {"code": "bad_id", "message": "The path holds a NUL byte."}}, status_code=400)
         t1 = G.ACTOR.set(request.headers.get("x-ensemble-actor"))
         t2 = G.REASON.set(request.headers.get("x-ensemble-reason"))
         try:

@@ -1,0 +1,45 @@
+# mode audit
+
+# 1. the actions X4 found unaudited: upload discard, run cancel (agent session and SQL preview rows: agent.txt, sql.txt)
+## 1a Ana DELETE /uploads/{up} → HTTP 200 | pii 0
+    {"id": null, "status": "discarded"}
+## 1b Ana POST /runs (60 s) → HTTP 201 | pii 0
+    {"id": "run_1a59a7c1"}
+## 1c Ana POST /runs/{id}/cancel → HTTP 200 | pii 0
+    {"id": "run_1a59a7c1", "cancelling": true}
+    'agent_session_started': 2
+    'agent_step_confirmed': 2
+    'agent_session_refused': 5
+    'agent:batch_score': 2
+    'upload_discarded': 1
+    'sql_previewed': 7
+    'sql_tables_listed': 1
+    'sql_refused': 22
+    'run_cancelled': 1
+    upload_discarded: team tm_8fbd4239 actor Ana principal pr_24d4b96f58da auth typed object upload:up_5c860a29a027 details {"upload_id": "up_5c860a29a027", "why": "discarded", "status_was": "staged", "created_by": "Ana", "project_id": "prj_118e2267"}
+    run_cancelled: team tm_8fbd4239 actor Ana principal pr_24d4b96f58da auth typed object run:run_1a59a7c1 details {"run_id": "run_1a59a7c1", "status_was": "queued"}
+  agent rows by auth: Counter({('agent_session_refused', 'typed'): 5, ('agent', 'agent'): 2, ('batch_scored', 'agent'): 2, ('agent_step_confirmed', 'typed'): 2, ('agent_session_started', 'typed'): 2, ('authz_would_deny', 'agent'): 1})
+  agent-auth rows without on_behalf_of: 0
+
+# 2. admin reset under a legal hold (ENSEMBLE_DEMO_MODE=1)
+## 2a Ada POST /legal-holds {team credit-risk} → HTTP 201 | pii 0
+    {"id": "lh_ea5fb257d2", "active": true}
+## 2b Ada POST /admin/reset-requests → HTTP 201 | pii 0
+    {"id": "arq_6ff50cba", "status": "pending"}
+## 2c Adam approves → HTTP 200 | pii 0
+    {"status": "approved"}
+## 2d Ada POST /admin/reset {request_id} (hold active) → HTTP 409 | pii 0
+    {"detail": {"code": "legal_hold", "message": "Can't reset the workbench (it deletes every team's data): legal hold CASE-RESET covers it (team tm_8fbd4239, lh_ea5fb257d2). A platform admin other than the one who placed it releases a hold (POST /api/legal-holds/{id}/release).", "cases": ["CASE-RESET"], "holds": [{"id": "lh_ea5fb257d2", "case_ref": "CASE-RESET", "scope_kind": "team", "scope_id": "tm_8fbd4239", "placed_by": "Ada", "placed_at": "2026-11-22T02:10:28+00:00"}]}}
+## 2e GET /runs/{run} (still there) → HTTP 200 | pii 0
+    {"id": "run_f9e29baa", "status": "succeeded"}
+## 2f GET /datasets/{v1} (still there) → HTTP 200 | pii 0
+    {"id": "ds_86ba1541", "rows": 600}
+  admin_reset_refused rows: [('Ada', 409, "{'status': 409, 'via': 'api'}")]
+## 2g Adam releases the hold → HTTP 200 | pii 0
+    {"id": "lh_ea5fb257d2", "released_at": "2026-11-22T02:10:28+00:00"}
+## 2h Ada POST /admin/reset {request_id} (no hold) → HTTP 200 | pii 0
+    {"four_eyes": "arq_6ff50cba", "audit_kept": true}
+## 2i GET /legal-holds?team=cr&include_released=1 (the hold row is kept, released) → HTTP 200 | pii 0
+    {"holds": [{"id": "lh_ea5fb257d2", "scope_kind": "team", "scope_id": "tm_8fbd4239", "case_ref": "CASE-RESET", "reason": "regulator inquiry", "placed_by": "Ada", "placed_at": "2026-11-22T02:10:28+00:00", "released_by": "Adam", "released_at": "2026-11-22T02:10:28+00:00", "active": false, "team_id": "tm_8fbd4239", "label": "Credit Risk"}], "n_active": 0}
+  verify tm_8fbd4239: {"ok": true, "rows": 38, "anchored": {"audit_heads": 147, "checkpoint": {"audit_id": 147, "at": "2026-11-22T02:10:31+00:00"}}}
+  verify tm_default: {"ok": true, "rows": 114, "anchored": {"audit_heads": 193, "checkpoint": {"audit_id": 160, "at": "2026-11-22T02:10:31+00:00"}}}

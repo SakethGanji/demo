@@ -566,7 +566,8 @@ class DatasetStore:
     def write_frame_version(self, df: pd.DataFrame, *, name: str, filename: str, note: str, source: str,
                             target: str | None = None, by: str | None = None, parent_id: str | None = None,
                             version_id: str | None = None, kind: str | None = None, hints: dict[str, str] | None = None,
-                            lineage: dict[str, Any] | None = None, profile_extra: dict[str, Any] | None = None) -> dict[str, Any]:
+                            lineage: dict[str, Any] | None = None, profile_extra: dict[str, Any] | None = None,
+                            project_id: str | None = None) -> dict[str, Any]:
         """P10: a frame (a sample, a SQL load, a monitoring window) as a Parquet version through the VersionWriter.
         Without `parent_id`: a new dataset (its rows get __row_id 0..n-1; `version_id` fixes the id, for the samples).
         With `parent_id`: a version of that dataset whose rows are all new (fresh ids from the root's counter, no row
@@ -584,6 +585,8 @@ class DatasetStore:
         tgt = target if target in df.columns else None
         try:
             kw: dict[str, Any] = dict(op=source, by=who, name=name, primary_table=frames.PRIMARY_TABLE, reason=note[:500])
+            if project_id and not parent_id:  # F-X4b: a SQL load goes into the project it was authorised on
+                kw["project_id"] = project_id
             w = VersionWriter(self.db, lake, parent_id=parent_id, dedupe=False, **kw) if parent_id else \
                 VersionWriter(self.db, lake, version_id=version_id, **kw)
             with w:
@@ -1406,7 +1409,8 @@ class DatasetStore:
         return rec
 
     def create_from_frame(self, df: pd.DataFrame, *, name: str, filename: str, note: str, target: str | None = None,
-                          lineage: dict[str, Any] | None = None, by: str | None = None) -> dict[str, Any]:
+                          lineage: dict[str, Any] | None = None, by: str | None = None,
+                          project_id: str | None = None) -> dict[str, Any]:
         """A new dataset from a frame (an upload, or G9's SQL query). `lineage` (G9: the query, the redacted URL, the
         version) goes to lineage.json and the profile, like Autopilot's derived versions."""
         df.columns = [str(c).strip() or f"col_{i + 1}" for i, c in enumerate(df.columns)]
@@ -1436,7 +1440,7 @@ class DatasetStore:
         rec = self.write_frame_version(df, name=name, filename=filename, note=note,
                                        source=str((lineage or {}).get("source") or "refresh") if parent else "upload",
                                        target=target, by=by, parent_id=parent, hints={c: "text" for c in kept},
-                                       lineage=lin, profile_extra=extra)
+                                       lineage=lin, profile_extra=extra, project_id=project_id)
         if kept:
             prof = dict(rec["profile"])
             prof.setdefault("warnings", []).append(

@@ -1,0 +1,26 @@
+
+## A. Ana · customers_lossy.csv as a delta of customers (score 505.5, 506.25 into BIGINT) → blocked lossy_cast
+POST /api/uploads?parent_version_id=ds_a4669439 (multipart) → 201 {}
+POST /api/uploads/up_1e3b78c909b8/check {} → 200 {"blocks":[],"warnings":[]}
+PATCH /api/uploads/up_1e3b78c909b8 {"table":"customers","tables":{"customers":{"action":"delta"}}} → 200 {}
+POST /api/uploads/up_1e3b78c909b8/check {} → 200 {"blocks":[["lossy_cast","score"]],"warnings":[]}
+
+## B. customers_dates.csv (since 03/02/2021, 04/05/2021, 11/12/2021) → blocked date_ambiguous → day first → check → Create
+POST /api/uploads?parent_version_id=ds_a4669439 (multipart) → 201 {}
+POST /api/uploads/up_60afcca942f2/check {} → 200 {"blocks":[],"warnings":[["date_ambiguous",null]]}
+PATCH /api/uploads/up_60afcca942f2 {"table":"customers","tables":{"customers":{"action":"delta"}}} → 200 {}
+POST /api/uploads/up_60afcca942f2/check {} → 200 {"blocks":[["date_ambiguous",["since"]]],"warnings":[["date_ambiguous",null]]}
+PATCH /api/uploads/up_60afcca942f2 {"table":"customers","tables":{"customers":{"action":"delta","formats":{"since":"%d/%m/%Y"},"types":{"since":"DATE"}}}} → 200 {}
+POST /api/uploads/up_60afcca942f2/check {} → 200 {"blocks":[],"warnings":[]}
+POST /api/uploads/up_60afcca942f2/commit {"by":"Ana","check_sha256":"e9bf94ee26b3d9bb57e3d21597d7ad658cc7248c5b5d56c62f74dbe569971d9f"} → 201 {"warnings":[],"version_id":"ds_b19bd100","deltas":{"customers":{"mode":"rewrite","change":"rewritten","key":["cust_id"],"op_column":null,"rows":3,"ops":{"insert":0,"update":0,"delete":0,"upsert":3},"inserted":0,"updated":3,"updated_unchanged":0,"deleted":0,"missing":0,"update_of_missing_key":0,"insert_of_existing_key":0,"parent_rows":20,"rows_after":20,"columns_missing":[],"columns_new":[],"holdo
+
+## C. customers_widerkey.csv keyed on [cust_id, region] → key_invalidated + relation_dropped (needs_ack) → acknowledge → Create
+POST /api/uploads?parent_version_id=ds_b19bd100 (multipart) → 201 {}
+POST /api/uploads/up_85765bf00bb4/check {} → 200 {"blocks":[],"warnings":[]}
+PATCH /api/uploads/up_85765bf00bb4 {"table":"customers","tables":{"customers":{"action":"delta"}}} → 200 {}
+POST /api/uploads/up_85765bf00bb4/check {} → 200 {"blocks":[],"warnings":[]}
+PATCH /api/uploads/up_85765bf00bb4 {"table":"customers","tables":{"customers":{"action":"delta","key":["cust_id","region"]}}} → 200 {}
+POST /api/uploads/up_85765bf00bb4/check {} → 200 {"blocks":[],"warnings":[["key_invalidated",true],["relation_dropped",true]]}
+POST /api/uploads/up_85765bf00bb4/commit {"by":"Ana","check_sha256":"aecdcc2e09c9a61a5ea0535656d73609d0f6555deda1383ab5740baf4d006a43","acknowledge":["key_invalidated","relation_dropped"]} → 201 {"warnings":[["key_invalidated",true],["relation_dropped",true]],"version_id":"ds_8945adec","deltas":{"customers":{"mode":"append","change":"appended","key":["cust_id","region"],"op_column":null,"rows":2,"ops":{"insert":0,"update":0,"delete":0,"upsert":2},"inserted":2,"updated":0,"updated_unchanged":0,"deleted":0,"missing":0,"update_of_missing_key":0,"insert_of_existing_key":0,"parent_rows":20,"ro
+
+console errors: 0

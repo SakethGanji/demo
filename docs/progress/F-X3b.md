@@ -106,6 +106,14 @@ At the head, the same `s3.py` run (`s3_base.txt`) gives:
 
 **Postgres:** the same chain. `chain_postgres.txt` shows the same results, with the same frame and cache shas.
 
+**After merging the branch** (F-X3a, F-X4b, F-X4c, U3), `chain.sh` and P15's chain were re-run on SQLite
+(`chain_sqlite_merged.txt`, `p15_sqlite_merged.txt`). Masking ids, they equal the pre-merge output, except for:
+- the trained models' numbers;
+- m6: F-X3a's `_vid` guard answers first now (400 `bad_id`). Its guard replaced mine in `joins_api`.
+
+P15's text now equals its recorded run, the `batch_table_missing` message included. F-X4c's purged-training-data
+fallback (`_numeric_like`) is used by the online join path too.
+
 ## Deviations and notes
 
 - **Online request shape (U lane).**
