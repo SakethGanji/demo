@@ -1,0 +1,2 @@
+two pure-CJK sheet names: check 200 [('收入', 'sheet_1'), ('支出', 'sheet_2')]
+  plan to rename a sheet: (400, {'detail': {'code': 'bad_plan', 'message': "Unknown plan field(s) ['sheets']: the plan takes formats, match, name, parent_version_id, primary_table, project_id, reason, relations, root_id, table, tables, target, types.", 'fields': ['sheets']}})

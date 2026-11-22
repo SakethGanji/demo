@@ -268,6 +268,7 @@ async def diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", 
     """GET /datasets/diff?a=&b=&key= (main.py routes it before /datasets/{id}) and the path form above."""
     if not a or not b:
         raise HTTPException(400, "Send a and b (two dataset version ids).")
+    await _thread(_known_versions, request, a, b)  # F-X3a m3: an unknown or malformed id is a 404, never a 500
     table = table or request.query_params.get("table") or ""
     if table:
         await _thread(_need_table, request, a, table)
@@ -275,6 +276,20 @@ async def diff_q(request: Request, a: str, b: str, by: str = "", key: str = "", 
         with frames.use_table(table):
             return await _diff_q(request, a, b, by, key, wait)
     return await _diff_q(request, a, b, by, key, wait)
+
+
+def _known_versions(request: Request, *ids: str) -> None:
+    for vid in ids:
+        if "\x00" in vid or len(vid) > 128 or not request.app.state.db.get_dataset(vid):
+            raise HTTPException(404, {"code": "version_not_found", "message": f"No dataset version {vid[:64]!r}."})
+
+
+def _body_by(body: dict[str, Any]) -> str:
+    """F-X3a m4: `by` in a JSON body is text (a number or an object is a 400, not a 500)."""
+    v = body.get("by")
+    if v is not None and not isinstance(v, str):
+        raise HTTPException(400, {"code": "bad_by", "message": "'by' is a name (text)."})
+    return _who((v or G.current_actor() or "").strip())
 
 
 def _need_table(request: Request, vid: str, table: str) -> None:
@@ -1217,7 +1232,7 @@ async def commit_upload(up: str, request: Request, body: dict[str, Any] | None =
 
     body = body if isinstance(body, dict) else {}
     db, lake = request.app.state.db, request.app.state.lake
-    who = _who((body.get("by") or G.current_actor() or "").strip())
+    who = _body_by(body)
     reason = str(body.get("reason") or G.current_reason() or "").strip()[:500]
 
     def run() -> tuple[dict[str, Any], bool]:
@@ -1330,7 +1345,7 @@ async def put_key(dataset_id: str, table: str, request: Request, body: dict[str,
     kind = body.get("kind") or "primary"
     if kind not in ("primary", "unique"):
         raise HTTPException(400, {"code": "bad_key", "message": "kind is primary or unique."})
-    who = _who((body.get("by") or G.current_actor() or "").strip())
+    who = _body_by(body)
     reason = str(body.get("reason") or G.current_reason() or f"declare key {table}({', '.join(cols)})").strip()[:500]
     _live(request, dataset_id)
     await _thread(_need_table, request, dataset_id, table)
@@ -1412,7 +1427,7 @@ async def put_relation(dataset_id: str, name: str, request: Request, body: dict[
         r = U.norm_relation(body, name)
     except LakeError as e:
         raise _lake_err(e) from e
-    who = _who((body.get("by") or G.current_actor() or "").strip())
+    who = _body_by(body)
     reason = str(body.get("reason") or G.current_reason() or f"declare relation {name}").strip()[:500]
     _live(request, dataset_id)
     out = await _lthread(declare_version, request.app.state.db, request.app.state.lake, dataset_id, by=who, reason=reason,

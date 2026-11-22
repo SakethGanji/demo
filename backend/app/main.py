@@ -207,6 +207,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         reach the audit log of paths that take no `by` (reads, in-app versions)."""
         from .catalog import governance as G
 
+        if "\x00" in (request.scope.get("path") or ""):  # F-X3a (X3 m6): never an id; Postgres text refuses it (a 500)
+            return SafeJSONResponse({"detail": {"code": "bad_id", "message": "The path holds a NUL byte."}}, status_code=400)
         t1 = G.ACTOR.set(request.headers.get("x-ensemble-actor"))
         t2 = G.REASON.set(request.headers.get("x-ensemble-reason"))
         try:

@@ -159,6 +159,9 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
     also_t = tuple(also or ())
 
     async def authz_dependency(request: Request) -> None:
+        # F-X3a (X3 m6): a NUL byte is never part of an id (Postgres text refuses it: a 500 in a lookup): 400 first
+        if any("\x00" in str(v) for v in request.path_params.values()):
+            raise HTTPException(400, {"code": "bad_id", "message": "An id in the path holds a NUL byte."})
         m = mode()
         if m == "off":
             return
@@ -166,6 +169,12 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
         b = await _body(request) if need_body or request.method in ("POST", "PUT", "PATCH") and \
             "application/json" in request.headers.get("content-type", "") else {}
         vals = {str(o): _value(o, request, b) for o in (*objs, *(o for _, o in also_t))}
+        # F-X3a (X3 m6): an id from the query or a JSON body is text without NUL bytes (a number reached Postgres as
+        # `text = smallint`, a NUL as an invalid text value): 400 before any lookup
+        bad = [o.name for o in (*objs, *(o for _, o in also_t)) if vals.get(str(o)) is not None
+               and (not isinstance(vals[str(o)], str) or "\x00" in vals[str(o)])]
+        if bad:
+            raise HTTPException(400, {"code": "bad_id", "message": f"{', '.join(bad)}: an id is text (no NUL bytes)."})
         act = action
         if when is not None:
             act = dict(when.actions).get(str(b.get(when.field)), action)

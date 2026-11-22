@@ -1,0 +1,13 @@
+
+### customers delta keyed (cust_id, region) inserting C001/N (cust_id now repeats): stage=commit check=200 commit=201
+  delta {'mode': 'append', 'key': ['cust_id', 'region'], 'inserted': 2, 'updated': 0, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 22}
+  schema [('cust_id', 'VARCHAR'), ('region', 'VARCHAR'), ('score', 'BIGINT')]
+  warnings []
+  tables [('apps', 'carried', 200, [(['app_id'], True, 0)]), ('customers', 'appended', 22, [(['cust_id', 'region'], True, 0), (['cust_id'], False, 2)]), ('payments', 'carried', 600, [(['app_id', 'seq'], True, 0)])]
+  relations []
+  verify 200 True
+
+### delta on customers by cust_id (declared key) on the broken version: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['cust_id', 'region'], 'inserted': 1, 'updated': 1, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 23}
+  schema [('cust_id', 'VARCHAR'), ('region', 'VARCHAR'), ('score', 'BIGINT')]
+  warnings []

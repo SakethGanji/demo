@@ -21,6 +21,9 @@ import csv
 import datetime as _dt
 import logging
 import math
+import re
+import unicodedata
+import zipfile
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -134,6 +137,113 @@ def _write_sheet(rows: Iterable[list[Any]], out: Path) -> tuple[int, int, list[s
     return n, width, header or []
 
 
+_F_RE = re.compile(rb"<(?:\w+:)?f[\s>/]")
+_MERGE_RE = re.compile(rb'<(?:\w+:)?mergeCell\s[^>]*ref="([A-Z]+)([0-9]+)(?::([A-Z]+)([0-9]+))?"')
+
+
+def _col_n(s: bytes) -> int:
+    n = 0
+    for ch in s.decode():
+        n = n * 26 + (ord(ch) - 64)
+    return n
+
+
+def _sheet_parts(z: zipfile.ZipFile) -> dict[str, str]:
+    """sheet name → its worksheet part in the package (xl/workbook.xml + its relationships)."""
+    from xml.etree import ElementTree as ET
+
+    wb = ET.fromstring(z.read("xl/workbook.xml"))
+    rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+    tgt = {r.get("Id"): r.get("Target") or "" for r in rels}
+    out: dict[str, str] = {}
+    for el in wb.iter():
+        if el.tag.rsplit("}", 1)[-1] != "sheet":
+            continue
+        rid = next((v for k, v in el.attrib.items() if k.rsplit("}", 1)[-1] == "id"), None)
+        t = tgt.get(rid or "", "")
+        if t:
+            out[str(el.get("name"))] = t.lstrip("/") if t.startswith("/") else "xl/" + t
+    return out
+
+
+def sheet_notes(path: Path) -> dict[str, dict[str, int]]:
+    """F-X3a (X3 m14): per sheet, the cells that come in empty without being empty in Excel: formula cells with no saved
+    value (a workbook written by a script that does not compute formulas) and the cells a merged range hides (only its
+    top-left cell holds the value). One streaming pass per sheet; the XML is parsed only when a formula is present."""
+    from xml.etree import ElementTree as ET
+
+    out: dict[str, dict[str, int]] = {}
+    try:
+        with zipfile.ZipFile(path) as z:
+            for name, part in _sheet_parts(z).items():
+                has_f, merges, tail = False, set(), b""
+                try:
+                    with z.open(part) as fh:
+                        while True:
+                            chunk = fh.read(1 << 20)
+                            if not chunk:
+                                break
+                            buf = tail + chunk
+                            has_f = has_f or bool(_F_RE.search(buf))
+                            merges.update(m.groups() for m in _MERGE_RE.finditer(buf))
+                            tail = buf[-256:]
+                except KeyError:
+                    continue
+                hidden = 0
+                for a, r1, b, r2 in merges:
+                    if b is not None:
+                        hidden += (abs(_col_n(b) - _col_n(a)) + 1) * (abs(int(r2) - int(r1)) + 1) - 1
+                no_value = 0
+                if has_f:
+                    with z.open(part) as fh:
+                        for _, el in ET.iterparse(fh, events=("end",)):
+                            if el.tag.rsplit("}", 1)[-1] != "c":
+                                continue
+                            kids = {k.tag.rsplit("}", 1)[-1]: k for k in el}
+                            if "f" in kids and (kids.get("v") is None or not (kids["v"].text or "")) and "is" not in kids:
+                                no_value += 1
+                            el.clear()
+                if no_value or merges:
+                    out[name] = {"formulas_without_value": no_value, "merged_ranges": len(merges), "merged_hidden_cells": hidden}
+    except Exception as e:  # noqa: BLE001 - notes never fail the import
+        log.info("excel sheet notes for %s: %s", path.name, str(e)[:300])
+    return out
+
+
+def note_warnings(sheet: str, n: dict[str, int] | None) -> list[dict[str, Any]]:
+    """The check warnings for one sheet's notes."""
+    out: list[dict[str, Any]] = []
+    if not n:
+        return out
+    if n.get("formulas_without_value"):
+        k = n["formulas_without_value"]
+        out.append({"code": "excel_formula_no_value", "sheet": sheet, "n": k,
+                    "message": f"Sheet '{sheet}': {k:,} formula cell(s) have no saved value (the workbook was written by a "
+                               "program that does not compute formulas), so they come in empty. Open and save the workbook "
+                               "in Excel, or upload the values."})
+    if n.get("merged_ranges"):
+        out.append({"code": "excel_merged_cells", "sheet": sheet, "n": n["merged_ranges"], "cells": n["merged_hidden_cells"],
+                    "message": f"Sheet '{sheet}': {n['merged_ranges']:,} merged range(s). Only the top-left cell of a merged "
+                               f"range holds its value, so {n['merged_hidden_cells']:,} other cell(s) come in empty. Unmerge "
+                               "them (and fill the value down) to keep it in every row."})
+    return out
+
+
+def sheet_table_name(sheet: str, index: int) -> tuple[str, str | None]:
+    """F-X3a (X3 m14): a sheet name as a table name. Accents are folded (`Données €` → `donnees`); a name with no
+    letter or digit left (`收入`) becomes `sheet_<n>` (its position), so two such sheets never collide as `data`.
+    Returns (table name, why it differs from the sheet name, or None)."""
+    folded = unicodedata.normalize("NFKD", sheet).encode("ascii", "ignore").decode()
+    t = re.sub(r"[^A-Za-z0-9_]+", "_", folded).strip("_").lower()[:64]
+    if not t:
+        return f"sheet_{index + 1}", "no letter or digit in A–Z, 0–9: named by its position"
+    if t.startswith("__") or t[0].isdigit():
+        t = f"t_{t}".strip("_")
+    if folded != sheet:
+        return t, "letters outside A–Z folded or left out"
+    return t, None
+
+
 def read_workbook(path: Path, out_dir: Path, prefix: str, *, filename: str = "") -> list[dict[str, Any]]:
     """Every sheet of the workbook at `path`, each non-empty one written to `out_dir/<prefix>.s<i>.csv`."""
     nm = filename or path.name
@@ -166,6 +276,9 @@ def read_workbook(path: Path, out_dir: Path, prefix: str, *, filename: str = "")
                 n, width, header = _write_sheet(rows, csv_path)
                 out.append({"sheet": str(name), "index": i, "hidden": bool(hidden), "empty": width == 0,
                             "n_rows": n, "n_cols": width, "header": header, "csv": csv_path.name, "reader": rname})
+            notes = sheet_notes(path)
+            for o in out:
+                o["notes"] = notes.get(o["sheet"]) or {}
             return out
         except LakeError:
             raise
