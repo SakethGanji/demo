@@ -24,6 +24,7 @@ The run's predictor is never changed. The version gets its own predictor folder:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import time
@@ -232,6 +233,15 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         from ..splits import load_splits
 
         vdir.mkdir(parents=True, exist_ok=True)
+        parity = None
+        if cfg.get("join"):  # P15: serving parity first: a frame that no longer matches its inputs is refused early
+            step("parity", "running")
+            parity = serving_parity(db_path, cfg, vdir / "parity")
+            reg.merge_version_result(version_id, parity=parity)
+            if parity["status"] != "ok":
+                step("parity", "failed", summary=parity["summary"][:500])
+                raise ParityError(parity)
+            step("parity", "done", summary=parity["summary"], seconds=parity["seconds"])
         holdout = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
         X = holdout.drop(columns=[cfg["label"]])
 
@@ -468,6 +478,17 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
 
         hp = holdout_prediction_frame(final, holdout, cfg["label"])
         hp.to_csv(vdir / "holdout_predictions.csv", index=False)
+        if parity is not None:  # P15: the version's predictions on the serving frame = on the training frame
+            parity["predictions"] = prediction_parity(final, holdout, hp, vdir / "parity" / "serving_frame.parquet",
+                                                      load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+            if parity["predictions"]["status"] != "ok":
+                parity["status"] = "mismatch"
+                parity["summary"] = (f"predictions differ on the serving frame: max |Δ| {parity['predictions']['max_abs_diff']:.3g}, "
+                                     f"ids equal {parity['predictions']['ids_equal']}, labels equal {parity['predictions']['labels_equal']}")
+                reg.merge_version_result(version_id, parity=parity)
+                raise ParityError(parity)
+            parity["summary"] += f"; the version's predictions on {parity['predictions']['rows']:,} holdout rows equal"
+            shutil.rmtree(vdir / "parity", ignore_errors=True)
         res_run = run.get("result") or {}
         ci = metrics_with_ci(hp, final.problem_type, final.positive_class if final.problem_type == "binary" else None,
                              list(final.class_labels) if final.class_labels is not None else None)
@@ -488,6 +509,7 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
 
         splits_hash = run_split_sha256(cfg) or file_hash(Path(cfg["splits_path"]))  # P10: a migrated run's DL4 JSON hash
         step("hash", "done", model_hash=model_hash[:12])
+        inputs = input_record(db_path, cfg, list(final.original_features), data_hash)  # P15: C §4.6, frozen with the version
 
         mono_info = None
         if cfg.get("monotone"):  # F8: ICE / PD of the model this version serves, as deployed, on raw holdout rows
@@ -532,7 +554,8 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
             "refit": refit_info, "infer_limit": limit_info, "distill": distill_info, "serving": serving_info,
             "monotone": mono_info, "quantile": quant_info,
             "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "splits_sha256": splits_hash,
-                       "data_file": frames.path_of(frames.resolve(cfg)).name},
+                       "data_file": _data_file(cfg), **_input_hashes(inputs)},
+            "inputs": inputs, "parity": parity,
             "path": str(dest),
         }
         reg.update_version(version_id, result=result, path=str(dest), model_hash=model_hash)
@@ -562,7 +585,12 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         return {"ok": True, "version_id": version_id}
     except Exception as e:  # noqa: BLE001
         tb = traceback.format_exc()
-        reg.update_version(version_id, status="failed", error=f"{type(e).__name__}: {e}")
+        reg.update_version(version_id, status="failed",
+                           error=f"serving parity mismatch: {e}" if isinstance(e, ParityError) else f"{type(e).__name__}: {e}")
+        if isinstance(e, ParityError):
+            reg.merge_version_result(version_id, parity=e.parity)
+            reg.audit(actor=v["created_by"], action="register_refused", version=v, comment="serving parity mismatch",
+                      details={"parity": {k: e.parity.get(k) for k in ("status", "summary", "cache", "inputs", "rows", "mismatched_cells")}})
         prog = reg.get_version(version_id)["progress"] or {"steps": []}
         for s in prog["steps"]:
             if s.get("status") == "running":
@@ -763,7 +791,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                         "problem_type": problem, "eval_metric": metric, "features": res.get("features") or [],
                         "n_models": len(res.get("leaderboard") or [])},
             "kind": kind, "tradeoff": {"size_ratio": 1.0},
-            "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": frames.path_of(frames.resolve(cfg)).name},
+            "hashes": {"model_sha256": model_hash, "data_sha256": data_hash, "data_file": _data_file(cfg)},
             "path": str(dest),
         }
         if kind == "survival":  # G6: what Try It and the card read
@@ -804,3 +832,332 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         vdir.mkdir(parents=True, exist_ok=True)
         (vdir / "build_error.txt").write_text(tb)
         return {"ok": False, "error": str(e)}
+
+
+# --------------------------------------------------------------------------- P15: the input record and serving parity
+
+
+def _one(db: Database, sql: str, args: tuple[Any, ...]) -> dict[str, Any] | None:
+    with db.connect() as con:
+        r = con.execute(sql, args).fetchone()
+    return dict(r) if r else None
+
+
+def _jsonish(v: Any) -> Any:
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except ValueError:
+            return v
+    return v
+
+
+def _table_origin(db: Database, version_id: str, table: str) -> dict[str, Any]:
+    """Where a table's bytes came from: follow `carried` back to the version that wrote them (its upload or edit)."""
+    seen, vid, t = set(), version_id, table
+    while (vid, t) not in seen and len(seen) < 200:
+        seen.add((vid, t))
+        r = _one(db, "SELECT change, from_version, from_table, source_file FROM version_tables WHERE version_id = ? AND table_name = ?",
+                 (vid, t))
+        if not r:
+            break
+        if r["change"] == "carried" and r["from_version"]:
+            vid, t = r["from_version"], r["from_table"] or t
+            continue
+        d = _one(db, "SELECT id, version_no, created_by, created_at, reason FROM datasets WHERE id = ?", (vid,)) or {}
+        return {"origin_version": vid, "origin_v": d.get("version_no"), "change": r["change"], "source_file": r["source_file"],
+                "uploaded_by": d.get("created_by"), "uploaded_at": d.get("created_at"), "upload_reason": d.get("reason")}
+    return {}
+
+
+def _version_block(db: Database, vid: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """(dataset, version) of the §4.6 record for a dataset version."""
+    d = _one(db, "SELECT d.id, d.root_id, d.version_no, d.created_by, d.created_at, d.reason, d.contract_result, d.project_id,"
+                 " COALESCE(d.team_id, p.team_id) AS team_id FROM datasets d LEFT JOIN projects p ON p.id = d.project_id"
+                 " WHERE d.id = ?", (vid,)) or {"id": vid}
+    root_id = d.get("root_id") or vid
+    root = _one(db, "SELECT id, name, team_id, project_id FROM dataset_roots WHERE id = ?", (root_id,)) or {}
+    if not root.get("name"):
+        root["name"] = (_one(db, "SELECT name FROM datasets WHERE id = ?", (root_id,)) or {}).get("name")
+    cert = _one(db, "SELECT level, decided_by, decided_at, status FROM certifications WHERE version_id = ? AND status = 'active'"
+                    " ORDER BY decided_at DESC", (vid,))
+    cr = _jsonish(d.get("contract_result"))
+    contract = None
+    if isinstance(cr, dict):
+        contract = {"id": cr.get("contract_id") or cr.get("id"), "version": cr.get("contract_version") or cr.get("version"),
+                    "result": cr.get("result") or ("pass" if cr.get("ok") else "fail" if cr.get("ok") is False else None)}
+    elif cr:
+        contract = {"result": cr}
+    dataset = {"root": root_id, "name": root.get("name"), "team": root.get("team_id") or d.get("team_id"),
+               "project": root.get("project_id") or d.get("project_id")}
+    version = {"dv": vid, "v": d.get("version_no"), "created_by": d.get("created_by"), "created_at": d.get("created_at"),
+               "reason": d.get("reason"), "contract": contract,
+               "certification": ({"level": cert["level"], "by": cert["decided_by"], "at": cert["decided_at"]} if cert else None)}
+    return dataset, version
+
+
+def _feature_sources(cfg: dict[str, Any], spec: dict[str, Any] | None, features: list[str]) -> dict[str, tuple[str, str]]:
+    """frame column → (table, source column) for grain columns and n:1 columns (aggregates are derived: not listed)."""
+    out: dict[str, tuple[str, str]] = {}
+    if not spec:
+        t = (cfg.get("input_table") or {}).get("table") or (cfg.get("input_ref") or {}).get("table") or "data"
+        return {f: (t, f) for f in features}
+    joined: dict[str, tuple[str, str]] = {}
+    prefixes: list[tuple[str, str]] = []
+    for j in spec.get("joins") or []:
+        if j["type"] != "aggregate":
+            tname = j["table"] if isinstance(j["table"], str) else j["table"]["table"]
+            joined.update({j["prefix"] + c: (tname, c) for c in j.get("columns") or []})
+            prefixes.append((j["prefix"], tname))
+    for f in features:
+        hit = joined.get(f) or next(((t, f[len(p):]) for p, t in prefixes if p and f.startswith(p)), None)
+        out[f] = hit or (spec["grain"], f)
+    return out
+
+
+def input_record(db_path: str | Path, cfg: dict[str, Any], features: list[str], data_sha256: str | None) -> dict[str, Any]:
+    """C §4.6: the model version's immutable record of the data it was developed on: the frame, the dataset and version
+    (contract, certification), every input table with its sha, rows and the upload it came from, the join spec and its
+    sha with coverage, the split, PII-tagged features and protected columns left out. Counts and hashes only, no rows."""
+    db = Database(Path(db_path))
+    jn = cfg.get("join") or None
+    rec: dict[str, Any] = {"format": "ensemble.model_inputs/1"}
+    split = cfg.get("split") or {}
+    rec["split"] = {"id": split.get("split_id"), "key": split.get("key"), "sha256": split.get("split_sha256") or split.get("sha256"),
+                    "target": split.get("target"), "strategy": split.get("strategy")}
+    spec = None
+    if jn:
+        fr = _one(db, "SELECT id, version_id, n_rows, frame_sha256, cache_blob FROM join_frames WHERE id = ?", (jn["join_frame_id"],)) or {}
+        jrow = _one(db, "SELECT id, name, spec_version, spec_json, spec_sha256 FROM joins WHERE id = ?", (jn["join_id"],)) or {}
+        spec = _jsonish(jrow.get("spec_json"))
+        pins = [{**x, "role": x.get("role") or ("grain" if i == 0 else f"join:{i - 1}")} for i, x in enumerate(jn.get("inputs") or [])]
+        grain_vid = pins[0]["version_id"] if pins else fr.get("version_id")
+        rec["frame"] = {"kind": "join_frame", "id": jn["join_frame_id"], "sha256": jn.get("cache_blob"),
+                        "frame_sha256": jn.get("frame_sha256"), "rows": fr.get("n_rows")}
+        tables = [{"name": x["table"], "role": x.get("role"), "dv": x["version_id"], "sha256": x["table_sha256"],
+                   "rows": x.get("n_rows")} for x in pins]
+        coverage = None
+        try:
+            from ..catalog import joins as J
+
+            rep = J.validate(db, spec, grain_vid)
+            rep.pop("_inputs", None)
+            coverage = {c["table"]: c.get("coverage") for c in rep.get("coverage") or []}
+        except Exception as e:  # noqa: BLE001 — the record stands without coverage; says why
+            coverage = {"error": f"{type(e).__name__}: {e}"[:300]}
+        rec["join"] = {"id": jn["join_id"], "name": jrow.get("name") or jn.get("name"), "spec_version": jrow.get("spec_version"),
+                       "spec": spec, "spec_sha256": jrow.get("spec_sha256") or jn.get("spec_sha256"),
+                       "spec_frozen": jrow.get("spec_sha256") == jn.get("spec_sha256"), "coverage": coverage}
+    else:
+        ref = frames.resolve(cfg)
+        grain_vid = getattr(ref, "version_id", None) or (cfg.get("input_ref") or {}).get("version_id") or cfg.get("dataset_id")
+        tname = None
+        rows = None
+        if isinstance(ref, frames.Table) and frames.is_parquet(ref):
+            lt = frames.lake_table(ref)
+            tname, rows = lt.name, lt.n_rows
+        rec["frame"] = {"kind": "table", "id": grain_vid, "table": tname, "sha256": data_sha256, "rows": rows}
+        tables = [{"name": tname or "data", "role": "grain", "dv": grain_vid, "sha256": data_sha256, "rows": rows}]
+        rec["join"] = None
+    rec["dataset"], rec["version"] = _version_block(db, grain_vid)
+    for t in tables:
+        if t["dv"]:
+            o = _table_origin(db, t["dv"], t["name"])
+            t.update({k: o.get(k) for k in ("source_file", "uploaded_by", "uploaded_at", "change")})
+            if o.get("origin_version") and o["origin_version"] != t["dv"]:
+                t["from_dv"] = o["origin_version"] + " (carried)"
+            if t["dv"] != grain_vid:  # another dataset (a merged_from input): name it
+                ds, _v = _version_block(db, t["dv"])
+                t["dataset"] = {"root": ds["root"], "name": ds["name"], "team": ds["team"]}
+    rec["tables"] = tables
+    src = _feature_sources(cfg, spec, features)
+    pii, protected = [], []
+    roots = {t["name"]: (t.get("dataset") or {}).get("root") or rec["dataset"]["root"] for t in tables}
+    with db.connect() as con:
+        tags = [dict(r) for r in con.execute("SELECT root_id, table_name, column_name, tag FROM column_tags WHERE tag <> 'none'")]
+    for tg in tags:
+        hits = [f for f, (t, c) in src.items() if t == tg["table_name"] and c == tg["column_name"] and roots.get(t) == tg["root_id"]]
+        if tg["tag"] in ("pii_direct", "pii_quasi"):
+            pii += hits
+        if tg["tag"] == "protected" and tg["table_name"] in roots and roots[tg["table_name"]] == tg["root_id"] and not hits:
+            protected.append(f"{tg['table_name']}.{tg['column_name']}")
+    rec["features"] = len(features)
+    rec["pii_features"] = sorted(set(pii))
+    rec["excluded_protected"] = sorted(set(protected))
+    rec["recorded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return rec
+
+
+def _data_file(cfg: dict[str, Any]) -> str:
+    """The hashed file's name: a join frame's id (its cache blob), else the table file's name."""
+    if cfg.get("join"):
+        return f"join_frame {cfg['join']['join_frame_id']} (cache {str(cfg['join'].get('cache_blob'))[:12]})"
+    try:
+        return frames.path_of(frames.resolve(cfg)).name
+    except Exception:  # noqa: BLE001
+        return str(cfg.get("dataset_id"))
+
+
+def _input_hashes(rec: dict[str, Any] | None) -> dict[str, Any]:
+    """C §6.5 #15: `inputs: [{table, dv, sha256}]` and `join: {id, spec_sha256}` beside the data hash."""
+    if not rec:
+        return {}
+    out: dict[str, Any] = {"inputs": [{"table": t["name"], "dv": t["dv"], "sha256": t["sha256"]} for t in rec.get("tables") or []]}
+    if rec.get("join"):
+        out["join"] = {"id": rec["join"]["id"], "spec_sha256": rec["join"]["spec_sha256"]}
+    return out
+
+
+class ParityError(RuntimeError):
+    def __init__(self, parity: dict[str, Any]) -> None:
+        super().__init__(parity.get("summary") or "serving parity mismatch")
+        self.parity = parity
+
+
+def _frame_v1(path: Path) -> pd.DataFrame:
+    """A frame file read the way `frames.read` reads a lake table (engine_v1 types, index = __row_id)."""
+    import pyarrow.parquet as pq
+
+    at = pq.read_table(str(path))
+    names = [c for c in at.column_names if c != "__row_id"]
+    df = pd.DataFrame({c: frames._v1_column(at.column(c), c) for c in names}, columns=names)
+    df.index = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False))
+    return df
+
+
+def serving_parity(db_path: str | Path, cfg: dict[str, Any], work: Path) -> dict[str, Any]:
+    """§7 risk 11: serving and training share one join path. The frame is rebuilt from the run's pinned inputs with
+    `frames.materialise` (the path batch scoring uses) and compared by `__row_id`, cell by cell, with the training-time
+    frame (the cache file the run read). The cache file and every pinned input are re-hashed first. Leaves the rebuilt
+    frame at work/serving_frame.parquet for the prediction comparison. Single-table runs: not applicable."""
+    jn = cfg.get("join")
+    if not jn:
+        return {"status": "not_applicable", "reason": "single-table model: training and serving read the table's columns directly"}
+    from ..catalog import joins as J
+    from ..lake import duck
+    from ..lake import manifest as M
+
+    t0 = time.time()
+    db = Database(Path(db_path))
+    out: dict[str, Any] = {"status": "mismatch", "join_frame_id": jn["join_frame_id"], "spec_sha256": jn.get("spec_sha256"),
+                           "method": "frame rebuilt from the pinned inputs with frames.materialise (the serving path), "
+                                     "compared with the training frame by __row_id, every cell (IS DISTINCT FROM)"}
+    problems: list[str] = []
+    jrow = _one(db, "SELECT spec_json, spec_sha256 FROM joins WHERE id = ?", (jn["join_id"],))
+    if not jrow:
+        out["summary"] = f"the join {jn['join_id']} is gone"
+        return out
+    spec = json.loads(jrow["spec_json"])
+    if jrow["spec_sha256"] != jn.get("spec_sha256") or J.spec_sha256(spec) != jrow["spec_sha256"]:
+        problems.append("the join spec is not the one the run pinned")
+    # the training frame: the cache file the run read, re-hashed now
+    try:
+        lt = frames.lake_table(frames.JoinFrame(jn["join_frame_id"]))
+        cache_path = Path(lt.parts[0]["path"])
+        now, _n = M.file_sha256(cache_path) if cache_path.exists() else (None, 0)
+    except Exception as e:  # noqa: BLE001
+        cache_path, now = None, f"unreadable: {type(e).__name__}"
+    out["cache"] = {"recorded": jn.get("cache_blob"), "now": now, "ok": now == jn.get("cache_blob")}
+    if not out["cache"]["ok"]:
+        problems.append(f"the training frame's cache file reads {str(now)[:12]}…, the run recorded {str(jn.get('cache_blob'))[:12]}…")
+    pinned = [{k: x[k] for k in ("role", "version_id", "table", "table_sha256") if k in x} for x in jn.get("inputs") or []]
+    ins = J.check_inputs(db, {"inputs": pinned})
+    out["inputs"] = [{"table": x["table"], "version_id": x["version_id"], "pinned": x["pinned"], "now": x["now"], "ok": x["ok"]} for x in ins]
+    problems += [f"input {x['table']} ({x['version_id']}) reads {str(x['now'])[:12]}…, pinned {x['pinned'][:12]}…" for x in ins if not x["ok"]]
+    # the serving frame: the one join path over the pinned inputs
+    work.mkdir(parents=True, exist_ok=True)
+    rebuilt = work / "serving_frame.parquet"
+    try:
+        lts = [frames.lake_table(frames.Table(x["version_id"], x["table"])) for x in pinned]
+        res = frames.materialise(spec, lts, rebuilt)
+        out["serving"] = {"rows": res["n_rows"], "sha256": M.file_sha256(rebuilt)[0], "seconds": res["seconds"]}
+    except Exception as e:  # noqa: BLE001
+        problems.append(f"the frame could not be rebuilt: {type(e).__name__}: {e}"[:400])
+        out.update(summary="; ".join(problems), seconds=round(time.time() - t0, 3))
+        return out
+    if cache_path is not None and cache_path.exists():
+        a, b = str(cache_path).replace("'", "''"), str(rebuilt).replace("'", "''")
+        try:
+            with duck.job() as con:
+                da = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{a}')").fetchall()}
+                dbb = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{b}')").fetchall()}
+                common = [c for c in da if c in dbb and c != "__row_id"]
+                diffs = ", ".join(f"sum(CASE WHEN t.{frames._qi(c)} IS DISTINCT FROM s.{frames._qi(c)} THEN 1 ELSE 0 END)" for c in common)
+                row = con.execute(
+                    f"SELECT (SELECT count(*) FROM read_parquet('{a}')), (SELECT count(*) FROM read_parquet('{b}')),"
+                    f" sum(CASE WHEN t.__row_id IS NULL OR s.__row_id IS NULL THEN 1 ELSE 0 END){', ' + diffs if diffs else ''}"
+                    f" FROM read_parquet('{a}') t FULL OUTER JOIN read_parquet('{b}') s ON t.__row_id = s.__row_id").fetchone()
+            n_t, n_s, unmatched = int(row[0]), int(row[1]), int(row[2] or 0)
+            bad = {c: int(v or 0) for c, v in zip(common, row[3:]) if v}
+            out["training"] = {"rows": n_t, "sha256": now}
+            out["rows"] = {"training": n_t, "serving": n_s, "ids_unmatched": unmatched}
+            out["columns_compared"] = len(common)
+            out["column_set_equal"] = list(da) == list(dbb)
+            out["types_equal"] = all(da[c] == dbb[c] for c in common)
+            out["mismatched_cells"] = bad
+            out["byte_equal"] = out["serving"]["sha256"] == now
+            if n_t != n_s or unmatched:
+                problems.append(f"rows differ: training {n_t:,}, serving {n_s:,}, {unmatched:,} __row_id without a partner")
+            if not out["column_set_equal"]:
+                problems.append("the columns differ: " + ", ".join(sorted(set(da) ^ set(dbb)) or ["order"]))
+            if not out["types_equal"]:
+                problems.append("types differ: " + ", ".join(f"{c} {da[c]} vs {dbb[c]}" for c in common if da[c] != dbb[c]))
+            if bad:
+                problems.append("cells differ: " + ", ".join(f"{c} ({n:,} rows)" for c, n in bad.items()))
+        except Exception as e:  # noqa: BLE001 — an unreadable training frame is a mismatch, said plainly
+            problems.append(f"the training frame could not be read for the comparison ({type(e).__name__})")
+    elif cache_path is None or not cache_path.exists():
+        problems.append("the training frame's cache file is missing")
+    out["status"] = "ok" if not problems else "mismatch"
+    out["summary"] = "serving frame = training frame (every cell, by __row_id)" if not problems else "; ".join(problems)
+    out["checked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    out["seconds"] = round(time.time() - t0, 3)
+    return out
+
+
+def prediction_parity(final: Any, holdout: pd.DataFrame, hp: pd.DataFrame, rebuilt: Path, splits: dict[str, Any],
+                      label: str, drop: list[str]) -> dict[str, Any]:
+    """The version scores the holdout rows of the rebuilt (serving) frame; its predictions must equal the ones it made
+    on the training frame's holdout rows (`hp`), row by row by __row_id."""
+    from ..engine.worker import holdout_prediction_frame
+
+    df = _frame_v1(rebuilt)
+    h = df.iloc[np.asarray(splits["holdout"], dtype=int)]
+    h = h[h[label].notna()]
+    h = h.drop(columns=[c for c in drop if c in h.columns and c != label])
+    ids_equal = list(h.index) == list(holdout.index)
+    hp2 = holdout_prediction_frame(final, h, label)
+    pcols = [c for c in hp.columns if c.startswith("p_") or c in ("y_pred", "prediction")]
+    diff = 0.0
+    labels_equal = True
+    for c in pcols:
+        a, b = hp[c].to_numpy(), hp2[c].to_numpy() if c in hp2 else None
+        if b is None or len(a) != len(b):
+            labels_equal = False
+            continue
+        if a.dtype.kind in "fc" and b.dtype.kind in "fc":
+            diff = max(diff, float(np.nanmax(np.abs(a - b))) if len(a) else 0.0)
+        elif not (pd.Series(a).astype(str).to_numpy() == pd.Series(b).astype(str).to_numpy()).all():
+            labels_equal = False
+    ok = ids_equal and labels_equal and diff <= 1e-9
+    return {"status": "ok" if ok else "mismatch", "rows": int(len(h)), "ids_equal": ids_equal, "columns": pcols,
+            "max_abs_diff": diff, "labels_equal": labels_equal}
+
+
+def register_gate(db_path: str, run_id: str, cfg: dict[str, Any], registry_dir: str | Path, who: str) -> dict[str, Any]:
+    """POST /runs/{id}/register on a join run: the frame-level parity now, so a mismatch is refused with 409 before a
+    version exists (audited `register_refused`). The build repeats it and adds the prediction comparison."""
+    import secrets
+
+    work = Path(registry_dir) / "_parity" / secrets.token_hex(4)
+    try:
+        par = serving_parity(db_path, cfg, work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    if par["status"] != "ok":
+        from ..catalog.schema import audit as chained_audit
+
+        with Database(Path(db_path)).connect() as con:
+            chained_audit(con, who, "register_refused", jsonable({"why": "serving parity mismatch", "parity": par}), par["summary"][:500],
+                          run_id, object_kind="run", object_id=run_id)
+    return par

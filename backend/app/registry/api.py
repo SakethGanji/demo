@@ -8,6 +8,7 @@ import math
 import os
 import re
 import secrets
+import shutil
 import unicodedata
 from pathlib import Path
 from typing import Any, Literal
@@ -134,6 +135,11 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
         if (rec.get("result") or {}).get("problem_type") not in (None, "binary"):
             raise HTTPException(400, "calibration applies to binary (yes/no) runs only.")
     who = _name_ok(body.created_by, "created_by")
+    if rec["config"].get("join"):  # P15: serving parity at registration (§7 risk 11): a mismatch is refused now
+        par = await run_in_threadpool(build.register_gate, str(request.app.state.settings.db_path), run_id, rec["config"], _dir(request), who)
+        if par["status"] != "ok":
+            raise HTTPException(409, {"code": "parity_mismatch", "message": f"Serving parity failed for run {run_id}: "
+                                      f"{par['summary']}. The model was not registered.", "parity": par})
     reg = _reg(request)
     name = (body.model_name or default_model_name(rec["dataset_id"], rec["label"])).strip()
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", name):
@@ -668,6 +674,17 @@ class CardFields(BaseModel):
     fields: dict[str, str]
 
 
+@router.get("/registry/versions/{vid}/inputs.zip", dependencies=[require("model.read", path("vid", "model_version"))])
+async def inputs_zip(vid: str, request: Request):
+    """P15 (C §4.6): the manifest (input record), join spec, contract results and hashes of the version. No rows."""
+    from fastapi.responses import Response
+
+    v = _version(request, vid)
+    data = await run_in_threadpool(card.inputs_zip, v, request.app.state.runs.get(v["run_id"]))
+    return Response(data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="inputs_{v["model_name"]}_v{v["version"]}.zip"'})
+
+
 @router.put("/registry/versions/{vid}/card", dependencies=[require("model.card", path("vid", "model_version"))])
 def edit_card(vid: str, body: CardFields, request: Request) -> dict[str, Any]:
     """Fill in the card's template (intended use, limitations, owner, …). Recorded in the audit log."""
@@ -969,8 +986,8 @@ def _kinds(request: Request, run: dict[str, Any]) -> dict[str, str]:
 
 
 @router.post("/registry/versions/{vid}/batches", status_code=202, dependencies=[require("model.use", path("vid", "model_version"))])
-async def create_batch(vid: str, request: Request, file: UploadFile = File(...), created_by: str = Form(""),
-                       data_date: str | None = Form(None)) -> dict[str, Any]:
+async def create_batch(vid: str, request: Request, file: UploadFile | None = File(None), created_by: str = Form(""),
+                       data_date: str | None = Form(None), files: list[UploadFile] | None = File(None)) -> dict[str, Any]:
     """Score a CSV with the version, in a worker process: progress on GET /registry/batches/{id}, then a preview,
     the scored CSV (predictions and probabilities) and PSI drift of every feature and of the predictions. F18:
     `data_date` (YYYY-MM-DD) is the date of the data in the batch (default: the latest date in the run's time column
@@ -978,16 +995,45 @@ async def create_batch(vid: str, request: Request, file: UploadFile = File(...),
     the batch with it."""
     v = _ready_version(request, vid)
     who = _name_ok(created_by, "created_by")
-    content = await file.read(config.MAX_UPLOAD_BYTES + 1)
-    if len(content) > config.MAX_UPLOAD_BYTES:
-        raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
-    if not content.strip():
-        raise HTTPException(400, "The file is empty.")
-    return submit_batch(request, v, content, Path(file.filename or "batch.csv").name, who, data_date)
+    ups = [f for f in [file, *(files or [])] if f is not None]
+    if not ups:
+        raise HTTPException(400, "Send the rows to score as `file` (or, for a model on a join, one file per input table as `files`).")
+    got: list[tuple[str, bytes]] = []
+    for f in ups:
+        content = await f.read(config.MAX_UPLOAD_BYTES + 1)
+        if len(content) > config.MAX_UPLOAD_BYTES:
+            raise HTTPException(413, f"The file is larger than {config.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+        if not content.strip():
+            raise HTTPException(400, f"The file {f.filename or ''} is empty.".replace("  ", " "))
+        got.append((Path(f.filename or "batch.csv").name, content))
+    cfg = (request.app.state.runs.get(v["run_id"]) or {}).get("config") or {}
+    if cfg.get("join"):  # P15: one file per input table; the model's saved join applied to them (frames.materialise)
+        return await run_in_threadpool(submit_join_batch, request, v, cfg, got, who, data_date)
+    if len(got) > 1:
+        raise HTTPException(400, f"This model reads one table: send one file, not {len(got)}.")
+    return submit_batch(request, v, got[0][1], got[0][0], who, data_date)
+
+
+def submit_join_batch(request: Request, v: dict[str, Any], cfg: dict[str, Any], got: list[tuple[str, bytes]], who: str,
+                      data_date: str | None) -> dict[str, Any]:
+    bdir = _dir(request) / "batches" / ("_join_" + secrets.token_hex(4))
+    try:
+        info = scoring.join_batch_frame(str(request.app.state.settings.db_path), cfg, got, bdir)
+    except scoring.BatchInputError as e:
+        shutil.rmtree(bdir, ignore_errors=True)
+        raise HTTPException(400, e.detail()) from e
+    name = " + ".join(t["file"] for t in info["tables"].values())[:300]
+    try:
+        out = submit_batch(request, v, Path(info["path"]).read_bytes(), name, who, data_date, join_info=info)
+        (_dir(request) / "batches" / out["id"] / "join.json").write_text(json.dumps(info, default=str))
+        shutil.move(str(bdir / "tables"), str(_dir(request) / "batches" / out["id"] / "tables"))
+        return out
+    finally:
+        shutil.rmtree(bdir, ignore_errors=True)
 
 
 def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str, who: str,
-                 data_date: str | None = None) -> dict[str, Any]:
+                 data_date: str | None = None, join_info: dict[str, Any] | None = None) -> dict[str, Any]:
     from . import monitoring_api
 
     vid = v["id"]
@@ -1009,8 +1055,9 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
         request.app.state.jobs[bid] = fut
         return reg.get_batch(bid)
     rc_args = _reason_args(request, v, run)
+    bcfg = {**run["config"], "_batch_join": join_info} if join_info else run["config"]
     fut = request.app.state.heavy.submit(scoring.score_batch, str(request.app.state.settings.db_path), bid, v["path"],
-                                         run["config"], str(csv_path), str(bdir), _kinds(request, run), {"id": vid},
+                                         bcfg, str(csv_path), str(bdir), _kinds(request, run), {"id": vid},
                                          rc_args[0] if rc_args else None, monitoring_api.shadow_for(request, v),
                                          _recourse_saved(request, v) if rc_args else None)
     request.app.state.jobs[bid] = fut
