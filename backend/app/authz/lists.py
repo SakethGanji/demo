@@ -62,7 +62,12 @@ def with_team(request: Request, data: Any, which: str) -> Any:
                 r["team_id"] = tid
                 r["team"] = refs.get(tid)
                 if own is not None and tid not in own:
-                    kind_id = ("dataset", r.get("id")) if which in ("datasets", "search") else (kind, r.get(field))
+                    if which == "search":  # F-X4a: a search row is a dataset root (no `id`): shared when any version is
+                        vids = [x[0] for x in con.execute("SELECT id FROM datasets WHERE root_id = ? ORDER BY created_at DESC"
+                                                          " LIMIT 200", (r.get("root_id"),))] if tid in sharing else []
+                        r["access"] = "shared" if any(shares.row_visible(con, own, "dataset", v) for v in vids) else "none"
+                        continue
+                    kind_id = ("dataset", r.get("id")) if which == "datasets" else (kind, r.get(field))
                     r["access"] = "shared" if tid in sharing and kind_id[1] and \
                         shares.row_visible(con, own, kind_id[0], str(kind_id[1])) else "none"
             if vis is not None and isinstance(data.get(key), list):
