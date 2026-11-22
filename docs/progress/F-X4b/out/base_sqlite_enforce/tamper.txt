@@ -1,0 +1,10 @@
+  clean: ok=True rows=35 first_break=None
+  UPDATE audit_log refused: IntegrityError: audit is append-only
+  (append-only triggers off)
+  edited row 81 (one space added to comment): ok=False rows=17 first_break={'id': 81, 'ts': '2026-11-22T02:01:46+00:00', 'action': 'certification_approved', 'problem': 'the row does not re-hash to its row_hash (it was edited)', 'row_hash': 'a2ed12daeee758ec', 'recomputed': '1f7861a4d99e14e1'}
+  deleted row 52: ok=False rows=3 first_break={'id': 54, 'ts': '2026-11-22T02:01:45+00:00', 'action': 'team_member_added', 'problem': 'prev_hash does not link to the previous row (a row was removed or inserted before it)', 'expected_prev': '9ff9095fa5cd9cbb', 'found_prev': 'cb0d387cf5090f96'}
+  row put back: ok=True rows=35 first_break=None
+  deleted the last row: ok=False rows=34 first_break={'id': None, 'problem': 'the last row is not the recorded head (rows were removed from the end)', 'head': '7c7165a02496356c', 'last': '7ba40687ce79d388'}
+  … and moved catalog_meta audit_head back one row (tail truncation): ok=True rows=34 first_break=None
+  restored: ok=True rows=35 first_break=None
+  (triggers back on)

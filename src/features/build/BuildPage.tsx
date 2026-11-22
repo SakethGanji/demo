@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { Intake, IntakeColumn, IntakeSuggestion } from '@/shared/api/types'
 import { DropZone } from '@/shared/components/DropZone'
@@ -116,9 +118,10 @@ function BuildLive({ go }: { go: (r: string) => void }) {
   const setDs = (id: string) => { location.hash = `#/build?dataset=${encodeURIComponent(id)}` }
   const list = useFetch(() => api.datasets.list(), [])
   const [edits, setEdits] = useState<Record<string, string>>({})
-  useEffect(() => setEdits({}), [dsId])
+  const [unmask, setUnmask] = useState<Unmask>(null)
+  useEffect(() => { setEdits({}); setUnmask(null) }, [dsId])
   const edited = Object.keys(edits).length > 0
-  const intake = useFetch(dsId ? () => api.datasets.intake(dsId, edited ? edits : undefined) : null, [dsId, JSON.stringify(edits)])
+  const intake = useFetch(dsId ? () => api.datasets.intake(dsId, edited ? edits : undefined, unmask ?? undefined) : null, [dsId, JSON.stringify(edits), unmask])
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   const [refreshed, setRefreshed] = useState<{ id: string; msg: string } | null>(null)
@@ -186,6 +189,7 @@ function BuildLive({ go }: { go: (r: string) => void }) {
         {current ? <Found intake={current} edits={edits} setEdits={setEdits} />
           : <div className="card card-body row helper">{dsId ? (intake.err ? <span style={{ color: 'var(--status-danger)' }}>✕ {intake.err}</span> : <><ResonanceWave /> Reading every column…</>) : 'Drop a CSV, query a database or pick a dataset: Smart Intake finds the target, dates, IDs, money, segments and what to leave out, and says why.'}</div>}
       </div>
+      {current && dsId && <MaskBar info={intake.data} kind="dataset" id={dsId} value={unmask} onChange={setUnmask} what="statistics quoted in the evidence" />}
       {current && <Suggestions intake={current} onOpen={open} busy={!!busy} />}
       {current && dsId && <FeatureLab dsId={dsId} entities={current.roles.entity ?? []} onVersion={(id, msg) => { setFixed({ id, msg }); list.reload(); setDs(id) }} />}
     </div>

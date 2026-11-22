@@ -83,7 +83,7 @@ def _team_id(request: Request, t: str) -> str:
 
 AUDIT_OUT = ("id", "ts", "actor", "action", "team_id", "project_id", "object_kind", "object_id", "principal_id", "auth",
              "request_id", "run_id", "model_name", "version", "version_id", "from_stage", "to_stage", "comment", "details",
-             "decision", "prev_hash", "row_hash")
+             "decision", "on_behalf_of", "prev_hash", "row_hash")
 
 
 @router.get("/teams/{team}/audit", dependencies=[require("audit.read", path("team", "team"))])
@@ -137,9 +137,18 @@ async def team_audit_verify(team: str, request: Request) -> dict[str, Any]:
 
     def go() -> dict[str, Any]:
         with request.app.state.db.connect() as con:
-            return verify_audit_chain(con, tid)
+            return verify_audit_chain(con, tid, request.app.state.settings.data_dir)  # F-X4b: + the tail anchors
 
     return {"team_id": tid, **(await run_in_threadpool(go))}
+
+
+@router.post("/admin/audit/checkpoint", dependencies=[require("admin.config")])
+async def audit_checkpoint(request: Request) -> dict[str, Any]:
+    """F-X4b (X4 M6): append a signed checkpoint of every team's latest audit head now (also on a timer,
+    ENSEMBLE_AUDIT_CHECKPOINT_SECONDS). Verify fails when a checkpointed row is gone."""
+    from ..catalog import audit_anchor
+
+    return await run_in_threadpool(audit_anchor.checkpoint, request.app.state.db, request.app.state.settings.data_dir)
 
 
 def install(app: Any) -> None:

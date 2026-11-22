@@ -1,0 +1,17 @@
+
+## 1. Ana (maintainer) · project PD 2026 → sqlite file in ENSEMBLE_SQL_IMPORT_DIRS → List tables → Preview → Load
+POST /api/sql/tables {"url":"sqlite:///<scratch>/sqlimp/branches.sqlite","project_id":"prj_b92f3905"} → 200 {"tables":[{"name":"branches","kind":"table","columns":[{"name":"branch_id","type":"TEXT"},{"name":"region","type":"TEXT"},{"name":"opened","type":"TEXT"},{"name":"loans","type":"INTEGER"},{"name":"defaults","type":"INTEGER"}],"rows":120}]}
+POST /api/sql/preview {"url":"sqlite:///<scratch>/sqlimp/branches.sqlite","query":"SELECT branch_id, region, opened, loans, defaults FROM branches","limit":100000,"project_id → 200 {"columns":[{"name":"branch_id","dtype":"object","missing":0},{"name":"region","dtype":"object","missing":0},{"name":"opened","dtype":"object","missing":0},{"name":"loans","dtype":"int64","missing":0},{"name":"defaults","dtype":"int64","missing":0}],"rows":[{"
+POST /api/sql/datasets {"url":"sqlite:///<scratch>/sqlimp/branches.sqlite","query":"SELECT branch_id, region, opened, loans, defaults FROM branches","limit":100000,"project_id → 201 {"id":"ds_e39b7561","name":"branches (SQL)","filename":"branches (SQL).sql","source":"upload","sample":false,"note":"SQL query · sqlite:///<scratch>/sqlimp/branches.sqlite · v1","created_at":"
+→ the Build page opened #/build?dataset=ds_e39b7561
+
+## 2. Ana · the platform DB as a source → 400 sql_platform_db; a file outside the import dir → 400 sql_path_refused
+POST /api/sql/preview {"url":"sqlite:///<scratch>/w3/data/ensemble.sqlite3","query":"SELECT * FROM datasets","limit":100000,"project_id":"prj_b92f3905"} → 400 {"detail":{"code":"sql_platform_db","message":"That is one of the workbench's own databases, not a data source."}}
+POST /api/sql/preview {"url":"sqlite:////etc/hosts","query":"SELECT * FROM datasets","limit":100000,"project_id":"prj_b92f3905"} → 400 {"detail":{"code":"sql_path_refused","message":"Database files are read only from the import directories (ENSEMBLE_SQL_IMPORT_DIRS: <scratch>/sqlimp); /etc/hosts is outside them."}}
+
+## 3. Vic (viewer) · data.import greyed on PD 2026 with the reason
+
+console errors: 3
+Failed to load resource: the server responded with a status of 500 (Internal Server Error)
+Failed to load resource: the server responded with a status of 400 (Bad Request)
+Failed to load resource: the server responded with a status of 400 (Bad Request)

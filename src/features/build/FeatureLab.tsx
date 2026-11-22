@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import type { FeatureLabEntry, FeatureLabJob } from '@/shared/api/types'
@@ -19,7 +21,8 @@ export function FeatureLab({ dsId, entities, onVersion }: { dsId: string; entiti
   const last = list.data?.dataset_id === dsId ? list.data.jobs[0]?.id ?? null : null
   useEffect(() => setJobId(null), [dsId])
   const id = jobId ?? last
-  const job = useFetch(id ? () => api.datasets.featureLabJob(dsId, id) : null, [dsId, id], { pollMs: 2000, while: (j) => j?.status === 'running' })
+  const [unmask, setUnmask] = useState<Unmask>(null)
+  const job = useFetch(id ? () => api.datasets.featureLabJob(dsId, id, unmask ?? undefined) : null, [dsId, id, unmask], { pollMs: 2000, while: (j) => j?.status === 'running' })
   const j = job.data?.id === id ? job.data : null
   const start = async () => {
     setErr('')
@@ -40,6 +43,7 @@ export function FeatureLab({ dsId, entities, onVersion }: { dsId: string; entiti
           <button className="btn" onClick={start} disabled={running} data-testid="fl-start">{running ? 'Searching…' : j ? 'Search again' : 'Search features'}</button>
           {err && <span className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</span>}
         </div>
+        {j && <MaskBar info={job.data} kind="dataset" id={dsId} value={unmask} onChange={setUnmask} what="bin edges" />}
         {j && <Journal j={j} onVersion={onVersion} />}
       </div>
     </details>

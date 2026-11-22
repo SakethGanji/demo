@@ -4,6 +4,7 @@ import { PluckString } from '@/shared/primitives/PluckString'
 import { SettingRow } from './components/SettingRow'
 import { LlmCard } from './components/LlmCard'
 import { TeamsSection } from './components/TeamsSection'
+import { LifecycleSection } from './components/LifecycleSection'
 import { useApi } from '@/shared/api/mode'
 
 export function SettingsPage() {
@@ -36,6 +37,8 @@ export function SettingsPage() {
       </div>
       {/* U2 (C §2.1): Settings › Teams: the teams you are in, members and roles, policy, legal holds */}
       <div style={{ marginTop: 'var(--space-16)' }} id="teams"><TeamsSection /></div>
+      {/* U3 (P24, §11 item 3): Settings › Data lifecycle: retention per team, GC, purges; all manual */}
+      <div style={{ marginTop: 'var(--space-16)' }} id="lifecycle"><h2 className="card-title" style={{ margin: '0 0 8px' }}>Data lifecycle</h2><LifecycleSection /></div>
     </div>
   )
 }

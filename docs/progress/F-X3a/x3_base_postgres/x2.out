@@ -1,0 +1,2 @@
+two pure-CJK sheet names: check 400 {'code': 'duplicate_table', 'message': "cjk.xlsx sheet '收入' and cjk.xlsx sheet '支出' would both become table 'data'. Rename one of them (a sheet or a file) and upload again: nothing is renamed silently.", 'table': 'data'}
+  plan to rename a sheet: None

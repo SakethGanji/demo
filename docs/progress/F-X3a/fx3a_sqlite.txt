@@ -1,0 +1,51 @@
+## M1: a delta keyed on a wider key
+parent key cust_id + relation app_cust 201
+check 200 blocks []
+  warning key_invalidated customers ['cust_id'] needs_ack True | not_unique
+  warning relation_dropped customers app_cust needs_ack True | relation_to_not_unique
+commit, no acknowledge → 400 acknowledge_required ['key_invalidated', 'relation_dropped']
+commit, key_invalidated only → 400 acknowledge_required ['relation_dropped']
+commit, both → 201 ds_4e124013
+  keys [('customers', [(['cust_id'], 'primary', False), (['cust_id', 'region'], 'unique', True)])]
+  relations []
+  manifest ops [{'acknowledged': True, 'name': 'app_cust', 'op': 'relation_dropped', 'why': 'relation_to_not_unique'}]
+  commit warnings acknowledged [('key_invalidated', True), ('relation_dropped', True)]
+next delta, no key → 400 delta_key_required ['cust_id']
+next delta, key named → 200 [['cust_id', 'region']] []
+harmless wider-key delta: check 200 []
+  commit 201
+  keys [('customers', [(['cust_id'], 'primary', True), (['cust_id', 'region'], 'unique', True)])]
+  next delta, no key → key [['cust_id']] from ['parent']
+one-file rewrite with a repeated cust_id: check 200 [('key_invalidated', True), ('relation_dropped', True)]
+  commit no ack → 400 acknowledge_required ['key_invalidated', 'relation_dropped']
+  commit with ack → 201
+
+## M2: lossy casts
+delta 104.4 into BIGINT → blocks [('lossy_cast', 'amt', 2, ['104.4', '105.4'])]
+delta 104.0 (lossless) → 200 [] ['carry']
+plain upload, declared BIGINT, 0.5 … → blocks [('lossy_cast', 3, ['0.5', '1.5', '2.5'])]
+plain upload, declared DATE, a time of day → blocks [('lossy_cast', 1, ['2024-01-02 10:30'])]
+parquet parent types [('k', 'BIGINT'), ('price', 'DECIMAL(10,2)'), ('target', 'BIGINT')]
+parquet delta 1.234 into DECIMAL(10,2) → 200 [('lossy_cast', [{'column': 'price', 'from': 'DOUBLE', 'to': 'DECIMAL(10,2)', 'n': 1, 'examples': [1.234]}])]
+
+## M3: ambiguous dates with a format
+formats None → 200 ['date_ambiguous'] ['date_ambiguous']
+formats %m/%d/%Y → commit 201 [(1, '2024-02-03'), (2, '2024-02-04')]
+formats %d/%m/%Y → commit 201 [(1, '2024-03-02'), (2, '2024-04-02')]
+
+## M4: one-row files
+one-row delta (update) → 200 [1]
+  commit 201
+one-row delta (delete, key only) → 200 [1]
+one-row append → 200 []
+zero-row delta → 400 too_few_rows
+one-row NEW dataset → 400 too_few_rows
+
+## minors
+case-only duplicate headers → 400 duplicate_header
+plan {table: X}, X not in the parent → 400 table_not_in_parent
+diff ds_4e124013 → nope → 404 version_not_found
+diff ds_4e124013 → ds_00000000 → 404 version_not_found
+diff ds_4e124013 → xxxxxxxxxxxxxxxxxxxx → 404 version_not_found
+key, by: 7 → 400 bad_by
+PATCH {tabels} → 400 bad_plan

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { MaskInfo, Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import { flows, type AnBatch, type AnRow, type AnScores, type AnTop, type FlowRun, type AnGroup, type AnVelocity } from '@/shared/api/flows'
 import { useActor } from '@/features/registry/lib'
@@ -221,11 +223,12 @@ export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => vo
   const [run, setRun] = useState<FlowRun | null>(null)
   const [scores, setScores] = useState<AnScores | null>(null)
   const [c, setC] = useState<number | null>(null)
-  const [top, setTop] = useState<AnTop | null>(null)
+  const [top, setTop] = useState<(AnTop & MaskInfo) | null>(null)
   const [sel, setSel] = useState<AnRow | null>(null)
   const [err, setErr] = useState('')
   const [actor] = useActor()
   const [reviewKey, setReviewKey] = useState(0)
+  const [unmask, setUnmask] = useState<Unmask>(null)
   const onReview = async (row: number, label: 'fraud' | 'not_fraud' | null) => {
     try {
       const L = await flows.anomaly.review(runId, [{ row, label }], actor || 'Analyst')
@@ -240,9 +243,9 @@ export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => vo
   useEffect(() => { if (run?.status === 'succeeded') flows.anomaly.scores(runId).then(setScores).catch((e) => setErr(e.message)) }, [run?.status, runId])
   useEffect(() => {
     if (run?.status !== 'succeeded' || c == null) return
-    const t = setTimeout(() => flows.anomaly.top(runId, c, 150).then((x) => { setTop(x); setSel((s) => s ?? x.rows[0]) }).catch((e) => setErr(e.message)), 180)
+    const t = setTimeout(() => flows.anomaly.top(runId, c, 150, unmask ?? undefined).then((x) => { setTop(x); setSel((s) => (s && x.rows.find((r) => r.row === s.row)) ?? x.rows[0]) }).catch((e) => setErr(e.message)), 180)
     return () => clearTimeout(t)
-  }, [c, run?.status, runId])
+  }, [c, run?.status, runId, unmask])
 
   if (err && !run) return <ErrorCard err={err} />
   if (!run) return <Loading>Reading anomaly run {runId}…</Loading>
@@ -289,6 +292,7 @@ export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => vo
             {truth && <TruthCard truth={truth} lofTruth={a.truth_lof} group={group} vel={vel} />}
           </div>
         </div>
+        <MaskBar info={top} kind="run" id={run.id} value={unmask} onChange={setUnmask} what="row values, reasons and medians" />
         <div className="grid an-two">
           <TopTable top={top} sel={sel} setSel={setSel} onReview={onReview} />
           {sel && <Reason row={sel} onReview={onReview} />}

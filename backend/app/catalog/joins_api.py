@@ -31,6 +31,14 @@ async def _run(fn, *a, **k):
         raise HTTPException(e.status, e.payload) from e
 
 
+def _vid(body: dict[str, Any] | None) -> str | None:
+    """F-X3a (X3 m6): version_id is text (a number reached Postgres as `text = smallint`, a 500)."""
+    v = (body or {}).get("version_id")
+    if v is not None and not isinstance(v, str):
+        raise HTTPException(400, {"code": "bad_id", "message": "version_id is a dataset version id (text)."})
+    return v or None
+
+
 def _by(request: Request, body: dict[str, Any]) -> str:
     s = str((body or {}).get("by") or G.current_actor() or "").strip()[:80]
     if not s:
@@ -45,7 +53,7 @@ async def save_join(root_id: str, request: Request, body: dict[str, Any]) -> Any
     body = body if isinstance(body, dict) else {}
     who = _by(request, body)
     out, created = await _run(J.save, request.app.state.db, root_id, body.get("name"), body.get("spec"), who,
-                              body.get("version_id") or None)
+                              _vid(body))
     return out if created else JSONResponse(out, status_code=200)
 
 
@@ -70,7 +78,7 @@ async def get_join(root_id: str, join_id: str, request: Request) -> dict[str, An
 @router.post("/datasets/{root_id}/joins/{join_id}/validate", dependencies=[require("data.read_meta", path("root_id", "dataset"))])
 async def validate_join(root_id: str, join_id: str, request: Request, body: dict[str, Any] | None = None) -> dict[str, Any]:
     db = request.app.state.db
-    vid = (body or {}).get("version_id")
+    vid = _vid(body)
 
     def work():
         j = J.get(db, join_id, root_id)

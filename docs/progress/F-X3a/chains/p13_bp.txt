@@ -1,0 +1,84 @@
+## 1. POST /uploads loans.csv + branches.csv → check → commit (no key declared)
+blocks [] [('loans', 'new', 5000), ('branches', 'new', 20)]
+commit HTTP 201
+ds_f57bd229 v 1 [('loans', 5000), ('branches', 20)]
+   loans new 5000 rows 73a9b4408d161f9c  | keys [] | splits ['random-stratified__defaulted-883'] | parts [('base', 5000, 62116, '2234462811')]
+   branches new 20 rows 5cfdc30dbbf2c261  | keys [] | splits [] | parts [('base', 20, 924, 'b4ce446082')]
+## 2. delta1.csv on v1, no key in the plan, none declared → 400
+check HTTP 400
+{"detail":{"code":"delta_key_required","message":"A delta of 'loans' is applied by key, and 'loans' has no confirmed key: name it in the plan (tables: {loans: {action: delta, key: [...]}}) or declare one first (PUT …/tables/loans/key).","table":"loans"}}
+## 3. PUT /datasets/v1/tables/loans/key {columns: [acct]} → v2 (every table carried)
+HTTP 201
+ds_0d168e74 v 2 declare_key [('loans', 'carried'), ('branches', 'carried')]
+   loans carried 5000 rows 73a9b4408d161f9c same sha as parent | keys [['acct']] | splits ['random-stratified__defaulted-883'] | parts [('base', 5000, 62116, '2234462811')]
+   branches carried 20 rows 5cfdc30dbbf2c261 same sha as parent | keys [] | splits [] | parts [('base', 20, 924, 'b4ce446082')]
+## 4. delta1.csv on v2 (key from the parent) → /check
+check HTTP 200
+   blocks [] | warnings [('delta_delete_missing', 'loans'), ('delta_update_missing', 'loans'), ('delta_holdout_deleted', 'loans')] | carried ['branches']
+   loans delta mode rewrite | key ['acct'] from parent | op column _op | ops {'insert': 60, 'update': 42, 'delete': 28, 'upsert': 0}
+     inserted 62 updated 40 (unchanged 0) deleted 25 missing 3 | update_of_missing_key 2 insert_of_existing_key 0 | rows 5000 -> 5037 | holdout rows deleted 7 | columns new [] missing []
+## 5. commit → v3
+commit HTTP 201
+ds_94f47246 v 3 {'is_default': False, 'default_stays': 'ds_0d168e74'} {'loans': {'mode': 'rewrite', 'change': 'rewritten', 'inserted': 62, 'updated': 40, 'deleted': 25, 'missing': 3, 'first_row_id': 5000}}
+   loans rewritten 5037 rows cd8a0945ce918dec new sha | keys [['acct']] | splits ['random-stratified__defaulted-883'] | parts [('base', 5037, 62569, 'dafa522b5e')]
+   branches carried 20 rows 5cfdc30dbbf2c261 same sha as parent | keys [] | splits [] | parts [('base', 20, 924, 'b4ce446082')]
+[('split_carried', 'loans', {'kept_holdout': 993, 'new_rows': 62, 'new_holdout': 10}), ('delta', 'loans', {'mode': 'rewrite', 'inserted': 62, 'updated': 40, 'deleted': 25, 'missing': 3})]
+## 6. GET /datasets/v2/diff/v3?table=loans (equals the delta counts)
+HTTP 200
+{'a': 5000, 'b': 5037, 'matched': 4975, 'changed': 40, 'added': 62, 'removed': 25} [('loans', 'changed'), ('branches', 'unchanged')]
+changed columns []
+   delta inserted/updated/deleted (62, 40, 25) == diff added/changed/removed (62, 40, 25) : True
+## 7. holdout identity of the updated rows (v2 → v3 splits)
+split random-stratified__defaulted-883cb8a7 -> random-stratified__defaulted-883cb8a7 (same key: True)
+updated rows: 40, same __row_id 40, same fold 40, of which in the holdout 12
+untouched rows: 4935, same fold 4935
+parent holdout 1000, child holdout 1003, deleted holdout rows 7, new rows in the holdout 10
+## 8. a duplicate-key delta → 400 listing the keys
+check HTTP 400
+   delta_duplicate_keys | Delta of 'loans': 3 key(s) appear more than once in the delta (the first 3 are listed): a delta names each key once. Keep one row per key and upload again.
+   keys [{'value': ['A000011'], 'rows': 2}, {'value': ['A000021'], 'rows': 2}, {'value': ['A000031'], 'rows': 2}] | n_duplicate_keys 3
+## 9. an insert-only delta (300 rows) → change appended, bytes ≈ the delta
+check HTTP 200
+   blocks [] | warnings [] | carried ['branches']
+   loans delta mode append | key ['acct'] from parent | op column _op | ops {'insert': 300, 'update': 0, 'delete': 0, 'upsert': 0}
+     inserted 300 updated 0 (unchanged 0) deleted 0 missing 0 | update_of_missing_key 0 insert_of_existing_key 0 | rows 5037 -> 5337 | holdout rows deleted 0 | columns new [] missing []
+commit HTTP 201
+ds_2e523f74 v 4 {'loans': ('append', 'appended', 300, 5062)}
+   loans appended 5337 rows 27d329f270473b46 new sha | keys [['acct']] | splits ['random-stratified__defaulted-883'] | parts [('base', 5037, 62569, 'dafa522b5e'), ('append', 300, 5485, 'f57860f2e7')]
+   branches carried 20 rows 5cfdc30dbbf2c261 same sha as parent | keys [] | splits [] | parts [('base', 20, 924, 'b4ce446082')]
+   bytes written: append part 5485 for 300 rows | the delta file 14624 bytes | base parts reused 62569 bytes 5037 rows
+HTTP 200
+{'a': 5037, 'b': 5337, 'matched': 5037, 'changed': 0, 'added': 300, 'removed': 0}
+## 10. a delta on the other table (branches) of v4 → loans carried with the same sha
+check HTTP 200
+   blocks [] | warnings [] | carried ['loans']
+   branches delta mode rewrite | key ['branch'] from plan | op column _op | ops {'insert': 1, 'update': 1, 'delete': 0, 'upsert': 0}
+     inserted 1 updated 1 (unchanged 0) deleted 0 missing 0 | update_of_missing_key 0 insert_of_existing_key 0 | rows 20 -> 21 | holdout rows deleted 0 | columns new [] missing []
+commit HTTP 201
+ds_6aea544a v 5 {'branches': ('rewrite', 'rewritten', 1, 1, 0)}
+   loans carried 5337 rows 27d329f270473b46 same sha as parent | keys [['acct']] | splits ['random-stratified__defaulted-883'] | parts [('base', 5037, 62569, 'dafa522b5e'), ('append', 300, 5485, 'f57860f2e7')]
+   branches rewritten 21 rows 469b82aa5ec7fad8 new sha | keys [['branch']] | splits [] | parts [('base', 21, 929, '9361d9c644')]
+HTTP 200
+{'a': 20, 'b': 21, 'matched': 20, 'changed': 1, 'added': 1, 'removed': 0} [('loans', 'unchanged'), ('branches', 'changed')]
+## 11. refusals and warnings
+check HTTP 400
+delta_op_unknown Delta of 'loans': Column _op has value(s) X that are not an operation: use I / U / D (insert / update / delete) or upsert, or map them with tables.<t>.ops {"<value>": "insert" | "update" | "delete" | "upsert"}.
+check HTTP 200
+   blocks [] | warnings [('delta_holdout_deleted', 'loans')] | carried ['branches']
+   loans delta mode rewrite | key ['acct'] from parent | op column _op | ops {'insert': 0, 'update': 1, 'delete': 1, 'upsert': 0}
+     inserted 0 updated 1 (unchanged 1) deleted 1 missing 0 | update_of_missing_key 0 insert_of_existing_key 0 | rows 5337 -> 5336 | holdout rows deleted 1 | columns new [] missing []
+check HTTP 200
+   blocks [('delta_new_columns', 'loans')] | warnings [] | carried ['branches']
+   loans delta mode None | key ['acct'] from parent | op column _op | ops None
+check HTTP 200
+   blocks [] | warnings [] | carried ['branches']
+   loans delta mode rewrite | key ['acct'] from parent | op column _op | ops {'insert': 0, 'update': 2, 'delete': 0, 'upsert': 0}
+     inserted 0 updated 2 (unchanged 2) deleted 0 missing 0 | update_of_missing_key 0 insert_of_existing_key 0 | rows 5337 -> 5337 | holdout rows deleted 0 | columns new ['score'] missing []
+check HTTP 400
+{'code': 'key_invalid', 'message': "Delta of 'loans': segment is not a key of the parent table (5,334 repeated value(s), 0 missing): a delta is applied by a unique key. Declare another key.", 'table': 'loans', 'columns': ['segment']}
+check HTTP 200
+   blocks [('table_not_in_parent', 'nope')] | warnings [] | carried ['loans', 'branches']
+no plan → [('looks_like_delta', 'The file has an _op column, so it may be a delta: as it stands it replaces the table and _')]
+## 12. GET /datasets/v5/verify
+HTTP 200
+ok True [('branches', 0, 'ok'), ('loans', 0, 'ok'), ('loans', 1, 'ok')]

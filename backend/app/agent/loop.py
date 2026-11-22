@@ -383,22 +383,29 @@ class AgentManager:
         self.sessions[sid] = s
         return s
 
-    def list(self) -> list[dict[str, Any]]:
+    def list(self, owner_id: str | None = None) -> list[dict[str, Any]]:
+        """The 30 latest conversations; F-X4b: only `owner_id`'s when given (None = every one, for an admin)."""
         out = []
-        for p in sorted(self.root.glob("as_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:30]:
+        for p in sorted(self.root.glob("as_*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            if len(out) >= 30:
+                break
             try:
                 s = self.sessions.get(p.stem) or json.loads(p.read_text())
             except ValueError:
                 continue
+            if owner_id is not None and s.get("owner_id") != owner_id:
+                continue
             first = next((i["text"] for i in s["timeline"] if i["type"] == "user"), "")
-            out.append({"id": s["id"], "user": s["user"], "status": s["status"], "decider": s["decider"], "created_at": s["created_at"],
+            out.append({"id": s["id"], "user": s["user"], "owner_id": s.get("owner_id"), "status": s["status"], "decider": s["decider"], "created_at": s["created_at"],
                         "updated_at": s.get("updated_at"), "title": first[:100], "steps": s["budget"]["steps"]})
         return out
 
     # -- commands
-    def create(self, message: str, user: str, decider: str | None, max_steps: int | None, max_seconds: float | None) -> dict[str, Any]:
-        sid = "as_" + secrets.token_hex(4)
-        s = {"id": sid, "user": user, "created_at": now(), "status": "thinking", "decider": pick_decider(decider),
+    def create(self, message: str, user: str, decider: str | None, max_steps: int | None, max_seconds: float | None,
+               owner_id: str = "") -> dict[str, Any]:
+        """F-X4b (X4 C1): `user` / `owner_id` are the request principal's (agent/api.start), never a body field."""
+        sid = "as_" + secrets.token_hex(8)
+        s = {"id": sid, "user": user, "owner_id": owner_id, "created_at": now(), "status": "thinking", "decider": pick_decider(decider),
              "budget": {"max_steps": int(max_steps or MAX_STEPS), "steps": 0, "max_seconds": float(max_seconds or MAX_SECONDS), "seconds": 0.0},
              "timeline": [], "pending": None, "rev": 0}
         self.sessions[sid] = s
@@ -472,11 +479,21 @@ class AgentManager:
             v = reg.get_version(args["version_id"]) if isinstance(args.get("version_id"), str) else None
             res = step.get("result") if isinstance(step.get("result"), dict) else {}
             run_id = args.get("run_id") or res.get("run_id")
-            reg.audit(actor=s["actor"], action=f"agent:{step['tool']}", version=v, run_id=run_id if isinstance(run_id, str) else None,
-                      comment=(step.get("why") or "")[:300],
-                      details={"session": s["id"], "step": step["n"], "kind": step["kind"], "status": step["status"],
-                               "args": json.loads(_dump(args, 2000)) if len(_dump(args, 4000)) <= 2000 else _dump(args, 2000),
-                               "error": step.get("error")})
+            from ..authz.identity import agent_principal_id
+            from ..catalog.schema import audit as chained_audit
+            from ..registry.store import jsonable
+
+            # F-X4b (X4 C1/M6): the agent's own principal, auth agent, and the caller who started the session
+            with self.app.state.db.connect() as con:
+                chained_audit(con, s["actor"], f"agent:{step['tool']}",
+                              jsonable({"session": s["id"], "step": step["n"], "kind": step["kind"], "status": step["status"],
+                                        "args": json.loads(_dump(args, 2000)) if len(_dump(args, 4000)) <= 2000 else _dump(args, 2000),
+                                        "error": step.get("error"), "on_behalf_of": s.get("owner_id")}),
+                              (step.get("why") or "")[:300], run_id if isinstance(run_id, str) else (v and v["run_id"]),
+                              model_name=v and v["model_name"], version=v and v["version"], version_id=v and v["id"],
+                              model_hash=v and v.get("model_hash"), object_kind="model_version" if v else None,
+                              object_id=v and v["id"], principal_id=agent_principal_id(self.app.state.db), auth="agent",
+                              on_behalf_of=s.get("owner_id") or None)
         except Exception as e:  # noqa: BLE001 — never fail the loop on the audit write
             log.warning("agent audit write failed: %s", e)
 
@@ -609,6 +626,7 @@ class AgentManager:
 
                 left = max(1.0, b["max_seconds"] - b["seconds"] - (time.monotonic() - t_active))
                 ctx = T.Ctx(client=client, app=self.app, actor=s["actor"], deadline=time.monotonic() + left, progress=progress,
+                            owner_id=s.get("owner_id") or "", session=sid,
                             stop=lambda: sid in self.stops)
                 try:
                     res = await asyncio.wait_for(tool.run(ctx, args), left + 5)

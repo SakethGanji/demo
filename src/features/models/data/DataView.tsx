@@ -12,6 +12,7 @@ import { StagedUpload } from './StagedUpload'
 import { TablesCard } from './TablesCard'
 import { JoinBuilder } from './JoinBuilder'
 import { Governance } from './Governance'
+import { PurgeCard } from './PurgeCard'
 import { shares as sharesApi, type Share } from '@/shared/api/governance'
 import { readActor, saveActor, useTeam } from '@/shared/lib/team'
 import './data.css'
@@ -208,6 +209,7 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
         <CardEditor d={d} by={by} onSaved={() => { setMsg({ ok: true, text: 'Card saved (audited).' }); reload() }} onErr={fail} />
       </div>
       {focusV && focusV.state !== 'deleted' && <Governance d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
+      {focusV && focusV.state !== 'deleted' && <PurgeCard key={`pg:${focusV.id}`} d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
       <NotesStrip kind="dataset" id={d.root_id} />
       <div className="card card-body"><h3 className="card-title" style={{ marginBottom: 8 }}>Lineage</h3><ProjectTree kind="dataset" id={d.root_id} go={go} compact /></div>
       <div className="grid two">

@@ -2,6 +2,7 @@
 // Runs of these kinds share the run record, its events and SSE with tabular runs (api.runs.get, followRun).
 
 import { request } from './client'
+import { withUnmask, type MaskInfo, type Unmask } from './unmask'
 import type { Run } from './types'
 
 export type FcMapping = {
@@ -253,7 +254,8 @@ export const flows = {
   anomaly: {
     mapping: (ds: string) => request<AnGroup>(`/anomaly/mapping/${encodeURIComponent(ds)}`),
     create: (body: AnCreate) => request<FlowRun>('/anomaly/runs', { ...J(body), timeoutMs: 30_000 }),
-    top: (id: string, contamination?: number, limit = 100) => request<AnTop>(`/anomaly/runs/${encodeURIComponent(id)}/top?limit=${limit}${contamination ? `&contamination=${contamination}` : ''}`),
+    /** F-PII: masked by default; `u` asks for the clear values with a reason (audited). */
+    top: (id: string, contamination?: number, limit = 100, u?: Unmask) => request<AnTop & MaskInfo>(withUnmask(`/anomaly/runs/${encodeURIComponent(id)}/top?limit=${limit}${contamination ? `&contamination=${contamination}` : ''}`, u)),
     scores: (id: string) => request<AnScores>(`/anomaly/runs/${encodeURIComponent(id)}/scores`),
     review: (id: string, items: { row: number; label: 'fraud' | 'not_fraud' | null }[], by: string) =>
       request<AnLabels>(`/anomaly/runs/${encodeURIComponent(id)}/labels`, J({ items, by })),

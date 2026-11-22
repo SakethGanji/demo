@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { MaskInfo, Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { Run, ShiftAction, ShiftCheck, ShiftList, ShiftSource, ShiftSummary } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
@@ -29,7 +31,8 @@ const PSI_COLOR: Record<string, string> = { stable: 'var(--status-success)', wat
 export function ShiftPanel({ run, go, onApplyPatch }: { run: Run; go: (r: string) => void; onApplyPatch?: (runId: string, patch: Patch) => void }) {
   const [list, setList] = useState<ShiftList | null>(null)
   const [key, setKey] = useState<string | null>(null)
-  const [check, setCheck] = useState<ShiftCheck | null>(null)
+  const [check, setCheck] = useState<(ShiftCheck & MaskInfo) | null>(null)
+  const [unmask, setUnmask] = useState<Unmask>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [tick, setTick] = useState(0)
@@ -59,9 +62,9 @@ export function ShiftPanel({ run, go, onApplyPatch }: { run: Run; go: (r: string
   useEffect(() => {
     if (!key) { setCheck(null); return }
     let alive = true
-    api.runs.shift(run.id, key).then((c) => alive && setCheck(c)).catch((e) => alive && setErr((e as Error).message))
+    api.runs.shift(run.id, key, unmask ?? undefined).then((c) => alive && setCheck(c)).catch((e) => alive && setErr((e as Error).message))
     return () => { alive = false }
-  }, [run.id, key, tick])
+  }, [run.id, key, tick, unmask])
   const active = check?.status === 'queued' || check?.status === 'running'
   useEffect(() => {
     if (!active) return
@@ -101,6 +104,7 @@ export function ShiftPanel({ run, go, onApplyPatch }: { run: Run; go: (r: string
       {check && (check.status === 'failed' || check.status === 'cancelled') && <div className="card card-body" role="alert"><p className="helper">✕ This check {check.status === 'failed' ? `failed: ${check.error}` : 'was cancelled'}.</p></div>}
       {done && <Hero c={check} />}
       {done && <div className="grid mono-grid"><AucFormula c={check} /><NullPlot c={check} /></div>}
+      {done && <MaskBar info={check} kind="run" id={run.id} value={unmask} onChange={setUnmask} what="feature means and standard deviations" />}
       {done && <Features c={check} />}
       {done && <Actions c={check} run={run} go={go} onApplyPatch={onApplyPatch} onChanged={() => setTick((v) => v + 1)} />}
       {done && <div className="grid mono-grid"><Weights c={check} /><Sets c={check} /></div>}

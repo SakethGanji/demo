@@ -9,6 +9,11 @@
 
 Credentials travel in the request only. Lineage stores the URL with the password masked (`***`); a refresh of a source
 that had one needs `password` again.
+
+F-X4b (X4 C4): tables, preview and load need an explicit `project_id` (query or body; 400 `project_required`, no
+tm_default fallback) and `data.import` on it. Every preview and table listing is audited (`sql_previewed`,
+`sql_tables_listed`: the redacted URL, the query and its sha, the rows fetched), and so is every refusal
+(`sql_refused` with its code). What the source may reach is in core.py.
 """
 
 from __future__ import annotations
@@ -32,8 +37,10 @@ router = APIRouter(prefix="/api/sql")
 
 
 class Conn(BaseModel):
-    url: str = Field(core.DEMO_URL, description="sqlite:///file, duckdb:///file (under the data directory) or postgresql://…")
+    url: str = Field(core.DEMO_URL, description="the demo file, sqlite:///file or duckdb:///file in an import dir "
+                                                "(ENSEMBLE_SQL_IMPORT_DIRS), or postgresql://user:password@host:port/db")
     password: str | None = Field(None, description="Used for this request only, never stored.")
+    project_id: str | None = Field(None, description="The project the import is for (required; or ?project_id=).")
 
 
 class Query(Conn):
@@ -62,6 +69,51 @@ def _audit(request: Request, actor: str | None, action: str, rec: dict[str, Any]
                                               "data_sha": lin.get("data_sha"), **details})
 
 
+def _project(request: Request, b: Conn) -> str:
+    """F-X4b: the project, from the body or the query; required (the route's require() checked data.import on it)."""
+    pid = (b.project_id or request.query_params.get("project_id") or "").strip()
+    if not pid:
+        raise HTTPException(400, {"code": "project_required", "message": "Say which project this import is for: project_id "
+                                                                         "(query or body). data.import is checked on it."})
+    with request.app.state.db.connect() as con:
+        if not con.execute("SELECT 1 FROM projects WHERE id = ?", (pid,)).fetchone():
+            raise HTTPException(404, f"No project {pid}.")
+    return pid
+
+
+def _who(request: Request, fallback: str | None = None) -> tuple[str, dict[str, Any]]:
+    from ..authz.deps import principal
+
+    p = principal(request, fallback)
+    if p is None:
+        return (fallback or "unknown"), {}
+    return p.display_name, ({"principal_id": p.id, "auth": p.auth} if p.auth != "agent" else {})
+
+
+def _audit_read(request: Request, action: str, pid: str, url: str | None, query: str | None, **details: Any) -> None:
+    """F-X4b (X4 M6): a read of an external database (preview, tables) or a refusal, into the project's team chain."""
+    import hashlib
+
+    from ..catalog.schema import audit
+
+    actor, cols = _who(request)
+    with request.app.state.db.connect() as con:
+        audit(con, actor, action, {"project_id": pid, "url": url, "query": (query or "")[:2000] or None,
+                                   "query_sha": hashlib.sha256(query.encode()).hexdigest()[:16] if query else None, **details},
+              project_id=pid, object_kind="project", object_id=pid, **cols)
+
+
+def _refused(request: Request, pid: str, b: Conn, e: SqlError, what: str, query: str | None = None) -> HTTPException:
+    from sqlalchemy.engine import make_url
+
+    try:
+        url = make_url(b.url).render_as_string(hide_password=True)
+    except Exception:  # noqa: BLE001
+        url = "(not a URL)"
+    _audit_read(request, "sql_refused", pid, url, query, code=getattr(e, "code", "sql_error"), what=what, message=str(e)[:300])
+    return HTTPException(400, {"code": getattr(e, "code", "sql_error"), "message": str(e)})
+
+
 def _data_dir(request: Request):
     st = request.app.state
     core.ensure_demo_db(st.settings.data_dir, st.datasets)
@@ -88,48 +140,65 @@ def demo(request: Request) -> dict[str, Any]:
             "(credit-default), loans (loan-stream) and accounts (account-churn)."}
 
 
-@router.post("/tables", dependencies=[require("data.upload", query("project_id", "project"))])
+IMPORT = require("data.import", query("project_id", "project"), body("project_id", "project"))
+
+
+@router.post("/tables", dependencies=[IMPORT])
 async def list_tables(body: Conn, request: Request) -> dict[str, Any]:
+    pid = _project(request, body)
     try:
-        return {"tables": await run_in_threadpool(core.tables, body.url, _data_dir(request), body.password)}
+        tabs = await run_in_threadpool(core.tables, body.url, _data_dir(request), body.password)
     except SqlError as e:
-        raise HTTPException(400, str(e)) from e
+        raise _refused(request, pid, body, e, "tables") from e
+    src = core.parse_url(body.url, _data_dir(request), body.password)
+    _audit_read(request, "sql_tables_listed", pid, src["redacted"], None, tables=len(tabs))
+    return {"tables": tabs}
 
 
-@router.post("/preview", dependencies=[require("data.upload", query("project_id", "project"))])
+@router.post("/preview", dependencies=[IMPORT])
 async def preview(body: Query, request: Request) -> dict[str, Any]:
+    pid = _project(request, body)
     try:
         r = await run_in_threadpool(core.run_query, body.url, body.query, _data_dir(request), limit=body.limit,
                                     password=body.password)
     except SqlError as e:
-        raise HTTPException(400, str(e)) from e
+        raise _refused(request, pid, body, e, "preview", body.query) from e
     df = r["frame"]
+    _audit_read(request, "sql_previewed", pid, r["src"]["redacted"], r["query"], rows=len(df), truncated=r["truncated"],
+                columns=list(map(str, df.columns))[:200], dialect=r["src"]["dialect"])
     return {"columns": _columns(df), "rows": _rows(df), "n_rows": len(df), "truncated": r["truncated"],
             "limit": r["limit"], "seconds": r["seconds"], "url": r["src"]["redacted"], "dialect": r["src"]["dialect"]}
 
 
 def _save(request: Request, res: dict[str, Any], *, name: str, target: str | None, version: int, root: str | None,
-          parent: str | None, base_name: str, diff: dict[str, int] | None = None) -> dict[str, Any]:
+          parent: str | None, base_name: str, diff: dict[str, int] | None = None, project_id: str | None = None,
+          by: str | None = None) -> dict[str, Any]:
     df = res["frame"]
     lin = core.lineage_record(res, df, version=version, root=root, parent=parent, base_name=base_name, diff=diff)
     tgt = target if target and target in df.columns else None
     return request.app.state.datasets.create_from_frame(
-        df, name=name, filename=f"{base_name}.sql", note=f"SQL query · {lin['url']} · v{version}", target=tgt, lineage=lin)
+        df, name=name, filename=f"{base_name}.sql", note=f"SQL query · {lin['url']} · v{version}", target=tgt, lineage=lin,
+        project_id=project_id, by=by)
 
 
-@router.post("/datasets", status_code=201, dependencies=[require("data.upload", body("project_id", "project"))])
+@router.post("/datasets", status_code=201, dependencies=[IMPORT])
 async def create(body: Save, request: Request) -> dict[str, Any]:
     from ..main import _detail
 
+    pid = _project(request, body)
     dd = _data_dir(request)
+    who, _ = _who(request, body.created_by)
     try:
         res = await run_in_threadpool(core.run_query, body.url, body.query, dd, limit=body.limit, password=body.password)
+    except SqlError as e:
+        raise _refused(request, pid, body, e, "load", body.query) from e
+    try:
         base = (body.name or "").strip() or f"{core.first_table(res['query']) or 'query'} (SQL)"
         rec = await run_in_threadpool(lambda: _save(request, res, name=base, target=body.target, version=1, root=None,
-                                                    parent=None, base_name=base))
-    except (SqlError, DatasetError) as e:
+                                                    parent=None, base_name=base, project_id=pid, by=who))
+    except DatasetError as e:
         raise HTTPException(400, str(e)) from e
-    _audit(request, body.created_by, "dataset_loaded", rec, f"SQL load into {rec['name']}")
+    _audit(request, who, "dataset_loaded", rec, f"SQL load into {rec['name']}", project_id=pid)
     return _detail(rec)
 
 

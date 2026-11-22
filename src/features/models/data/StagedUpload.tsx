@@ -3,6 +3,7 @@ import { catalog, uploads, type MatchMethod, type MatchSpec, type MyTeam, type P
 import { tables as tablesApi, type VTable } from '@/shared/api/tables'
 import { ApiError } from '@/shared/api/client'
 import { Tabs } from '@/shared/primitives/Tabs'
+import { INTEGRITY_ACKS, IntegrityAcks, IssueLine, type Issue } from './UploadIssues'
 
 /** The parent of a next version: the dataset's default version. */
 export type UpParent = { id: string; v: number; name: string; nextV?: number; root?: string }
@@ -25,6 +26,14 @@ const DELTA_CODES: Record<string, string> = {
   delta_op_unknown: 'Some _op values are not insert / update / delete:',
   delta_key_missing: 'The key column is not in both the delta and the table:',
   delta_key_null: 'Some delta rows have no key:',
+  // F-X3a
+  acknowledge_required: 'The version changes what its parent promised, so it needs your acknowledgement first:',
+  delta_op_column_ambiguous: 'The table already has a column with that name, so it is not read as operations unless you say so:',
+  lossy_cast: 'Some values would change when stored:',
+  duplicate_header: 'Two columns have the same name (ignoring case):',
+  table_not_in_parent: 'The plan names a table the parent does not have:',
+  too_few_rows: 'There are too few rows:',
+  bad_plan: 'The plan has a field the API does not know:',
 }
 const ACTIONS_NEW: TableAction[] = ['new', 'skip']
 const ACTIONS_NEXT: TableAction[] = ['rewrite', 'append', 'delta', 'new', 'skip']
@@ -34,8 +43,8 @@ const ACTION_HELP: Record<string, string> = {
 }
 const accept = '.csv,.tsv,.txt,.parquet,.xlsx,.xlsm'
 /** The parent table a delta file most likely changes: the one whose columns hold every file column but the op column. */
-const guessTable = (cols: string[], parents: VTable[]) => {
-  const want = cols.filter((c) => c !== '_op')
+const guessTable = (cols: string[], parents: VTable[], op = '_op') => {
+  const want = cols.filter((c) => c !== op)
   return parents.find((t) => want.every((c) => (t.schema ?? []).some((s) => s.name === c)))?.name ?? parents.find((t) => t.primary)?.name ?? parents[0]?.name ?? ''
 }
 
@@ -63,6 +72,7 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
   const [ptables, setPtables] = useState<VTable[] | null>(null)  // the parent version's tables
   const [prels, setPrels] = useState<UpRelation[]>([])  // and its relations (carried while both tables stay)
   const [ack, setAck] = useState(false)
+  const [iack, setIack] = useState<Set<string>>(new Set())  // F-X3a: integrity codes acknowledged
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
@@ -112,7 +122,7 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
   }
   /** A fresh check: the preselected matches, and the plan as the check read it. */
   const took = (c: UpCheck) => {
-    setChk(c); setDirty(false); setAck(false)
+    setChk(c); setDirty(false); setAck(false); setIack(new Set())
     setMatch(c.next_version?.preselect ?? null)
     setMatches(Object.fromEntries(c.tables.filter((t) => t.next_version?.preselect).map((t) => [t.name, t.next_version!.preselect!])))
   }
@@ -126,8 +136,20 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
       took(await uploads.check(up.upload_id))
     } catch (e) { setErr(errText(e)) } finally { setBusy('') }
   }
+  /** F-X3a M3: the format chosen for ambiguous slash dates, sent as the plan's tables.<t>.formats (and the type DATE). */
+  const withFormats = (table: string, formats: Record<string, string>) => {
+    const cur = plan.tables?.[table] ?? {}
+    void replan({ ...plan, tables: { ...plan.tables, [table]: { ...cur, formats: { ...cur.formats, ...formats }, types: { ...cur.types, ...Object.fromEntries(Object.keys(formats).map((c) => [c, 'DATE'])) } } } },
+      `Reading ${Object.keys(formats).join(', ')} as ${Object.values(formats).join(', ')}…`)
+  }
+  /** F-X3a (X3 m12): the table's own _op column read as operations, by the person's choice. */
+  const opColumn = (table: string, column: string) => replan({ ...plan, tables: { ...plan.tables, [table]: { ...plan.tables?.[table], op_column: column } } }, `Reading ${column} as the operations…`)
   /** P13: the looks_like_delta hint as one action: apply the file as a delta of a parent table, by key. */
-  const asDelta = (table: string) => replan({ table, tables: { [table]: { action: 'delta' } } }, `Applying ${label} as a delta of ${table}…`)
+  const asDelta = (table: string, o: TablePlan = {}) => replan({ table, tables: { [table]: { action: 'delta', ...(o.op_column && o.op_column !== '_op' ? { op_column: o.op_column } : {}), ...(o.ops && Object.keys(o.ops).length ? { ops: o.ops } : {}), ...(o.allow_new_columns ? { allow_new_columns: true } : {}) } } },
+    `Applying ${label} as a delta of ${table}${o.op_column && o.op_column !== '_op' ? ` (operations in ${o.op_column})` : ''}…`)
+  // U3: a change set whose operation column is not _op gets no looks_like_delta hint: the person opens the same box
+  const [deltaOpen, setDeltaOpen] = useState(false)
+  const showPlan = !!chk && (multi || chk.tables.some((t) => t.delta || t.action === 'delta'))
   /** Another candidate key: the plan's match is simulated by a fresh check (PATCH plan → /check). */
   const simulate = async (m: MatchSpec, table?: string) => {
     if (!up) return
@@ -151,9 +173,11 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
     try {
       const mt = multi ? (rewrites.length ? Object.fromEntries(rewrites.map((t) => [t.name, matches[t.name]]).filter(([, m]) => m)) : undefined) : next && match ? match : undefined
       const token = (multi ? rewrites[0]?.next_version : nv)?.commit_needs?.acknowledge_token ?? 'holdout_identity_loss'
+      // F-X3a: the integrity codes are acknowledged by code, beside P06's holdout token
+      const acknowledge = [...(needsAck && ack ? [token] : []), ...integrityCodes.filter((c) => iack.has(c))]
       const r = await uploads.commit(up.upload_id, {
         by, check_sha256: chk.check_sha256, ...(reason.trim() ? { reason: reason.trim() } : {}),
-        ...(mt ? { match: mt } : {}), ...(needsAck && ack ? { acknowledge: [token] } : {}),
+        ...(mt ? { match: mt } : {}), ...(acknowledge.length ? { acknowledge } : {}),
       })
       setUp(null); setChk(null)
       onDone(r, resultText(r, label, parent))
@@ -163,7 +187,9 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
 
   const blocked = !!chk?.blocks.length
   const matchedOk = multi ? rewrites.every((t) => chosenOf(t)?.valid) : !next || (!!chosen && chosen.valid)
-  const canCreate = !!chk && !blocked && !dirty && matchedOk && (!needsAck || ack)
+  const integrity = (chk?.warnings ?? []).filter((w) => (w as Issue).needs_ack && (INTEGRITY_ACKS as readonly string[]).includes(w.code)) as Issue[]
+  const integrityCodes = [...new Set(integrity.map((x) => x.code))]
+  const canCreate = !!chk && !blocked && !dirty && matchedOk && (!needsAck || ack) && integrityCodes.every((c) => iack.has(c))
   return (
     <div className="card-body stack up-flow" style={{ gap: 10 }} data-testid="up-flow">
       {!chk && <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -185,10 +211,11 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
       {!chk && <span className="helper" style={{ fontSize: 12 }}>Several files make one version: each CSV or Parquet file is a table, and each sheet of a workbook (.xlsx) is one.</span>}
       {busy && <p className="helper" role="status" data-testid="up-busy">… {busy}</p>}
       {err && <p className="helper up-err" role="alert" data-testid="up-err">✕ {err}</p>}
-      {chk && looksDelta && ptables && <DeltaHint chk={chk} parents={ptables} busy={!!busy} onApply={asDelta} />}
-      {chk && multi && <PlanView chk={chk} next={next} parents={ptables ?? []} parentRels={prels} plan={plan} setPlan={(p) => { setPlan(p); setDirty(true) }} dirty={dirty} busy={!!busy} apply={() => replan(plan)} />}
-      {chk && <CheckView chk={chk} label={label} />}
-      {chk && !multi && next && nv && (looksDelta
+      {chk && !showPlan && (looksDelta || deltaOpen) && ptables && <DeltaHint chk={chk} parents={ptables} busy={!!busy} onApply={asDelta} hinted={!!looksDelta} />}
+      {chk && !showPlan && !looksDelta && !deltaOpen && next && !multi && ptables && <button className="chip-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setDeltaOpen(true)} data-testid="up-delta-open">This file is a change set (insert / update / delete by key)…</button>}
+      {chk && showPlan && <PlanView chk={chk} next={next} parents={ptables ?? []} parentRels={prels} plan={plan} setPlan={(p) => { setPlan(p); setDirty(true) }} dirty={dirty} busy={!!busy} apply={() => replan(plan)} />}
+      {chk && <CheckView chk={chk} label={label} onFormat={withFormats} onOpColumn={opColumn} busy={!!busy} />}
+      {chk && !showPlan && next && nv && (looksDelta || deltaOpen
         ? <details data-testid="up-replace-instead"><summary className="micro-label">or replace the table with this file as it is (match rows to v{parent!.v})</summary>
           <MatchView nv={nv} parentV={parent!.v} match={match} setMatch={(m) => { setMatch(m); setAck(false) }} simulate={(m) => simulate(m)} busy={!!busy} /></details>
         : <MatchView nv={nv} parentV={parent!.v} match={match} setMatch={(m) => { setMatch(m); setAck(false) }} simulate={(m) => simulate(m)} busy={!!busy} />)}
@@ -198,10 +225,11 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
         <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="up-ack-box" />
         <span><b>Acknowledge to create it with {acks.map((m) => m.label).join(', ')}</b> (recorded in the version's manifest):{acks.flatMap((m) => m.warnings.filter((w) => w.needs_ack)).map((w, i) => <span key={i} className="up-ackline">⚠ {w.message}</span>)}</span>
       </label>}
+      {chk && integrity.length > 0 && <IntegrityAcks items={integrity} acked={iack} setAcked={setIack} />}
       {chk && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
         <input className="input" style={{ flex: 1, minWidth: 220 }} maxLength={500} placeholder="reason or change ticket (optional, kept with the version)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="up-reason" />
         <button className="btn primary" disabled={!canCreate || !!busy} onClick={commit} data-testid="up-commit"
-          title={blocked ? 'The check found problems that block it' : dirty ? 'Check again with the changed plan first' : needsAck && !ack ? 'Acknowledge the warning first' : undefined}>{next ? `Create v${parent!.nextV ?? parent!.v + 1}` : 'Create dataset'}</button>
+          title={blocked ? 'The check found problems that block it' : dirty ? 'Check again with the changed plan first' : (needsAck && !ack) || integrityCodes.some((c) => !iack.has(c)) ? 'Acknowledge the warning first' : undefined}>{next ? `Create v${parent!.nextV ?? parent!.v + 1}` : 'Create dataset'}</button>
         <button className="btn ghost" disabled={!!busy} onClick={discard} data-testid="up-discard">Discard</button>
       </div>}
     </div>
@@ -221,18 +249,25 @@ const resultText = (r: UpCommitted, label: string, parent?: UpParent | null) => 
 
 /** P13: a plain next-version file with an _op column. The check says so (looks_like_delta); one click applies it as a
  *  delta of the parent table it most likely changes (the table can be changed). */
-function DeltaHint({ chk, parents, busy, onApply }: { chk: UpCheck; parents: VTable[]; busy: boolean; onApply: (t: string) => void }) {
-  const w = chk.warnings.find((x) => x.code === 'looks_like_delta')!
-  const [t, setT] = useState(() => guessTable(chk.tables[0]?.schema.map((c) => c.name) ?? [], parents))
+function DeltaHint({ chk, parents, busy, onApply, hinted }: { chk: UpCheck; parents: VTable[]; busy: boolean; onApply: (t: string, o: TablePlan) => void; hinted: boolean }) {
+  const w = chk.warnings.find((x) => x.code === 'looks_like_delta')
+  const cols = chk.tables[0]?.schema.map((c) => c.name) ?? []
+  // U3: the operation column: _op when the file has one, else the person picks it (the plan's op_column), its values'
+  // mapping (ops) and allow_new_columns, all sent with the plan
+  const [opt, setOpt] = useState<TablePlan>(() => ({ op_column: cols.includes('_op') ? '_op' : cols.find((c) => /^(op|operation|change|action|_?change_type)$/i.test(c)) ?? '' }))
+  const op = opt.op_column || '_op'
+  const [t, setT] = useState(() => guessTable(cols, parents, op))
   return (
     <div className="data-warn up-delta-hint" data-testid="up-delta-hint">
-      <b>This file looks like a change set.</b> It has an <span className="mono">_op</span> column: as it stands it would replace the table, with <span className="mono">_op</span> as a column.
+      {hinted ? <><b>This file looks like a change set.</b> It has an <span className="mono">_op</span> column: as it stands it would replace the table, with <span className="mono">_op</span> as a column.</>
+        : <><b>Apply this file as a change set.</b> Each row names its operation in one column; the other columns are the table's, matched by its key.</>}
       <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
         <span className="helper">apply it by key to</span>
         <select className="select" value={t} onChange={(e) => setT(e.target.value)} data-testid="up-delta-table">{parents.map((p) => <option key={p.name} value={p.name}>{p.name}{p.keys.some((k) => k.valid) ? ` (key ${p.keys.find((k) => k.valid)!.columns.join('+')})` : ' (no key yet)'}</option>)}</select>
-        <button className="btn sm primary" disabled={busy || !t} onClick={() => onApply(t)} data-testid="up-apply-delta">Apply as delta</button>
-        <span className="helper" title={w.message}>rows marked I are inserted, U updated, D deleted; the other tables are carried</span>
+        <button className="btn sm primary" disabled={busy || !t || Object.keys(opt.ops ?? {}).some((k) => !k.trim())} onClick={() => onApply(t, opt)} data-testid="up-apply-delta">Apply as delta</button>
+        <span className="helper" title={w?.message}>the other tables are carried</span>
       </div>
+      {chk.tables[0] && <DeltaOptions t={chk.tables[0]} tp={opt} blocks={chk.blocks} set={(x) => { const n = { ...opt, ...x }; setOpt(n); if (x.op_column) setT(guessTable(cols, parents, x.op_column)) }} />}
     </div>
   )
 }
@@ -283,7 +318,8 @@ function PlanView({ chk, next, parents, parentRels, plan, setPlan, dirty, busy, 
                   {k && <div className={k.valid ? 'data-ok' : 'up-colwarn'} style={{ fontSize: 11.5 }}>{k.valid ? '✓ unique, no missing' : `✕ ${n(k.n_duplicates)} repeated · ${n(k.n_nulls)} missing`}</div>}</td>
                 <td className="helper">{t.delta ? <DeltaCounts d={t.delta} table={t.name} /> : t.action === 'append' && (t.rows_added ?? t.append?.rows_added) != null
                   ? <span>+{n(t.rows_added ?? t.append?.rows_added)} rows after the parent's {n(t.parent_rows ?? t.append?.parent_rows)} → {n(t.rows_after ?? t.append?.rows_after)}</span>
-                  : ACTION_HELP[a]}{a === 'delta' && !t.delta && <span> · check again to count it</span>}</td>
+                  : ACTION_HELP[a]}{a === 'delta' && !t.delta && <span> · check again to count it</span>}
+                  {a === 'delta' && <DeltaOptions t={t} tp={tp(t.name)} blocks={chk.blocks.filter((b) => (b as { table?: string }).table === t.name || !(b as { table?: string }).table)} set={(x) => setT(t.name, x)} />}</td>
                 <td>{t.contract && <span className={`pt-chip up-ct-${t.contract}`} title="the dataset contract on this table">contract {t.contract}</span>}
                   {(t.pii ?? []).map((p) => <span key={p.column} className="pt-chip up-pii" title={`${p.tag} · masked ${p.mask} · ${p.source}${p.why ? ` (${p.why})` : ''}`} data-testid={`up-pii-${t.name}-${p.column}`}>🔒 {p.column}</span>)}</td>
               </tr>)
@@ -320,6 +356,37 @@ function PlanView({ chk, next, parents, parentRels, plan, setPlan, dirty, busy, 
   )
 }
 
+const OP_KINDS = ['insert', 'update', 'delete', 'upsert'] as const
+/** U3 (P13 plan options): a delta's operation column (default _op), the mapping of its values to insert / update /
+ *  delete / upsert (unmapped values: I, U, D, insert, update, delete, upsert), and whether new columns may be added
+ *  (existing rows get missing values). Every change marks the plan dirty: Check again recounts the delta. */
+function DeltaOptions({ t, tp, blocks, set }: { t: UpTable; tp: TablePlan; blocks: { code?: string; message: string; columns?: string[] }[]; set: (x: TablePlan) => void }) {
+  const cols = t.schema.map((c) => c.name)
+  const op = tp.op_column ?? t.delta?.op_column ?? (cols.includes('_op') ? '_op' : '')
+  // '' = no op column: every row is an upsert (F-X3a); the plan then sends no op_column
+  const ops = Object.entries(tp.ops ?? {})
+  const newCols = blocks.find((b) => b.code === 'delta_new_columns')
+  const setOps = (rows: [string, string][]) => set({ ops: rows.length ? Object.fromEntries(rows) : undefined })
+  return (
+    <div className="up-delta-opts stack" style={{ gap: 4, marginTop: 4 }} data-testid={`up-delta-opts-${t.name}`}>
+      <span className="row" style={{ gap: 4, flexWrap: 'wrap' }}><span className="micro-label">op column</span>
+        <select className="select" value={op} onChange={(e) => set({ op_column: e.target.value || undefined })} data-testid={`up-opcol-${t.name}`}>
+          <option value="">none: every row is an upsert</option>
+          {op && !cols.includes(op) && <option value={op}>{op} (not in the file)</option>}{cols.map((c) => <option key={c}>{c}</option>)}</select></span>
+      <span className="row" style={{ gap: 4, flexWrap: 'wrap' }}><span className="micro-label">ops</span>
+        {ops.map(([v, k], i) => <span key={i} className="row" style={{ gap: 2 }}>
+          <input className="input mono" style={{ width: 70 }} value={v} placeholder="value" onChange={(e) => setOps(ops.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} data-testid={`up-opval-${t.name}-${i}`} />→
+          <select className="select" value={k} onChange={(e) => setOps(ops.map((x, j) => (j === i ? [x[0], e.target.value] : x)))} data-testid={`up-opkind-${t.name}-${i}`}>{OP_KINDS.map((o) => <option key={o}>{o}</option>)}</select>
+          <button className="chip-btn" onClick={() => setOps(ops.filter((_, j) => j !== i))} title="remove this mapping">✕</button></span>)}
+        <button className="chip-btn" onClick={() => setOps([...ops, ['', 'upsert']])} data-testid={`up-opadd-${t.name}`}>+ map a value</button>
+        {!ops.length && <span className="helper" style={{ fontSize: 11.5 }}>unmapped: I / U / D, insert / update / delete / upsert</span>}</span>
+      <label className="row helper" style={{ gap: 4, fontSize: 12 }}><input type="checkbox" checked={!!tp.allow_new_columns} onChange={(e) => set({ allow_new_columns: e.target.checked || undefined })} data-testid={`up-allownew-${t.name}`} />
+        allow new columns{newCols?.columns?.length ? <b className="up-colwarn"> ({newCols.columns.join(', ')} not in the table)</b> : ''}: existing rows get missing values</label>
+      {(t.delta?.columns_new?.length ?? 0) > 0 && <span className="helper" style={{ fontSize: 11.5 }}>adds column{t.delta!.columns_new.length > 1 ? 's' : ''} {t.delta!.columns_new.join(', ')}</span>}
+    </div>
+  )
+}
+
 /** P13: a delta's classification against the parent table: what the commit will do, and what the diff will show. */
 function DeltaCounts({ d, table }: { d: UpDelta; table: string }) {
   return (
@@ -336,7 +403,8 @@ function DeltaCounts({ d, table }: { d: UpDelta; table: string }) {
 
 /** The check, per table (one tab per table: multi-table versions arrive with P12): the typed columns with the reason
  *  for each type, the warnings and blocks, and the first rows. */
-function CheckView({ chk, label }: { chk: UpCheck; label: string }) {
+type IssueHandlers = { onFormat: (table: string, formats: Record<string, string>) => void; onOpColumn: (table: string, column: string) => void; busy: boolean }
+function CheckView({ chk, label, ...h }: { chk: UpCheck; label: string } & IssueHandlers) {
   const [tab, setTab] = useState(chk.tables[0]?.name ?? '')
   const t = chk.tables.find((x) => x.name === tab) ?? chk.tables[0]
   return (
@@ -345,18 +413,19 @@ function CheckView({ chk, label }: { chk: UpCheck; label: string }) {
         <b>Check: {label || t?.source_file}</b>
         <span className="helper">{chk.tables.length} table{chk.tables.length === 1 ? '' : 's'} · checked in {chk.seconds} s · nothing is written until you create it</span>
       </div>
-      {chk.blocks.length > 0 && <div className="up-block" data-testid="up-blocks"><b>{chk.blocks.length} problem{chk.blocks.length === 1 ? '' : 's'} block this upload</b>{chk.blocks.map((b, i) => <div key={i}>✕ {b.table ? <span className="mono">{b.table}: </span> : null}{b.message}</div>)}</div>}
+      {chk.blocks.length > 0 && <div className="up-block" data-testid="up-blocks"><b>{chk.blocks.length} problem{chk.blocks.length === 1 ? '' : 's'} block this upload</b>{chk.blocks.map((b, i) => <IssueLine key={i} x={b as Issue} tone="block" chk={chk} {...h} />)}</div>}
       {chk.contract && <span className={`helper up-ct-line up-ct-${chk.contract.status}`} data-testid="up-contract-status">Contract{chk.contract.version ? ` v${chk.contract.version}` : ''}: <b>{chk.contract.status}</b> · {chk.contract.n_rules} rules, {chk.contract.n_blocks} blocking, {chk.contract.n_warnings} warnings</span>}
       <Tabs tabs={chk.tables.map((x) => x.name)} value={t?.name ?? ''} onChange={setTab} testIds={Object.fromEntries(chk.tables.map((x) => [x.name, `up-tab-${x.name}`]))} />
-      {t && <TableCheck t={t} chk={chk} />}
+      {t && <TableCheck t={t} chk={chk} {...h} />}
     </div>
   )
 }
 
-function TableCheck({ t, chk }: { t: UpTable; chk: UpCheck }) {
+function TableCheck({ t, chk, ...h }: { t: UpTable; chk: UpCheck } & IssueHandlers) {
   const mine = (w: { table?: string }) => !w.table || w.table === t.name
   const issues = (c: string) => [...chk.blocks, ...chk.warnings].filter((w) => w.column === c && mine(w))
-  const other = chk.warnings.filter((w) => !w.column && mine(w) && w.code !== 'looks_like_delta')
+  // integrity warnings (needs_ack) are shown with their acknowledgement below the check
+  const other = chk.warnings.filter((w) => !w.column && mine(w) && w.code !== 'looks_like_delta' && !(w as Issue).needs_ack)
   const pii = new Map((t.pii ?? []).map((p) => [p.column, p]))
   return (
     <div className="stack" style={{ gap: 8 }} data-testid={`up-table-${t.name}`}>
@@ -375,13 +444,13 @@ function TableCheck({ t, chk }: { t: UpTable; chk: UpCheck }) {
             <tr key={c.name} data-testid={`up-col-${c.name}`} className={is.length ? 'up-flag' : ''}>
               <td className="mono">{c.name}{pii.has(c.name) && <span className="pt-chip up-pii" style={{ marginLeft: 4 }} title={`${pii.get(c.name)!.tag}, ${pii.get(c.name)!.source}${pii.get(c.name)!.why ? `: ${pii.get(c.name)!.why}` : ''}`}>🔒 {pii.get(c.name)!.mask}</span>}</td>
               <td><span className={`pt-chip up-type t-${c.type.toLowerCase()}`}>{c.type}</span>{c.nullable && <span className="muted" title="has missing values"> ∅</span>}</td>
-              <td className="helper">{c.reason}{is.map((w, i) => <div key={i} className="up-colwarn">⚠ {w.message}</div>)}</td>
+              <td className="helper">{c.reason}{is.map((w, i) => <div key={i} className="up-colwarn">{chk.blocks.includes(w as never) || (w.code === 'date_ambiguous' && chk.blocks.some((b) => b.code === 'date_ambiguous')) ? <>{chk.blocks.includes(w as never) ? '✕' : '⚠'} {w.message}</> : <IssueLine x={w as Issue} tone="warn" chk={chk} {...h} />}</div>)}</td>
               <td className="r mono">{c.non_null == null ? '—' : n(c.non_null)}</td>
             </tr>
           )
         })}</tbody>
       </table></div>
-      {other.length > 0 && <div className="data-warn">{other.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>}
+      {other.length > 0 && <div className="data-warn">{other.map((w, i) => <IssueLine key={i} x={w as Issue} tone="warn" chk={chk} {...h} />)}</div>}
       {chk.notes.length > 0 && <span className="helper">{chk.notes.join(' · ')}</span>}
       {pii.size > 0 && <span className="helper" style={{ fontSize: 12 }}>🔒 PII tags: {[...pii.values()].map((p) => `${p.column} (${p.tag}, masked ${p.mask}, ${p.source})`).join(' · ')}. Once created, these columns are masked for everyone without data.read_unmasked; review the tags on the dataset page.</span>}
       <details><summary className="micro-label">first {t.preview.rows.length} rows, as in the file (your own upload: not masked)</summary>

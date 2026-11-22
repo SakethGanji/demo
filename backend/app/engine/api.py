@@ -932,6 +932,11 @@ def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     if not _runner(request).cancel(run_id):
         raise HTTPException(409, f"Run {run_id} has already finished ({rec['status']}).")
+    from ..catalog.schema import audit  # F-X4b (X4 M6): a run cancel is audited (who, from which status)
+    from ..lake.upload import _actor
+
+    with request.app.state.db.connect() as con:
+        audit(con, _actor(), "run_cancelled", {"run_id": run_id, "status_was": rec["status"]}, run_id=run_id)
     return {"id": run_id, "cancelling": True}
 
 
