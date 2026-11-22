@@ -11,7 +11,9 @@ const list = <T,>(key: string) => (r: unknown): T[] => (Array.isArray(r) ? r : (
 
 export type LayerKind = 'labels' | 'corrections' | 'outcomes'
 export type LabelClass = { value: string; label?: string; hotkey?: string; description?: string }
-export type SchemaSpec = { task_type?: string; column?: string; columns?: string[]; classes?: (LabelClass | string)[]; multi?: boolean; kind?: string; [k: string]: unknown }
+/** LB-A's spec (`ensemble.labelschema/1`): one entry per labelled column; classes are plain strings (keys 1–9 in order). */
+export type SpecColumn = { column: string; role?: 'target' | 'feature'; type?: 'class' | 'number' | 'text' | 'date'; classes?: string[]; multi?: boolean; hotkeys?: Record<string, string> }
+export type SchemaSpec = { format?: string; columns: SpecColumn[]; task_type?: string; [k: string]: unknown }
 export type LabelSchema = { id?: string; version: number; spec: SchemaSpec; guidelines?: string; guidelines_sha256?: string; created_at?: string; created_by?: string }
 export type Layer = {
   id: string; root_id: string; table_name: string; team_id?: string; name: string; purpose?: string; kind: LayerKind
@@ -20,10 +22,12 @@ export type Layer = {
 }
 /** One column's carry-over status on a version (§5.2). */
 export type ColStatus = { column: string; live?: number; stale?: number; conflict?: number; orphaned?: number; unlabelled?: number; base_changed?: number; total?: number; labelled?: number }
+/** LB-A: `{version_id, through_seq, rows_in_version, columns: {col: counts}, totals}`; counts are ok · in_base · stale ·
+ *  base_changed · conflict · orphaned · disputed · prelabel_only (+ live = ok + in_base and unlabelled in totals). */
+export type StatusCounts = { ok?: number; in_base?: number; live?: number; stale?: number; base_changed?: number; conflict?: number; orphaned?: number; disputed?: number; prelabel_only?: number; unlabelled?: number; schema_dropped?: number }
 export type LayerStatus = {
-  layer_id?: string; version_id: string; rows?: number; columns?: ColStatus[]
-  live?: number; stale?: number; conflict?: number; orphaned?: number; unlabelled?: number; base_changed?: number
-  by_source?: Record<string, number>; computed_in_ms?: number; note?: string
+  layer_id?: string; version_id: string; through_seq?: number; rows_in_version?: number
+  columns?: Record<string, StatusCounts> | ColStatus[]; totals?: StatusCounts; by_source?: Record<string, number>
 }
 export type LabelEvent = { id?: string; seq?: number; row_id: number; column_name?: string; column?: string; kind?: string; value: unknown; source?: string; actor?: string
   confidence?: string | number | null; created_at?: string; stale?: boolean; task_id?: string | null; provenance?: Record<string, unknown> }
@@ -152,6 +156,9 @@ export function wilson(k: number, n: number, z = 1.96): [number, number] | null 
   return [Math.max(0, c - h), Math.min(1, c + h)]
 }
 /** A task's or schema's classes as `{value, hotkey}`; plain strings get 1–9 in order. */
+/** The first labelled column of a spec (the one a class task is about). */
+export const specCol = (spec?: SchemaSpec | null, column?: string | null): SpecColumn | null =>
+  (spec?.columns ?? []).find((c) => !column || c.column === column) ?? spec?.columns?.[0] ?? null
 export const classesOf = (cs: (LabelClass | string)[] | undefined | null): LabelClass[] =>
   (cs ?? []).map((c, i) => (typeof c === 'string' ? { value: c, hotkey: i < 9 ? String(i + 1) : undefined } : { ...c, hotkey: c.hotkey ?? (i < 9 ? String(i + 1) : undefined) }))
 export const num = (v: unknown): number | null => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null)

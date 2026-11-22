@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { int } from '@/shared/lib/format'
 import { refusal } from '@/shared/api/governance'
-import type { ColStatus, LayerStatus } from '@/shared/api/labels'
+import type { ColStatus, LayerStatus, StatusCounts } from '@/shared/api/labels'
 
 /** LB-C: the small parts the labeling screens share (on top of the U4 DataKit). */
 
@@ -16,16 +16,18 @@ export const STATUS_WORDS: Record<StatusKey, string> = {
   unlabelled: 'unlabelled: no label yet',
 }
 
-/** Sum of a status over its columns (the API may send totals, per-column counts, or both). */
-export function totals(s: LayerStatus | null | undefined): Record<StatusKey, number> & { base_changed: number } {
-  const z = { live: 0, stale: 0, conflict: 0, orphaned: 0, unlabelled: 0, base_changed: 0 }
-  if (!s) return z
-  const cols: ColStatus[] = s.columns ?? []
-  for (const k of [...STATUS_KEYS, 'base_changed'] as const) {
-    const top = (s as Record<string, unknown>)[k]
-    z[k] = typeof top === 'number' ? top : cols.reduce((a, c) => a + (Number((c as Record<string, unknown>)[k]) || 0), 0)
-  }
-  return z
+/** Per column carry-over counts in the five words the screens use (live = ok + in_base; base_changed counts as stale). */
+export function carryOf(c: StatusCounts | ColStatus | null | undefined): Record<StatusKey, number> & { base_changed: number; disputed: number } {
+  const x = (c ?? {}) as StatusCounts & ColStatus
+  return { live: x.live ?? (x.ok ?? 0) + (x.in_base ?? 0), stale: (x.stale ?? 0) + (x.base_changed ?? 0), conflict: x.conflict ?? 0, orphaned: x.orphaned ?? 0,
+    unlabelled: x.unlabelled ?? 0, base_changed: x.base_changed ?? 0, disputed: x.disputed ?? 0 }
+}
+/** The status's totals (and its columns as a list). */
+export function totals(s: LayerStatus | null | undefined) { return carryOf(s?.totals ?? null) }
+export function columnsOf(s: LayerStatus | null | undefined): (ReturnType<typeof carryOf> & { column: string })[] {
+  const c = s?.columns
+  if (!c) return []
+  return Array.isArray(c) ? c.map((x) => ({ column: x.column, ...carryOf(x) })) : Object.entries(c).map(([column, x]) => ({ column, ...carryOf(x) }))
 }
 
 /** Carry-over as one stacked bar (live / stale / conflict / orphaned / unlabelled) with the counts beside it: the

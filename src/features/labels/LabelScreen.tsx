@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { labels, classesOf, wilson, arr, type Item, type Layer, type Quality, type ReviewItem, type Task } from '@/shared/api/labels'
+import { labels, classesOf, specCol, wilson, arr, type Item, type Layer, type Quality, type ReviewItem, type Task } from '@/shared/api/labels'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { usePoc } from '@/shared/hooks/usePoc'
@@ -18,7 +18,7 @@ export function LabelScreen({ mode, taskId, layer, root, by, onBack, onMode }: {
   const t = useFetch(() => labels.task(taskId), [taskId])
   const q = useFetch(() => labels.quality(taskId), [taskId], { pollMs: 15_000 })
   const task = t.data
-  const classes = classesOf(task?.classes ?? layer.schema?.spec?.classes)
+  const classes = classesOf(task?.classes ?? specCol(layer.schema?.spec, arr(task?.columns ?? task?.columns_json)[0])?.classes)
   const guidelines = task?.guidelines ?? layer.schema?.guidelines ?? ''
   return (
     <div className="stack lbl" style={{ gap: 'var(--space-12)' }} data-testid={`lbl-screen-${mode}`}>

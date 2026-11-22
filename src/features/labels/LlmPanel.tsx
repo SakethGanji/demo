@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { labels, wilson, arr, num, type Calibration, type Layer, type LlmRun, type Prompt } from '@/shared/api/labels'
+import { labels, wilson, arr, num, specCol, type Calibration, type Layer, type LlmRun, type Prompt } from '@/shared/api/labels'
 import { pii } from '@/shared/api/governance'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
@@ -40,7 +40,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const dest = policy?.enabled === false ? 'off' : policy?.destination ?? 'fake'
   const destWhy = policy?.reason ?? (dest === 'fake' ? 'No real destination is allowed for this team (no API key or the team policy does not enable one): the fake destination answers deterministically so the flow can be tried end to end, at $0.'
     : dest === 'off' ? 'LLM labeling is off in this team\'s policy: a maintainer turns it on in Settings › Teams.' : 'Allowed by the team policy.')
-  const context = edit?.context ?? (p ? arr(p.context ?? p.context_json) : cols.filter((c) => c !== layer.schema?.spec.column).slice(0, 8))
+  const context = edit?.context ?? (p ? arr(p.context ?? p.context_json) : cols.filter((c) => c !== specCol(layer.schema?.spec)?.column).slice(0, 8))
   const masked = new Set([...(tags.data?.masked_columns ?? []), ...(policy?.pii?.masked ?? [])])
   const excluded = policy?.pii?.excluded ?? context.filter((c) => masked.has(c))
   const sent = policy?.pii?.sent ?? context.filter((c) => !excluded.includes(c))
@@ -79,7 +79,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
             {ps.err && !ps.data ? <Callout tone="danger">{ps.err}</Callout> : edit ? <>
               <Field label="Template" hint="{classes}, {guidelines}, {row} are filled in; the row holds only the columns sent"><textarea className="input mono lbl-guide-edit" rows={8} value={edit.template} onChange={(e) => setEdit({ ...edit, template: e.target.value })} data-testid="lbl-llm-template" /></Field>
               <Field label="Model" hint="a full model id, never an alias"><input className="input mono" value={edit.model} onChange={(e) => setEdit({ ...edit, model: e.target.value })} /></Field>
-              <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== layer.schema?.spec.column).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
+              <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== specCol(layer.schema?.spec)?.column).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
                 <input type="checkbox" checked={edit.context.includes(c)} onChange={(e) => setEdit({ ...edit, context: e.target.checked ? [...edit.context, c] : edit.context.filter((x) => x !== c) })} />{masked.has(c) && '🔒 '}{c}</label>)}</div></Field>
               <div className="row" style={{ gap: 6 }}><button className="btn sm primary" disabled={busy === 'save'} onClick={save} data-testid="lbl-llm-save">Save as v{(p?.version ?? 0) + 1}</button><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button></div>
             </> : p ? <>
