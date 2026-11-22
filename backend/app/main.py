@@ -546,6 +546,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     from .jobs import api as jobs_api
 
     app.include_router(jobs_api.router)  # P22: GET /jobs, /jobs/{id}, /workers
+    from .catalog import joins_api
+
+    app.include_router(joins_api.router)  # P14: saved joins, join frames
     app.middleware("http")(teams_api.see_actor)  # P18: a principal on first sight of an X-Ensemble-Actor name
     for mod, _ in JOB_MODULES:
         app.include_router(mod.router)

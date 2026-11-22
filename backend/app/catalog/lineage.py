@@ -1,7 +1,8 @@
 """GET /api/lineage/{kind}/{id}: the project tree around a node, from one recursive CTE over lineage_edges.
 
 dataset root → derived versions → runs (trained_on) → branches (branched_from; agent/experiment branches grouped by
-their review) → registered versions (built_from)."""
+their review) → registered versions (built_from). P14: input versions → join frames (joined_from; merged_from for another
+dataset's version) → runs (trained_on)."""
 
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ WITH RECURSIVE up(kind, id, depth) AS (
     SELECT ?, ?, 0
     UNION
     SELECT e.src_kind, e.src_id, u.depth + 1 FROM lineage_edges e JOIN up u ON e.dst_kind = u.kind AND e.dst_id = u.id
-    WHERE u.depth < 64 AND u.kind <> 'dataset' AND e.relation IN ('trained_on', 'branched_from', 'built_from')
+    WHERE u.depth < 64 AND u.kind <> 'dataset' AND e.relation IN ('trained_on', 'branched_from', 'built_from', 'joined_from')
 )
 SELECT kind, id, MAX(depth) AS depth FROM up GROUP BY kind, id ORDER BY depth DESC
 """
@@ -107,7 +108,7 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
             nodes += (con.execute(TREE, (r0,) * 6) if roots else con.execute(TREE_NODE, root)).fetchall()
         keys = {(n["kind"], n["id"]) for n in nodes}
         depth = {(n["kind"], n["id"]): n["depth"] for n in nodes}
-        ids = {k: [i for (kk, i) in keys if kk == k] for k in ("dataset", "run", "version")}
+        ids = {k: [i for (kk, i) in keys if kk == k] for k in ("dataset", "run", "version", "join_frame")}
 
         def q(sql: str, vals: list[str]) -> list[dict[str, Any]]:
             out = []
@@ -123,6 +124,10 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
                  " FROM runs WHERE id IN ({})", ids["run"])
         vers = q("SELECT id, model_name, version, run_id, status, stage, approval, created_at, created_by FROM model_versions"
                  " WHERE id IN ({})", ids["version"])
+        # P14: join frames (dataset -joined_from / merged_from-> join_frame -trained_on-> run)
+        jfs = q("SELECT f.id, f.join_id, f.version_id, f.grain_table, f.frame_sha256, f.n_rows, f.cache_blob, f.created_at,"
+                " f.created_by, j.name AS join_name, j.spec_version FROM join_frames f LEFT JOIN joins j ON j.id = f.join_id"
+                " WHERE f.id IN ({})", ids["join_frame"])
         all_ids = [i for (_, i) in keys]
         edges = q("SELECT * FROM lineage_edges WHERE dst_id IN ({})", all_ids)
         edges = [e for e in edges if (e["src_kind"], e["src_id"]) in keys and (e["dst_kind"], e["dst_id"]) in keys]
@@ -190,10 +195,12 @@ def tree(app, kind: str, id_: str) -> dict[str, Any]:
     for v in vers:
         out_nodes.append({"kind": "version", **v, "depth": depth.get(("version", v["id"])), "tags": tag_map.get(v["id"], []),
                           "notes": note_map.get(v["id"], 0), "champion": bool(champ and champ["version_id"] == v["id"])})
+    for f in jfs:
+        out_nodes.append({"kind": "join_frame", **f, "depth": depth.get(("join_frame", f["id"]))})
     return {"focus": {"kind": kind, "id": id_}, "root": {"kind": root[0], "id": root[1]}, "project": project,
             "champion": champ, "nodes": out_nodes,
             "edges": [{"src": {"kind": e["src_kind"], "id": e["src_id"]}, "dst": {"kind": e["dst_kind"], "id": e["dst_id"]},
                        "relation": e["relation"], "actor": e["actor"], "meta": e["meta"], "inferred": bool(e["inferred"]),
                        "created_at": e["created_at"]} for e in edges],
             "reviews": list(reviews.values()),
-            "counts": {"datasets": len(dsets), "runs": len(runs), "versions": len(vers), "edges": len(edges)}}
+            "counts": {"datasets": len(dsets), "runs": len(runs), "versions": len(vers), "join_frames": len(jfs), "edges": len(edges)}}

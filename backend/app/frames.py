@@ -56,6 +56,23 @@ def current_table() -> str | None:
     return CURRENT_TABLE.get()
 
 
+#: P14: the join frame a run reads (`POST /runs {join_id}`): `input_ref_for(v)` then names the frame, while `table(v)`
+#: (the profile's and the split's table) stays the join's grain table.
+CURRENT_JOIN: contextvars.ContextVar[str | None] = contextvars.ContextVar("ensemble_join_frame", default=None)
+
+
+@contextmanager
+def use_join(join_frame_id: str | None):
+    if not join_frame_id:
+        yield
+        return
+    tok = CURRENT_JOIN.set(str(join_frame_id))
+    try:
+        yield
+    finally:
+        CURRENT_JOIN.reset(tok)
+
+
 @contextmanager
 def use_table(name: str | None):
     """`with use_table("bureau"):` every primary-table read of a version below it reads `bureau` (None: no change)."""
@@ -80,7 +97,12 @@ class Table:
 
 @dataclass(frozen=True)
 class JoinFrame:
+    """P14: a materialised saved join (`join_frames` row): one Parquet cache blob, indexed by the grain's __row_id."""
     join_frame_id: str
+
+    @property
+    def version_id(self) -> str:  # what read errors name
+        return self.join_frame_id
 
 
 @dataclass(frozen=True)
@@ -186,11 +208,36 @@ def storage(version_id: str) -> str | None:
 def is_parquet(ref: Any) -> bool:
     if isinstance(ref, str):
         ref = Table(ref)
+    if isinstance(ref, JoinFrame):
+        return True
     return isinstance(ref, Table) and storage(ref.version_id) == "parquet"
 
 
-def lake_table(ref: Table) -> LakeTable:
+def _join_frame_table(ref: JoinFrame) -> LakeTable:
+    """P14: a join frame as a one-part table: the part is its cache blob (role 'frame'), and its `table_sha256` is that
+    blob's sha256, the hash a run on the frame records as read_sha256 (§5.8)."""
+    with _db().connect() as con:
+        r = con.execute("SELECT f.n_rows, f.schema_json, f.cache_blob, b.key, b.bytes FROM join_frames f"
+                        " LEFT JOIN blobs b ON b.sha256 = f.cache_blob WHERE f.id = ?", (ref.join_frame_id,)).fetchone()
+    if not r:
+        raise FrameError(f"No join frame {ref.join_frame_id}.")
+    if not r["cache_blob"] or not r["key"]:
+        raise FrameError(f"Join frame {ref.join_frame_id} has no cache blob: materialise it again "
+                         "(POST /api/datasets/{root}/versions/{v}/frames {join_id}).")
+    st = _store()
+    try:
+        path = str(st.local_copy(r["key"]))
+    except FileNotFoundError:
+        path = str(st.cache_path(r["key"]))
+    parts = [{"part": 0, "role": "frame", "sha256": r["cache_blob"], "key": r["key"], "n_rows": int(r["n_rows"]),
+              "bytes": r["bytes"], "path": path}]
+    return LakeTable(ref.join_frame_id, ref.join_frame_id, r["cache_blob"], int(r["n_rows"]), json.loads(r["schema_json"]), parts)
+
+
+def lake_table(ref: Table | JoinFrame) -> LakeTable:
     """The committed table behind a ref: its sha, schema and parts (Table(v, 'data') = the primary table)."""
+    if isinstance(ref, JoinFrame):
+        return _join_frame_table(ref)
     with _db().connect() as con:
         v = con.execute("SELECT storage, primary_table FROM datasets WHERE id = ?", (ref.version_id,)).fetchone()
         if not v or v["storage"] != "parquet":
@@ -237,7 +284,7 @@ class ReadHash:
         self._h.update(b)
 
     def add_part(self, role: str, sha: str, expected: str) -> None:
-        self.kind = "parquet"
+        self.kind = "frame" if role == "frame" else "parquet"  # P14: a join frame's one cache file
         self.parts.append((role, sha))
         self.expected_parts.append(expected)
 
@@ -246,6 +293,8 @@ class ReadHash:
         return [i for i, ((_, s), e) in enumerate(zip(self.parts, self.expected_parts)) if s != e]
 
     def hexdigest(self) -> str:
+        if self.kind == "frame":  # P14: a join frame is identified by its cache file's sha256 (§5.8: read_sha256)
+            return self.parts[0][1]
         if self.kind == "parquet":
             from .lake.manifest import table_sha256
 
@@ -253,7 +302,7 @@ class ReadHash:
         return self._h.hexdigest()
 
 
-def hash_table(ref: Table) -> tuple[str, str, list[int]]:
+def hash_table(ref: Table | JoinFrame) -> tuple[str, str, list[int]]:
     """(table_sha256 recomputed from the part bytes now, the committed one, indexes of parts that differ)."""
     lt = lake_table(ref)
     rh = ReadHash()
@@ -315,7 +364,7 @@ def _v1_column(arr: Any, name: str) -> Any:
     return pd.Series(v, name=name, dtype=object)
 
 
-def _read_parquet(ref: Table, columns: Any, rows: range | None, mode: str, hash_into: Any) -> pd.DataFrame:
+def _read_parquet(ref: Table | JoinFrame, columns: Any, rows: range | None, mode: str, hash_into: Any) -> pd.DataFrame:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
@@ -407,6 +456,8 @@ def resolve(cfg: dict[str, Any]) -> InputRef:
 
 def input_ref_for(dataset_id: str) -> dict[str, Any]:
     """The `input_ref` a new run config carries (`csv_path` is kept beside it for old readers)."""
+    if CURRENT_JOIN.get():  # P14: POST /runs {join_id}: the run reads the join frame
+        return to_json(JoinFrame(CURRENT_JOIN.get()))
     return to_json(table(dataset_id))  # P12: the request's table (POST /runs {table}), else the primary
 
 
@@ -435,7 +486,7 @@ def read(ref: InputRef, columns: Iterable[str] | Callable[[str], bool] | None = 
         rows = range(rows.start or 0, rows.stop if rows.stop is not None else 2 ** 62, rows.step or 1)
     if rows is not None and (rows.step != 1 or rows.start < 0):
         raise FrameError("rows is a contiguous, non-negative range.")
-    if isinstance(ref, Table) and is_parquet(ref):
+    if isinstance(ref, (Table, JoinFrame)) and is_parquet(ref):
         return _read_parquet(ref, columns, rows, mode, hash_into)
     lv = legacy_version(ref)
     if lv is not None:  # P10: a CSV-era run's path, migrated: the same frame, by position
@@ -478,7 +529,7 @@ def read_csv_path(path: str | Path, columns: Any = None) -> pd.DataFrame:
 def columns(ref: InputRef) -> list[ColumnInfo]:
     if legacy_version(ref):
         ref = Table(legacy_version(ref))
-    if isinstance(ref, Table) and is_parquet(ref):
+    if isinstance(ref, (Table, JoinFrame)) and is_parquet(ref):
         return [ColumnInfo(c["name"], kind_of_type(c["type"])) for c in lake_table(ref).schema]
     p = path_of(ref)
     kinds = FIO.columns(FIO.load(p.parent))
@@ -494,7 +545,7 @@ def column_names(ref: InputRef) -> list[str]:
 def n_rows(ref: InputRef) -> int:
     if legacy_version(ref):
         ref = Table(legacy_version(ref))
-    if isinstance(ref, Table) and is_parquet(ref):
+    if isinstance(ref, (Table, JoinFrame)) and is_parquet(ref):
         return lake_table(ref).n_rows
     p = path_of(ref)
     with open(p, newline="", encoding="utf-8", errors="replace") as f:
@@ -510,7 +561,7 @@ def input_sha256(cfg: dict[str, Any]) -> str | None:
     """P05: the sha256 of what a run read, recomputed now: a Parquet table's table_sha256 from its part bytes, or the
     data.csv bytes of a CSV-era input (what the registry and the data gate compare)."""
     ref = resolve(cfg)
-    if isinstance(ref, Table) and is_parquet(ref):
+    if isinstance(ref, (Table, JoinFrame)) and is_parquet(ref):  # P14: a join frame: its cache file's sha256
         return hash_table(ref)[0]
     lv = legacy_version(ref)
     if lv is not None:  # P10: an old run re-verifies against the data.csv bytes it read, kept as a legacy_csv blob
@@ -717,3 +768,132 @@ def align_to(df: pd.DataFrame, ref: InputRef) -> pd.DataFrame:
         elif k in ("integer", "number") and out[c].dtype.kind == "O":
             out[c] = pd.to_numeric(out[c], errors="coerce")
     return out
+
+
+# --------------------------------------------------------------------------- P14: the one join code path (§5.8)
+
+
+def _qi(name: str) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def _key_expr(alias: str, col: str, typ: str, other: str) -> str:
+    """One side of a join condition. Equal types compare as stored; otherwise both sides are cast to one family (text
+    for text kinds, DOUBLE for numbers) so DuckDB never guesses an implicit cast."""
+    x = f"{alias}.{_qi(col)}"
+    if (typ or "").upper() == (other or "").upper():
+        return x
+    k = kind_of_type(typ)
+    return f"CAST({x} AS DOUBLE)" if k in ("integer", "number") else f"CAST({x} AS VARCHAR)"
+
+
+def _agg_expr(a: dict[str, Any], src: str, window: str | None) -> str:
+    col = f"{src}.{_qi(a['column'])}" if a.get("column") else None
+    fn = a["fn"]
+    e = {"count": f"count({col})" if col else "count(*)", "count_distinct": f"count(DISTINCT {col})",
+         "sum": f"sum(CAST({col} AS DOUBLE))", "mean": f"avg(CAST({col} AS DOUBLE))",
+         "min": f"min({col})", "max": f"max({col})"}[fn]
+    if window:  # FILTER belongs to the aggregate itself
+        e += f" FILTER (WHERE {window})"
+    return f"CAST({e} AS DOUBLE)" if fn in ("sum", "mean") else e
+
+
+def _window_cond(w: dict[str, Any], src: str, grain: str) -> str:
+    """paid_on within `days` of app_date: days < 0 looks back [rel + days, rel); days > 0 looks ahead (rel, rel + days]."""
+    d = f"TRY_CAST({src}.{_qi(w['date'])} AS DATE)"
+    r = f"TRY_CAST({grain}.{_qi(w['relative_to'])} AS DATE)"
+    n = int(w["days"])
+    return f"{d} >= {r} + ({n}) AND {d} < {r}" if n < 0 else f"{d} > {r} AND {d} <= {r} + ({n})"
+
+
+def join_output_columns(spec: dict[str, Any], inputs: list[LakeTable]) -> list[tuple[str, str, str]]:
+    """(output name, origin 'grain' | 'join:<i>', source column or agg fn) of every frame column after __row_id."""
+    out = [(c["name"], "grain", c["name"]) for c in inputs[0].schema if c["name"] != "__row_id"]
+    for i, j in enumerate(spec["joins"]):
+        lt = inputs[i + 1]
+        if j["type"] == "aggregate":
+            out += [(j.get("prefix", "") + a["name"], f"join:{i}", a["fn"]) for a in j["aggs"]]
+        else:
+            right = {r for _, r in j["on"]}
+            cols = j.get("columns") or [c["name"] for c in lt.schema if c["name"] not in right and c["name"] != "__row_id"]
+            out += [(j["prefix"] + c, f"join:{i}", c) for c in cols]
+    return out
+
+
+def join_sql(spec: dict[str, Any], inputs: list[LakeTable]) -> str:
+    """The frame's SELECT: the grain's rows (every one, in __row_id order) LEFT JOINed to each n:1 table and to each
+    aggregate (GROUP BY the key; GROUP BY the grain row when a window needs the grain's date). No free SQL: every name
+    is a validated column, quoted."""
+    g = inputs[0]
+    gtypes = {c["name"]: c["type"] for c in g.schema}
+    sel = ["g.__row_id"] + [f"g.{_qi(c['name'])}" for c in g.schema if c["name"] != "__row_id"]
+    frm = [f"{lake_sql(g)} g"]
+    for i, j in enumerate(spec["joins"]):
+        lt = inputs[i + 1]
+        jtypes = {c["name"]: c["type"] for c in lt.schema}
+        a = f"j{i}"
+        if j["type"] == "aggregate":
+            windowed = any(x.get("window") for x in j["aggs"])
+            if windowed:  # per grain row: the window is relative to the grain row's own date
+                on = " AND ".join(f"{_key_expr('g2', l, gtypes[l], jtypes[r])} = {_key_expr('p', r, jtypes[r], gtypes[l])}"
+                                  for l, r in j["on"])
+                aggs = ", ".join(f"{_agg_expr(x, 'p', _window_cond(x['window'], 'p', 'g2') if x.get('window') else None)}"
+                                 f" AS {_qi('a' + str(k))}" for k, x in enumerate(j["aggs"]))
+                frm.append(f"LEFT JOIN (SELECT g2.__row_id AS __gid, {aggs} FROM {lake_sql(g)} g2 JOIN {lake_sql(lt)} p"
+                           f" ON {on} GROUP BY g2.__row_id) {a} ON {a}.__gid = g.__row_id")
+            else:
+                keys = ", ".join(f"p.{_qi(r)} AS {_qi('k' + str(k))}" for k, (_, r) in enumerate(j["on"]))
+                grp = ", ".join(f"p.{_qi(r)}" for _, r in j["on"])
+                nn = " AND ".join(f"p.{_qi(r)} IS NOT NULL" for _, r in j["on"])
+                aggs = ", ".join(f"{_agg_expr(x, 'p', None)} AS {_qi('a' + str(k))}" for k, x in enumerate(j["aggs"]))
+                on = " AND ".join(f"{_key_expr('g', l, gtypes[l], jtypes[r])} = {_key_expr(a, 'k' + str(k), jtypes[r], gtypes[l])}"
+                                  for k, (l, r) in enumerate(j["on"]))
+                frm.append(f"LEFT JOIN (SELECT {keys}, {aggs} FROM {lake_sql(lt)} p WHERE {nn} GROUP BY {grp}) {a} ON {on}")
+            for k, x in enumerate(j["aggs"]):
+                v = f"{a}.{_qi('a' + str(k))}"
+                if x["fn"] in ("count", "count_distinct"):
+                    v = f"COALESCE({v}, 0)"  # no joined row: 0, not missing
+                sel.append(f"{v} AS {_qi(j.get('prefix', '') + x['name'])}")
+        else:
+            right = {r for _, r in j["on"]}
+            cols = j.get("columns") or [c["name"] for c in lt.schema if c["name"] not in right and c["name"] != "__row_id"]
+            on = " AND ".join(f"{_key_expr('g', l, gtypes[l], jtypes[r])} = {_key_expr(a, r, jtypes[r], gtypes[l])}"
+                              for l, r in j["on"])
+            frm.append(f"LEFT JOIN {lake_sql(lt)} {a} ON {on}")
+            sel += [f"{a}.{_qi(c)} AS {_qi(j['prefix'] + c)}" for c in cols]
+    return f"SELECT {', '.join(sel)} FROM {' '.join(frm)} ORDER BY g.__row_id"
+
+
+class GrainError(FrameError):
+    """The frame does not have exactly the grain's rows (§5.8's assert): it is refused, never cached."""
+
+
+def materialise(spec: dict[str, Any], inputs: list[LakeTable], out: Path) -> dict[str, Any]:
+    """P14 (§5.8): **the only join code path** (training, profiling, export and batch scoring read what it writes).
+    Streams the frame from DuckDB to one Parquet file at `out` (a job connection: its memory limit and spill cap, never a
+    pandas frame), sorted by the grain's __row_id. Then asserts count(frame) = count(grain) and
+    count(DISTINCT __row_id) = count(*), and that the ids are strictly increasing; otherwise GrainError."""
+    import time
+
+    import numpy as np
+    import pyarrow.parquet as pq
+
+    from .lake import duck
+
+    t0 = time.perf_counter()
+    sql = join_sql(spec, inputs)
+    target = str(out).replace("'", "''")
+    with duck.job() as con:
+        con.execute("SET preserve_insertion_order=true")  # the COPY keeps the ORDER BY (job connections turn it off)
+        con.execute(f"COPY ({sql}) TO '{target}' (FORMAT parquet, COMPRESSION zstd, ROW_GROUP_SIZE 122880)")
+        n, nd = con.execute(f"SELECT count(*), count(DISTINCT __row_id) FROM read_parquet('{target}')").fetchall()[0]
+        desc = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{target}')").fetchall()
+    g = inputs[0]
+    ids = pq.read_table(str(out), columns=["__row_id"]).column(0).to_numpy(zero_copy_only=False)
+    ordered = bool(len(ids) < 2 or np.all(np.diff(ids) > 0))
+    if int(n) != g.n_rows or int(nd) != int(n) or not ordered:
+        raise GrainError(f"The join does not keep the grain: {g.name} has {g.n_rows:,} rows, the frame {int(n):,} "
+                         f"({int(nd):,} distinct __row_id{'' if ordered else ', not in __row_id order'}). A joined table "
+                         "repeats a key: declare it n:1 only when its key is unique, or aggregate it.")
+    schema = [{"name": r[0], "type": r[1]} for r in desc if r[0] != "__row_id"]
+    return {"n_rows": int(n), "schema": schema, "seconds": round(time.perf_counter() - t0, 3)}

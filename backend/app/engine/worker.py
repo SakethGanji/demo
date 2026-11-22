@@ -751,11 +751,12 @@ def record_run_input(cfg: dict[str, Any], store: RunStore, run_id: str, sha: str
                 return
             pin = cfg.get("split_pin") or {}  # P09: the split this run read (the pinned blob's recomputed split_sha256)
             con.execute(
-                "INSERT INTO run_inputs (id, run_id, role, version_id, table_name, table_sha256, read_sha256, match,"
+                "INSERT INTO run_inputs (id, run_id, role, version_id, table_name, join_frame_id, table_sha256, read_sha256, match,"
                 " legacy_csv_sha256, split_id, split_sha256, split_legacy_sha256, read_mode, rows_total, rows_used,"
                 " columns_dropped, sample_spec, sample_sha256, frame_mb, created_at)"
-                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?, ?, ?, ?)",
+                " VALUES (?, ?, 'train', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'engine_v1', ?, ?, ?, ?, ?, ?, ?)",
                 ("ri_" + _secrets.token_hex(6), run_id, cfg.get("dataset_id"), it.get("table") or "data",
+                 it.get("join_frame_id"),  # P14: a run on a join frame (table_sha256 = its cache file's sha256)
                  it.get("table_sha256") if parquet else None, sha, None if ok is None else int(ok),
                  None if parquet else (cfg.get("data_sha256_expected") or sha),
                  pin.get("split_id"), (info or {}).get("splits_sha256") if pin else None,

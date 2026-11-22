@@ -186,7 +186,7 @@ def plan(cfg: dict[str, Any], ref: Any) -> dict[str, Any]:
     """Estimate vs budget for this run. `sample` is True only for a Parquet table with a pinned split over its budget."""
     drop = [c for c in cfg.get("drop_columns") or [] if c != cfg.get("label")]
     bud = budget(cfg)
-    parquet = isinstance(ref, frames.Table) and frames.is_parquet(ref)
+    parquet = isinstance(ref, (frames.Table, frames.JoinFrame)) and frames.is_parquet(ref)  # P14: a join frame too
     if not parquet:
         return {"parquet": False, "budget": bud, "estimate": None, "sample": False,
                 "why": "a CSV-era version (no __row_id) is read whole: sampling needs a Parquet table (P10 migrates it)"}
