@@ -82,7 +82,8 @@ show("5b Ana withdraws", c.post(f"{B}/registry/version-requests/{rq}/decide", js
      ["status"])
 
 dq = show("6 Ana POST /datasets/v2/delete {only_version}", c.post(f"{B}/datasets/{ST['v2']}/delete", json={
-    "by": "Ana", "reason": "P21 four eyes", "only_version": True, "irreproducible": True}, headers=h("Ana")), ["id", "status", "detail"])
+    "by": "Ana", "reason": "P21 four eyes", "only_version": True,
+    "irreproducible": {"reason": "P21 test of the four-eyes refusal only (withdrawn)"}}, headers=h("Ana")), ["id", "status", "detail"])
 if dq.get("id"):
     print("## 6a dataset delete decide: requester Ana and lookalikes")
     spoofs(f"/dataset-requests/{dq['id']}/decide", ANA, lambda s: {"approve": True, "by": s})
