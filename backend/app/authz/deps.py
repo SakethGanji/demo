@@ -185,9 +185,10 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
         b = await _body(request) if need_body or request.method in ("POST", "PUT", "PATCH") and \
             "application/json" in request.headers.get("content-type", "") else {}
         vals = {str(o): _value(o, request, b) for o in (*objs, *(o for _, o in also_t))}
-        # F-X3a (X3 m6): an id from the query or a JSON body is text without NUL bytes (a number reached Postgres as
+        # F-X3a (X3 m6): an id from the query or a JSON body is text without NUL bytes (F-X4a: a `node` value is
+        # "kind\x00id" by construction, from path params already checked above) (a number reached Postgres as
         # `text = smallint`, a NUL as an invalid text value): 400 before any lookup
-        bad = [o.name for o in (*objs, *(o for _, o in also_t)) if vals.get(str(o)) is not None
+        bad = [o.name for o in (*objs, *(o for _, o in also_t)) if o.kind != "node" and vals.get(str(o)) is not None
                and (not isinstance(vals[str(o)], str) or "\x00" in vals[str(o)])]
         if bad:
             raise HTTPException(400, {"code": "bad_id", "message": f"{', '.join(bad)}: an id is text (no NUL bytes)."})
