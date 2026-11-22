@@ -8,13 +8,17 @@ The key is the content hash, so an entry can never be stale; there is nothing to
 - **Filled verified:** the object is streamed into a temp file while it is hashed. A file whose sha256 is not its name
   is never renamed into place (`CacheIntegrityError`). The rename is atomic, so a reader never sees a partial file.
 - **Checked on every hit** (`ENSEMBLE_CACHE_VERIFY`):
-  - `stat` (the default): the size, mtime, ctime and inode must equal what the fill recorded. Any write, chmod or
-    utime changes the ctime, which user space cannot set back, so even a tamper that restores the mtime makes the
-    file re-hashed. A file that no longer hashes to its name is dropped and fetched again (`stats.tamper_refetch`).
+  - `stat` (the default): the size, mtime, ctime and inode must equal what **this process** recorded when it filled
+    or last re-hashed the file. Any write, chmod or utime changes the ctime, which user space cannot set back, so
+    even a tamper that restores the mtime makes the file re-hashed. A file that no longer hashes to its name is
+    dropped and fetched again (`stats.tamper_refetch`). F-X3b (X3 m9): the trusted stat record lives in process
+    memory, not in the `.meta` sidecar: the sidecar sits beside the data and could be rewritten with it, so a file
+    is re-hashed on its first use in each process (`stats.first_use_rehash`) and the sidecar only orders the LRU.
   - `always`: every hit is re-hashed. This is slow and for audits.
   - `fill`: trusted after the fill (B §6.2's original rule).
-  Only a raw-device edit (or a clock change) gets past `stat`; `always` or `POST /api/admin/lake/cache/verify` catches
-  that, and `frames.read(hash_into=…)` (the run's data gate) hashes the bytes it parses anyway.
+  Only a raw-device edit (or a clock change) made while this process runs gets past `stat`; `always` or
+  `POST /api/admin/lake/cache/verify` catches that, and `frames.read(hash_into=…)` (the run's data gate) hashes the
+  bytes it parses anyway.
 - **Size-capped LRU** (`ENSEMBLE_CACHE_MAX_GB`, 20 GB): after a fill that takes the cache over the cap, the least
   recently used entries are removed. An entry used in the last `ENSEMBLE_CACHE_PIN_S` seconds (300) is never evicted,
   because a caller may still hold its path. The cap can therefore be passed for a short time. Several processes (API,
@@ -53,10 +57,11 @@ class BlobCache:
         self.verify = verify if verify in ("stat", "always", "fill") else "stat"
         self.pin_s = float(pin_s)
         self._locks: dict[str, threading.Lock] = {}
+        self._trusted: dict[str, tuple[int, int, int, int]] = {}  # path → (size, mtime_ns, ctime_ns, ino) this process verified
         self._glock = threading.Lock()
         self.stats: dict[str, Any] = {"hits": 0, "misses": 0, "fills": 0, "fill_bytes": 0, "fill_seconds": 0.0,
                                       "evictions": 0, "evicted_bytes": 0, "rehash_on_hit": 0, "tamper_refetch": 0,
-                                      "fill_integrity_errors": 0}
+                                      "fill_integrity_errors": 0, "first_use_rehash": 0}
         self._bytes = self._scan_bytes()
 
     # -- paths -------------------------------------------------------------------------------------------------------
@@ -96,22 +101,28 @@ class BlobCache:
         self._evict(keep=p)
         return p
 
+    @staticmethod
+    def _sig(st: os.stat_result) -> tuple[int, int, int, int]:
+        return (st.st_size, st.st_mtime_ns, st.st_ctime_ns, st.st_ino)
+
     def _hit_ok(self, p: Path, sha: str) -> bool:
         if self.verify == "fill":
             return True
         try:
             st = p.stat()
-            meta = json.loads(self._meta(p).read_text())
-        except (OSError, ValueError):
-            meta, st = None, None
-        if (self.verify == "stat" and meta and st and meta.get("size") == st.st_size
-                and meta.get("mtime_ns") == st.st_mtime_ns and meta.get("ino") == st.st_ino
-                and meta.get("ctime_ns") == st.st_ctime_ns):
+        except OSError:
+            st = None
+        if self.verify == "stat" and st is not None and self._trusted.get(str(p)) == self._sig(st):
             return True
+        if st is not None and str(p) not in self._trusted:
+            self.stats["first_use_rehash"] += 1
         self.stats["rehash_on_hit"] += 1
         ok = _file_sha256(p) == sha
-        if ok and st is not None:  # a lost / stale sidecar on good bytes: re-record it
-            self._write_meta(p, p.stat())
+        self._trusted.pop(str(p), None)
+        if ok:
+            st2 = p.stat()
+            self._trusted[str(p)] = self._sig(st2)
+            self._write_meta(p, st2)  # the LRU sidecar (not trusted for integrity)
         return ok
 
     def _fill(self, p: Path, sha: str, fetch: Callable[[], BinaryIO]) -> None:
@@ -134,7 +145,9 @@ class BlobCache:
             os.replace(part, p)
         finally:
             part.unlink(missing_ok=True)
-        self._write_meta(p, p.stat())
+        st = p.stat()
+        self._trusted[str(p)] = self._sig(st)  # filled verified by this process
+        self._write_meta(p, st)
         self.stats["fills"] += 1
         self.stats["fill_bytes"] += n
         self.stats["fill_seconds"] += time.monotonic() - t0
@@ -160,6 +173,7 @@ class BlobCache:
             n = p.stat().st_size
         except OSError:
             n = 0
+        self._trusted.pop(str(p), None)
         for f in (p, self._meta(p)):
             try:
                 f.unlink()

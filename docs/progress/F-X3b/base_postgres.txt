@@ -1,0 +1,46 @@
+# Repros at the head (4839e75), Postgres 16, local store: X3 A setup.sh, joins1.sh (J1–J4), m6, pins3.sh (M9), m8.py (M8), then reg.sh (C1, M7)
+HTTP 201 ds_10effe57
+[('apps', 'new', 3000, ['app_id:VARCHAR', 'cust:VARCHAR', 'applied_on:DATE', 'applied_day:TIMESTAMP', 'x1:DOUBLE', 'y:BIGINT']), ('cust', 'new', 1100, ['cust:VARCHAR', 'score:BIGINT']), ('pays', 'new', 38594, ['pay_id:VARCHAR', 'app_id:VARCHAR', 'amount:DOUBLE', 'paid_on:DATE', 'paid_serial:BIGINT', 'paid_dmy:VARCHAR']), ('daily', 'new', 611, ['day:TIMESTAMP', 'rate:DOUBLE'])] []
+HTTP 201 apps key -> ds_36f67868
+HTTP 201 cust key -> ds_2c8db6dd
+HTTP 201 pays key -> ds_b7a64e5a
+HTTP 201 daily key -> ds_70d3bf4b
+## J1 n:1 on DATE (apps.applied_on) = TIMESTAMP (daily.day): validation passes?, coverage
+HTTP 201 [('daily', 0, 0.0, 3000, 0)]
+   control: TIMESTAMP applied_day = TIMESTAMP day
+HTTP 201 [('daily', 3000, 1.0, 0)]
+## J2 window on a BIGINT date column (Excel serial paid_serial)
+HTTP 201 {}
+HTTP 201 {'join': {'id': 'jn_f195aebd3d', 'name': 'j_serial', 'spec_version': 1, 'spec_sha256': '359d09554bf3b60fc159c40018a3864392d57c5b35087e7c80b2069c91723259'}}
+## J3 window on a text date column (dd/mm/yyyy)
+HTTP 201 {}
+HTTP 201 ('jf_4bb0a21770', 3000)
+## J4 window on DATE paid_on (boundaries, NULL dates) + skew (A00001 has 30k pays) + NULL keys
+HTTP 201 [('cust', 2735, 0.9117, 225, 40, None), ('pays', 2533, 0.8443, 467, 0, 38569)]
+## m6: POST …/joins {"version_id": 5}
+Internal Server Error 500
+## M9 (pins3.sh)
+HTTP 201 ds_4f393117
+HTTP 201 HTTP 201 join jn_e9bbdd9b46 frame jf_c06136e629 (cache 2d605ebe79d6)
+HTTP 200 usage [] ['jf_c06136e629'] []
+HTTP 201 request dsr_702830e6
+HTTP 200 approved
+HTTP 410 Dataset 'ds_4f393117' was deleted (2026-11-22T01:46:50+00:00, Ben); its lineage is kept.
+HTTP 409 {'code': 'version_deleted', 'message': "ds_4f393117 was deleted: the join can't read its table 'cust'."}
+HTTP 200 ('verify', True, [('apps', True), ('cust', True)], 'cache', True)
+HTTP 200 ('get join', 'pin_e9')
+HTTP 409 {'code': 'version_deleted', 'message': "ds_4f393117 was deleted: the join can't read its table 'cust'."}
+HTTP 409 {'code': 'version_deleted', 'message': "ds_4f393117 was deleted: the join can't read its table 'cust'."}
+## M8 (m8.py)
+1. flipped y in the apps part 18bc6c2c288a
+2. save join 201 jn_0d0031ac21
+3. POST frames while the bytes are wrong 201 jf_52e6a10cbe
+4. restored the part
+5. frame verify 200 ok True | inputs [('apps', True), ('cust', True)] | cache True | derived None None
+6. POST frames again (bytes good) 200 cached True rematerialised None None
+7. POST frames (bytes good) 200 jf_52e6a10cbe cached True
+## C1 at the head (Postgres): predict/score on join model mv_78fe48f0
+predict {'missing_columns': ['applied_day', 'x__score', 'p__n', 'p__amt90'], 'prediction': 0, 'probabilities': {'0': 0.7583903670310974, '1': 0.24160964787006378}}
+score {'n_rows': 1, 'predictions': [0], 'probabilities': [{'0': 0.7583903670310974, '1': 0.24160964787006378}], 'missing_columns': None}
+## M7 at the head (Postgres)
+HTTP 400 {'code': 'ambiguous_tables', 'message': "The model's join reads two tables with the same name; name the files by role is not supported yet."}

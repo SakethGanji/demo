@@ -1,0 +1,10 @@
+# batch_equal.sh: the X3 model mv_dbf1e70d and the X3 batch files, scored by the head code, then by the fixed code, on one data dir
+== head code
+clean batch_67b9cf1a dcdb1f3f429a57f5 rows 300
+coerce batch_ec8987a0 dd6afc77c725ede5 rows 300
+reorder batch_b417748e bcaf14134a29ff29 rows 300
+== fixed code
+clean batch_4a08b42c dcdb1f3f429a57f5 rows 300
+coerce batch_476f080e dd6afc77c725ede5 rows 300
+reorder batch_2766240b bcaf14134a29ff29 rows 300
+cmp: clean byte-equal, coerce byte-equal, reorder byte-equal

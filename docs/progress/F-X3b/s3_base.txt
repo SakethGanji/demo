@@ -1,0 +1,27 @@
+=== head (8880)
+## m9 / M8 (S3): rewrite a cached part (y flipped) and its .meta sidecar
+   tampered 18bc6c2c288a in the cache; the bucket's y mean is 0.279, the cache's 0.721
+   grid serves y = the bucket's bytes: False (200 rows)
+   GET verify: 200 {'ok': True}
+   POST frames (after the tamper): 201 {'id': 'jf_58c388a6d9', 'cached': False}
+   frame y = the bucket's bytes: False
+   frame verify: 200 {'verify': {'cache': {'recorded': 'f23eec63279dacf5c51f7a591f3a402a3acea391952f7e5385fb21c7208942a4', 'now': 'f23eec63279dacf5c51f7a591f3a402a3acea391952f7e5385fb21c7208942a4', 'ok': True}, 'inputs': [{'version_id': 'ds_b0a866ff', 'table': 'apps', 'pinned': 'c
+   cache stats {'tamper_refetch': 0, 'rehash_on_hit': 0, 'first_use_rehash': None, 'fills': 38}
+## m7: a blob deleted from the bucket (every version) and the cache
+   deleted ef71dbf36d52 (cust)
+   GET grid?table=cust: 500 Internal Server Error
+   GET rows/count?table=cust: 500 Internal Server Error
+   GET stats?table=cust: 500 Internal Server Error
+   GET manifest: 500 Internal Server Error
+   POST joins (validate reads cust): 500 Internal Server Error
+   delta /check on cust: 500 Internal Server Error
+   GET verify: 200 {'ok': False}
+## m8: a newer object version with other bytes stacked on the pays part
+   stacked version e6af2d06-0132-4a81-84b7-61d0a8ad24c5 on de93cfee89cd (pays)
+   upload pays.csv again (dedupes onto the blob): 500 Internal Server Error
+   GET grid?table=pays: 409 {'code': 'blob_integrity', 'message': 'the object store returned bytes for de93cfee89cdf44c0ed9a3557c5637ee6be99e2124287f3955da47b67fda3972.parquet whose sha256 is d225eb5b29e96c6bd9a855f8acb180b884168cba0edc7281ddc61586f6b7ef14; they were not cached (verify t
+   POST restore (no confirm): 404 Not Found
+   POST restore: 404 {'restored': None, 'matching_version': None, 'removed_versions': None}
+   upload pays.csv again: 500 Internal Server Error
+   GET grid?table=pays: 409 {'total': None, 'n_rows': None}
+   GET verify (cust still deleted): 200 {'ok': False, 'problems': ['cust part 0: missing', 'pays part 0: MISMATCH']}

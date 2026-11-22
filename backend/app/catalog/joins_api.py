@@ -138,8 +138,14 @@ async def get_frame(root_id: str, frame_id: str, request: Request, verify: int =
             except frames.FrameError as e:
                 now, rec = f"unreadable: {e}", fr["cache_blob"]
             ins = J.check_inputs(app.state.db, fr)
-            fr["verify"] = {"cache": {"recorded": fr["cache_blob"], "now": now, "ok": now == fr["cache_blob"]}, "inputs": ins,
-                            "ok": now == fr["cache_blob"] and all(x["ok"] for x in ins)}
+            cache_ok = now == fr["cache_blob"]
+            # F-X3b (M8): the cache is also rebuilt from the (good) inputs and compared: a frame built from other bytes fails
+            derived = (J.derived_check(app.state.db, app.state.lake, fr) if cache_ok and all(x["ok"] for x in ins)
+                       else {"ok": None, "summary": "not checked: the cache or an input does not verify"})
+            fr["verify"] = {"cache": {"recorded": fr["cache_blob"], "now": now, "ok": cache_ok}, "inputs": ins, "derived": derived,
+                            "ok": cache_ok and all(x["ok"] for x in ins) and derived["ok"] is True}
+            if any(x.get("state") == "deleted" for x in ins):
+                fr["verify"]["inputs_deleted"] = [x["version_id"] for x in ins if x.get("state") == "deleted"]
         with app.state.db.connect() as con:
             fr["runs"] = [dict(r) for r in con.execute(
                 "SELECT DISTINCT run_id FROM run_inputs WHERE join_frame_id = ? ORDER BY run_id", (frame_id,))]

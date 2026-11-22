@@ -104,7 +104,10 @@ def stale_owner_refs(con) -> list[str]:
         " blob_refs x JOIN uploads u ON u.id = x.owner_id WHERE x.owner_kind = 'upload' AND u.committed_version_id = d.id)"
         " OR EXISTS (SELECT 1 FROM blob_refs x JOIN splits s ON s.id = x.owner_id WHERE x.owner_kind = 'split' AND s.version_id = d.id"
         " AND NOT EXISTS (SELECT 1 FROM splits c JOIN datasets dc ON dc.id = c.version_id WHERE c.carried_from = s.id"
-        " AND COALESCE(dc.state, '') <> 'deleted'))) ORDER BY d.id")]
+        " AND COALESCE(dc.state, '') <> 'deleted'))"
+        # F-X3b (M9): a join frame that read the deleted version still holds its cache (deleted before the release)
+        " OR EXISTS (SELECT 1 FROM join_frames f JOIN blob_refs x ON x.owner_kind = 'join_frame' AND x.owner_id = f.id"
+        " AND x.role = 'cache' WHERE f.version_id = d.id OR f.inputs_json LIKE '%' || d.id || '%')) ORDER BY d.id")]
 
 
 def plan(db, store: BlobStore, *, now: datetime | None = None, hash_orphans: bool = True) -> dict[str, Any]:

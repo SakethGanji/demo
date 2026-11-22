@@ -52,6 +52,25 @@ class BlobMissing(StoreError, FileNotFoundError):
     pass
 
 
+class BlobStacked(StoreError):
+    """X3 m8: the key's current object holds other bytes (a version stacked on the original). The writer holds the
+    right bytes but may not overwrite (If-None-Match; the bucket policy). 409 `blob_stacked` with the fix path:
+    `POST /api/admin/lake/blobs/{sha}/restore` (an admin; audited) verifies the newest version whose bytes hash to
+    the key and removes the versions stacked above it, so that version is current again."""
+
+    status, code = 409, "blob_stacked"
+
+    def __init__(self, key: str, sha256: str, matching: str | None, stacked: list[dict[str, Any]]) -> None:
+        msg = (f"{key} holds other bytes (a newer object version was stacked on it), so this commit can't reuse it. "
+               + (f"Version {matching} still has the right bytes: an admin restores it with POST /api/admin/lake/blobs/"
+                  f"{sha256}/restore {{\"by\", \"confirm\": \"restore\"}}, then retry."
+                  if matching else "No version of it has the right bytes: an admin removes the object's versions with "
+                                   f"POST /api/admin/lake/blobs/{sha256}/restore (it re-puts nothing), then retry the commit."))
+        super().__init__(msg)
+        self.payload = {"code": self.code, "message": msg, "key": key, "sha256": sha256, "matching_version": matching,
+                        "stacked_versions": stacked}
+
+
 class ObjectLocked(StoreError):
     status, code = 409, "object_locked"
 
@@ -290,9 +309,73 @@ class S3BlobStore:
             raise StoreError(f"{key}: the put was refused as existing but the object is not there")
         meta = (h.get("Metadata") or {}).get("sha256")
         if int(h.get("ContentLength", -1)) != size or (meta and meta != sha256):
-            raise StoreError(f"{key} exists with other bytes (length {h.get('ContentLength')}, sha {meta}): "
-                             "verify the version (GET /api/admin/lake/verify-all)")
+            matching, stacked = self._stack(key, sha256, size)
+            raise BlobStacked(key, sha256, matching, stacked)
         return key
+
+    def _versions(self, key: str) -> list[dict[str, Any]]:
+        """Every object version of the key, newest first."""
+        k = self._k(key)
+        out: list[dict[str, Any]] = []
+        if self.versioning not in ("Enabled", "Suspended"):
+            return out
+        for page in self.client.get_paginator("list_object_versions").paginate(Bucket=self.bucket, Prefix=k):
+            out += [v for v in page.get("Versions", []) if v["Key"] == k]
+        return sorted(out, key=lambda v: (v["LastModified"], v.get("IsLatest", False)), reverse=True)
+
+    def _version_sha(self, key: str, version_id: str) -> str:
+        h = hashlib.sha256()
+        body = self.client.get_object(Bucket=self.bucket, Key=self._k(key), VersionId=version_id)["Body"]
+        try:
+            while b := body.read(8 * 1024 * 1024):
+                h.update(b)
+        finally:
+            body.close()
+        return h.hexdigest()
+
+    def _stack(self, key: str, sha256: str, size: int) -> tuple[str | None, list[dict[str, Any]]]:
+        """(the newest version whose bytes hash to sha256, the versions above it)."""
+        stacked: list[dict[str, Any]] = []
+        for v in self._versions(key):
+            if int(v.get("Size", -1)) == size and self._version_sha(key, v["VersionId"]) == sha256:
+                return v["VersionId"], stacked
+            stacked.append({"version": v["VersionId"], "bytes": int(v.get("Size", -1)), "modified": str(v.get("LastModified"))})
+        return None, stacked
+
+    def restore_stacked(self, key: str, sha256: str, *, bypass_governance: bool = True) -> dict[str, Any]:
+        """X3 m8, the fix path for `BlobStacked`: verify the newest version that hashes to `sha256` and remove every
+        version above it (under Object Lock with the governance bypass). Without a matching version every version is
+        removed (the next commit of those bytes puts them again). The read-cache file is dropped. Call it through the
+        admin route, which audits it."""
+        from botocore.exceptions import ClientError
+
+        h = self._head(key)
+        size = int(h["ContentLength"]) if h else -1
+        cur_meta = (h.get("Metadata") or {}).get("sha256") if h else None
+        vs = self._versions(key)
+        matching, above = None, []
+        for v in vs:
+            if self._version_sha(key, v["VersionId"]) == sha256:
+                matching = v["VersionId"]
+                break
+            above.append(v)
+        if matching is None and not vs and h is not None:
+            raise StoreError(f"{key}: the bucket keeps no versions, so the original bytes can't be restored")
+        removed, refused = [], []
+        for v in above:
+            try:
+                self.client.delete_object(Bucket=self.bucket, Key=self._k(key), VersionId=v["VersionId"],
+                                          **({"BypassGovernanceRetention": True} if bypass_governance else {}))
+                removed.append({"version": v["VersionId"], "bytes": int(v.get("Size", -1)), "modified": str(v.get("LastModified"))})
+            except ClientError as e:
+                refused.append({"version": v["VersionId"], "code": e.response.get("Error", {}).get("Code")})
+        p = self.cache.path(key)
+        if p.exists():
+            self.cache._drop(p)
+        if refused:
+            raise ObjectLocked(f"{key}: {len(refused)} stacked version(s) could not be removed: {refused}")
+        return {"key": key, "sha256": sha256, "matching_version": matching, "removed_versions": removed,
+                "current_before": {"bytes": size, "meta_sha256": cur_meta}, "restored": matching is not None}
 
     def _wait_existing(self, key: str, sha256: str, size: int) -> str:
         for i in range(40):
