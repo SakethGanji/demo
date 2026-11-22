@@ -1,0 +1,176 @@
+# DB: postgrespostgresql://ens@/p21e?host=/var/tmp/p21pg&port=5441
+# authz mode: enforce
+## 0a Ada POST /teams {Credit Risk} → HTTP 201 | pii 0
+    {"id": "tm_c01cbadb", "slug": "credit-risk"}
+## 0b Ada POST /teams {Collections} → HTTP 201 | pii 0
+    {"id": "tm_631b45d1", "slug": "collections"}
+## 0c Ada POST /teams {Fraud} → HTTP 201 | pii 0
+    {"id": "tm_48916ecc"}
+   members: {'tm_c01cbadb': [('Ada', 'owner'), ('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer')], 'tm_631b45d1': [('Ada', 'owner'), ('Cole', 'owner'), ('Carl', 'member')], 'tm_48916ecc': [('Ada', 'owner'), ('Fay', 'member')]}
+## 0d Ana POST /projects {PD, credit-risk} → HTTP 201 | pii 0
+    {"id": "prj_345828f7", "team_id": "tm_c01cbadb"}
+## 0e Carl POST /projects {Recoveries, collections} → HTTP 201 | pii 0
+    {"id": "prj_79b625e6", "team_id": "tm_631b45d1"}
+## 1a Ana POST /uploads/{u}/check → HTTP 200 | pii 10
+    {"blocks": [], "contract": null}
+## 1b Ana POST /uploads/{u}/commit → HTTP 201 | pii 0
+    {"version_id": "ds_d2148819", "version_no": 1}
+## 1c Ana PUT /datasets/v1/pii {confirm: suggested} → HTTP 200 | pii 0
+    {"changed": [{"column": "applicant_name", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source": "suggested"}}, {"column": "ssn", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source": "suggested"}}], "pending_review": null}
+## 1d Ana POST /datasets/v1/contract/from-version/v1 → HTTP 201 | pii 0
+    {"id": "dc_42cefb27bb", "version": 1, "active": true}
+    spec loans: {'allow_new_columns': 'warn', 'on_removed_column': 'block', 'on_type_change': 'block', 'required': True} | columns: {'age': {'nullable': False, 'type': 'int'}, 'app_id': {'nullable': False, 'type': 'string'}, 'applicant_name': {'nullable': False, 'type': 'string'}, 'income': {'nullable': False, 'type': 'int'}}
+    result on v1: pass 15 rules, 0 blocks
+## 2a Ana POST /uploads/{u2}/check (v2 without income) → HTTP 200 | pii 10
+    {"blocks": [{"code": "contract_block", "table": "loans", "column": "income", "rule": "column_present", "message": "Contract v1: Column 'income' was removed."}]}
+    contract: block contract v 1 [('column_present', 'income', 'block')]
+## 2b Ana POST /uploads/{u2}/commit → HTTP 409 | pii 0
+    {"detail": {"code": "check_blocked", "message": "The check found problems that block the commit.", "blocks": [{"code": "contract_block", "table": "loans", "column": "income", "rule": "column_present", "message": "Contract v1: Column 'income' was removed."}]}}
+## 2c Ana POST /uploads/{u3}/check (v2 with every column, +50 rows) → HTTP 200 | pii 10
+    {"blocks": []}
+    contract: pass [('loans', 'pass')]
+## 2d Ana POST /uploads/{u3}/commit → HTTP 201 | pii 0
+    {"version_id": "ds_43fd7afa", "version_no": 2, "is_default": null}
+## 2e Ana POST /datasets/v2/contract/check → HTTP 200 | pii 0
+    {"status": "pass", "n_rules": 15, "n_blocks": 0}
+    v2 contract_result: 1 pass
+## 3a Ana POST /datasets/v1/certifications {certified} → HTTP 201 | pii 0
+    {"id": "cert_47677a2011", "status": "pending", "contract_id": "dc_42cefb27bb", "requested_by": "Ana"}
+## 3b Ana POST /certifications/{c}/decide {approve} → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "data.certify_decide", "team": "tm_c01cbadb", "needed": "owner", "message": "data.certify_decide needs owner in tm_c01cbadb; you are maintainer"}}
+   3c spoof    'A.n.a' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+   3c spoof      'Anà' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+   3c spoof      'Аna' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+   3c spoof      'ANA' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+   3c spoof    'A n a' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+   3c spoof 'An\u200ba' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+   3c spoof      'Ａna' → 403 {'code': 'forbidden', 'action': 'data.certify_decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'data.certify_decide needs owner in tm_c01
+## 3d Ben POST /certifications/{c}/decide {approve} → HTTP 200 | pii 0
+    {"id": "cert_47677a2011", "status": "active", "decided_by": "Ben", "expires_at": "2027-11-22T00:19:51+00:00"}
+## 4a Ben POST /shares {v1's dataset → collections, certified} → HTTP 201 | pii 0
+    {"id": "sh_59c7d59dd2", "status": "pending", "scope": "certified", "pii": "masked", "owner_team": "tm_c01cbadb", "grantee_team": "tm_631b45d1"}
+   4b      'Ben' decides → 409 {'code': 'four_eyes', 'message': 'Four eyes: Ben is the requester, so a second person must decide. (an owner of the sharing team other than the reques
+   4b    'B.e.n' decides → 409 {'code': 'four_eyes', 'message': 'Four eyes: Ben is the requester, so a second person must decide. (an owner of the sharing team other than the reques
+   4b      'Bén' decides → 409 {'code': 'four_eyes', 'message': 'Four eyes: Ben is the requester, so a second person must decide. (an owner of the sharing team other than the reques
+   4b      'Веn' decides → 409 {'code': 'four_eyes', 'message': 'Four eyes: Ben is the requester, so a second person must decide. (an owner of the sharing team other than the reques
+   4b      'BEN' decides → 409 {'code': 'four_eyes', 'message': 'Four eyes: Ben is the requester, so a second person must decide. (an owner of the sharing team other than the reques
+## 4c Ada POST /authz/check {data.share_decide, share, principal Ana} → HTTP 200 | pii 0
+    {"allow": false, "needed": "owner", "role": "maintainer", "reason": "data.share_decide needs owner in tm_c01cbadb; you are maintainer"}
+## 4d Bo POST /shares/{s}/decide {approve} → HTTP 200 | pii 0
+    {"id": "sh_59c7d59dd2", "status": "active", "decided_by": "Bo", "scope": "certified", "pii": "masked"}
+## 5a Carl GET /datasets?root_id=<root>&limit=50 → HTTP 200 | pii 0
+    {"total": 1}
+    rows: [('v1', 'credit-risk', 'shared')]
+## 5b Carl GET /datasets/v1 → HTTP 200 | pii 0
+    {"id": "ds_d2148819", "rows": 600}
+## 5c Carl GET /datasets/v2 → HTTP 403 | pii 0
+    {"id": null, "rows": null, "detail": {"code": "forbidden", "action": "data.read_meta", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.read_meta needs viewer in tm_c01cbadb; you are not a member"}}
+## 5d Carl GET /datasets/{root}/versions/v2 → HTTP 403 | pii 0
+    {"version_id": null, "detail": {"code": "forbidden", "action": "data.read_meta", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.read_meta needs viewer in tm_c01cbadb; you are not a member"}}
+## 5e Carl GET /datasets/v1/rows?limit=2 → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "ssn"], "unmasked": false}
+    first row: {'app_id': 'A00000', 'applicant_name': '•••', 'ssn': '•••', 'income': 30000, 'age': 20, 'segment': 'retail', 'y': 1, '_row_id': 0}
+## 5f Carl GET /datasets/v1/rows?unmasked=1&reason=QA → HTTP 403 | pii 0
+    {"masked_columns": null, "unmasked": null, "unmasked_refused": null, "detail": {"code": "forbidden", "message": "data.read_unmasked needs maintainer in tm_c01cbadb; you are not a member", "action": "data.read_unmasked", "team": "tm_c01cbadb", "needed": "maintainer"}}
+## 5g Carl GET /datasets/v2/rows → HTTP 403 | pii 0
+    {"masked_columns": null, "detail": {"code": "forbidden", "action": "data.preview", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.preview needs viewer in tm_c01cbadb; you are not a member"}}
+## 5h Carl POST /runs {v1} (no project_id) → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "run.train", "team": "tm_c01cbadb", "needed": "member", "message": "run.train needs member in tm_c01cbadb; you are not a member"}}
+## 5i Carl POST /runs {v1, project_id: Ana's PD} → HTTP 403 | pii 0
+    {"id": null, "detail": {"code": "forbidden", "action": "run.train", "team": "tm_c01cbadb", "needed": "member", "message": "run.train needs member in tm_c01cbadb; you are not a member"}}
+## 5j Carl POST /runs {v2, project_id: Recoveries} → HTTP 403 | pii 0
+    {"id": null, "detail": {"code": "forbidden", "action": "data.preview", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.preview needs viewer in tm_c01cbadb; you are not a member"}}
+## 5k Carl POST /runs {v1, project_id: Recoveries} → HTTP 201 | pii 0
+    {"id": "run_b3292abe", "status": "queued", "dataset_id": "ds_d2148819"}
+    run run_b3292abe: succeeded; /runs?project_id=Recoveries → [('run_b3292abe', 'prj_79b625e6', 'collections')]
+## 5l Carl POST /datasets/v1/edit {preview} → HTTP 403 | pii 0
+    {"preview": null, "detail": {"code": "forbidden", "action": "data.version", "team": "tm_c01cbadb", "needed": "member", "message": "data.version needs member in tm_c01cbadb; you are not a member"}}
+   5m /authz/check Carl data.tag_pii     v1 → False v2 → False (data.tag_pii needs maintainer in tm_c01cbadb; you are not a member)
+   5m /authz/check Carl data.version     v1 → False v2 → False (data.version needs member in tm_c01cbadb; you are not a member)
+   5m /authz/check Carl data.contract    v1 → False v2 → False (data.contract needs maintainer in tm_c01cbadb; you are not a member)
+   5m /authz/check Carl data.certify     v1 → False v2 → False (data.certify needs maintainer in tm_c01cbadb; you are not a member)
+   5m /authz/check Carl data.share       v1 → False v2 → False (data.share needs maintainer in tm_c01cbadb; you are not a member)
+   5m /authz/check Carl data.read_meta   v1 → True  v2 → False (shared to your team tm_631b45d1 (sh_59c7d59dd2, scope certified, pii masked))
+   5m /authz/check Carl data.preview     v1 → True  v2 → False (shared to your team tm_631b45d1 (sh_59c7d59dd2, scope certified, pii masked))
+   5m /authz/check Carl data.export      v1 → True  v2 → False (shared to your team tm_631b45d1 (sh_59c7d59dd2, scope certified, pii masked))
+## 5n Ana GET /datasets/v1/usage (owner's "Used by") → HTTP 200 | pii 0
+    
+    runs: ['run_b3292abe']
+## 6a Ben POST /shares {→ fraud, scope all, pii unmasked} → HTTP 201 | pii 0
+    {"id": "sh_593cf9e9ce", "pii": "unmasked", "scope": "all"}
+## 6b Bo decides {approve} (no grant_unmasked) → HTTP 400 | pii 0
+    {"detail": {"code": "grant_unmasked_required", "message": "This share asks for PII in clear (pii='unmasked'): approve it with grant_unmasked: true to grant that explicitly, or reject it and ask for a masked share."}}
+## 6c Bo decides {approve, grant_unmasked: true} → HTTP 200 | pii 0
+    {"status": "active", "pii": "unmasked"}
+## 6d Fay GET /datasets/v2/rows?unmasked=1 (no reason) → HTTP 400 | pii 0
+    {"detail": {"code": "reason_required", "message": "An unmasked read needs a reason (2–500 characters, e.g. QA or a ticket): send reason=… (it is kept in the audit log with the columns you saw)."}}
+## 6e Fay GET /datasets/v2/rows?unmasked=1&reason=fraud case 77 → HTTP 200 | pii 2
+    {"masked_columns": [], "unmasked": true}
+    first row: {'app_id': 'A00000', 'applicant_name': 'Person0000 Example', 'ssn': '100-10-1000', 'income': 30000, 'age': 20, 'segment': 'retail', 'y': 1, '_row_id': 0}
+    credit-risk audit dataset_rows_read: [('Fay', 'fraud case 77', ['applicant_name', 'ssn'])]
+## 7a Ben POST /shares/{s}/revoke → HTTP 200 | pii 0
+    {"status": "revoked", "revoked_by": "Ben", "runs_kept": [{"id": "run_b3292abe", "status": "succeeded", "dataset_id": "ds_d2148819", "project_id": "prj_79b625e6"}]}
+## 7b Carl GET /datasets/v1 → HTTP 403 | pii 0
+    {"id": null, "detail": {"code": "forbidden", "action": "data.read_meta", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.read_meta needs viewer in tm_c01cbadb; you are not a member"}}
+## 7c Carl GET /datasets/v1/rows → HTTP 403 | pii 0
+    {"masked_columns": null, "detail": {"code": "forbidden", "action": "data.preview", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.preview needs viewer in tm_c01cbadb; you are not a member"}}
+## 7d Carl POST /runs {v1, Recoveries} → HTTP 403 | pii 0
+    {"id": null, "detail": {"code": "forbidden", "action": "data.preview", "team": "tm_c01cbadb", "needed": "viewer", "message": "data.preview needs viewer in tm_c01cbadb; you are not a member"}}
+## 7e Carl GET /runs/{rid} → HTTP 200 | pii 0
+    {"id": "run_b3292abe", "status": "succeeded", "project_id": null, "dataset_id": "ds_d2148819"}
+## 7f Ada GET /admin/lake/runs/{rid}/verify → HTTP 200 | pii 0
+    {"run_id": "run_b3292abe", "dataset_id": "ds_d2148819", "data": {"recorded": "2cb61040c20ebf1707364248f936dd562553a016e87a4d7278d43a2ed9207fde", "now": "2cb61040c20ebf1707364248f936dd562553a016e87a4d7278d43a2ed9207fde", "ok": true, "basis": "table_sha256 recomputed from the Parquet parts", "ref": {"kind": "table", "version_id": "ds_d2148819", "table": "data"}}, "split": {"recorded": "d3abdc76353baa6d830357b843a7158e85f818cbea6f575b6f1f3989bd5cbffd", "now": "d3abdc76353baa6d830357b843a7158e85f818
+## 7g Carl GET /datasets?root_id=<root> → HTTP 200 | pii 0
+    {"total": 0}
+    rows: []
+   8 tm_c01cbadb audit: {'authz_denied': 19, 'certification_approved': 1, 'certification_requested': 1, 'contract_set': 1, 'dataset_rows_read': 1, 'share_approved': 2, 'share_decide_refused': 5, 'share_requested': 2, 'share_revoked': 1}
+     verify: {'team_id': 'tm_c01cbadb', 'ok': True, 'rows': 53, 'legacy_rows': 0, 'head': '404baf1bcc580631956a799d77ebad5d2055218ffe67cd64cdeb5664a16eb1dc'}
+   8 tm_631b45d1 audit: {'share_received': 1, 'share_revoked': 1}
+     verify: {'team_id': 'tm_631b45d1', 'ok': True, 'rows': 6, 'legacy_rows': 0, 'head': '2cca128369a47cd120dabe6ffe9fb815ff72800f9ef13e03384dd6eb36830827'}
+   coverage: {'mode': 'enforce', 'uncovered': []}
+# authz mode: enforce
+## 1 Ana POST /runs {v1, PD} → HTTP 201
+    {"id": "run_8319c085"}
+## 2 Ana POST /runs/{r}/register → HTTP 202
+    {"id": "mv_7a852029", "version": 1, "status": "building"}
+    version mv_7a852029 ready pending
+## 3 registry review: registrant Ana and lookalikes
+    spoofs: 'Ana'→403 'A.n.a'→403 'Anà'→401 'Аna'→401 'ANA'→403 'A n a'→403 'An\u200ba'→401 'Ａna'→401
+    last detail: {'code': 'unauthenticated', 'action': 'model.review', 'message': 'no credentials (send X-Ensemble-Actor; sign-in comes with SSO)'}
+## 3b Rita (risk reviewer) approves the review → HTTP 200
+    {"version": {"id": "mv_7a852029", "model_name": "pd-loans", "version": 1, "run_id": "run_8319c085", "status": "ready", "
+## 4 Ana POST /projects/PD/champion → HTTP 201
+    {"id": "chp_8fe6ca7b", "status": "pending"}
+## 4a champion decide: requester Ana and lookalikes
+    spoofs: 'Ana'→403 'A.n.a'→403 'Anà'→403 'Аna'→403 'ANA'→403 'A n a'→403 'An\u200ba'→403 'Ａna'→403
+    last detail: {'code': 'forbidden', 'action': 'champion.decide', 'team': 'tm_c01cbadb', 'needed': 'owner', 'message': 'champion.decide needs owner in tm_c01cbadb; you are maintainer'}
+## 4b Ben rejects the champion → HTTP 200
+    {"status": "rejected"}
+## 5 Ana POST /registry/versions/{v}/retire → HTTP 201
+    {"id": "vrq_b720b40d", "status": "pending"}
+## 5a retire decide: requester Ana and lookalikes
+    spoofs: 'Ana'→403 'A.n.a'→403 'Anà'→403 'Аna'→403 'ANA'→403 'A n a'→403 'An\u200ba'→403 'Ａna'→403
+    last detail: Four eyes: Ana asked to retire this version, so someone else must approve, admins included (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off; names are compared on letters and digits only; names, not authenti
+## 5b Ana withdraws → HTTP 200
+    {"status": "withdrawn"}
+## 6 Ana POST /datasets/v1/delete {only_version} → HTTP 409
+    {"id": null, "status": null, "detail": {"message": "Can't delete: a version is in use. Each line below says how to clear it.", "blockers": ["pd-loans v1 (approved) was built from run run_8319c085 on ds_d2148819: retire it (Registry → the version → Retire…, POST /api/registry/versions/mv_7a852029/retire; four eyes)."]}}
+## 7 Ada POST /admin/reset-requests → HTTP 201
+    {"id": "arq_f9d5e956", "status": "pending", "detail": null}
+## 7a reset decide: requester Ada and lookalikes
+    spoofs: 'Ada'→403 'A.d.a'→403 'Аda'→403 'Adá'→403 'ADA'→403
+    last detail: Four eyes: Ada asked for this reset, so someone else must approve it (admins included).
+## 8 Ben PATCH /teams/credit-risk {policy: require_certified_inputs approved_for_model} → HTTP 200
+    {"policy": {"require_certified_inputs": "approved_for_model"}}
+## 8a Ben → Production → HTTP 409
+    {"detail": {"code": "inputs_not_certified", "message": "The team policy require_certified_inputs asks for approved_for_model input versions; not certified: ds_d2148819 (loans).", "missing": [{"version_id": "ds_d2148819", "tables": ["loans"], "certification": null}], "policy": {"required": "approved_for_model", "levels": ["approved_for_model"], "inputs": [{"version_id": "ds_d2148819", "tables": ["loans"], "certification": null}]}}}
+## 8b Ana requests approved_for_model on v1 → HTTP 201
+    {"id": "cert_6c43aa9e1c", "status": "pending"}
+## 8c /authz/check Ben data.certify_decide_model → HTTP 200
+    {"allow": false, "needed": "risk_reviewer", "role": "owner"}
+## 8d Rita decides approved_for_model → HTTP 200
+    {"status": "active", "level": "approved_for_model", "decided_by": "Rita"}
+## 8e Ben → Production → HTTP 200
+    {"audit": {"id": 159, "ts": "2026-11-22T00:21:28+00:00", "actor": "Ben", "action": "stage_changed", "model_name": "pd-loans", "version": 1, "version_id": "mv_7a852029", "run_id": "run_8319c085", "from_stage": "None", "to_stage": "Production", "comment": "", "model_hash": "bc58a8b2e2e61965debd0654ff808a6a7d9425e570ff715c277b99228ddb1ed6", "details": {"open_critical": ["Is 'age' known at the moment the decision is made? The Doctor flags it (dominant + hint, 100% of the importance; leakage critical); if it is recorded after the outcome the score is a leak."], "override_reason": "P21 chain: the leak check was reviewed by hand", "self_promotion": false, "registered_by": "Ana", "input_certifications": {"required": "approved_for_model", "levels": ["approved_for_model"], "inputs": [{"version_id": "ds_d2148819", "tables": ["loans"], "certification": {"id": "cert_6c43aa9e1c", "level": "approved_fo
+    stage Production | result.input_certifications: {"required": "approved_for_model", "levels": ["approved_for_model"], "inputs": [{"version_id": "ds_d2148819", "tables": ["loans"], "certification": {"id": "cert_6c43aa9e1c", "level": "approved_for_model", "decided_by": "Rita", "decided_at": "2026-11-22T00:21:28+00:00", "expires_at": "2027-11-22T00:21:28+00:00", "contract_id": "dc_42cefb27bb"}}], "checked_at": "2026-11-22T00:21:28+00:00"}
+tracebacks: 0 | HTTP 500: 0
