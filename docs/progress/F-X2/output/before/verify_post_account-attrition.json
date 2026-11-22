@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "account-attrition",
+    "now": "ab3bd74cdf9950ec79113caa9efcbd241de48c3b121782c284429efec894775c",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "ab3bd74cdf9950ec79113caa9efcbd241de48c3b121782c284429efec894775c",
+    "v": 1
+   }
+  ],
+  "root_id": "account-attrition"
+ },
+ "status": 200
+}

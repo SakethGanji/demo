@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "transaction-volume",
+    "now": "d5f705f43d28509598916ab877de289507964ce4166a88ce50146741c4a6099d",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "d5f705f43d28509598916ab877de289507964ce4166a88ce50146741c4a6099d",
+    "v": 1
+   }
+  ],
+  "root_id": "transaction-volume"
+ },
+ "status": 200
+}

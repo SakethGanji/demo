@@ -1,0 +1,81 @@
+{
+ "body": {
+  "B": 1000,
+  "a": {
+   "dataset_id": "ds_ef1e4815",
+   "eval_metric": "accuracy",
+   "holdout_rows": 160,
+   "holdout_score": 0.69375,
+   "id": "run_26ee79d9",
+   "kind": "run",
+   "label": "accounts v1",
+   "predictor_state": "present",
+   "problem_type": "binary",
+   "root_id": "ds_ef1e4815",
+   "run_id": "run_26ee79d9",
+   "target": "y"
+  },
+  "auc": {
+   "a": 0.46559325282729536,
+   "b": 0.48399463293080314,
+   "delta": 0.01840138010350778,
+   "note": "alongside, no CI"
+  },
+  "b": {
+   "dataset_id": "ds_f37c4091",
+   "eval_metric": "accuracy",
+   "holdout_rows": 158,
+   "holdout_score": 0.7088607594936709,
+   "id": "run_b6a5d93b",
+   "kind": "run",
+   "label": "accounts v2 head",
+   "predictor_state": "present",
+   "problem_type": "binary",
+   "root_id": "ds_ef1e4815",
+   "run_id": "run_b6a5d93b",
+   "target": "y"
+  },
+  "ci": [
+   -0.01898734177215189,
+   0.044303797468354444
+  ],
+  "delta": 0.012658227848101222,
+  "excludes_zero": false,
+  "label": "paired on 158 of 160 rows (holdouts differ)",
+  "labels_same": true,
+  "level": 0.95,
+  "method": "paired bootstrap, B = 1000, percentile 95 % CI, rows resampled together",
+  "metric": "accuracy",
+  "metric_key": "accuracy",
+  "overlap": {
+   "n_a": 160,
+   "n_b": 158,
+   "n_common": 158,
+   "rule": "overlap = rows in both holdouts / the larger holdout (by __row_id); a paired \u0394 needs \u2265 50 %",
+   "same_holdout": false,
+   "share": 0.9875,
+   "text": "paired on 158 of 160 rows (holdouts differ)"
+  },
+  "paired": true,
+  "partial": true,
+  "roots": {
+   "a": {
+    "how": "is the root",
+    "root": "ds_ef1e4815"
+   },
+   "b": {
+    "how": "root_rows",
+    "root": "ds_ef1e4815"
+   }
+  },
+  "rows": 158,
+  "rows_a": 160,
+  "rows_b": 158,
+  "same_rows": false,
+  "score_a": 0.6962025316455697,
+  "score_b": 0.7088607594936709,
+  "sign": "\u0394 = b \u2212 a, better is positive",
+  "verdict": "no difference beyond noise"
+ },
+ "status": 200
+}

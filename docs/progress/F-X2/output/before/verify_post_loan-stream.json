@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "loan-stream",
+    "now": "cb1158fbd431343e46a08bde4f0b8f3cf9eb65fad65c7648904b2416511d9cab",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "cb1158fbd431343e46a08bde4f0b8f3cf9eb65fad65c7648904b2416511d9cab",
+    "v": 1
+   }
+  ],
+  "root_id": "loan-stream"
+ },
+ "status": 200
+}

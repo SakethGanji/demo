@@ -1,0 +1,40 @@
+M4 (outside change e: pre-DL4 split of loans v1, no recorded hash)
+  L1 ds_18c0260f: storage=csv lake_migrations={'status': 'skipped', 'reason': 'split_conflict'}
+      A split file of ds_18c0260f contradicts the evidence kept of it: splits/random-stratified__y-95cb0bfd.json: run run_42abff2f's holdout_predictions.csv names 1 row(s) the file does not hold out (5). It is not migrated, so a person can decide which is right (restore the file, POST …/restore-splits, or from a backup); a later run of the job picks it up.
+M5 (c: split JSON + split_files.sha256 of accounts v3; f: data.csv + datasets hashes of loans relabel)
+  A3 ds_877f080f: storage=csv lake_migrations={'status': 'skipped', 'reason': 'split_conflict'}
+      A split file of ds_877f080f contradicts the evidence kept of it: splits/random-stratified__y-95cb0bfd.json: the copy recorded when it was drawn hashes to 9ab1909af92b…, not the recorded 55b5e7f67f04… (split_files was changed outside the app); splits.json: the copy recorded when it was drawn hashes to 9ab1909af92b…, not the recorded 55b5e7f67f04… (split_files was changed outside the app). It is not migrated, so a pers
+  LR ds_088264c3: storage=csv lake_migrations={'status': 'skipped', 'reason': 'data_conflict'}
+      The stored hash of ds_088264c3 contradicts its audit trail: audit row #27 (dataset_version_created) recorded 2aceec23f519… when it was made, the database holds 07b945de4979… now. The database was changed outside the app; it is not migrated. Restore the file and the hash from a backup, or adopt the file as a new version (POST …/adopt-disk-file).
+DL3/DL4 (a: data of churn v1)
+  C1 ds_d2926b37: storage=csv lake_migrations={'status': 'skipped', 'reason': 'data_changed'}
+      data.csv of ds_d2926b37 differs from the hash stored when it was made (b3688d99101e… then, 4a88e42badb7… now): it is not migrated. Restore the file (POST …/verify names it), or adopt it as a new version (POST …/adopt-disk-file).
+M2 (Feature Lab job records)
+  GET /datasets/ds_cea09414/feature-lab → 1 job(s): ['fl_c2429ac5']
+  ds_cea09414/featurelab/fl_c2429ac5.json: blob ['legacy_json'], refs ['legacy_json:featurelab/fl_c2429ac5.json']
+  ds_cea09414.migrated/featurelab/fl_c2429ac5.json: blob ['legacy_json'], refs ['legacy_json:featurelab/fl_c2429ac5.json']
+M3 (the deleted version's split)
+  split_files splits.json 82fe5512a3c3…: blob ['legacy_json'], Parquet split ['spl_d395af8d5d61']
+  split_files splits/random-stratified__y-95cb0bfd.json 82fe5512a3c3…: blob ['legacy_json'], Parquet split ['spl_d395af8d5d61']
+  run run_0c84a824: run_inputs [{'split_id': 'spl_d395af8d5d61', 'split_legacy_sha256': '82fe5512a3c32d7a2c6a37d97168f9d6df5c3b2f0c1a1acb5e115c58fc4d066a'}], pins ['legacy_json', 'split']
+  GET /admin/lake/runs/run_0c84a824/verify → ok=None deleted=True split={"recorded": "82fe5512a3c32d7a2c6a37d97168f9d6df5c3b2f0c1a1acb5e115c58fc4d066a", "now": "82fe5512a3c32d7a2c6a37d97168f9d6df5c3b2f0c1a1acb5e115c58fc4d066a", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_d395af8d5d61", "recorded": "feaf2745e81
+  POST /datasets/ds_f661a015/verify → {"root_id": "ds_874aaf2d", "results": [{"id": "ds_f661a015", "v": 2, "ok": null, "status": "deleted (tombstone)", "stored": "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728"}], "ok": true}
+M6 (SQL refresh, no row map)
+  GET /datasets/diff a=Q1 b=Q2 → method=row_id identical=True rows={'matched': 3000, 'added': 0, 'removed': 0, 'changed': 0}
+  GET /datasets/diff a=Q1 b=Q3 → method=row_id identical=True rows={'matched': 3000, 'added': 0, 'removed': 0, 'changed': 0}
+Every run: GET /admin/lake/runs/{id}/verify
+  run_42abff2f on ds_18c0260f (succeeded): ok=True data=True split=None split_id=[]
+  run_2ce3ed0d on ds_ce0294a5 (succeeded): ok=True data=True split=None split_id=['spl_3bc99f60c622']
+  run_b4485d5d on ds_d2926b37 (succeeded): ok=False data=False split=None split_id=[]
+  run_26ee79d9 on ds_ef1e4815 (succeeded): ok=True data=True split=True split_id=['spl_f9a6d459a6ed']
+  run_28b4d573 on ds_f37c4091 (succeeded): ok=True data=True split=True split_id=['spl_092ea1eab193']
+  run_5277853c on ds_5c0ba101 (succeeded): ok=True data=True split=True split_id=['spl_7eba29cfcfe2']
+  run_0c84a824 on ds_f661a015 (succeeded): ok=None data=None split=True split_id=['spl_d395af8d5d61']
+  run_b6a5d93b on ds_f37c4091 (succeeded): ok=True data=True split=True split_id=['spl_092ea1eab193']
+  run_20f95e49 on ds_275a54bb (succeeded): ok=True data=True split=True split_id=['spl_46fe3f97743d']
+  run_fa0ba5c5 on ds_350f0c16 (succeeded): ok=True data=True split=True split_id=['spl_682f6875621a']
+  run_7f7f3cc8 on ds_ba3bbde4 (succeeded): ok=True data=True split=True split_id=['spl_dfeb9d8982a7']
+m1 L1 flag: dtype=object missing=21 kinds=['float'] astype(str) of a missing cell=['nan']
+m1 L2 flag: dtype=object missing=18 kinds=['float'] astype(str) of a missing cell=['nan']
+m1 LR flag: dtype=object missing=21 kinds=['float'] astype(str) of a missing cell=['nan']
+M4 rL1: no split_id (version not migrated); holdout_predictions 120 rows

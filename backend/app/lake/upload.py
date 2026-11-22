@@ -448,6 +448,12 @@ def check(db, store, up: str, dstore: Any = None) -> dict[str, Any]:
                 out["sheets"] = sheet_notes
             if plan.get("parent_version_id"):
                 out["next_version"] = _check_next(db, store, dstore, tmp, out, plan)
+                if any(c["name"] == "_op" for c in out["tables"][0]["schema"]):  # P13: not applied unless the plan says
+                    tn = out["tables"][0]["name"]
+                    out["warnings"].append({"code": "looks_like_delta", "table": tn,
+                                            "message": f"The file has an _op column, so it may be a delta: as it stands it "
+                                                       f"replaces the table and _op becomes a column. To apply it by key, PATCH "
+                                                       f"{{table: '{tn}', tables: {{{tn}: {{action: 'delta', key: [...]}}}}}}."})
         else:
             out = _check_multi(db, store, dstore, tmp, srcs, sheet_notes, plan, u["team_id"])
         out.update(upload_id=up, plan_sha256=_plan_sha(plan), seconds=round(time.time() - t0, 2))
@@ -1164,13 +1170,15 @@ def _parent_keys(db, parent: "_Parent") -> list[dict[str, Any]]:
 
 # --------------------------------------------------------------------------- P12: several tables (files, Excel sheets)
 
-ACTIONS = ("new", "rewrite", "append", "carry", "drop", "skip")
+ACTIONS = ("new", "rewrite", "append", "delta", "carry", "drop", "skip")
 
 
 def _parse_tables_plan(v: Any) -> dict[str, dict[str, Any]]:
     """PATCH {tables: {name: {action?, types?, formats?, match?, key?}}}: what happens to each table. `action` for an
     uploaded table: new | rewrite (match it to the parent's table, P06) | append (its rows added to the parent's) |
-    skip (leave it out); for a parent table not uploaded: carry (the default) | drop."""
+    delta (P13, §5.6: insert / update / delete rows of the parent's table by `key`, from the `op_column`, default
+    `_op`, mapped by `ops`; a new column needs `allow_new_columns`) | skip (leave it out); for a parent table not
+    uploaded: carry (the default) | drop."""
     from ..dataset_versions import parse_match
 
     if v is None:
@@ -1184,10 +1192,10 @@ def _parse_tables_plan(v: Any) -> dict[str, dict[str, Any]]:
         spec = spec or {}
         if not isinstance(spec, dict):
             raise LakeError(400, "bad_plan", f"tables.{name} is an object.")
-        unknown = set(spec) - {"action", "types", "formats", "match", "key"}
+        unknown = set(spec) - {"action", "types", "formats", "match", "key", "op_column", "ops", "allow_new_columns"}
         if unknown:
             raise LakeError(400, "bad_plan", f"tables.{name}: unknown field(s) {sorted(unknown)}; use action, types, formats, "
-                                             "match, key.")
+                                             "match, key (and op_column, ops, allow_new_columns for a delta).")
         e: dict[str, Any] = {}
         if spec.get("action") is not None:
             a = str(spec["action"]).strip().lower()
@@ -1215,6 +1223,19 @@ def _parse_tables_plan(v: Any) -> dict[str, dict[str, Any]]:
             if not isinstance(k, list) or not k or not all(isinstance(c, str) and c for c in k):
                 raise LakeError(400, "bad_key", f"tables.{name}.key is a column or a list of columns.")
             e["key"] = list(k)
+        if spec.get("op_column") is not None:  # P13: a delta's operation column (default _op)
+            if not isinstance(spec["op_column"], str) or not spec["op_column"].strip():
+                raise LakeError(400, "bad_plan", f"tables.{name}.op_column is a column name.")
+            e["op_column"] = spec["op_column"].strip()
+        if spec.get("ops") is not None:
+            from ..dataset_versions import parse_op_map
+
+            try:
+                e["ops"] = parse_op_map(spec["ops"])
+            except ValueError as ex:
+                raise LakeError(400, "bad_plan", f"tables.{name}.{ex}") from None
+        if spec.get("allow_new_columns") is not None:
+            e["allow_new_columns"] = bool(spec["allow_new_columns"])
         out[name.strip()] = e
     return out
 
@@ -1276,7 +1297,7 @@ def _sources(tmp: Path, files: list[dict[str, Any]], plan: dict[str, Any]) -> tu
         is_x = bool(re.search(r"\.(xlsx|xlsm|xls)$", name, re.I)) or (
             head[:2] == b"PK" and not re.search(r"\.(csv|tsv|txt|parquet)$", name, re.I))
         if not is_x:
-            t = _table_name({}, name) if len(files) > 1 or ptables else _table_name(plan, name)
+            t = _table_name({}, name) if len(files) > 1 else _table_name(plan, name)  # P13: one file may name its table
             if (ptables.get(t) or {}).get("action") == "skip":
                 sheets.append({"file": name, "table": t, "skipped": "left out by the plan (action skip)"})
                 continue
@@ -1384,7 +1405,7 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
             tb.append({"code": "bad_action", "message": f"Table '{name}' is in the upload: its action is new, rewrite, append or "
                                                         "skip (carry / drop are for the parent's tables you did not upload)."})
             act = "rewrite" if name in ptabs else "new"
-        if act in ("rewrite", "append") and name not in ptabs:
+        if act in ("rewrite", "append", "delta") and name not in ptabs:
             tb.append({"code": "table_not_in_parent", "message": f"Table '{name}' is not in the parent version"
                                                                  f"{' ' + pvid if pvid else ' (this is a new dataset)'}: "
                                                                  f"it can only be new, not {act}."})
@@ -1395,7 +1416,7 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
         top = name == (plan.get("primary_table") or names[0])  # top-level types / formats apply to the first (primary) table
         tplan = {"table": name, "types": pt.get("types") or (plan.get("types") if top else None),
                  "formats": pt.get("formats") or (plan.get("formats") if top else None)}
-        soft = {c["name"]: _norm_type(c["type"]) for c in ptabs[name]["schema"]} if act == "append" else None
+        soft = {c["name"]: _norm_type(c["type"]) for c in ptabs[name]["schema"]} if act in ("append", "delta") else None
         try:
             r = _check_file(db, tmp, s_["f"], tplan, team_id, typed_name=f"typed.{i}.parquet", sep=s_.get("sep"), soft_types=soft)
         except LakeError as e:
@@ -1425,6 +1446,8 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
                                                                  f"{', '.join(bad)}."})
             t["append"] = {"parent_rows": ptabs[name]["n_rows"], "rows_added": t["n_rows"],
                            "rows_after": ptabs[name]["n_rows"] + t["n_rows"]}
+        if act == "delta":  # P13 (§5.6): the key, the columns and types; the counts come from the parent below
+            t["delta"] = _delta_check(name, pt, ptabs[name], t, tb)
         warnings += [{**w_, "table": name} for w_ in r["warnings"]]
         blocks += [{**b_, "table": name} for b_ in tb]
         notes += [f"{name}: {n}" for n in r["notes"]]
@@ -1459,7 +1482,14 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
     con = duck.connect("job", **_duck_kw())
     keys_out, rels_out, sugg = [], [], []
     try:
-        rel = {n: _rel_sql(db, tmp, pvid, by_name.get(n), n) for n in final
+        delta_rel: dict[str, str] = {}
+        for i, t in enumerate(tables):  # P13: each delta applied to its parent table (counts, warnings, the result)
+            if t["action"] == "delta" and t.get("typed"):
+                d, par, allow = _delta_for(db, store, dstore, con, pvid, t, tmp, ptables.get(t["name"]) or {}, f"_dl{i}")
+                t["delta"].update(d.counts, mode=d.mode(allow))
+                warnings += [{**x, "table": t["name"]} for x in d.warnings()]
+                delta_rel[t["name"]] = f"({d.result_sql(par.next_row_id(db), allow)})"
+        rel = {n: delta_rel.get(n) or _rel_sql(db, tmp, pvid, by_name.get(n), n) for n in final
                if n not in by_name or by_name[n].get("typed")}
         cols_of = {n: [c["name"] for c in (by_name[n]["schema"] if n in by_name else ptabs[n]["schema"])] for n in final}
         for n, spec in ptables.items():
@@ -1511,6 +1541,65 @@ def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheet
                                            "(one rewritten table: the bare {method, …} works too), or tables.<t>.match in "
                                            "the plan."}
     return out
+
+
+def _delta_check(name: str, spec: dict[str, Any], ptab: dict[str, Any], t: dict[str, Any], tb: list[dict[str, Any]]) -> dict[str, Any]:
+    """P13: a delta table's key (the plan's `key`, else the parent table's confirmed key: 400 delta_key_required when
+    neither), its columns against the parent's (a type change blocks; a new column blocks unless allow_new_columns)."""
+    from ..dataset_versions import DELTA_OP_COLUMN
+
+    key, src = spec.get("key"), "plan"
+    if not key and ptab.get("keys"):
+        key, src = ptab["keys"][0], "parent"
+    if not key:
+        raise LakeError(400, "delta_key_required", f"A delta of '{name}' is applied by key, and '{name}' has no confirmed key: "
+                                                   f"name it in the plan (tables: {{{name}: {{action: delta, key: [...]}}}}) "
+                                                   f"or declare one first (PUT …/tables/{name}/key).", table=name)
+    opc = spec.get("op_column") or DELTA_OP_COLUMN
+    ptype = {c["name"]: _norm_type(c["type"]) for c in ptab["schema"]}
+    fcols = [c for c in t["schema"] if c["name"] != opc]
+    bad = [f"{c['name']} ({c['type']}, the table has {ptype[c['name']]})" for c in fcols
+           if c["name"] in ptype and _norm_type(c["type"]) != ptype[c["name"]]]
+    if bad:
+        tb.append({"code": "delta_type", "message": f"These columns of the delta of '{name}' do not read as the table's types: "
+                                                    f"{', '.join(bad)}."})
+    new = [c["name"] for c in fcols if c["name"] not in ptype]
+    if new and not spec.get("allow_new_columns"):
+        tb.append({"code": "delta_new_columns", "columns": new,
+                   "message": f"The delta of '{name}' has column(s) the table does not: {', '.join(new)}. Send "
+                              f"tables.{name}.allow_new_columns = true to add them (existing rows get missing values), or "
+                              "drop them from the file."})
+    return {"key": list(key), "key_from": src, "op_column": opc if any(c["name"] == opc for c in t["schema"]) else None}
+
+
+def _delta_for(db, store, dstore, con, pvid: str, t: dict[str, Any], tmp: Path, spec: dict[str, Any], tag: str):
+    """(Delta classified on `con`, the parent table, allow_new_columns); a refusal is a 400 (duplicate keys listed)."""
+    from ..dataset_versions import Delta
+
+    name = t["name"]
+    par = _Parent(db, store, dstore, pvid, name)
+    d = Delta(con, par.sql, _new_sql(tmp / t["typed"]), t["delta"]["key"], op_column=spec.get("op_column"),
+              op_map=spec.get("ops"), tag=tag, holdout_ids=par.holdout_ids)
+    prob = d.problems()
+    if prob:
+        if prob.get("keys"):
+            _mask_keys(db, par.root, name, prob["columns"], prob["keys"])
+        raise LakeError(400, prob["code"], f"Delta of '{name}': {prob['message']}", table=name,
+                        **{k: v for k, v in prob.items() if k not in ("code", "message")})
+    d.classify()
+    return d, par, bool(spec.get("allow_new_columns"))
+
+
+def _mask_keys(db, root: str, table: str, cols: list[str], keys: list[dict[str, Any]]) -> None:
+    """Key values listed in a refusal, masked where the column is PII-tagged (§6.3), like _mask."""
+    from . import mask as MK
+
+    with db.connect() as con:
+        tags = {r[0]: r[1] for r in con.execute(
+            "SELECT column_name, mask FROM column_tags WHERE root_id = ? AND table_name = ? AND mask <> 'none'", (root, table))}
+        salt = MK.team_salt(con, MK.root_and_team(con, root)[1]) if tags else ""
+    for k in keys:
+        k["value"] = [MK.mask_value(v, tags[c], salt) if c in tags else v for c, v in zip(cols, k["value"])]
 
 
 def _key_stats(con, rel: str, cols: list[str]) -> dict[str, Any]:
@@ -1620,6 +1709,7 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
                       duck_kw=_duck_kw())
     recs: dict[str, Any] = {}
     contracts: dict[str, Any] = {}
+    deltas: dict[str, Any] = {}
     warns = [{k: v for k, v in x.items() if k != "examples"} for x in chk.get("warnings") or []]
     with w:
         done = w.committed_for_job()
@@ -1661,6 +1751,9 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
                         if par.split else None
                     if sr:
                         w.extra_ops.append(no_floats({"op": "split_carried", "table": n, **sr}))
+            elif t["action"] == "delta":  # P13 (§5.6): insert-only → an append part; otherwise the table is rewritten
+                deltas[n] = _write_delta(w, db, store, dstore, pvid, t, tmp, ptables.get(n) or {}, f"_dlc{len(deltas)}",
+                                         reasons, by)
             else:  # rewrite
                 par = _Parent(db, store, dstore, pvid, n)
                 m = dict(matches[n])
@@ -1704,9 +1797,57 @@ def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], pla
         store.remove_tmp(tmp)
     res = _version(db, vid, up, out)
     res.update(matches=recs, warnings=warns, deduped=out.get("deduped"))
+    if deltas:
+        res["deltas"] = deltas
     if contracts:
         res["contract"] = contracts
     return res, created
+
+
+def _write_delta(w, db, store, dstore, pvid: str, t: dict[str, Any], tmp: Path, spec: dict[str, Any], tag: str,
+                 reasons: dict[str, str], by: str) -> dict[str, Any]:
+    """P13: one delta table written (§5.6), classified again on the writer's connection (the parent is immutable, so
+    the counts are the check's). Nothing changes → carried (with its splits); insert-only (no deletes, no update that
+    changes a value, no new column) → one `append` part, the parent's parts reused; otherwise → rewritten: kept rows
+    and updated rows keep their `__row_id` (so their holdout folds carry by join), inserted rows get new ids from the
+    root counter in file order. The parent's keys are checked again."""
+    from .. import config as _cfg
+    from . import splitstore as SS
+    from .derive import no_floats
+
+    n = t["name"]
+    d, par, allow = _delta_for(db, store, dstore, w.con, pvid, t, tmp, spec, tag)
+    c, mode = d.counts, d.mode(allow)
+    start = None
+    if mode == "carry":
+        w.carry(n)
+        w.carry_splits(n)
+    elif mode == "append":
+        base = w._parent_table(n)
+        start = reserve_row_ids(db, w.root_id, n, (base.row_id_max if base.row_id_max is not None else -1) + 1, c["inserted"])
+        w.append(n, d.insert_sql(start), source_file=t["source_file"])
+    else:
+        nxt = par.next_row_id(db)
+        start = reserve_row_ids(db, par.root, n, nxt, c["inserted"]) if c["inserted"] else nxt
+        w.write(n, d.result_sql(start, allow), reasons=reasons, source_file=t["source_file"])
+        cols = set(d.ptypes) | (set(d.new_cols) if allow else set())
+        for k in _parent_keys(db, par):
+            if all(x in cols for x in k["columns"]):
+                w.key(n, k["columns"], kind=k["kind"], declared_by=k["declared_by"])
+    if mode != "carry":
+        k = w.key(n, d.key, kind="primary", declared_by=by)  # the key the delta was applied by is a confirmed key
+        if not k["valid"]:
+            raise LakeError(400, "key_invalid", f"After the delta, {', '.join(d.key)} is not a key of '{n}': "
+                                                f"{k['n_duplicates']:,} repeated, {k['n_nulls']:,} missing.", table=n)
+        if par.split:  # the holdout: kept / updated rows keep their folds by __row_id, new rows get the seeded share
+            sr = SS.carry_into(w, n, par.ids, par.split, _cfg.HOLDOUT_SHARE,
+                               target_in_child=par.target in (set(d.ptypes) | set(d.new_cols)), parent_vid=pvid)
+            if sr:
+                w.extra_ops.append(no_floats({"op": "split_carried", "table": n, **sr}))
+    rec = {"mode": mode, "change": w.tables[n].change, **c, **({"first_row_id": int(start)} if start is not None and c["inserted"] else {}),
+           "source_file": t["source_file"], "applied_by": by}
+    w.extra_ops.append(no_floats({"op": "delta", "table": n, **rec}))
+    return rec
 
 
 def _keep_source(db, store, src: Path, f: dict[str, Any], up: str, vid: str) -> None:

@@ -1,0 +1,12 @@
+during_job: {"QE": "{\"detail\":\"ds_d2cd260e was made before row maps (a SQL refresh or a monitoring window): its rows have no ids to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches them to its parent's rows. Edit it after that, or edit its parent.\"}", "AE": "ds_413224bf", "rL1c": "run_d4e6c1be", "LE": "ds_958edd13", "rA3c": "run_58cb305b", "rL1c_status": "succeeded", "rL1c_error": "", "rA3c_status": "succeeded", "rA3c_error": ""}
+rL1c run_d4e6c1be: verify ok=True data=True split={"recorded": "73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564", "now": "73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_62ef485b0692", "recorded": "0f5e3905970
+   run_inputs: [('ds_18c0260f', 'spl_62ef485b0692', None, '73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564', 'engine_v1')]
+   pins: ['legacy_csv', 'legacy_json', 'split']
+rA3c run_58cb305b: verify ok=True data=True split={"recorded": "66430aed6c884a9996916c8d9ec65274a966eddf67c6107818d03707184abef2", "now": "66430aed6c884a9996916c8d9ec65274a966eddf67c6107818d03707184abef2", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_892a6c563455", "recorded": "d112571abc9
+   run_inputs: [('ds_877f080f', 'spl_892a6c563455', None, '66430aed6c884a9996916c8d9ec65274a966eddf67c6107818d03707184abef2', 'engine_v1')]
+   pins: ['legacy_csv', 'legacy_json', 'split']
+ds_877f080f.migrated/splits/random-stratified__active-2bb6b986.json 66430aed6c88 blob: ['legacy_json'] split row: ['spl_892a6c563455'] view of: None
+ds_877f080f.migrated/splits/random-stratified__y-95cb0bfd.json 9ab1909af92b blob: ['legacy_json'] split row: ['spl_6f67d9d24929'] view of: None
+ds_877f080f/splits/random-stratified__active-2bb6b986.json 69577c91ce6d blob: [] split row: [] view of: spl_892a6c563455
+ds_877f080f/splits/random-stratified__y-95cb0bfd.json 44166ac1e04b blob: [] split row: [] view of: spl_6f67d9d24929
+lake_migrations A3: [('migrated', None, 1)]
