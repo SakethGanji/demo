@@ -47,8 +47,12 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.waitForSelector(tid('labels-tab'), { timeout: 30000 })
   }
 
+  // set-up by API (what the Governance card does): tag ticket_id as direct PII, so the LLM screen shows an exclusion
+  const tag = await fetch(`${api}/datasets/${ROOT}/pii`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Ensemble-Actor': 'Ana' },
+    body: JSON.stringify({ by: 'Ana', columns: [{ column: 'ticket_id', tag: 'pii_direct', mask: 'hash' }] }) })
+  console.log('PUT pii ticket_id →', tag.status)
   await p.goto(`${ui}/`)
-  await p.evaluate(() => { localStorage.setItem('ensemble.actor', 'Ana') })
+  await p.evaluate(() => { localStorage.setItem('ensemble.actor', 'Ana'); for (const k of Object.keys(localStorage)) if (k.startsWith('ensemble.labels.llmRuns')) localStorage.removeItem(k) })
   await open()
   const labelled = []
 
@@ -73,9 +77,9 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.fill(tid('lbl-task-n'), '40')
     await p.click(tid('lbl-task-next'))
     await p.click(tid('lbl-person-add'))
-    await p.fill(tid('lbl-person-1'), 'Gus')
-    await p.locator(`${tid('lbl-task-people')} input[type=checkbox]`).nth(1).check()
+    await p.fill(tid('lbl-person-2'), 'Gus')  // no role in the team: joins as a guest
     await p.fill(tid('lbl-task-gold'), '3 = Billing\n7 = Technical\n11 = Shipping')
+    await p.locator(`${tid('lbl-task-calib')} input[type=number]`).fill('400')
     await shot('02-task-setup-people-gold', tid('lbl-task-setup'))
     await p.click(tid('lbl-task-create'))
     await p.waitForSelector(tid('lbl-tasks'), { timeout: 60000 })
@@ -110,24 +114,34 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.waitForSelector(tid('lbl-open-llm'))
     await p.click(tid('lbl-open-llm'))
     await p.waitForSelector(tid('lbl-llm'))
-    if (await p.locator(tid('lbl-llm-edit')).isEnabled()) {
-      await p.click(tid('lbl-llm-edit'))
-      await p.click(tid('lbl-llm-save'))
-      await p.waitForTimeout(1500)
+    await p.waitForTimeout(1500)
+    console.log('destination before:', (await p.locator(tid('lbl-llm-dest')).innerText()).replace(/\s+/g, ' '))
+    if (await p.locator(tid('lbl-llm-off')).count()) {
+      await shot('07-llm-off', tid('lbl-llm-off'))
+      await p.click(tid('lbl-llm-enable'))
+      await p.waitForFunction(() => /fake/.test(document.querySelector('[data-testid="lbl-llm-dest"]')?.textContent ?? ''), null, { timeout: 15000 })
     }
     console.log('destination:', (await p.locator(tid('lbl-llm-dest')).innerText()).replace(/\s+/g, ' '))
+    await p.click(tid('lbl-llm-edit'))
+    await p.click(tid('lbl-llm-save'))
+    await p.waitForFunction(() => /v1/.test(document.querySelector('[data-testid="lbl-llm-prompt"]')?.textContent ?? ''), null, { timeout: 15000 })
+    await p.click(tid('lbl-llm-preview'))
+    await p.waitForSelector(tid('lbl-llm-preview-rows'), { timeout: 60000 })
     console.log('sent:', (await p.locator(tid('lbl-llm-sent')).innerText()).replace(/\s+/g, ' '), '| excluded:', (await p.locator(tid('lbl-llm-excluded')).innerText()).replace(/\s+/g, ' '))
-    await p.fill(tid('lbl-llm-n'), '30')
+    await p.click(tid('lbl-llm-calibrate'))
+    await p.waitForSelector(tid('lbl-llm-calibration'), { timeout: 120000 })
+    console.log('calibration:', (await p.locator(tid('lbl-llm-calibration')).innerText()).replace(/\s+/g, ' ').slice(0, 300))
+    await shot('08-llm-calibration', tid('lbl-llm-report'))
+    await p.fill(tid('lbl-llm-n'), '60')
     await p.fill(tid('lbl-llm-budget'), '2')
-    await p.click(tid('lbl-llm-calibrate')).catch(() => {})
-    await p.waitForTimeout(3000)
     await p.click(tid('lbl-llm-run'))
     await p.click(tid('lbl-llm-run-confirm'))
-    await p.waitForSelector(tid('lbl-llm-report'), { timeout: 60000 })
-    await p.waitForFunction(() => !/running|queued/.test(document.querySelector('[data-testid="lbl-llm-report"]')?.textContent ?? ''), null, { timeout: 60000 }).catch(() => {})
+    await p.waitForSelector(tid('lbl-llm-runrow-label'), { timeout: 30000 })
+    await p.waitForFunction(() => { const t = document.querySelector('[data-testid="lbl-llm-report"]')?.textContent ?? ''; return /Run llr|Run /.test(t) && /label ·/.test(t) && !/queued|running/.test(t) }, null, { timeout: 120000 })
     console.log('msg:', (await p.locator(tid('lbl-llm-msg')).innerText().catch(() => '')).replace(/\s+/g, ' '))
-    await view('07-llm-page')
-    await shot('08-llm-report', tid('lbl-llm-report'))
+    console.log('report:', (await p.locator(tid('lbl-llm-report')).innerText()).replace(/\s+/g, ' ').slice(0, 400))
+    await view('09-llm-page')
+    await shot('10-llm-run-report', tid('lbl-llm-report'))
     await p.click(tid('lbl-back'))
   })
 
@@ -137,7 +151,7 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.waitForSelector(`${tid('lbl-snap-list')} tbody tr`, { timeout: 60000 })
     console.log('msg:', (await p.locator(tid('lbl-msg')).innerText()).replace(/\s+/g, ' '))
     await p.locator('[data-testid^="lbl-snap-verify-"]').first().click()
-    await shot('09-snapshot', tid('lbl-snapshots'))
+    await shot('11-snapshot', tid('lbl-snapshots'))
   })
 
   await step('5. Edit one labelled row (subject) → v2; carry-over status against v2', async () => {
@@ -155,8 +169,8 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     await p.waitForFunction(() => /v2/.test(document.querySelector('[data-testid="lbl-status"] .card-title')?.textContent ?? ''), null, { timeout: 15000 })
     await p.waitForTimeout(1500)
     console.log('status v2:', (await p.locator(tid('lbl-status-stats')).innerText()).replace(/\s+/g, ' '))
-    await shot('10-carry-over-after-edit', tid('lbl-status'))
-    await view('11-labels-tab')
+    await shot('12-carry-over-after-edit', tid('lbl-status'))
+    await view('13-labels-tab')
   })
 
   fs.writeFileSync(callsOut, calls.join('\n') + '\n\n## console errors\n' + (errors.join('\n') || '(none)') + '\n')

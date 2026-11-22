@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { labels, specCol, type Layer, type Task, type TaskType } from '@/shared/api/labels'
+import { labels, specCol, type Layer, type Task, type TaskCreate, type TaskType } from '@/shared/api/labels'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { CardHead, Callout, Field, Flash, Steps, Why } from '@/shared/components/DataKit'
 import { errText } from './parts'
@@ -7,9 +7,9 @@ import { errText } from './parts'
 const STEPS = ['Schema', 'Guidelines', 'Queue', 'People and gold']
 const STRATEGIES: [string, string][] = [
   ['random', 'random rows not labelled yet'], ['active', 'the model is least sure (needs a finished run)'], ['cleanlab', 'rows whose label looks wrong (cleanlab)'],
-  ['stale', 'labels that went stale on this version'], ['disputed', 'rows where labellers disagree'], ['llm_low_conf', 'LLM labels below τ*'], ['manual', 'row ids you list'],
+  ['disputed', 'rows where labellers disagree'], ['llm_low_conf', 'LLM labels below τ*'], ['gold', 'gold rows only'], ['manual', 'row ids you list'],
 ]
-type Person = { name: string; role: 'annotator' | 'reviewer'; guest: boolean }
+type Person = { name: string; role: 'annotator' | 'reviewer' }
 
 /** LB-C: a labeling task in four steps: the schema (classes with keys), the guidelines, which rows and how many votes,
  *  and who (annotators, guests limited to their own queue, reviewers) with a gold set graded blind. */
@@ -32,8 +32,10 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
   const [goldShare, setGoldShare] = useState(5)
   const [blindShare, setBlindShare] = useState(10)
   const [minGold, setMinGold] = useState(80)
-  const [people, setPeople] = useState<Person[]>([{ name: by, role: 'annotator', guest: false }])
+  const [people, setPeople] = useState<Person[]>([{ name: by, role: 'annotator' }, { name: by, role: 'reviewer' }])
   const [gold, setGold] = useState('')
+  const [calib, setCalib] = useState(true)
+  const [calibN, setCalibN] = useState(300)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const cs = classes.split(',').map((x) => x.trim()).filter(Boolean)
@@ -43,14 +45,20 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
   const create = async () => {
     setBusy(true); setMsg(null)
     try {
+      // the schema first: a new version when the classes or the guidelines differ from the layer's (labels keep theirs)
       const ctype = type === 'number' ? 'number' : type === 'text' ? 'text' : 'class'
-      const spec = { columns: [{ column, role: 'target' as const, type: ctype as 'class', ...(ctype === 'class' ? { classes: cs } : {}), multi: type === 'multi_label' }] }
+      const same = col0 && col0.column === column && (col0.classes ?? []).join('|') === cs.join('|') && (sc?.guidelines ?? '') === guide
+      if (!same) await labels.addSchema(layer.id, { columns: [{ column, role: 'target', type: ctype, ...(ctype === 'class' ? { classes: cs } : {}), ...(type === 'multi_label' ? { multi: true } : {}) }] }, guide, by)
       const t = await labels.createTask(layer.id, { name: name.trim(), task_type: type, columns: [column], context, votes_per_row: votes, review,
-        gold_share: goldShare / 100, blind_share: blindShare / 100, min_gold_accuracy: minGold / 100, show_prelabel: true, schema: { spec, guidelines: guide }, by })
-      for (const p of people.filter((x) => x.name.trim() && !(x.name === by && x.role === 'annotator' && t.members?.some((m) => m.principal_id === by)))) await labels.addMember(t.id, p.name.trim(), p.role, by, p.guest)
-      if (goldRows.length) await labels.setGold(t.id, goldRows.map((g) => ({ row_id: g.row_id, column, value: g.value, pool: 'qa' })), by)
-      const f = await labels.fill(t.id, { strategy, n, version_id: vid }, by)
-      onMade(t, `Task ${t.name} created: ${f.added ?? f.n ?? n} rows queued (${strategy}) from v${v}, ${people.length} ${people.length === 1 ? 'person' : 'people'}${goldRows.length ? `, ${goldRows.length} gold rows` : ''}.`)
+        gold_share: goldShare / 100, blind_share: blindShare / 100, min_gold_accuracy: minGold / 100, show_prelabel: true, guidelines: guide, by } as TaskCreate & { guidelines: string })
+      const guests: string[] = []
+      for (const p of people.filter((x) => x.name.trim())) { const m = await labels.addMember(t.id, p.name.trim(), p.role, by); if (m.guest && !guests.includes(p.name.trim())) guests.push(p.name.trim()) }
+      let nGold = 0, nCal = 0
+      if (goldRows.length) nGold = (await labels.setGold(t.id, { pool: 'qa', column, items: goldRows }, by)).added
+      if (calib && calibN > 0) nCal = (await labels.setGold(t.id, { pool: 'calibration', column, from_version: vid, n: calibN }, by)).added
+      const f = await labels.fill(t.id, { strategy, n, version_id: vid }, by) as { rows?: number; items?: number; gold_items?: number; excluded_holdout?: number }
+      onMade(t, `Task ${t.name} created: ${f.items ?? f.rows ?? n} items queued (${strategy}) from v${v}${f.excluded_holdout ? `, ${f.excluded_holdout} holdout rows kept out` : ''}; `
+        + `${people.length} ${people.length === 1 ? 'membership' : 'memberships'}${guests.length ? ` (guest: ${guests.join(', ')})` : ''}${nGold ? `, ${nGold} QA gold` : ''}${nCal ? `, ${nCal} calibration gold` : ''}.`)
     } catch (e) { setMsg({ ok: false, text: errText(e) }) } finally { setBusy(false) }
   }
   return (
@@ -95,11 +103,10 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
             {people.map((p, i) => <div key={i} className="row" style={{ gap: 6 }}>
               <input className="input" style={{ width: 180 }} value={p.name} placeholder="name" onChange={(e) => setPeople(people.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} data-testid={`lbl-person-${i}`} />
               <select className="select" value={p.role} onChange={(e) => setPeople(people.map((x, j) => (j === i ? { ...x, role: e.target.value as Person['role'] } : x)))}><option value="annotator">annotator</option><option value="reviewer">reviewer</option></select>
-              <label className="helper row" style={{ gap: 4 }} title="a guest sees only their own queue (masked), no team data"><input type="checkbox" checked={p.guest} onChange={(e) => setPeople(people.map((x, j) => (j === i ? { ...x, guest: e.target.checked } : x)))} /> guest</label>
-              {p.guest && <span className="pt-chip" title="no team role: their own queue only">🔒 own queue only</span>}
               <button className="btn sm ghost" onClick={() => setPeople(people.filter((_, j) => j !== i))} aria-label="remove">✕</button>
             </div>)}
-            <div><button className="btn sm" onClick={() => setPeople([...people, { name: '', role: 'annotator', guest: false }])} data-testid="lbl-person-add">+ person</button></div>
+            <div className="row" style={{ gap: 8 }}><button className="btn sm" onClick={() => setPeople([...people, { name: '', role: 'annotator' }])} data-testid="lbl-person-add">+ person</button>
+              <span className="muted" style={{ fontSize: 12 }}>🔒 Someone with no role in this team joins as a <b>guest</b>: their own leased rows only, masked; no other team data.</span></div>
           </div>
           <div className="form-row">
             <Field label="Gold share" hint="items with a known answer, graded blind"><span className="row" style={{ gap: 4 }}><input className="input mono" type="number" min={0} max={50} style={{ width: 64 }} value={goldShare} onChange={(e) => setGoldShare(Number(e.target.value) || 0)} />%</span></Field>
@@ -108,6 +115,9 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
           </div>
           <Field label="Gold set" hint={`one row per line: __row_id = answer${cs.length ? ` (one of ${cs.join(', ')})` : ''}; never shown to annotators`}>
             <textarea className="input mono" rows={4} value={gold} onChange={(e) => setGold(e.target.value)} placeholder={'12 = fraud\n57 = ok'} data-testid="lbl-task-gold" /></Field>
+          <label className="helper row" style={{ gap: 6 }} data-testid="lbl-task-calib"><input type="checkbox" checked={calib} onChange={(e) => setCalib(e.target.checked)} />
+            Calibration gold for LLM labeling: <input className="input mono" type="number" min={0} style={{ width: 80 }} value={calibN} onChange={(e) => setCalibN(Number(e.target.value) || 0)} disabled={!calib} />
+            rows drawn from v{v}'s current values (a separate pool: never shown to annotators, never used as QA)</label>
           {badGold.length > 0 && <Callout tone="danger" title={`${badGold.length} gold line${badGold.length > 1 ? 's' : ''} not understood`}>{badGold.slice(0, 3).map((g) => `${g.row_id} = ${g.value}`).join(' · ')}</Callout>}
         </>}
         <Flash msg={msg} testId="lbl-task-msg" />

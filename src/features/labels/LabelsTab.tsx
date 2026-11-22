@@ -219,13 +219,19 @@ function TasksCard({ layer, by, tick, open, root }: { layer: Layer; by: string; 
   )
 }
 
-function TaskRow({ t, open }: { t: Task; open: (v: View) => void }) {
-  const p = t.progress ?? {}
-  const total = p.total ?? (p.open ?? 0) + (p.leased ?? 0) + (p.done ?? 0) + (p.skipped ?? 0)
+function TaskRow({ t: t0, open }: { t: Task; open: (v: View) => void }) {
+  const full = useFetch(() => labels.task(t0.id), [t0.id])  // the list has no counts or members
+  const t = { ...t0, ...(full.data ?? {}) }
+  const c = t.counts ?? {}
+  const total = Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0)
+  const done = (c.done ?? 0) + (c.skipped ?? 0)
+  const ann = (t.members ?? []).filter((m) => m.role === 'annotator')
+  const guests = ann.filter((m) => m.guest)
   return (
     <tr data-testid={`lbl-task-${t.name}`}>
-      <td><b>{t.name}</b><span className="sub-line">{t.task_type.replace(/_/g, ' ')} · {t.votes_per_row ?? 1} vote{(t.votes_per_row ?? 1) > 1 ? 's' : ''}/row · gold {Math.round(Number(t.gold_share ?? 0) * 100)}%{t.members ? ` · ${plural(t.members.length, 'person', 'people')}` : ''}</span></td>
-      <td><CoverageBar m={p.done ?? 0} N={total || null} /><span className="sub-line mono">{int(p.done ?? 0)} / {int(total)} done{p.disputed ? ` · ${p.disputed} disputed` : ''}</span></td>
+      <td><b>{t.name}</b><span className="sub-line">{t.task_type.replace(/_/g, ' ')} · {t.votes_per_row ?? 1} vote{(t.votes_per_row ?? 1) > 1 ? 's' : ''}/row · gold {Math.round(Number(t.gold_share ?? 0) * 100)}%
+        {t.members ? ` · ${plural(ann.length, 'annotator')}` : ''}{guests.length ? ` (${guests.length} guest)` : ''}</span></td>
+      <td><CoverageBar m={done} N={total || null} /><span className="sub-line mono">{int(done)} / {int(total)} done{c.leased ? ` · ${int(c.leased)} leased` : ''}</span></td>
       <td><Badge status={t.state} /></td>
       <td className="r nowrap">
         <button className="btn sm primary" onClick={() => open({ kind: 'label', task: t.id })} data-testid={`lbl-task-open-${t.name}`}>Label</button>{' '}
