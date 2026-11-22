@@ -41,6 +41,8 @@ LIST_LB_COLS = ("model", "family", "rank", "score_val", "score_test", "score_val
 
 class RunCreate(BaseModel):
     dataset_id: str
+    table: str | None = Field(None, description="P12: the table of a multi-table version to train on (default: its "
+                                               "primary table). Joins of several tables are P14.")
     label: str | None = Field(None, description="Label column; defaults to the dataset's target.")
     name: str | None = None
     problem_type: ProblemType = "auto"
@@ -383,8 +385,33 @@ async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
 
 
 def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
-    app = request.app
+    if not body.table:
+        return _create_run_on(body, request)
+    # P12: a run on one table of a multi-table version: the profile, split, input ref and checks below name that table
     ds = dataset_or_404(request, body.dataset_id)
+    with request.app.state.db.connect() as con:
+        names = [r[0] for r in con.execute("SELECT table_name FROM version_tables WHERE version_id = ? ORDER BY ordinal",
+                                           (body.dataset_id,))]
+    if body.table not in names:
+        raise HTTPException(400, {"code": "table_unknown", "message": f"{body.dataset_id} has no table {body.table!r}"
+                                  + (f" (its tables: {', '.join(names)})." if names else " (it is a CSV-era version with one table).")})
+    if body.table == (ds.get("primary_table") or names[0]):
+        with frames.use_table(body.table):
+            return _create_run_on(body, request)
+    if not body.label:
+        raise HTTPException(400, f"Say which column of table {body.table!r} to predict (label): the dataset's target "
+                                 f"belongs to its primary table.")
+    try:
+        prof = request.app.state.datasets.table_profile(body.dataset_id, body.table, body.label)
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+    with frames.use_table(body.table):
+        return _create_run_on(body, request, ds={**ds, "profile": prof, "target": prof.get("target")})
+
+
+def _create_run_on(body: RunCreate, request: Request, ds: dict[str, Any] | None = None) -> dict[str, Any]:
+    app = request.app
+    ds = ds or dataset_or_404(request, body.dataset_id)
     from ..catalog import dsets as DS
     from ..catalog import governance as G
 

@@ -243,6 +243,15 @@ def patch_plan(db, up: str, body: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(fm, dict) or not all(isinstance(v, str) and "%" in v for v in fm.values()):
             raise LakeError(400, "bad_plan", "formats is {column: strptime format}, e.g. {\"opened\": \"%d/%m/%Y\"}.")
         plan["formats"] = {str(c): v for c, v in fm.items()}
+    if "tables" in body:  # P12: the plan per table: {name: {action, types, formats, match, key}}
+        plan["tables"] = _parse_tables_plan(body["tables"])
+    if "primary_table" in body:
+        v = body["primary_table"]
+        if v is not None and not isinstance(v, str):
+            raise LakeError(400, "bad_plan", "primary_table is a table name.")
+        plan["primary_table"] = (v or "").strip() or None
+    if "relations" in body:  # P12: relations declared with the commit (orphans counted by the check)
+        plan["relations"] = _parse_relations(body["relations"])
     with db.connect() as con:
         if plan.get("project_id") and not con.execute("SELECT 1 FROM projects WHERE id = ?", (plan["project_id"],)).fetchone():
             raise LakeError(404, "project_not_found", f"No project '{plan['project_id']}'.")
@@ -419,16 +428,28 @@ def check(db, store, up: str, dstore: Any = None) -> dict[str, Any]:
         files = u["files"] or []
         if not files:
             raise LakeError(400, "no_files", "This upload has no file.")
-        if len(files) > 1:
-            raise LakeError(400, "single_table", "One file per upload for now: multi-table uploads (several files, Excel "
-                                                 "sheets) arrive with P12.")
         t0 = time.time()
         tmp = store.tmp_dir(up)
-        f = files[0]
         plan = u["plan"] or {}
-        out = _check_file(db, tmp, f, plan, u["team_id"])
-        if plan.get("parent_version_id"):
-            out["next_version"] = _check_next(db, store, dstore, tmp, out, plan)
+        srcs, sheet_notes = _sources(tmp, files, plan)
+        if len(srcs) == 1 and not plan.get("tables") and not plan.get("relations"):
+            # one table (a CSV, a Parquet file, or a workbook with one sheet): P05 / P06 exactly as before
+            s0 = srcs[0]
+            p0 = {**plan, "table": plan.get("table") or s0["table"]} if s0.get("sheet") is not None else plan
+            try:
+                out = _check_file(db, tmp, s0["f"], p0, u["team_id"], sep=s0.get("sep"))
+            except LakeError as e:
+                if s0.get("sheet") is None:
+                    raise
+                raise LakeError(e.status, e.code, f"{_label(s0)}: {e.message}", **e.extra) from None
+            if s0.get("sheet") is not None:
+                out["tables"][0].update(source_file=s0["source_file"], source_sha256=s0["source_sha256"], sheet=s0["sheet"])
+                out["kind"] = "xlsx"
+                out["sheets"] = sheet_notes
+            if plan.get("parent_version_id"):
+                out["next_version"] = _check_next(db, store, dstore, tmp, out, plan)
+        else:
+            out = _check_multi(db, store, dstore, tmp, srcs, sheet_notes, plan, u["team_id"])
         out.update(upload_id=up, plan_sha256=_plan_sha(plan), seconds=round(time.time() - t0, 2))
         csha = hashlib.sha256(json.dumps({k: v for k, v in out.items() if k != "seconds"}, sort_keys=True,
                                          separators=(",", ":"), default=str).encode()).hexdigest()
@@ -467,7 +488,10 @@ def _guard_names(names: list[str]) -> None:
                                                 "the API uses for the row id, are reserved) and upload again.")
 
 
-def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id: str) -> dict[str, Any]:
+def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id: str, *, typed_name: str = "typed.parquet",
+                sep: str | None = None, soft_types: dict[str, str] | None = None) -> dict[str, Any]:
+    """One CSV / Parquet file (or an Excel sheet written as CSV, P12: `sep` forced) typed into tmp/`typed_name`.
+    `soft_types` (P12, an append): the parent table's types, declared for the columns the file has."""
     src = tmp / f["src"]
     name = f["filename"] or ""
     with open(src, "rb") as fh:
@@ -478,9 +502,8 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
     table = _table_name(plan, name)
     if head[:4] == b"PAR1" or name.lower().endswith(".parquet"):
         return _check_parquet(tmp, src, f, plan, table)
-    if head[:2] == b"PK" or re.search(r"\.(xlsx|xlsm|xls)$", name, re.I):
-        raise LakeError(400, "excel_later", f"{name or 'This file'} is an Excel workbook: Excel uploads arrive with P12. "
-                                            "Save the sheet as CSV and upload that.")
+    if head[:2] == b"PK" or re.search(r"\.(xlsx|xlsm|xls)$", name, re.I):  # P12: expanded into sheets before this
+        raise LakeError(400, "excel_unreadable", f"{name or 'This file'} looks like an Excel workbook: upload it as .xlsx.")
     if not re.search(r"\.(csv|tsv|txt)$", name, re.I):
         raise LakeError(400, "not_csv", f"{name or 'This file'} is not a CSV. Upload a .csv or .tsv file with a header row "
                                         "(or a .parquet file).")
@@ -501,7 +524,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
     ctrl = sum(1 for ch in head_text[:20000] if ord(ch) < 32 and ch not in "\t\r\n")
     if ctrl > max(2, len(head_text[:20000]) // 100):
         raise LakeError(400, "binary", "This looks like a binary file, not a CSV. Upload a .csv or .tsv text file.")
-    sep = "\t" if name.lower().endswith(".tsv") else sniff_sep(head_text)
+    sep = sep or ("\t" if name.lower().endswith(".tsv") else sniff_sep(head_text))
     if sep != ",":
         notes.append(f"separator {'tab' if sep == chr(9) else repr(sep)}")
     decimal_comma = sep == ";"
@@ -518,7 +541,9 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
                                            "header row and at least two columns.")
     nas = na_tokens(db, team_id)
     declared = {str(k): str(v).upper() for k, v in (plan.get("types") or {}).items()}
+    soft = {c: t for c, t in (soft_types or {}).items() if c in names and c not in declared and t in DECLARABLE}
     unknown = [c for c in declared if c not in names]
+    declared.update(soft)
     if unknown:
         blocks.append({"code": "declared_unknown", "message": f"Declared types name no column of the file: {', '.join(unknown)}."})
     con = duck.connect("job", **_duck_kw())
@@ -581,8 +606,8 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
             typ, reason = want, None
             is_declared = n in declared
             if is_declared:
-                reason = f"declared {want}"
-                if fail:
+                reason = f"the parent table's type ({want})" if n in soft else f"declared {want}"
+                if fail and want != "VARCHAR":  # (P12: any value reads as text; the scan's VARCHAR slots hold other counts)
                     blocks.append({"code": "declared_type_mismatch", "column": n,
                                    "message": f"'{n}' is declared {want} but {fail:,} value(s) do not read as {want}.",
                                    "examples": _examples(con, n, want, fmt, decimal_comma)})
@@ -624,7 +649,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
             ex = _cast_expr(n, typ, fmt=fmt or None, decimal_comma=decimal_comma, try_=False) if typ != "VARCHAR" else _q(n)
             exprs.append(f"{ex} AS {_q(n)}")
         preview = [list(r) for r in con.execute("SELECT * FROM src LIMIT 5").fetchall()]
-        typed = tmp / "typed.parquet"
+        typed = tmp / typed_name
         if not blocks:
             # the typed copy, in file order (row ids are file_row_number of this file)
             con.execute("SET preserve_insertion_order = true")
@@ -644,7 +669,7 @@ def _check_file(db, tmp: Path, f: dict[str, Any], plan: dict[str, Any], team_id:
                                        "encoding": encoding, "separator": sep, "na_tokens": nas, "n_rows": n_rows,
                                        "n_cols": len(names), "schema": schema, "kept_as_text": kept_text,
                                        "preview": {"columns": names, "rows": preview}}],
-            "warnings": warnings, "blocks": blocks, "notes": notes, "typed": "typed.parquet" if not blocks else None}
+            "warnings": warnings, "blocks": blocks, "notes": notes, "typed": typed_name if not blocks else None}
 
 
 def _close(con) -> None:
@@ -761,10 +786,16 @@ class _Parent:
             self.arrow = pa.Table.from_pandas(df, preserve_index=False)
             self.sql = "SELECT * FROM _parent_csv"
         tg = self.rec.get("target")
+        # P12: a table other than the version's primary has no dataset target and no holdout of its own (a split is
+        # drawn for a table when a run names it), so nothing is drawn here for it
+        self.is_primary = self.storage != "parquet" or self.table == (self.rec.get("primary_table") or self.table)
+        if not self.is_primary:
+            tg = None
         self.target = tg
         self.holdout_ids = None
         self.split_key = None
-        if dstore is not None:
+        self.split = None
+        if dstore is not None and self.is_primary:
             try:
                 _, sp, _ = dstore.ensure_splits(vid, tg)
                 import numpy as np
@@ -929,6 +960,9 @@ def commit(db, store, up: str, *, by: str, reason: str = "", check_sha256: str |
         if chk.get("blocks"):
             raise LakeError(409, "check_blocked", "The check found problems that block the commit.", blocks=chk["blocks"])
         tmp = store.tmp_dir(up)
+        if chk.get("kind") == "multi":  # P12: several tables (files, sheets), or a plan per table
+            return _commit_multi(db, store, dstore, u, chk, plan, tmp, by=by, reason=reason, make_default=make_default,
+                                 match=match, acknowledge=acknowledge)
         typed = tmp / (chk.get("typed") or "typed.parquet")
         if not typed.exists():
             raise LakeError(409, "check_required", "The checked file is gone from staging; check again.")
@@ -971,7 +1005,7 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
     """§5.3 steps 3–4 and §5.2: the person's `match`, re-simulated now, warnings acknowledged, ids assigned (matched rows
     keep the parent's __row_id, new rows get next_row_id + k in file order), written through the VersionWriter with the
     decision in provenance.ops[].match and the warnings in provenance.checks."""
-    from ..dataset_versions import ACK_TOKEN, parse_match
+    from ..dataset_versions import parse_match
 
     up = u["id"]
     t = chk["tables"][0]
@@ -998,7 +1032,6 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
                                                     "{method: key, columns: [...]} instead.")
         m["columns"] = parent.declared[0]
     sources = [{"filename": f["filename"], "sha256": f["sha256"], "bytes": f["bytes"], "kept": True}]
-    reasons = {c["name"]: c["reason"] for c in t["schema"] if c.get("reason")}
     target = plan.get("target") or (parent.target if parent.target in {c["name"] for c in t["schema"]} else None)
     w = VersionWriter(db, store, op="upload_version", by=by, parent_id=parent.vid, reason=reason or plan.get("reason") or "",
                       job_id=up, sources=sources, primary_table=parent.table, duck_kw=_duck_kw())
@@ -1007,83 +1040,13 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
         if done:
             _mark_committed(db, up, done)
             return _version(db, done, up), False
-        try:
-            mt = _matcher(w.con, parent, typed)
-        except ValueError as e:
-            raise LakeError(400, "match_impossible", str(e)) from None
-        if m["method"] in ("key", "declared"):
-            prob = mt.key_problems(m["columns"])
-            if prob:
-                if prob["code"] == "key_invalid":
-                    masked = _mask(db, parent.root, parent.table, prob)
-                    raise LakeError(400, "key_invalid", prob["message"],
-                                    **{k: v for k, v in masked.items() if k not in ("code", "message")})
-                raise LakeError(400, "bad_match", prob["message"], columns=prob["columns"])
-        chosen = mt.simulate(m)
-        cands = mt.candidates()
-        best = next((mt.simulate({"method": "key", "columns": c["columns"]}) for c in cands if c["valid"]), None)
-        if best is not None and best.get("columns") == chosen.get("columns") and m["method"] in ("key", "declared"):
-            best = chosen
-        mw = mt.warnings_for(chosen, best)
-        need = [x for x in mw if x["needs_ack"]]
-        if need and ACK_TOKEN not in acks and not all(x["code"] in acks for x in need):
-            raise LakeError(400, "acknowledge_required",
-                            " ".join(x["message"] for x in need) +
-                            f" Send acknowledge: [\"{ACK_TOKEN}\"] to commit it anyway (it is recorded), or choose another match.",
-                            warnings=need, chosen=chosen, best_candidate=best)
-        for x in mw:
-            x["acknowledged"] = bool(x["needs_ack"])
-        contract = mt.contract(target)
+        rec, mw, contract, chosen, rids = _write_matched(w, db, parent, t, typed, m, acks, by, target, f["filename"])
         warns = [{k: v for k, v in x.items() if k != "examples"} for x in chk.get("warnings") or []] + \
             [{k: v for k, v in x.items() if k not in ("values",)} for x in contract["warnings"]] + \
             [{**x, "source": "match"} for x in mw]
-        mt.materialise(m, "_m")
-        # F-X1 M1: the new rows' ids are taken atomically on the root counter (UPSERT ... RETURNING), so sibling
-        # uploads committed at the same time can never be given the same range.
-        n_new = int(w.con.execute("SELECT count(*) FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)"
-                                  " WHERE m.pid IS NULL").fetchone()[0])
-        nxt = reserve_row_ids(db, parent.root, parent.table, parent.next_row_id(db), n_new) if n_new else parent.next_row_id(db)
-        w.con.execute("CREATE OR REPLACE TEMP TABLE _ids AS SELECT n.__fr, m.pid,"
-                      f" CASE WHEN m.pid IS NOT NULL THEN m.pid ELSE {int(nxt)} + row_number() OVER"
-                      " (PARTITION BY m.pid IS NULL ORDER BY n.__fr) - 1 END::BIGINT AS rid"
-                      " FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)")
-        cols = ", ".join(f"n.{_q(c['name'])}" for c in t["schema"])
-        w.write(parent.table, f"SELECT i.rid AS {ROW_ID}, {cols} FROM _n n JOIN _ids i USING (__fr)", reasons=reasons,
-                source_file=f["filename"])
         for other in parent.tables:  # a multi-table parent: the other tables are carried (zero bytes)
             if other != parent.table:
                 w.carry(other)
-        new_cols = {c["name"] for c in t["schema"]}
-        for k in _parent_keys(db, parent):
-            if all(c in new_cols for c in k["columns"]):
-                w.key(parent.table, k["columns"], kind=k["kind"], declared_by=k["declared_by"])
-        if m["method"] in ("key", "declared"):  # the chosen key is saved as a confirmed key (§5.3 step 3)
-            w.key(parent.table, m["columns"], kind="primary", declared_by=by)
-        rows = w.con.execute("SELECT rid, pid FROM _ids ORDER BY rid").fetchall()
-        rids = [int(r[0]) for r in rows]
-        pids = [None if r[1] is None else int(r[1]) for r in rows]
-        scores = [[",".join(c["columns"]), f"{c['score']:.4f}"] for c in cands]
-        rh = mt.simulate({"method": "row_hash"}) if m["method"] != "row_hash" else chosen
-        if rh.get("valid"):
-            scores.append(["row_hash", f"{rh['matched_share']:.4f}"])
-        rec = {"method": m["method"], **({"columns": m["columns"]} if m.get("columns") else {}), "confirmed_by": by,
-               "matched_by": chosen["label"], "candidates": scores,
-               **{k: chosen[k] for k in ("matched", "changed", "added", "removed", "holdout_identity_lost", "parent_holdout")},
-               "acknowledged": [x["code"] for x in mw if x["needs_ack"]], "warnings": [x["code"] for x in mw],
-               "parent": parent.vid, "parent_storage": parent.storage, "next_row_id": int(nxt),
-               **({"best_candidate": {"columns": best["columns"], "matched": best["matched"],
-                                      "holdout_identity_lost": best["holdout_identity_lost"]}} if best else {})}
-        w.extra_ops.append({"op": "upload_version", "table": parent.table, "match": rec})
-        # P09 (§5.7): the parent's split carried by join on __row_id, committed with the version (no JSON bridge)
-        from . import splitstore as SS
-        from .. import config as _cfg
-
-        split_rec = SS.carry_into(w, parent.table, parent.ids, parent.split, _cfg.HOLDOUT_SHARE,
-                                  target_in_child=parent.target in new_cols, parent_vid=parent.vid)
-        if split_rec:
-            from .derive import no_floats
-
-            w.extra_ops.append(no_floats({"op": "split_carried", "table": parent.table, **split_rec}))
         w.warnings = warns
         out = w.commit(make_default=make_default, target=target, kind="tabular",
                        note=f"Uploaded file {f['filename']} as the next version of {parent.vid}: {chosen['matched']:,} rows "
@@ -1109,12 +1072,641 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
     return res, created
 
 
+def _write_matched(w, db, parent: "_Parent", t: dict[str, Any], typed: Path, m: dict[str, Any], acks: list[str], by: str,
+                   target: str | None, filename: str) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any], list[int]]:
+    """§5.3 steps 3–4 for one table (P06, shared by P12's multi-table commit): the person's `match` re-simulated, its
+    warnings acknowledged, ids assigned (matched rows keep the parent's __row_id, new rows get next_row_id + k in file
+    order), the table written, the parent's keys re-checked, the split carried. Returns (match record, match warnings,
+    contract, the chosen simulation, the new row ids)."""
+    from ..dataset_versions import ACK_TOKEN
+
+    try:
+        mt = _matcher(w.con, parent, typed)
+    except ValueError as e:
+        raise LakeError(400, "match_impossible", str(e)) from None
+    if m["method"] in ("key", "declared"):
+        prob = mt.key_problems(m["columns"])
+        if prob:
+            if prob["code"] == "key_invalid":
+                masked = _mask(db, parent.root, parent.table, prob)
+                raise LakeError(400, "key_invalid", prob["message"], table=parent.table,
+                                **{k: v for k, v in masked.items() if k not in ("code", "message")})
+            raise LakeError(400, "bad_match", prob["message"], columns=prob["columns"], table=parent.table)
+    chosen = mt.simulate(m)
+    cands = mt.candidates()
+    best = next((mt.simulate({"method": "key", "columns": c["columns"]}) for c in cands if c["valid"]), None)
+    if best is not None and best.get("columns") == chosen.get("columns") and m["method"] in ("key", "declared"):
+        best = chosen
+    mw = mt.warnings_for(chosen, best)
+    need = [x for x in mw if x["needs_ack"]]
+    if need and ACK_TOKEN not in acks and not all(x["code"] in acks for x in need):
+        raise LakeError(400, "acknowledge_required",
+                        " ".join(x["message"] for x in need) +
+                        f" Send acknowledge: [\"{ACK_TOKEN}\"] to commit it anyway (it is recorded), or choose another match.",
+                        warnings=need, chosen=chosen, best_candidate=best, table=parent.table)
+    for x in mw:
+        x["acknowledged"] = bool(x["needs_ack"])
+    contract = mt.contract(target)
+    mt.materialise(m, "_m")
+    # F-X1 M1: the new rows' ids are taken atomically on the root counter (UPSERT ... RETURNING), so sibling
+    # uploads committed at the same time can never be given the same range.
+    n_new = int(w.con.execute("SELECT count(*) FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)"
+                              " WHERE m.pid IS NULL").fetchone()[0])
+    nxt = reserve_row_ids(db, parent.root, parent.table, parent.next_row_id(db), n_new) if n_new else parent.next_row_id(db)
+    w.con.execute("CREATE OR REPLACE TEMP TABLE _ids AS SELECT n.__fr, m.pid,"
+                  f" CASE WHEN m.pid IS NOT NULL THEN m.pid ELSE {int(nxt)} + row_number() OVER"
+                  " (PARTITION BY m.pid IS NULL ORDER BY n.__fr) - 1 END::BIGINT AS rid"
+                  " FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)")
+    reasons = {c["name"]: c["reason"] for c in t["schema"] if c.get("reason")}
+    cols = ", ".join(f"n.{_q(c['name'])}" for c in t["schema"])
+    w.write(parent.table, f"SELECT i.rid AS {ROW_ID}, {cols} FROM _n n JOIN _ids i USING (__fr)", reasons=reasons,
+            source_file=filename)
+    new_cols = {c["name"] for c in t["schema"]}
+    for k in _parent_keys(db, parent):
+        if all(c in new_cols for c in k["columns"]):
+            w.key(parent.table, k["columns"], kind=k["kind"], declared_by=k["declared_by"])
+    if m["method"] in ("key", "declared"):  # the chosen key is saved as a confirmed key (§5.3 step 3)
+        w.key(parent.table, m["columns"], kind="primary", declared_by=by)
+    rows = w.con.execute("SELECT rid, pid FROM _ids ORDER BY rid").fetchall()
+    rids = [int(r[0]) for r in rows]
+    scores = [[",".join(c["columns"]), f"{c['score']:.4f}"] for c in cands]
+    rh = mt.simulate({"method": "row_hash"}) if m["method"] != "row_hash" else chosen
+    if rh.get("valid"):
+        scores.append(["row_hash", f"{rh['matched_share']:.4f}"])
+    rec = {"method": m["method"], **({"columns": m["columns"]} if m.get("columns") else {}), "confirmed_by": by,
+           "matched_by": chosen["label"], "candidates": scores,
+           **{k: chosen[k] for k in ("matched", "changed", "added", "removed", "holdout_identity_lost", "parent_holdout")},
+           "acknowledged": [x["code"] for x in mw if x["needs_ack"]], "warnings": [x["code"] for x in mw],
+           "parent": parent.vid, "parent_storage": parent.storage, "next_row_id": int(nxt),
+           **({"best_candidate": {"columns": best["columns"], "matched": best["matched"],
+                                  "holdout_identity_lost": best["holdout_identity_lost"]}} if best else {})}
+    w.extra_ops.append({"op": "upload_version", "table": parent.table, "match": rec})
+    # P09 (§5.7): the parent's split carried by join on __row_id, committed with the version (no JSON bridge)
+    from . import splitstore as SS
+    from .. import config as _cfg
+
+    split_rec = SS.carry_into(w, parent.table, parent.ids, parent.split, _cfg.HOLDOUT_SHARE,
+                              target_in_child=parent.target in new_cols, parent_vid=parent.vid) if parent.split else None
+    if split_rec:
+        from .derive import no_floats
+
+        w.extra_ops.append(no_floats({"op": "split_carried", "table": parent.table, **split_rec}))
+    return rec, mw, contract, chosen, rids
+
+
 def _parent_keys(db, parent: "_Parent") -> list[dict[str, Any]]:
     if parent.storage != "parquet":
         return []
     with db.connect() as con:
         return [{"columns": json.loads(r["columns_json"]), "kind": r["kind"], "declared_by": r["declared_by"]}
                 for r in con.execute("SELECT * FROM table_keys WHERE version_id = ? AND table_name = ?", (parent.vid, parent.table))]
+
+
+# --------------------------------------------------------------------------- P12: several tables (files, Excel sheets)
+
+ACTIONS = ("new", "rewrite", "append", "carry", "drop", "skip")
+
+
+def _parse_tables_plan(v: Any) -> dict[str, dict[str, Any]]:
+    """PATCH {tables: {name: {action?, types?, formats?, match?, key?}}}: what happens to each table. `action` for an
+    uploaded table: new | rewrite (match it to the parent's table, P06) | append (its rows added to the parent's) |
+    skip (leave it out); for a parent table not uploaded: carry (the default) | drop."""
+    from ..dataset_versions import parse_match
+
+    if v is None:
+        return {}
+    if not isinstance(v, dict):
+        raise LakeError(400, "bad_plan", "tables is {table name: {action, types, formats, match, key}}.")
+    out: dict[str, dict[str, Any]] = {}
+    for name, spec in v.items():
+        if not isinstance(name, str) or not name.strip():
+            raise LakeError(400, "bad_plan", "A table name is text.")
+        spec = spec or {}
+        if not isinstance(spec, dict):
+            raise LakeError(400, "bad_plan", f"tables.{name} is an object.")
+        unknown = set(spec) - {"action", "types", "formats", "match", "key"}
+        if unknown:
+            raise LakeError(400, "bad_plan", f"tables.{name}: unknown field(s) {sorted(unknown)}; use action, types, formats, "
+                                             "match, key.")
+        e: dict[str, Any] = {}
+        if spec.get("action") is not None:
+            a = str(spec["action"]).strip().lower()
+            if a not in ACTIONS:
+                raise LakeError(400, "bad_action", f"tables.{name}.action is one of {', '.join(ACTIONS)}.")
+            e["action"] = a
+        if spec.get("types"):
+            t = spec["types"]
+            if not isinstance(t, dict) or any(str(x).upper() not in DECLARABLE for x in t.values()):
+                raise LakeError(400, "bad_type", f"tables.{name}.types: declared types are one of {', '.join(DECLARABLE)}.")
+            e["types"] = {str(c): str(x).upper() for c, x in t.items()}
+        if spec.get("formats"):
+            fm = spec["formats"]
+            if not isinstance(fm, dict) or not all(isinstance(x, str) and "%" in x for x in fm.values()):
+                raise LakeError(400, "bad_plan", f"tables.{name}.formats is {{column: strptime format}}.")
+            e["formats"] = {str(c): x for c, x in fm.items()}
+        if spec.get("match"):
+            try:
+                e["match"] = parse_match(spec["match"], name)
+            except ValueError as ex:
+                raise LakeError(400, "bad_match", f"tables.{name}.match: {ex}") from None
+        if spec.get("key") is not None:
+            k = spec["key"]
+            k = [k] if isinstance(k, str) else k
+            if not isinstance(k, list) or not k or not all(isinstance(c, str) and c for c in k):
+                raise LakeError(400, "bad_key", f"tables.{name}.key is a column or a list of columns.")
+            e["key"] = list(k)
+        out[name.strip()] = e
+    return out
+
+
+def _parse_relations(v: Any) -> list[dict[str, Any]]:
+    """[{name?, from: {table, columns}, to: {table, columns}, cardinality?: 'n:1' | '1:1'}] (or the flat
+    from_table / from_columns / to_table / to_columns form)."""
+    if v is None:
+        return []
+    if not isinstance(v, list):
+        raise LakeError(400, "bad_relation", "relations is a list of {from: {table, columns}, to: {table, columns}}.")
+    out = []
+    for r in v:
+        out.append(norm_relation(r))
+    names = [r["name"] for r in out]
+    if len(set(names)) != len(names):
+        raise LakeError(400, "bad_relation", "Two relations have the same name.")
+    return out
+
+
+def norm_relation(r: Any, name: str | None = None) -> dict[str, Any]:
+    if not isinstance(r, dict):
+        raise LakeError(400, "bad_relation", "A relation is {from: {table, columns}, to: {table, columns}, cardinality}.")
+    fr = r.get("from") if isinstance(r.get("from"), dict) else {"table": r.get("from_table"), "columns": r.get("from_columns")}
+    to = r.get("to") if isinstance(r.get("to"), dict) else {"table": r.get("to_table"), "columns": r.get("to_columns")}
+    sides = []
+    for side in (fr, to):
+        cols = side.get("columns")
+        cols = [cols] if isinstance(cols, str) else cols
+        if not isinstance(side.get("table"), str) or not side["table"] or not isinstance(cols, list) or not cols \
+                or not all(isinstance(c, str) and c for c in cols):
+            raise LakeError(400, "bad_relation", "A relation names a table and its column(s) on each side.")
+        sides.append({"table": side["table"], "columns": list(cols)})
+    if len(sides[0]["columns"]) != len(sides[1]["columns"]):
+        raise LakeError(400, "bad_relation", "Both sides of a relation have the same number of columns.")
+    card = str(r.get("cardinality") or "n:1")
+    if card not in ("n:1", "1:1"):
+        raise LakeError(400, "bad_relation", "cardinality is n:1 or 1:1 (an n:m relation is a join, P14).")
+    nm = name or r.get("name") or f"{sides[0]['table']}_{sides[1]['table']}"
+    if not isinstance(nm, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", nm):
+        raise LakeError(400, "bad_relation", "A relation name is 1–64 letters, digits, '_', '.' or '-'.")
+    return {"name": nm, "from": sides[0], "to": sides[1], "cardinality": card}
+
+
+def _sources(tmp: Path, files: list[dict[str, Any]], plan: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The tables an upload holds, in order: one per CSV / Parquet file, one per non-empty sheet of a workbook
+    (hidden sheets listed and left out unless the plan names them). Two sources that give the same table name are
+    refused (400 duplicate_table): nothing is renamed silently."""
+    from . import excel as X
+
+    ptables = plan.get("tables") or {}
+    srcs: list[dict[str, Any]] = []
+    sheets: list[dict[str, Any]] = []
+    for f in files:
+        name = f.get("filename") or ""
+        src = tmp / f["src"]
+        with open(src, "rb") as fh:
+            head = fh.read(8)
+        is_x = bool(re.search(r"\.(xlsx|xlsm|xls)$", name, re.I)) or (
+            head[:2] == b"PK" and not re.search(r"\.(csv|tsv|txt|parquet)$", name, re.I))
+        if not is_x:
+            t = _table_name({}, name) if len(files) > 1 or ptables else _table_name(plan, name)
+            if (ptables.get(t) or {}).get("action") == "skip":
+                sheets.append({"file": name, "table": t, "skipped": "left out by the plan (action skip)"})
+                continue
+            srcs.append({"table": t, "f": f, "source_file": name, "source_sha256": f["sha256"], "file_n": f["n"]})
+            continue
+        if not f.get("bytes"):
+            raise LakeError(400, "empty", f"{name or 'The file'} is empty.")
+        info = X.read_workbook(src, tmp, str(f["n"]), filename=name)
+        used = 0
+        for sh in info:
+            t = _table_name({}, sh["sheet"])
+            e = {"file": name, "sheet": sh["sheet"], "table": t, "hidden": sh["hidden"], "rows": sh["n_rows"],
+                 "columns": sh["n_cols"], "reader": sh["reader"]}
+            act = (ptables.get(t) or {}).get("action")
+            if sh["empty"]:
+                sheets.append({**e, "skipped": "empty sheet"})
+                continue
+            if act == "skip":
+                sheets.append({**e, "skipped": "left out by the plan (action skip)"})
+                continue
+            if sh["hidden"] and act not in ("new", "rewrite", "append"):
+                sheets.append({**e, "skipped": "hidden sheet: name it in the plan (tables: {%s: {action: new}}) to include it" % t})
+                continue
+            csvp = tmp / sh["csv"]
+            ff = {"n": f"{f['n']}.s{sh['index']}", "src": sh["csv"], "filename": f"{t}.csv", "bytes": csvp.stat().st_size,
+                  "sha256": f["sha256"], "utf8": True}
+            srcs.append({"table": t, "f": ff, "sep": ",", "sheet": sh["sheet"], "source_file": name,
+                         "source_sha256": f["sha256"], "file_n": f["n"]})
+            sheets.append({**e, "included": True})
+            used += 1
+        if not used:
+            raise LakeError(400, "empty_workbook", f"{name} has no sheet with data (every sheet is empty, hidden or left out). "
+                                                   "Fill a sheet (a header row and at least two rows) and upload again.")
+    seen: dict[str, dict[str, Any]] = {}
+    for s_ in srcs:
+        if s_["table"] in seen:
+            a, b = seen[s_["table"]], s_
+            lab = lambda x: f"{x['source_file']}" + (f" sheet '{x['sheet']}'" if x.get("sheet") is not None else "")  # noqa: E731
+            raise LakeError(400, "duplicate_table", f"{lab(a)} and {lab(b)} would both become table '{s_['table']}'. Rename "
+                                                    "one of them (a sheet or a file) and upload again: nothing is renamed "
+                                                    "silently.", table=s_["table"])
+        seen[s_["table"]] = s_
+    if not srcs:
+        raise LakeError(400, "no_tables", "Nothing to import: every file or sheet was left out.")
+    return srcs, sheets
+
+
+def _label(s_: dict[str, Any]) -> str:
+    return f"{s_['source_file']}" + (f", sheet '{s_['sheet']}'" if s_.get("sheet") is not None else "")
+
+
+def _parent_tables(db, vid: str) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+    with db.connect() as con:
+        r = con.execute("SELECT id, root_id, storage, primary_table, target FROM datasets WHERE id = ?", (vid,)).fetchone()
+        if not r:
+            raise LakeError(404, "parent_not_found", f"No dataset version {vid}.")
+        if r["storage"] != "parquet":
+            raise LakeError(409, "parent_not_parquet", f"{vid} is a CSV-era version: continue it with one file (its one "
+                                                       "table), or migrate it first (P10) to add tables.")
+        tabs = {t["table_name"]: {"schema": json.loads(t["schema_json"]), "n_rows": int(t["n_rows"]), "sha": t["table_sha256"],
+                                  "ordinal": t["ordinal"], "row_id_max": t["row_id_max"]}
+                for t in con.execute("SELECT * FROM version_tables WHERE version_id = ? ORDER BY ordinal", (vid,))}
+        keys = {}
+        for k in con.execute("SELECT table_name, columns_json, valid FROM table_keys WHERE version_id = ? AND valid = 1"
+                             " ORDER BY kind, columns_json", (vid,)):
+            keys.setdefault(k[0], []).append(json.loads(k[1]))
+        for t in tabs:
+            tabs[t]["keys"] = keys.get(t, [])
+    return dict(r), tabs
+
+
+def _rel_sql(db, tmp: Path, parent_vid: str | None, t: dict[str, Any] | None, name: str) -> str:
+    """The DuckDB relation of a table as the version will hold it (typed file, parent parts, or both for an append)."""
+    from .. import frames
+
+    if t is None or t["action"] in ("append",):
+        lt = frames.lake_table(frames.Table(parent_vid, name))
+        base = f"SELECT * EXCLUDE ({ROW_ID}) FROM {frames.lake_sql(lt)}"
+        if t is None:
+            return f"({base})"
+        return f"({base} UNION ALL BY NAME SELECT * FROM read_parquet({_lit(tmp / t['typed'])}))"
+    return f"(SELECT * FROM read_parquet({_lit(tmp / t['typed'])}))"
+
+
+def _check_multi(db, store, dstore, tmp: Path, srcs: list[dict[str, Any]], sheets: list[dict[str, Any]],
+                 plan: dict[str, Any], team_id: str) -> dict[str, Any]:
+    """§5.1 steps 2–3 and 6 per table, plus what happens to each table of the parent (P12): new, rewrite (matched to
+    the parent's table, P06's simulation), append (the parent's columns and types), carry, drop; the keys and
+    relations the plan declares, checked on the typed files; relations suggested by shared key columns."""
+    ptables = plan.get("tables") or {}
+    pvid = plan.get("parent_version_id")
+    prec, ptabs = _parent_tables(db, pvid) if pvid else ({}, {})
+    names = [s_["table"] for s_ in srcs]
+    primary = plan.get("primary_table") or (prec.get("primary_table") if pvid else None) or names[0]
+    tables: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    blocks: list[dict[str, Any]] = []
+    notes: list[str] = []
+    for i, s_ in enumerate(srcs):
+        name = s_["table"]
+        pt = ptables.get(name) or {}
+        act = pt.get("action") or ("rewrite" if name in ptabs else "new")
+        tb: list[dict[str, Any]] = []
+        if act in ("carry", "drop"):
+            tb.append({"code": "bad_action", "message": f"Table '{name}' is in the upload: its action is new, rewrite, append or "
+                                                        "skip (carry / drop are for the parent's tables you did not upload)."})
+            act = "rewrite" if name in ptabs else "new"
+        if act in ("rewrite", "append") and name not in ptabs:
+            tb.append({"code": "table_not_in_parent", "message": f"Table '{name}' is not in the parent version"
+                                                                 f"{' ' + pvid if pvid else ' (this is a new dataset)'}: "
+                                                                 f"it can only be new, not {act}."})
+            act = "new"
+        if act == "new" and name in ptabs:
+            tb.append({"code": "table_exists", "message": f"The parent already has a table '{name}': rewrite it (match its rows) "
+                                                          "or append to it."})
+        top = name == (plan.get("primary_table") or names[0])  # top-level types / formats apply to the first (primary) table
+        tplan = {"table": name, "types": pt.get("types") or (plan.get("types") if top else None),
+                 "formats": pt.get("formats") or (plan.get("formats") if top else None)}
+        soft = {c["name"]: _norm_type(c["type"]) for c in ptabs[name]["schema"]} if act == "append" else None
+        try:
+            r = _check_file(db, tmp, s_["f"], tplan, team_id, typed_name=f"typed.{i}.parquet", sep=s_.get("sep"), soft_types=soft)
+        except LakeError as e:
+            raise LakeError(e.status, e.code, f"{_label(s_)}: {e.message}", table=name, **e.extra) from None
+        t = r["tables"][0]
+        t.update(name=name, source_file=s_["source_file"], source_sha256=s_["source_sha256"], typed=r["typed"], action=act,
+                 kind=r["kind"])
+        if s_.get("sheet") is not None:
+            t["sheet"] = s_["sheet"]
+        tb += r["blocks"]
+        if act == "append":
+            pcols = [c["name"] for c in ptabs[name]["schema"]]
+            fcols = [c["name"] for c in t["schema"]]
+            miss, extra = [c for c in pcols if c not in fcols], [c for c in fcols if c not in pcols]
+            if miss or extra:
+                tb.append({"code": "append_columns", "message": f"Rows appended to '{name}' must have its columns: "
+                                                                + (f"missing {', '.join(miss)}" if miss else "")
+                                                                + ("; " if miss and extra else "")
+                                                                + (f"not in the table {', '.join(extra)}" if extra else "")
+                                                                + ". Rewrite the table instead, or fix the file."})
+            else:
+                ptype = {c["name"]: _norm_type(c["type"]) for c in ptabs[name]["schema"]}
+                bad = [f"{c['name']} ({c['type']}, the table has {ptype[c['name']]})" for c in t["schema"]
+                       if _norm_type(c["type"]) != ptype[c["name"]]]
+                if bad:
+                    tb.append({"code": "append_type", "message": f"These columns of '{name}' do not read as the table's types: "
+                                                                 f"{', '.join(bad)}."})
+            t["append"] = {"parent_rows": ptabs[name]["n_rows"], "rows_added": t["n_rows"],
+                           "rows_after": ptabs[name]["n_rows"] + t["n_rows"]}
+        warnings += [{**w_, "table": name} for w_ in r["warnings"]]
+        blocks += [{**b_, "table": name} for b_ in tb]
+        notes += [f"{name}: {n}" for n in r["notes"]]
+        t["blocked"] = bool(tb)
+        if tb:
+            t["typed"] = None
+        tables.append(t)
+    by_name = {t["name"]: t for t in tables}
+    carried = [n for n in ptabs if n not in by_name and (ptables.get(n) or {}).get("action") != "drop"]
+    dropped = [n for n in ptabs if n not in by_name and (ptables.get(n) or {}).get("action") == "drop"]
+    for n, spec in ptables.items():
+        if n not in by_name and n not in ptabs and spec.get("action") not in (None, "skip"):
+            blocks.append({"code": "table_unknown", "table": n, "message": f"The plan names table '{n}', which is neither in the "
+                                                                          "upload nor in the parent."})
+    final = [n for n in ptabs if n not in dropped] + [n for n in names if n not in ptabs]
+    if primary not in final:
+        blocks.append({"code": "primary_table", "message": f"The primary table '{primary}' is not in the new version."})
+    target = plan.get("target")
+    if target:
+        pcols = [c["name"] for c in (by_name[primary]["schema"] if primary in by_name else ptabs.get(primary, {}).get("schema", []))]
+        if target not in pcols:
+            hold = [n for n in final if target in [c["name"] for c in (by_name[n]["schema"] if n in by_name else ptabs[n]["schema"])]]
+            blocks.append({"code": "target_unknown", "message": f"Column '{target}' is not in the primary table '{primary}'"
+                                                                + (f"; it is in {', '.join(hold)}: set primary_table" if hold else "")
+                                                                + "."})
+    for t in tables:  # P06 per table: candidates, every method simulated, what the commit needs
+        if t["action"] == "rewrite" and not t["blocked"]:
+            mini = {"tables": [t], "typed": t["typed"], "blocks": []}
+            tp = {**plan, "table": t["name"], "match": (ptables.get(t["name"]) or {}).get("match"),
+                  "target": target if t["name"] == primary else None}
+            t["next_version"] = _check_next(db, store, dstore, tmp, mini, tp)
+    con = duck.connect("job", **_duck_kw())
+    keys_out, rels_out, sugg = [], [], []
+    try:
+        rel = {n: _rel_sql(db, tmp, pvid, by_name.get(n), n) for n in final
+               if n not in by_name or by_name[n].get("typed")}
+        cols_of = {n: [c["name"] for c in (by_name[n]["schema"] if n in by_name else ptabs[n]["schema"])] for n in final}
+        for n, spec in ptables.items():
+            if spec.get("key") and n in rel:
+                miss = [c for c in spec["key"] if c not in cols_of[n]]
+                if miss:
+                    blocks.append({"code": "key_column_missing", "table": n, "message": f"'{n}' has no column(s) {', '.join(miss)}."})
+                    continue
+                k = _key_stats(con, rel[n], spec["key"])
+                keys_out.append({"table": n, "columns": spec["key"], **k})
+                if not k["valid"]:
+                    blocks.append({"code": "key_invalid", "table": n, "message": f"Key {', '.join(spec['key'])} of '{n}' is not "
+                                                                                 f"unique and present: {k['n_duplicates']:,} repeated, "
+                                                                                 f"{k['n_nulls']:,} missing."})
+        declared = {(r["from"]["table"], tuple(r["from"]["columns"]), r["to"]["table"]) for r in plan.get("relations") or []}
+        for r in plan.get("relations") or []:
+            a, b = r["from"]["table"], r["to"]["table"]
+            miss = [f"{a}.{c}" for c in r["from"]["columns"] if c not in cols_of.get(a, [])] + \
+                [f"{b}.{c}" for c in r["to"]["columns"] if c not in cols_of.get(b, [])]
+            if a not in final or b not in final or miss:
+                blocks.append({"code": "relation_unknown", "relation": r["name"], "message": f"Relation {r['name']} names "
+                                                                                             f"{'tables or ' if a not in final or b not in final else ''}"
+                                                                                             f"columns the version will not have: {', '.join(miss) or a + ' / ' + b}."})
+                continue
+            if a not in rel or b not in rel:
+                continue
+            st = _relation_stats(con, rel[a], r["from"]["columns"], rel[b], r["to"]["columns"])
+            rels_out.append({**r, **st})
+            if not st["to_unique"]:
+                blocks.append({"code": "relation_to_not_unique", "relation": r["name"],
+                               "message": f"Relation {r['name']}: {b}.{', '.join(r['to']['columns'])} repeats ({st['to_duplicates']:,} "
+                                          f"repeated values), so it is not {r['cardinality']}. Declare it from the other side, or "
+                                          "join with an aggregate (P14)."})
+        sugg = _suggest_relations(con, rel, cols_of, {n: (([ptables[n]["key"]] if (ptables.get(n) or {}).get("key") else [])
+                                                         + (ptabs.get(n, {}).get("keys") or [])) for n in final}, declared)
+    finally:
+        _close(con)
+    out = {"kind": "multi", "tables": tables, "primary_table": primary, "carried": carried, "dropped": dropped,
+           "keys": keys_out, "relations": rels_out, "suggested_relations": sugg, "sheets": sheets,
+           "warnings": warnings, "blocks": blocks, "notes": notes,
+           "typed": (by_name.get(primary) or {}).get("typed") if not blocks else None}
+    if pvid:
+        out["parent"] = {"version_id": pvid, "root_id": prec.get("root_id") or pvid, "primary_table": prec.get("primary_table"),
+                         "tables": {n: {"n_rows": x["n_rows"], "table_sha256": x["sha"]} for n, x in ptabs.items()}}
+        rw = [t["name"] for t in tables if t["action"] == "rewrite"]
+        if rw:
+            out["commit_needs"] = {"match": {n: True for n in rw},
+                                   "note": "POST …/commit {match: {<table>: {method: key|declared|row_hash|none, columns}}} "
+                                           "(one rewritten table: the bare {method, …} works too), or tables.<t>.match in "
+                                           "the plan."}
+    return out
+
+
+def _key_stats(con, rel: str, cols: list[str]) -> dict[str, Any]:
+    cs = ", ".join(_q(c) for c in cols)
+    nulls = " OR ".join(f"{_q(c)} IS NULL" for c in cols)
+    n, nd, nn = con.execute(f"SELECT count(*), count(DISTINCT ({cs})), count(*) FILTER (WHERE {nulls}) FROM {rel}").fetchone()
+    return {"valid": bool(nd == n and nn == 0), "n_rows": int(n), "n_duplicates": int(n - nd), "n_nulls": int(nn)}
+
+
+def _relation_stats(con, a: str, acols: list[str], b: str, bcols: list[str]) -> dict[str, Any]:
+    """Orphans (from-rows with a value that matches no to-row; rows with a missing value are counted apart) and
+    whether the to side is unique."""
+    on = " AND ".join(f"f.{_q(x)} = t.{_q(y)}" for x, y in zip(acols, bcols))
+    nn = " AND ".join(f"f.{_q(x)} IS NOT NULL" for x in acols)
+    n_from, n_null = con.execute(f"SELECT count(*), count(*) FILTER (WHERE NOT ({nn})) FROM {a} f").fetchone()
+    orph = con.execute(f"SELECT count(*) FROM (SELECT * FROM {a} f WHERE {nn}) f ANTI JOIN {b} t ON {on}").fetchone()[0]
+    bs = ", ".join(_q(c) for c in bcols)
+    n_to, nd = con.execute(f"SELECT count(*), count(DISTINCT ({bs})) FROM {b}").fetchone()
+    return {"n_from_rows": int(n_from), "n_orphans": int(orph), "n_from_missing": int(n_null),
+            "coverage": f"{(1 - orph / max(1, n_from - n_null)):.4f}", "to_unique": bool(nd == n_to), "to_duplicates": int(n_to - nd)}
+
+
+KEYISH = re.compile(r"(^id$|_id$|id_|_key$|^key$|_no$|_num$|_code$|_ref$)", re.I)
+
+
+def _suggest_relations(con, rel: dict[str, str], cols_of: dict[str, list[str]], keys: dict[str, list[list[str]]],
+                       declared: set) -> list[dict[str, Any]]:
+    """Relations nobody declared yet, proposed (never stored): a column of table A with the name of a one-column key of
+    table B (declared, or unique and id-like), with the orphan count. At most 12 pairs are scanned."""
+    out = []
+    tried = 0
+    for b, bcols in cols_of.items():
+        if b not in rel:
+            continue
+        cands = {k[0] for k in keys.get(b) or [] if len(k) == 1} | {c for c in bcols if KEYISH.search(c)}
+        for c in sorted(cands):
+            for a, acols in cols_of.items():
+                if a == b or a not in rel or c not in acols or (a, (c,), b) in declared or tried >= 12:
+                    continue
+                tried += 1
+                try:
+                    st = _relation_stats(con, rel[a], [c], rel[b], [c])
+                except Exception:  # noqa: BLE001 - incomparable types: no suggestion
+                    continue
+                if not st["to_unique"] or st["n_from_rows"] == st["n_from_missing"]:
+                    continue
+                out.append({"name": f"{a}_{b}", "from": {"table": a, "columns": [c]}, "to": {"table": b, "columns": [c]},
+                            "cardinality": "n:1", **st, "suggested": True})
+    return out
+
+
+def _commit_multi(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan: dict[str, Any], tmp: Path, *, by: str,
+                  reason: str, make_default: bool | None, match: Any, acknowledge: Any) -> tuple[dict[str, Any], bool]:
+    """P12: one version from several tables (§5.2): each uploaded table new / rewritten (P06's match per table) /
+    appended (an 'append' part: the parent's parts are reused, the new rows get fresh ids); every parent table not
+    uploaded is carried by reference (zero bytes) unless dropped; the plan's keys and relations are declared."""
+    from .. import config as _cfg
+    from ..dataset_versions import parse_match
+    from . import splitstore as SS
+    from .derive import no_floats
+
+    up = u["id"]
+    files = u["files"] or []
+    pvid = plan.get("parent_version_id")
+    ptables = plan.get("tables") or {}
+    tabs = chk["tables"]
+    for t in tabs:
+        if not t.get("typed") or not (tmp / t["typed"]).exists():
+            raise LakeError(409, "check_required", "A checked file is gone from staging; check again.")
+    acks = acknowledge if isinstance(acknowledge, list) else [acknowledge] if isinstance(acknowledge, str) and acknowledge else []
+    acks = [str(a) for a in acks]
+    rewrites = [t for t in tabs if t["action"] == "rewrite"]
+    matches: dict[str, dict[str, Any]] = {}
+    for t in rewrites:
+        raw = None
+        if isinstance(match, dict) and "method" not in match:
+            raw = match.get(t["name"])
+        elif isinstance(match, dict) and len(rewrites) == 1:
+            raw = match
+        if raw is None:
+            raw = (ptables.get(t["name"]) or {}).get("match")
+        try:
+            m = parse_match(raw, t["name"])
+        except ValueError as e:
+            raise LakeError(400, "bad_match", f"{t['name']}: {e}", table=t["name"]) from None
+        if m is None:
+            nv = t.get("next_version") or {}
+            raise LakeError(400, "match_required",
+                            f"Say how the rows of '{t['name']}' are matched to the parent's: match = {{\"{t['name']}\": {{method: "
+                            "key, columns: [...]}} (or declared / row_hash / none). Nothing is guessed. The candidates "
+                            "and what each method would do are below (and in the check).", table=t["name"],
+                            candidates=nv.get("candidates") or [], methods=nv.get("methods") or [], preselect=nv.get("preselect"))
+        matches[t["name"]] = m
+    sources = [{"filename": f["filename"], "sha256": f["sha256"], "bytes": f["bytes"], "kept": True} for f in files]
+    primary = chk["primary_table"]
+    by_name = {t["name"]: t for t in tabs}
+    prec, ptabs = _parent_tables(db, pvid) if pvid else ({}, {})
+    order = [n for n in ptabs if n in by_name or n in chk.get("carried", [])] + [t["name"] for t in tabs if t["name"] not in ptabs]
+    pschema = {c["name"] for c in (by_name[primary]["schema"] if primary in by_name else ptabs.get(primary, {}).get("schema", []))}
+    target = plan.get("target") or prec.get("target")
+    target = target if target in pschema else None
+    fname = files[0]["filename"] if files else "upload"
+    name = plan.get("name") or re.sub(r"\.(csv|tsv|txt|parquet|xlsx|xlsm)$", "", Path(fname or "upload").name, flags=re.I)
+    w = VersionWriter(db, store, op="upload_version" if pvid else "upload", by=by, parent_id=pvid,
+                      name=None if pvid else name, project_id=None if pvid else (plan.get("project_id") or None),
+                      reason=reason or plan.get("reason") or "", job_id=up, sources=sources, primary_table=primary,
+                      duck_kw=_duck_kw())
+    recs: dict[str, Any] = {}
+    contracts: dict[str, Any] = {}
+    warns = [{k: v for k, v in x.items() if k != "examples"} for x in chk.get("warnings") or []]
+    with w:
+        done = w.committed_for_job()
+        if done:
+            _mark_committed(db, up, done)
+            return _version(db, done, up), False
+        for n in order:
+            t = by_name.get(n)
+            if t is None:
+                w.carry(n)
+                w.carry_splits(n)
+                continue
+            typed = tmp / t["typed"]
+            reasons = {c["name"]: c["reason"] for c in t["schema"] if c.get("reason")}
+            src = f"read_parquet({_lit(typed)}, file_row_number = true)"
+            if t["action"] == "new":
+                cols = ", ".join(_q(c["name"]) for c in t["schema"])
+                start = reserve_row_ids(db, w.root_id, n, 0, t["n_rows"]) if pvid else 0
+                w.write(n, f"SELECT ({int(start)} + file_row_number)::BIGINT AS {ROW_ID}, {cols} FROM {src}", reasons=reasons,
+                        source_file=t["source_file"])
+            elif t["action"] == "append":
+                base = w._parent_table(n)
+                start = reserve_row_ids(db, w.root_id, n, (base.row_id_max if base.row_id_max is not None else -1) + 1, t["n_rows"])
+                casts = ", ".join(f"CAST({_q(c['name'])} AS {c['type']}) AS {_q(c['name'])}" for c in base.schema)
+                try:
+                    w.append(n, f"SELECT ({int(start)} + file_row_number)::BIGINT AS {ROW_ID}, {casts} FROM {src}",
+                             source_file=t["source_file"])
+                except LakeError:
+                    raise
+                except Exception as e:  # noqa: BLE001 - a value the parent's type cannot hold: 400 in words
+                    log.info("append cast failed: %s", str(e)[:500])
+                    raise LakeError(400, "append_type", f"A value in the rows appended to '{n}' does not fit the table's "
+                                                        "column types; check the file again.", table=n) from None
+                w.extra_ops.append({"op": "upload_append", "table": n, "rows_added": int(t["n_rows"]), "first_row_id": int(start),
+                                    "source_file": t["source_file"]})
+                if n == prec.get("primary_table"):  # the holdout grows by the seeded share of the new rows (§5.7)
+                    par = _Parent(db, store, dstore, pvid, n)
+                    sr = SS.carry_into(w, n, par.ids, par.split, _cfg.HOLDOUT_SHARE, target_in_child=True, parent_vid=pvid) \
+                        if par.split else None
+                    if sr:
+                        w.extra_ops.append(no_floats({"op": "split_carried", "table": n, **sr}))
+            else:  # rewrite
+                par = _Parent(db, store, dstore, pvid, n)
+                m = dict(matches[n])
+                if m["method"] == "declared":
+                    if not par.declared:
+                        raise LakeError(400, "no_declared_key", f"{pvid} has no confirmed key for table {n!r}: choose "
+                                                                "{method: key, columns: [...]} instead.", table=n)
+                    m["columns"] = par.declared[0]
+                rec, mw, contract, chosen, _ = _write_matched(w, db, par, t, typed, m, acks, by,
+                                                              target if par.is_primary else None, t["source_file"])
+                recs[n], contracts[n] = rec, contract
+                warns += [{**{k: v for k, v in x.items() if k not in ("values",)}, "table": n} for x in contract["warnings"]]
+                warns += [{**x, "source": "match", "table": n} for x in mw]
+        for n, spec in ptables.items():
+            if spec.get("key") and n in w.tables:
+                k = w.key(n, spec["key"], declared_by=by)
+                if not k["valid"]:
+                    raise LakeError(400, "key_invalid", f"Key {', '.join(spec['key'])} of '{n}' is not unique and present: "
+                                                        f"{k['n_duplicates']:,} repeated, {k['n_nulls']:,} missing.", table=n)
+        for r in plan.get("relations") or []:
+            w.relation(r["name"], r["from"]["table"], r["from"]["columns"], r["to"]["table"], r["to"]["columns"],
+                       cardinality=r["cardinality"], declared_by=by)
+        w.warnings = warns
+        acts = {t["name"]: t["action"] for t in tabs}
+        out = w.commit(make_default=(True if make_default is None else make_default) if not pvid else make_default,
+                       target=target, kind="tabular",
+                       note=f"Uploaded {len(tabs)} table(s) from {', '.join(f['filename'] for f in files)}"
+                            + (f" as the next version of {pvid}" if pvid else ""))
+    vid = out["version_id"]
+    created = not out.get("deduped")
+    for f in files:
+        _keep_source(db, store, tmp / f["src"], f, up, vid)
+    _mark_committed(db, up, vid)
+    with db.connect() as con:
+        S.audit(con, by, "upload_committed", {"upload_id": up, "dataset_id": vid, "root_id": out.get("root_id") or vid,
+                                              "parent": pvid, "check_sha256": u["check_sha256"], "tables": acts,
+                                              "carried": chk.get("carried") or [], "dropped": chk.get("dropped") or [],
+                                              "sources": [{"filename": f["filename"], "sha256": f["sha256"]} for f in files],
+                                              "deduped": out.get("deduped")})
+    if store and hasattr(store, "remove_tmp"):
+        store.remove_tmp(tmp)
+    res = _version(db, vid, up, out)
+    res.update(matches=recs, warnings=warns, deduped=out.get("deduped"))
+    if contracts:
+        res["contract"] = contracts
+    return res, created
 
 
 def _keep_source(db, store, src: Path, f: dict[str, Any], up: str, vid: str) -> None:

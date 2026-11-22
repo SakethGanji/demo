@@ -183,6 +183,8 @@ einops==0.8.2
     #   chronos-forecasting
 einx==0.4.3
     # via autogluon-tabular
+et-xmlfile==2.0.0
+    # via openpyxl
 fairlearn==0.15.0
     # via -r backend/requirements.txt
 fastai==2.8.7
@@ -508,6 +510,8 @@ opentelemetry-sdk==1.45.2
     #   ray
 opentelemetry-semantic-conventions==0.66b2
     # via opentelemetry-sdk
+openpyxl==3.1.5
+    # via -r backend/requirements.txt
 optuna==5.1.0
     # via mlforecast
 orjson==3.13.0
@@ -673,6 +677,8 @@ pygments==2.21.0
 pyparsing==3.3.3
     # via matplotlib
 pytest==9.2.0
+    # via -r backend/requirements.txt
+python-calamine==0.9.1
     # via -r backend/requirements.txt
 python-dateutil==2.9.0.post0
     # via
