@@ -57,13 +57,17 @@ export type Item = {
   is_gold?: boolean; is_blind?: boolean; leased_until?: string; current?: unknown; column?: string
 }
 export type Answer = { assignment_id: string; value?: unknown; skip?: boolean; flag?: boolean; confirm?: boolean; note?: string; ms?: number }
-export type AnswerResult = { written?: number; skipped?: number; gold?: { graded: number; correct: number }; paused?: false | { paused: boolean; reason?: string; accuracy?: number } }
+/** LB-B answers: `{accepted, paused, paused_reason, gold:{n, correct}}` (older builds: written / gold.graded / paused{…}). */
+export type AnswerResult = { accepted?: number; written?: number; skipped?: number; gold?: { n?: number; graded?: number; correct: number }
+  paused?: boolean | null | { paused: boolean; reason?: string }; paused_reason?: string | null }
 export type GoldAcc = { n: number; correct: number; accuracy: number | null; wilson_lo?: number; wilson_hi?: number }
 export type Quality = {
   task_id?: string; fleiss_kappa?: number | null; fleiss_rows?: number
   cohen_kappa?: { a: string; b: string; n_shared: number; kappa: number | null; agreement?: number; reliable?: boolean }[]
-  annotators?: { principal_id: string; display_name?: string | null; items?: number; median_ms?: number | null; items_per_hour?: number | null; gold?: GoldAcc | null
+  annotators?: { principal_id: string; display_name?: string | null; items?: number; median_ms?: number | null; items_per_hour?: number | null; per_hour?: number | null
+    gold?: GoldAcc | null; gold_accuracy?: number | null; gold_ci?: [number, number] | null; gold_n?: number; kappa?: number | null
     agreement_with_majority?: number | null; paused?: boolean; anchoring?: boolean | null }[]
+  pairwise?: { a: string; b: string; n_shared?: number; n?: number; kappa: number | null; reliable?: boolean }[]
   anchoring?: { flag?: boolean; shown_agree?: number | null; blind_agree?: number | null; [k: string]: unknown } | null
   backlog?: number; done?: number; disputed?: number; adjudicated?: number; classes?: string[]
 }
@@ -80,11 +84,15 @@ export type Calibration = { id?: string; n?: number; accuracy?: number | null; t
   thresholds?: { tau: number; coverage: number; n: number; acc: number | null; acc_lo?: number }[]
   certify?: { tau: number; coverage: number; n: number; acc: number | null; acc_lo?: number } | null; confusion?: [string, string, number][] }
 /** The team policy key LB-B reads (`teams.policy.llm_labeling`): off unless enabled; the destination must be allowed. */
-export type LlmPolicy = { enabled?: boolean; destinations?: string[]; max_usd_month?: number; max_rows_job?: number; [k: string]: unknown }
+export type LlmPolicy = { enabled?: boolean; destinations?: string[]; max_usd_month?: number; max_rows_job?: number; pii_guard?: boolean; [k: string]: unknown }
+/** GET /label-layers/{l}/llm-policy: the effective state (team policy ∩ admin allowlist) and why it is off. */
+export type LlmPolicyView = { enabled: boolean; destinations: string[]; destination: string | null; admin_allowlist?: string[]; max_usd_month?: number | null
+  allow_unmasked?: boolean; reason?: string | null; unmasked_requests?: { id: string; status: string; columns?: string[] }[] }
+export type SqlResult = { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean; tables?: string[]; query_sha256?: string; n?: number }
 export type LlmCols = { sent?: string[]; masked?: string[]; free_text?: string[]; excluded?: { column: string; reason: string }[] }
 export type LlmRun = {
   id: string; prompt_id: string; job_id?: string; purpose: 'preview' | 'calibrate' | 'label'; status: string; destination: string; mode?: string; samples_k?: number
-  columns_sent?: LlmCols; max_usd?: string | number; est_usd?: string | number | null; spent_usd?: string | number
+  columns_sent?: LlmCols | string[]; max_usd?: string | number; est_usd?: string | number | null; spent_usd?: string | number
   tokens_in?: number; tokens_out?: number; tokens_cached?: number; rows_total?: number | null; rows_done?: number; rows_cached?: number; rows_failed?: number; pii_redactions?: number
   created_at?: string; created_by?: string; finished_at?: string | null; error?: string | null
   result?: { calibration?: Calibration; auto_accepted?: number; prelabel_only?: number; events_written?: number; budget_stopped?: boolean; pii_values_found?: number
@@ -138,13 +146,20 @@ export const labels = {
   quality: (t: string) => request<Quality>(`/label-tasks/${e(t)}/quality`),
 
   prompts: (l: string) => request<unknown>(`/label-layers/${e(l)}/prompts`).then(list<Prompt>('prompts')),
-  createPrompt: (l: string, body: { name: string; column?: string; template: string; model?: string; context: string[]; effort?: string }, b: string) =>
+  createPrompt: (l: string, body: { name: string; column?: string; template: string; model?: string; context: string[]; effort?: string; version_id?: string; query?: string; prompt_template?: string }, b: string) =>
     json<Prompt>(`/label-layers/${e(l)}/prompts`, 'POST', { ...body, by: b }),
   preview: (p: string, n: number, versionId: string, b: string, destination = 'fake') => json<LlmPreview>(`/label-prompts/${e(p)}/preview`, 'POST', { n, version_id: versionId, destination, max_usd: 0.5, by: b }, 120_000),
   calibrate: (p: string, body: { version_id: string; task_id?: string; max_usd: number; destination?: string }, b: string) => json<LlmStarted>(`/label-prompts/${e(p)}/calibrate`, 'POST', { destination: 'fake', ...body, by: b }, 120_000),
   run: (p: string, body: { version_id: string; selector: unknown; k?: number; max_usd: number; destination?: string; stop_at_cap?: boolean; task_id?: string }, b: string) =>
     json<LlmStarted>(`/label-prompts/${e(p)}/runs`, 'POST', { destination: 'fake', mode: 'online', ...body, by: b }, 120_000),
   llmRun: (r: string) => request<LlmRun>(`/label-llm-runs/${e(r)}`),
+  llmPolicy: (l: string) => request<LlmPolicyView>(`/label-layers/${e(l)}/llm-policy`),
+  llmRuns: (l: string) => request<unknown>(`/label-layers/${e(l)}/llm-runs`).then(list<LlmRun>('runs')),
+  cancelRun: (r: string, b: string) => json<LlmRun>(`/label-llm-runs/${e(r)}/cancel`, 'POST', { by: b }),
+  /** The snapshot policy that accepts this run's LLM labels at ≥ τ* (409 not_calibrated without a passed calibration). */
+  acceptRun: (r: string, b: string) => json<{ accepted?: number; tau_star?: number; snapshot_policy: Record<string, unknown> }>(`/label-llm-runs/${e(r)}/accept`, 'POST', { by: b }),
+  toHumans: (r: string, body: { task_id: string; tau?: number | null; n?: number }, b: string) => json<{ added?: number; items?: number; rows?: number }>(`/label-llm-runs/${e(r)}/send-to-task`, 'POST', { ...body, by: b }),
+  sqlPreview: (l: string, versionId: string, query: string, limit = 50) => json<SqlResult>(`/label-layers/${e(l)}/sql/preview`, 'POST', { version_id: versionId, query, limit }, 60_000),
   unmaskRequest: (l: string, columns: string[], reason: string, b: string) => json<{ id: string; status: string }>(`/label-layers/${e(l)}/llm-unmasked-requests`, 'POST', { columns, reason, by: b }),
 
   snapshots: (l: string) => request<unknown>(`/label-layers/${e(l)}/snapshots`).then(list<Snapshot>('snapshots')),

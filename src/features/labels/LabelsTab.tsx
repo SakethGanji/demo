@@ -223,8 +223,9 @@ function TaskRow({ t: t0, open }: { t: Task; open: (v: View) => void }) {
   const full = useFetch(() => labels.task(t0.id), [t0.id])  // the list has no counts or members
   const t = { ...t0, ...(full.data ?? {}) }
   const c = t.counts ?? {}
-  const total = Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0)
-  const done = (c.done ?? 0) + (c.skipped ?? 0)
+  const pg = t.progress ?? {}
+  const total = pg.total ?? (Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0))
+  const done = pg.done != null ? pg.done + (pg.skipped ?? 0) : (c.done ?? 0) + (c.skipped ?? 0)
   const ann = (t.members ?? []).filter((m) => m.role === 'annotator')
   const guests = ann.filter((m) => m.guest)
   return (

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { labels, specCol, type Layer, type Task, type TaskCreate, type TaskType } from '@/shared/api/labels'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { CardHead, Callout, Field, Flash, Steps, Why } from '@/shared/components/DataKit'
@@ -38,6 +38,13 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
   const [calibN, setCalibN] = useState(1000)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  // the layer's schema can arrive after the form opened (the list row has only its version): fill what is still empty
+  useEffect(() => {
+    if (!col0) return
+    if (!classes) setClasses((col0.classes ?? []).join(', '))
+    if (!guide && sc?.guidelines) setGuide(sc.guidelines)
+    if (col0.column && cols.includes(col0.column) && column !== col0.column && !classes) { setColumn(col0.column); setContext(cols.filter((c) => c !== col0.column).slice(0, 8)) }
+  }, [col0?.column, sc?.version]) // eslint-disable-line react-hooks/exhaustive-deps
   const cs = classes.split(',').map((x) => x.trim()).filter(Boolean)
   const goldRows = gold.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [id, ...rest] = l.split(/[=,:\s]+/); return { row_id: Number(id), value: rest.join(' ').trim() } })
   const badGold = goldRows.filter((g) => !Number.isInteger(g.row_id) || (type === 'class' && !cs.includes(g.value)))

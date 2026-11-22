@@ -69,6 +69,7 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
   await step('1b. Create a task: schema, guidelines, queue, people (with a guest) and gold', async () => {
     await p.click(tid('lbl-new-task'))
     await p.waitForSelector(tid('lbl-task-setup'))
+    await p.waitForFunction(() => /Billing/.test(document.querySelector('[data-testid="lbl-task-classes"]')?.value ?? ''), null, { timeout: 15000 })
     await p.fill(tid('lbl-task-name'), 'Ticket triage · round 1')
     await shot('01-task-setup-schema', tid('lbl-task-setup'))
     await p.click(tid('lbl-task-next'))
@@ -131,8 +132,16 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
       await p.click(tid('lbl-llm-review-pii-confirm'))
       await p.waitForFunction(() => !document.querySelector('[data-testid="lbl-llm-unreviewed"]'), null, { timeout: 15000 })
     }
+    // the SQL input (LB-B): a read-only DuckDB query over the version's tables; shown, then cancelled
+    await p.click(tid('lbl-llm-edit'))
+    await p.click(tid('lbl-llm-mode-sql'))
+    await p.click(tid('lbl-llm-query-run'))
+    await p.waitForSelector(tid('lbl-llm-query-rows'), { timeout: 30000 })
+    await shot('08b-llm-sql-input', tid('lbl-llm-prompt'))
+    await p.locator(`${tid('lbl-llm-prompt')} button:has-text("Cancel")`).click()
     await p.click(tid('lbl-llm-preview'))
     await p.waitForSelector(tid('lbl-llm-preview-rows'), { timeout: 60000 })
+    await shot('08c-llm-what-is-sent', tid('lbl-llm-pii'))
     console.log('sent:', (await p.locator(tid('lbl-llm-sent')).innerText()).replace(/\s+/g, ' '), '| excluded:', (await p.locator(tid('lbl-llm-excluded')).innerText()).replace(/\s+/g, ' '))
     await p.click(tid('lbl-llm-calibrate'))
     await p.waitForSelector(tid('lbl-llm-calibration'), { timeout: 120000 })
@@ -174,6 +183,7 @@ const CLASSES = ['Billing', 'Technical', 'Account', 'Shipping', 'Feature Request
     calls.push(`POST /api/datasets/${ROOT}/edit set_cells row ${rid} subject → ${r.status} ${JSON.stringify(j).slice(0, 300)}`)
     console.log('edit →', r.status, j.id ?? j.version_id ?? JSON.stringify(j).slice(0, 200))
     await open()
+    await p.reload()
     await p.waitForSelector(tid('lbl-status-stats'), { timeout: 30000 })
     await p.waitForTimeout(1000)
     const title = await p.locator(`${tid('lbl-status')} .card-title`).innerText()

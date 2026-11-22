@@ -95,3 +95,5 @@
 .lbl-md .md-h { font-weight: 600; color: var(--text-primary); margin: 2px 0 6px; }
 .lbl-md code { font-family: var(--font-mono); font-size: 12px; }
 .lbl-prog { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.lbl-pii-sent { border-color: var(--status-warning) !important; background: var(--status-warning-bg); }
+.lbl-sql { max-height: 220px; overflow: auto; } .lbl-sql td { font-size: 12px; }

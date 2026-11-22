@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { labels, wilson, num, specCol, type Calibration, type Layer, type LlmCols, type LlmPolicy, type LlmPreview, type Prompt } from '@/shared/api/labels'
+import { labels, wilson, num, specCol, type Calibration, type Layer, type LlmCols, type LlmPolicy, type LlmPreview, type Prompt, type SqlResult } from '@/shared/api/labels'
 import { pii, teamsApi } from '@/shared/api/governance'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
@@ -24,6 +24,8 @@ const saveRuns = (l: string, ids: string[]) => { try { localStorage.setItem(RUNS
 export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Layer; root: string; vid: string; v: number; cols: string[]; by: string; onBack: () => void }) {
   const [tick, setTick] = useState(0)
   const team = useFetch(() => teamsApi.get(layer.team_id ?? 'tm_default'), [layer.team_id, tick])
+  const pv = useFetch(() => labels.llmPolicy(layer.id).catch(() => null), [layer.id, tick])  // the effective state, with why it is off
+  const listed = useFetch(() => labels.llmRuns(layer.id).catch(() => null), [layer.id, tick])
   const ps = useFetch(() => labels.prompts(layer.id), [layer.id, tick])
   const tasks = useFetch(() => labels.tasks(layer.id), [layer.id])
   const tags = useFetch(() => pii.get(vid, layer.table_name).catch(() => null), [vid, layer.table_name, tick])
@@ -32,7 +34,9 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const canTag = useCan('data.tag_pii', 'dataset', root, by)
   const [runIds, setRunIds] = useState<string[]>(() => loadRuns(layer.id))
   const [sel, setSel] = useState<string | null>(null)
-  const [edit, setEdit] = useState<{ template: string; context: string[]; model: string } | null>(null)
+  const [edit, setEdit] = useState<{ template: string; context: string[]; model: string; mode: 'columns' | 'sql'; query: string } | null>(null)
+  const [sqlRes, setSqlRes] = useState<SqlResult | null>(null)
+  const [destSel, setDestSel] = useState<string | null>(null)
   const [maxUsd, setMaxUsd] = useState(2)
   const [nRows, setNRows] = useState(50)
   const [task, setTask] = useState('')
@@ -46,22 +50,29 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const prompts = (ps.data ?? []).slice().sort((a, b) => b.version - a.version)
   const p: Prompt | undefined = prompts.find((x) => x.id === sel) ?? prompts[0]
   const policy: LlmPolicy = ((team.data?.policy ?? {}) as { llm_labeling?: LlmPolicy }).llm_labeling ?? {}
-  const dests = policy.enabled ? (policy.destinations ?? []) : []
-  const dest = dests.includes('fake') ? 'fake' : dests[0] ?? 'off'
-  const destWhy = dest === 'off' ? 'LLM labeling is off for this team (team policy llm_labeling.enabled is false: the default). An owner turns it on.'
+  const dests = pv.data ? (pv.data.enabled ? pv.data.destinations : []) : policy.enabled ? (policy.destinations ?? []) : []
+  // fake first when allowed: the real `llm` destination needs the API's model key, and nothing here should send data by surprise
+  const dest = destSel && dests.includes(destSel) ? destSel : dests.includes('fake') ? 'fake' : dests[0] ?? 'off'
+  const guard = !!policy.pii_guard
+  const destWhy = dest === 'off' ? `LLM labeling is ${pv.data?.reason ?? 'off for this team (team policy llm_labeling.enabled is false; the default)'}. An owner turns it on.`
     : dest === 'fake' ? 'The fake destination: a deterministic oracle that answers without sending anything anywhere, at $0, so the whole flow can be tried. A real model needs an API key and an admin-allowed destination.'
     : `Allowed by the team policy and the admin allowlist: rows go to ${dest}.`
   const context = edit?.context ?? p?.spec?.context ?? cols.filter((c) => c !== target).slice(0, 8)
   const masked = new Set(tags.data?.masked_columns ?? [])
   // LB-B: every column sent needs a steward-reviewed PII tag (409 pii_unreviewed); a suggested tag is not reviewed
   const tagOf = new Map((tags.data?.tags ?? []).map((t) => [t.column, t]))
-  const unreviewed = tags.data ? context.filter((c) => { const t = tagOf.get(c); return !t || t.source === 'suggested' }) : []
-  const plan: LlmCols = prev?.columns ?? { sent: context.filter((c) => !masked.has(c) && !unreviewed.includes(c)), excluded: [...context.filter((c) => masked.has(c)).map((c) => ({ column: c, reason: 'pii' })), ...(target ? [{ column: target, reason: 'target' }] : [])] }
+  const unreviewed = guard && tags.data ? context.filter((c) => { const t = tagOf.get(c); return !t || t.source === 'suggested' }) : []
+  // the team decision (LB-B): with the PII guard off (the default) every column of the input is sent; on, PII-tagged ones are excluded
+  const plan: LlmCols = prev?.columns ?? (guard
+    ? { sent: context.filter((c) => !masked.has(c) && !unreviewed.includes(c)), excluded: [...context.filter((c) => masked.has(c)).map((c) => ({ column: c, reason: 'pii' })), ...(target ? [{ column: target, reason: 'target' }] : [])] }
+    : { sent: context, excluded: target ? [{ column: target, reason: 'target' }] : [] })
+  const piiSent = (plan.sent ?? []).filter((c) => masked.has(c))
   const sent = [...(plan.sent ?? []), ...(plan.masked ?? []).map((c) => `${c} (masked)`), ...(plan.free_text ?? []).map((c) => `${c} (redacted)`)]
   const excluded = plan.excluded ?? []
   const nPii = excluded.filter((x) => x.reason.startsWith('pii')).length
   const est = prev?.estimate?.est_usd != null ? (prev.estimate.est_usd / Math.max(1, prev.labels?.length ?? 20)) * nRows : dest === 'fake' ? 0 : null
   const addRun = (id: string) => { const ids = [id, ...runIds.filter((x) => x !== id)]; setRunIds(ids); saveRuns(layer.id, ids); setRunSel(id) }
+  const allRuns = Array.from(new Set([...runIds, ...(listed.data ?? []).map((r) => r.id)]))
   const act = async <T,>(key: string, f: () => Promise<T>, ok: (r: T) => string, isRun = false) => {
     setBusy(key); setMsg(null)
     try { const r = await f(); if (isRun) addRun((r as { id: string }).id); setMsg({ ok: true, text: ok(r) }); setTick((x) => x + 1) } catch (e) { setMsg({ ok: false, text: errText(e) }) } finally { setBusy('') }
@@ -73,9 +84,13 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const save = async () => {
     if (!edit) return
     setBusy('save')
-    try { const np = await labels.createPrompt(layer.id, { name: p?.name ?? `${layer.name}-prompt`, column: target, template: edit.template, context: edit.context, model: edit.model }, by); setSel(np.id); setEdit(null); setPrev(null); setTick((x) => x + 1); setMsg({ ok: true, text: `Prompt v${np.version} saved (sha ${np.prompt_sha256?.slice(0, 10) ?? '…'}).` }) }
+    try {
+      const body = edit.mode === 'sql' ? { name: p?.name ?? `${layer.name}-prompt`, column: target, template: edit.template, prompt_template: edit.template, query: edit.query, version_id: vid, context: sqlRes?.columns.filter((c) => c !== '__row_id') ?? [], model: edit.model }
+        : { name: p?.name ?? `${layer.name}-prompt`, column: target, template: edit.template, context: edit.context, model: edit.model }
+      const np = await labels.createPrompt(layer.id, body, by); setSel(np.id); setEdit(null); setPrev(null); setSqlRes(null); setTick((x) => x + 1); setMsg({ ok: true, text: `Prompt v${np.version} saved (sha ${np.prompt_sha256?.slice(0, 10) ?? '…'}).` }) }
     catch (e) { setMsg({ ok: false, text: errText(e) }) } finally { setBusy('') }
   }
+  const runQuery = () => edit && act('sql', () => labels.sqlPreview(layer.id, vid, edit.query, 50).then((r) => { setSqlRes(r); return r }), (r) => `Query ran on v${v}: ${plural(r.n ?? r.rows.length, 'row')}, columns ${r.columns.join(', ')}.`)
   const review = () => act('tag', () => pii.set(vid, layer.table_name, unreviewed.map((c) => ({ column: c, tag: 'none', mask: 'none' })), by),
     () => `${plural(unreviewed.length, 'column')} reviewed as holding no PII (tag none, audited): ${unreviewed.join(', ')}.`)
   const off = dest === 'off'
@@ -107,16 +122,26 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
           <CardHead title="Prompt" badge={p ? <span className="v-tag mono">v{p.version}</span> : <Badge status="none">none yet</Badge>} sub="versioned: every label records the prompt's sha"
             actions={<span className="row" style={{ gap: 6 }}>
               {prompts.length > 1 && <select className="select" value={p?.id} onChange={(e) => { setSel(e.target.value); setEdit(null); setPrev(null) }} aria-label="Prompt version" data-testid="lbl-llm-version">{prompts.map((x) => <option key={x.id} value={x.id}>v{x.version} · {x.created_by ?? ''} {day(x.created_at)}</option>)}</select>}
-              {!edit && <button className="btn sm" disabled={!by || !can?.allow} title={why(can, 'Edit as a new version')} onClick={() => setEdit({ template: p?.spec?.template || DEFAULT_TEMPLATE, context, model: p?.model ?? 'fake-oracle' })} data-testid="lbl-llm-edit">{p ? 'New version…' : 'Write prompt…'}</button>}
+              {!edit && <button className="btn sm" disabled={!by || !can?.allow} title={why(can, 'Edit as a new version')} onClick={() => setEdit({ template: p?.spec?.template || DEFAULT_TEMPLATE, context, model: p?.model ?? 'fake-oracle', mode: (p?.spec as { query?: string } | undefined)?.query ? 'sql' : 'columns', query: (p?.spec as { query?: string } | undefined)?.query ?? `SELECT __row_id, subject, channel, priority, customer_tier\nFROM ${layer.table_name}` })} data-testid="lbl-llm-edit">{p ? 'New version…' : 'Write prompt…'}</button>}
             </span>} />
           <div className="card-body stack" style={{ gap: 8 }}>
             {ps.err && !ps.data ? <ReadErr err={ps.err} what="Prompts" /> : edit ? <>
+              <div className="seg" role="group" aria-label="Input">{(['columns', 'sql'] as const).map((m) => <button key={m} className={edit.mode === m ? 'on' : ''} aria-pressed={edit.mode === m} onClick={() => setEdit({ ...edit, mode: m })} data-testid={`lbl-llm-mode-${m}`}>{m === 'columns' ? 'Columns of the row' : 'SQL query'}</button>)}</div>
+              {edit.mode === 'sql' && <>
+                <Field label="Query" hint={`DuckDB over v${v}'s tables (read-only, one SELECT; needs __row_id); the template names its columns, e.g. {subject}`}>
+                  <textarea className="input mono lbl-guide-edit" rows={5} value={edit.query} onChange={(e) => { setEdit({ ...edit, query: e.target.value }); setSqlRes(null) }} data-testid="lbl-llm-query" /></Field>
+                <div className="row" style={{ gap: 6 }}><button className="btn sm" disabled={busy === 'sql' || !edit.query.trim()} onClick={runQuery} data-testid="lbl-llm-query-run">{busy === 'sql' ? 'Running…' : 'Run query'}</button>
+                  {sqlRes && <span className="muted">{plural(sqlRes.n ?? sqlRes.rows.length, 'row')}{sqlRes.truncated ? ' (first 50)' : ''} · <CopyId value={sqlRes.query_sha256} n={8} /></span>}</div>
+                {sqlRes && <div className="table-wrap lbl-sql" data-testid="lbl-llm-query-rows"><table className="table"><thead><tr>{sqlRes.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+                  <tbody>{sqlRes.rows.slice(0, 6).map((r, i) => <tr key={i}>{sqlRes.columns.map((c) => <td key={c} className="mono" title={String(r[c] ?? '')}>{String(r[c] ?? '—').slice(0, 40)}</td>)}</tr>)}</tbody></table></div>}
+              </>}
               <Field label="Template" hint="{classes}, {guidelines}, {row} are filled in; the row holds only the columns sent"><textarea className="input mono lbl-guide-edit" rows={8} value={edit.template} onChange={(e) => setEdit({ ...edit, template: e.target.value })} data-testid="lbl-llm-template" /></Field>
               <Field label="Model" hint="a full model id, never an alias (fake-oracle on the fake destination)"><input className="input mono" value={edit.model} onChange={(e) => setEdit({ ...edit, model: e.target.value })} /></Field>
-              <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== target).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
-                <input type="checkbox" checked={edit.context.includes(c)} onChange={(e) => setEdit({ ...edit, context: e.target.checked ? [...edit.context, c] : edit.context.filter((x) => x !== c) })} />{masked.has(c) && '🔒 '}{c}</label>)}</div></Field>
-              <div className="row" style={{ gap: 6 }}><button className="btn sm primary" disabled={busy === 'save'} onClick={save} data-testid="lbl-llm-save">Save as v{(p?.version ?? 0) + 1}</button><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button></div>
+              {edit.mode === 'columns' && <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== target).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
+                <input type="checkbox" checked={edit.context.includes(c)} onChange={(e) => setEdit({ ...edit, context: e.target.checked ? [...edit.context, c] : edit.context.filter((x) => x !== c) })} />{masked.has(c) && '🔒 '}{c}</label>)}</div></Field>}
+              <div className="row" style={{ gap: 6 }}><button className="btn sm primary" disabled={busy === 'save' || (edit.mode === 'sql' && !sqlRes)} title={edit.mode === 'sql' && !sqlRes ? 'Run the query first' : undefined} onClick={save} data-testid="lbl-llm-save">Save as v{(p?.version ?? 0) + 1}</button><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button></div>
             </> : p ? <>
+              {(p.spec as { query?: string } | undefined)?.query && <pre className="lbl-guidelines mono" data-testid="lbl-llm-saved-query">{(p.spec as { query?: string }).query}</pre>}
               <pre className="lbl-guidelines mono">{p.spec?.template || '(the default template)'}</pre>
               <span className="sub-line"><span className="mono">{p.model}</span> · effort {p.effort ?? 'low'} · column <span className="mono">{p.spec?.column}</span> · <CopyId value={p.prompt_sha256} n={8} />
                 {p.calibration && <> · <Badge status={p.calibration.passed ? 'pass' : 'warn'}>{p.calibration.passed ? `calibrated, τ* ${p.calibration.tau_star?.toFixed(2)}` : 'calibration not passed'}</Badge></>}</span>
@@ -124,11 +149,14 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
           </div>
         </div>
         <div className="card" data-testid="lbl-llm-pii">
-          <CardHead title="What is sent" badge={<Badge status={nPii ? 'excluded' : 'clean'}>{nPii ? `${nPii} PII column${nPii > 1 ? 's' : ''} excluded` : 'no PII column'}</Badge>}
-            sub={prev ? 'the column plan of the last preview' : 'PII-tagged columns never leave unless an approved request says so'} />
+          <CardHead title="What is sent" badge={guard ? <Badge status={nPii ? 'excluded' : 'clean'}>{nPii ? `${nPii} PII column${nPii > 1 ? 's' : ''} excluded` : 'no PII column'}</Badge>
+            : <Badge status={piiSent.length ? 'warn' : 'clean'}>{piiSent.length ? `${piiSent.length} PII column${piiSent.length > 1 ? 's' : ''} sent` : 'no PII column sent'}</Badge>}
+            sub={prev ? 'the column plan of the last preview' : guard ? 'PII guard on: PII-tagged columns are excluded' : 'every column of the input is sent (team decision: no PII guard)'} />
           <div className="card-body stack" style={{ gap: 10 }}>
-            <div className="lbl-pii-row"><span className="micro-label">sent</span><span className="lbl-chips" data-testid="lbl-llm-sent">{sent.length ? sent.map((c) => <span key={c} className="pt-chip">{c}</span>) : <span className="muted">nothing</span>}</span></div>
+            <div className="lbl-pii-row"><span className="micro-label">sent</span><span className="lbl-chips" data-testid="lbl-llm-sent">{sent.length ? sent.map((c) => <span key={c} className={`pt-chip ${masked.has(c) ? 'lbl-pii-sent' : ''}`} title={masked.has(c) ? 'tagged PII on this dataset; sent because the team has no PII guard' : undefined}>{masked.has(c) && '⚠ '}{c}{masked.has(c) && <span className="muted"> · PII</span>}</span>) : <span className="muted">nothing</span>}</span></div>
             <div className="lbl-pii-row"><span className="micro-label">excluded</span><span className="lbl-chips" data-testid="lbl-llm-excluded">{excluded.length ? excluded.map((x) => <span key={x.column} className={`pt-chip ${x.reason.startsWith('pii') ? 'lbl-excl' : ''}`} title={reasonOf(x.reason)}>{x.reason.startsWith('pii') && '🔒 '}{x.column} <span className="muted">· {x.reason === 'target' ? 'the label' : x.reason.startsWith('pii') ? 'PII' : x.reason.replace('_', ' ')}</span></span>) : <span className="muted">none</span>}</span></div>
+            {!guard && piiSent.length > 0 && <Callout tone="warn" title={`${piiSent.join(', ')} ${piiSent.length === 1 ? 'is' : 'are'} tagged PII and will be sent`} testId="lbl-llm-pii-sent">
+              The team chose to send any column to the LLM (no PII guard). Each run's audit records the columns sent, the row count and the prompt version, never values. To exclude PII-tagged columns, a maintainer sets <span className="mono">llm_labeling.pii_guard: true</span> in the team policy, or leave them out of the input.</Callout>}
             {nPii > 0 && <Callout tone="info" title="Why they are excluded">Columns tagged PII on this dataset are dropped from the row before the prompt is built; free text in the sent columns is scanned and card / account numbers become <span className="mono">[REDACTED:…]</span>. Sending one unmasked needs a request with a reason, approved by an owner other than you.</Callout>}
             {unreviewed.length > 0 && <Callout tone="warn" title={`${plural(unreviewed.length, 'column')} without a reviewed PII tag`} testId="lbl-llm-unreviewed">
               Nothing is sent until a steward has looked at every column in the row: {unreviewed.map((c) => <span key={c} className="pt-chip" style={{ marginRight: 4 }}>{c}</span>)}
@@ -136,7 +164,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
                 <ConfirmButton className="btn sm" disabled={!by || !canTag?.allow || busy === 'tag'} title={why(canTag, 'Tag these columns "none" (no PII), as a steward; audited')} onConfirm={review} testId="lbl-llm-review-pii"
                   confirm="They hold no PII" warning={unreviewed.join(', ')}>Review as no PII…</ConfirmButton>
                 <span className="muted" style={{ fontSize: 12 }}>or tag them on the dataset's Governance card</span></div></Callout>}
-            <div className="lbl-pii-row"><span className="micro-label">destination</span><span><Badge status={dest}>{dest}</Badge> <span className="muted">{destWhy}</span></span></div>
+            <div className="lbl-pii-row"><span className="micro-label">destination</span><span>{dests.length > 1 ? <select className="select" value={dest} onChange={(e) => setDestSel(e.target.value)} data-testid="lbl-llm-dest-pick">{dests.map((d) => <option key={d}>{d}</option>)}</select> : <Badge status={dest}>{dest}</Badge>} <span className="muted">{destWhy}</span></span></div>
             {prev && <div className="lbl-pii-row"><span className="micro-label">preview</span><span className="muted">{plural(prev.labels?.length ?? 0, 'row')} · {usd(prev.spent_usd)} · {int(prev.pii_redactions ?? 0)} redactions</span></div>}
           </div>
         </div>
@@ -168,13 +196,13 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
         </div>
       </div>
 
-      {runIds.length > 0 && <div className="card" data-testid="lbl-llm-runs">
-        <CardHead title="Runs" badge={<Badge status="none">{runIds.length}</Badge>} sub="calibration and labeling runs started here: rows, spend against the cap, PII redactions" />
+      {allRuns.length > 0 && <div className="card" data-testid="lbl-llm-runs">
+        <CardHead title="Runs" badge={<Badge status="none">{allRuns.length}</Badge>} sub="calibration and labeling runs on this layer: rows, spend against the cap, PII redactions" />
         <div className="card-body"><div className="table-wrap"><table className="table">
           <thead><tr><th>Run</th><th>Purpose</th><th>Rows</th><th className="r">Spent / cap</th><th className="r">Redactions</th><th>Status</th></tr></thead>
-          <tbody>{runIds.map((id) => <RunRow key={id} id={id} on={id === runSel} pick={() => setRunSel(id)} />)}</tbody></table></div></div>
+          <tbody>{allRuns.map((id) => <RunRow key={id} id={id} on={id === runSel} pick={() => setRunSel(id)} />)}</tbody></table></div></div>
       </div>}
-      {runSel && <RunReport key={runSel} id={runSel} layer={layer} vid={vid} task={task} gate={gate} gateWhy={gateWhy} by={by} onDone={(t) => { setMsg({ ok: true, text: t }); setTick((x) => x + 1) }} onErr={(e) => setMsg({ ok: false, text: errText(e) })} />}
+      {runSel && <RunReport key={runSel} id={runSel} layer={layer} task={task} gate={gate} gateWhy={gateWhy} by={by} onDone={(t) => { setMsg({ ok: true, text: t }); setTick((x) => x + 1) }} onErr={(e) => setMsg({ ok: false, text: errText(e) })} />}
     </div>
   )
 }
@@ -193,7 +221,7 @@ function RunRow({ id, on, pick }: { id: string; on: boolean; pick: () => void })
   )
 }
 
-function RunReport({ id, layer, vid, task, by, gate, gateWhy, onDone, onErr }: { id: string; layer: Layer; vid: string; task: string; by: string; gate: boolean; gateWhy: string | undefined
+function RunReport({ id, layer, task, by, gate, gateWhy, onDone, onErr }: { id: string; layer: Layer; task: string; by: string; gate: boolean; gateWhy: string | undefined
   onDone: (t: string) => void; onErr: (e: unknown) => void }) {
   const r = useFetch(() => labels.llmRun(id), [id], { pollMs: 1500, while: (d) => !d || LIVE.test(d.status) })
   const pr = useFetch(r.data ? () => labels.prompts(layer.id).then((ps) => ps.find((p) => p.id === r.data!.prompt_id) ?? null) : null, [r.data?.prompt_id, r.data?.status])
@@ -204,7 +232,8 @@ function RunReport({ id, layer, vid, task, by, gate, gateWhy, onDone, onErr }: {
   const k = cal?.accuracy != null ? Math.round(cal.accuracy * n) : 0
   const ci = n ? wilson(k, n) : null
   const tau = x.result?.calibration_used?.tau_star ?? cal?.tau_star ?? null
-  const cols = x.columns_sent ?? {}
+  const cs0 = x.columns_sent as unknown
+  const cols: LlmCols = Array.isArray(cs0) ? { sent: cs0.map(String) } : (cs0 as LlmCols) ?? {}
   return (
     <div className="card" data-testid="lbl-llm-report">
       <CardHead title={<>Run <span className="mono">{x.id}</span></>} badge={<Badge status={x.status}>{x.status.replace(/_/g, ' ')}</Badge>}
@@ -230,9 +259,9 @@ function RunReport({ id, layer, vid, task, by, gate, gateWhy, onDone, onErr }: {
         </div> : x.purpose === 'label' && <Callout tone="info" title="Not calibrated">No passed calibration for this prompt: every LLM label stays a pre-label for people. Calibrate against the task's calibration gold to find τ*.</Callout>}
         {x.purpose === 'label' && !LIVE.test(x.status) && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <button className="btn sm primary" disabled={gate || tau == null} title={gateWhy || (tau == null ? 'Calibrate first: accepting uses τ*' : `Take a snapshot that applies LLM labels at confidence ≥ ${tau.toFixed(2)}; the rest stay pre-labels`)}
-            onClick={() => labels.snapshot(layer.id, { method: 'majority', accept: { llm: { min_confidence: tau } } }, by).then(settle).then((s) => onDone(`Accepted ≥ τ* in snapshot ${(s as { id?: string }).id ?? ''}: ${int((s as { counts?: { applied?: number } }).counts?.applied ?? 0)} labels applied.`)).catch(onErr)} data-testid="lbl-llm-accept">Accept ≥ τ* (snapshot)</button>
+            onClick={() => labels.acceptRun(x.id, by).then((a) => labels.snapshot(layer.id, { method: 'majority', ...a.snapshot_policy }, by)).then(settle).then((s) => onDone(`Accepted ≥ τ* in snapshot ${(s as { id?: string }).id ?? ''}: ${int((s as { counts?: { applied?: number } }).counts?.applied ?? 0)} labels applied, the rest stay pre-labels.`)).catch(onErr)} data-testid="lbl-llm-accept">Accept ≥ τ* (snapshot)</button>
           <button className="btn sm" disabled={gate || !task} title={gateWhy || (!task ? 'Pick the task' : 'Queue the rows below τ* for people, with the LLM answer as a pre-label (never on gold or blind items)')}
-            onClick={() => labels.fill(task, { strategy: 'llm_low_conf', n: Math.max(1, x.rows_done ?? 50), version_id: vid }, by).then((f) => onDone(`${int((f as { items?: number }).items ?? 0)} low-confidence rows sent to people, the LLM answer as a pre-label.`)).catch(onErr)} data-testid="lbl-llm-humans">Send the rest to people</button>
+            onClick={() => labels.toHumans(x.id, { task_id: task, tau }, by).then((f) => onDone(`${int(f.items ?? f.added ?? f.rows ?? 0)} low-confidence rows sent to people, the LLM answer as a pre-label.`)).catch(onErr)} data-testid="lbl-llm-humans">Send the rest to people</button>
           {tau == null && !gate && <Why>{cal && !cal.passed ? `Accept needs τ*: the calibration did not reach the ${pct(cal.target ?? null, 0)} target, so every LLM label stays a pre-label for people.` : 'Accept needs τ*: calibrate first.'}</Why>}
         </div>}
         {x.error && <Callout tone="danger">{x.error}</Callout>}

@@ -13,7 +13,7 @@ type Mode = 'label' | 'review' | 'quality'
 const MODES: Mode[] = ['label', 'review', 'quality']
 const MODE_WORDS: Record<Mode, string> = { label: 'Label', review: 'Review', quality: 'Quality' }
 /** One agreement number: Fleiss' κ over all annotators, else the first reliable Cohen's pair. */
-const kappaOf = (q?: Quality | null) => q?.fleiss_kappa ?? q?.cohen_kappa?.find((c) => c.kappa != null)?.kappa ?? null
+const kappaOf = (q?: Quality | null) => q?.fleiss_kappa ?? (q?.cohen_kappa ?? q?.pairwise)?.find((c) => c.kappa != null)?.kappa ?? null
 const kappaWord = (k: number | null | undefined) => (k == null ? '—' : k >= 0.8 ? 'almost perfect' : k >= 0.6 ? 'substantial' : k >= 0.4 ? 'moderate' : k >= 0.2 ? 'fair' : 'slight')
 
 /** LB-C: one task's working screens: labelling (keyboard-first), review / adjudication, and quality. */
@@ -46,8 +46,9 @@ export function LabelScreen({ mode, taskId, layer, root, by, onBack, onMode }: {
 
 function TaskStats({ task, q }: { task?: Task | null; q?: Quality | null }) {
   const c = task?.counts ?? {}
-  const p = { done: q?.done ?? c.done ?? 0, disputed: q?.disputed }
-  const total = Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0)
+  const pg = task?.progress ?? {}
+  const p = { done: pg.done ?? q?.done ?? c.done ?? 0, disputed: pg.disputed ?? q?.disputed }
+  const total = pg.total ?? (Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0))
   const k = kappaOf(q)
   return (
     <div className="lbl-taskstats" data-testid="lbl-task-stats">
@@ -96,8 +97,10 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
       const r = await labels.answers(task.id, [{ assignment_id: it.assignment_id, ...a, ms: Date.now() - t0.current }], by)
       setAnswers((x) => ({ ...x, [it.assignment_id]: a }))
       session.current.n += 1
-      if (r.gold?.graded) setGold((g) => ({ correct: g.correct + r.gold!.correct, n: g.n + r.gold!.graded }))
-      if (r.paused && r.paused.paused) setPaused(r.paused.reason ?? 'Your gold accuracy fell below the task minimum: a reviewer resumes you.')
+      const gn = r.gold?.n ?? r.gold?.graded ?? 0
+      if (gn) setGold((g) => ({ correct: g.correct + (r.gold?.correct ?? 0), n: g.n + gn }))
+      const pz = typeof r.paused === 'object' && r.paused ? r.paused.paused : !!r.paused
+      if (pz) setPaused((typeof r.paused === 'object' && r.paused?.reason) || r.paused_reason || 'Your gold accuracy fell below the task minimum: a reviewer resumes you.')
       onAnswered()
       const nx = i + 1
       if (nx >= items.length - 3) void load()
@@ -232,16 +235,16 @@ function QualityView({ q, err }: { q?: Quality | null; err: string }) {
         <div className="table-wrap"><table className="table" data-testid="lbl-quality-t">
           <thead><tr><th>Annotator</th><th className="r">Items</th><th className="r">Per hour</th><th>Gold accuracy (95 % CI)</th><th className="r">Agrees with majority</th><th>State</th></tr></thead>
           <tbody>{(q.annotators ?? []).map((a) => {
-            const g = a.gold
-            const ci: [number, number] | null = g?.wilson_lo != null && g?.wilson_hi != null ? [g.wilson_lo, g.wilson_hi] : g?.n ? wilson(g.correct, g.n) : null
-            return <tr key={a.principal_id}><td>{a.display_name ?? a.principal_id}</td><td className="r mono">{int(a.items ?? 0)}</td><td className="r mono">{a.items_per_hour != null ? Math.round(a.items_per_hour).toLocaleString() : '—'}</td>
+            const g = a.gold ?? (a.gold_n ? { n: a.gold_n, correct: Math.round((a.gold_accuracy ?? 0) * a.gold_n), accuracy: a.gold_accuracy ?? null } : null)
+            const ci: [number, number] | null = a.gold_ci ?? (g?.wilson_lo != null && g?.wilson_hi != null ? [g.wilson_lo, g.wilson_hi] : g?.n ? wilson(g.correct, g.n) : null)
+            return <tr key={a.principal_id}><td>{a.display_name ?? a.principal_id}</td><td className="r mono">{int(a.items ?? 0)}</td><td className="r mono">{(a.items_per_hour ?? a.per_hour) != null ? Math.round((a.items_per_hour ?? a.per_hour)!).toLocaleString() : '—'}</td>
               <td>{g?.n ? <><CoverageBar value={g.accuracy} /> <span className="mono muted">{g.correct}/{g.n}{ci ? ` · ${pct(ci[0], 0)}–${pct(ci[1], 0)}` : ''}</span></> : <span className="muted">no gold answered yet</span>}</td>
               <td className="r mono">{a.agreement_with_majority != null ? pct(a.agreement_with_majority, 0) : '—'}</td>
               <td>{a.paused ? <Badge status="paused" /> : <Badge status="active" />}</td></tr>
           })}</tbody></table></div>
         {!(q.annotators ?? []).length && <span className="muted">No answers yet.</span>}
-        {(q.cohen_kappa?.length ?? 0) > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">pairs</span>
-          {q.cohen_kappa!.map((c) => <span key={`${c.a}:${c.b}`} className="pt-chip" title={`${c.n_shared} shared rows${c.reliable ? '' : ' (under 30: not reliable yet)'}`}>{c.a} × {c.b} κ <b className="mono">{c.kappa == null ? '—' : c.kappa.toFixed(2)}</b>{!c.reliable && <span className="muted"> · n {c.n_shared}</span>}</span>)}</div>}
+        {((q.cohen_kappa ?? q.pairwise)?.length ?? 0) > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">pairs</span>
+          {(q.cohen_kappa ?? q.pairwise)!.map((c) => <span key={`${c.a}:${c.b}`} className="pt-chip" title={`${c.n_shared ?? (c as { n?: number }).n ?? '?'} shared rows${c.reliable === false ? ' (under 30: not reliable yet)' : ''}`}>{c.a} × {c.b} κ <b className="mono">{c.kappa == null ? '—' : c.kappa.toFixed(2)}</b></span>)}</div>}
       </div>
     </div>
   )
