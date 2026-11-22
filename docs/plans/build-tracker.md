@@ -56,6 +56,7 @@
 | X3 | ⟂ | started (P10–P15 check, read-only) | session_018upNdPtviqqbSpcsvwvUEz | |
 | U2 | U | done (multi-file check with per-table actions + Apply as delta; table picker on diff/edit/runs; join builder with coverage, masked frame preview, train on a join; lineage ⋈ frames; batch with 3 files, card parity + inputs.zip, parity_mismatch; PII tags, contract, certifications, shares, Unmask (reason); Settings › Teams with members and legal holds; one backend route: frame rows) | session_018upNdSRY3CE7Ts1T2Z1JqP | see report |
 | X4 | ⟂ | started (governance + authz check, read-only) | session_018upNdSGESUQJY6eP9UgTAw | |
+| U3 | U | started (retention/GC/purge screens, unmask on analysis pages, delta options) | session_018upNdQ3Mz7mjSkUZ1urQpx | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
