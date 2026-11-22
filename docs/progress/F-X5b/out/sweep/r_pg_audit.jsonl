@@ -1,0 +1,1 @@
+{"kind": "hang", "method": "GET", "route": "/api/registry/versions/{vid}/mlflow", "variant": "valid", "status": null, "elapsed": 60.17, "url": "http://localhost:18143/api/registry/versions/mv_95d8d954/mlflow", "body": null, "resp": ""}

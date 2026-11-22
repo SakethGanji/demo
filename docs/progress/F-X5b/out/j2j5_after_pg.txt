@@ -1,0 +1,7 @@
+400 POST /runs {"time_limit":1e400}
+400 POST /runs {"dataset_id": NaN}
+400 POST /runs {"time_limit": Infinity}
+400 POST /runs 1000-deep
+400 POST /admin/lake/sync-s3?dry_run=1 (no bucket)
+{"detail":{"code":"s3_not_configured","message":"No bucket is configured: set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix) and restart."}}
+200 GET /health after

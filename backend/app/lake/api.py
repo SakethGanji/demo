@@ -385,13 +385,18 @@ def _seed(app, by: str, body: dict[str, Any]) -> dict[str, Any]:
     for k in ("project_id", "parent_id", "mode", "table", "name", "job_id"):  # F-X5b (X5 B4): ids and names are text
         if body.get(k) is not None and not isinstance(body.get(k), str):
             raise LakeError(400, "bad_field", f"{k} is text.")
+    pid = body.get("project_id") or None  # F-X5b (sweep): "" or an unknown project → 400, not a foreign-key 500
+    if pid:
+        with app.state.db.connect() as con:
+            if not con.execute("SELECT 1 FROM projects WHERE id = ?", (pid,)).fetchone():
+                raise LakeError(400, "project_not_found", f"No project {pid[:80]!r}.")
     mode = body.get("mode") or ("append" if body.get("parent_id") else "new")
     table = str(body.get("table") or "applications")
     kw = dict(op="seed" if mode != "carry" else "carry", by=by, reason=str(body.get("reason") or "admin lake seed"),
               job_id=body.get("job_id") or None)
     if mode == "new":
         w = VersionWriter(app.state.db, app.state.lake, name=str(body.get("name") or f"lake-seed-{rows}"),
-                          project_id=body.get("project_id"), **kw)
+                          project_id=pid, **kw)
         with w:
             w.write(table, SEED_SQL, [0, rows], reasons=SEED_REASONS, source_file="seed")
             w.key(table, ["account_no"], declared_by=by)

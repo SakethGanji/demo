@@ -1,0 +1,35 @@
+## R11 10 KB path id -> OSError(ENAMETOOLONG) on file-backed stores
+400 | GET /agent/sessions/{10KB}
+{"detail": {"code": "bad_id", "message": "A path segment is longer than 512 characters: no id is that long."}}
+400 | GET /autopilot/{10KB}
+{"detail": {"code": "bad_id", "message": "A path segment is longer than 512 characters: no id is that long."}}
+400 | GET /autopilot/{10KB}/inbox
+{"detail": {"code": "bad_id", "message": "A path segment is longer than 512 characters: no id is that long."}}
+400 | POST /autopilot/{10KB}/resume
+{"detail": {"code": "bad_id", "message": "A path segment is longer than 512 characters: no id is that long."}}
+400 | GET /datasets/{v1}/feature-lab/{10KB}
+{"detail": {"code": "bad_id", "message": "A path segment is longer than 512 characters: no id is that long."}}
+400 | GET /runs/{run}/review/{10KB}
+{"detail": {"code": "bad_id", "message": "A path segment is longer than 512 characters: no id is that long."}}
+400 | POST /vela/ask {autopilot_id: 20KB}
+{"detail": {"code": "bad_id", "message": "An id in the body is longer than 512 characters: no id is that long."}}
+404 | control GET /autopilot/nonexistent
+{"detail":"No autopilot with id 'ap_nonexistent'."}
+## R12 non-text action / kind
+400 | POST /authz/check {action: []}
+{"detail": {"code": "bad_field", "message": "'action' is text."}}
+400 | POST /registry/versions/{mv}/changes {kind: []}
+{"detail": {"code": "bad_field", "message": "'kind' is text."}}
+200 | POST /datasets/{v1}/decision-time {run_ids: {a:1}}
+{"dataset_id":"ds_6330eed2","known":{},"fairness_only":[],"answered_at":"2026-11-22T06:53:05+00:00","by":"Ada","drops":{"not_known":[],"fairness_only":[],"colum
+200 | POST /datasets/{v1}/decision-time {object_id: false}
+{"dataset_id":"ds_6330eed2","known":{},"fairness_only":[],"answered_at":"2026-11-22T06:53:05+00:00","by":"Ada","drops":{"not_known":[],"fairness_only":[],"colum
+400 | POST /admin/lake/blobs/{sha}/restore {by: 1}
+{"detail": {"code": "bad_by", "message": "'by' is a name (text)."}}
+## R13 big ints into SQLite
+200 | GET /teams/{cr}/audit?cursor=2**64
+{"team_id":"tm_fae05998","entries":[{"id":168,"ts":"2026-11-22T06:53:01+00:00","actor":"anonymous","action":"authz_would_deny","team_id":"tm_fae05998","project_
+400 | POST /runs/{run}/review {max_experiments: 1e30 int}
+{"detail":"max_experiments is 1–8 and max_minutes 5–240."}
+400 | POST /runs/{run}/review {max_minutes: 1e30 int}
+{"detail":"max_experiments is 1–8 and max_minutes 5–240."}

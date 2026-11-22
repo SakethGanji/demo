@@ -1,0 +1,6 @@
+## poisoned DB (row 46 holds \u0000 in details), restarted on the F-X5b code
+46|t
+GET /teams/tm_default/audit/verify:
+{"team_id":"tm_default","ok":true,"rows":46,"legacy_rows":0,"head":"82bd1d213ef9c71917ca7966d4931e2d665126493b7723d11bab784f0c622690","anchored":{"audit_heads":46,"checkpoint":{"audit_id":46,"at":"2026-11-22T06:42:07+00:00"}}}
+GET /teams/tm_default/audit (row 46 as read):
+{"id": 46, "action": "authz_would_deny", "actor": "Ada", "details": {"action": "by_mismatch", "needed": "the signed-in person", "role": "owner", "reason": "You are signed in as Ada; a name field says \u0000 (refused in enforce)", "method": "POST", "path": "/api/projects", "mode": "audit"}}

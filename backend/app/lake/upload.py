@@ -228,7 +228,10 @@ def discard(db, store, up: str, why: str = "discarded") -> None:
                   team_id=r["team_id"], project_id=r["project_id"], object_kind="upload", object_id=up)
     remove = getattr(store, "remove_tmp", None)
     if remove:
-        remove(store.tmp_dir(up))
+        try:  # F-X5b (X5 R2): two concurrent discards race between tmp_dir's mkdir and the other's rmtree
+            remove(store.tmp_dir(up))
+        except OSError:
+            pass
 
 
 #: the fields PATCH /uploads/{u} takes (`by` is the actor, read by the route)

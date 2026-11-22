@@ -1,0 +1,2 @@
+{"kind": "slow", "method": "POST", "route": "/api/admin/lake/seed", "variant": "body:ids=[\"a\"]", "status": 201, "elapsed": 22.43, "url": "http://localhost:18141/api/admin/lake/seed", "body": {"by": "Ada", "reason": "x5 sweep garbage probe", "ids": ["a"]}, "resp": ""}
+{"kind": "slow", "method": "POST", "route": "/api/admin/lake/seed", "variant": "body:ids=[1, null]", "status": 201, "elapsed": 20.49, "url": "http://localhost:18141/api/admin/lake/seed", "body": {"by": "Ada", "reason": "x5 sweep garbage probe", "ids": [1, null]}, "resp": ""}

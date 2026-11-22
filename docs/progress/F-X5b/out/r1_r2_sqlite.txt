@@ -1,0 +1,2 @@
+R1 64 × POST decision-time, 16 at a time → {200: 64}
+R2 4 uploads × 8 concurrent DELETE → {200: 32}

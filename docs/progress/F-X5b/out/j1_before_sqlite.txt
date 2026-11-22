@@ -1,0 +1,7 @@
+parent: key customers.cust_id + relation app_cust → 201 ds_389b64fd
+edit preview (repeats C001) → 200 {'preview': True, 'v': 4, 'parent': 'ds_389b64fd', 'rows': 21, 'n_cols': 3, 'sha256': None, 'matched': 20, 'changed': 0, 'added': 1, 'removed': 0, 'columns_before': 3, 'columns_after': 3, 'checks': {'warnings': [], 'columns_added': [], 'columns_removed': [], 'type_changes': [], 'rows_before': 20, 'r
+edit commit (no acknowledge) → 201 {'id': 'ds_819721e2', 'name': 'x5 m1 edit', 'filename': 'apps.parquet', 'source': 'upload', 'sample': False, 'note': 'Edited ds_389b64fd as v4: added 1 row(s)', 'created_at': '2026-11-22T06:33:07+00:00', 'size_bytes': 2610, 'rows': 200, 'n_cols': 4, 'kind': 'tabular', 'target': 'target', 'n_classes'
+  keys [('customers', [(['cust_id'], 'primary', False)])]
+  relations []
+  manifest ops [{'name': 'app_cust', 'op': 'relation_dropped', 'why': 'relation_to_not_unique'}]
+  edit response warnings None

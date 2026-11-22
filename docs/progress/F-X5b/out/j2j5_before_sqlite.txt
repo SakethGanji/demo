@@ -1,0 +1,7 @@
+500 POST /runs {"time_limit":1e400}
+400 POST /runs {"dataset_id": NaN}
+500 POST /runs {"time_limit": Infinity}
+500 POST /runs 1000-deep
+500 POST /admin/lake/sync-s3?dry_run=1 (no bucket)
+Internal Server Error
+000 GET /health after

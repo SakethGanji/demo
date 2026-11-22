@@ -1,0 +1,4 @@
+project prj_642e7252 upload up_be5b746499ca hold lh_195c5201b0
+DELETE /uploads/up_be5b746499ca under the hold → 409 {"detail":{"code":"legal_hold","message":"Can't discard upload up_be5b746499ca: legal hold M3 covers it (project prj_642e7252, lh_195c5201b0). A platform admin other than the one who placed it releases a hold (POST /api/legal-holds/{id}/release).","c
+release (Adam) → {"id":"lh_195c5201b0","scope_kind":"project","scope_id":"prj_642e7252","case_ref
+DELETE /uploads/up_be5b746499ca after release → 200 {"upload_id":"up_be5b746499ca","status":"discarded","team_id":"tm_default","project_id":"prj_642e7252","files":[{"n":0,"

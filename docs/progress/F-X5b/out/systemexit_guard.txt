@@ -1,0 +1,7 @@
+usage: - [-h]
+-: error: unrecognized arguments: --nope
+a route raised SystemExit (2) on POST /exit
+POST /exit 500 {"detail": {"code": "internal_exit", "message": "The request failed; the server keeps running."}}
+a route raised SystemExit (set ENSEMBLE_S3_BUCKET) on POST /exit_async
+POST /exit_async 500 {"detail": {"code": "internal_exit", "message": "The request failed; the server keeps running."}}
+GET /ok 200 {"ok":true}

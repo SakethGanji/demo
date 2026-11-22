@@ -1,0 +1,2 @@
+tracebacks: 3 | HTTP 5xx: 1
+GET /api/runs/run_d82248d3/shap?row=0 HTTP/1.1" 500 Internal Server Error

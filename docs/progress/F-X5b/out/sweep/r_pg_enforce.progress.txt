@@ -1,0 +1,9 @@
+safe GET /api/uploads/{up}: 35 req, total sent 35 5xx 0 hang 0 (0s)
+safe PATCH /api/uploads/{up}: 595 req, total sent 630 5xx 0 hang 0 (3s)
+safe GET /api/registry/versions/{vid}/mlflow: 20 req, total sent 650 5xx 0 hang 0 (9s)
+safe GET /api/datasets/{dataset_id}/decision-time: 20 req, total sent 670 5xx 0 hang 0 (9s)
+safe POST /api/datasets/{dataset_id}/decision-time: 661 req, total sent 1331 5xx 0 hang 0 (19s)
+destructive POST /api/admin/lake/seed: 561 req, total sent 1892 5xx 0 hang 0 (732s)
+destructive DELETE /api/uploads/{up}: 35 req, total sent 1927 5xx 0 hang 0 (733s)
+{"sent": 1927, "5xx": 0, "hang": 0, "leak": 0, "err": 0, "by_status": {"400": 669, "200": 417, "404": 86, "409": 400, "422": 43, "201": 312}, "routes_total": 7, "routes_hit": 7, "seconds": 733}
+done

@@ -1,0 +1,8 @@
+200 | history credit-default | {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credit-default","description":"","owner":"","
+400 | POST /projects {name:p, by:NUL} | {"detail":"'by' needs at least one letter or digit (names are compared on letters and digits only)."}
+500 | POST /projects {name:NUL, by:Ada} | Internal Server Error
+500 | GET /runs?status=%00 | Internal Server Error
+200 | GET /datasets?project_id=%00 | {"datasets":[{"id":"support-tickets","name":"Support tickets (sample)","filename":"support_tickets_sample.csv","source":"sample","sample":true,"note":"Generated sample · text, 6 classes, planted labe
+500 | history credit-default | Internal Server Error
+500 | history loan-losses | Internal Server Error
+500 | history account-attrition | Internal Server Error

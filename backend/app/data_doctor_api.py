@@ -37,6 +37,16 @@ def answers(store: DatasetStore, dataset_id: str) -> dict[str, Any]:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
+def _write_json(path: Any, doc: Any) -> None:
+    """F-X5b (X5 R1): write by rename, so a concurrent reader sees the old or the new file, never a half-written one."""
+    import os
+    import secrets
+
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    tmp.write_text(json.dumps(doc))
+    os.replace(tmp, path)
+
+
 def suspects(store: DatasetStore, dataset_id: str) -> list[dict[str, Any]] | None:
     """The leakage suspects of the dataset's last Data Report (None when no report has been computed yet). Fixed
     versions inherit their parent's until their own report runs."""
@@ -222,7 +232,7 @@ def _apply_sql(request: Request, dataset_id: str, rec: dict[str, Any], transform
         return {**out, "created": False, "deduplicated": new["deduplicated"]}
     a = answers(store, dataset_id)
     if a:
-        (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))
+        _write_json(store.dir(new["id"]) / "decisions.json", {**a, "inherited_from": a.get("inherited_from") or dataset_id})
     return {**out, "created": True}
 
 
@@ -281,7 +291,7 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowle
                 "deduplicated": new["deduplicated"]}
     a = answers(store, dataset_id)
     if a:
-        (store.dir(new["id"]) / "decisions.json").write_text(json.dumps({**a, "inherited_from": a.get("inherited_from") or dataset_id}))
+        _write_json(store.dir(new["id"]) / "decisions.json", {**a, "inherited_from": a.get("inherited_from") or dataset_id})
     return {"dataset": _detail(new), "parent": dataset_id, "effects": effects,
             "rows_before": lineage["rows_before"], "rows_after": lineage["rows_after"],
             "columns_added": [c for c in new_df.columns if c not in df.columns],
@@ -314,5 +324,5 @@ def set_decision_time(dataset_id: str, request: Request, body: dict[str, Any]) -
     # Only explicit answers are stored: null (or a missing column) means "not answered yet", never "not known".
     out = {"known": {c: bool(v) for c, v in known.items() if v is not None}, "fairness_only": list(dict.fromkeys(fair)),
            "answered_at": now(), "by": str(body.get("by") or "you")}
-    (store.dir(dataset_id) / "decisions.json").write_text(json.dumps(out))
+    _write_json(store.dir(dataset_id) / "decisions.json", out)
     return {"dataset_id": dataset_id, **out, "drops": run_drops(store, dataset_id, list(cols))}

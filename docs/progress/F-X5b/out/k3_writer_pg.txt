@@ -1,0 +1,5 @@
+row 46 actor 'Ada␀' comment 'c␀'
+details as stored {"dataset_id": "credit-default", "root_id": "credit-default", "name": "a\u2400b", "k\u2400": ["\ufffd", "\ud83d\ude00"]}
+has NUL / NUL escape: False
+GET /datasets/credit-default/history → 200 {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credi
+GET /teams/tm_default/audit/verify → 200 {"team_id":"tm_default","ok":true,"rows":46,"legacy_rows":0,"head":"5869d532c58aca9adcee060e8b1b63da56fffd017241400bac9ee4cc50596f24","anchored":{"audit_heads":
