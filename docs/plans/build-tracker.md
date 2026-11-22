@@ -49,6 +49,7 @@
 | F-X2 | D | done: C1 (per-version migration lock + commit re-check + run pins/re-verify), M1–M6, m1–m3 fixed and shown against base repros; replay identical, GC 0 candidates | session_018upNdNvnaG9wjQHpViW7q9 | see report |
 | P13 | D | done (delta action per table by key + _op; check counts = diff counts; insert-only → append part; holdout ids kept; dup keys / no key 400; identical on SQLite and Postgres) | session_018upNdMmQyXrKkqxx22sMTS | see report |
 | P14 | D2 | done (joins validated with coverage, 1:n/non-key/missing column 400; frames = grain rows, cached blob; runs on a join: cache sha as read_sha256, join_input rows, paired with table run, re-verify ok; delete of a joined input blocked via joined_from/merged_from; identical on SQLite and Postgres) | session_018upNdRR2Vg6fMS5HYdUAeG | see report |
+| P15 | D | started (registry/serving parity/batches for join models) | session_018upNdQvtpPYsz4hqNgnPYo | |
 | P21 | G | started (contracts/certify/shares + decide_check rewire + share pii) | session_018upNdNeZFRrGECEyFj5531 | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
