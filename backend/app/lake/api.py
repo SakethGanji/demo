@@ -49,9 +49,20 @@ def install(app, settings) -> None:
 
     blob_re = _re.compile(r"blobs/[0-9a-f]{2}/([0-9a-f]{64})\.[a-z0-9]{1,10}")
 
-    def _missing(sha: str | None, exc: Exception):
+    def _missing(sha: str | None, exc: Exception, request: Request | None = None):
         from fastapi.responses import JSONResponse
 
+        if sha and request is not None:  # F-X5b (X4 m4): bytes removed on purpose (a purge) → 410, not "missing"
+            try:
+                with request.app.state.db.connect() as con:
+                    st = con.execute("SELECT state FROM blobs WHERE sha256 = ?", (sha,)).fetchone()
+            except Exception:  # noqa: BLE001
+                st = None
+            if st and st[0] in ("purged", "deleted"):
+                return JSONResponse({"detail": {"code": "purged" if st[0] == "purged" else "data_deleted", "sha256": sha,
+                                                "message": "This data was " + ("purged" if st[0] == "purged" else "deleted")
+                                                           + ": its bytes are gone on purpose, so it cannot be read."}},
+                                    status_code=410)
         log.error("blob missing: %s", exc)
         return JSONResponse({"detail": {"code": "blob_missing", "sha256": sha,
                                         "message": f"A file of this data ({(sha or '?')[:12]}…) is missing from the lake. "
@@ -66,15 +77,15 @@ def install(app, settings) -> None:
 
     async def _blob_missing(request: Request, exc: BlobMissing):
         m = blob_re.search(str(exc))
-        return _missing(m.group(1) if m else None, exc)
+        return _missing(m.group(1) if m else None, exc, request)
 
     async def _fnf(request: Request, exc: FileNotFoundError):
         m = blob_re.search(f"{exc.filename or ''} {exc}")
-        return _missing(m.group(1), exc) if m else _server_error(exc)
+        return _missing(m.group(1), exc, request) if m else _server_error(exc)
 
     async def _duck_io(request: Request, exc: duckdb.IOException):
         m = blob_re.search(str(exc))
-        return _missing(m.group(1), exc) if m and ("No files found" in str(exc) or "No such file" in str(exc)) else _server_error(exc)
+        return _missing(m.group(1), exc, request) if m and ("No files found" in str(exc) or "No such file" in str(exc)) else _server_error(exc)
 
     async def _stacked(request: Request, exc: BlobStacked):  # X3 m8
         from fastapi.responses import JSONResponse
@@ -92,7 +103,9 @@ def _err(e: LakeError) -> HTTPException:
     return HTTPException(e.status, e.payload)
 
 
-def _admin(request: Request, by: str | None, action: str) -> str:
+def _admin(request: Request, by: Any, action: str) -> str:
+    if by is not None and not isinstance(by, str):  # F-X5b (X5 m-a): a non-text `by` is a 400, not .strip() → 500
+        raise HTTPException(400, {"code": "bad_by", "message": "'by' is a name (text)."})
     who = (by or G.current_actor() or "").strip()
     if not G.is_admin(who):
         msg = f"Only an admin (ENSEMBLE_ADMINS) may run {action}; {who or 'nobody'} is not one."
@@ -174,7 +187,10 @@ async def sync_s3(request: Request, dry_run: int = Query(1), deep_verify: int = 
     body = body if isinstance(body, dict) else {}
     by = _admin(request, body.get("by"), "lake_sync_s3")
     settings = request.app.state.settings
-    dst = request.app.state.lake if getattr(request.app.state.lake, "bucket", None) else SY.s3_destination(settings)
+    try:
+        dst = request.app.state.lake if getattr(request.app.state.lake, "bucket", None) else SY.s3_destination(settings)
+    except LakeError as e:  # F-X5b (X5 J2): no bucket → 400 s3_not_configured (it used to raise SystemExit in the loop)
+        raise _err(e) from None
     src = LocalBlobStore(settings.lake_dir)
     return await run_in_threadpool(lambda: SY.sync(request.app.state.db, src, dst, dry_run=bool(dry_run),
                                                    deep_verify=bool(deep_verify), by=by))
@@ -339,9 +355,18 @@ SEED_REASONS = {"zip": "leading zeros: kept as text", "account_no": "identifier:
 
 
 def _seed(app, by: str, body: dict[str, Any]) -> dict[str, Any]:
-    rows = int(body.get("rows") or 1_000_000)
+    r0 = body.get("rows") or 1_000_000
+    if isinstance(r0, bool) or not isinstance(r0, (int, float, str)):
+        raise LakeError(400, "rows", "rows must be between 1 and 50 000 000.")
+    try:
+        rows = int(r0)
+    except (TypeError, ValueError, OverflowError):
+        raise LakeError(400, "rows", "rows must be between 1 and 50 000 000.") from None
     if not 1 <= rows <= 50_000_000:
         raise LakeError(400, "rows", "rows must be between 1 and 50 000 000.")
+    for k in ("project_id", "parent_id", "mode", "table", "name", "job_id"):  # F-X5b (X5 B4): ids and names are text
+        if body.get(k) is not None and not isinstance(body.get(k), str):
+            raise LakeError(400, "bad_field", f"{k} is text.")
     mode = body.get("mode") or ("append" if body.get("parent_id") else "new")
     table = str(body.get("table") or "applications")
     kw = dict(op="seed" if mode != "carry" else "carry", by=by, reason=str(body.get("reason") or "admin lake seed"),

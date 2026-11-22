@@ -251,7 +251,7 @@ def inputs_gate(db: Any, run_id: str) -> dict[str, Any]:
 def _by(b: dict[str, Any]) -> str:
     from .api import _who
 
-    return _who((b.get("by") or G.current_actor() or "").strip())
+    return _who(b.get("by") or G.current_actor())  # F-X5b (X5 m-a): _who refuses a non-text by (400)
 
 
 @router.post("/datasets/{dataset_id}/certifications", status_code=201, dependencies=[require("data.certify", path("dataset_id", "dataset"))])

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -277,11 +278,14 @@ def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict
     d = details if isinstance(details, dict) else {}
     row: dict[str, Any] = {c: None for c in AUDIT_CHAIN_COLS}
     row.update({"ts": now(), "actor": actor or "system", "action": action, "run_id": run_id, "comment": comment or "",
-                "details": json.dumps(d, default=str)})
+                "details": _audit_json(d)})
     row.update({k: v for k, v in cols.items() if k in AUDIT_CHAIN_COLS and k not in ("prev_hash",)})
     row["on_behalf_of"] = cols.get("on_behalf_of")
     if isinstance(row["decision"], dict):
-        row["decision"] = json.dumps(row["decision"], sort_keys=True, default=str)
+        row["decision"] = _audit_json(row["decision"], sort_keys=True)
+    for c in (*AUDIT_CHAIN_COLS, "on_behalf_of"):  # F-X5b (X5 K3): no NUL / lone surrogate in any stored column
+        if isinstance(row[c], str):
+            row[c] = audit_text(row[c])
     _audit_scope(con, row, d)
     _audit_who(con, row)
     key = f"audit_head:{row['team_id']}"
@@ -300,6 +304,40 @@ def audit(con: sqlite3.Connection, actor: str | None, action: str, details: dict
     # Postgres the app role has SELECT, INSERT only), so deleting the tail and rewinding catalog_meta fails verify
     con.execute("INSERT INTO audit_heads (team_id, audit_id, head, ts) VALUES (?, ?, ?, ?)", (row["team_id"], int(new_id), h, row["ts"]))
     return int(new_id)
+
+
+_AUDIT_BAD = re.compile(r"[\x00\ud800-\udfff]")
+_AUDIT_BAD_ESC = re.compile(r"\\u(0000|d[89a-f][0-9a-f]{2})", re.I)
+
+
+def audit_text(s: str) -> str:
+    """F-X5b (X5 K3): an audited text as it is stored and hashed: a NUL becomes U+2400 (␀) and an unpaired surrogate
+    U+FFFD. Postgres cannot store a NUL in text, and cannot read "\\u0000" (or a lone "\\ud800") back as JSON, so one
+    such value in a refused request's would-deny row used to break every later read of audit_log details. The row is
+    sanitised before its hash, so the chain covers exactly what is stored."""
+    if not _AUDIT_BAD.search(s):
+        return s
+    s = s.replace("\x00", "\u2400")
+    return s.encode("utf-16", "surrogatepass").decode("utf-16", "replace") if _AUDIT_BAD.search(s) else s
+
+
+def _audit_clean(x: Any) -> Any:
+    if isinstance(x, str):
+        return audit_text(x)
+    if isinstance(x, dict):
+        return {(audit_text(k) if isinstance(k, str) else k): _audit_clean(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_audit_clean(v) for v in x]
+    return x
+
+
+def _audit_json(d: Any, **kw: Any) -> str:
+    """json.dumps of audit details; only when the text shows a NUL or a surrogate escape is the document cleaned and
+    dumped again (paired surrogates — an emoji — survive the cleaning unchanged)."""
+    s = json.dumps(d, default=str, **kw)
+    if _AUDIT_BAD_ESC.search(s):
+        s = json.dumps(_audit_clean(json.loads(s)), default=str, **kw)
+    return s
 
 
 #: the columns a row's hash covers (everything but id and row_hash), in this order

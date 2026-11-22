@@ -213,7 +213,9 @@ def upload_rels(db: Any, store: Any, up: str, out: dict[str, Any]) -> tuple[str 
     target = plan_table if plan_table in [n for n, _ in ptabs] else prim
     for n, _ in ptabs:
         if n == target:
-            rels[n] = f"(SELECT * FROM read_parquet('{str(tmp / out['typed']).replace(chr(39), chr(39) * 2)}'))"
+            from ..lake.duck import parquet_rel
+
+            rels[n] = f"(SELECT * FROM {parquet_rel(str(tmp / out['typed']), union_by_name=False)})"
         else:
             rels[n] = f"(SELECT * EXCLUDE ({ROW_ID}) FROM {frames.lake_sql(frames.lake_table(frames.Table(pvid, n)))})"
     return root, rels
@@ -495,7 +497,7 @@ def freeze(db: Any, version_id: str, opts: dict[str, Any]) -> dict[str, Any]:
 def _by(body: dict[str, Any]) -> str:
     from .api import _who
 
-    return _who((body.get("by") or G.current_actor() or "").strip())
+    return _who(body.get("by") or G.current_actor())  # F-X5b (X5 m-a): _who refuses a non-text by (400)
 
 
 async def _run(fn, *a):

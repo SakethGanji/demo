@@ -689,6 +689,11 @@ def _min_rows_check(app: Any, dataset_id: str, label: str, split: dict[str, Any]
     y = frames.read(frames.table(dataset_id), columns=[label])[label]
     sp = load_splits(Path(split["path"]))
     fold = np.asarray(sp["fold"], dtype=int)
+    if len(fold) != len(y):  # F-X5b (X3 m10): the table was rewritten under its split → 409, not a numpy broadcast 500
+        raise HTTPException(409, {"code": "split_mismatch",
+                                  "message": f"The split of {dataset_id} has {len(fold):,} rows but the table has {len(y):,}: "
+                                             "the table changed outside the app. Verify the version (POST …/verify) and "
+                                             "restore it, or train on another version."})
     hold = np.zeros(len(y), dtype=bool)
     hold[[int(i) for i in sp.get("holdout") or [] if int(i) < len(y)]] = True
     train = y[(~hold) & (fold > -2) & y.notna().to_numpy()]
@@ -992,7 +997,7 @@ def delete_run(run_id: str, request: Request, by: str = "", reason: str = "") ->
 
 
 @router.get("/runs/{run_id}/events", dependencies=[require("run.read", path("run_id", "run"))])
-async def run_events(run_id: str, request: Request, start: int = Query(0, alias="from", ge=0),
+async def run_events(run_id: str, request: Request, start: int = Query(0, alias="from", ge=0, le=2 ** 62),
                      format: Literal["sse", "json"] = "sse"):
     """Every event of the run from `from` (default 0). SSE by default: `id` is the event's seq, `event` its type,
     `data` the JSON payload; a reconnect with Last-Event-ID resumes after it. The stream ends after the terminal
@@ -1155,7 +1160,7 @@ def scorecard_csv(run_id: str, request: Request, by: str = "", unmasked: str = "
     import pandas as pd
     from fastapi.responses import Response
 
-    df = pd.read_csv(path, dtype={"bin": str})
+    df = frames.run_artifact_csv(path, dtype={"bin": str})  # a run's own artifact, not version data
     hit = df["feature"].isin(masked)
     df.loc[hit, "bin"] = ["••• bin " + str(i + 1) for i in df[hit].groupby("feature").cumcount()]
     return Response(df.to_csv(index=False), media_type="text/csv",

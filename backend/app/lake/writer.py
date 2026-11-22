@@ -859,6 +859,8 @@ def declare_version(db, store, version_id: str, *, by: str, reason: str = "", ke
     op = "declare_key" if key else "declare_relation" if relation else "drop_relation"
     w = VersionWriter(db, store, op=op, by=by, parent_id=version_id, reason=reason, job_id=job_id, dedupe=True,
                       primary_table=prim["primary_table"])
+    # F-X5b (X5 J1): a declaration never drops one of the parent's relations silently (only drop_relation names one)
+    w.relations_acknowledged = set()
     with w:
         for t in tables:
             w.carry(t)

@@ -227,6 +227,17 @@ def _allowed_hosts() -> set[str]:
 
 
 def parse_url(url: str, data_dir: Path, password: str | None = None) -> dict[str, Any]:
+    """F-X5b (X5 N2): a URL the parser cannot read (e.g. a multi-host Postgres URL: ValueError) is a SqlError (400)."""
+    try:
+        return _parse_url(url, data_dir, password)
+    except SqlError:
+        raise
+    except (ValueError, TypeError) as e:
+        raise SqlError(f"Not a usable database URL ({type(e).__name__}): give one host, e.g. "
+                       "postgresql://user:password@host:port/db.") from None
+
+
+def _parse_url(url: str, data_dir: Path, password: str | None = None) -> dict[str, Any]:
     """{dialect, path | conninfo, redacted}. F-X4b (X4 C4): files only from the import dirs (or the demo file); Postgres
     only to an explicit, checked TCP address with its own user and password; never a platform database."""
     from sqlalchemy.engine import make_url
@@ -345,7 +356,7 @@ def _cursor(src: dict[str, Any]) -> Iterator[Any]:
             import duckdb
         except ImportError as e:
             raise SqlError("DuckDB files need the duckdb package on the server (pip install duckdb).") from e
-        # F-X4b: no file / network reads from inside a query (read_csv('/etc/…'), FROM 'file.csv', httpfs)
+        # F-X4b: no file / network reads from inside a query (DuckDB's CSV reader on '/etc/…', FROM 'file.csv', httpfs)
         con = duckdb.connect(str(src["path"]), read_only=True, config={"enable_external_access": False,
                                                                        "lock_configuration": True})
         try:

@@ -240,3 +240,12 @@ def disk_guard(path: Path, need_bytes: int) -> None:
     free = shutil.disk_usage(p).free
     if free < need_bytes:
         raise DiskFull(f"not enough free disk: {free / 1e9:.1f} GB free, {need_bytes / 1e9:.1f} GB needed.")
+
+
+def parquet_rel(uris: list[str] | str, *, union_by_name: bool = True) -> str:
+    """F-X5b (grep gate 1): the DuckDB relation over Parquet files of the lake (part URIs from `store.uri(key)`, or a
+    typed staging file), built in one place inside lake/. Outside lake/ and frames.py, call this instead of writing
+    the reader into SQL."""
+    us = [uris] if isinstance(uris, str) else list(uris)
+    q = ",".join("'" + str(u).replace("'", "''") + "'" for u in us)
+    return f"read_parquet([{q}]{', union_by_name=true' if union_by_name else ''})"

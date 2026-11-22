@@ -383,7 +383,7 @@ def runs_on(con: Any, s: dict[str, Any]) -> list[dict[str, Any]]:
 def _by(b: dict[str, Any]) -> str:
     from .api import _who
 
-    return _who((b.get("by") or G.current_actor() or "").strip())
+    return _who(b.get("by") or G.current_actor())  # F-X5b (X5 m-a): _who refuses a non-text by (400)
 
 
 async def _run(fn, *a):

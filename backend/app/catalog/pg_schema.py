@@ -1,7 +1,7 @@
 """P23 (§2.2): the Postgres schema, built from the same DDL strings SQLite uses, plus what only Postgres needs.
 
 - Tables, columns and indexes: db.SCHEMA, catalog SCHEMA, the RUN/DATASET/MV/DSR columns, P01_DDL + P01_COLS, P10_DDL,
-  lake.migrate.LEGACY_DDL (split_files) and ix_datasets_list, each statement through db_pg.translate (INTEGER → BIGINT,
+  lake.migrate.LEGACY_DDL (the CSV-era split table) and ix_datasets_list, each statement through db_pg.translate (INTEGER → BIGINT,
   REAL → DOUBLE PRECISION, AUTOINCREMENT → identity). Columns are added with ADD COLUMN IF NOT EXISTS.
 - Deliberate deltas from §2.2: timestamps and JSON stay TEXT (not timestamptz / jsonb). The audit chain hashes the
   stored text, and the copy from SQLite must be byte-equal (audit_log.details / decision, prev_hash, row_hash), so the
@@ -22,17 +22,30 @@ import re
 from typing import Any
 
 FUNCTIONS = r"""
+CREATE OR REPLACE FUNCTION ens_jsonb(t text) RETURNS jsonb LANGUAGE plpgsql IMMUTABLE AS $$
+BEGIN
+  RETURN t::jsonb;
+EXCEPTION WHEN others THEN
+  -- F-X5b (X5 K3): a stored "\u0000" (or a lone surrogate escape) is read as U+2400 / U+FFFD; never an error
+  BEGIN
+    RETURN regexp_replace(regexp_replace(t, '(?<!\\)((?:\\\\)*)\\u0000', '\1\\u2400', 'g'),
+                          '(?<!\\)((?:\\\\)*)\\u[dD][89a-fA-F][0-9a-fA-F]{2}', '\1\\ufffd', 'g')::jsonb;
+  EXCEPTION WHEN others THEN
+    RETURN NULL;
+  END;
+END $$;
 CREATE OR REPLACE FUNCTION json_valid(t text) RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
 BEGIN
   IF t IS NULL THEN RETURN NULL; END IF;
-  PERFORM t::jsonb;
-  RETURN TRUE;
+  RETURN ens_jsonb(t) IS NOT NULL;  -- F-X5b: a stored "\u0000" reads as valid (sanitised), like on SQLite
 EXCEPTION WHEN others THEN
   RETURN FALSE;
 END $$;
 CREATE OR REPLACE FUNCTION json_extract(t text, path text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
   SELECT CASE WHEN t IS NULL THEN NULL
               WHEN path = '$' THEN t
+              WHEN strpos(t, '\u') > 0
+                THEN ens_jsonb(t) #>> string_to_array(regexp_replace(substr(path, 3), '\[(\d+)\]', '.\1', 'g'), '.')
               ELSE (t::jsonb) #>> string_to_array(regexp_replace(substr(path, 3), '\[(\d+)\]', '.\1', 'g'), '.') END
 $$;
 CREATE OR REPLACE FUNCTION ens_ro() RETURNS trigger LANGUAGE plpgsql AS $$

@@ -474,9 +474,11 @@ async def export(dataset_id: str, request: Request, by: str = "", format: str = 
     from .. import frames
     from ..lake import mask as M
 
-    who = _who(by)
+    who = _who(by or G.current_actor())  # F-X5b (X3 m17): the X-Ensemble-Actor header names the caller too
     if format not in ("zip", "csv"):
         raise HTTPException(400, "format is zip or csv.")
+    if not await _thread(request.app.state.db.get_dataset, dataset_id):  # X5 B1: an unknown id is a 404, not a 500
+        raise HTTPException(404, {"code": "not_found", "message": f"No dataset version {dataset_id}."})
     try:
         m = await _thread(M.for_request, request, dataset_id, None, unmasked=unmasked, reason=reason, by=who, read="export",
                           export=True)
@@ -503,7 +505,16 @@ async def export(dataset_id: str, request: Request, by: str = "", format: str = 
                                                indent=1))
     buf.seek(0)
     return StreamingResponse(buf, media_type="application/zip",
-                             headers={"Content-Disposition": f'attachment; filename="{fname}.zip"', **mhdr})
+                             headers={"Content-Disposition": _disposition(f"{fname}.zip"), **mhdr})
+
+
+def _disposition(name: str) -> str:
+    """F-X5b (X5 B1b): a Content-Disposition any name fits in (an emoji in the card name broke the latin-1 header):
+    an ASCII fallback plus RFC 5987 filename*."""
+    from urllib.parse import quote
+
+    ascii_name = "".join(ch if 32 <= ord(ch) < 127 and ch not in '"\\' else "_" for ch in name)
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
 def _mask_tag(m: Any) -> str:
@@ -636,7 +647,7 @@ async def _export_parquet(request: Request, dataset_id: str, who: str, format: s
             z.writestr("manifest.json", x["manifest_raw"])
         z.writestr("export.json", json.dumps(info, indent=1))
     buf.seek(0)
-    return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{fname}.zip"', **hdr})
+    return StreamingResponse(buf, media_type="application/zip", headers={"Content-Disposition": _disposition(f"{fname}.zip"), **hdr})
 
 
 # -- DL3: edit-as-version, the row grid, and a version from a file changed on disk ----------------------------------------
@@ -824,7 +835,7 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
 async def _edit(dataset_id: str, request: Request, body: dict[str, Any]):
     from ..lake.values import SafeJSONResponse
 
-    who = _who(body.get("by"))
+    who = _body_by(body)  # F-X5b (X3 m17): `by`, else the X-Ensemble-Actor header (a non-text by is a 400)
     preview = bool(body.get("preview"))
     reason = str(body.get("reason") or "").strip()
     if not preview and not 3 <= len(reason) <= 500:
@@ -1076,7 +1087,12 @@ class _MultipartSink:
             self._field = None
 
     def feed(self, data: bytes) -> None:
-        self.parser.write(data)
+        try:
+            self.parser.write(data)
+        except Exception as e:  # noqa: BLE001 - F-X5b (X5 B8): a malformed multipart body is a 400, not a 500
+            from ..lake.writer import LakeError
+
+            raise LakeError(400, "bad_multipart", f"The multipart body could not be read ({type(e).__name__}).") from None
 
     def close(self) -> None:
         if self._sink is not None:  # an aborted part
@@ -1300,6 +1316,12 @@ async def discard_upload(up: str, request: Request) -> dict[str, Any]:
             from ..lake.writer import LakeError
 
             raise LakeError(409, "upload_committed", f"Upload {up} is committed ({u['committed_version_id']}).")
+        from . import holds as HO
+
+        with db.connect() as con:  # F-X5b (X4 m3): a legal hold on its team / project / dataset keeps the upload
+            hs = HO.active(con, HO.upload_keys(con, up))
+        if hs:
+            raise HTTPException(409, HO.refusal(hs, f"discard upload {up}"))
         U.discard(db, lake, up)
         return U.public(U.get(db, up))
 

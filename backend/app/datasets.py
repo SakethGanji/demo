@@ -1277,6 +1277,34 @@ class DatasetStore:
                    "target": {"before": old_t, "after": new_t, **({"set_by_edit": True, "reason": st_reason} if st_col is not None else {})}}
         return comp, summary
 
+    @staticmethod
+    def _refused(status: int, payload: Any) -> Exception:
+        from fastapi import HTTPException  # F-X5b: a structured 4xx ({code, …}) from the edit path
+
+        return HTTPException(status, payload)
+
+    def _edit_integrity(self, con: Any, pr: Any, comp: Any, parent_id: str) -> list[dict[str, Any]]:
+        """F-X5b (X5 J1): the parent's valid keys and relations checked on the edited table as the edit leaves it
+        (upload._integrity_warnings, F-X3a M1): `key_invalidated` / `relation_dropped` warnings with needs_ack."""
+        if pr.storage != "parquet":
+            return []
+        from .lake import upload as U
+
+        prec, ptabs = U._parent_tables(self.db, parent_id)
+        n = pr.table
+        if n not in ptabs or (not prec.get("relations") and not ptabs[n].get("all_keys")):
+            return []
+        rel = {t: U._rel_sql(self.db, None, parent_id, None, t) for t in ptabs if t != n}
+        rel[n] = f"(SELECT * EXCLUDE (__row_id) FROM {comp.view})"
+        cols_of = {t: [c["name"] for c in ptabs[t]["schema"]] for t in ptabs}
+        cols_of[n] = [c for c, _ in comp.cols]
+        out = U._integrity_warnings(con, prec, ptabs, rel, cols_of, {n}, list(ptabs), {}, {})
+        for x in out:
+            x["message"] = (x["message"].replace("After this upload", "After this edit").replace("Check the upload again and send",
+                            "Send").replace("or fix the file.", "or change the edit."))
+            x["source"] = "edit"
+        return out
+
     def edit_version(self, parent_id: str, ops: Any, *, by: str, reason: str, preview: bool = False,
                      set_target: Any = None, acknowledge: Any = None) -> dict[str, Any]:
         """DL3 / P07 (§5.5): typed edits (dataset_edit.OPS) compiled into one DuckDB query over the parent table and
@@ -1316,9 +1344,15 @@ class DatasetStore:
         except LakeError as e:
             raise DatasetError(e.message) from e
         n_ver = 1 + len(self.catalog.tree_ids(parent_id))
+        acks = [str(a) for a in (acknowledge if isinstance(acknowledge, list) else [acknowledge] if isinstance(acknowledge, str)
+                                 and acknowledge else [])]
         if preview:
             with duck.job() as con:
                 comp, summary = self._edit_compile(con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
+                integ = self._edit_integrity(con, pr, comp, parent_id)  # F-X5b (X5 J1): F-X3a M1 on the edit path
+                if integ:
+                    summary["checks"]["warnings"] = [*summary["checks"]["warnings"], *integ]
+                    summary["needs_acknowledge"] = sorted({x["code"] for x in integ if x.get("needs_ack")})
                 cols = [n for n, _ in comp.cols]
                 rows = con.execute(f"SELECT * EXCLUDE (__row_id) FROM {comp.view} ORDER BY __row_id LIMIT 5").fetchall()
                 n1 = int(con.execute(f"SELECT count(*) FROM {comp.view}").fetchone()[0])
@@ -1338,11 +1372,32 @@ class DatasetStore:
                                duck_kw={"mem_mb": config.doctor_write_mb()}) as w:  # the Doctor / Feature Lab write cap
                 JP.mark(0.08, "compiling")
                 comp, summary = self._edit_compile(w.con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
+                # F-X5b (X5 J1): a key the edit invalidates or a relation it drops needs acknowledge by code, as on the
+                # upload path (F-X3a M1): 400 acknowledge_required {acknowledge: [codes], warnings} otherwise
+                integ = self._edit_integrity(w.con, pr, comp, parent_id)
+                need = []
+                if pr.storage == "parquet":
+                    from .lake import upload as _U
+
+                    try:
+                        need = _U._need_integrity_acks({"warnings": integ}, acks)
+                    except LakeError as e:
+                        raise self._refused(e.status, e.payload) from None
+                    w.relations_acknowledged = {x["relation"] for x in need if x["code"] == "relation_dropped"}
+                    for x in integ:
+                        if x.get("needs_ack"):
+                            x["acknowledged"] = True
+                    summary["checks"]["warnings"] = [*summary["checks"]["warnings"], *integ]
                 with JP.track(w.con, 0.12, 0.7, "writing"):
                     w.write(pr.table, f"SELECT * FROM {comp.view}")
                 JP.mark(0.72, "carrying")
                 names = [n for n, _ in comp.cols]
                 LD.carry_rest(w, pr, self.db, pr.table, names)
+                if pr.storage == "parquet":
+                    try:
+                        _U._guard_keys(w, _U._parent_tables(self.db, parent_id)[1], need)
+                    except LakeError as e:
+                        raise self._refused(e.status, e.payload) from None
                 for other in w.tables:  # P12: a carried table keeps its splits (an edit of another table)
                     if other != pr.table:
                         w.carry_splits(other)
@@ -1364,6 +1419,8 @@ class DatasetStore:
                                note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
                                     + ("…" if len(summary["ops_summary"]) > 4 else ""))
         except LakeError as e:
+            if e.code == "acknowledge_required" or e.status != 400:  # the writer's relation guard (F-X3a); X3 m11:
+                raise self._refused(e.status, e.payload) from None    # 409 commit_contended stays a 409 with its code
             raise DatasetError(e.message) from e
         vid = out["version_id"]
         root = pr.root

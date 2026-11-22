@@ -39,6 +39,44 @@ def _extra_edges(con, run_id: str, items: list[Any]) -> None:
                         " THEN 'doctor-experiment' ELSE source END WHERE id = ?", (run_id, e["run_id"]))
 
 
+#: F-X5b (X2 m4): run configs hold absolute paths into the data dir; these keys are re-based on read
+_PATH_KEYS = ("run_dir", "splits_path", "csv_path", "holdout_path", "predictor_path")
+_DATA_TOPS = {"runs", "datasets", "lake", "splits", "uploads", "registry", "autopilot", "exports", "cache", "agent"}
+
+
+def _data_dir() -> str:
+    import os
+
+    from .. import config
+
+    v = os.environ.get("ENSEMBLE_DATA_DIR")
+    return str(config.Path(v).resolve()) if v else str(config.BACKEND_DIR / "data")
+
+
+def _rebase(cfg: Any) -> Any:
+    """X2 m4: a data dir moved or copied elsewhere keeps working: an absolute path of a run config that is not under
+    the current data dir and does not exist is read as the same path under the current data dir, when that exists.
+    Nothing is rewritten in the database."""
+    if not isinstance(cfg, dict):
+        return cfg
+    from pathlib import Path
+
+    dd = None
+    for k in _PATH_KEYS:
+        v = cfg.get(k)
+        if not isinstance(v, str) or not v.startswith("/"):
+            continue
+        dd = dd or _data_dir()
+        if v.startswith(dd + "/") or Path(v).exists():
+            continue
+        parts = Path(v).parts
+        for i in range(1, len(parts)):
+            if parts[i] in _DATA_TOPS and Path(dd, *parts[i:]).exists():
+                cfg[k] = str(Path(dd, *parts[i:]))
+                break
+    return cfg
+
+
 class RunStore:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -173,7 +211,7 @@ class RunStore:
     @staticmethod
     def _row(r) -> dict[str, Any]:
         d = dict(r)
-        d["config"] = json.loads(d["config"])
+        d["config"] = _rebase(json.loads(d["config"]))
         d["result"] = json.loads(d["result"]) if d["result"] else None
         return d
 

@@ -930,7 +930,7 @@ def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[
            "(Data → the version → Verify hash; a split file: Restore the split as drawn), or an admin "
            'sends {"integrity_override_reason": "…", "by": "<admin>"} to train on it anyway (audited).')
     if not reason:
-        raise DsError(409, msg)
+        raise DsError(409, {"code": "data_integrity", "message": msg})  # F-X5b (X1 m2): one 409 shape, with its code
     if not G.is_admin(by):
         raise DsError(403, f"Only an admin (ENSEMBLE_ADMINS) may train on a version whose hash does not match; {by or 'nobody'} is not one.")
     if len(reason) < 10:

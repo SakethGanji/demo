@@ -484,6 +484,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         body = body or {}
         target = body.get("target") or rec["target"]
         strategy = body.get("strategy") or RANDOM_STRATIFIED
+        for k, v in (("target", target), ("strategy", strategy)):  # F-X5b (X5 B3): names are text (was a 500)
+            if v is not None and not isinstance(v, str):
+                raise HTTPException(400, {"code": "bad_field", "message": f"{k} is a column / strategy name (text)."})
         try:
             _, sp, created = store(request).ensure_splits(dataset_id, target, strategy, body)
             y = frames.read_version(dataset_id, [target])[target] if target else None  # P08: the target column only
@@ -646,6 +649,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.include_router(data_doctor_api.router)  # D1
     app.include_router(featurelab_api.router)  # D2
     authz_api.install(app)  # P19: /authz, team audit + verify, the middleware (outermost), the coverage gate
+    from . import input_guard
+
+    input_guard.install(app)  # F-X5b: NUL / control / NaN / depth guard (outside authz) + the 400 exception handlers
     return app
 
 

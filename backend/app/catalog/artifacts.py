@@ -272,7 +272,7 @@ def collect(app, con, versions: list[str], table: str, columns: list[str], row_i
     import pyarrow as pa
 
     from ..lake import duck
-    from ..lake.writer import ROW_ID, _lit as lit, _q as qi
+    from ..lake.writer import ROW_ID, _q as qi
 
     store = app.state.lake
     keys = []
@@ -296,7 +296,9 @@ def collect(app, con, versions: list[str], table: str, columns: list[str], row_i
             continue
     if not uris:
         return Needles([], columns=columns, row_ids=row_ids)
-    rel = "read_parquet([" + ",".join(lit(u) for u in uris) + "], union_by_name=true)"
+    from ..lake.duck import parquet_rel
+
+    rel = parquet_rel(uris)
     sampled = False
     with duck.job() as dc:
         have = [r[0] for r in dc.execute(f"DESCRIBE SELECT * FROM {rel}").fetchall()]
@@ -324,7 +326,7 @@ def collect(app, con, versions: list[str], table: str, columns: list[str], row_i
                 except Exception:  # noqa: BLE001
                     pass
             if kuris:
-                krel = "read_parquet([" + ",".join(lit(u) for u in kuris) + "], union_by_name=true)"
+                krel = parquet_rel(kuris)
                 kcols = [(r[0], r[1]) for r in dc.execute(f"DESCRIBE SELECT * FROM {krel}").fetchall() if r[0] != ROW_ID]
                 strs = sorted(c for c in n.canon if not _NUM_RX.fullmatch(c))
                 dc.register("_nn", pa.table({"v": pa.array(n.nums_f, pa.float64())}))

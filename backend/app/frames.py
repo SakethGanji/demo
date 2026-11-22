@@ -959,3 +959,9 @@ def compare_frames(a: str | Path, b: str | Path) -> dict[str, Any]:
     return {"ok": not problems, "rows": {"cache": na, "rebuilt": nb, "ids_unmatched": unmatched}, "columns_equal": cols_eq,
             "types_equal": types_eq, "mismatched_cells": bad,
             "summary": "cache = the frame the pinned inputs join to (every cell)" if not problems else "; ".join(problems)}
+
+
+def run_artifact_csv(path: Path | str, **kw: Any) -> pd.DataFrame:
+    """F-X5b (grep gate 1): a CSV a run wrote into its own run dir (e.g. scorecard/scorecard.csv), read back. Not a
+    dataset version: versions are read with read() / scan()."""
+    return pd.read_csv(path, **kw)

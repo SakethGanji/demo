@@ -122,8 +122,11 @@ def s3_destination(settings):
     from .s3store import S3BlobStore
 
     cfg = config.s3_config()
-    if not cfg["bucket"]:
-        raise SystemExit("set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)")
+    if not cfg["bucket"]:  # F-X5b (X5 J2): a LakeError, never SystemExit (the API route calls this in-process)
+        from .writer import LakeError
+
+        raise LakeError(400, "s3_not_configured", "No bucket is configured: set ENSEMBLE_S3_BUCKET (or "
+                                                  "ENSEMBLE_BLOB_STORE=s3://bucket/prefix) and restart.")
     return S3BlobStore(cfg, scratch_dir=settings.lake_dir, cache_dir=config.cache_dir(settings))
 
 
@@ -139,7 +142,13 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     settings = config.load_settings()
     src = LocalBlobStore(Path(a.src) if a.src else settings.lake_dir)
-    out = sync(Database(settings.db_path), src, s3_destination(settings), dry_run=a.dry_run, deep_verify=a.deep_verify, by=a.by)
+    from .writer import LakeError
+
+    try:
+        dst = s3_destination(settings)
+    except LakeError as e:
+        raise SystemExit(e.message) from None  # the command line only (main), never the API route
+    out = sync(Database(settings.db_path), src, dst, dry_run=a.dry_run, deep_verify=a.deep_verify, by=a.by)
     print(json.dumps(out, indent=1, default=str))
     return 0 if (out["ok"] or a.dry_run) else 1
 

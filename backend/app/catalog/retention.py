@@ -147,7 +147,8 @@ def pins(app) -> dict[str, list[str]]:
         if rv.get("status") in ("queued", "running"):
             from ..vela import review as R
 
-            if p.stem not in R._tasks:  # the API restarted while it ran: it is interrupted, not running
+            tasks = getattr(R, "_tasks", None)  # F-X5b: gone since P22 (reviews run on the job queue) → was a 500
+            if tasks is not None and p.stem not in tasks:  # the API restarted while it ran: interrupted, not running
                 continue
             base = p.parent.parent.name
             pin(base, f"review {p.stem} is {rv['status']}")

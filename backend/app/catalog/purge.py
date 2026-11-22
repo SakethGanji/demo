@@ -202,7 +202,7 @@ def _new_version(app, parent: str, table: str, columns: list[str], row_ids: list
     import pyarrow as pa
 
     from ..lake import splitstore as SS
-    from ..lake.writer import ROW_ID, VersionWriter, _lit as lit, _q as qi
+    from ..lake.writer import ROW_ID, VersionWriter, _q as qi
 
     db, store = app.state.db, app.state.lake
     with db.connect() as con:
@@ -218,7 +218,9 @@ def _new_version(app, parent: str, table: str, columns: list[str], row_ids: list
                 w.carry_splits(t)
                 continue
             base = w._parent_table(t)
-            rel = "read_parquet([" + ",".join(lit(store.uri(p.key)) for p in base.parts) + "], union_by_name=true)"
+            from ..lake.duck import parquet_rel
+
+            rel = parquet_rel([store.uri(p.key) for p in base.parts])
             excl = f" EXCLUDE ({', '.join(qi(c) for c in columns)})" if columns else ""
             where = ""
             params: list[Any] = []
