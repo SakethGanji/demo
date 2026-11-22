@@ -61,11 +61,16 @@ class Catalog:
         """A new run: indexed columns, trained_on its dataset, branched_from its parent run (Gym, Vela, experiments)."""
         cols = run_columns(cfg)
         with self.db.connect() as con:
-            d = con.execute("SELECT project_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+            d = con.execute("SELECT project_id, team_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+            pid, tid = (d["project_id"], d["team_id"]) if d else (None, None)
+            if cfg.get("project_id"):  # P21: a run into another project (a shared version: the caller's own project)
+                pr = con.execute("SELECT id, team_id FROM projects WHERE id = ?", (cfg["project_id"],)).fetchone()
+                if pr:
+                    pid, tid = pr["id"], pr["team_id"]
             con.execute("UPDATE runs SET project_id = ?, parent_run_id = ?, source = ?, kind = ?, predictor_state = ?,"
-                        " team_id = (SELECT team_id FROM datasets WHERE id = ?) WHERE id = ?",
-                        (d["project_id"] if d else None, cols["parent_run_id"], cols["source"], cols["kind"],
-                         S.NONE, dataset_id, run_id))  # 'present' once the run finishes with a predictor (RunStore.finish)
+                        " team_id = ? WHERE id = ?",
+                        (pid, cols["parent_run_id"], cols["source"], cols["kind"],
+                         S.NONE, tid, run_id))  # 'present' once the run finishes with a predictor (RunStore.finish)
             add_edge(con, ("dataset", dataset_id), ("run", run_id), "trained_on", actor=actor or "system")
             if cfg.get("parent_run_id"):
                 add_edge(con, ("run", cfg["parent_run_id"]), ("run", run_id), "branched_from", actor=actor or "system",

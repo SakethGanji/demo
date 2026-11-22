@@ -633,7 +633,9 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
     if req["status"] != "pending":
         raise DsError(409, f"This request is {req['status']}.")
     opts = _j(req.get("options")) or {}
-    mine = G.same_person(by, req["requested_by"])
+    from ..authz.policy import four_eyes  # C §1.5 (P21): every decide path goes through one check
+
+    mine = four_eyes("data.delete_decide", req, by) is not None
     if withdraw and not (mine or G.is_admin(by)):  # DL3 (m6): only the requester (identity key) or an admin withdraws
         raise DsError(403, f"Only {req['requested_by']} (who asked) or an admin may withdraw this request; {by} may reject it "
                            "as a reviewer instead (approve: false, with a comment).")
@@ -803,6 +805,7 @@ def verify(app, dataset_id: str, by: str, whole: bool = False) -> dict[str, Any]
 
 def verify_all(app, by: str) -> dict[str, Any]:
     """DL2: re-hash every version of every dataset that is not deleted (the admin "verify all" and the optional timer)."""
+    started = now()  # F-X2 M1: a pass counts for a migrated folder only when it started after that folder's commit
     with app.state.db.connect() as con:
         roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS DISTINCT FROM 'deleted'")]
     res = [verify(app, r, by, whole=True) for r in roots]
@@ -810,7 +813,7 @@ def verify_all(app, by: str) -> dict[str, Any]:
     at = now()
     from ..lake.migrate import record_verify_all
 
-    record_verify_all(app.state.db, not failed, at)  # P10: the migrated folders are deleted after two passes (§7 row 1)
+    record_verify_all(app.state.db, not failed, at, started)  # P10: the migrated folders are deleted after two passes (§7 row 1)
     return {"datasets": len(roots), "checked": sum(len(x["results"]) for x in res), "failed": failed, "ok": not failed, "at": at}
 
 

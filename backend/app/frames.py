@@ -347,7 +347,9 @@ def _v1_column(arr: Any, name: str) -> Any:
     if pa.types.is_boolean(t):
         if arr.null_count == 0:
             return pd.Series(arr.to_numpy(zero_copy_only=False).astype(bool), name=name)
-        return pd.Series(arr.to_pandas(), name=name).astype(object)
+        v = arr.to_numpy(zero_copy_only=False).astype(object)
+        v[pd.isna(v)] = np.nan  # F-X2 m1: a missing cell is NaN, as pandas reads it from CSV (not None)
+        return pd.Series(v, name=name, dtype=object)
     if pa.types.is_date(t) or pa.types.is_timestamp(t):
         if pa.types.is_date(t):
             arr = pc.strftime(pc.cast(arr, pa.timestamp("s")), format="%Y-%m-%d")
@@ -386,7 +388,9 @@ def _read_parquet(ref: Table | JoinFrame, columns: Any, rows: range | None, mode
             pieces.append(pq.read_table(src, columns=["__row_id", *want]))
         except FileNotFoundError as e:
             raise FrameError(f"A file of {ref.version_id} ({p['sha256'][:12]}…) is missing from the lake.") from e
-    at = pa.concat_tables(pieces) if len(pieces) > 1 else pieces[0]
+    # P13: parts written at different times may differ in Parquet nullability (DuckDB writes REQUIRED for a column it
+    # knows has no nulls): an append part next to its base must still concatenate
+    at = pa.concat_tables(pieces, promote_options="default") if len(pieces) > 1 else pieces[0]
     if rows is not None:
         at = at.slice(rows.start, max(0, len(rows)))
     idx = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False), name=None)

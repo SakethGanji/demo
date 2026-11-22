@@ -37,6 +37,7 @@ class DatasetSummary(BaseModel):
     state: str | None = None
     team_id: str | None = None  # P19: the owning team on every list row
     team: dict[str, str] | None = None
+    access: str | None = None  # P21: "shared" (a share covers it) / "none" on rows of another team; absent on your own
 
 
 class Dataset(DatasetSummary):

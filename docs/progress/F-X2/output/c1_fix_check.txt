@@ -1,0 +1,10 @@
+during_job: {"QE": "{\"detail\":\"ds_d2cd260e was made before row maps (a SQL refresh or a monitoring window): its rows have no ids to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches them to its parent's rows. Edit it after that, or edit its parent.\"}", "AE": "ds_773d51de", "rL1c": "run_92e1ea7b", "LE": "ds_11cc0531", "rA3c": null, "rL1c_status": "succeeded", "rL1c_error": "", "rA3c_retry": "run_eeaed1b4"}
+rL1c run_92e1ea7b: verify ok=True data=True split={"recorded": "73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564", "now": "73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_ef86400f28cf", "recorded": "0f5e3905970
+   run_inputs: [('ds_18c0260f', 'spl_ef86400f28cf', None, '73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564', 'engine_v1')]
+   pins: ['legacy_csv', 'legacy_json', 'split']
+ds_877f080f.migrated/splits/random-stratified__y-95cb0bfd.json 9ab1909af92b blob: ['legacy_json'] split row: ['spl_5ab13d8f7dfe'] view of: None
+ds_877f080f/splits/random-stratified__active-2bb6b986.json 339044538d26 blob: [] split row: [] view of: spl_74d2c34103f8
+ds_877f080f/splits/random-stratified__y-95cb0bfd.json b32282929f4b blob: [] split row: [] view of: spl_5ab13d8f7dfe
+lake_migrations A3: [('migrated', None, 1)]
+retry run verify ok True {'recorded': 'd112571abc970090bcffa318ebbad74c3359d5965d22cbf1c046e8ce0f591d78', 'now': 'd112571abc970090bcffa318ebbad74c3359d5965d22cbf1c046e8ce0f591d78', 'ok': True, 'basis': 'the pinned Parquet split blob'}
+retry run_inputs [('spl_74d2c34103f8', 'd112571abc970090bcffa318ebbad74c3359d5965d22cbf1c046e8ce0f591d78', 1)] pins ['split']

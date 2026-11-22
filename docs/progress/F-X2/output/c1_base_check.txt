@@ -1,0 +1,11 @@
+during_job: {"QE": "Internal Server Error", "AE": "ds_8937a7dc", "rL1c": "run_bec7b490", "LE": "ds_a51c6084", "rA3c": "run_d0993633", "rL1c_status": "succeeded", "rL1c_error": "", "rA3c_status": "succeeded", "rA3c_error": ""}
+rL1c run_bec7b490: verify ok=True data=True split={"recorded": "73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564", "now": "73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)"}
+   run_inputs: [('ds_18c0260f', 'spl_fd0c5fca1d9d', None, '73b89e6e8ede290beb00b7f5b2da13df925e0f5e15cc269c29c8d974fcabe564', 'engine_v1')]
+   pins: ['legacy_csv', 'legacy_json', 'split']
+rA3c run_d0993633: verify ok=False data=True split={"recorded": "d90a3a1ca5ccc34a9439a45b14f92625996e4d528d0e0e1ae0e27cb2385e9976", "now": null, "ok": false, "basis": "the DL4 split JSON file"}
+   run_inputs: [('ds_877f080f', None, None, 'd90a3a1ca5ccc34a9439a45b14f92625996e4d528d0e0e1ae0e27cb2385e9976', 'engine_v1')]
+   pins: []
+ds_877f080f.migrated/splits/random-stratified__active-2bb6b986.json d90a3a1ca5cc blob: [] split row: [] view of: None
+ds_877f080f.migrated/splits/random-stratified__y-95cb0bfd.json 9ab1909af92b blob: ['legacy_json'] split row: ['spl_2537e9e96dd6'] view of: None
+ds_877f080f/splits/random-stratified__y-95cb0bfd.json 5fbd060c8d30 blob: [] split row: [] view of: spl_2537e9e96dd6
+lake_migrations A3: [('migrated', None, 1)]

@@ -248,7 +248,8 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
         return await diff_q(request, a, b, by, key, wait)
 
-    @app.get("/api/datasets/{dataset_id}", response_model=Dataset)
+    @app.get("/api/datasets/{dataset_id}", response_model=Dataset,
+             dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])  # P21: a shared version's scope
     def get_dataset(dataset_id: str, request: Request) -> dict[str, Any]:
         rec = dataset_or_404(request, dataset_id)
         return _detail(rec)  # P20: a PII column's example / top values / range are shown masked
@@ -467,7 +468,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(404, f"No reset request '{rid}'.")
         if r["status"] != "pending":
             raise HTTPException(409, f"This request is {r['status']}.")
-        mine = G.same_person(who, r["requested_by"])
+        from .authz.policy import four_eyes  # C §1.5 (P21): every decide path goes through one check
+
+        mine = four_eyes("admin.reset", dict(r), who) is not None
         if approve and mine:
             msg = f"Four eyes: {r['requested_by']} asked for this reset, so someone else must approve it (admins included)."
             G.refused(db, who, "admin_reset_decide", 403, msg, {"request_id": rid})
@@ -535,6 +538,11 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     app.middleware("http")(catalog_api.evicted_guard)
     app.add_exception_handler(EvictedError, catalog_api.evicted_handler)
     app.include_router(teams_api.router)  # P18: /me, teams, members, principals
+    from .catalog import certify as certify_api, contracts as contracts_api, shares as shares_api
+
+    app.include_router(contracts_api.router)  # P21: contracts, certifications, shares
+    app.include_router(certify_api.router)
+    app.include_router(shares_api.router)
     from .jobs import api as jobs_api
 
     app.include_router(jobs_api.router)  # P22: GET /jobs, /jobs/{id}, /workers

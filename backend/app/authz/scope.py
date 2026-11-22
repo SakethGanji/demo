@@ -85,6 +85,26 @@ def _upload(con: Any, i: str) -> Scope | None:
 
 
 RESOLVERS["upload"] = _upload
+RESOLVERS["certification"] = _via("certification", "SELECT version_id FROM certifications WHERE id = ?", _dataset)
+
+
+def _shareable(con: Any, i: str) -> Scope | None:
+    """P21: what a share names: a project (prj_…) or a dataset (any of its versions; the share is on the root)."""
+    s = _project(con, i) if i.startswith("prj_") else _dataset(con, i)
+    return Scope(s.team_id, s.project_id, "project" if i.startswith("prj_") else "dataset", i) if s else None
+
+
+def _share(con: Any, i: str) -> Scope | None:
+    """P21: a share belongs to its owner team (the team that shares)."""
+    r = _one(con, "SELECT owner_team, object_kind, object_id FROM shares WHERE id = ?", i)
+    if not r:
+        return None
+    s = _shareable(con, r[2])
+    return Scope(r[0], s.project_id if s else None, "share", i)
+
+
+RESOLVERS["shareable"] = _shareable
+RESOLVERS["share"] = _share
 #: the lineage / annotation node kinds (/annotations/{kind}/{id}, /lineage/{kind}/{id}) → resolver kinds
 NODE_KINDS = {"dataset": "dataset", "run": "run", "project": "project", "version": "model_version", "model_version": "model_version",
               "model": "model"}

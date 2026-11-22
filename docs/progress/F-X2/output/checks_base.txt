@@ -1,0 +1,39 @@
+M4 (outside change e: pre-DL4 split of loans v1, no recorded hash)
+  L1 ds_18c0260f: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+M5 (c: split JSON + split_files.sha256 of accounts v3; f: data.csv + datasets hashes of loans relabel)
+  A3 ds_877f080f: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+  LR ds_088264c3: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+DL3/DL4 (a: data of churn v1)
+  C1 ds_d2926b37: storage=csv lake_migrations={'status': 'skipped', 'reason': 'data_changed'}
+      data.csv of ds_d2926b37 differs from the hash stored when it was made (b3688d99101e… then, 4a88e42badb7… now): it is not migrated. Restore the file (POST …/verify names it), or adopt it as a new version (POST …/adopt-disk-file).
+M2 (Feature Lab job records)
+  GET /datasets/ds_cea09414/feature-lab → 0 job(s): []
+  ds_cea09414.migrated/featurelab/fl_c2429ac5.json: blob [], refs []
+M3 (the deleted version's split)
+  split_files splits.json 82fe5512a3c3…: blob [], Parquet split []
+  split_files splits/random-stratified__y-95cb0bfd.json 82fe5512a3c3…: blob [], Parquet split []
+  run run_0c84a824: run_inputs [{'split_id': None, 'split_legacy_sha256': '82fe5512a3c32d7a2c6a37d97168f9d6df5c3b2f0c1a1acb5e115c58fc4d066a'}], pins []
+  GET /admin/lake/runs/run_0c84a824/verify → ok=None deleted=True split=null
+  POST /datasets/ds_f661a015/verify → {"root_id": "ds_874aaf2d", "results": [{"id": "ds_f661a015", "v": 2, "ok": null, "status": "deleted (tombstone)", "stored": "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728"}], "ok": true}
+M6 (SQL refresh, no row map)
+  GET /datasets/diff a=Q1 b=Q2 → method=row_id identical=False rows={'matched': 0, 'added': 3000, 'removed': 3000, 'changed': 0}
+  GET /datasets/diff a=Q1 b=Q3 → method=row_id identical=False rows={'matched': 0, 'added': 3000, 'removed': 3000, 'changed': 0}
+Every run: GET /admin/lake/runs/{id}/verify
+  run_42abff2f on ds_18c0260f (succeeded): ok=True data=True split=None split_id=['spl_e8fa3135c4d9']
+  run_2ce3ed0d on ds_ce0294a5 (succeeded): ok=True data=True split=None split_id=['spl_bef2031fb9a7']
+  run_b4485d5d on ds_d2926b37 (succeeded): ok=False data=False split=None split_id=[]
+  run_26ee79d9 on ds_ef1e4815 (succeeded): ok=True data=True split=True split_id=['spl_7f1d8c48e5ec']
+  run_28b4d573 on ds_f37c4091 (succeeded): ok=True data=True split=True split_id=['spl_327053ec4fc6']
+  run_5277853c on ds_5c0ba101 (succeeded): ok=True data=True split=True split_id=['spl_5f8afdf0cfeb']
+  run_0c84a824 on ds_f661a015 (succeeded): ok=None data=None split=None split_id=[None]
+  run_b6a5d93b on ds_f37c4091 (succeeded): ok=True data=True split=True split_id=['spl_327053ec4fc6']
+  run_20f95e49 on ds_275a54bb (succeeded): ok=True data=True split=True split_id=['spl_6fa93a09c3ba']
+  run_fa0ba5c5 on ds_350f0c16 (succeeded): ok=True data=True split=True split_id=['spl_682f6875621a']
+  run_7f7f3cc8 on ds_ba3bbde4 (succeeded): ok=True data=True split=True split_id=['spl_7f6f997f340c']
+m1 L1 flag: dtype=object missing=21 kinds=['NoneType'] astype(str) of a missing cell=['None']
+m1 L2 flag: dtype=object missing=18 kinds=['NoneType'] astype(str) of a missing cell=['None']
+m1 LR flag: dtype=object missing=21 kinds=['NoneType'] astype(str) of a missing cell=['None']
+M4 rL1 pinned to spl_e8fa3135c4d9: Parquet holdout 119 rows, holdout_predictions 120 rows, preds not in the Parquet holdout: 1

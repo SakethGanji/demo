@@ -207,17 +207,67 @@ def public(reason: str) -> Any:
 
 
 def visible_teams(con: Any, p: identity.Principal | None) -> set[str] | None:
-    """The teams whose rows `p` may list: its own, plus teams sharing to them. None = every team (an admin)."""
+    """The teams whose rows `p` may list: its own, plus teams with an active (unexpired) share to them. None = every team
+    (an admin). P21: a sharing team's rows are then narrowed to the shared objects (`shares.row_visible`)."""
     if p is not None and p.is_admin:
         return None
     if p is None:
         return set()
-    mine = {r[0] for r in con.execute("SELECT team_id FROM team_members WHERE principal_id = ?", (p.id,))}
-    if mine:
-        q = ",".join("?" * len(mine))
-        try:
-            mine |= {r[0] for r in con.execute(f"SELECT owner_team FROM shares WHERE status = 'active' AND grantee_team IN ({q})",
-                                               tuple(mine))}
-        except Exception:  # noqa: BLE001, S110 - no shares table yet (P21): own teams only
-            pass
-    return mine
+    from ..catalog import shares
+
+    mine = shares.my_teams(con, p.id)
+    return mine | shares.sharing_teams(con, mine)
+
+
+def own_teams(con: Any, p: identity.Principal | None) -> set[str] | None:
+    """The principal's own teams (None = an admin: every team)."""
+    if p is not None and p.is_admin:
+        return None
+    if p is None:
+        return set()
+    from ..catalog import shares
+
+    return shares.my_teams(con, p.id)
+
+
+def record(request: Request, d: dict[str, Any], by: str | None = None) -> dict[str, Any]:
+    """P21: a decision made in a handler (a second, finer check than the route's, e.g. the level of a certification or
+    the project rule for training on a shared version) follows the mode exactly like require(): recorded in the request
+    context and the response header, a denial audited (`authz_would_deny` / `authz_denied`), 401 / 403 in enforce."""
+    m = mode()
+    if m == "off":
+        return d
+    p = principal(request, by)
+    d = {**d, "mode": m, "method": request.method, "path": request.url.path}
+    ctx = current()
+    if ctx is not None:
+        ctx.decisions.append(d)
+    if not d["allow"]:
+        from ..catalog.schema import audit
+
+        with request.app.state.db.connect() as con:
+            audit(con, p.display_name if p else (by or "anonymous"), "authz_would_deny" if m == "audit" else "authz_denied",
+                  {k: d.get(k) for k in ("action", "needed", "role", "reason", "method", "path", "mode")},
+                  team_id=d.get("team") or "tm_default", object_kind=d.get("object_kind"), object_id=d.get("object_id"),
+                  principal_id=p.id if p else None, auth=p.auth if p else "none",
+                  decision={k: d.get(k) for k in ("allow", "action", "needed", "role", "team", "mode")})
+        if m == "enforce":
+            if p is None:
+                raise HTTPException(401, {"code": "unauthenticated", "action": d["action"], "message": d["reason"]})
+            raise HTTPException(403, {"code": "forbidden", "action": d["action"], "team": d.get("team"),
+                                      "needed": d.get("needed"), "message": d["reason"]})
+    return d
+
+
+def check(request: Request, action: str, kind: str, object_id: str, by: str | None = None) -> dict[str, Any] | None:
+    """policy.decide for (action, object) inside a handler, then record() it. None when the mode is off or the object
+    does not resolve."""
+    if mode() == "off":
+        return None
+    p = principal(request, by)
+    with request.app.state.db.connect() as con:
+        sc = resolve(request.app, con, kind, object_id)
+        if not sc.found:
+            return None
+        d = policy.decide(con, p, action, sc)
+    return record(request, d, by)

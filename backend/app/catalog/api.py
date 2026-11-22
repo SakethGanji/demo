@@ -341,14 +341,16 @@ def decide_champion(request_id: str, request: Request, body: dict[str, Any]) -> 
         raise HTTPException(409, f"This request is {req['status']}.")
     body = body or {}
     by = _who(body.get("by"))
-    if G.same_person(by, req["requested_by"]):
+    from ..authz.policy import four_eyes  # C §1.5 (P21): every decide path goes through one check
+
+    if four_eyes("champion.decide", {"requested_by": req["requested_by"]}, by):
         raise HTTPException(403, f"Four eyes: {req['requested_by']} asked for this champion, so someone else must decide "
                                  "(names are compared on letters and digits only; names, not authenticated identities).")
     v = st.registry.get_version(req["version_id"])
     if not v:
         raise HTTPException(409, f"Version {req['version_id']} no longer exists.")
     author = (v.get("options") or {}).get("change_by")
-    if author and G.same_person(by, author):
+    if author and four_eyes("champion.decide", {"change_by": author}, by):
         raise HTTPException(403, f"Four eyes: {by} designed the change experiment behind this version ({author}).")
     approve = body.get("approve")
     if not isinstance(approve, bool):
