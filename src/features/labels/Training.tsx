@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { labels, countsOf, type Snapshot } from '@/shared/api/labels'
+import { api } from '@/shared/api/client'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { Badge, CardHead, CopyId } from '@/shared/components/DataKit'
 import { day, int } from '@/shared/lib/format'
@@ -48,7 +49,10 @@ export function pinOf(x: unknown): Pinned | null {
 
 /** LB-C: the "Labels" section of a run page and a model card: which snapshot, its sha, the overlay's sha, and that it
  *  applied to the training rows only (the holdout kept its original labels unless 'corrected' was chosen). */
-export function RunLabels({ pin, testId = 'run-labels' }: { pin: Pinned | null; testId?: string }) {
+export function RunLabels({ pin: given, runId, testId = 'run-labels' }: { pin: Pinned | null; runId?: string | null; testId?: string }) {
+  // the run's own pin (run_inputs, re-verified) when the run id is known; else what the config / card says
+  const ver = useFetch(runId ? () => labels.runVerify(runId).catch(() => null) : null, [runId])
+  const pin: Pinned | null = ver.data ? { ...(given ?? {}), snapshot_id: ver.data.snapshot_id, overlay_sha256: ver.data.overlay_sha256, rows_applied: ver.data.rows_applied } : given
   const sid = pin?.snapshot_id ?? pin?.label_snapshot_id ?? null
   const snap = useFetch(sid ? () => labels.getSnapshot(sid) : null, [sid])
   if (!pin || !sid) return null
@@ -58,7 +62,8 @@ export function RunLabels({ pin, testId = 'run-labels' }: { pin: Pinned | null; 
   const s = snap.data
   return (
     <div className="card" data-testid={testId}>
-      <CardHead title="Labels" badge={<Badge status={s?.state ?? 'pinned'}>{s?.state ?? 'pinned'}</Badge>} sub="a label snapshot was overlaid on the data at read time; the version itself is unchanged" />
+      <CardHead title="Labels" badge={<Badge status={s?.state ?? 'pinned'}>{s?.state ? `snapshot ${s.state}` : 'pinned'}</Badge>} sub="a label snapshot was overlaid on the data at read time; the version itself is unchanged"
+        actions={ver.data ? <Badge status={ver.data.status} testId={`${testId}-verify`}>{ver.data.status === 'ok' ? 'overlay re-verified' : `overlay ${ver.data.status}`}</Badge> : undefined} />
       <div className="card-body lbl-pin">
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <span className="micro-label">snapshot</span><CopyId value={sid} testId={`${testId}-snapshot`} />
@@ -74,4 +79,11 @@ export function RunLabels({ pin, testId = 'run-labels' }: { pin: Pinned | null; 
       </div>
     </div>
   )
+}
+
+/** The model card's Labels section: the run behind the version is read once; only a run that pinned labels shows it. */
+export function CardLabels({ runId }: { runId: string }) {
+  const r = useFetch(() => api.runs.get(runId), [runId])
+  const pin = pinOf(r.data)
+  return pin ? <RunLabels pin={pin} runId={runId} testId="card-labels" /> : null
 }

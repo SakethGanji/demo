@@ -145,6 +145,8 @@ export const labels = {
   proposals: (l: string) => request<unknown>(`/label-layers/${e(l)}/proposals`).then(list<Proposal>('proposals')),
   decide: (p: string, decision: 'approve' | 'reject', comment: string, b: string) => json<Proposal & Job>(`/label-proposals/${e(p)}/decide`, 'POST', { decision, comment, by: b }, 120_000),
   job: (id: string) => request<Job>(`/jobs/${e(id)}`),
+  /** LB-A: a run's overlay pin re-verified (404 no_overlay when the run trained without one). */
+  runVerify: (run: string) => request<{ run_id: string; snapshot_id: string; overlay_sha256: string; ok: boolean | null; status: string; rows_applied?: number; overlay_blob_ok?: boolean; overlay_sha_ok?: boolean }>(`/label-runs/${e(run)}/verify`, { timeoutMs: 60_000 }),
 }
 
 /** Wilson score interval for k of n at 95 % (the calibration report's accuracy ± CI when the API sends none). */

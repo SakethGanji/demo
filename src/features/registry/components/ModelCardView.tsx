@@ -1,5 +1,5 @@
 import { MathText } from '@/shared/components/MathText'
-import { RunLabels, pinOf } from '@/features/labels/Training'
+import { CardLabels } from '@/features/labels/Training'
 import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { MetricCI, ModelCard, ModelVersion } from '@/shared/api/types'
@@ -90,7 +90,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         <table className="table compact"><thead><tr><th>feature</th><th>type</th><th className="r">missing</th><th className="r">distinct</th></tr></thead>
           <tbody>{d.feature_table.map((f) => <tr key={f.name}><td className="mono">{f.name}</td><td>{f.type}</td><td className="r mono">{pct(f.missing_share)}</td><td className="r mono">{f.unique.toLocaleString()}</td></tr>)}</tbody></table>
         {d.inputs && <InputsSection inputs={d.inputs} parity={d.parity} vid={v.id} />}
-        <RunLabels pin={pinOf(d.inputs) ?? pinOf(d) ?? pinOf(c)} testId="card-labels" />
+        <CardLabels runId={v.run_id} />
       </section>
 
       <section className="mc-sec"><h3><i>4</i> Development</h3>
