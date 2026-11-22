@@ -199,6 +199,9 @@ def migrate(con: sqlite3.Connection) -> None:
         con.execute("DROP TABLE champions_old")
     migrate_p01(con)
     migrate_p10(con)
+    from ..labels.schema import migrate as migrate_labels  # LB-A: label layers, events, snapshots, run pins
+
+    migrate_labels(con)
 
 
 def project_id_for(root_dataset_id: str) -> str:
@@ -806,7 +809,7 @@ CREATE INDEX IF NOT EXISTS ix_vt_sha ON version_tables (table_sha256);
 CREATE TABLE IF NOT EXISTS blobs (
   sha256 TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE,
   kind TEXT NOT NULL CHECK (kind IN ('table','split','join_cache','manifest','source','legacy_csv','legacy_json',
-                                     'frozen_holdout','sample','audit_archive')),
+                                     'frozen_holdout','sample','audit_archive','label_snapshot','label_overlay')),
   bytes BIGINT NOT NULL, n_rows BIGINT,
   state TEXT NOT NULL CHECK (state IN ('pending','live','purging','purged')),
   created_at TEXT NOT NULL, verified_at TEXT, verified_ok INTEGER,
@@ -837,7 +840,7 @@ CREATE TABLE IF NOT EXISTS table_relations (
 
 CREATE TABLE IF NOT EXISTS blob_refs (
   blob_sha256 TEXT NOT NULL REFERENCES blobs(sha256),
-  owner_kind TEXT NOT NULL CHECK (owner_kind IN ('version','split','join_frame','run','upload','export')),
+  owner_kind TEXT NOT NULL CHECK (owner_kind IN ('version','split','join_frame','run','upload','export','label_snapshot')),
   owner_id TEXT NOT NULL, role TEXT NOT NULL,
   team_id TEXT NOT NULL, created_at TEXT NOT NULL,
   PRIMARY KEY (blob_sha256, owner_kind, owner_id, role));

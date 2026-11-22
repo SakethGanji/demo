@@ -626,6 +626,13 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     from .catalog import joins_api
 
     app.include_router(joins_api.router)  # P14: saved joins, join frames
+    from .labels import api_layers as labels_layers_api, api_snapshots as labels_snapshots_api
+    from .labels import api_tasks as labels_tasks_api, api_llm as labels_llm_api
+
+    app.include_router(labels_layers_api.router)  # LB-A: label layers, schemas, events, status
+    app.include_router(labels_snapshots_api.router)  # LB-A: snapshots, materialise, run overlay verify
+    app.include_router(labels_tasks_api.router)  # LB-B: tasks, queues, review
+    app.include_router(labels_llm_api.router)  # LB-B: LLM labeling
     from .catalog import holds as holds_api, purge as purge_api
 
     app.include_router(holds_api.router)  # P24: legal holds

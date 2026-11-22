@@ -65,6 +65,21 @@ ACTIONS: dict[str, Rule] = {
     "project.create": R("member"),
     "project.manage": R("maintainer", admin=True),
     "annotate": R("member", rr=True, note="tags and notes on lineage nodes"),
+    # labels (labeling plan §6.1; LB-A). Task-membership checks (annotate / review) are in the handlers.
+    "label.read": R("viewer", rr=True, admin=True, shared=True, note="layers, status, snapshots, history; PII values masked"),
+    "label.annotate": R("viewer", note="plus task membership 'annotator' (handler); human events only"),
+    "label.review": R("viewer", note="plus task membership 'reviewer'; never on an item the reviewer voted on"),
+    "label.task_manage": R("maintainer", note="tasks, members, gold, fills; direct events of any source"),
+    "label.layer_manage": R("maintainer", note="create / freeze / archive layers, schema versions"),
+    "label.import": R("member", note="import a labels / outcomes file"),
+    "label.llm_run": R("maintainer", note="prompts, preview, calibrate, runs (team policy must enable)"),
+    "label.llm_unmasked": R("maintainer", note="request; decide = label.llm_unmasked_decide"),
+    "label.llm_unmasked_decide": R("owner", note="≠ requester"),
+    "label.snapshot": R("member", note="build snapshots"),
+    "label.snapshot_approve": R("maintainer", rr=True, note="≠ snapshot creator"),
+    "label.snapshot_approve_model": R(None, rr=True, note="≠ creator; when the version is approved_for_model"),
+    "label.propose": R("member", note="edit / Doctor proposals"),
+    "label.proposal_decide": R("maintainer", note="≠ proposer"),
     # runs
     "run.read": R("viewer", rr=True, admin=True, shared=True, note="row-level run outputs: predictions, scores, SHAP rows"),
     "run.train": R("member", note="any kind of run, its analyses and twins; also join materialisation"),
@@ -193,11 +208,16 @@ FOUR_EYES: dict[str, dict[str, Any]] = {
     "legal_hold.release": {"not": ["placed_by"]},
     "data.purge_decide": {"not": ["requested_by"]},
     "admin.reset": {"not": ["requested_by"]},
+    "label.snapshot_approve": {"not": ["created_by"]},
+    "label.snapshot_approve_model": {"not": ["created_by"]},
+    "label.proposal_decide": {"not": ["proposed_by"]},
+    "label.llm_unmasked_decide": {"not": ["requested_by"]},
 }
 
 
 ROLE_WORDS = {"requested_by": "requester", "registered_by": "registrant", "change_by": "author of the change experiment",
-              "run_created_by": "run's creator", "placed_by": "person who placed it"}
+              "run_created_by": "run's creator", "placed_by": "person who placed it",
+              "created_by": "creator", "proposed_by": "proposer"}
 
 
 def same_person_p(p: Principal, other: str | None) -> bool:
