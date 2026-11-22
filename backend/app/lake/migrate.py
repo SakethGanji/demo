@@ -1516,8 +1516,15 @@ def verify_run(db, store: BlobStore, run_id: str) -> dict[str, Any]:
         now, basis = None, f"{basis}: {type(e).__name__}: {e}"[:300]
     with db.connect() as con:
         st = con.execute("SELECT state FROM datasets WHERE id = ?", (r["dataset_id"],)).fetchone()
+        from ..catalog.purge import run_marker  # P24: data purged on purpose is reported as purged, not as a mismatch
+
+        purged = run_marker(con, run_id, r["dataset_id"])
     deleted = bool(st and st[0] == "deleted")
-    if deleted:  # DL2: a deleted version's data is gone on purpose; that is not a mismatch (its split is still checked)
+    if purged:
+        data = {"recorded": recorded, "now": None, "ok": None, "purged": purged,
+                "basis": "purged (four eyes, owners of every team involved): the bytes are gone on purpose; the run row, its "
+                         "recorded hashes and its split are kept"}
+    elif deleted:  # DL2: a deleted version's data is gone on purpose; that is not a mismatch (its split is still checked)
         data = {"recorded": recorded, "now": None, "ok": None, "basis": "the version is deleted (four eyes): its data is gone; "
                 "its tombstone, manifest, frozen holdout sample and splits are kept"}
     else:
@@ -1550,6 +1557,9 @@ def verify_run(db, store: BlobStore, run_id: str) -> dict[str, Any]:
         split["parquet"] = {"split_id": ri["split_id"], "recorded": sr[0] if sr else None, "now": sh, "ok": bool(sr and sh == sr[0])}
         if not split["parquet"]["ok"]:
             split["ok"] = False
+    if purged:
+        return {"run_id": run_id, "dataset_id": r["dataset_id"], "data": data, "split": split, "read_mode": ri.get("read_mode"),
+                "ok": None if split["ok"] is not False else False, "status": "purged", "purged": purged}
     if deleted:
         return {"run_id": run_id, "dataset_id": r["dataset_id"], "data": data, "split": split, "read_mode": ri.get("read_mode"),
                 "ok": None if split["ok"] is not False else False, "deleted": True}

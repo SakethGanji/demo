@@ -370,48 +370,123 @@ def decide_champion(request_id: str, request: Request, body: dict[str, Any]) -> 
     return out
 
 
-# -- retention -----------------------------------------------------------------------------------------------------------
+# -- retention (P24: per team, manual; §11 item 3) -----------------------------------------------------------------------
 
-@router.get("/retention/plan", dependencies=[require("retention.plan", query("team_id", "team"), default="global")])
-async def retention_plan(request: Request) -> dict[str, Any]:
-    """Dry run: what the policy would slim and evict, the bytes it would free, and why each pinned run is kept."""
-    out = await run_in_threadpool(RT.plan, request.app)
-    return {**out, "admins": {"configured": bool(G.admins()), "how": "ENSEMBLE_ADMINS (comma-separated names)",
-                              "note": "names, not authenticated identities: there is no sign-in"}}
+def _rt(e: Exception) -> HTTPException:
+    return HTTPException(e.status, e.payload)  # type: ignore[attr-defined]
 
 
-@router.post("/retention/run", dependencies=[require("retention.run", body("team_id", "team"), default="global")])
+def _periods_arg(v: Any) -> dict[str, Any] | None:
+    if v in (None, ""):
+        return None
+    if isinstance(v, str):
+        import json as _json
+        try:
+            v = _json.loads(v)
+        except ValueError:
+            raise HTTPException(400, "periods is a JSON object {category: {key: days}}.")
+    if not isinstance(v, dict):
+        raise HTTPException(400, "periods is a JSON object {category: {key: days}}.")
+    return v
+
+
+def _owner_or_admin(request: Request, team: str, by: str) -> None:
+    """A retention run is started by an owner of the team or a platform admin (checked in every authz mode: it is the
+    person's own decision that the audit records)."""
+    from ..authz.deps import principal
+    from ..authz.policy import role_of
+
+    if G.is_admin(by):
+        return
+    p = principal(request, by)
+    with request.app.state.db.connect() as con:
+        role = role_of(con, p.id, team) if p is not None else None
+    if role != "owner":
+        G.refused(request.app.state.db, by, "retention_run", 403, f"{by} is not an owner of {team}", {"team_id": team})
+        raise HTTPException(403, {"code": "forbidden", "message": f"A retention run on {team} is started by an owner of the team or a "
+                                                                   f"platform admin; {by} is {role or 'not a member'}."})
+
+
+@router.get("/retention/plan", dependencies=[require("retention.plan", query("team", "team"), query("team_id", "team"), default="global")])
+async def retention_plan(request: Request, team: str | None = None, team_id: str | None = None, periods: str | None = None) -> dict[str, Any]:
+    """The plan, read-only. `?team=`: that team's candidates per category (versions, sources, join caches, runs,
+    staging), what is kept and why, and what a legal hold covers; `periods` (JSON) overrides the team policy's periods
+    for this plan. Without a team: every team's counts. No default periods: a category without one has no candidates."""
+    t = team or team_id
+    try:
+        if t:
+            return await run_in_threadpool(RT.team_plan, request.app, t, _periods_arg(periods))
+        return await run_in_threadpool(RT.plan, request.app)
+    except RT.RetentionError as e:
+        raise _rt(e) from e
+
+
+@router.post("/retention/dry-run", dependencies=[require("retention.plan", body("team", "team"))])
+async def retention_dry_run(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    """{team, periods?, by}: the team plan, stored under `plan_id` (24 h) and audited (`retention_dry_run`)."""
+    body = body if isinstance(body, dict) else {}
+    by = _who(body.get("by") or G.current_actor())
+    if not body.get("team"):
+        raise HTTPException(400, "team is required.")
+    try:
+        return await run_in_threadpool(RT.dry_run, request.app, str(body["team"]), by, _periods_arg(body.get("periods")))
+    except RT.RetentionError as e:
+        raise _rt(e) from e
+
+
+@router.post("/retention/run", dependencies=[require("retention.run", body("team", "team"), body("team_id", "team"), default="global")])
 async def retention_run(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-    """Admins only ({by} in ENSEMBLE_ADMINS). {confirm: "retention"}, optional {run_ids, tier: slim|evict} to apply a tier
-    to chosen runs; pinned runs are refused either way. Every action is audited."""
+    """{team, plan_id, items?, confirm: "retention", by}: act on a dry run's items that are still candidates (an owner of
+    the team or an admin). Or, admins only, {run_ids, tier: slim|evict, confirm}: the explicit slim / evict of chosen
+    runs. Pinned and held items are refused either way; every action is audited. Nothing runs on a timer."""
     body = body or {}
     by = _who(body.get("by"))
-    if not G.is_admin(by):
-        raise HTTPException(403, (f"Retention is for the admins named in ENSEMBLE_ADMINS; {by} is not one. " if G.admins() else
-                                  "Retention is off: no admin is configured (set ENSEMBLE_ADMINS to a comma-separated list of names). ")
-                            + "Names, not authenticated identities: there is no sign-in, names are compared on letters and digits.")
     if body.get("confirm") != "retention":
-        raise HTTPException(400, 'Send {"confirm": "retention"}: this deletes predictor files. GET /api/retention/plan first.')
-    tier = body.get("tier")
-    if tier not in (None, "slim", "evict"):
-        raise HTTPException(400, "tier is slim or evict.")
-    ids = body.get("run_ids")
-    if ids is not None:  # F-P2 #17: a list of known run ids, nothing else
-        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
-            raise HTTPException(400, 'run_ids is a non-empty list of run ids, e.g. ["run_1a2b3c4d"].')
-        ids = list(dict.fromkeys(ids))
+        raise HTTPException(400, 'Send {"confirm": "retention"}: this deletes or requests deletes. POST /api/retention/dry-run first.')
+    if body.get("plan_id"):
         with request.app.state.db.connect() as con:
-            known = {r[0] for r in con.execute(f"SELECT id FROM runs WHERE id IN ({','.join('?' * len(ids))})", ids)}
-        missing = [i for i in ids if i not in known]
-        if missing:
-            raise HTTPException(404, {"message": "Unknown run ids.", "unknown": missing[:50]})
-    if tier and not ids:
-        raise HTTPException(400, "A tier applies to chosen runs: send run_ids too.")
-    if ids is not None:
-        pinned = RT.pins(request.app)
-        bad = {r: pinned[r] for r in ids if r in pinned}
-        if bad:
-            raise HTTPException(409, {"message": "Pinned runs are never slimmed or evicted.", "pinned": bad})
+            try:
+                rec = RT._load_plan(con, str(body["plan_id"]))
+            except RT.RetentionError as e:
+                raise _rt(e) from e
+            sent = body.get("team") or body.get("team_id")
+            if sent and con.execute("SELECT 1 FROM teams WHERE (id = ? OR slug = ?) AND id = ?", (sent, sent, rec["team"])).fetchone() is None:
+                raise HTTPException(400, f"Plan {body['plan_id']} is for team {rec['team']}, not {sent}.")
+        _owner_or_admin(request, rec["team"], by)
+        items = body.get("items")
+        if items is not None and (not isinstance(items, list) or not all(isinstance(i, str) for i in items)):
+            raise HTTPException(400, "items is a list of item ids from the plan.")
+        try:
+            return await run_in_threadpool(RT.run_plan, request.app, str(body["plan_id"]), by, items)
+        except RT.RetentionError as e:
+            raise _rt(e) from e
+    if not G.is_admin(by):
+        raise HTTPException(403, (f"An explicit slim / evict is for the admins named in ENSEMBLE_ADMINS; {by} is not one. " if G.admins() else
+                                  "No admin is configured (ENSEMBLE_ADMINS). ") + "A team's retention runs from a dry run's plan_id.")
+    tier = body.get("tier")
+    if tier not in ("slim", "evict"):
+        raise HTTPException(400, "Send {plan_id} (from POST /api/retention/dry-run), or {run_ids, tier: slim|evict}.")
+    ids = body.get("run_ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) and i for i in ids):
+        raise HTTPException(400, 'run_ids is a non-empty list of run ids, e.g. ["run_1a2b3c4d"].')
+    ids = list(dict.fromkeys(ids))
+    with request.app.state.db.connect() as con:
+        known = {r[0] for r in con.execute(f"SELECT id FROM runs WHERE id IN ({','.join('?' * len(ids))})", ids)}
+    missing = [i for i in ids if i not in known]
+    if missing:
+        raise HTTPException(404, {"message": "Unknown run ids.", "unknown": missing[:50]})
+    pinned = RT.pins(request.app)
+    bad = {r: pinned[r] for r in ids if r in pinned}
+    if bad:
+        raise HTTPException(409, {"message": "Pinned runs are never slimmed or evicted.", "pinned": bad})
+    from . import holds as H
+
+    with request.app.state.db.connect() as con:
+        held = {r: [h["case_ref"] for h in H.active(con, H.run_keys(con, r))] for r in ids}
+    held = {r: v for r, v in held.items() if v}
+    if held:
+        raise HTTPException(409, {"code": "legal_hold", "message": "A legal hold covers these runs: " + "; ".join(
+            f"{r}: {', '.join(v)}" for r, v in held.items()), "held": held})
     return await run_in_threadpool(RT.execute, request.app, by, ids, tier)
 
 

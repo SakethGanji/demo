@@ -140,14 +140,31 @@ def verify(dataset_id: str, request: Request) -> dict[str, Any]:
     return out
 
 
-# -- GC (dry run only in P02) ---------------------------------------------------------------------------------------
+# -- GC (P02 dry run; P24 armed deletes, started by a person only) ---------------------------------------------------
 
 @router.post("/admin/lake/gc", dependencies=[require("admin.lake")])
-async def run_gc(request: Request, dry_run: int = Query(1)) -> dict[str, Any]:
-    if not dry_run:
-        raise HTTPException(409, {"code": "gc_disarmed", "message": "GC deletes are not available yet (P24 builds them, "
-                                  "armed only after verify-all has passed). Use ?dry_run=1."})
-    return await run_in_threadpool(gc.plan, request.app.state.db, request.app.state.lake)
+async def run_gc(request: Request, dry_run: int = Query(1), body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """`?dry_run=1` (the default): the plan, stored as `plan_id` and audited. `?dry_run=0 {plan_id, confirm: "gc", by}`:
+    delete only what that plan listed and is still a candidate (409 `gc_disarmed` until a verify-all pass). Admins only;
+    nothing runs on a timer (§11 item 3)."""
+    body = body if isinstance(body, dict) else {}
+    by = _admin(request, body.get("by") or request.query_params.get("by"), "lake_gc")
+    db, st = request.app.state.db, request.app.state.lake
+    if dry_run:
+        return await run_in_threadpool(gc.dry_run, db, st, by)
+    if body.get("confirm") != "gc":
+        raise HTTPException(400, 'Send {"plan_id": …, "confirm": "gc"}: this deletes blobs. POST ?dry_run=1 first.')
+    try:
+        return await run_in_threadpool(lambda: gc.run(db, st, by=by, plan_id=str(body.get("plan_id") or "")))
+    except gc.GcError as e:
+        G.refused(db, by, "lake_gc", e.status, e.payload)
+        raise HTTPException(e.status, e.payload) from e
+
+
+@router.get("/admin/lake/gc/armed", dependencies=[require("admin.lake")])
+def gc_armed(request: Request) -> dict[str, Any]:
+    with request.app.state.db.connect() as con:
+        return gc.armed_info(con)
 
 
 # -- P10: the migration of CSV-era versions (§5.11), verify-all, a run's re-verify ---------------------------------

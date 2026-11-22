@@ -497,7 +497,9 @@ def frame(db, store: Any, join_id: str, version_id: str, by: str) -> dict[str, A
     pinned = [{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")} for x in ins]
     with db.connect() as con:
         con.execute("INSERT INTO blobs (sha256, key, kind, bytes, n_rows, state, created_at) VALUES (?, ?, 'join_cache', ?, ?, 'live', ?)"
-                    " ON CONFLICT (sha256) DO UPDATE SET state = 'live' WHERE state IN ('pending', 'live')",
+                    " ON CONFLICT (sha256) DO UPDATE SET state = 'live', purged_at = NULL, purged_by = NULL, purge_reason = NULL"
+                    # P24: a cache GC removed is re-created (the frame is re-creatable); a purged one stays purged
+                    " WHERE blobs.state IN ('pending', 'live') OR (blobs.state = 'purged' AND blobs.purge_reason LIKE 'gc:%')",
                     (bsha, key, nbytes, res["n_rows"], S.now()))
         if r:  # the identity was there but its cache blob is gone: the same frame, written again
             fid = r["id"]
