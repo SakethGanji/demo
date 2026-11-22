@@ -76,9 +76,12 @@ PG_TRIGGERS: dict[str, tuple[str, str]] = {
                                    " OLD.legacy_sha256)")),
     "audit_ro_u": ("audit_log", _ro("audit_ro_u", "UPDATE", "audit_log", "audit is append-only")),
     "audit_ro_d": ("audit_log", _ro("audit_ro_d", "DELETE", "audit_log", "audit is append-only")),
+    # F-X4b (X4 M6): every audit head, write-once; with the grants below the app role cannot drop these (owner only)
+    "ahead_ro_u": ("audit_heads", _ro("ahead_ro_u", "UPDATE", "audit_heads", "audit heads are write-once")),
+    "ahead_ro_d": ("audit_heads", _ro("ahead_ro_d", "DELETE", "audit_heads", "audit heads are write-once")),
 }
 #: the tables the app role may only INSERT into and SELECT from (§2.2)
-APPEND_ONLY = ("audit_log", "splits", "run_inputs", "version_tables", "table_files")
+APPEND_ONLY = ("audit_log", "audit_heads", "splits", "run_inputs", "version_tables", "table_files")
 
 
 def trigger_sql(sql: str) -> str | None:
@@ -149,6 +152,7 @@ def migrate(con: Any, *, app_role: str | None = None, force: bool = False) -> di
         if name.startswith("audit_"):
             continue
         con.raw.execute(q)
+    S.seed_audit_heads(con)
     S._step(con, "p01_ddl")
     S._step(con, "p01_lineage_check")  # created with join_frame / joined_from / merged_from already
     S.ensure_default_team(con)

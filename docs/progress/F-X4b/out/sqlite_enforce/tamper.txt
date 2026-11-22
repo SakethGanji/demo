@@ -1,0 +1,17 @@
+  checkpoint before tampering: {'written': 3, 'teams': 4, 'file': '/var/tmp/fx4b/w1/data/audit/checkpoints.jsonl'}
+  clean: ok=True rows=34 anchored={'audit_heads': 143, 'checkpoint': {'audit_id': 143, 'at': '2026-11-22T02:08:35+00:00'}} first_break=null
+  UPDATE audit_log refused: IntegrityError: audit is append-only
+  UPDATE audit_heads refused: IntegrityError: audit heads are write-once
+  DELETE FROM audit_heads refused: IntegrityError: audit heads are write-once
+  (audit_log append-only triggers off)
+  edited row 81 (one space added to comment): ok=False rows=17 anchored=None first_break={"id": 81, "ts": "2026-11-22T02:06:55+00:00", "action": "certification_approved", "problem": "the row does not re-hash to its row_hash (it was edited)", "row_hash": "4bf49b8afe8b50e9", "recomputed": "bd53345f6ec3e74b"}
+  deleted row 52: ok=False rows=3 anchored=None first_break={"id": 54, "ts": "2026-11-22T02:06:54+00:00", "action": "team_member_added", "problem": "prev_hash does not link to the previous row (a row was removed or inserted before it)", "expected_prev": "d24ed503d18458e3", "found_prev": "128aaf0ed2f336b2"}
+  row put back: ok=True rows=34 anchored={'audit_heads': 143, 'checkpoint': {'audit_id': 143, 'at': '2026-11-22T02:08:35+00:00'}} first_break=null
+  deleted the last 3 rows and moved catalog_meta audit_head back 3 rows (X4's tail truncation): ok=False rows=31 anchored={'audit_heads': 143, 'checkpoint': None} first_break={"id": 143, "problem": "the chain ends before the latest head recorded in audit_heads (rows were removed from the end and the head rewound)", "recorded_head": "5ea406b4fe9fbffa", "last": "830d1c6a1801a0d7", "last_id": 137}
+  (a stronger attacker: the audit_heads triggers off too, and the heads of the removed rows deleted)
+  … and deleted those rows' audit_heads (without the checkpoints): ok=True rows=31 anchored={'audit_heads': 137, 'checkpoint': None} first_break=null
+  … the same, verified with the signed checkpoints (as GET …/audit/verify does): ok=False rows=31 anchored={'audit_heads': 137, 'checkpoint': {'audit_id': 143, 'at': '2026-11-22T02:08:35+00:00'}} first_break={"id": 143, "problem": "a signed checkpoint names a row that is no longer in the chain with that hash (rows were removed from the end, and their audit_heads too)", "checkpoint_head": "5ea406b4fe9fbffa", "checkpoint_at": "2026-11-22T02:08:35+00:00", "last_id": 137}
+  restored: ok=True rows=34 anchored={'audit_heads': 143, 'checkpoint': {'audit_id': 143, 'at': '2026-11-22T02:08:35+00:00'}} first_break=null
+  checkpoint line 11 edited (audit_id moved back 3, signature kept): ok=False rows=34 anchored={'audit_heads': 143, 'checkpoint': {'audit_id': 92, 'at': '2026-11-22T02:08:12+00:00'}} first_break={"id": null, "problem": "1 checkpoint line(s) fail their signature (the checkpoint file was edited)", "lines": [11]}
+  checkpoint restored: ok=True rows=34 anchored={'audit_heads': 143, 'checkpoint': {'audit_id': 143, 'at': '2026-11-22T02:08:35+00:00'}} first_break=null
+  (triggers back on)

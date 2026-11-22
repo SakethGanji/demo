@@ -55,6 +55,10 @@ class RunStore:
         from ..catalog.store import Catalog  # P1: indexed columns, trained_on / branched_from edges
 
         Catalog(self.db).record_run(rec["id"], rec["dataset_id"], rec["config"], actor=(rec["config"].get("patch") or {}).get("by"))
+        from ..catalog import artifacts  # F-X4c: the run dir copies values of its data (predictor, artifacts)
+
+        artifacts.record_safe(self.db, "run_dir", rec["config"].get("run_dir"), version_id=rec.get("dataset_id"), run_id=rec["id"],
+                              table=rec["config"].get("table"))
 
     def get(self, run_id: str) -> dict[str, Any] | None:
         with self.db.connect() as con:

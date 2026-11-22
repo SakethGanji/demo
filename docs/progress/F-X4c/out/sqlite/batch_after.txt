@@ -1,0 +1,3 @@
+## batch on mv2 after the purge (file without ssn) → HTTP 202 | pii 0
+    {"id": "batch_51a8c591", "status": "queued"}
+status: succeeded | error: None | n_rows: 10 | reasons: {'skipped': 'the training data was purged: no reference for reason codes'} | drift features: [('income', 'no_reference'), ('age', 'no_reference'), ('segment', 'no_reference')] | prediction psi: 17.20036099802483

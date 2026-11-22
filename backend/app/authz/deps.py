@@ -152,6 +152,19 @@ def _decide(request: Request, action: str, objs: tuple[Obj, ...], also: tuple[tu
     return out
 
 
+AGENT_PREFIX = "Vela agent on behalf of "
+
+
+def by_ok(by: str, p: identity.Principal) -> bool:
+    """A body `by` names the principal. F-X4b (X4 C1): the agent is no longer exempt: its `by` must be the caller who
+    started the session ("Vela agent on behalf of <caller>" or the caller's name)."""
+    from ..catalog.governance import same_person
+
+    if p.auth == "agent" and by.startswith(AGENT_PREFIX):
+        by = by[len(AGENT_PREFIX):]
+    return same_person(by, p.display_name)
+
+
 def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, when: Variant | None = None,
             default: str = "tm_default", names: tuple[str, ...] = ()) -> Any:
     if action not in policy.ACTIONS:
@@ -190,11 +203,10 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
         if ctx is not None:
             ctx.decisions.extend(decisions)
         p = ctx.principal if ctx is not None else None
-        if m == "audit" and p is not None and who and p.auth != "agent":
+        if m == "audit" and p is not None and who:
             # F-X4a (X4 M1): a name field that is not the principal is refused in enforce (409 below); audit mode
             # records it as would-deny (`by_mismatch`) so tuning sees the spoof before enforce is switched on
-            from ..catalog.governance import same_person
-            bad = next((n for n in who if not same_person(n, p.display_name)), None)
+            bad = next((n for n in who if not by_ok(n, p)), None)
             if bad is not None:
                 d0 = decisions[0] if decisions else {}
                 await run_in_threadpool(record, request, {
@@ -211,10 +223,9 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
                                     headers={"WWW-Authenticate": 'Typed realm="ensemble"'})
             raise HTTPException(403, {"code": "forbidden", "action": d["action"], "team": d["team"], "needed": d["needed"],
                                       "message": d["reason"]})
-        if p is not None and who and p.auth != "agent":
-            from ..catalog.governance import same_person
+        if p is not None and who:  # F-X4a: every name field; F-X4b: the agent is not exempt (by_ok)
             for n in who:
-                if not same_person(n, p.display_name):
+                if not by_ok(n, p):
                     raise HTTPException(409, f"You are signed in as {p.display_name}; 'by' says {n}.")
 
     authz_dependency.authz = {"action": action, "objs": [str(o) for o in objs],  # type: ignore[attr-defined]

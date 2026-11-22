@@ -39,6 +39,7 @@ ACTIONS: dict[str, Rule] = {
     "data.preview": R("viewer", rr=True, admin=True, shared=True, note="masked (P20)"),
     "data.read_unmasked": R("maintainer", rr=True, admin=True, note="reason required, read-audited"),
     "data.upload": R("member"),
+    "data.import": R("member", note="F-X4b: SQL source (tables, preview, load) into an explicit project; audited"),
     "data.version": R("member", note="upload-as-version, delta, edit, Data Doctor fix, Feature Lab, relabel, monitoring window"),
     "data.match_confirm": R("member"),
     "data.set_default": R("maintainer"),

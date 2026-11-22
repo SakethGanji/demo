@@ -43,6 +43,7 @@ from . import governance as G
 from .schema import DEFAULT_TEAM, audit, now
 
 ACTION = "data.purge"
+_NEEDLES: dict[str, Any] = {}  # F-X4c: purge id → the purged values (memory only, never stored)
 
 
 class PurgeError(Exception):
@@ -163,8 +164,8 @@ def _shares(con, root: str, project: str | None, runs: list[dict[str, Any]]) -> 
     return out
 
 
-def impact(con, root: str, table: str, columns: list[str], row_ids: list[int], new_version: str | None) -> dict[str, Any]:
-    from . import holds as H
+def impact(con, root: str, table: str, columns: list[str], row_ids: list[int], new_version: str | None, app=None) -> dict[str, Any]:
+    from . import artifacts as A, holds as H
 
     owner = con.execute("SELECT team_id, project_id, name FROM dataset_roots WHERE id = ?", (root,)).fetchone()
     owner_team = (owner[0] if owner else None) or _team_of_version(con, root)
@@ -185,8 +186,9 @@ def impact(con, root: str, table: str, columns: list[str], row_ids: list[int], n
                       "runs": [r["id"] for r in a["runs"] if r["team"] == t],
                       "refs": sum(1 for x in a["refs"] if x["team_id"] == t),
                       "shares": [s["share_id"] for s in sh if s["grantee_team"] == t]}
+    derived = A.inventory(app, con, a, columns, table) if app is not None else None
     return {"root_id": root, "owner_team": owner_team, "table": table, "columns": columns, "n_row_ids": len(row_ids),
-            **a, "shares": sh, "teams": sorted(teams), "by_team": by_team,
+            **a, "shares": sh, "derived": derived, "teams": sorted(teams), "by_team": by_team,
             "holds": [{k: h[k] for k in ("id", "case_ref", "scope_kind", "scope_id")} for h in holds],
             "bytes": sum(b.get("bytes") or 0 for b in a["blobs"]),
             "note": "executing deletes every listed version, replaces run pins by purged markers (re-verify says purged), "
@@ -311,14 +313,14 @@ def request(app, vid: str, b: dict[str, Any], by: str) -> dict[str, Any]:
         if con.execute("SELECT 1 FROM approval_requests WHERE action = ? AND object_id = ? AND status IN ('pending', 'approved')",
                        (ACTION, v["root"])).fetchone():
             raise PurgeError(409, "purge_pending", f"A purge of {v['root']} is already waiting; decide or withdraw it first.")
-        pre = impact(con, v["root"], table, columns, row_ids, None)
+        pre = impact(con, v["root"], table, columns, row_ids, None, app)
     if pre["holds"]:
         raise PurgeError(409, "legal_hold", H.refusal([{**h, "placed_by": "", "placed_at": ""} for h in pre["holds"]],
                                                       f"purge {table}.{','.join(columns) or 'rows'}")["message"],
                          cases=sorted({h["case_ref"] for h in pre["holds"]}), holds=pre["holds"])
     new = _new_version(app, vid, table, columns, row_ids, by, f"purge: {reason}"[:500])
     with db.connect() as con:
-        rep = impact(con, v["root"], table, columns, row_ids, new["version_id"])
+        rep = impact(con, v["root"], table, columns, row_ids, new["version_id"], app)
         pid = "pur_" + secrets.token_hex(5)
         payload = {"version_id": vid, "root_id": v["root"], "table": table, "columns": columns, "row_ids": row_ids,
                    "new_version_id": new["version_id"], "teams_needed": rep["teams"], "approvals": {}, "impact": rep}
@@ -340,7 +342,8 @@ def get(app, pid: str) -> dict[str, Any]:
     need = [t for t in p["teams_needed"] if t not in p["approvals"]]
     return {**r, **{k: p[k] for k in ("version_id", "root_id", "table", "columns", "new_version_id", "teams_needed", "approvals")},
             "n_row_ids": len(p.get("row_ids") or []), "waiting_for": need, "impact": p["impact"],
-            **({"executed": p["executed"]} if p.get("executed") else {})}
+            **({"executed": p["executed"]} if p.get("executed") else {}),
+            **({"sweep": (p.get("executed") or {}).get("sweep")} if (p.get("executed") or {}).get("sweep") else {})}
 
 
 def decide(app, pid: str, b: dict[str, Any], by: str) -> dict[str, Any]:
@@ -410,14 +413,15 @@ def principal_or_typed(app, by: str):
 
 
 def execute(app, pid: str, by: str) -> dict[str, Any]:
-    """All-or-nothing: the DB changes in one transaction, then the bytes (see the module doc)."""
-    from . import dsets, holds as H
+    """All-or-nothing: the DB changes in one transaction, then the derived copies (F-X4c), then the bytes, then the
+    sweep (see the module doc)."""
+    from . import artifacts as A, dsets, holds as H
 
     db = app.state.db
     with db.connect() as con:
         r = _load(con, pid)
         p = r["payload"]
-        rep = impact(con, p["root_id"], p["table"], p["columns"], p.get("row_ids") or [], p["new_version_id"])
+        rep = impact(con, p["root_id"], p["table"], p["columns"], p.get("row_ids") or [], p["new_version_id"], app)
         new_teams = [t for t in rep["teams"] if t not in p["teams_needed"]]
         if new_teams:  # the reference set grew since the request: those teams approve too
             p["teams_needed"] += new_teams
@@ -431,6 +435,10 @@ def execute(app, pid: str, by: str) -> dict[str, Any]:
             raise PurgeError(409, "legal_hold", "A legal hold now covers part of the reference set: "
                              + ", ".join(sorted({h["case_ref"] for h in rep["holds"]})), holds=rep["holds"])
         shas = [b["sha256"] for b in rep["blobs"] if b.get("state") in ("pending", "live", "purging")]
+        # F-X4c: the purged values, read from the lake before the bytes go (kept in memory only, for the scrub and sweep)
+        needles = A.collect(app, con, [v["id"] for v in rep["versions_with_values"]], p["table"], p["columns"],
+                            p.get("row_ids") or [], p["new_version_id"])
+        _NEEDLES[pid] = needles
         reason = f"purge:{pid}"
         vids = [v["id"] for v in rep["versions"] if v["state"] != "deleted"]
         roots = sorted({v["root"] for v in rep["versions"]})
@@ -462,7 +470,48 @@ def execute(app, pid: str, by: str) -> dict[str, Any]:
             "run_pins_marked": n_marked, "refs_dropped": n_dropped, "n_blobs": len(shas), "approvals": {t: a["by"] for t, a in p["approvals"].items()},
             "default_moved": moved}, pid=pid)
     _holdout_files(app, vids)
+    _scrub(app, pid, by, rep)
     return _delete_bytes(app, pid, by)
+
+
+def _scrub(app, pid: str, by: str, rep: dict[str, Any]) -> None:
+    """F-X4c: every derived copy of the purged values (catalog/artifacts.py) deleted or redacted; recorded and audited."""
+    from . import artifacts as A
+
+    nd = _NEEDLES.get(pid)
+    if nd is None:
+        return
+    inv = rep.get("derived")
+    if not inv:
+        with app.state.db.connect() as con:
+            inv = A.inventory(app, con, rep, rep["columns"], rep["table"])
+    try:
+        out = A.scrub(app, pid, by, inv, nd, rep["table"])
+    except Exception as e:  # noqa: BLE001 - the sweep will report what is left; the error is recorded
+        out = {"error": f"{type(e).__name__}: {e}"[:500]}
+    with app.state.db.connect() as con:
+        r = _load(con, pid)
+        p = r["payload"]
+        p["executed"]["derived"] = {k: out.get(k) for k in ("n_deleted", "n_redacted", "deleted", "redacted", "purged_models",
+                                                            "model_versions_purged", "db", "error")}
+        con.execute("UPDATE approval_requests SET payload = ? WHERE id = ?", (json.dumps(p, default=str), pid))
+        _audit_all(con, by, "purge_derived_scrubbed", p["teams_needed"], {
+            "purge_id": pid, "deleted": out.get("n_deleted"), "redacted": out.get("n_redacted"),
+            "purged_models": [m["run_id"] for m in out.get("purged_models") or []],
+            "model_versions_purged": out.get("model_versions_purged"), "db": (out.get("db") or {}).get("redacted"),
+            "error": out.get("error")}, pid=pid)
+
+
+def _sweep(app, pid: str, by: str, p: dict[str, Any]) -> dict[str, Any]:
+    from . import artifacts as A
+
+    shas = list(p["executed"].get("blobs") or [])
+    inv = (p.get("impact") or {}).get("derived")
+    try:
+        res = A.sweep(app, _NEEDLES.get(pid), shas, inv)
+    except Exception as e:  # noqa: BLE001
+        res = {"status": "purge_incomplete", "error": f"{type(e).__name__}: {e}"[:500], "hits": [], "n_hits": 0}
+    return res
 
 
 def _holdout_files(app, vids: list[str]) -> None:
@@ -498,21 +547,54 @@ def _delete_bytes(app, pid: str, by: str) -> dict[str, Any]:
                         (now(), by, sha))
         done.append({"sha256": sha, "key": out.get("key"), "versions_removed": out.get("versions_removed")})
     with db.connect() as con:
+        p = _load(con, pid)["payload"]
         p["executed"]["bytes_deleted"] = (p["executed"].get("bytes_deleted") or 0) + len(done)
         p["executed"]["bytes_failed"] = failed
-        status = "used" if not failed else "approved"
-        con.execute("UPDATE approval_requests SET status = ?, payload = ? WHERE id = ?", (status, json.dumps(p, default=str), pid))
+        con.execute("UPDATE approval_requests SET payload = ? WHERE id = ?", (json.dumps(p, default=str), pid))
         _audit_all(con, by, "purge_bytes_deleted", p["teams_needed"], {"purge_id": pid, "deleted": len(done), "failed": len(failed),
                                                                        "store": store.root}, pid=pid)
-    return {**get(app, pid), "blobs_deleted": done, "blobs_failed": failed}
+    sw = _sweep(app, pid, by, p)  # F-X4c: are the values gone everywhere?
+    with db.connect() as con:
+        p = _load(con, pid)["payload"]
+        p["executed"]["sweep"] = sw
+        status = "used" if not failed and sw["status"] == "clean" else "approved"
+        con.execute("UPDATE approval_requests SET status = ?, payload = ? WHERE id = ?", (status, json.dumps(p, default=str), pid))
+        _audit_all(con, by, "purge_sweep" if sw["status"] == "clean" else "purge_incomplete", p["teams_needed"], {
+            "purge_id": pid, "status": sw["status"], "values_searched": sw.get("values"), "files_searched": sw.get("files_searched"),
+            "n_hits": sw.get("n_hits"), "where": [{k: h.get(k) for k in ("where", "path", "table", "key", "kind")} for h in sw.get("hits") or []][:50],
+            "s3": sw.get("s3")}, pid=pid)
+    if status == "used":
+        _NEEDLES.pop(pid, None)
+    return {**get(app, pid), "blobs_deleted": done, "blobs_failed": failed, "sweep": sw}
 
 
 def resume(app, pid: str, by: str) -> dict[str, Any]:
+    """Finish the bytes that failed, scrub the derived copies again (when the values are still in this process), sweep."""
     with app.state.db.connect() as con:
         r = _load(con, pid)
     if r["status"] != "approved" or not r["payload"].get("executed"):
-        raise PurgeError(409, "not_executing", f"Purge {pid} is {r['status']}: only an executed purge with bytes left is resumed.")
+        raise PurgeError(409, "not_executing", f"Purge {pid} is {r['status']}: only an executed purge with bytes or copies left is resumed.")
+    if pid in _NEEDLES:
+        _scrub(app, pid, by, r["payload"]["impact"])
     return _delete_bytes(app, pid, by)
+
+
+def resweep(app, pid: str, by: str) -> dict[str, Any]:
+    """POST /api/purges/{id}/sweep: run the verification sweep again (structure only after a restart: the values are
+    never stored)."""
+    with app.state.db.connect() as con:
+        r = _load(con, pid)
+        p = r["payload"]
+    if not p.get("executed"):
+        raise PurgeError(409, "not_executed", f"Purge {pid} is {r['status']}: nothing to sweep yet.")
+    sw = _sweep(app, pid, by, p)
+    with app.state.db.connect() as con:
+        p = _load(con, pid)["payload"]
+        p["executed"]["sweep"] = sw
+        con.execute("UPDATE approval_requests SET payload = ? WHERE id = ?", (json.dumps(p, default=str), pid))
+        _audit_all(con, by, "purge_sweep" if sw["status"] == "clean" else "purge_incomplete", p["teams_needed"], {
+            "purge_id": pid, "status": sw["status"], "values_searched": sw.get("values"), "n_hits": sw.get("n_hits"), "resweep": True}, pid=pid)
+    return {**get(app, pid), "sweep": sw}
 
 
 def listing(app, team: str | None) -> list[dict[str, Any]]:
@@ -612,6 +694,13 @@ async def decide_purge(pid: str, request: Request, b: dict[str, Any]) -> dict[st
 async def resume_purge(pid: str, request: Request, b: dict[str, Any] | None = None) -> dict[str, Any]:
     b = b if isinstance(b, dict) else {}
     return await _go(resume, request.app, pid, _who(b))
+
+
+@router.post("/purges/{pid}/sweep", dependencies=[require("data.purge_decide", path("pid", "purge"))])
+async def sweep_purge(pid: str, request: Request, b: dict[str, Any] | None = None) -> dict[str, Any]:
+    """F-X4c: run the post-purge verification sweep again; `executed.sweep` and the audit record the result."""
+    b = b if isinstance(b, dict) else {}
+    return await _go(resweep, request.app, pid, _who(b))
 
 
 def _scope_purge(con: Any, i: str):

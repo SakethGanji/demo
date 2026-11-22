@@ -34,6 +34,8 @@ class Ctx:
     app: Any
     actor: str  # "Vela agent on behalf of <user>"
     deadline: float  # time.monotonic() by which the session's time budget ends
+    owner_id: str = ""  # F-X4b: the caller who started the session (its principal id, from the request principal)
+    session: str = ""
     progress: Callable[[str], None] = lambda _m: None
     stop: Callable[[], bool] = lambda: False
 
@@ -75,12 +77,13 @@ def _guard_path(method: str, path: str, body: Any) -> None:
 
 
 def principal_headers(ctx: Ctx) -> dict[str, str]:
-    """P19: every call carries the session owner's principal, signed for the in-process provider (authz.identity), so
-    require() authorises the agent exactly as its user; it never has more rights than its user."""
+    """F-X4b (X4 C1): every call carries the principal of the caller who STARTED the session (its id, bound at start
+    from the request principal), signed with the session id for the in-process provider (authz.identity). require()
+    then authorises the agent as that caller, with at most the caller's rights (never admin). A session without a
+    bound owner sends nothing (401 in enforce, would-deny in audit)."""
     from ..authz.identity import internal_headers
 
-    user = ctx.actor.split(" on behalf of ", 1)[-1] if " on behalf of " in ctx.actor else ctx.actor
-    return internal_headers(user)
+    return internal_headers(ctx.owner_id, ctx.session) if ctx.owner_id else {}
 
 
 async def call(ctx: Ctx, method: str, path: str, *, body: Any = None, params: dict[str, Any] | None = None,

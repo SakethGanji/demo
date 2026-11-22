@@ -276,6 +276,8 @@ def _version(request: Request, vid: str) -> dict[str, Any]:
 
 def _ready_version(request: Request, vid: str) -> dict[str, Any]:
     v = _version(request, vid)
+    if str(v.get("error") or "").startswith("purged_model"):  # F-X4c: a purge removed the model (trained with purged values)
+        raise HTTPException(409, {"code": "purged_model", "message": v["error"]})
     if v["status"] != "ready":
         raise HTTPException(409, f"Version {v['model_name']} v{v['version']} is {v['status']}"
                                  + (f": {v['error']}" if v.get("error") else "; wait until it is ready."))
