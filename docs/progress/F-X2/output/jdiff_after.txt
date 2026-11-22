@@ -1,0 +1,570 @@
+identical outside storage: 155 | differ: 128
+  diff_ds_18c0260f_ds_088264c3: 15 paths
+      .body.a.sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.a.table_sha256: "csv:042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "40ecbdfaa4eac11f00cd0beae2341b6f9289e7845c5b94db02d6f39b33abb100"
+      .body.a_sha256: "csv:042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "40ecbdfaa4eac11f00cd0beae2341b6f9289e7845c5b94db02d6f39b33abb100"
+      .body.b.sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+  diff_ds_18c0260f_ds_6a2c6e78: 143 paths
+      .body.a.sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.a.table_sha256: "csv:042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "40ecbdfaa4eac11f00cd0beae2341b6f9289e7845c5b94db02d6f39b33abb100"
+      .body.a_sha256: "csv:042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "40ecbdfaa4eac11f00cd0beae2341b6f9289e7845c5b94db02d6f39b33abb100"
+      .body.b.sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  diff_ds_18c0260f_ds_ce0294a5: 146 paths
+      .body.a.sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.a.table_sha256: "csv:042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "40ecbdfaa4eac11f00cd0beae2341b6f9289e7845c5b94db02d6f39b33abb100"
+      .body.a_sha256: "csv:042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "40ecbdfaa4eac11f00cd0beae2341b6f9289e7845c5b94db02d6f39b33abb100"
+      .body.b.sha256: "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e"  →  "e32a8a235d8f397c7710ea4e5a43937dcd1ccf949ba482d0dbf40f0af24e4e5a"
+  diff_ds_5acd05c2_ds_275a54bb: 6 paths
+      .body.a.sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+      .body.b.sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "ca6a9b9c424fcf078c30afe21fb93c8891e392f3d038b33073b5c32ee28a0905"
+      .body.method: "row_hash"  →  "row_id"
+      .body.seconds: 0.054  →  0.007
+  diff_ds_5acd05c2_ds_d2cd260e: 153 paths
+      .body.a.sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+      .body.b.sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+      .body.columns[0].band: null  →  "stable"
+      .body.columns[0].distinct_a: "<absent>"  →  2930
+  diff_ds_6a2c6e78_ds_5c0ba101: 150 paths
+      .body.a.sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+      .body.a.table_sha256: "csv:09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "42a25385f7702df1c770554c383d8a1f6d6f60a1aa27a07a3134cfb2774ef443"
+      .body.a_sha256: "csv:09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "42a25385f7702df1c770554c383d8a1f6d6f60a1aa27a07a3134cfb2774ef443"
+      .body.b.sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+  diff_ds_877f080f_ds_350f0c16: 140 paths
+      .body.a.sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.a.table_sha256: "csv:18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "88af0533ff6cbd3ef9943890cf69c5c78a17b9fc4f05f792a1d1620a4e4bf68c"
+      .body.a_sha256: "csv:18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "88af0533ff6cbd3ef9943890cf69c5c78a17b9fc4f05f792a1d1620a4e4bf68c"
+      .body.cached: false  →  true
+  diff_ds_ce0294a5_ds_ba3bbde4: 147 paths
+      .body.a.sha256: "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e"  →  "e32a8a235d8f397c7710ea4e5a43937dcd1ccf949ba482d0dbf40f0af24e4e5a"
+      .body.a.table_sha256: "csv:1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e"  →  "8b8e09b2c71c7be565eb2a7c2170ce6024ddabc83c77b26fe3e9ac9c8887ad32"
+      .body.a_sha256: "csv:1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e"  →  "8b8e09b2c71c7be565eb2a7c2170ce6024ddabc83c77b26fe3e9ac9c8887ad32"
+      .body.b.sha256: "ee8937c0f2ddf761f72580a2a2b38289264194c0b7c190350795cb24b9b9085c"  →  "724e9d4e21da04a6474569c57049510e99f28dece7980209006b90c5f60cb05d"
+  diff_ds_cea09414_ds_e772c0ef: 10 paths
+      .body.a.sha256: "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964"  →  "641e31fbd2134ee787946411a7d8f7912ba636bd73b313533a4fca5c8797fa6d"
+      .body.a.table_sha256: "csv:d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964"  →  "e962ec8d2cfb33d9568cb52b6fc61b6f0cad6c9baa08b6c3f7afc4b2938d6b42"
+      .body.a_sha256: "csv:d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964"  →  "e962ec8d2cfb33d9568cb52b6fc61b6f0cad6c9baa08b6c3f7afc4b2938d6b42"
+      .body.b.sha256: "9886ab8e4719c01761fded5d921232f609b1f6b9a478fe83190f0e9d897b75cd"  →  "10b6e5cbe8e14c5126bded31dada7a2698be0e64cea9a30b28e03cc1eb3ef2d5"
+  diff_ds_d2926b37_ds_18bcfef8: 15 paths
+      .body.a.sha256: "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"  →  "3568aa286e5edca112df4475db7e147235476fcc83ec1de5a37511669909e400"
+      .body.a.table_sha256: "csv:b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"  →  "21b1fe5f7cf1e5d667d5983ee8af9e1f9d470e1d90be5b8f3fa71bb2ff5f3b61"
+      .body.a_sha256: "csv:b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"  →  "21b1fe5f7cf1e5d667d5983ee8af9e1f9d470e1d90be5b8f3fa71bb2ff5f3b61"
+      .body.b.sha256: "10a143b0330a21f1a2059797df00ec219bfd1ea8e5c10ee7f14258461b465347"  →  "d357a8aa191648ea3f1d4a73831118d252198019e4534375c87ce9b81844680d"
+  diff_ds_ef1e4815_ds_a9da3943: 99 paths
+      .body.a.sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.b.sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.columns[0].band: null  →  "stable"
+      .body.columns[0].distinct_a: "<absent>"  →  804
+  diff_ds_ef1e4815_ds_f37c4091: 124 paths
+      .body.a.sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.a.table_sha256: "csv:2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "92c1308e695a00121e32059de7c88273d561c80f850d5ee35cab179a1d8ada49"
+      .body.a_sha256: "csv:2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "92c1308e695a00121e32059de7c88273d561c80f850d5ee35cab179a1d8ada49"
+      .body.b.sha256: "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "bf3c3616447dbcb4c320e0bf269b95c0b58dd26338d706d11952f53c61c11730"
+  diff_ds_f37c4091_ds_877f080f: 119 paths
+      .body.a.sha256: "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "bf3c3616447dbcb4c320e0bf269b95c0b58dd26338d706d11952f53c61c11730"
+      .body.a.table_sha256: "csv:9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "88ea66c14b9e420efe007570aac24f61fee54b68845b58d98f48ef5b89960a25"
+      .body.a_sha256: "csv:9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "88ea66c14b9e420efe007570aac24f61fee54b68845b58d98f48ef5b89960a25"
+      .body.b.sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+  diff_ds_f37c4091_ds_adf58078: 42 paths
+      .body.a.sha256: "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "bf3c3616447dbcb4c320e0bf269b95c0b58dd26338d706d11952f53c61c11730"
+      .body.a.table_sha256: "csv:9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "88ea66c14b9e420efe007570aac24f61fee54b68845b58d98f48ef5b89960a25"
+      .body.a_sha256: "csv:9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2"  →  "88ea66c14b9e420efe007570aac24f61fee54b68845b58d98f48ef5b89960a25"
+      .body.b.sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+  history_account-attrition: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 83  →  228
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_account-churn: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 72  →  217
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_card-transactions: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 76  →  221
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_complaint-topics: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 85  →  230
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_credit-default: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 73  →  218
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_credit-rejects: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 84  →  229
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_ds_088264c3: 272 paths
+      .body.audit[len]: 22  →  43
+      .body.audit[0].details.results[0].now: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "2aceec23f519edf4e804d6b0c795a607e50ddf0be6f733cd9e8d7d9ce8cd6071"
+      .body.audit[0].details.results[0].stored: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "2aceec23f519edf4e804d6b0c795a607e50ddf0be6f733cd9e8d7d9ce8cd6071"
+      .body.audit[0].id: 98  →  239
+  history_ds_18bcfef8: 114 paths
+      .body.audit[len]: 8  →  16
+      .body.audit[0].id: 117  →  254
+      .body.audit[0].ts: "2026-11-21T23:44:38+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].action: "dataset_integrity_failed"  →  "dataset_verified"
+  history_ds_18c0260f: 189 paths
+      .body.audit[len]: 14  →  39
+      .body.audit[0].id: 86  →  231
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].details.dataset_id: "ds_ba3bbde4"  →  "ds_5c0ba101"
+  history_ds_275a54bb: 185 paths
+      .body.audit[len]: 12  →  21
+      .body.audit[0].id: 114  →  251
+      .body.audit[0].ts: "2026-11-21T23:44:37+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].id: 96  →  237
+  history_ds_350f0c16: 340 paths
+      .body.audit[len]: 24  →  41
+      .body.audit[0].id: 120  →  257
+      .body.audit[0].ts: "2026-11-21T23:44:38+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].id: 113  →  250
+  history_ds_3df5fa37: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 100  →  241
+      .body.audit[0].ts: "2026-11-21T23:44:35+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_ds_40fd4875: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 97  →  238
+      .body.audit[0].ts: "2026-11-21T23:44:35+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_ds_5acd05c2: 183 paths
+      .body.audit[len]: 10  →  19
+      .body.audit[0].id: 95  →  236
+      .body.audit[0].ts: "2026-11-21T23:44:34+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].action: "dataset_read"  →  "dataset_verified"
+  history_ds_5c0ba101: 278 paths
+      .body.audit[len]: 24  →  45
+      .body.audit[0].id: 109  →  247
+      .body.audit[0].ts: "2026-11-21T23:44:36+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].id: 99  →  240
+  history_ds_6a2c6e78: 241 paths
+      .body.audit[len]: 18  →  41
+      .body.audit[0].id: 90  →  233
+      .body.audit[0].ts: "2026-11-21T23:44:34+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].action: "dataset_read"  →  "dataset_verified"
+  history_ds_874aaf2d: 126 paths
+      .body.audit[len]: 8  →  16
+      .body.audit[0].id: 115  →  252
+      .body.audit[0].ts: "2026-11-21T23:44:37+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].action: "dataset_read"  →  "dataset_verified"
+  history_ds_877f080f: 314 paths
+      .body.audit[len]: 19  →  37
+      .body.audit[0].id: 107  →  246
+      .body.audit[0].ts: "2026-11-21T23:44:36+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].action: "dataset_read"  →  "dataset_verified"
+  history_ds_a9da3943: 339 paths
+      .body.audit[len]: 23  →  40
+      .body.audit[0].id: 113  →  250
+      .body.audit[0].ts: "2026-11-21T23:44:37+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].id: 112  →  249
+  history_ds_adf58078: 336 paths
+      .body.audit[len]: 21  →  38
+      .body.audit[0].id: 111  →  248
+      .body.audit[0].ts: "2026-11-21T23:44:37+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].action: "dataset_read"  →  "dataset_verified"
+  history_ds_ba3bbde4: 252 paths
+      .body.audit[len]: 20  →  42
+      .body.audit[0].id: 92  →  234
+      .body.audit[0].ts: "2026-11-21T23:44:34+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].action: "dataset_read"  →  "dataset_verified"
+  history_ds_ce0294a5: 189 paths
+      .body.audit[len]: 15  →  40
+      .body.audit[0].id: 87  →  232
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].id: 86  →  231
+  history_ds_cea09414: 37 paths
+      .body.audit[len]: 3  →  9
+      .body.audit[0].id: 101  →  242
+      .body.audit[0].ts: "2026-11-21T23:44:35+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].action: "dataset_version_created"  →  "dataset_verified"
+  history_ds_d2926b37: 113 paths
+      .body.audit[len]: 7  →  15
+      .body.audit[0].action: "dataset_integrity_failed"  →  "dataset_verified"
+      .body.audit[0].details.failed[len]: 1  →  0
+      .body.audit[0].details.results[0].now: "4a88e42badb77334a7a7533d6adb6f2a1b0bb477e28e8e9fb9be4ef146c9508f"  →  "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"
+  history_ds_d2cd260e: 184 paths
+      .body.audit[len]: 11  →  20
+      .body.audit[0].id: 96  →  237
+      .body.audit[0].ts: "2026-11-21T23:44:35+00:00"  →  "2026-11-21T23:57:32+00:00"
+      .body.audit[1].id: 95  →  236
+  history_ds_e772c0ef: 38 paths
+      .body.audit[len]: 4  →  10
+      .body.audit[0].id: 102  →  243
+      .body.audit[0].ts: "2026-11-21T23:44:35+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].id: 101  →  242
+  history_ds_ef1e4815: 272 paths
+      .body.audit[len]: 15  →  35
+      .body.audit[0].id: 103  →  244
+      .body.audit[0].ts: "2026-11-21T23:44:36+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].details.other: "<absent>"  →  "ds_877f080f"
+  history_ds_f37c4091: 273 paths
+      .body.audit[len]: 16  →  36
+      .body.audit[0].id: 104  →  245
+      .body.audit[0].ts: "2026-11-21T23:44:36+00:00"  →  "2026-11-21T23:57:33+00:00"
+      .body.audit[1].id: 103  →  244
+  history_ds_f661a015: 128 paths
+      .body.audit[len]: 9  →  17
+      .body.audit[0].id: 116  →  253
+      .body.audit[0].ts: "2026-11-21T23:44:38+00:00"  →  "2026-11-21T23:57:34+00:00"
+      .body.audit[1].id: 115  →  252
+  history_fair-lending: 19 paths
+      .body.audit[len]: 3  →  7
+      .body.audit[0].id: 81  →  226
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].id: 80  →  225
+  history_loan-amount: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 74  →  219
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_loan-losses: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 79  →  224
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_loan-stream: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 78  →  223
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_personal-loans: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 77  →  222
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_segmented-loans: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 82  →  227
+      .body.audit[0].ts: "2026-11-21T23:44:33+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_support-tickets: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 71  →  216
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  history_transaction-volume: 17 paths
+      .body.audit[len]: 2  →  6
+      .body.audit[0].id: 75  →  220
+      .body.audit[0].ts: "2026-11-21T23:44:32+00:00"  →  "2026-11-21T23:57:31+00:00"
+      .body.audit[1].action: "dataset_created"  →  "dataset_verified"
+  lineage_account-attrition: 1 paths
+      .body.nodes[0].sha256: "ab3bd74cdf9950ec79113caa9efcbd241de48c3b121782c284429efec894775c"  →  "c031f883e274a9a4d98766e73b03cf45625ba76630c06af3011f498b63eedc66"
+  lineage_account-churn: 1 paths
+      .body.nodes[0].sha256: "0be847cb8e661ca057664143dba9357e3433e83db11a5930a4f3b2228f26840c"  →  "5124664a978d7b4b3d609207a30fee0868538a4609332dd7e323c7b4d0f8a38c"
+  lineage_card-transactions: 1 paths
+      .body.nodes[0].sha256: "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10"  →  "f10f2a8bd5c9dd8c1cf250401f01bb1c004921acba310e6dd415b8adc8820981"
+  lineage_complaint-topics: 1 paths
+      .body.nodes[0].sha256: "56b1a78a85764cb25e2cd06f436260d7a0c5e5b3e37441e6f2bae4e1aef8afb6"  →  "66a06ad906dc8940ad182f2f99670853d47ee9b0d1d78fb20f37168a33def5bf"
+  lineage_credit-default: 1 paths
+      .body.nodes[0].sha256: "f9844b67ff1a2ee0285d378795ad3a3d5a4181c414920d5de447cd7a9a302d7f"  →  "43d0999255d079d834685a5653db40f5b0c182672666161861e39bdeea09c1bf"
+  lineage_credit-rejects: 1 paths
+      .body.nodes[0].sha256: "59d61b5af3f48fa7cfc365be893eced7344974469e0d17e976788eb41fd59ca0"  →  "f5ed9465dd0dee403069d3c07edaf40bf95feff70238de2bc3b10d9bb4e69145"
+  lineage_ds_088264c3: 6 paths
+      .body.nodes[0].sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+      .body.nodes[1].sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.nodes[2].sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+      .body.nodes[3].sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  lineage_ds_18bcfef8: 2 paths
+      .body.nodes[0].sha256: "10a143b0330a21f1a2059797df00ec219bfd1ea8e5c10ee7f14258461b465347"  →  "d357a8aa191648ea3f1d4a73831118d252198019e4534375c87ce9b81844680d"
+      .body.nodes[1].sha256: "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"  →  "3568aa286e5edca112df4475db7e147235476fcc83ec1de5a37511669909e400"
+  lineage_ds_18c0260f: 6 paths
+      .body.nodes[0].sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+      .body.nodes[1].sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.nodes[2].sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+      .body.nodes[3].sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  lineage_ds_275a54bb: 3 paths
+      .body.nodes[0].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "ca6a9b9c424fcf078c30afe21fb93c8891e392f3d038b33073b5c32ee28a0905"
+      .body.nodes[1].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+      .body.nodes[2].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+  lineage_ds_350f0c16: 5 paths
+      .body.nodes[1].sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.nodes[2].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.nodes[3].sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+      .body.nodes[4].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+  lineage_ds_3df5fa37: 1 paths
+      .body.nodes[0].sha256: "20de2bef583a18c688b946fa24f594190b98e197eaf7cd3e8c85523269f84586"  →  "7ccbb1b50daf9c43d094eb669638010fde87f1f76991f08fae9dd76e20130ab1"
+  lineage_ds_40fd4875: 1 paths
+      .body.nodes[0].sha256: "a8122930969950ae31d3af1c284528ed642c994d0d3de52c7dc58ae310f93b90"  →  "50bf008c5ae9e9cdc84561da5b818d9d53a66e065676acf3fbaaef74f072f145"
+  lineage_ds_5acd05c2: 3 paths
+      .body.nodes[0].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "ca6a9b9c424fcf078c30afe21fb93c8891e392f3d038b33073b5c32ee28a0905"
+      .body.nodes[1].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+      .body.nodes[2].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+  lineage_ds_5c0ba101: 6 paths
+      .body.nodes[0].sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+      .body.nodes[1].sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.nodes[2].sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+      .body.nodes[3].sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  lineage_ds_6a2c6e78: 6 paths
+      .body.nodes[0].sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+      .body.nodes[1].sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.nodes[2].sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+      .body.nodes[3].sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  lineage_ds_874aaf2d: 2 paths
+      .body.nodes[0].sha256: "8fc8328bbfef24758cbb239a0246e7166512f2b46cf89f677463ce05754c9b08"  →  "6fb14e72477a9e57386ce4d4a73eb5ca1a7d9576e26bfd441d95a69dc250a70b"
+      .body.nodes[1].sha256: "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728"  →  "155449ac2d2fdb77470de7565d797a6c9304627baed110772cb03b188cbe9a3c"
+  lineage_ds_877f080f: 5 paths
+      .body.nodes[1].sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.nodes[2].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.nodes[3].sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+      .body.nodes[4].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+  lineage_ds_a9da3943: 5 paths
+      .body.nodes[1].sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.nodes[2].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.nodes[3].sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+      .body.nodes[4].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+  lineage_ds_adf58078: 5 paths
+      .body.nodes[1].sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.nodes[2].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.nodes[3].sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+      .body.nodes[4].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+  lineage_ds_ba3bbde4: 6 paths
+      .body.nodes[0].sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+      .body.nodes[1].sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.nodes[2].sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+      .body.nodes[3].sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  lineage_ds_ce0294a5: 6 paths
+      .body.nodes[0].sha256: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "e7f3aff30856f012675881ae8ab2a1b1c6734055e41c124805411d7406ac601a"
+      .body.nodes[1].sha256: "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353"  →  "d8592497c70e8eeb77c306392474bef8c7a53af15dc03bbda4e104382702e841"
+      .body.nodes[2].sha256: "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771"  →  "45023306fea7e9bb7078c24305c94aea8ffdf2a24b59d6c6081ce98c2f2c8a70"
+      .body.nodes[3].sha256: "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04"  →  "92c2fe3e35ee366ad0df9cba20ee765e1edcdbcb64c93bbe97287e78dc43c6b0"
+  lineage_ds_cea09414: 2 paths
+      .body.nodes[0].sha256: "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964"  →  "641e31fbd2134ee787946411a7d8f7912ba636bd73b313533a4fca5c8797fa6d"
+      .body.nodes[1].sha256: "9886ab8e4719c01761fded5d921232f609b1f6b9a478fe83190f0e9d897b75cd"  →  "10b6e5cbe8e14c5126bded31dada7a2698be0e64cea9a30b28e03cc1eb3ef2d5"
+  lineage_ds_d2926b37: 2 paths
+      .body.nodes[0].sha256: "10a143b0330a21f1a2059797df00ec219bfd1ea8e5c10ee7f14258461b465347"  →  "d357a8aa191648ea3f1d4a73831118d252198019e4534375c87ce9b81844680d"
+      .body.nodes[1].sha256: "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"  →  "3568aa286e5edca112df4475db7e147235476fcc83ec1de5a37511669909e400"
+  lineage_ds_d2cd260e: 3 paths
+      .body.nodes[0].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "ca6a9b9c424fcf078c30afe21fb93c8891e392f3d038b33073b5c32ee28a0905"
+      .body.nodes[1].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+      .body.nodes[2].sha256: "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd"  →  "f5ee248930d2c24ce68be02022a1ad2de5dd26502c7809669d61b08f612bafac"
+  lineage_ds_e772c0ef: 2 paths
+      .body.nodes[0].sha256: "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964"  →  "641e31fbd2134ee787946411a7d8f7912ba636bd73b313533a4fca5c8797fa6d"
+      .body.nodes[1].sha256: "9886ab8e4719c01761fded5d921232f609b1f6b9a478fe83190f0e9d897b75cd"  →  "10b6e5cbe8e14c5126bded31dada7a2698be0e64cea9a30b28e03cc1eb3ef2d5"
+  lineage_ds_ef1e4815: 5 paths
+      .body.nodes[1].sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.nodes[2].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.nodes[3].sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+      .body.nodes[4].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+  lineage_ds_f37c4091: 5 paths
+      .body.nodes[1].sha256: "18b80ac86f3a1621c976fb401ac4dd3e19f86a0bf813f9db25325ffe6cf75e6c"  →  "4ccdfe5afa3138ff5ff06f332b0c28bb5167b742a2d3292c5b5808fe9530062c"
+      .body.nodes[2].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+      .body.nodes[3].sha256: "60cedc1ffbf8add705ee311751b70a4e355393716c230c4ba871f8510995cbac"  →  "4612fe697620259ccf8b7185a805de47f47cf04b61bdd6d34f63a497b3e5eb8f"
+      .body.nodes[4].sha256: "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a"  →  "04d7086b5ff02cd7560c0dc0452b4ccaa4f75bba4d16dd1241cb995420342f87"
+  lineage_ds_f661a015: 2 paths
+      .body.nodes[0].sha256: "8fc8328bbfef24758cbb239a0246e7166512f2b46cf89f677463ce05754c9b08"  →  "6fb14e72477a9e57386ce4d4a73eb5ca1a7d9576e26bfd441d95a69dc250a70b"
+      .body.nodes[1].sha256: "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728"  →  "155449ac2d2fdb77470de7565d797a6c9304627baed110772cb03b188cbe9a3c"
+  lineage_fair-lending: 1 paths
+      .body.nodes[0].sha256: "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3"  →  "b71183aa63210244e0d4b9ef8cf89bdde9dde1dbda9271d1c3a1e3819560ec90"
+  lineage_loan-amount: 1 paths
+      .body.nodes[0].sha256: "afab5c96bf787c3df58bc32615e0254be6ef01474f54a25dd683e1a9ba11c1ed"  →  "6599e3992b28ccecb71678dceffb33e136eba419ab080a8ed9dd218025ce130f"
+  lineage_loan-losses: 1 paths
+      .body.nodes[0].sha256: "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b"  →  "2f47c6071cc166201e96147619ebfd64794f5a25a47f24fe58b6a6cf61789c47"
+  lineage_loan-stream: 1 paths
+      .body.nodes[0].sha256: "cb1158fbd431343e46a08bde4f0b8f3cf9eb65fad65c7648904b2416511d9cab"  →  "c1b60f9f16850db8415e88cf951be21147c6e3dff340ee779e3577b262ea1012"
+  lineage_personal-loans: 1 paths
+      .body.nodes[0].sha256: "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909"  →  "d87131a9c7f57a99cf257e8031dc4099e2a520c2d572cce0d76a0bcd9668d13c"
+  lineage_segmented-loans: 1 paths
+      .body.nodes[0].sha256: "8d4fbcc458a0be1e6688e2689585fb95d9fc88e7fc3b086517d7583f641ca033"  →  "94d799ad025af299058e09abdfa4cefc52257c46a003b924c470ede8f90c1339"
+  lineage_support-tickets: 1 paths
+      .body.nodes[0].sha256: "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a"  →  "95be9dbef8569dec07254e96d22079c8867c27af7d7bf0aa091064865f94d696"
+  lineage_transaction-volume: 1 paths
+      .body.nodes[0].sha256: "d5f705f43d28509598916ab877de289507964ce4166a88ce50146741c4a6099d"  →  "f7506194c096310ac1fa3d3b9804eba5a850ad066c2cda5d1831c51393773b12"
+  splits_account-attrition: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__churned-da15e886.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "29cc262fe230f7b54718955f6f10a333332f568f326011c2cfce37eb4dcd51a6"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:25+00:00"  →  "2026-11-21T23:56:15+00:00"
+  splits_account-churn: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__churned-da15e886.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "e72c3eefc984ed0d62b5375832eef8e151b1ad84c15414b2a14d4e43217fb33f"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:22+00:00"  →  "2026-11-21T23:56:13+00:00"
+  splits_card-transactions: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__merchant-category-0fc06b01.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "af8dd22989d9b543ee35dee6918141ad5216ac75184b26a7d861e6e85565fc53"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:23+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_complaint-topics: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__topics-b729ffe0.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "bc2922348d81e3f3f47710ea6ff6cfd1c3aa7702d8991d40cb7246766b38fcf7"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:25+00:00"  →  "2026-11-21T23:56:15+00:00"
+  splits_credit-default: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "84a502545be5c0dd38aa56205fcc7e78f1eb9add3e62de8bc05dba56ba1c8510"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:23+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_credit-rejects: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "dd098dbdb22feb30c4e4adbe8da2c9a54fc3f97edc78bbcf6689c03212da59ac"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:25+00:00"  →  "2026-11-21T23:56:15+00:00"
+  splits_ds_088264c3: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "7c77d92e670242da615b1ac35b2ded6cf3d53c2375c7cb4f4f148a321d994782"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:26+00:00"  →  "2026-11-21T23:56:53+00:00"
+  splits_ds_18bcfef8: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__churn-bafb5b68.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "71d58d71ed37de2372d839f673916b8cab12bfa5d73647aae6a70c92eae297c1"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:22+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_18c0260f: 10 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "7c77d92e670242da615b1ac35b2ded6cf3d53c2375c7cb4f4f148a321d994782"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:26+00:00"  →  "2026-11-21T23:56:48+00:00"
+  splits_ds_275a54bb: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "b35f43d620ab7dbdeeee9c898056c2d244f7dabf663f4235754af4c284034dc4"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:31:14+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_3df5fa37: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "1a4196de683a3c1fe90a4eb03387b36bbfa1a158083795b36ae667a1f56965e0"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:47+00:00"  →  "2026-11-21T23:56:17+00:00"
+  splits_ds_40fd4875: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "6832dbc2b600e42ec7e6b33299dbee7772841c9e7727ee6d4ba858f19f5db06e"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:47+00:00"  →  "2026-11-21T23:56:17+00:00"
+  splits_ds_5acd05c2: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "b35f43d620ab7dbdeeee9c898056c2d244f7dabf663f4235754af4c284034dc4"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:44+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_5c0ba101: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "bff8520fceced9dc795c556b1162c78b5b069528ac3157e1f57cd40ee5c3929b"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:26+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_6a2c6e78: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "2f0e81ba1c5f5b5f8b21debbb928a131c15fdcd9ce7c0355e3cf8fb7f2c6780e"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:26+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_874aaf2d: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "f4283fd5095a0d38065cfcb0001df3fa2b8c3132a41580bbab8e5b7cb3d3b036"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:31:14+00:00"  →  "2026-11-21T23:56:18+00:00"
+  splits_ds_877f080f: 10 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "421f3b90090aa38584a6cc55e2b80a8bcc6e13337fc4c116deb5fdeaa25b25ed"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:30:01+00:00"  →  "2026-11-21T23:57:03+00:00"
+  splits_ds_a9da3943: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "173c5707a71b5ded799fa7c3afb1d903358dedcdd886f0d619fc2f397db45786"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:30:01+00:00"  →  "2026-11-21T23:56:18+00:00"
+  splits_ds_adf58078: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "8a7788125d3007a444e93c6158c4e0ec5b7b7cc26086cf255a500aa44ce6c7c6"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:30:01+00:00"  →  "2026-11-21T23:56:18+00:00"
+  splits_ds_ba3bbde4: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "ef49ab22af2a81dfa0da1cbf4c743ad7fc7027a9984b7007b2adc2196f032d1e"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:26+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_ce0294a5: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "9487cf16bcd86ae761178568251104ba858866bd07b3482257a0fd710f0736d7"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:26+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_cea09414: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "4bc33e2ea51b7cdebe9d4b3131e5cf351e8c7db85f2d9c1217b80d1966f60228"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:47+00:00"  →  "2026-11-21T23:56:17+00:00"
+  splits_ds_d2926b37: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__churn-bafb5b68.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "e7093199799f380cc7a63ee3905636f01b92fe0a39100894b9e2e57d7d21f8e4"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:22+00:00"  →  "2026-11-21T23:56:58+00:00"
+  splits_ds_d2cd260e: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "b35f43d620ab7dbdeeee9c898056c2d244f7dabf663f4235754af4c284034dc4"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:44+00:00"  →  "2026-11-21T23:56:16+00:00"
+  splits_ds_e772c0ef: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "4bc33e2ea51b7cdebe9d4b3131e5cf351e8c7db85f2d9c1217b80d1966f60228"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:29:47+00:00"  →  "2026-11-21T23:56:17+00:00"
+  splits_ds_ef1e4815: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "173c5707a71b5ded799fa7c3afb1d903358dedcdd886f0d619fc2f397db45786"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:30:01+00:00"  →  "2026-11-21T23:56:17+00:00"
+  splits_ds_f37c4091: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__y-95cb0bfd.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "f7bb33f03d0e4295836604d8c18565fc15af245b2c156e216b94a26d8649e4ef"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:30:01+00:00"  →  "2026-11-21T23:56:18+00:00"
+  splits_fair-lending: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "8a2b0bfefad3c544e9b024547cc25e40cdcfd56da6c3246c323856bb30ea5741"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:24+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_loan-amount: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__loan-amount-usd-6e44df50.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "da7231d8fb3ad2326cad7331663c8982294ef1a9cce9a41eaeaf13357225753e"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:23+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_loan-losses: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "5ee5b0d41266f8cd9b8561ac1db13c06be36abda1170a187ccc655063a393300"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:24+00:00"  →  "2026-11-21T23:56:15+00:00"
+  splits_loan-stream: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "5f15778dba2cd2d35aad309bddaebe3f045796a15de882225365d261c6f83663"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:23+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_personal-loans: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "6a16d4eb803fce69e9fee7cefb24cc5087b56040593162386a652868c2a9ee50"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:23+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_segmented-loans: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__defaulted-883cb8a7.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "dca0cc512667b7235c2ea8ab2996a9dcea2d1058e527dbe5ed6b73c6087b06ae"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:24+00:00"  →  "2026-11-21T23:56:15+00:00"
+  splits_support-tickets: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__category-5ccbf9c9.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "43545f843415af499c8e1655c823ec75da4ace9d1e5d7ab959078d699840192a"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:22+00:00"  →  "2026-11-21T23:56:14+00:00"
+  splits_transaction-volume: 7 paths
+      .body.splits[0].adopted_from: "splits.json"  →  "splits/random-stratified__segment-6a80eba8.json"
+      .body.splits[0].blob_sha256: "<absent>"  →  "dccab0cd21bb13126df46c14b7a60a250827a48746f92b1c1c25d159413f523f"
+      .body.splits[0].carried_from: "<absent>"  →  null
+      .body.splits[0].created_at: "2026-11-21T23:28:23+00:00"  →  "2026-11-21T23:56:14+00:00"
+  verify_post_ds_088264c3: 2 paths
+      .body.results[0].now: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "2aceec23f519edf4e804d6b0c795a607e50ddf0be6f733cd9e8d7d9ce8cd6071"
+      .body.results[0].stored: "07b945de4979061d166a81cbd0f52911e71fda6902c0184927bab718c7855704"  →  "2aceec23f519edf4e804d6b0c795a607e50ddf0be6f733cd9e8d7d9ce8cd6071"
+  verify_post_ds_877f080f: 4 paths
+      .body.results[0].splits[0].now: "55b5e7f67f04c7324e0ba81bccce9d27118c55e32f700f232dba0e996e65b87e"  →  "9ab1909af92b5d94a159740246d4d5d58a72e27ba11c48320c86d6d15dd89746"
+      .body.results[0].splits[0].stored: "55b5e7f67f04c7324e0ba81bccce9d27118c55e32f700f232dba0e996e65b87e"  →  "9ab1909af92b5d94a159740246d4d5d58a72e27ba11c48320c86d6d15dd89746"
+      .body.results[0].splits[1].now: "55b5e7f67f04c7324e0ba81bccce9d27118c55e32f700f232dba0e996e65b87e"  →  "9ab1909af92b5d94a159740246d4d5d58a72e27ba11c48320c86d6d15dd89746"
+      .body.results[0].splits[1].stored: "55b5e7f67f04c7324e0ba81bccce9d27118c55e32f700f232dba0e996e65b87e"  →  "9ab1909af92b5d94a159740246d4d5d58a72e27ba11c48320c86d6d15dd89746"
+  verify_post_ds_a9da3943: 1 paths
+      .body.results[0].v: 5  →  4
+  verify_post_ds_adf58078: 1 paths
+      .body.results[0].v: 4  →  5
+  verify_post_ds_d2926b37: 6 paths
+      .body.ok: false  →  true
+      .body.results[0].data_ok: false  →  true
+      .body.results[0].now: "4a88e42badb77334a7a7533d6adb6f2a1b0bb477e28e8e9fb9be4ef146c9508f"  →  "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93"
+      .body.results[0].ok: false  →  true

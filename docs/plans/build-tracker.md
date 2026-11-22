@@ -46,7 +46,7 @@
 | P10b | S | done (S3BlobStore + verified LRU cache + httpfs; chain equal on s3/local; Object Lock tested on MinIO built from source) | session_018upNdRLNhdMckTGcyQS5SA | see report |
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
 | F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
-| F-X2 | D | started (X2 C1, M1–M6, m1–m3) | session_018upNdNvnaG9wjQHpViW7q9 | |
+| F-X2 | D | done: C1 (per-version migration lock + commit re-check + run pins/re-verify), M1–M6, m1–m3 fixed and shown against base repros; replay identical, GC 0 candidates | session_018upNdNvnaG9wjQHpViW7q9 | see report |
 | P13 | D | started (deltas) | session_018upNdMmQyXrKkqxx22sMTS | |
 | P14 | D2 | started (saved joins) | session_018upNdRR2Vg6fMS5HYdUAeG | |
 | P21 | G | started (contracts/certify/shares + decide_check rewire + share pii) | session_018upNdNeZFRrGECEyFj5531 | |
@@ -87,3 +87,6 @@
 - **P12 → U2:** table picker on runs (`POST /runs {table, label}`), diff (`?table=`) and edit (`{table}`); the multi-table check (`tables[].action`, `sheets`, `carried`, `dropped`, `keys`, `relations`, `suggested_relations`), the plan PATCH (`tables`, `relations`, `primary_table`), `commit {match: {<table>: …}}`; `GET /datasets/{root}/versions/{v}`, `PUT …/tables/{t}/key`, `GET`/`PUT …/relations`.
 - **P12 → all lanes:** a key or a relation declared on a version makes a NEW version (all tables carried, zero bytes). The writer now carries the parent's relations (recounted), re-checks keys on an append, and keeps the parent's table order, for every op.
 - **P12 → P13:** `_commit_multi`'s append branch (cast to the parent's types, ids above the table's max, `w.append`) is the insert-only delta path.
+- **F-X2 → all lanes:** a CSV-era split draw or run creation is refused with 409 `version_migrating` while its version is migrated (`lake/migrate.csv_write_hold`; catalog_meta `lake_migrate:lock:<id>` / `lake_migrate:hold:<id>:<token>`). Any new CSV-era writer must hold it. An edit of a CSV-era version with no row map answers 409 until it is migrated.
+- **F-X2 → P24:** `verify_all:passes` stays a list of end times; the start times are in `verify_all:passes_started`. Cleanup counts, per folder, the passes that started after that folder's commit. Verify-all does not re-hash `legacy_json` blobs (cleanup now does): consider it for GC arming. **P23:** carry `verify_all:passes_started`.
+- **F-X2 (pre-existing):** two versions created in the same second get their `v` numbers in a different order on the head than on acfe988 (`POST …/verify` `v` 4↔5); `datasets.version_no` is unchanged.

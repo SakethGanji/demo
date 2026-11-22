@@ -1,0 +1,2 @@
+{"detail":{"code":"version_migrating","message":"version_migrating: ds_877f080f is being migrated into the lake right now (job -): drawing a split is refused until that is done. Try again in a moment."}}
+HTTP 409

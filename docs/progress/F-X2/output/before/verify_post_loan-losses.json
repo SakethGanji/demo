@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "loan-losses",
+    "now": "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b",
+    "v": 1
+   }
+  ],
+  "root_id": "loan-losses"
+ },
+ "status": 200
+}

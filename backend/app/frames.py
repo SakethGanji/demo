@@ -298,7 +298,9 @@ def _v1_column(arr: Any, name: str) -> Any:
     if pa.types.is_boolean(t):
         if arr.null_count == 0:
             return pd.Series(arr.to_numpy(zero_copy_only=False).astype(bool), name=name)
-        return pd.Series(arr.to_pandas(), name=name).astype(object)
+        v = arr.to_numpy(zero_copy_only=False).astype(object)
+        v[pd.isna(v)] = np.nan  # F-X2 m1: a missing cell is NaN, as pandas reads it from CSV (not None)
+        return pd.Series(v, name=name, dtype=object)
     if pa.types.is_date(t) or pa.types.is_timestamp(t):
         if pa.types.is_date(t):
             arr = pc.strftime(pc.cast(arr, pa.timestamp("s")), format="%Y-%m-%d")

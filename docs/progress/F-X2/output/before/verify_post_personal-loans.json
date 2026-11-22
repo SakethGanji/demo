@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "personal-loans",
+    "now": "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909",
+    "v": 1
+   }
+  ],
+  "root_id": "personal-loans"
+ },
+ "status": 200
+}
