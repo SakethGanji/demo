@@ -1149,9 +1149,12 @@ async def check_upload(up: str, request: Request) -> dict[str, Any]:
     warnings (with examples), blocks, a preview, and check_sha256. Writes nothing but tmp files."""
     from ..lake import upload as U
 
+    from . import contracts
+
     db, lake = request.app.state.db, request.app.state.lake
     out = await _lthread(U.check, db, lake, up, request.app.state.datasets)
-    return await run_in_threadpool(_pii_suggestions, db, up, out)
+    out = await run_in_threadpool(_pii_suggestions, db, up, out)
+    return await _lthread(contracts.check_upload, db, lake, up, out)  # P21: the dataset's contract (a block blocks the commit)
 
 
 def _pii_suggestions(db: Any, up: str, out: dict[str, Any]) -> dict[str, Any]:
@@ -1206,6 +1209,9 @@ async def commit_upload(up: str, request: Request, body: dict[str, Any] | None =
     reason = str(body.get("reason") or G.current_reason() or "").strip()[:500]
 
     def run() -> tuple[dict[str, Any], bool]:
+        from . import contracts
+
+        contracts.commit_guard(db, up)  # P21: the contract checked is still the active one
         ver, created = U.commit(db, lake, up, by=who, reason=reason, check_sha256=body.get("check_sha256"),
                                 make_default=body.get("make_default"), match=body.get("match"),
                                 acknowledge=body.get("acknowledge"), dstore=request.app.state.datasets)
@@ -1216,6 +1222,7 @@ async def commit_upload(up: str, request: Request, body: dict[str, Any] | None =
                                                                  or ver.get("target"), chk=chk, by=who)
             ver["profile_target"] = rec.get("target")
             ver["kind"] = rec.get("kind")
+        contracts.record_commit(db, up, ver["version_id"])
         return ver, created
 
     ver, created = await _lthread(run)

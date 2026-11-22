@@ -398,7 +398,19 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
             gate = G.leak_gate(request.app, v["run_id"], body.override_reason, "Production")
         except ValueError as e:
             raise HTTPException(409, str(e)) from e
-        gate = {**gate, "self_promotion": self_promo, "registered_by": v["created_by"]}
+        from ..catalog import certify as CT
+
+        try:  # P21: team policy require_certified_inputs (every input version certified, at this moment)
+            certs = CT.inputs_gate(request.app.state.db, v["run_id"])
+        except CT.CertError as e:
+            G.refused(request.app.state.db, actor, "production_inputs", 409, e.message, {"version_id": vid, "run_id": v["run_id"]})
+            raise e.http() from e
+        gate = {**gate, "self_promotion": self_promo, "registered_by": v["created_by"],
+                **({"input_certifications": certs} if certs else {})}
+        if certs:  # kept on the version: a later expiry does not rewrite what Production was checked against
+            from ..catalog.schema import now as _now
+
+            reg.merge_version_result(vid, input_certifications={**certs, "checked_at": _now()})
     changed = []
     if body.stage == "Production":
         for o in reg.list_versions(v["model_name"]):
@@ -432,13 +444,16 @@ async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, A
     who = _name_ok(body.reviewer, "reviewer")
     if v["approval"] != "pending":
         raise HTTPException(409, f"Version {v['version']} was already {v['approval']}; register the run again for a new review.")
-    # Four eyes on names as typed (no sign-in): letters and digits only, so "a.l.i.c.e", "Alicé" and Cyrillic "Аlice" are alice.
-    if identity_key(who) == identity_key(v["created_by"]):
-        raise HTTPException(409, f"Four-eyes rule: {who} registered this version ({v['created_by']}), so someone else must review it.")
+    # Four eyes (C §1.5, P21: through policy.four_eyes): the reviewer (and the request's principal) is not the registrant,
+    # the change experiment's author, nor the run's creator; names fold punctuation, accents and lookalike letters.
+    from ..authz.policy import four_eyes
+
+    run = request.app.state.runs.get(v["run_id"]) if v.get("run_id") else None
     author = (v.get("options") or {}).get("change_by")
-    if author and identity_key(who) == identity_key(author):
-        raise HTTPException(409, f"Four-eyes rule: {who} designed the change experiment behind this version ({author}), "
-                                 "so someone else must review it.")
+    msg = four_eyes("model.review", {"registered_by": v["created_by"], "change_by": author,
+                                     "run_created_by": ((run or {}).get("config") or {}).get("by")}, who)
+    if msg:
+        raise HTTPException(409, f"Four-eyes rule: {msg.removeprefix('Four eyes: ')} ({who} cannot review this version.)")
     if body.decision == "reject" and not body.comment.strip():
         raise HTTPException(400, "A rejection needs a comment saying why.")
     approval = "approved" if body.decision == "approve" else "rejected"
@@ -531,7 +546,9 @@ async def _decide_retire(request: Request, rid: str, approve: bool, who: str, co
         raise HTTPException(409, f"This request is {req['status']}.")
     reg = _reg(request)
     v = _version(request, req["version_id"])
-    mine = G.same_person(who, req["requested_by"])
+    from ..authz.policy import four_eyes
+
+    mine = four_eyes("model.retire_decide", req, who) is not None  # C §1.5 (P21): one check for every decide path
     self_admin = mine and approve and G.is_admin(who) and G.allow_admin_self_approve()
     if mine and approve and not self_admin:
         raise HTTPException(403, f"Four eyes: {req['requested_by']} asked to retire this version, so someone else must approve, "

@@ -41,6 +41,8 @@ LIST_LB_COLS = ("model", "family", "rank", "score_val", "score_test", "score_val
 
 class RunCreate(BaseModel):
     dataset_id: str
+    project_id: str | None = Field(None, description="P21: the project the run goes into (default: the dataset's). A version "
+                                                     "shared by another team trains into one of the caller's own projects.")
     table: str | None = Field(None, description="P12: the table of a multi-table version to train on (default: its "
                                                "primary table). Joins of several tables are P14.")
     label: str | None = Field(None, description="Label column; defaults to the dataset's target.")
@@ -352,10 +354,16 @@ def engine_info() -> dict[str, Any]:
     return {"name": "AutoGluon", "version": v("autogluon.tabular"), "timeseries": v("autogluon.timeseries")}
 
 
-@router.post("/runs", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
+@router.post("/runs", status_code=201, dependencies=[require("run.train", body("project_id", "project"), body("dataset_id", "dataset"),
+                                                         also=[("data.preview", body("dataset_id", "dataset"))])])
 async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
+    from ..catalog import shares
     from ..gym.api import check_run_body
 
+    try:  # P21, the project rule: a shared version trains into the caller's own project (decided like a require())
+        body.project_id = await run_in_threadpool(shares.train_project, request, body.dataset_id, body.project_id, body.by)
+    except shares.ShareError as e:
+        raise e.http() from e
     await check_run_body(request, body.model_dump())
     return await run_in_threadpool(_create_run, body, request)
 
