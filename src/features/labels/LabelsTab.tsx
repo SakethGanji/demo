@@ -10,7 +10,7 @@ import { Badge, CardHead, Callout, ConfirmButton, CopyId, CoverageBar, Field, Fl
 import { EmptyState } from '@/shared/components/EmptyState'
 
 import { day, int, plural, when } from '@/shared/lib/format'
-import { Busy, CarryBar, ReadErr, columnsOf, errText, STATUS_KEYS, STATUS_WORDS, totals } from './parts'
+import { Busy, CarryBar, Md, ReadErr, columnsOf, errText, STATUS_KEYS, STATUS_WORDS, totals } from './parts'
 import { TaskSetup } from './TaskSetup'
 import { LabelScreen } from './LabelScreen'
 import { LlmPanel } from './LlmPanel'
@@ -150,7 +150,7 @@ function LayerDetail({ layer, d, vid, v, cols, by, tick, go, open, done, fail }:
             {L.schema ? <>
               <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">{(L.schema.spec.columns ?? []).map((c) => `${c.column} · ${c.type ?? 'class'}`).join(', ')}</span>
                 {classes.map((c) => <span key={c.value} className="pt-chip lbl-class">{c.hotkey && <kbd className="kbd">{c.hotkey}</kbd>}{c.label ?? c.value}</span>)}</div>
-              {L.schema.guidelines ? <pre className="lbl-guidelines">{L.schema.guidelines}</pre> : <span className="muted">No guidelines written yet.</span>}
+              {L.schema.guidelines ? <Md text={L.schema.guidelines} /> : <span className="muted">No guidelines written yet.</span>}
             </> : <span className="muted">No schema yet: a task sets one.</span>}
             <div className="row" style={{ gap: 6, marginTop: 4 }}>
               <button className="btn sm" onClick={() => open({ kind: 'llm' })} disabled={!L.schema} title={L.schema ? 'Prompts, the PII guard, calibration against gold and runs' : 'A schema first'} data-testid="lbl-open-llm">LLM labeling…</button>
@@ -196,7 +196,7 @@ function StatusCard({ layer, d, vid, v, tick }: { layer: Layer; d: DsHistory; vi
               {STATUS_KEYS.filter((k) => k !== 'unlabelled').map((k) => <td key={k} className={`r mono ${c[k] ? `lbl-n-${k}` : 'muted'}`}>{int(c[k] ?? 0)}</td>)}<td className="r mono">{int(c.disputed)}</td></tr>)}</tbody></table></div>}
           {Object.keys(by).length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">sources</span>
             {Object.entries(by).map(([s, n]) => <span key={s} className="pt-chip" data-testid={`lbl-src-${s}`}>{s} <b className="mono">{int(n)}</b></span>)}</div>}
-          {(t.stale > 0 || t.conflict > 0) && <Callout tone="warn" title={`${plural(t.stale + t.conflict, 'label')} need a look on v${onV}`} testId="lbl-stale-callout">
+          {(t.stale > 0 || t.conflict > 0) && <Callout tone="warn" title={`${plural(t.stale + t.conflict, 'label')} ${t.stale + t.conflict === 1 ? 'needs' : 'need'} a look on v${onV}`} testId="lbl-stale-callout">
             Their rows changed after they were labelled, so they are not applied to training until a person confirms or relabels them (a task with the “stale” fill).</Callout>}
         </>}
       </div>
@@ -219,13 +219,20 @@ function TasksCard({ layer, by, tick, open, root }: { layer: Layer; by: string; 
   )
 }
 
-function TaskRow({ t, open }: { t: Task; open: (v: View) => void }) {
-  const p = t.progress ?? {}
-  const total = p.total ?? (p.open ?? 0) + (p.leased ?? 0) + (p.done ?? 0) + (p.skipped ?? 0)
+function TaskRow({ t: t0, open }: { t: Task; open: (v: View) => void }) {
+  const full = useFetch(() => labels.task(t0.id), [t0.id])  // the list has no counts or members
+  const t = { ...t0, ...(full.data ?? {}) }
+  const c = t.counts ?? {}
+  const pg = t.progress ?? {}
+  const total = pg.total ?? (Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0))
+  const done = pg.done != null ? pg.done + (pg.skipped ?? 0) : (c.done ?? 0) + (c.skipped ?? 0)
+  const ann = (t.members ?? []).filter((m) => m.role === 'annotator')
+  const guests = ann.filter((m) => m.guest)
   return (
     <tr data-testid={`lbl-task-${t.name}`}>
-      <td><b>{t.name}</b><span className="sub-line">{t.task_type.replace(/_/g, ' ')} · {t.votes_per_row ?? 1} vote{(t.votes_per_row ?? 1) > 1 ? 's' : ''}/row · gold {Math.round(Number(t.gold_share ?? 0) * 100)}%{t.members ? ` · ${plural(t.members.length, 'person', 'people')}` : ''}</span></td>
-      <td><CoverageBar m={p.done ?? 0} N={total || null} /><span className="sub-line mono">{int(p.done ?? 0)} / {int(total)} done{p.disputed ? ` · ${p.disputed} disputed` : ''}</span></td>
+      <td><b>{t.name}</b><span className="sub-line">{t.task_type.replace(/_/g, ' ')} · {t.votes_per_row ?? 1} vote{(t.votes_per_row ?? 1) > 1 ? 's' : ''}/row · gold {Math.round(Number(t.gold_share ?? 0) * 100)}%
+        {t.members ? ` · ${plural(ann.length, 'annotator')}` : ''}{guests.length ? ` (${guests.length} guest)` : ''}</span></td>
+      <td><div className="lbl-prog"><CoverageBar m={done} N={total || null} /><span className="sub-line mono">{int(done)} / {int(total)} done{c.leased ? ` · ${int(c.leased)} leased` : ''}</span></div></td>
       <td><Badge status={t.state} /></td>
       <td className="r nowrap">
         <button className="btn sm primary" onClick={() => open({ kind: 'label', task: t.id })} data-testid={`lbl-task-open-${t.name}`}>Label</button>{' '}
@@ -281,16 +288,16 @@ function SnapshotsCard({ layer, d, vid, v, cols, by, tick, done, fail }: { layer
       <div className="card-body">
         {ss.err && !ss.data ? <ReadErr err={ss.err} what="Snapshots" /> : !ss.data ? <Busy>Reading snapshots…</Busy> : !ss.data.length ? <span className="muted">No snapshot yet.</span>
           : <div className="table-wrap"><table className="table" data-testid="lbl-snap-list">
-            <thead><tr><th>Snapshot</th><th>Through</th><th className="r">Applied</th><th className="r">Disputed</th><th className="r">Pre-label only</th><th>State</th><th>Made</th><th /></tr></thead>
+            <thead><tr><th>Snapshot</th><th>Through</th><th className="r">Applied</th><th className="r">Disputed</th><th className="r">Pre-label only</th><th>State</th><th /></tr></thead>
             <tbody>{ss.data.map((s) => {
               const c = countsOf(s)
               const own = !poc && same(s.created_by, by)
               return <tr key={s.id} data-testid={`lbl-snap-${s.id}`}>
-                <td><CopyId value={s.id} /> <CopyId value={s.snapshot_sha256} n={8} />{checks[s.id] && <Badge status={checks[s.id]}>{checks[s.id] === 'ok' ? 'verified' : 'mismatch'}</Badge>}</td>
+                <td><CopyId value={s.id} /> <CopyId value={s.snapshot_sha256} n={8} />{checks[s.id] && <> <Badge status={checks[s.id]} testId={`lbl-snap-check-${s.id}`}>{checks[s.id] === 'ok' ? 'hash verified' : 'mismatch'}</Badge></>}
+                  <span className="sub-line" title={when(s.created_at)}>{s.created_by} · {day(s.created_at)}</span></td>
                 <td className="mono">event {int(s.through_seq)}{s.schema_version != null && <span className="muted"> · s{s.schema_version}</span>}</td>
                 <td className="r mono">{int(c.applied)}</td><td className="r mono">{int(c.disputed)}</td><td className="r mono">{int(c.prelabel_only)}</td>
                 <td><Badge status={s.state} />{s.approved_by && <span className="sub-line">by {s.approved_by}</span>}</td>
-                <td className="muted" title={when(s.created_at)}>{s.created_by} · {day(s.created_at)}</td>
                 <td className="r nowrap">
                   <button className="btn sm ghost" onClick={() => verify(s)} data-testid={`lbl-snap-verify-${s.id}`} title="Re-hash the blob against the recorded sha">Verify</button>{' '}
                   {s.state === 'draft' && <button className="btn sm" disabled={!by || !canApprove?.allow || own} onClick={() => approve(s)} data-testid={`lbl-snap-approve-${s.id}`}

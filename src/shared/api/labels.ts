@@ -39,8 +39,10 @@ export type Task = {
   votes_per_row?: number; gold_share?: string | number; blind_share?: string | number; show_prelabel?: boolean | number; review?: string
   min_gold_accuracy?: string | number; state: string; created_at?: string; created_by?: string
   members?: TaskMember[]; progress?: TaskProgress; guidelines?: string; classes?: (LabelClass | string)[]
+  /** LB-B: assignments by status (open / leased / done / skipped / expired) on GET /label-tasks/{t} */
+  counts?: Record<string, number>; team_id?: string
 }
-export type TaskMember = { principal_id: string; display_name?: string; role: 'annotator' | 'reviewer'; guest?: boolean; paused_at?: string | null; paused_reason?: string | null }
+export type TaskMember = { principal_id: string; display_name?: string; role: 'annotator' | 'reviewer'; guest?: boolean | number; paused_at?: string | null; paused_reason?: string | null }
 export type TaskProgress = { total?: number; open?: number; leased?: number; done?: number; skipped?: number; disputed?: number; gold?: number; labelled_rows?: number }
 export type TaskCreate = {
   name: string; task_type: TaskType; columns: string[]; context: string[]; consensus?: string; votes_per_row?: number
@@ -52,31 +54,53 @@ export type Fill = { strategy: string; n: number; version_id: string; run_id?: s
 export type Item = {
   assignment_id: string; row_id: number; version_id?: string; item_key?: string; reason?: string
   context: Record<string, unknown>; masked?: string[]; prelabel?: { value: unknown; source?: string; confidence?: number | string | null } | null
-  is_gold?: boolean; is_blind?: boolean; leased_until?: string; current?: unknown
+  is_gold?: boolean; is_blind?: boolean; leased_until?: string; current?: unknown; column?: string
 }
-export type Answer = { assignment_id: string; value?: unknown; skip?: boolean; flag?: boolean; note?: string; ms?: number }
+export type Answer = { assignment_id: string; value?: unknown; skip?: boolean; flag?: boolean; confirm?: boolean; note?: string; ms?: number }
+/** LB-B answers: `{accepted, paused, paused_reason, gold:{n, correct}}` (older builds: written / gold.graded / paused{…}). */
+export type AnswerResult = { accepted?: number; written?: number; skipped?: number; gold?: { n?: number; graded?: number; correct: number }
+  paused?: boolean | null | { paused: boolean; reason?: string }; paused_reason?: string | null }
+export type GoldAcc = { n: number; correct: number; accuracy: number | null; wilson_lo?: number; wilson_hi?: number }
 export type Quality = {
-  task_id?: string; kappa?: number | null; fleiss_kappa?: number | null; pairwise?: { a: string; b: string; kappa: number | null; n: number }[]
-  annotators?: { principal_id: string; display_name?: string; items?: number; per_hour?: number | null; gold_n?: number; gold_correct?: number
-    gold_accuracy?: number | null; gold_ci?: [number, number] | null; kappa?: number | null; anchoring?: boolean | number | null; paused?: boolean; paused_reason?: string | null }[]
-  agreement?: number | null; n_items?: number; disputed?: number; confusion?: unknown
+  task_id?: string; fleiss_kappa?: number | null; fleiss_rows?: number
+  cohen_kappa?: { a: string; b: string; n_shared: number; kappa: number | null; agreement?: number; reliable?: boolean }[]
+  annotators?: { principal_id: string; display_name?: string | null; items?: number; median_ms?: number | null; items_per_hour?: number | null; per_hour?: number | null
+    gold?: GoldAcc | null; gold_accuracy?: number | null; gold_ci?: [number, number] | null; gold_n?: number; kappa?: number | null
+    agreement_with_majority?: number | null; paused?: boolean; anchoring?: boolean | null }[]
+  pairwise?: { a: string; b: string; n_shared?: number; n?: number; kappa: number | null; reliable?: boolean }[]
+  anchoring?: { flag?: boolean; shown_agree?: number | null; blind_agree?: number | null; [k: string]: unknown } | null
+  backlog?: number; done?: number; disputed?: number; adjudicated?: number; classes?: string[]
 }
-export type ReviewItem = { assignment_id?: string; row_id: number; column?: string; kind?: string; context?: Record<string, unknown>; masked?: string[]
-  votes: { actor: string; display_name?: string; value: unknown; source?: string; gold_accuracy?: number | null; created_at?: string }[]; you_voted?: boolean; gold?: unknown; reason?: string }
+/** LB-B review items: disputed → votes; gold_fail → actor, answer, gold; flagged → actor, note. */
+export type ReviewItem = { row_id: number; column?: string; votes?: { actor: string; display_name?: string; value: unknown }[]; you_voted?: boolean
+  actor?: string; answer?: unknown; gold?: unknown; note?: string | null; context?: Record<string, unknown>; masked?: string[] }
 
-export type Prompt = { id: string; layer_id: string; name: string; version: number; model: string; effort?: string; template: string; context?: string[]; context_json?: string
-  prompt_sha256?: string; calibration?: Calibration | null; created_at?: string; created_by?: string }
-export type Calibration = { n?: number; correct?: number; accuracy?: number | null; ci?: [number, number] | null; wilson?: [number, number] | null; tau?: number | null; tau_star?: number | null
-  coverage_at_tau?: number | null; accuracy_at_tau?: number | null; per_class?: Record<string, { n: number; accuracy: number | null }>; reliability?: { bin: number; conf: number; acc: number; n: number }[]; run_id?: string }
-export type LlmPolicy = { enabled?: boolean; destination?: string; destinations?: string[]; reason?: string; max_usd_per_run?: number; send_masked?: boolean }
-export type LlmPii = { sent?: string[]; excluded?: string[]; masked?: string[]; reason?: Record<string, string>; unmasked_request?: { id: string; status: string } | null }
+export type Prompt = { id: string; layer_id: string; name: string; version: number; model: string; effort?: string; template?: string; prompt_sha256?: string
+  spec?: { model?: string; template?: string; context?: string[]; column?: string; classes?: string[]; send_masked?: string[] }
+  calibration?: Calibration | null; created_at?: string; created_by?: string }
+/** LB-B's calibration record (§5.10): accuracy on the calibration gold, τ* on one half certified on the other. */
+export type Calibration = { id?: string; n?: number; accuracy?: number | null; tau_star?: number | null; target?: number; passed?: boolean
+  per_class?: Record<string, { n: number; recall?: number; accuracy?: number | null }>
+  thresholds?: { tau: number; coverage: number; n: number; acc: number | null; acc_lo?: number }[]
+  certify?: { tau: number; coverage: number; n: number; acc: number | null; acc_lo?: number } | null; confusion?: [string, string, number][] }
+/** The team policy key LB-B reads (`teams.policy.llm_labeling`): off unless enabled; the destination must be allowed. */
+export type LlmPolicy = { enabled?: boolean; destinations?: string[]; max_usd_month?: number; max_rows_job?: number; pii_guard?: boolean; [k: string]: unknown }
+/** GET /label-layers/{l}/llm-policy: the effective state (team policy ∩ admin allowlist) and why it is off. */
+export type LlmPolicyView = { enabled: boolean; destinations: string[]; destination: string | null; admin_allowlist?: string[]; max_usd_month?: number | null
+  allow_unmasked?: boolean; reason?: string | null; unmasked_requests?: { id: string; status: string; columns?: string[] }[] }
+export type SqlResult = { columns: string[]; rows: Record<string, unknown>[]; truncated?: boolean; tables?: string[]; query_sha256?: string; n?: number }
+export type LlmCols = { sent?: string[]; masked?: string[]; free_text?: string[]; excluded?: { column: string; reason: string }[] }
 export type LlmRun = {
   id: string; prompt_id: string; job_id?: string; purpose: 'preview' | 'calibrate' | 'label'; status: string; destination: string; mode?: string; samples_k?: number
-  columns_sent?: string[] | string; columns_excluded?: string[]; max_usd?: string | number; est_usd?: string | number | null; spent_usd?: string | number
+  columns_sent?: LlmCols | string[]; max_usd?: string | number; est_usd?: string | number | null; spent_usd?: string | number
   tokens_in?: number; tokens_out?: number; tokens_cached?: number; rows_total?: number | null; rows_done?: number; rows_cached?: number; rows_failed?: number; pii_redactions?: number
-  created_at?: string; created_by?: string; finished_at?: string | null; calibration?: Calibration | null; results?: { row_id: number; value: unknown; confidence?: number | null; gold?: unknown }[]
-  accepted?: number; sent_to_humans?: number; error?: string | null
+  created_at?: string; created_by?: string; finished_at?: string | null; error?: string | null
+  result?: { calibration?: Calibration; auto_accepted?: number; prelabel_only?: number; events_written?: number; budget_stopped?: boolean; pii_values_found?: number
+    calibration_used?: { id: string; tau_star: number | null; passed?: boolean } | null } | null
 }
+export type LlmStarted = { id: string; job_id: string; status: string; estimate?: { est_usd: number; [k: string]: unknown }; rows?: number; columns?: LlmCols }
+export type LlmPreview = { prompt_id: string; estimate?: { est_usd: number; [k: string]: unknown }; columns?: LlmCols; labels?: { row_id: number; label: string; confidence: number; rationale?: string }[]
+  spent_usd?: number; pii_redactions?: number; pii_values_found?: number }
 export type Snapshot = {
   id: string; layer_id: string; through_seq: number; schema_version?: number; policy: unknown; policy_sha256?: string; blob_sha256?: string
   snapshot_sha256: string; values_sha256?: string; counts?: { applied?: number; disputed?: number; prelabel_only?: number; by_source?: Record<string, number>; by_status?: Record<string, number> } | string
@@ -106,32 +130,36 @@ export const labels = {
   createTask: (l: string, body: TaskCreate) => json<Task>(`/label-layers/${e(l)}/tasks`, 'POST', body),
   task: (t: string) => request<Task>(`/label-tasks/${e(t)}`),
   patchTask: (t: string, body: Record<string, unknown>, b: string) => json<Task>(`/label-tasks/${e(t)}`, 'PATCH', { ...body, by: b }),
-  addMember: (t: string, name: string, role: 'annotator' | 'reviewer', b: string, guest = false) =>
-    json<unknown>(`/label-tasks/${e(t)}/members`, 'POST', { name, principal: name, role, guest, by: b }),
+  addMember: (t: string, name: string, role: 'annotator' | 'reviewer', b: string) =>
+    json<{ principal_id: string; role: string; guest: boolean }>(`/label-tasks/${e(t)}/members`, 'POST', { principal: name, role, by: b }),
+  resume: (t: string, p: string, b: string) => json<unknown>(`/label-tasks/${e(t)}/members/${e(p)}/resume`, 'POST', { by: b }),
   removeMember: (t: string, p: string, b: string) => request<unknown>(`/label-tasks/${e(t)}/members/${e(p)}${by(b)}`, { method: 'DELETE' }),
-  setGold: (t: string, items: { row_id: number; column: string; value: unknown; pool?: string }[], b: string) => json<unknown>(`/label-tasks/${e(t)}/gold`, 'POST', { items, by: b }),
-  gold: (t: string) => request<unknown>(`/label-tasks/${e(t)}/gold`).then(list<{ row_id: number; column_name?: string; value: unknown; pool: string }>('gold')),
+  setGold: (t: string, body: { pool: 'qa' | 'few_shot' | 'calibration'; column?: string; items?: { row_id: number; value: unknown }[]; from_version?: string; n?: number }, b: string) =>
+    json<{ added: number; pools: Record<string, number> }>(`/label-tasks/${e(t)}/gold`, 'POST', { ...body, by: b }, 120_000),
+  gold: (t: string) => request<{ pools: Record<string, number> }>(`/label-tasks/${e(t)}/gold`),
   fill: (t: string, body: Fill, b: string) => json<Job & { added?: number; n?: number }>(`/label-tasks/${e(t)}/fill`, 'POST', { ...body, by: b }, 120_000),
   next: (t: string, n: number, b: string) => json<unknown>(`/label-tasks/${e(t)}/next?n=${n}`, 'POST', { by: b }).then(list<Item>('items')),
-  answers: (t: string, items: Answer[], b: string) => json<{ accepted?: number; paused?: boolean; gold?: { correct: number; n: number } }>(`/label-tasks/${e(t)}/answers`, 'POST', { items, by: b }),
+  answers: (t: string, items: Answer[], b: string) => json<AnswerResult>(`/label-tasks/${e(t)}/answers`, 'POST', { items, by: b }),
   review: (t: string, kind: string) => request<unknown>(`/label-tasks/${e(t)}/review?kind=${e(kind)}`).then(list<ReviewItem>('items')),
-  adjudicate: (t: string, body: { row_id: number; column?: string; value: unknown; assignment_id?: string; note?: string }, b: string) =>
-    json<unknown>(`/label-tasks/${e(t)}/adjudicate`, 'POST', { ...body, by: b }),
+  adjudicate: (t: string, item: { row_id: number; column?: string; value: unknown; comment?: string }, b: string) =>
+    json<{ adjudicated: number }>(`/label-tasks/${e(t)}/adjudicate`, 'POST', { items: [item], by: b }),
   quality: (t: string) => request<Quality>(`/label-tasks/${e(t)}/quality`),
 
   prompts: (l: string) => request<unknown>(`/label-layers/${e(l)}/prompts`).then(list<Prompt>('prompts')),
-  createPrompt: (l: string, body: { name: string; template: string; model?: string; context: string[]; effort?: string }, b: string) =>
+  createPrompt: (l: string, body: { name: string; column?: string; template: string; model?: string; context: string[]; effort?: string; version_id?: string; query?: string; prompt_template?: string }, b: string) =>
     json<Prompt>(`/label-layers/${e(l)}/prompts`, 'POST', { ...body, by: b }),
-  llmPolicy: (l: string) => request<LlmPolicy & { pii?: LlmPii }>(`/label-layers/${e(l)}/llm-policy`),
-  preview: (p: string, n: number, versionId: string, b: string) => json<LlmRun & Job>(`/label-prompts/${e(p)}/preview`, 'POST', { n, version_id: versionId, by: b }, 120_000),
-  calibrate: (p: string, body: { version_id: string; task_id?: string; max_usd?: number }, b: string) => json<LlmRun & Job>(`/label-prompts/${e(p)}/calibrate`, 'POST', { ...body, by: b }, 120_000),
-  run: (p: string, body: { version_id: string; selector: unknown; k?: number; mode?: 'online' | 'batch'; max_usd: number }, b: string) =>
-    json<LlmRun & Job>(`/label-prompts/${e(p)}/runs`, 'POST', { ...body, by: b }, 120_000),
-  llmRuns: (l: string) => request<unknown>(`/label-layers/${e(l)}/llm-runs`).then(list<LlmRun>('runs')),
+  preview: (p: string, n: number, versionId: string, b: string, destination = 'fake') => json<LlmPreview>(`/label-prompts/${e(p)}/preview`, 'POST', { n, version_id: versionId, destination, max_usd: 0.5, by: b }, 120_000),
+  calibrate: (p: string, body: { version_id: string; task_id?: string; max_usd: number; destination?: string }, b: string) => json<LlmStarted>(`/label-prompts/${e(p)}/calibrate`, 'POST', { destination: 'fake', ...body, by: b }, 120_000),
+  run: (p: string, body: { version_id: string; selector: unknown; k?: number; max_usd: number; destination?: string; stop_at_cap?: boolean; task_id?: string }, b: string) =>
+    json<LlmStarted>(`/label-prompts/${e(p)}/runs`, 'POST', { destination: 'fake', mode: 'online', ...body, by: b }, 120_000),
   llmRun: (r: string) => request<LlmRun>(`/label-llm-runs/${e(r)}`),
+  llmPolicy: (l: string) => request<LlmPolicyView>(`/label-layers/${e(l)}/llm-policy`),
+  llmRuns: (l: string) => request<unknown>(`/label-layers/${e(l)}/llm-runs`).then(list<LlmRun>('runs')),
   cancelRun: (r: string, b: string) => json<LlmRun>(`/label-llm-runs/${e(r)}/cancel`, 'POST', { by: b }),
-  acceptRun: (r: string, body: { tau?: number | null }, b: string) => json<{ accepted?: number }>(`/label-llm-runs/${e(r)}/accept`, 'POST', { ...body, by: b }),
-  toHumans: (r: string, body: { task_id: string; tau?: number | null }, b: string) => json<{ added?: number }>(`/label-llm-runs/${e(r)}/send-to-task`, 'POST', { ...body, by: b }),
+  /** The snapshot policy that accepts this run's LLM labels at ≥ τ* (409 not_calibrated without a passed calibration). */
+  acceptRun: (r: string, b: string) => json<{ accepted?: number; tau_star?: number; snapshot_policy: Record<string, unknown> }>(`/label-llm-runs/${e(r)}/accept`, 'POST', { by: b }),
+  toHumans: (r: string, body: { task_id: string; tau?: number | null; n?: number }, b: string) => json<{ added?: number; items?: number; rows?: number }>(`/label-llm-runs/${e(r)}/send-to-task`, 'POST', { ...body, by: b }),
+  sqlPreview: (l: string, versionId: string, query: string, limit = 50) => json<SqlResult>(`/label-layers/${e(l)}/sql/preview`, 'POST', { version_id: versionId, query, limit }, 60_000),
   unmaskRequest: (l: string, columns: string[], reason: string, b: string) => json<{ id: string; status: string }>(`/label-layers/${e(l)}/llm-unmasked-requests`, 'POST', { columns, reason, by: b }),
 
   snapshots: (l: string) => request<unknown>(`/label-layers/${e(l)}/snapshots`).then(list<Snapshot>('snapshots')),
@@ -143,8 +171,10 @@ export const labels = {
     json<Job>(`/label-snapshots/${e(s)}/materialise`, 'POST', { ...body, by: b }, 120_000),
 
   proposals: (l: string) => request<unknown>(`/label-layers/${e(l)}/proposals`).then(list<Proposal>('proposals')),
-  decide: (p: string, decision: 'approve' | 'reject', comment: string, b: string) => json<Proposal & Job>(`/label-proposals/${e(p)}/decide`, 'POST', { decision, comment, by: b }, 120_000),
+  decide: (p: string, decision: 'approve' | 'reject', comment: string, b: string) => json<Proposal & Job>(`/label-proposals/${e(p)}/decide`, 'POST', { approve: decision === 'approve', decision, comment, by: b }, 120_000),
   job: (id: string) => request<Job>(`/jobs/${e(id)}`),
+  /** LB-A: a run's overlay pin re-verified (404 no_overlay when the run trained without one). */
+  runVerify: (run: string) => request<{ run_id: string; snapshot_id: string; overlay_sha256: string; ok: boolean | null; status: string; rows_applied?: number; overlay_blob_ok?: boolean; overlay_sha_ok?: boolean }>(`/label-runs/${e(run)}/verify`, { timeoutMs: 60_000 }),
 }
 
 /** Wilson score interval for k of n at 95 % (the calibration report's accuracy ± CI when the API sends none). */

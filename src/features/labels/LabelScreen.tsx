@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { pii } from '@/shared/api/governance'
 import { labels, classesOf, specCol, wilson, arr, type Item, type Layer, type Quality, type ReviewItem, type Task } from '@/shared/api/labels'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
@@ -6,16 +7,18 @@ import { usePoc } from '@/shared/hooks/usePoc'
 import { Badge, CardHead, Callout, CoverageBar, Flash, Stats, Why } from '@/shared/components/DataKit'
 import { Tabs } from '@/shared/primitives/Tabs'
 import { int, pct, plural } from '@/shared/lib/format'
-import { Busy, Kbd, ReadErr, errText, show } from './parts'
+import { Busy, Kbd, Md, ReadErr, errText, show } from './parts'
 
 type Mode = 'label' | 'review' | 'quality'
 const MODES: Mode[] = ['label', 'review', 'quality']
 const MODE_WORDS: Record<Mode, string> = { label: 'Label', review: 'Review', quality: 'Quality' }
+/** One agreement number: Fleiss' κ over all annotators, else the first reliable Cohen's pair. */
+const kappaOf = (q?: Quality | null) => q?.fleiss_kappa ?? (q?.cohen_kappa ?? q?.pairwise)?.find((c) => c.kappa != null)?.kappa ?? null
 const kappaWord = (k: number | null | undefined) => (k == null ? '—' : k >= 0.8 ? 'almost perfect' : k >= 0.6 ? 'substantial' : k >= 0.4 ? 'moderate' : k >= 0.2 ? 'fair' : 'slight')
 
 /** LB-C: one task's working screens: labelling (keyboard-first), review / adjudication, and quality. */
 export function LabelScreen({ mode, taskId, layer, root, by, onBack, onMode }: { mode: Mode; taskId: string; layer: Layer; root: string; by: string; onBack: () => void; onMode: (m: Mode) => void }) {
-  const t = useFetch(() => labels.task(taskId), [taskId])
+  const t = useFetch(() => labels.task(taskId), [taskId], { pollMs: 10_000 })
   const q = useFetch(() => labels.quality(taskId), [taskId], { pollMs: 15_000 })
   const task = t.data
   const classes = classesOf(task?.classes ?? specCol(layer.schema?.spec, arr(task?.columns ?? task?.columns_json)[0])?.classes)
@@ -34,7 +37,7 @@ export function LabelScreen({ mode, taskId, layer, root, by, onBack, onMode }: {
           testIds={{ Label: 'lbl-mode-label', Review: 'lbl-mode-review', Quality: 'lbl-mode-quality' }} />
       </div>
       {t.err && !task ? <Callout tone="danger" title="The task could not be read">{t.err}</Callout> : !task ? <Busy>Reading the task…</Busy>
-        : mode === 'label' ? <Labelling task={task} classes={classes} guidelines={guidelines} by={by} root={root} onAnswered={q.reload} />
+        : mode === 'label' ? <Labelling task={task} classes={classes} guidelines={guidelines} by={by} root={root} onAnswered={() => { q.reload(); t.reload() }} />
         : mode === 'review' ? <Review task={task} classes={classes} by={by} root={root} />
         : <QualityView q={q.data} err={q.err} />}
     </div>
@@ -42,14 +45,16 @@ export function LabelScreen({ mode, taskId, layer, root, by, onBack, onMode }: {
 }
 
 function TaskStats({ task, q }: { task?: Task | null; q?: Quality | null }) {
-  const p = task?.progress ?? {}
-  const total = p.total ?? (p.open ?? 0) + (p.leased ?? 0) + (p.done ?? 0) + (p.skipped ?? 0)
-  const k = q?.kappa ?? q?.fleiss_kappa ?? null
+  const c = task?.counts ?? {}
+  const pg = task?.progress ?? {}
+  const p = { done: pg.done ?? q?.done ?? c.done ?? 0, disputed: pg.disputed ?? q?.disputed }
+  const total = pg.total ?? (Object.values(c).reduce((a, b) => a + b, 0) - (c.cancelled ?? 0) - (c.expired ?? 0))
+  const k = kappaOf(q)
   return (
     <div className="lbl-taskstats" data-testid="lbl-task-stats">
       <span className="lbl-ts"><span className="micro-label">progress</span><CoverageBar m={p.done ?? 0} N={total || null} /><span className="mono muted">{int(p.done ?? 0)} / {int(total)}</span></span>
       <span className="lbl-ts" title={k == null ? 'agreement appears with two or more votes on the same rows' : `Cohen's / Fleiss' κ = ${k.toFixed(3)} (${kappaWord(k)})`}><span className="micro-label">agreement κ</span><b className="mono" data-testid="lbl-kappa">{k == null ? '—' : k.toFixed(2)}</b>{k != null && <span className="muted">{kappaWord(k)}</span>}</span>
-      <span className="lbl-ts"><span className="micro-label">disputed</span><b className="mono">{int(p.disputed ?? q?.disputed ?? 0)}</b></span>
+      <span className="lbl-ts"><span className="micro-label">disputed</span><b className="mono">{int(p.disputed ?? 0)}</b></span>
     </div>
   )
 }
@@ -80,6 +85,7 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
   }, [task.id, by])
   useEffect(() => { void load() }, [load])
   useEffect(() => { ref.current?.focus() }, [items.length > 0]) // eslint-disable-line react-hooks/exhaustive-deps
+  const tags = useFetch(() => pii.get(root).catch(() => null), [root])  // items carry masked values; which columns are masked comes from the tags
   const it = items[i]
   const done = it ? answers[it.assignment_id] : undefined
   useEffect(() => { setPick(done?.value ?? null); setNote(null); t0.current = Date.now() }, [i, it?.assignment_id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -91,8 +97,10 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
       const r = await labels.answers(task.id, [{ assignment_id: it.assignment_id, ...a, ms: Date.now() - t0.current }], by)
       setAnswers((x) => ({ ...x, [it.assignment_id]: a }))
       session.current.n += 1
-      if (r.gold) setGold({ correct: gold.correct + r.gold.correct, n: gold.n + r.gold.n })
-      if (r.paused) setPaused('Your gold accuracy fell below the task minimum: a reviewer resumes you.')
+      const gn = r.gold?.n ?? r.gold?.graded ?? 0
+      if (gn) setGold((g) => ({ correct: g.correct + (r.gold?.correct ?? 0), n: g.n + gn }))
+      const pz = typeof r.paused === 'object' && r.paused ? r.paused.paused : !!r.paused
+      if (pz) setPaused((typeof r.paused === 'object' && r.paused?.reason) || r.paused_reason || 'Your gold accuracy fell below the task minimum: a reviewer resumes you.')
       onAnswered()
       const nx = i + 1
       if (nx >= items.length - 3) void load()
@@ -107,7 +115,7 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
     }
     const c = classes.find((x) => x.hotkey === e.key)
     if (c && !done) { e.preventDefault(); if (task.task_type === 'multi_label') { const s = new Set((pick ?? '').split('|').filter(Boolean)); s.has(c.value) ? s.delete(c.value) : s.add(c.value); setPick([...s].join('|') || null) } else setPick(c.value); return }
-    if (e.key === 'Enter') { e.preventDefault(); const v = pick ?? (it?.prelabel && !it.is_gold && !it.is_blind ? String(it.prelabel.value) : null); if (v != null) void submit({ value: v }); return }
+    if (e.key === 'Enter') { e.preventDefault(); const v = pick ?? (it?.prelabel && !it.is_gold && !it.is_blind ? String(it.prelabel.value) : null); if (v != null) void submit({ value: v, ...(pick == null ? { confirm: true } : {}) }); return }
     if (e.key === 's' || e.key === 'S') { e.preventDefault(); void submit({ skip: true }); return }
     if (e.key === 'f' || e.key === 'F') { e.preventDefault(); setNote(''); return }
     if (e.key === '?') { e.preventDefault(); setShowGuide((x) => !x); return }
@@ -117,7 +125,7 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
   const mins = (Date.now() - session.current.start) / 60000
   const pace = session.current.n && mins > 0.05 ? Math.round(session.current.n / (mins / 60)) : null
   const gci = gold.n ? wilson(gold.correct, gold.n) : null
-  const masked = new Set(it?.masked ?? [])
+  const masked = new Set(it?.masked ?? (tags.data?.masked_columns ?? []).filter((c) => it && c in (it.context ?? {})))
   const ctx = it ? Object.entries(it.context ?? {}).filter(([k]) => k !== '__row_id') : []
   const preShown = it?.prelabel && !it.is_gold && !it.is_blind
   return (
@@ -159,7 +167,7 @@ function Labelling({ task, classes, guidelines, by, root, onAnswered }: { task: 
       </div>
       {showGuide && <div className="card lbl-guide" data-testid="lbl-guide">
         <CardHead title="Guidelines" sub={`schema s${task.schema_version ?? '—'}`} actions={<button className="btn sm ghost" onClick={() => setShowGuide(false)} aria-label="hide guidelines">✕</button>} />
-        <div className="card-body">{guidelines ? <pre className="lbl-guidelines">{guidelines}</pre> : <span className="muted">No guidelines for this task.</span>}
+        <div className="card-body">{guidelines ? <Md text={guidelines} testId="lbl-guide-text" /> : <span className="muted">No guidelines for this task.</span>}
           <div className="lbl-legend">{classes.map((c) => <div key={c.value}><kbd className="kbd">{c.hotkey ?? '·'}</kbd> <b>{c.label ?? c.value}</b>{c.description && <span className="muted"> {c.description}</span>}</div>)}</div>
         </div>
       </div>}
@@ -176,7 +184,7 @@ function Review({ task, classes, by, root }: { task: Task; classes: ReturnType<t
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [sel, setSel] = useState(0)
   const adjudicate = async (x: ReviewItem, value: string) => {
-    try { await labels.adjudicate(task.id, { row_id: x.row_id, column: x.column ?? arr(task.columns ?? task.columns_json)[0], value, assignment_id: x.assignment_id }, by); setMsg({ ok: true, text: `Row #${x.row_id} adjudicated: ${value}.` }); r.reload() }
+    try { await labels.adjudicate(task.id, { row_id: x.row_id, column: x.column ?? arr(task.columns ?? task.columns_json)[0], value, comment: `settled in review (${kind})` }, by); setMsg({ ok: true, text: `Row #${x.row_id} adjudicated: ${value}.` }); r.reload() }
     catch (e) { setMsg({ ok: false, text: errText(e) }) }
   }
   const items = r.data ?? []
@@ -198,10 +206,10 @@ function Review({ task, classes, by, root }: { task: Task; classes: ReturnType<t
           : items.map((x, j) => {
             const lock = !poc && !!x.you_voted
             return <div key={`${x.row_id}:${x.column ?? ''}`} className={`lbl-rv ${j === sel ? 'on' : ''}`} onClick={() => setSel(j)} data-testid={`lbl-rv-${x.row_id}`}>
-              <div className="row" style={{ gap: 8 }}><b className="mono">#{x.row_id}</b>{x.column && <span className="mono muted">{x.column}</span>}{x.reason && <Badge status={kind}>{x.reason}</Badge>}
-                {x.gold != null && <span className="pt-chip">gold: {show(x.gold)}</span>}{lock && <span className="pt-chip" title="four eyes on items: you voted on this row">🔒 you voted on this item</span>}</div>
-              <div className="lbl-votes">{x.votes.map((v, k) => <span key={k} className="lbl-vote"><span className="muted">{v.display_name ?? v.actor}{v.source && v.source !== 'human' ? ` (${v.source})` : ''}</span><b>{show(v.value)}</b>
-                {v.gold_accuracy != null && <span className="mono muted" title="this annotator's gold accuracy">{pct(v.gold_accuracy, 0)}</span>}</span>)}</div>
+              <div className="row" style={{ gap: 8 }}><b className="mono">#{x.row_id}</b>{x.column && <span className="mono muted">{x.column}</span>}<Badge status={kind}>{kind.replace('_', ' ')}</Badge>{x.note && <span className="gov-reason">“{x.note}”</span>}
+                {lock && <span className="pt-chip" title="four eyes on items: you voted on this row">🔒 you voted on this item</span>}</div>
+              <div className="lbl-votes">{(x.votes ?? (x.actor ? [{ actor: x.actor, value: x.answer ?? '(flagged)' }] : [])).map((v, k) => <span key={k} className="lbl-vote"><span className="muted">{v.display_name ?? v.actor}</span><b>{show(v.value)}</b></span>)}
+                {x.gold != null && <span className="lbl-vote lbl-vote-gold"><span className="muted">gold</span><b>{show(x.gold)}</b></span>}</div>
               {x.context && <div className="lbl-rv-ctx muted">{Object.entries(x.context).slice(0, 6).map(([k, v]) => <span key={k}><span className="mono">{k}</span> {x.masked?.includes(k) ? '•••' : show(v)}</span>)}</div>}
               <div className="row" style={{ gap: 6 }}>{classes.map((c) => <button key={c.value} className="btn sm" disabled={lock || !by || !can?.allow} title={lock ? 'Four eyes: you voted on this item, so another reviewer settles it' : why(can, `Settle as ${c.value}`)}
                 onClick={() => adjudicate(x, c.value)} data-testid={`lbl-adj-${x.row_id}-${c.value}`}>{c.hotkey && <kbd className="kbd">{c.hotkey}</kbd>}{c.value}</button>)}</div>
@@ -215,24 +223,28 @@ function Review({ task, classes, by, root }: { task: Task; classes: ReturnType<t
 function QualityView({ q, err }: { q?: Quality | null; err: string }) {
   if (err && !q) return <ReadErr err={err} what="Quality" />
   if (!q) return <Busy>Measuring agreement and gold accuracy…</Busy>
-  const k = q.kappa ?? q.fleiss_kappa ?? null
+  const k = kappaOf(q)
+  const anch = q.anchoring
   return (
     <div className="card" data-testid="lbl-quality">
       <CardHead title="Quality" sub="gold accuracy with its 95 % Wilson interval, agreement (κ), pace and the anchoring check, per annotator" />
       <div className="card-body stack" style={{ gap: 10 }}>
-        <Stats items={[{ label: 'agreement κ', value: k == null ? '—' : k.toFixed(3), sub: kappaWord(k) }, { label: 'items', value: int(q.n_items ?? 0) }, { label: 'disputed', value: int(q.disputed ?? 0) },
-          { label: 'raw agreement', value: q.agreement == null ? '—' : pct(q.agreement) }]} />
+        <Stats items={[{ label: q.fleiss_kappa != null ? "Fleiss' κ" : "Cohen's κ", value: k == null ? '—' : k.toFixed(3), sub: k == null ? 'needs 2+ votes on the same rows' : kappaWord(k), testId: 'lbl-q-kappa' },
+          { label: 'done', value: int(q.done ?? 0) }, { label: 'backlog', value: int(q.backlog ?? 0) }, { label: 'disputed', value: int(q.disputed ?? 0), sub: q.adjudicated ? `${q.adjudicated} adjudicated` : undefined },
+          { label: 'anchoring', value: anch?.flag ? 'flagged' : anch ? 'none' : '—', sub: anch?.flag ? 'answers follow the pre-labels more than blind ones' : 'pre-labelled vs blind agreement' }]} />
         <div className="table-wrap"><table className="table" data-testid="lbl-quality-t">
-          <thead><tr><th>Annotator</th><th className="r">Items</th><th className="r">Per hour</th><th>Gold accuracy (95 % CI)</th><th className="r">κ</th><th>Anchoring</th><th>State</th></tr></thead>
+          <thead><tr><th>Annotator</th><th className="r">Items</th><th className="r">Per hour</th><th>Gold accuracy (95 % CI)</th><th className="r">Agrees with majority</th><th>State</th></tr></thead>
           <tbody>{(q.annotators ?? []).map((a) => {
-            const ci = a.gold_ci ?? (a.gold_n ? wilson(a.gold_correct ?? 0, a.gold_n) : null)
-            return <tr key={a.principal_id}><td>{a.display_name ?? a.principal_id}</td><td className="r mono">{int(a.items ?? 0)}</td><td className="r mono">{a.per_hour != null ? Math.round(a.per_hour) : '—'}</td>
-              <td>{a.gold_accuracy != null ? <><CoverageBar value={a.gold_accuracy} /> <span className="mono muted">{ci ? `${pct(ci[0], 0)}–${pct(ci[1], 0)}` : ''}{a.gold_n ? ` · n ${a.gold_n}` : ''}</span></> : <span className="muted">no gold yet</span>}</td>
-              <td className="r mono">{a.kappa != null ? a.kappa.toFixed(2) : '—'}</td>
-              <td>{a.anchoring ? <Badge status="warn">follows pre-labels</Badge> : <span className="muted">—</span>}</td>
-              <td>{a.paused ? <Badge status="paused" title={a.paused_reason ?? ''} /> : <Badge status="active" />}</td></tr>
+            const g = a.gold ?? (a.gold_n ? { n: a.gold_n, correct: Math.round((a.gold_accuracy ?? 0) * a.gold_n), accuracy: a.gold_accuracy ?? null } : null)
+            const ci: [number, number] | null = a.gold_ci ?? (g?.wilson_lo != null && g?.wilson_hi != null ? [g.wilson_lo, g.wilson_hi] : g?.n ? wilson(g.correct, g.n) : null)
+            return <tr key={a.principal_id}><td>{a.display_name ?? a.principal_id}</td><td className="r mono">{int(a.items ?? 0)}</td><td className="r mono">{(a.items_per_hour ?? a.per_hour) != null ? Math.round((a.items_per_hour ?? a.per_hour)!).toLocaleString() : '—'}</td>
+              <td>{g?.n ? <><CoverageBar value={g.accuracy} /> <span className="mono muted">{g.correct}/{g.n}{ci ? ` · ${pct(ci[0], 0)}–${pct(ci[1], 0)}` : ''}</span></> : <span className="muted">no gold answered yet</span>}</td>
+              <td className="r mono">{a.agreement_with_majority != null ? pct(a.agreement_with_majority, 0) : '—'}</td>
+              <td>{a.paused ? <Badge status="paused" /> : <Badge status="active" />}</td></tr>
           })}</tbody></table></div>
         {!(q.annotators ?? []).length && <span className="muted">No answers yet.</span>}
+        {((q.cohen_kappa ?? q.pairwise)?.length ?? 0) > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">pairs</span>
+          {(q.cohen_kappa ?? q.pairwise)!.map((c) => <span key={`${c.a}:${c.b}`} className="pt-chip" title={`${c.n_shared ?? (c as { n?: number }).n ?? '?'} shared rows${c.reliable === false ? ' (under 30: not reliable yet)' : ''}`}>{c.a} × {c.b} κ <b className="mono">{c.kappa == null ? '—' : c.kappa.toFixed(2)}</b></span>)}</div>}
       </div>
     </div>
   )
