@@ -5,6 +5,7 @@ import { useFetch } from '@/shared/hooks/useFetch'
 import { pctText, settle, type JobProgress } from '@/shared/api/jobs'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 import { useCan, why } from './Governance'
+import { INTEGRITY_ACKS, IntegrityAcks, type Issue } from './UploadIssues'
 
 /** DL3: edit a version as typed operations. Cell edits, row deletes and column actions pile up as pending operations;
  *  Preview (writes nothing) shows what the new version would be; "Create vN" (reason required) commits it as a NEW
@@ -28,6 +29,7 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
   const [ops, setOps] = useState<{ op: DsEditOp; label: string }[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [pv, setPv] = useState<DsEditPreview | null>(null)
+  const [iack, setIack] = useState<Set<string>>(new Set())  // F-X5b (J1): integrity codes acknowledged, as on an upload
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   const [prog, setProg] = useState<JobProgress | null>(null)  // F-JOBS: a large edit runs as a job (202 + its progress)
@@ -54,7 +56,7 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
     ...(deleted.size ? [{ k: 'del', label: `delete ${deleted.size} row${deleted.size === 1 ? '' : 's'} (${[...deleted].slice(0, 6).join(', ')}${deleted.size > 6 ? '…' : ''})`, drop: () => setDeleted(new Set()) }] : []),
     ...ops.map((o, i) => ({ k: `op${i}`, label: o.label, drop: () => setOps(ops.filter((_, j) => j !== i)) })),
   ]
-  const changed = () => setPv(null)  // any new pending operation invalidates the preview
+  const changed = () => { setPv(null); setIack(new Set()) }  // any new pending operation invalidates the preview
   const addOp = (op: DsEditOp, label: string) => { setOps([...ops, { op, label }]); changed() }
 
   const setCell = (row: number, column: string, value: string, old: unknown) => {
@@ -91,12 +93,12 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
 
   const preview = async () => {
     setBusy(true)
-    try { setPv(await data.editPreview(v.id, allOps, by, table)) } catch (e) { onErr(e) } finally { setBusy(false) }
+    try { setPv(await data.editPreview(v.id, allOps, by, table)); setIack(new Set()) } catch (e) { onErr(e) } finally { setBusy(false) }
   }
   const create = async () => {
     setBusy(true); setProg(null)
     try {
-      const r = await settle(data.edit(v.id, allOps, by, reason.trim(), 'auto', table), (p) => setProg(p))
+      const r = await settle(data.edit(v.id, allOps, by, reason.trim(), 'auto', table, integrityCodes.filter((c) => iack.has(c))), (p) => setProg(p))
       if (!r.created) onCreated(r.duplicate_of ?? r.id, `Nothing new: the result has the same bytes as ${r.duplicate_of}, so no version was made.`)
       else onCreated(r.id, `v${pv?.v} (${r.id}) created from v${v.v}: ${(r.edit?.ops_summary ?? []).join('; ')}. `
         + (r.default?.is_default ? 'It is now the default.' : `Not the default (${r.default?.why}): review it, then make it the default.`))
@@ -105,6 +107,11 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
 
   const g = grid.data
   const ck = pv?.checks
+  // F-X5b (J1): a key that stops being one / a relation the version loses: listed with counts, acknowledged by code
+  const integrity = (ck?.warnings ?? []).filter((w) => (w as Issue).needs_ack && (INTEGRITY_ACKS as readonly string[]).includes(w.code)) as Issue[]
+  const integrityCodes = [...new Set([...integrity.map((w) => w.code), ...(pv?.needs_acknowledge ?? [])])]
+  const contractWarnings = (ck?.warnings ?? []).filter((w) => !integrity.includes(w as Issue))
+  const unacked = integrityCodes.filter((c) => !iack.has(c))
   return (
     <div className="card" data-testid="data-editor">
       <CardHead title={<>Edit v{v.v}{table ? <span className="mono"> · {table}</span> : null}</>} sub={`changes are saved as a new version (v${d.versions.length + 1}); v${v.v} is never modified`}
@@ -192,7 +199,7 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
             <div><span className="micro-label">added</span><b>+{pv.added.toLocaleString()}</b></div>
             <div><span className="micro-label">removed</span><b data-testid="epv-removed">−{pv.removed.toLocaleString()}</b></div>
             <div><span className="micro-label">rows × cols</span><b>{pv.rows.toLocaleString()} × {pv.n_cols}</b></div>
-            <div><span className="micro-label">sha256</span><b className="mono" style={{ fontSize: 13 }}>{pv.sha256.slice(0, 10)}</b></div>
+            <div><span className="micro-label">sha256</span><b className="mono" style={{ fontSize: 13 }} title={pv.sha256 ?? 'hashed when the version is written (a preview of a Parquet version is not hashed)'}>{pv.sha256 ? pv.sha256.slice(0, 10) : 'on write'}</b></div>
           </div>
           <ol className="edit-ops">{pv.edit_log.map((e) => <li key={e.i}>{e.summary}{e.examples.some((x) => x.column) && <span className="helper"> · {e.examples.filter((x) => x.column).slice(0, 3).map((x) => `row ${x.row} ${x.column}: ${show(x.old) || '—'} → ${show(x.new) || '—'}`).join(' · ')}</span>}</li>)}</ol>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -201,13 +208,18 @@ export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
             {ck.columns_removed.filter((c) => !(c in pv.renamed)).map((c) => <span key={c} className="pt-chip data-rm">− {c}</span>)}
           </div>
           {pv.duplicate_of ? <div className="data-warn">The result has the same bytes as {pv.duplicate_of}: creating it returns that version, nothing new is made.</div>
-            : ck.warnings.length > 0 ? <div className="data-warn"><b>{ck.warnings.length} contract warning{ck.warnings.length === 1 ? '' : 's'}</b>: v{pv.v} will be created but not made the default until someone does after review.{ck.warnings.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>
-              : <span className="helper data-ok-line">No contract warnings: v{pv.v} will become the default.</span>}
+            : contractWarnings.length > 0 ? <div className="data-warn"><b>{contractWarnings.length} contract warning{contractWarnings.length === 1 ? '' : 's'}</b>: v{pv.v} will be created but not made the default until someone does after review.{contractWarnings.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>
+              : integrity.length > 0 ? <span className="helper" data-testid="edit-not-default">v{pv.v} will be created but not made the default: it changes what v{v.v} promised (below).</span>
+                : <span className="helper data-ok-line">No contract warnings: v{pv.v} will become the default.</span>}
+          {!pv.duplicate_of && integrity.length > 0 && <IntegrityAcks items={integrity} acked={iack} setAcked={setIack} />}
+          {!pv.duplicate_of && integrityCodes.filter((c) => !integrity.some((w) => w.code === c)).map((c) => <label key={c} className="row data-warn" style={{ gap: 6 }}>
+            <input type="checkbox" checked={iack.has(c)} onChange={(e) => { const x = new Set(iack); if (e.target.checked) x.add(c); else x.delete(c); setIack(x) }} data-testid={`up-ack-${c}`} />
+            <span>I acknowledge <span className="mono">{c}</span>{(() => { const w = ck.warnings.find((x) => x.code === c); return w ? `: ${w.message}` : '' })()}</span></label>)}
         </div>}
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
           <input className="input" style={{ flex: 1, minWidth: 240 }} maxLength={500} placeholder="reason or change ticket (required, kept with the version and in the audit log)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="edit-reason" />
-          {pv ? <button className="btn primary" disabled={busy || !by || reason.trim().length < 3} onClick={create} data-testid="edit-create"
-            title={reason.trim().length < 3 ? 'Give a reason first' : undefined}>{busy ? (prog ? `Creating… ${pctText(prog)}` : 'Creating…') : `Create v${pv.v}`}</button>
+          {pv ? <button className="btn primary" disabled={busy || !by || reason.trim().length < 3 || unacked.length > 0} onClick={create} data-testid="edit-create"
+            title={reason.trim().length < 3 ? 'Give a reason first' : unacked.length ? `Acknowledge ${unacked.join(', ')} first` : undefined}>{busy ? (prog ? `Creating… ${pctText(prog)}` : 'Creating…') : `Create v${pv.v}`}</button>
             : <button className="btn primary" disabled={busy || !by || !allOps.length} onClick={preview} data-testid="edit-preview-btn">{busy ? 'Previewing…' : 'Preview'}</button>}
         </div>
       </div>

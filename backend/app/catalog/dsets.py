@@ -292,7 +292,13 @@ def history(app, dataset_id: str) -> dict[str, Any]:
             f"SELECT id, ts, actor, action, comment, details FROM audit_log WHERE json_extract(details, '$.root_id') = ?"
             f" OR json_extract(details, '$.dataset_id') IN ({q}) ORDER BY id DESC LIMIT 60", (root, *ids))]
         proj = con.execute("SELECT id, name FROM projects WHERE id = ?", (rows[0]["project_id"],)).fetchone() if rows else None
+        vtabs: dict[str, list[dict[str, Any]]] = {}
+        for t in con.execute(f"SELECT version_id, table_name, n_rows, change FROM version_tables WHERE version_id IN ({q})"
+                             f" ORDER BY version_id, ordinal", ids):
+            vtabs.setdefault(t[0], []).append({"table": t[1], "n_rows": t[2], "change": t[3]})
+        vman = {x[0]: (x[1], x[2]) for x in con.execute(f"SELECT id, manifest_sha256, primary_table FROM datasets WHERE id IN ({q})", ids)}
     default, how = effective_default(rows, c)
+    lake = getattr(app.state, "lake", None)
     for r in rows:
         e = edges.get(r["id"]) or {}
         lin = lineage_meta(store, r["id"])  # P08: never the row maps
@@ -300,6 +306,8 @@ def history(app, dataset_id: str) -> dict[str, Any]:
         r["changes"] = {k: lin.get(k) for k in ("matched_by", "matched", "changed", "added", "removed", "rows_before", "rows_after",
                                                 "relabelled", "dropped", "synthetic") if lin.get(k) is not None}
         r["n_changes"] = (e.get("meta") or {}).get("n_changes")
+        if len(vtabs.get(r["id"]) or []) > 1:  # U5: a multi-table version's counts, table by table (additive field)
+            r["table_changes"] = table_changes(db, lake, r, vtabs, *vman.get(r["id"], (None, None)))
         r["warnings"] = ((lin.get("checks") or {}).get("warnings")) or []
         r["reason"] = lin.get("reason") or None  # DL2: the reason / change ticket given when it was made
         if lin.get("kind") == "edit":  # DL3: an in-app edit: each operation and what it touched
@@ -320,6 +328,75 @@ def history(app, dataset_id: str) -> dict[str, Any]:
             "versions": rows, "requests": reqs, "audit": aud, "focus": dataset_id,
             "admins_configured": bool(G.admins()), "retention_days": _retention_days(), "retired_versions": [
                 {k: v.get(k) for k in ("id", "model_name", "version", "retired_at", "retired_by", "dataset_id")} for v in u["versions"] if v["retired"]]}
+
+
+_MAN_OPS: dict[str, list[dict[str, Any]]] = {}
+
+
+def _manifest_ops(db, lake, version_id: str, manifest_sha: str | None) -> list[dict[str, Any]]:
+    """provenance.ops of a version's manifest, cached by the manifest's sha256 (a manifest never changes)."""
+    if not manifest_sha or lake is None:
+        return []
+    hit = _MAN_OPS.get(manifest_sha)
+    if hit is not None:
+        return hit
+    from ..lake import verify as LV
+
+    try:
+        _v, man, _raw = LV.load_manifest(db, lake, version_id)
+    except Exception:  # noqa: BLE001 - a missing / unreadable manifest: no counts, history still answers
+        return []
+    ops = list(((man or {}).get("provenance") or {}).get("ops") or [])
+    if len(_MAN_OPS) > 4096:
+        _MAN_OPS.clear()
+    _MAN_OPS[manifest_sha] = ops
+    return ops
+
+
+def _op_counts(o: dict[str, Any]) -> dict[str, int] | None:
+    """added / changed / removed of one table from one manifest op (the delta, match, append, edit and frame-write ops)."""
+    op = o.get("op")
+    if op == "delta":
+        return {"added": o.get("inserted") or 0, "changed": o.get("updated") or 0, "removed": o.get("deleted") or 0}
+    if op == "upload_version" and isinstance(o.get("match"), dict):
+        m = o["match"]
+        return {"added": m.get("added") or 0, "changed": m.get("changed") or 0, "removed": m.get("removed") or 0}
+    if op == "upload_append":
+        return {"added": o.get("rows_added") or 0, "changed": 0, "removed": 0}
+    if op == "edit" and isinstance(o.get("rows"), dict):
+        x = o["rows"]
+        return {"added": x.get("added") or 0, "changed": x.get("changed") or 0, "removed": x.get("removed") or 0}
+    if isinstance(o.get("rows"), dict) and "kept" in o["rows"]:  # a frame written as a version (kept / new / removed)
+        x = o["rows"]
+        return {"added": x.get("new") or 0, "changed": o.get("n_changes") or 0, "removed": x.get("removed") or 0}
+    return None
+
+
+def table_changes(db, lake, r: dict[str, Any], vtabs: dict[str, list[dict[str, Any]]], manifest_sha: str | None,
+                  primary: str | None) -> list[dict[str, Any]]:
+    """U5: what each table of a multi-table version changed against its parent: `change` (carried / rewritten /
+    appended / added), rows before → after, and added / changed / removed from the version's manifest ops (null when
+    no op recorded them). The row-level `changes` stay the primary table's, as before."""
+    parent = {t["table"]: t for t in vtabs.get(r.get("parent_id") or "") or []}
+    counts: dict[str, dict[str, int]] = {}
+    for o in _manifest_ops(db, lake, r["id"], manifest_sha):
+        c = _op_counts(o) if isinstance(o, dict) and o.get("table") else None
+        if c:
+            acc = counts.setdefault(o["table"], {"added": 0, "changed": 0, "removed": 0})
+            for k, v in c.items():
+                acc[k] += int(v)
+    out = []
+    for t in vtabs.get(r["id"]) or []:
+        p = parent.get(t["table"])
+        c = counts.get(t["table"])
+        if c is None and t["change"] == "carried":
+            c = {"added": 0, "changed": 0, "removed": 0}
+        if c is None and t["change"] == "added":
+            c = {"added": int(t["n_rows"] or 0), "changed": 0, "removed": 0}
+        out.append({"table": t["table"], "change": t["change"], "primary": t["table"] == primary,
+                    "rows_before": p["n_rows"] if p else None, "rows_after": t["n_rows"],
+                    **(c if c is not None else {"added": None, "changed": None, "removed": None})})
+    return out
 
 
 def _retention_days() -> float:

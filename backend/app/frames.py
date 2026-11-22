@@ -1007,3 +1007,23 @@ def run_artifact_csv(path: Path | str, **kw: Any) -> pd.DataFrame:
     """F-X5b (grep gate 1): a CSV a run wrote into its own run dir (e.g. scorecard/scorecard.csv), read back. Not a
     dataset version: versions are read with read() / scan()."""
     return pd.read_csv(path, **kw)
+
+
+def read_part_columns(path: Path | str, columns: list[str]) -> Any:
+    """U5 (grep gate 1): some columns of one Parquet part of a lake table, as a pyarrow Table (no pandas frame). Used by
+    engine/serving.read_ids (the __row_id and label-validity scan of F-X5a K1). A missing file raises FileNotFoundError."""
+    import pyarrow.parquet as pq
+
+    return pq.read_table(str(path), columns=columns)
+
+
+def read_frame_file(path: Path | str) -> pd.DataFrame:
+    """U5 (grep gate 1): a frame file (a join frame's cache, or one rebuilt from pinned inputs) read the way `read` reads
+    a lake table: engine_v1 types, index = __row_id."""
+    import pyarrow.parquet as pq
+
+    at = pq.read_table(str(path))
+    names = [c for c in at.column_names if c != "__row_id"]
+    df = pd.DataFrame({c: _v1_column(at.column(c), c) for c in names}, columns=names)
+    df.index = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False))
+    return df

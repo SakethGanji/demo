@@ -1103,14 +1103,14 @@ def join_batch_frame(db_path: str, cfg: dict[str, Any], uploads: list[tuple[str,
         rp = out_dir / "tables" / f"{safe}.raw.parquet"
         pq.write_table(pa.Table.from_pandas(raw, preserve_index=False), rp)
         tp = out_dir / "tables" / f"{safe}.parquet"
-        src, dst = str(rp).replace("'", "''"), str(tp).replace("'", "''")
+        src, dst = duck.parquet_rel(str(rp), union_by_name=False), str(tp).replace("'", "''")
         sel = ", ".join(f"TRY_CAST({frames._qi(c['name'])} AS {c['type']}) AS {frames._qi(c['name'])}" for c in cols)
         fails = ", ".join(f"sum(CASE WHEN {frames._qi(c['name'])} IS NOT NULL AND TRY_CAST({frames._qi(c['name'])} AS {c['type']}) IS NULL"
                           f" THEN 1 ELSE 0 END)" for c in cols)
         with duck.job() as con:
             con.execute("SET preserve_insertion_order=true")
-            con.execute(f"COPY (SELECT __row_id, {sel} FROM read_parquet('{src}') ORDER BY __row_id) TO '{dst}' (FORMAT parquet)")
-            bad = con.execute(f"SELECT {fails} FROM read_parquet('{src}')").fetchone() if cols else ()
+            con.execute(f"COPY (SELECT __row_id, {sel} FROM {src} ORDER BY __row_id) TO '{dst}' (FORMAT parquet)")
+            bad = con.execute(f"SELECT {fails} FROM {src}").fetchone() if cols else ()
         rp.unlink()
         sha, nbytes = M.file_sha256(tp)
         lts.append(frames.LakeTable(f"batch:{alias}", t, sha, n, schema,

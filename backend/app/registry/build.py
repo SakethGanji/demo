@@ -1070,13 +1070,7 @@ class ParityError(RuntimeError):
 
 def _frame_v1(path: Path) -> pd.DataFrame:
     """A frame file read the way `frames.read` reads a lake table (engine_v1 types, index = __row_id)."""
-    import pyarrow.parquet as pq
-
-    at = pq.read_table(str(path))
-    names = [c for c in at.column_names if c != "__row_id"]
-    df = pd.DataFrame({c: frames._v1_column(at.column(c), c) for c in names}, columns=names)
-    df.index = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False))
-    return df
+    return frames.read_frame_file(path)
 
 
 def serving_parity(db_path: str | Path, cfg: dict[str, Any], work: Path) -> dict[str, Any]:
@@ -1130,17 +1124,17 @@ def serving_parity(db_path: str | Path, cfg: dict[str, Any], work: Path) -> dict
         out.update(summary="; ".join(problems), seconds=round(time.time() - t0, 3))
         return out
     if cache_path is not None and cache_path.exists():
-        a, b = str(cache_path).replace("'", "''"), str(rebuilt).replace("'", "''")
+        a, b = duck.parquet_rel(str(cache_path), union_by_name=False), duck.parquet_rel(str(rebuilt), union_by_name=False)
         try:
             with duck.job() as con:
-                da = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{a}')").fetchall()}
-                dbb = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{b}')").fetchall()}
+                da = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM {a}").fetchall()}
+                dbb = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM {b}").fetchall()}
                 common = [c for c in da if c in dbb and c != "__row_id"]
                 diffs = ", ".join(f"sum(CASE WHEN t.{frames._qi(c)} IS DISTINCT FROM s.{frames._qi(c)} THEN 1 ELSE 0 END)" for c in common)
                 row = con.execute(
-                    f"SELECT (SELECT count(*) FROM read_parquet('{a}')), (SELECT count(*) FROM read_parquet('{b}')),"
+                    f"SELECT (SELECT count(*) FROM {a}), (SELECT count(*) FROM {b}),"
                     f" sum(CASE WHEN t.__row_id IS NULL OR s.__row_id IS NULL THEN 1 ELSE 0 END){', ' + diffs if diffs else ''}"
-                    f" FROM read_parquet('{a}') t FULL OUTER JOIN read_parquet('{b}') s ON t.__row_id = s.__row_id").fetchone()
+                    f" FROM {a} t FULL OUTER JOIN {b} s ON t.__row_id = s.__row_id").fetchone()
             n_t, n_s, unmatched = int(row[0]), int(row[1]), int(row[2] or 0)
             bad = {c: int(v or 0) for c, v in zip(common, row[3:]) if v}
             out["training"] = {"rows": n_t, "sha256": now}

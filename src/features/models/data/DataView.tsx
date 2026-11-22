@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { catalog, data, type DsCard, type DsDiff, type DsHistory, type DsRow, type DsUsage, type DsVersion, type MyTeam } from '@/shared/api/catalog'
+import { catalog, data, type DsCard, type DsDiff, type DsHistory, type DsRow, type DsUsage, type DsVersion, type DsTableChange, type MyTeam } from '@/shared/api/catalog'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ErrorCard, Loading } from '@/shared/components/Status'
@@ -8,7 +8,7 @@ import { fmtScore } from '@/shared/lib/metrics'
 import { NotesStrip } from '../components/NotesStrip'
 import { Badge, CardHead, ChangeBar, ConfirmButton, CopyId, Flash, Callout } from '@/shared/components/DataKit'
 import { EmptyState } from '@/shared/components/EmptyState'
-import { day, when, plural, pct } from '@/shared/lib/format'
+import { day, when, plural, pct, int } from '@/shared/lib/format'
 import { ProjectTree } from '../components/ProjectTree'
 import { EditVersion } from './EditVersion'
 import { StagedUpload } from './StagedUpload'
@@ -313,7 +313,35 @@ function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEd
   )
 }
 
+/** U5: a multi-table version's changes: the total over its tables as one ChangeBar; the breakdown per table (change
+ *  badge + its own ChangeBar) on expand, and in the summary's title on hover. */
+function TableChanges({ v, tc }: { v: DsVersion; tc: DsTableChange[] }) {
+  const sum = (k: 'added' | 'changed' | 'removed') => tc.reduce((s, t) => s + (t[k] ?? 0), 0)
+  const touched = tc.filter((t) => t.change !== 'carried')
+  const before = tc.reduce((s, t) => s + (t.rows_before ?? 0), 0)
+  const line = (t: DsTableChange) => `${t.table}${t.primary ? ' (primary)' : ''}: ${t.change}` + (t.added == null ? '' : ` · +${int(t.added)} ~${int(t.changed ?? 0)} −${int(t.removed ?? 0)}`)
+    + (t.rows_before != null && t.rows_after != null ? ` · ${int(t.rows_before)} → ${int(t.rows_after)} rows` : '')
+  return (
+    <details className="tchg" onClick={(e) => e.stopPropagation()} data-testid={`data-tchg-${v.v}`}>
+      <summary title={tc.map(line).join('\n')}>
+        <ChangeBar add={sum('added')} upd={sum('changed')} del={sum('removed')} base={before || null} testId={`data-tchg-total-${v.v}`} />
+        <span className="sub-line">{touched.length ? `${plural(touched.length, 'table')} changed: ${touched.map((t) => t.table).join(', ')}` : 'every table carried'} · {plural(tc.length, 'table')}</span>
+      </summary>
+      <table className="tchg-t">
+        <tbody>{tc.map((t) => <tr key={t.table} data-testid={`data-tchg-${v.v}-${t.table}`}>
+          <td className="mono">{t.table}{t.primary && <span className="muted" title="the primary table"> ★</span>}</td>
+          <td><Badge status={t.change} /></td>
+          <td>{t.added == null ? <span className="muted" title="no row-level counts recorded for this table">—</span>
+            : <ChangeBar add={t.added} upd={t.changed} del={t.removed} base={t.rows_before} />}</td>
+          <td className="r mono muted">{t.rows_before != null && t.rows_after != null ? `${int(t.rows_before)} → ${int(t.rows_after)}` : t.rows_after != null ? int(t.rows_after) : ''}</td>
+        </tr>)}</tbody>
+      </table>
+    </details>
+  )
+}
+
 const changeLine = (v: DsVersion) => {
+  if (v.parent_id && v.table_changes?.length) return <TableChanges v={v} tc={v.table_changes} />
   const c = v.changes
   if (c.matched != null) return <ChangeBar add={c.added} upd={c.changed} del={c.removed} base={c.rows_before ?? null} />
   if (c.rows_before != null && c.rows_after != null && v.parent_id) return <span>{c.rows_before.toLocaleString()} → {c.rows_after.toLocaleString()} rows{v.n_changes ? ` · ${v.n_changes} change${v.n_changes === 1 ? '' : 's'}` : ''}</span>

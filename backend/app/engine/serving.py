@@ -170,7 +170,6 @@ def read_ids(ref: Any, label: str | None = None) -> tuple[np.ndarray, np.ndarray
     """(__row_id in read order, whether the label is set on each row) of a Parquet table: two columns, no pandas frame."""
     import pyarrow as pa
     import pyarrow.compute as pc
-    import pyarrow.parquet as pq
 
     from .. import frames
 
@@ -178,7 +177,7 @@ def read_ids(ref: Any, label: str | None = None) -> tuple[np.ndarray, np.ndarray
     ids, ok = [], []
     for part in lt.parts:
         try:
-            t = pq.read_table(str(part["path"]), columns=[ROW_ID] + ([label] if label else []))
+            t = frames.read_part_columns(part["path"], [ROW_ID] + ([label] if label else []))
         except FileNotFoundError as e:
             raise frames.FrameError(f"A file of {ref.version_id} ({part['sha256'][:12]}…) is missing from the lake.") from e
         ids.append(t.column(0).to_numpy(zero_copy_only=False).astype("int64"))

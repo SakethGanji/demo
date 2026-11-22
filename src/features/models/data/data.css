@@ -276,3 +276,13 @@
 .up-date { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .cert-mark { background: none !important; display: inline-flex; }
 .data-audit-line { display: -webkit-box !important; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 340px; }
+
+/* U5: a multi-table version's changes, total + per table on expand */
+.tchg > summary { list-style: none; cursor: pointer; }
+.tchg > summary::-webkit-details-marker { display: none; }
+.tchg > summary .chg::before { content: '▸'; color: var(--text-muted); font-size: 10px; margin-right: -2px; }
+.tchg[open] > summary .chg::before { content: '▾'; }
+.tchg-t { margin-top: 6px; border-collapse: collapse; font-size: 12px; }
+.tchg-t td { padding: 3px 8px 3px 0; border-top: 1px solid var(--border-row); vertical-align: middle; white-space: nowrap; }
+.tchg-t tr:first-child td { border-top: 0; }
+.data-versions .tchg-t td { text-align: left; width: auto; padding: 3px 8px 3px 0 !important; } .data-versions .tchg-t td.r { text-align: right; }

@@ -79,7 +79,12 @@ export type DsVersion = {
   warnings: DsWarning[]; used_by: { runs: number; versions: number; champion: boolean }; reason: string | null; state_scope?: 'dataset' | 'version' | null
   /** DL3: an in-app edit: each operation and what it touched */
   edit_ops?: { i: number; op: string; summary: string; rows: number | null; cells: number | null; column: string | null }[]; duplicate_of?: string
+  /** U5: a multi-table version, table by table (from its manifest ops); `changes` above stay the primary table's.
+   *  Counts are null when no op recorded them (e.g. a key declaration rewrote nothing row by row). */
+  table_changes?: DsTableChange[]
 }
+export type DsTableChange = { table: string; change: string; primary: boolean; rows_before: number | null; rows_after: number | null
+  added: number | null; changed: number | null; removed: number | null }
 export type DsRequest = { id: string; dataset_id: string; root_id: string; action: 'delete'; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; requested_by: string; requested_at: string; reason: string; decided_by: string | null; decided_at: string | null; comment: string }
 export type DsAudit = { id: number; ts: string; actor: string; action: string; comment: string; details: Record<string, unknown> | null }
 export type DsHistory = { root_id: string; name: string; project: { id: string; name: string } | null; state: string | null; card: DsCard; default_version_id: string | null; default_how: string; versions: DsVersion[]; requests: DsRequest[]; audit: DsAudit[]; focus: string; admins_configured: boolean; retention_days: number
@@ -105,7 +110,9 @@ export type DsGrid = { dataset_id: string; table?: string; columns: { name: stri
   masked_columns?: string[]; masks?: Record<string, string>; unmasked?: boolean; unmasked_refused?: { action: string; needed: string; role: string | null; message: string } }
 export type DsEditSummary = { matched: number; changed: number; added: number; removed: number; columns_before: number; columns_after: number; renamed: Record<string, string>
   checks: DsUploadSummary['checks']; edit_log: DsEditLog[]; ops_summary: string[]; n_ops: number; duplicate_of?: string }
-export type DsEditPreview = DsEditSummary & { preview: true; v: number; parent: string; rows: number; n_cols: number; sha256: string; would_be_default: boolean; columns: string[]; sample: Record<string, unknown>[]; note: string }
+export type DsEditPreview = DsEditSummary & { preview: true; v: number; parent: string; rows: number; n_cols: number; sha256: string | null; would_be_default: boolean; columns: string[]; sample: Record<string, unknown>[]; note: string
+  /** F-X5b (J1): integrity codes (`key_invalidated`, `relation_dropped`) the commit must acknowledge, listed in checks.warnings */
+  needs_acknowledge?: string[] }
 export type DsUsage = { dataset_id: string; datasets: string[]; runs: { id: string; name: string; status: string; dataset_id: string; label: string; created_at: string; primary_metric: string | null; primary_score: number | null
     /** P14: a run that read this version through a join frame */
     via_join?: { join_frame_id: string; tables: string[]; relation: 'joined_from' | 'merged_from' } }[]
@@ -142,8 +149,9 @@ export const data = {
     request<DsGrid>(`/datasets/${e(id)}/grid?offset=${o.offset ?? 0}&limit=${o.limit ?? 50}&q=${e(o.q ?? '')}${o.table ? `&table=${e(o.table)}` : ''}${o.unmasked ? `&unmasked=1&reason=${e(o.reason ?? '')}` : ''}`, { timeoutMs: 60_000 }),
   /** DL3: typed operations → a NEW version (nothing modified in place). preview=true writes nothing. */
   editPreview: (id: string, ops: DsEditOp[], by: string, table?: string | null) => json<DsEditPreview>(`/datasets/${e(id)}/edit`, 'POST', { ops, by, preview: true, ...(table ? { table } : {}) }, 120_000),
-  edit: (id: string, ops: DsEditOp[], by: string, reason: string, make_default: 'auto' | 'no' = 'auto', table?: string | null) =>
-    json<import('./types').DatasetDetail & { created: boolean; duplicate_of?: string; edit: DsEditSummary; default?: { is_default: boolean; why: string } }>(`/datasets/${e(id)}/edit`, 'POST', { ops, by, reason, make_default, ...(table ? { table } : {}) }, 300_000),
+  /** F-X5b (J1): `acknowledge` names the integrity codes the preview listed (by code), else 400 acknowledge_required. */
+  edit: (id: string, ops: DsEditOp[], by: string, reason: string, make_default: 'auto' | 'no' = 'auto', table?: string | null, acknowledge: string[] = []) =>
+    json<import('./types').DatasetDetail & { created: boolean; duplicate_of?: string; edit: DsEditSummary; default?: { is_default: boolean; why: string } }>(`/datasets/${e(id)}/edit`, 'POST', { ops, by, reason, make_default, ...(table ? { table } : {}), ...(acknowledge.length ? { acknowledge } : {}) }, 300_000),
   adoptDiskFile: (id: string, by: string, reason: string) => json<import('./types').DatasetDetail & { upload: DsUploadSummary }>(`/datasets/${e(id)}/adopt-disk-file`, 'POST', { by, reason }, 300_000),
   verify: (id: string, by: string, all = false) => json<DsVerify>(`/datasets/${e(id)}/verify`, 'POST', { by, all }, 120_000),
   exportUrl: (id: string, by: string, format: 'zip' | 'csv' = 'zip') => `/api/datasets/${e(id)}/export?format=${format}&by=${e(by)}`,

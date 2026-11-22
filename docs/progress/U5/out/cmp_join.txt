@@ -1,0 +1,9 @@
+join model | holdout_predictions.csv byte-equal: True
+join model | holdout metrics equal: True
+join model | parity (serving_parity + prediction_parity) equal, timings stripped: True | status ok ok | summary serving frame = training frame (every cell, by __row_id); the version's predictions on 800 holdout rows equal
+   parity keys: ['byte_equal', 'cache', 'column_set_equal', 'columns_compared', 'inputs', 'join_frame_id', 'method', 'mismatched_cells', 'predictions', 'rows', 'serving', 'spec_sha256', 'status', 'summary', 'training', 'types_equal']
+batch | tables/applications.parquet byte-equal: True
+batch | tables/bureau.parquet byte-equal: True
+batch | scored.csv byte-equal: True
+batch | join.json byte-equal: False
+batch | result equal (output path removed): False | n_rows 200 200
