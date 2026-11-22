@@ -1,0 +1,6 @@
+{'table': 'branches'} → check 500 None Internal Server Error
+{'tables': {'branches': {'action': 'new'}}} → commit 200 201 [('branches', 'new')]
+   tables [('apps', 'carried'), ('customers', 'carried'), ('payments', 'carried'), ('branches', 'new')]
+{'table': 'branches', 'tables': {'branches': {'action': 'new'}}} → commit 200 201 [('branches', 'new')]
+   tables [('apps', 'carried'), ('customers', 'carried'), ('payments', 'carried'), ('branches', 'new')]
+None → check 400 None {'detail': {'code': 'match_impossible', 'message': 'The new file shares no column of a comparable type with the parent: nothing to match rows on.'}}

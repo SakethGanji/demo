@@ -1,0 +1,11 @@
+save join 201
+POST joins version_id 5 → 500 Internal Server Error
+POST joins version_id {'a': 1} → 500 Internal Server Error
+validate version_id 5 → 500 Internal Server Error
+validate version_id 1.5 → 500 Internal Server Error
+validate version_id 'ds_nope' → 404 {'detail': {'code': 'not_found', 'message': 'ds_nope is not a version of ds_554dae04.'}}
+GET /datasets/ds_%00 → 500 Internal Server Error
+GET /datasets/ds_0f734ad1%00 → 500 Internal Server Error
+GET /datasets/ds_%00/versions → 405 {"detail":"Method Not Allowed"}
+GET /datasets/ds_0f734ad1/diff/ds_%00 → 500 Internal Server Error
+PUT /datasets/ds_0f734ad1/tables/customers%00/key → 400 {"detail":{"code":"table_unknown","message":"ds_0f734ad1 has no table 'customers\\x00' (its tables: 

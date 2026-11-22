@@ -1,0 +1,22 @@
+# X4 SQLite enforce: steps run by hand with curl on the same API (port 8741), after the scripts (see X4.md)
+
+## governance.py 4e used a 7-character reason (400 reason_required); re-sent with a valid reason under the PD hold:
+POST /datasets/ds_f132fdb9/purge {"table":"loans","columns":["ssn"],"reason":"customer erasure request batch","by":"Ana"} (Ana)
+→ 409 {"detail":{"code":"legal_hold","message":"Can't purge loans.ssn: legal hold CASE-X4 covers it (project prj_630989f5, lh_77b23247f0). …","cases":["CASE-X4"],…}}
+POST /datasets/ds_f132fdb9/delete {"reason":"superseded extract","by":"Mo"} (Mo)
+→ 409 {"detail":{"code":"legal_hold","message":"Can't delete ds_f132fdb9: legal hold CASE-X4 covers it (project prj_630989f5, lh_77b23247f0). …"}}
+
+## lists in enforce mode (GET /datasets?limit=500): v1 present?
+Fay 16 rows, v1 False · Carl 15 rows, v1 False (share revoked) · Vic 16 rows, v1 True (team tm_3e0dc8d2)
+
+## /registry/audit as Fay (no filter): 103 entries, teams {tm_default: 68, credit-risk: 26, fraud: 5, collections: 4} (Postgres pass, port 8743)
+## GET /teams/tm_default (Ada): every principal is a member (Ada, Adam owners; Ana, Ben, Bo, Carl, Cole, Fay, Fox, Mo, Rita, Vic members)
+
+## admin reset under the team hold CASE-RESET (audit.py §3 got 409 "The Vela agent is working on a conversation; stop it first."
+## because Fay's as_437dc7c2 still waited for a confirmation; stopped, then the same approved request reused):
+POST /agent/sessions/as_437dc7c2/stop (Ada) → 200
+POST /admin/reset {"confirm":"reset","by":"Ada","request_id":"arq_58fb5dc7","reason":"refresh"} (Ada)
+→ 200 {"deleted":{"run_events":188,"runs":5,"batch_jobs":3,"model_versions":1,"registered_models":1,"run_inputs":2,"join_frames":1,"joins":1,"splits":18,…,"certifications":1,"column_tags":4,"data_contracts":1,"datasets":18,…,"projects":18,…}, …}
+GET /legal-holds?team=tm_3e0dc8d2 → {"holds":[{"id":"lh_d6e2b9bb29","scope_kind":"team","case_ref":"CASE-RESET",…,"released_by":null,"active":true,…}]}
+GET /runs/run_2a915345 → {"detail":"No run with id 'run_2a915345'."}
+GET /teams/tm_3e0dc8d2/audit/verify → {"ok":true,"rows":153,…}

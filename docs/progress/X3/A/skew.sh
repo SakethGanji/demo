@@ -1,0 +1,7 @@
+# skew.sh <api> <dir>: 20k grain rows and 20k event rows on ONE key value; aggregate with and without a window
+HERE=$(cd "$(dirname "$0")" && pwd); A=$1; cd $2; . $HERE/lib.sh
+upload s $A/uploads -F file=@g.csv -F file=@e.csv -F name=skew -F target=y; R=$(cat s.vid)
+call j.json $H $J -X POST $A/datasets/$R/joins -d '{"name":"skew_plain","spec":{"grain":"g","joins":[{"type":"aggregate","table":"e","on":["k"],"prefix":"e__","aggs":[{"name":"n","fn":"count"},{"name":"s","fn":"sum","column":"v"}]}]}}'; val j.json "d.get('detail') or [(c['matched'], c['rows_aggregated']) for c in d['validation']['coverage']]"
+JP=$(val j.json "d['id']"); curl -w "   %{time_total} s wall\n" -s -o f.json $H $J -X POST $A/datasets/$R/versions/$R/frames -d "{\"join_id\":\"$JP\"}"; val f.json "d.get('detail') or (d['n_rows'], d['seconds'])"
+call j2.json $H $J -X POST $A/datasets/$R/joins -d '{"name":"skew_win","spec":{"grain":"g","joins":[{"type":"aggregate","table":"e","on":["k"],"prefix":"w__","aggs":[{"name":"n30","fn":"count","window":{"date":"at","relative_to":"on_","days":-30}},{"name":"s30","fn":"sum","column":"v","window":{"date":"at","relative_to":"on_","days":-30}}]}]}}'; val j2.json "d.get('detail') or [(c['matched'], c['rows_aggregated']) for c in d['validation']['coverage']]"
+JW=$(val j2.json "d['id']"); curl -w "   %{time_total} s wall (400M joined pairs)\n" -s -o f2.json $H $J -X POST $A/datasets/$R/versions/$R/frames -d "{\"join_id\":\"$JW\"}"; val f2.json "d.get('detail') or (d['n_rows'], d['seconds'])"

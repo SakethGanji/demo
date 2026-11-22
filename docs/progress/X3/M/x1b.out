@@ -1,0 +1,2 @@
+check 400
+{'detail': {'code': 'duplicate_header', 'message': "edge.xlsx, sheet 'dup headers': The header repeats a column name ('a' is columns 1, 2). Rename or remove the duplicate and upload again, so no column is silently renamed.", 'table': 'dup_headers'}}

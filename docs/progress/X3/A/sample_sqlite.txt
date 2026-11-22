@@ -1,0 +1,12 @@
+sqlite run_2021c2a8 42 0.05 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+sqlite run_c44664e0 42 0.2 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+sqlite run_f51b8504 42 0.05 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+sqlite run_b01a706c 42 0.2 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+sqlite run_0f2e1b0e 7 0.05 table | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+sqlite run_6f3640ff 7 0.2 table | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+sqlite run_f4399c20 42 0.05 jn_29ed2a329d | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+sqlite run_0995e44d 42 0.2 jn_29ed2a329d | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+sqlite run_8622d465 42 0.05 jn_29ed2a329d | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+sqlite run_ec7cea49 42 0.2 jn_29ed2a329d | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+sqlite run_aab8affc 7 0.05 jn_29ed2a329d | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+sqlite run_1fe78553 7 0.2 jn_29ed2a329d | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105

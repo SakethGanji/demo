@@ -1,0 +1,61 @@
+v1 commit 201
+v1 schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+key 201 ds_f102b18c
+
+### update of missing key (_op=U): stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+
+### delete+insert same key: stage=check check=400 commit=None
+  detail {'code': 'delta_duplicate_keys', 'message': "Delta of 'loans': 1 key(s) appear more than once in the delta (the first 1 are listed): a delta names each key once. Keep one row per key and upload again.", 'table': 'loans', 'columns': ['acct'], 'n_duplicate_keys': 1, 'keys': [{'value': ['00001'], 'rows': 2}]}
+  warnings []
+
+### two updates same key: stage=check check=400 commit=None
+  detail {'code': 'delta_duplicate_keys', 'message': "Delta of 'loans': 1 key(s) appear more than once in the delta (the first 1 are listed): a delta names each key once. Keep one row per key and upload again.", 'table': 'loans', 'columns': ['acct'], 'n_duplicate_keys': 1, 'keys': [{'value': ['00002'], 'rows': 2}]}
+  warnings []
+
+### key dtype: '3' vs '00003' (no zeros): stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+
+### key with zeros '00003': stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+
+### no-op delta (same values): stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+  parent 2 [('loans', 'carried', '4d3907f85b27')]
+
+### no-op delta again: stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+  same version as first no-op? True
+
+### NULL key in delta: stage=check check=400 commit=None
+  detail {'code': 'delta_key_null', 'message': "Delta of 'loans': 1 row(s) of the delta have no acct: every delta row names its key.", 'table': 'loans', 'columns': ['acct']}
+  warnings []
+
+### type drift in a value column: stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+
+### delete missing key only: stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+
+### ops lower-case/space: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 1, 'updated_unchanged': 0, 'deleted': 1, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 39}
+  warnings []
+
+### delta without key column: stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []
+
+### delete-only file with key only: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 0, 'updated_unchanged': 0, 'deleted': 2, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 38}
+  warnings [('delta_columns_missing', "The delta has no amt, seg, target: updated rows keep the parent's values, inserted rows get missing ")]
+
+### partial-column update: stage=check check=400 commit=None
+  detail {'code': 'too_few_rows', 'message': 'loans.csv: This file has fewer than two data rows.', 'table': 'loans'}
+  warnings []

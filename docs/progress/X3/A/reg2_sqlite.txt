@@ -1,0 +1,26 @@
+## R4 batch (clean) on the join model before any new version
+HTTP 202 batch_48c001df succeeded
+## R5 new versions: ext (delta: 60 scores +100) and jx (pays delta) and make them default
+HTTP 201 ds_aa58bf04
+HTTP 201 ds_331f86f8
+## R6 re-register the same run (parity from the pinned inputs) → ok?
+HTTP 202 mv_1fb86137 ready
+HTTP 200 parity ok | tables [('apps', 'ds_3c7bbcf8'), ('cust', 'ds_6dbb0b2c'), ('pays', 'ds_3c7bbcf8')]
+## R7 batch (clean) again → predictions identical to R4?
+HTTP 202 batch_824afa7a succeeded
+   b1.csv == b2.csv (byte-equal)
+## R8 the join on the new jx version: still pinned to ext ds_6dbb0b2c (not ds_aa58bf04)?
+HTTP 201 [('grain', 'ds_331f86f8', 'apps'), ('join:0', 'ds_6dbb0b2c', 'cust'), ('join:1', 'ds_331f86f8', 'pays')]
+## R9 batches: reordered + extra columns; coercion failures
+HTTP 202 batch_e8a88c56 succeeded
+succeeded None {'apps': (300, {}, ['extra_col']), 'cust': (241, {}, []), 'pays': (30834, {}, [])} | extra ['app_id', 'y']
+HTTP 202 batch_4109ee35 succeeded
+succeeded None {'apps': (300, {'applied_on': 10}), 'cust': (241, {}), 'pays': (30834, {})}
+summary keys ['classes', 'extra_columns', 'flagged_share', 'histogram', 'join', 'mean_p', 'mean_p_reference', 'missing_columns', 'model', 'n_rows', 'positive_class', 'predicted', 'problem_type', 'reasons', 'score_quantiles', 'score_seconds', 'seconds', 'threshold', 'us_per_row'] | warnings None
+   prediction columns ['prediction'] | b3 columns ['reason_4', 'reason_4_feature', 'reason_4_phi', 'recourse']
+   reorder: rows 300, rows whose prediction differs from the clean batch: 0 []
+   coerce: rows 300, rows whose prediction differs from the clean batch: 1 ['A00010']
+## R10 archive / delete the pinned ext version ds_6dbb0b2c while a model is registered on it
+HTTP 409 {'message': "Can't archive: a version is in use. Each line below says how to clear it."}
+HTTP 409 {'message': "Can't delete: a version is in use. Each line below says how to clear it."}
+HTTP 200 usage runs [('run_15af0743', 'merged_from'), ('run_9c01519d', 'merged_from')] | blocks ['x3-two-custs v1 (pending) was built from run run_15af0743 on ds_6dbb0b2c: reject it (Registry → the version → Review) or retire it (Registry → the version → Retire…, POST /api/registry/versions/mv_9ff13699/retire; four eyes).', 'x3-join v1 (pending) was built from run run_9c01519d on ds_6dbb0b2c: reject it (Registry → the version → Review) or retire it (Registry → the version → Retire…, POST /api/registry/versions/mv_d7d0c35a/retire; four eyes).', 'x3-join v2 (pending) was built from run run_9c01519d on ds_6dbb0b2c: reject it (Registry → the version → Review) or retire it (Registry → the version → Retire…, POST /api/registry/versions/mv_1fb86137/retire; four eyes).']

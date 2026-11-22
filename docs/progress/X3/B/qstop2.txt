@@ -1,0 +1,23 @@
+POST edit 202 {"async":true,"job_id":"jb_e993b58c2cf3","job":{"id":"jb_e993b58c2cf3","kind":"edit","status":"queued","created_at":"2026-11-22T01:20:04.052509Z"},"status":"queued","poll":"/api/jobs/jb_e993b58c2cf3",
+  +0.0s ('queued', 0, None, None) None
+  +0.5s ('leased', 1, None, None) workerd-9dbc80@vm:14314
+  +1.3s ('leased', 1, 'verifying', 0.01) workerd-9dbc80@vm:14314
+  +2.4s ('leased', 1, 'compiling', 0.08) workerd-9dbc80@vm:14314
+  +14.0s ('leased', 1, 'writing', 0.12) workerd-9dbc80@vm:14314
++15.8s SIGSTOP workerd-9dbc80@vm:14314 attempt 1 at {'pct': 0.31, 'phase': 'writing', 'at': '2026-11-22T01:20:19.835635Z'}
+  +45.9s ('leased', 2, None, None) workerd-932a4f@vm:14504
++45.9s SIGCONT 14314 (attempt 2 now holds, leased {})
+  +47.5s ('leased', 2, 'verifying', 0.01) workerd-932a4f@vm:14504
+  +50.8s ('leased', 2, 'compiling', 0.08) workerd-932a4f@vm:14504
+  +76.8s ('leased', 2, 'writing', 0.12) workerd-932a4f@vm:14504
+  +89.4s ('leased', 2, 'writing', 0.7) workerd-932a4f@vm:14504
+  +98.9s ('leased', 2, 'carrying', 0.72) workerd-932a4f@vm:14504
+  +103.7s ('leased', 2, 'committing', 0.82) workerd-932a4f@vm:14504
+  +104.0s ('leased', 2, 'finishing', 0.9) workerd-932a4f@vm:14504
+  +110.7s ('succeeded', 2, 'done', 1.0) workerd-932a4f@vm:14504
++110.7s job succeeded attempts 2 result {"status_code": 201, "id": "ds_25be5702", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_7d0e1795 as v6: replaced 'BROKER' \u2192 'b-r' in 'channel' (exact): 3333330 cell(s)", "created_at": "2026-11-22T01:21:30+00:00", "size_bytes": 1318083 error None
+versions of the root 5 → 6
+versions with this job_id [('ds_25be5702', 6, 'edit', 'jb_e993b58c2cf3', '2026-11-22T01:21:30+00:00')]
+version_no duplicates []
+job row [('succeeded', 2, 'workerd-932a4f@vm:14504', None, '{"status_code": 201, "id": "ds_25be5702", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_7d0e1795 as v6: replaced \'BROKER\' \\u2192 \'b-r\' in \'')]
+audit dataset_version_created for new versions [(1,)]

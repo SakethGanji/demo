@@ -1,0 +1,12 @@
+postgres run_d8aa7383 42 0.05 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+postgres run_b04b968a 42 0.2 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+postgres run_6df07086 42 0.05 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+postgres run_7bbae6d9 42 0.2 table | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+postgres run_c0957cc9 7 0.05 table | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+postgres run_f226878d 7 0.2 table | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha c0bd47a08432
+postgres run_3060ad98 42 0.05 jn_b50709cd80 | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+postgres run_b51a320b 42 0.2 jn_b50709cd80 | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+postgres run_77680afe 42 0.05 jn_b50709cd80 | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+postgres run_af2430a9 42 0.2 jn_b50709cd80 | sampled True | rows 997 / 3000 | sample_sha256 7a91293eb170af7a | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+postgres run_5714e5ea 7 0.05 jn_b50709cd80 | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105
+postgres run_523e72ec 7 0.2 jn_b50709cd80 | sampled True | rows 997 / 3000 | sample_sha256 6e8b555680fe863c | rates {'0': '0.190751', '1': '1.000000'} | data_sha eeb3a765c105

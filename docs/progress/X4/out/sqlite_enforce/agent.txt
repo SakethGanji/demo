@@ -1,0 +1,37 @@
+# mode enforce
+
+# 1. Fay (Fraud member, no role in Credit Risk, no share) reads Credit Risk rows directly
+## 1a Fay GET /datasets/v1/rows → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "data.preview", "team": "tm_3e0dc8d2", "needed": "viewer", "message": "data.preview needs viewer in tm_3e0dc8d2; you are not a member"}}
+## 1b Fay POST /registry/versions/{mv}/predict → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "model.use", "team": "tm_3e0dc8d2", "needed": "member", "message": "model.use needs member in tm_3e0dc8d2; you are not a member"}}
+
+# 2. Fay starts an agent conversation with user=Ben (an owner of Credit Risk)
+## 2a Fay POST /agent/sessions {user: Ben, 'why was it declined? mv'} → HTTP 201 | pii 0
+    {"id": "as_cb145cc5", "user": "Ben", "status": "thinking"}
+    steps: [('list_versions', 'done', ''), ('get_results', 'done', ''), ('find_rows', 'error', 'GET /api/datasets/ds_f132fdb9/rows → 400: Say who is reading these rows: send by=<your name> or the X-Ensemble-Actor hea')]
+    find_rows result (seen by Fay through GET /agent/sessions/{sid}): rows 0, columns [], masked None, session body pii 0
+    answer: I stopped at find_rows: GET /api/datasets/ds_f132fdb9/rows → 400: Say who is reading these rows: send by=<your name> or the X-Ensemble-Actor header (reads of rows are audited; there is no sign-in).
+    credit-risk dataset_read rows naming Ben: []
+
+# 3. a write: Fay asks the agent (as Ben) to score a batch with Ben's model, then confirms the step herself
+## 3a Fay POST /agent/sessions {user: Ben, 'score credit-default with mv'} → HTTP 201 | pii 0
+    {"id": "as_2ae50a17", "user": "Ben"}
+    steps: [('batch_score', 'awaiting', '')]
+## 3b Fay POST /agent/sessions/{sid}/confirm {approve} → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+    answer: Batch batch_e3bcdc6a scored 12000 rows with mv_c39536bd. Yes: age drifted (PSI above 0.25). Max PSI 0.2547; highest: age PSI 0.2547.
+    batches on Ben's team's model: [('batch_e3bcdc6a', 'Vela agent on behalf of Ben', 'succeeded'), ('batch_aacf5e12', 'Ana', 'succeeded')]
+    Fay's direct POST /registry/versions/{mv}/batches → 403
+
+# 4. Ana's own conversation: Fay reads it and confirms Ana's pending write
+## 4a Ana POST /agent/sessions {user: Ana, 'score credit-default with mv'} → HTTP 201 | pii 0
+    {"id": "as_ef51915e"}
+## 4b Fay GET /agent/sessions (every user's conversations) → HTTP 200 | pii 0
+    users listed to Fay: ['Ana', 'Ben']
+## 4c Fay POST /agent/sessions/{Ana's sid}/confirm → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+## 4d Fay POST /agent/sessions/{Ana's sid}/stop → HTTP 200 | pii 0
+    {"status": "idle"}

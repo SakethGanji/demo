@@ -24,6 +24,8 @@ KINDS = ("dataset", "run", "version", "project")
 
 
 def _who(v: Any, what: str = "by") -> str:
+    if v is not None and not isinstance(v, str):  # F-X3a m4: a number or an object is not a name
+        raise HTTPException(400, f"'{what}' is a name (text).")
     s = str(v or "").strip()
     if not s:
         raise HTTPException(400, f"'{what}' is required: say who you are (there is no sign-in; the name goes in the audit log).")

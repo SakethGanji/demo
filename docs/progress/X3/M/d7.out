@@ -1,0 +1,6 @@
+key 201 0.1 s
+check 200 3.6 s {'mode': 'rewrite', 'inserted': 3000, 'updated': 3334, 'deleted': 1000, 'rows_after': 1050575}
+commit 201 2.7 s ds_d61cef39
+API RSS peak 0.88 GB
+verify 200 True 0.2 s
+rows {'dataset_id': 'ds_d61cef39', 'table': 'big', 'q': '', 'searched_columns': None, 'total': 1050575, 'count': 1050575, 'timed_out': False, 'exact': True}

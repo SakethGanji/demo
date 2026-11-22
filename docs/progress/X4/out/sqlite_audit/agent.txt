@@ -1,0 +1,37 @@
+# mode audit
+
+# 1. Fay (Fraud member, no role in Credit Risk, no share) reads Credit Risk rows directly
+## 1a Fay GET /datasets/v1/rows → HTTP 200 | would-deny data.preview | pii 0
+    {"dataset_id": "ds_5eb55ab7", "table": "loans", "total": 600, "after": null, "limit": 3, "q": "", "rows": [{"app_id": "A00000", "applicant_name": "•••", "ssn": "•••", "email": "•••", "dob": "1950", "i
+## 1b Fay POST /registry/versions/{mv}/predict → HTTP 422 | would-deny model.use | pii 0
+    {"detail": [{"type": "missing", "loc": ["body", "row"], "msg": "Field required", "input": {"rows": [{"income": 1}], "by": "Fay"}}]}
+
+# 2. Fay starts an agent conversation with user=Ben (an owner of Credit Risk)
+## 2a Fay POST /agent/sessions {user: Ben, 'why was it declined? mv'} → HTTP 201 | pii 0
+    {"id": "as_a6d3231a", "user": "Ben", "status": "thinking"}
+    steps: [('list_versions', 'done', ''), ('get_results', 'done', ''), ('find_rows', 'error', 'GET /api/datasets/ds_5eb55ab7/rows → 400: Say who is reading these rows: send by=<your name> or the X-Ensemble-Actor hea')]
+    find_rows result (seen by Fay through GET /agent/sessions/{sid}): rows 0, columns [], masked None, session body pii 0
+    answer: I stopped at find_rows: GET /api/datasets/ds_5eb55ab7/rows → 400: Say who is reading these rows: send by=<your name> or the X-Ensemble-Actor header (reads of rows are audited; there is no sign-in).
+    credit-risk dataset_read rows naming Ben: []
+
+# 3. a write: Fay asks the agent (as Ben) to score a batch with Ben's model, then confirms the step herself
+## 3a Fay POST /agent/sessions {user: Ben, 'score credit-default with mv'} → HTTP 201 | pii 0
+    {"id": "as_d9935717", "user": "Ben"}
+    steps: [('batch_score', 'awaiting', '')]
+## 3b Fay POST /agent/sessions/{sid}/confirm {approve} → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+    answer: Batch batch_30527623 scored 12000 rows with mv_8ff7d0ae. Yes: age drifted (PSI above 0.25). Max PSI 0.2547; highest: age PSI 0.2547.
+    batches on Ben's team's model: [('batch_30527623', 'Vela agent on behalf of Ben', 'succeeded'), ('batch_fd74f14c', 'Ana', 'succeeded')]
+    Fay's direct POST /registry/versions/{mv}/batches → 400
+
+# 4. Ana's own conversation: Fay reads it and confirms Ana's pending write
+## 4a Ana POST /agent/sessions {user: Ana, 'score credit-default with mv'} → HTTP 201 | pii 0
+    {"id": "as_c6bb8d7e"}
+## 4b Fay GET /agent/sessions (every user's conversations) → HTTP 200 | pii 0
+    users listed to Fay: ['Ana', 'Ben']
+## 4c Fay POST /agent/sessions/{Ana's sid}/confirm → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+## 4d Fay POST /agent/sessions/{Ana's sid}/stop → HTTP 200 | pii 0
+    {"status": "idle"}

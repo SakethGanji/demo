@@ -1,0 +1,11 @@
+233 calls, 10 5xx / exceptions
+   ('POST', '/datasets/ds_d815b5a9/joins', "{'json': {'name': 'fzv', 'version_id': 5, 'spec': {'grain': 'apps', 'joins': [{'type': 'n:1', 'table': 'cust', 'on': ['cust']}]}}}", 500, 'Internal Server Error')
+   ('POST', '/datasets/%00/joins', "{'json': {'name': 'fzr', 'spec': {'grain': 'apps', 'joins': [{'type': 'n:1', 'table': 'cust', 'on': ['cust']}]}}}", 500, 'Internal Server Error')
+   ('GET', '/datasets/%00/joins', '{}', 500, 'Internal Server Error')
+   ('POST', '/datasets/ds_d815b5a9/joins/jn_b50709cd80/validate', "{'json': {'version_id': 5}}", 500, 'Internal Server Error')
+   ('POST', '/registry/versions/mv_6350a07a/batches', '{\'files\': [(\'files\', (\'apps.csv\', b\'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x
+   ('POST', '/registry/versions/mv_6350a07a/batches', '{\'files\': [(\'files\', (\'apps.csv\', b\'\\x00\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\t\\n\\x0b\\x0c\\r\\x0e\\x0f\\x10\\x11\\x12\\x13\\x14\\x15\\x16\\x17\\x18\\x
+   ('POST', '/registry/versions/mv_6350a07a/batches', "{'files': [('files', ('apps.parquet', b'PAR1garbagePAR1')), ('files', ('cust.csv', b'cust,score\\nC0003,800\\nC0006,759\\nC0010,821\\nC0014,587\\nC0023,408\\nC0025,7
+   ('POST', '/registry/versions/mv_6350a07a/batches', "{'files': [('files', ('apps.parquet', b'PAR1garbagePAR1')), ('files', ('cust.csv', b'cust,score\\nC0003,800\\nC0006,759\\nC0010,821\\nC0014,587\\nC0023,408\\nC0025,7
+   ('POST', '/registry/versions/mv_6350a07a/batches', "{'files': [('files', ('book.xlsx', b'PK\\x03\\x04garbage'))], 'data': {'created_by': 'Ana'}}", 500, 'Internal Server Error')
+   ('POST', '/registry/versions/mv_6350a07a/batches', "{'files': [('files', ('book.xlsx', b'PK\\x03\\x04garbage'))], 'data': {'created_by': 'Ana', 'data_date': 'not-a-date'}}", 500, 'Internal Server Error')

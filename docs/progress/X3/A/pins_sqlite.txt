@@ -1,0 +1,17 @@
+HTTP 201 join jn_ff7dcd4fe3 pinned to ds_aa58bf04
+HTTP 201 frame jf_9e90866d5b
+## P1 archive ds_aa58bf04 (only_version)
+HTTP 409 Can't archive the default version: make another version the default first (Data → the version → Make default; POST /api/datasets/ds_aa4b98d3/default).
+HTTP 200 ('frame', 'jf_9e90866d5b', 'cached', True)
+HTTP 200 validate ok
+HTTP 201 ('run created on an archived pin', 'run_0a0e984c')
+run_0a0e984c succeeded
+## P2 delete ds_aa58bf04 (admin) — blocked by that run?
+HTTP 409 {'message': "Can't delete: a version is in use. Each line below says how to clear it."}
+## P3 a second join pinned to the ext root's first version ds_aa4b98d3 (no frame, no run) → delete ds_aa4b98d3? then use the join
+HTTP 201 HTTP 201 frame jf_c135abab46 (no run)
+HTTP 201 {}
+HTTP 200 ('get join ok', 1, 'frames')
+HTTP 200 {'join': {'id': 'jn_55294fd058', 'name': 'pin_e1', 'spec_version': 1, 'spec_sha256': 'b788c964e617155ebf5f14b32d6954db8b7bb8781aeec00106c27db743afeb40'}}
+HTTP 200 ('verify', True, [('apps', True, None), ('cust', True, None)])
+HTTP 201 {}
