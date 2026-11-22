@@ -989,7 +989,6 @@ becomes a need (then: Label Studio behind the gateway, data in, labels imported 
 | 20 | Row-hash dictionary attack | snapshot reader guesses values from hashes | HMAC with a per-layer salt; salt never exported | L02 |
 | 21 | Queue starvation / double labelling | two people get the same slot, leases leak | `ux_la_once`, SKIP LOCKED, lease expiry janitor | L07 |
 | 22 | LLM model change under a fixed alias | silent behaviour change | full model id pinned in the prompt version; alias refused | L08 |
-
 | 23 | Overlay missed by a reader | a post-fit consumer (Doctor, registration holdout, scoring reference) re-reads base labels, so metrics and diagnostics silently disagree with training | one overlay step in `frames`/`lake.frame`; grep gate 3; L04b chain checks Doctor and registration | L04a, L04b |
 | 24 | Ids lost on re-upload | `row_hash`/`none` match gives new ids; labels orphaned silently | `label_identity_lost` + ack at `/check`; remap by business key | L02 |
 | 25 | Base label changes under the layer | the target is corrected upstream; the older layer label overrides it | `base_value_hash` on every event; `base_changed` → conflict by default | L02 |
