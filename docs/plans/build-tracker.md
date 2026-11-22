@@ -59,6 +59,9 @@
 | U3 | U | started (retention/GC/purge screens, unmask on analysis pages, delta options) | session_018upNdQ3Mz7mjSkUZ1urQpx | |
 | F-X3a | D | started (X3 M1–M4 + upload minors) | session_018upNdRABXoDbSW2JzwdBD3 | |
 | F-X3b | D2 | started (X3 C1, M5–M9 + join/S3 minors) | session_018upNdNRgcBZ8JsYzNBvr4T | |
+| F-X4a | G | started (X4 C2 require() on every route + M1, M2, M3, M5) | session_018upNdRiZCSBxXHWoZXYq1m | |
+| F-X4b | G | started (X4 C1 agent principal, C4 SQL source, M4 reset vs holds, M6 audit) | session_018upNdN1hxWodyWTQH98vCN | |
+| F-X4c | G | started (X4 C3 purge breadth) | session_018upNdQDGnPH652pPeuRnzT | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
