@@ -588,6 +588,44 @@ def _ack(irreproducible: Any) -> dict[str, Any] | None:
     return {"reason": reason[:500]}
 
 
+def _hold_guard(con, targets: list[dict[str, Any]], what: str) -> None:
+    """P24: 409 `legal_hold` naming the case when an active legal hold covers any of the versions."""
+    from .holds import HoldError, check_versions
+
+    try:
+        check_versions(con, [r["id"] for r in targets if r["state"] != DELETED], what)
+    except HoldError as e:
+        raise DsError(e.status, e.payload) from e
+
+
+#: P24 (§5.10): the roles a deleted version gives up. Kept: its manifest, the frozen holdout and the DL4 split JSON
+#: evidence. Its splits are given up too (a run that used one pins the split blob itself), except a split that a live
+#: version's split was carried from: the carry check of that split's verify reads it (sweep_split_refs).
+DROPPED_ON_DELETE = ("table:%", "legacy_csv", "source")
+
+
+def sweep_split_refs(con) -> int:
+    """Drop the refs of splits of deleted versions that no split of a live version was carried from (call after a
+    version became deleted: its ancestors' splits may have lost their last live carrier)."""
+    return con.execute(
+        "DELETE FROM blob_refs WHERE owner_kind = 'split' AND owner_id IN (SELECT s.id FROM splits s JOIN datasets d ON d.id = s.version_id"
+        " WHERE d.state = 'deleted' AND NOT EXISTS (SELECT 1 FROM splits c JOIN datasets dc ON dc.id = c.version_id"
+        " WHERE c.carried_from = s.id AND COALESCE(dc.state, '') <> 'deleted'))").rowcount or 0
+
+
+def drop_version_refs(con, vid: str) -> int:
+    """Remove a deleted version's data refs (parts, the legacy CSV, sources), the refs of its splits (sweep_split_refs)
+    and of the upload that committed it. Shared parts survive while another version, a run or a join frame still
+    references them. The version must already be marked deleted."""
+    n = 0
+    for pat in DROPPED_ON_DELETE:
+        n += con.execute("DELETE FROM blob_refs WHERE owner_kind = 'version' AND owner_id = ? AND role LIKE ?", (vid, pat)).rowcount or 0
+    n += sweep_split_refs(con)
+    n += con.execute("DELETE FROM blob_refs WHERE owner_kind = 'upload' AND owner_id IN (SELECT id FROM uploads"
+                     " WHERE committed_version_id = ?)", (vid,)).rowcount or 0
+    return n
+
+
 def request_delete(app, dataset_id: str, by: str, reason: str, only_version: bool = False,
                    freeze_holdout: bool = False, irreproducible: Any = None) -> dict[str, Any]:
     """Four eyes: a pending request another person approves. An admin (ENSEMBLE_ADMINS) deletes at once. The guard
@@ -598,6 +636,7 @@ def request_delete(app, dataset_id: str, by: str, reason: str, only_version: boo
         if all(r["state"] == DELETED for r in targets):
             raise DsError(410, f"{dataset_id} is already deleted.")
         ack = _ack(irreproducible)
+        _hold_guard(con, targets, "delete " + dataset_id)  # P24: a legal hold blocks the request too
         _guard(con, root, targets, whole, "delete", ack=ack)
         if con.execute("SELECT 1 FROM dataset_requests WHERE dataset_id = ? AND status = 'pending'", (dataset_id,)).fetchone():
             raise DsError(409, f"A delete of {dataset_id} is already waiting for approval.")
@@ -657,6 +696,7 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
     with app.state.db.connect() as con:
         root, targets, whole = _targets(con, req["dataset_id"], bool(opts.get("only_version")))
         if approve:
+            _hold_guard(con, targets, f"approve the delete of {req['dataset_id']}")  # P24: re-checked at the decision
             _guard(con, root, targets, whole, "delete", ack=opts.get("irreproducible"))  # re-checked: something may use it now
         con.execute("UPDATE dataset_requests SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
                     ("approved" if approve else "rejected", by, now(), comment, rid))
@@ -684,6 +724,7 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
                     shutil.rmtree(p) if p.is_dir() else p.unlink()
                 (d / "TOMBSTONE.json").write_text(json.dumps(tomb, indent=1))
             con.execute("UPDATE datasets SET state = ?, state_at = ?, state_by = ? WHERE id = ?", (DELETED, now(), by, r["id"]))
+            drop_version_refs(con, r["id"])  # P24 (§5.10): the parts and sources lose this owner; GC removes what nobody keeps
             gone.append({"id": r["id"], "v": r["v"], "sha256": r["sha256"], **({"holdout_sample": frozen} if frozen else {})})
         S.sync_root_state(con, root)  # P01
         audit(con, by, "dataset_deleted", comment=comment or req["reason"],
@@ -810,11 +851,56 @@ def verify_all(app, by: str) -> dict[str, Any]:
         roots = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(root_id, id) FROM datasets WHERE state IS DISTINCT FROM 'deleted'")]
     res = [verify(app, r, by, whole=True) for r in roots]
     failed = [{"root_id": x["root_id"], **y} for x in res for y in x["results"] if y["ok"] is False]
+    lj = verify_legacy_json(app)  # P24: the DL4 split JSON evidence blobs, so a pass covers every kind GC may delete
     at = now()
     from ..lake.migrate import record_verify_all
 
-    record_verify_all(app.state.db, not failed, at, started)  # P10: the migrated folders are deleted after two passes (§7 row 1)
-    return {"datasets": len(roots), "checked": sum(len(x["results"]) for x in res), "failed": failed, "ok": not failed, "at": at}
+    ok = not failed and not lj["failed"]
+    record_verify_all(app.state.db, ok, at, started)  # P10: the migrated folders are deleted after two passes (§7 row 1)
+    armed = arm_gc(app.state.db, by, at, started) if ok else None
+    return {"datasets": len(roots), "checked": sum(len(x["results"]) for x in res), "failed": failed, "legacy_json": lj,
+            "ok": ok, "at": at, **({"gc_armed": armed} if armed else {})}
+
+
+def verify_legacy_json(app) -> dict[str, Any]:
+    """P24 (F-X2 note): re-hash every live `legacy_json` blob (the DL4 split JSON kept as evidence when a CSV-era version
+    was migrated) against its name. The version verify does not read them, so without this a verify-all pass would arm
+    GC over blobs it never checked."""
+    from ..lake import manifest as M
+
+    store = app.state.lake
+    with app.state.db.connect() as con:
+        rows = [dict(r) for r in con.execute("SELECT sha256, key FROM blobs WHERE kind = 'legacy_json' AND state = 'live' ORDER BY sha256")]
+    bad = []
+    for r in rows:
+        try:
+            with store.open(r["key"]) as f:
+                sha, _ = M.file_sha256(f)
+        except Exception as e:  # noqa: BLE001 - unreadable is a failure
+            sha = f"unreadable: {type(e).__name__}"
+        if sha != r["sha256"]:
+            bad.append({"sha256": r["sha256"], "key": r["key"], "now": sha})
+    if bad:
+        with app.state.db.connect() as con:
+            audit(con, "system", "dataset_integrity_failed", {"kind": "legacy_json", "failed": bad[:50]})
+    return {"checked": len(rows), "failed": bad}
+
+
+def arm_gc(db, by: str, at: str, started: str) -> dict[str, Any] | None:
+    """P24 (§5.10): GC deletes are armed by the first verify-all pass that also re-hashed the legacy_json blobs
+    (catalog_meta `gc_armed` = that pass's end time; `verify_all:passes` / `verify_all:passes_started` keep the times).
+    Audited once, as `gc_armed`. Returns the arming record when this pass armed it."""
+    with db.connect() as con:
+        from ..lake.gc import armed
+
+        if armed(con):
+            return None
+        con.execute("INSERT INTO catalog_meta (key, value) VALUES ('gc_armed', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                    (at,))
+        rec = {"armed_at": at, "by_verify_all_pass": {"started_at": started, "at": at}, "covers": "every version, its parts, "
+               "manifests and splits, and every live legacy_json blob"}
+        audit(con, by, "gc_armed", rec, object_kind="lake", object_id="gc")
+    return rec
 
 
 def integrity_gate(app, dataset_id: str, override: Any, by: str | None) -> dict[str, Any]:

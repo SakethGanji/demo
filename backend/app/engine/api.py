@@ -950,6 +950,14 @@ def delete_run(run_id: str, request: Request, by: str = "", reason: str = "") ->
     if rec["status"] in ("queued", "running"):
         G.refused(db, who, "run_delete", 409, "the run is still " + rec["status"], {"run_id": run_id})
         raise HTTPException(409, "Cancel the run before deleting it.")
+    from ..catalog import holds as H  # P24: a legal hold on the run, its data, project, team or model blocks the delete
+
+    with db.connect() as con:
+        hs = H.active(con, H.run_keys(con, run_id))
+    if hs:
+        msg = H.refusal(hs, f"delete run {run_id}")
+        G.refused(db, who, "run_delete", 409, msg, {"run_id": run_id})
+        raise HTTPException(409, msg)
     with db.connect() as con:
         vers = [dict(r) for r in con.execute(
             "SELECT v.id, v.model_name, v.version, v.approval, v.status, v.retired_at FROM lineage_edges e JOIN model_versions v"
@@ -973,6 +981,7 @@ def delete_run(run_id: str, request: Request, by: str = "", reason: str = "") ->
                        "registered_versions": [{"id": v["id"], "approval": v["approval"], "retired": bool(v["retired_at"])} for v in vers],
                        "kept": "lineage edges and the audit log"})
         con.execute("DELETE FROM run_events WHERE run_id = ?", (run_id,))
+        con.execute("DELETE FROM blob_refs WHERE owner_kind = 'run' AND owner_id = ?", (run_id,))  # P24: its pins go with it
         con.execute("DELETE FROM runs WHERE id = ?", (run_id,))
     shutil.rmtree(request.app.state.settings.runs_dir / run_id, ignore_errors=True)
 

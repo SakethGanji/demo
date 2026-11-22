@@ -1,0 +1,3 @@
+bucket lake24 | object lock: Enabled
+purged blobs with no version left: 27/27 | live blobs present under GOVERNANCE retention: 60/60
+problems: none

@@ -1,0 +1,138 @@
+# DB: sqlite | ENSEMBLE_BLOB_STORE=local
+# authz mode: audit | store: file://<scratch>/w1/data/lake
+## 0 teams tm_b6e29201 tm_a1eb4918 | projects PD prj_644811a7, Recoveries prj_e34d410c
+## 1 v7 ds_f1946039: [('loans', 'rewritten', '709dae62d1e3'), ('bureau', 'rewritten', '72c900cd1b81')]
+## 1 v8 ds_bc0e26bb: [('loans', 'rewritten', '19fbba0b1b17'), ('bureau', 'carried', '72c900cd1b81')]
+## 2a Bo POST /shares/{s}/decide → HTTP 200
+    {"id": "sh_e15a2191e4", "status": "active", "scope": "all", "pii": "masked"}
+## 2b Ana POST /runs {v6, loans} → HTTP 201
+    {"id": "run_1d9a2e10", "status": "queued"}
+## 2c Carl POST /runs {v8, loans, project Recoveries} → HTTP 201
+    {"id": "run_25958e98", "status": "queued"}
+## 2d Ana POST /datasets/{root}/joins {loans ⋈ bureau} → HTTP 201
+    {"id": "jn_1fa341a00a", "spec_sha256": "fb2af4b4a4469c0e4fd3e330f84d49b6ed08f7503d68dd4f15ac10c1ea5ab6b0"}
+## 2e Ana POST /datasets/{root}/versions/v6/frames → HTTP 201
+    {"id": "jf_5155e64ad0", "n_rows": 460, "cache_blob": "5c9464e772c68496f3f05ffcac051dff46b2c020c2d9bad1366e7a806c07d788"}
+## 2f Ana POST /datasets/{root}/versions/v8/frames → HTTP 201
+    {"id": "jf_77418a66bc", "n_rows": 480, "cache_blob": "e5a9131115d0b9de8f1b55178e50873eb8b498285a8bf76f60c82de02085d2cf"}
+## 2g Ana POST /runs {v8, join_id} → HTTP 201
+    {"id": "run_7a19eea6", "status": "queued"}
+     run_1d9a2e10 succeeded | run_25958e98 succeeded | run_7a19eea6 succeeded
+## 3a Ana POST /datasets/v2/delete (before the hold) → HTTP 201
+    {"id": "dsr_86d20abc", "status": "pending"}
+## 3b Ben POST /legal-holds (not an admin) → HTTP 403 | would-deny legal_hold.place
+    {"detail": {"code": "forbidden", "message": "Only a platform admin (ENSEMBLE_ADMINS) places a legal hold; Ben is not one."}}
+## 3c Ada POST /legal-holds {project PD, CASE-2026-114} → HTTP 201
+    {"id": "lh_3ad4b73a4d", "scope_kind": "project", "scope_id": "prj_644811a7", "case_ref": "CASE-2026-114", "team_id": "tm_b6e29201", "active": true}
+## 3d Ben GET /retention/plan?team=credit-risk&periods=…(0 days) → HTTP 200
+    {"n_candidates": 0, "n_held": 22, "counts": {"versions": {"candidates": 0, "kept": 0, "held": 8}, "sources": {"candidates": 0, "kept": 0, "held": 10}, "join_caches": {"candidates": 0, "kept": 0, "held": 2}, "runs": {"candidates": 0, "kept": 0, "held": 2}, "staging": {"candidates": 0, "kept": 0, "held": 0}}}
+     held versions: [('v8', ['CASE-2026-114']), ('v7', ['CASE-2026-114']), ('v6', ['CASE-2026-114']), ('v5', ['CASE-2026-114']), ('v4', ['CASE-2026-114']), ('v3', ['CASE-2026-114']), ('v2', ['CASE-2026-114']), ('v1', ['CASE-2026-114'])]
+## 3e Ben POST /dataset-requests/{v2 request}/decide {approve} → HTTP 409
+    {"detail": {"code": "legal_hold", "message": "Can't approve the delete of ds_0ceca6e7: legal hold CASE-2026-114 covers it (project prj_644811a7, lh_3ad4b73a4d). A platform admin other than the one who placed it releases a hold (POST /api/legal-holds/{id}/release).", "cases": ["CASE-2026-114"], "holds": [{"id": "lh_3ad4b73a4d", "case_ref": "CASE-2026-114", "scope_kind": "project", "scope_id": "prj_644811a7", "placed_by": "Ada", "placed_at": "2026-11-22T00:54:45+00:00"}]}}
+## 3f Ana POST /datasets/v3/delete (under the hold) → HTTP 409
+    {"detail": {"code": "legal_hold", "message": "Can't delete ds_914548d4: legal hold CASE-2026-114 covers it (project prj_644811a7, lh_3ad4b73a4d). A platform admin other than the one who placed it releases a hold (POST /api/legal-holds/{id}/release).", "cases": ["CASE-2026-114"], "holds": [{"id": "lh
+## 3g Ana DELETE /runs/{r_ana} → HTTP 409
+    {"detail": {"code": "legal_hold", "message": "Can't delete run run_1d9a2e10: legal hold CASE-2026-114 covers it (project prj_644811a7, lh_3ad4b73a4d). A platform admin other than the one who placed it releases a hold (POST /api/legal-holds/{id}/release).", "cases": ["CASE-2026-114"], "holds": [{"id"
+## 3h Ada POST /retention/run {run_ids:[r_ana], tier: evict} → HTTP 409
+    {"detail": {"message": "Pinned runs are never slimmed or evicted.", "pinned": {"run_1d9a2e10": ["top 3 on ds_bd0cb47b · y (binary) by roc_auc (#1)"]}}}
+## 3i Ana POST /datasets/v8/purge {ssn} (under the hold) → HTTP 409
+    {"detail": {"code": "legal_hold", "message": "Can't purge loans.ssn: legal hold CASE-2026-114 covers it (project prj_644811a7, lh_3ad4b73a4d). A platform admin other than the one who placed it releases a hold (POST /api/legal-holds/{id}/release).", "cases": ["CASE-2026-114"], "holds": [{"id": "lh_3a
+## 3j Ada POST /legal-holds/{h}/release (the placer) → HTTP 409
+    {"detail": {"code": "four_eyes", "message": "Four eyes: Ada is the person who placed it, so a second person must decide."}}
+## 3k Adam POST /legal-holds/{h}/release → HTTP 200
+    {"id": "lh_3ad4b73a4d", "released_by": "Adam", "active": false}
+## 3l Ben POST /dataset-requests/{v2 request}/decide {approve} (hold released) → HTTP 200
+    {"id": "dsr_86d20abc", "status": "approved", "deleted": [{"id": "ds_0ceca6e7", "v": 1, "sha256": "6a77dbcc542b0f7ae4d67fe69802da04c57d82e371207a8b921632c1771a9246"}]}
+## 4a Ben GET /retention/plan?team=credit-risk (no policy) → HTTP 200
+    {"n_candidates": 0, "no_period_set": ["versions", "sources", "join_caches", "runs", "staging"], "periods_from": {}}
+## 4b Ben PATCH /teams/credit-risk {policy.retention} → HTTP 200
+    {"id": "tm_b6e29201", "policy": {"retention": {"join_caches": {"evict_unused_days": 0}, "staging": {"days": 0}, "versions": {"keep_certified": true, "keep_days": 0, "keep_min": 3}}}}
+## 4c Ben POST /retention/dry-run {team} → HTTP 200
+    {"plan_id": "rtp_f729e00825", "n_candidates": 5, "counts": {"versions": {"candidates": 4, "kept": 3, "held": 0}, "sources": {"candidates": 0, "kept": 0, "held": 0}, "join_caches": {"candidates": 1, "kept": 1, "held": 0}, "runs": {"candidates": 0, "kept": 0, "held": 0}, "staging": {"candidates": 0, "kept": 0, "held": 0}}, "periods_from": {"versions.keep_days": "team policy", "join_caches.evict_unused_days": "team policy", "staging.days": "team policy"}}
+     candidates: [('version:ds_e32904a5', 'request_delete', 'created 0 d ago (≥ versions.keep_days 0)'), ('version:ds_ef717999', 'request_delete', 'created 0 d ago (≥ versions.keep_days 0)'), ('version:ds_914548d4', 'request_delete', 'created 0 d ago (≥ versions.keep_days 0)'), ('version:ds_7e4eb55f', 'request_delete', 'created 0 d ago (≥ versions.keep_days 0)'), ('join_cache:jf_5155e64ad0', 'evict_cache', 'no run uses it; 0 d old (≥ join_caches.evict_unused_days 0); re-creatable')]
+     kept: [('version:ds_bc0e26bb', 'one of the newest 3 version(s) of its dataset'), ('version:ds_f1946039', 'one of the newest 3 version(s) of its dataset'), ('version:ds_bd0cb47b', 'one of the newest 3 version(s) of its dataset'), ('join_cache:jf_77418a66bc', 'pinned by run(s) run_7a19eea6')]
+     join caches: v6 frame candidate? True | v8 frame (a run uses it) kept? True
+## 4d Ana POST /retention/run {plan_id} (not an owner) → HTTP 403 | would-deny retention.run
+    {"detail": {"code": "forbidden", "message": "A retention run on tm_b6e29201 is started by an owner of the team or a platform admin; Ana is maintainer."}}
+## 4e Ben POST /retention/run {plan_id} → HTTP 200
+    {"acted": 5, "failed": 0, "skipped": 0, "by_action": {"request_delete": 4, "drop_source": 0, "evict_cache": 1, "slim": 0, "evict": 0, "expire_upload": 0}}
+     delete requests: [('ds_e32904a5', 'pending'), ('ds_ef717999', 'pending'), ('ds_914548d4', 'pending'), ('ds_7e4eb55f', 'pending')]
+## 4f Ben POST /retention/run {plan_id} again → HTTP 409
+    {"detail": {"code": "plan_used", "message": "Retention plan rtp_f729e00825 was run on 2026-11-22T00:54:45+00:00 by Ben; make a new dry run."}}
+## 4g Bo POST /dataset-requests/dsr_9de01ce1/decide {approve} → HTTP 200
+    {"id": "dsr_9de01ce1", "dataset_id": "ds_e32904a5", "status": "approved"}
+## 4g Bo POST /dataset-requests/dsr_3cc4dd2a/decide {approve} → HTTP 200
+    {"id": "dsr_3cc4dd2a", "dataset_id": "ds_ef717999", "status": "approved"}
+## 4g Bo POST /dataset-requests/dsr_198b1a7e/decide {approve} → HTTP 200
+    {"id": "dsr_198b1a7e", "dataset_id": "ds_914548d4", "status": "approved"}
+## 4g Bo POST /dataset-requests/dsr_5e0178bb/decide {approve} → HTTP 200
+    {"id": "dsr_5e0178bb", "dataset_id": "ds_7e4eb55f", "status": "approved"}
+## 5a Ada POST /admin/lake/gc?dry_run=1 → HTTP 200
+    {"plan_id": "gcp_882538c494", "armed": false, "candidate_bytes": 135656}
+## 5b Ada POST /admin/lake/gc?dry_run=0 (disarmed) → HTTP 409
+    {"detail": {"code": "gc_disarmed", "message": "GC deletes stay disarmed until a verify-all pass (GET /api/admin/lake/verify-all) has passed on this deployment.", "armed": false, "armed_at": null, "verify_all_passes": [], "how": "GET /api/admin/lake/verify-all: its first pass (versions + legacy_json 
+## 5c Ada GET /admin/lake/verify-all → HTTP 200
+    {"ok": true, "checked": 23, "legacy_json": {"checked": 0, "failed": []}, "gc_armed": {"armed_at": "2026-11-22T00:54:46+00:00", "by_verify_all_pass": {"started_at": "2026-11-22T00:54:46+00:00", "at": "2026-11-22T00:54:46+00:00"}, "covers": "every version, its parts, manifests and splits, and every live legacy_json blob"}}
+## 5d Ada GET /admin/lake/gc/armed → HTTP 200
+    {"armed": true, "armed_at": "2026-11-22T00:54:46+00:00"}
+     v7 parts: {'loans': ['2b3587585816'], 'bureau': ['41c86291445a']} | v8 parts: {'loans': ['30af0ec8a5e2'], 'bureau': ['41c86291445a']}
+## 5e Ana POST /datasets/v7/delete → HTTP 201
+    {"id": "dsr_e65d8f29", "status": "pending"}
+## 5f Ben POST /dataset-requests/{v7}/decide → HTTP 200
+    {"status": "approved"}
+## 5g Ada POST /admin/lake/gc?dry_run=1 → HTTP 200
+    {"plan_id": "gcp_4c8567c0bf", "armed": true, "candidate_bytes": 165383, "blobs": {"live": 85}}
+     candidates: [('00a7d1207baa', 'source', 18961), ('02c6e8cdad08', 'source', 3630), ('0a30a2b59b31', 'table', 5494), ('11a6bb70969e', 'source', 17671), ('2b3587585816', 'table', 5846), ('50e5dec548c5', 'table', 5674), ('58176644bb91', 'source', 19394), ('5c9464e772c6', 'join_cache', 6647), ('5d590b09fac7', 'table', 5328), ('5eeb6a30dcd5', 'source', 18104), ('640f973e72b7', 'split', 1298), ('74ea66cc912c', 'source', 18534), ('7f29c4045729', 'split', 1316), ('8761c190dafb', 'table', 5578), ('8b3d1b526102', 'split', 1337), ('918d8636762f', 'source', 20251), ('b9d6725c3ff2', 'split', 1280), ('e3d3c24e6025', 'source', 3630), ('f13274f1a88d', 'table', 5410)]
+     v7 bureau part listed? False | v7 loans part listed? True | bureau shared with v8? True
+## 5h Ada POST /admin/lake/gc?dry_run=0 {plan_id} → HTTP 200
+    {"deleted": 19, "bytes": 165383, "skipped": 0, "failed": 0, "aborted_multipart": null, "store": "file://<scratch>/w1/data/lake"}
+     deleted == listed: True | v8 still verifies: True
+## 5i Ada POST /admin/lake/gc?dry_run=0 {same plan_id} → HTTP 409
+    {"detail": {"code": "plan_used", "message": "GC plan gcp_4c8567c0bf was run on 2026-11-22T00:54:46+00:00 by Ada; make a new dry run."}}
+## 6a Ada GET /admin/lake/runs/{r_carl}/verify (before) → HTTP 200
+    {"ok": true, "data": {"recorded": "19fbba0b1b17457788a64ec73d65b10ed08937d496c505a911f2e12d1aa9c741", "now": "19fbba0b1b17457788a64ec73d65b10ed08937d496c505a911f2e12d1aa9c741", "ok": true, "basis": "table_sha256 recomputed from the Parquet parts", "ref": {"kind": "table", "version_id": "ds_bc0e26bb"
+## 6b Ana POST /datasets/v8/purge {table loans, columns [ssn]} → HTTP 201
+    {"id": "pur_312bdd08f4", "status": "pending", "new_version_id": "ds_dd13489f", "teams_needed": ["tm_a1eb4918", "tm_b6e29201"], "waiting_for": ["tm_a1eb4918", "tm_b6e29201"]}
+     impact: teams ['tm_a1eb4918', 'tm_b6e29201'] | by_team {'tm_b6e29201': {'versions': ['ds_bc0e26bb', 'ds_bd0cb47b'], 'runs': ['run_7a19eea6', 'run_1d9a2e10'], 'refs': 6, 'shares': []}, 'tm_a1eb4918': {'versions': [], 'runs': ['run_25958e98'], 'refs': 0, 'shares': ['sh_e15a2191e4']}} | owner tm_b6e29201
+     shares: [{'share_id': 'sh_e15a2191e4', 'grantee_team': 'tm_a1eb4918', 'scope': 'all', 'pii': 'masked', 'grantee_runs': ['run_25958e98']}] | join frames: ['jf_5155e64ad0', 'jf_77418a66bc'] | models: [] | champions: []
+     versions: [('ds_bc0e26bb', 'tm_b6e29201', None), ('ds_bd0cb47b', 'tm_b6e29201', None)] | runs: [('run_25958e98', 'tm_a1eb4918', 'trained on an affected version'), ('run_7a19eea6', 'tm_b6e29201', 'trained on an affected version'), ('run_1d9a2e10', 'tm_b6e29201', 'trained on an affected version')]
+     blobs: 12 bytes 99000 | refs by owner kind: {'join_frame': 1, 'run': 1, 'upload': 2, 'version': 2} | holds []
+     new version 9 [('loans', 'rewritten', ['app_id', 'customer_id', 'income', 'age', 'segment', 'y']), ('bureau', 'carried', ['customer_id', 'score', 'n_inquiries'])]
+## 6c Ana POST /purges/{p}/decide {credit-risk} (requester) → HTTP 409 | would-deny data.purge_decide
+    {"detail": {"code": "four_eyes", "message": "Four eyes: Ana is the requester, so a second person must decide."}}
+## 6d Carl POST /purges/{p}/decide {collections} (member) → HTTP 403 | would-deny data.purge_decide
+    {"detail": {"code": "owner_required", "message": "A purge is approved for tm_a1eb4918 by an owner of tm_a1eb4918 (§11: owners of every affected team + four eyes); Carl is member.", "team": "tm_a1eb4918", "needed": "owner"}}
+## 6e Ben POST /purges/{p}/decide {credit-risk} → HTTP 200
+    {"status": "pending", "approvals": {"tm_b6e29201": {"by": "Ben", "by_key": "ben", "at": "2026-11-22T00:54:46+00:00", "comment": ""}}, "waiting_for": ["tm_a1eb4918"]}
+## 6f Ben POST /purges/{p}/decide {collections} (not their owner) → HTTP 403 | would-deny data.purge_decide
+    {"detail": {"code": "owner_required", "message": "A purge is approved for tm_a1eb4918 by an owner of tm_a1eb4918 (§11: owners of every affected team + four eyes); Ben is not a member.", "team": "tm_a1eb4918", "needed": "owner"}}
+## 6g Cole POST /purges/{p}/decide {collections} → HTTP 200
+    {"status": "used", "approvals": {"tm_b6e29201": {"by": "Ben", "by_key": "ben", "at": "2026-11-22T00:54:46+00:00", "comment": ""}, "tm_a1eb4918": {"by": "Cole", "by_key": "cole", "at": "2026-11-22T00:54:46+00:00", "comment": ""}}, "executed": {"at": "2026-11-22T00:54:46+00:00", "by": "Cole", "versions_deleted": ["ds_bc0e26bb", "ds_bd0cb47b"], "run_pins_marked": 1, "refs_dropped": 1, "blobs": ["7ad9e4c8326d1b82f3aa4a5cffd7815d37dc3f034ca5c3c8fb4b45b461aaa0ef", "35538da38d2ff2db92c80da51a7520aef3bb943533f62726822e77e1de00fa72", "30af0ec8a5e28550c6e5c095e94b636d17923674fb71a0f8a45f43ea4bc3d1b2", "31912f136069f26b946fb635aa283bd50c94d75bda349797b075ee1f354a0198", "e5a9131115d0b9de8f1b55178e50873eb8b498285a8bf76f60c82de02085d2cf"], "default_moved": null, "bytes_deleted": 5, "bytes_failed": []}}
+     blobs deleted: 5 failed: []
+     blob states: {'live': {'n': 63, 'bytes': 3419101}, 'purged': {'n': 24, 'bytes': 224406}}
+## 6h Ada GET /admin/lake/runs/{r_carl}/verify (after) → HTTP 200
+    {"ok": null, "status": "purged", "data": {"recorded": "19fbba0b1b17457788a64ec73d65b10ed08937d496c505a911f2e12d1aa9c741", "now": null, "ok": null, "purged": {"purge_ids": ["pur_312bdd08f4"], "purged_at": "2026-11-22T00:54:46+00:00", "blobs": ["30af0ec8a5e28550c6e5c095e94b636d17923674fb71a0f8a45f43ea4bc3d1b2"], "pins": []}, "basis": "purged (four eyes, owners of every team involved): the bytes are gone on purpose; the run row, its recorded hashes and its split are kept"}, "split": {"recorded": "26e56a0701e3f378c25060fb7f9e5737c485148e062f23811722daf2d8a6cc8a", "now": "26e56a0701e3f378c25060fb7f
+## 6i Ada GET /admin/lake/runs/{r_ana}/verify (old run on v6) → HTTP 200
+    {"ok": null, "status": "purged", "data": {"recorded": "e1cd28e9444b4e85abb3b29772c823180439dd26c3373a64a4cf693334fbf602", "now": null, "ok": null, "purged": {"purge_ids": ["pur_312bdd08f4"], "purged_at": "2026-11-22T00:54:46+00:00", "blobs": ["7ad9e4c8326d1b82f3aa4a5cffd7815d37dc3f034ca5c3c8fb4b45b461aaa0ef"], "pins": []}, "basis": "purged (four eyes, owners of every team involved): the bytes are gone on purpose; the run row, its recorded hashes and its split are kept"}, "split": {"recorded": "1626d952db06f6df15623d6f6e0351a8f0a2e19c62cedcd5fcaa009fc90441c1", "now": "1626d952db06f6df15623d6f6e
+## 6i2 Ada GET /admin/lake/runs/{r_join}/verify (join run on v8) → HTTP 200
+    {"ok": null, "status": "purged", "data": {"recorded": "e5a9131115d0b9de8f1b55178e50873eb8b498285a8bf76f60c82de02085d2cf", "now": null, "ok": null, "purged": {"purge_ids": ["pur_312bdd08f4"], "purged_at": "2026-11-22T00:54:46+00:00", "blobs": ["30af0ec8a5e28550c6e5c095e94b636d17923674fb71a0f8a45f43ea4bc3d1b2", "e5a9131115d0b9de8f1b55178e50873eb8b498285a8bf76f60c82de02085d2cf"], "pins": ["purged:join_frame"]}, "basis": "purged (four eyes, owners of every team involved): the bytes are gone on purpose; the run row, its recorded hashes and its split are kept"}}
+## 6j Ana GET /datasets/{new}/verify → HTTP 200
+    {"ok": true}
+## 6k Ana GET /datasets/v8 rows (deleted) → HTTP 410
+    {"detail": "Dataset 'ds_bc0e26bb' was deleted (2026-11-22T00:54:46+00:00, Cole); its lineage is kept."}
+## 6l Ada POST /admin/lake/gc?dry_run=1 (after the purge) → HTTP 200
+    {"plan_id": "gcp_e4a105e32f", "candidate_bytes": 4567, "blobs": {"live": 63, "purged": 24}}
+## 6m Ada POST /admin/lake/gc?dry_run=0 → HTTP 200
+    {"deleted": 3, "bytes": 4567, "skipped": 0, "failed": 0}
+     deleted == listed: True | new version still verifies: True | Carl's run re-verify: purged
+     history: default → new version | states [(1, 'deleted'), (2, 'deleted'), (3, 'deleted'), (4, 'deleted'), (5, 'deleted'), (6, 'deleted'), (7, 'deleted'), (8, 'deleted'), (9, None)]
+## 7 tm_b6e29201 audit P24 actions: {'dataset_delete_decide_refused': 1, 'dataset_delete_refused': 1, 'dataset_delete_requested': 6, 'dataset_deleted': 6, 'legal_hold_placed': 1, 'legal_hold_released': 1, 'purge_approved': 2, 'purge_bytes_deleted': 1, 'purge_decide_refused': 1, 'purge_executed': 1, 'purge_refused': 1, 'purge_requested': 1, 'retention_dry_run': 1, 'retention_evict_cache': 1, 'retention_run': 1, 'retention_run_refused': 1}
+## 7 GET /teams/tm_b6e29201/audit/verify → HTTP 200
+    {"team_id": "tm_b6e29201", "ok": true, "rows": 85, "legacy_rows": 0, "head": "87d9423e24c4481a97bb3024a07b0cd5d74d357268a1184bbdbbc8641c6ce678"}
+## 7 tm_a1eb4918 audit P24 actions: {'blob_deleted': 5, 'purge_approved': 2, 'purge_bytes_deleted': 1, 'purge_decide_refused': 2, 'purge_executed': 1, 'purge_requested': 1}
+## 7 GET /teams/tm_a1eb4918/audit/verify → HTTP 200
+    {"team_id": "tm_a1eb4918", "ok": true, "rows": 19, "legacy_rows": 0, "head": "04fd006ed36702adff55b38a5bd1e76b372cea19fe173fbe0bd05b7368c3571b"}
+## 7 tm_default (lake) actions: {'gc_dry_run': 3, 'gc_run_started': 2, 'gc_run': 2, 'gc_armed': 1, 'blob_deleted': 22, 'lake_gc_refused': 2}
+## 7 GET /teams/tm_default/audit/verify → HTTP 200
+    {"team_id": "tm_default", "ok": true, "rows": 98, "legacy_rows": 0, "head": "d556bb2c4ca9cd460a3ae5f487bd893e1041eafe3a6789541da26c22cad95cc9"}
+tracebacks: 0 | HTTP 500: 0

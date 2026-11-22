@@ -60,6 +60,7 @@ ACTIONS: dict[str, Rule] = {
     "data.export": R("member", rr=True, admin=True, shared=True, note="masked"),
     "data.export_unmasked": R("maintainer", admin=True, note="reason; read-audited"),
     "data.purge": R("maintainer", note="request; decide = owner of every team involved"),
+    "data.purge_decide": R("owner", note="P24: an owner approves a purge for their team; ≠ requester; one person, one team"),
     "project.create": R("member"),
     "project.manage": R("maintainer", admin=True),
     "annotate": R("member", rr=True, note="tags and notes on lineage nodes"),
@@ -184,6 +185,7 @@ FOUR_EYES: dict[str, dict[str, Any]] = {
     "model.retire_decide": {"not": ["requested_by"]},
     "champion.decide": {"not": ["requested_by", "change_by"]},
     "legal_hold.release": {"not": ["placed_by"]},
+    "data.purge_decide": {"not": ["requested_by"]},
     "admin.reset": {"not": ["requested_by"]},
 }
 

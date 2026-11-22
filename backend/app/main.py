@@ -598,6 +598,10 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     from .catalog import joins_api
 
     app.include_router(joins_api.router)  # P14: saved joins, join frames
+    from .catalog import holds as holds_api, purge as purge_api
+
+    app.include_router(holds_api.router)  # P24: legal holds
+    app.include_router(purge_api.router)  # P24: purge with the cross-team impact report
     app.middleware("http")(teams_api.see_actor)  # P18: a principal on first sight of an X-Ensemble-Actor name
     for mod, _ in JOB_MODULES:
         app.include_router(mod.router)

@@ -49,15 +49,11 @@ def load_settings() -> Settings:
     return Settings(data_dir=data_dir)
 
 
-#: P1 step 7: predictor retention. NEEDS MODEL-RISK APPROVAL before it runs on a timer: retention periods are bank
-#: policy. Until then the job runs only when an admin calls POST /api/retention/run (every action is audited), and
-#: GET /api/retention/plan is the dry run. Days are counted from the run's finish.
+#: Predictor retention pins (P1 step 7). P24 / §11 item 3: retention is manual and has NO default period; a team's
+#: periods live in its policy (`retention.runs.slim_days / evict_days`, §6.4) or are sent with the request, and a person
+#: starts every action (catalog/retention.py). Only the pin rules stay here.
 RETENTION_POLICY = {
-    "status": "needs model-risk approval",
-    "slim_after_days": 7,      # present → slimmed: delete_models(models_to_keep='best') + save_space()
-    "evict_after_days": 30,    # → evicted: the predictor folder is deleted; config, result, holdout predictions,
-                               #   leaderboard, journal and hashes are kept
-    "failed_evict_after_days": 3,
+    "status": "manual (no timer, no default period): §11 item 3",
     "top_k_pinned": 3,         # the best runs per project and dataset are never evicted
     "keep_tag": "keep",
 }

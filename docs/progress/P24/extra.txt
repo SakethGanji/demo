@@ -1,0 +1,16 @@
+version ds_5b4324cd deleted the pre-P24 way; refs kept: [('version', 'manifest', '0a599c8aeef2'), ('version', 'table:t#0', '8a4ee9e768c9')]
+put blobs/95/9582a785a5f0faa0496707d99501e30349a5ea194a0941cc37e5ce081705d75f.json
+## E1 POST /admin/lake/gc?dry_run=1
+deleted_versions_with_refs ['ds_5b4324cd'] | candidates 0
+## E2 POST /admin/lake/gc?dry_run=0 {plan_id}
+{'deleted': 0, 'deleted_versions_refs_dropped': 1, 'skipped': 0, 'failed': 0}
+## E3 POST /admin/lake/gc?dry_run=1
+deleted_versions_with_refs [] | candidates [('table', '8a4ee9e768c9')]
+## E4 POST /admin/lake/gc?dry_run=0 {plan_id}
+{'deleted': 1, 'bytes': 3393, 'skipped': 0, 'failed': 0}
+## E5 GET /admin/lake/verify-all (a live legacy_json blob)
+ok True | legacy_json {'checked': 1, 'failed': []}
+tampered blobs/95/9582a785a5f0faa0496707d99501e30349a5ea194a0941cc37e5ce081705d75f.json
+## E6 GET /admin/lake/verify-all (after the bytes were rewritten)
+ok False | legacy_json {'checked': 1, 'failed': [('9582a785a5f0', 'eea0201768e5')]}
+tracebacks: 0 | HTTP 500: 0
