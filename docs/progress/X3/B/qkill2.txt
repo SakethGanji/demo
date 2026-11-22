@@ -1,0 +1,19 @@
+POST edit 202 {"async":true,"job_id":"jb_be290e997cbc","job":{"id":"jb_be290e997cbc","kind":"edit","status":"queued","created_at":"2026-11-22T01:23:51.603270Z"},"status":"queued","poll":"/api/jobs/jb_be290e997cbc",
+  +0.0s ('queued', 0, None, None) None
+  +1.0s ('leased', 1, None, None) workerd-b12118@vm:21041
+  +2.1s ('leased', 1, 'verifying', 0.01) workerd-b12118@vm:21041
+  +3.4s ('leased', 1, 'compiling', 0.08) workerd-b12118@vm:21041
+  +13.9s ('leased', 1, 'writing', 0.12) workerd-b12118@vm:21041
+  +28.3s ('leased', 1, 'writing', 0.7) workerd-b12118@vm:21041
+  +32.5s ('leased', 1, 'carrying', 0.72) workerd-b12118@vm:21041
+  +36.7s ('leased', 1, 'finishing', 0.9) workerd-b12118@vm:21041
++36.7s KILL -9 workerd-b12118@vm:21041 attempt 1 at {'pct': 0.9, 'phase': 'finishing', 'at': '2026-11-22T01:24:28.176611Z'}
+  +68.4s ('queued', 1, 'finishing', 0.9) None
+  +69.2s ('leased', 2, None, None) workerd-0f81d5@vm:21527
+  +70.0s ('succeeded', 2, 'done', 1.0) workerd-0f81d5@vm:21527
++70.0s job succeeded attempts 2 result {"status_code": 201, "id": "ds_ec10d683", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_25be5702 as v7: replaced 'b-r' \u2192 'B-R' in 'channel' (exact): 3333330 cell(s)", "created_at": "2026-11-22T01:24:28+00:00", "size_bytes": 131808358, error None
+versions of the root 6 → 7
+versions with this job_id [('ds_ec10d683', 7, 'edit', 'jb_be290e997cbc', '2026-11-22T01:24:28+00:00')]
+version_no duplicates []
+job row [('succeeded', 2, 'workerd-0f81d5@vm:21527', None, '{"status_code": 201, "id": "ds_ec10d683", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_25be5702 as v7: replaced \'b-r\' \\u2192 \'B-R\' in \'cha')]
+audit dataset_version_created for new versions [(1,)]

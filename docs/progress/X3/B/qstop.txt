@@ -1,0 +1,23 @@
+POST edit 202 {"async":true,"job_id":"jb_54b2a4575cc3","job":{"id":"jb_54b2a4575cc3","kind":"edit","status":"queued","created_at":"2026-11-22T01:14:50.717560Z"},"status":"queued","poll":"/api/jobs/jb_54b2a4575cc3",
+  +0.0s ('queued', 0, None, None) None
+  +0.3s ('leased', 1, None, None) workerd-059f4a@vm:11132
+  +1.3s ('leased', 1, 'verifying', 0.01) workerd-059f4a@vm:11132
+  +2.6s ('leased', 1, 'compiling', 0.08) workerd-059f4a@vm:11132
+  +13.6s ('leased', 1, 'writing', 0.12) workerd-059f4a@vm:11132
++15.7s SIGSTOP workerd-059f4a@vm:11132 attempt 1 at {'pct': 0.3124, 'phase': 'writing', 'at': '2026-11-22T01:15:06.231269Z'}
+  +39.7s ('leased', 2, None, None) workerd-f9b8b5@vm:11095
+  +40.4s ('leased', 2, 'verifying', 0.01) workerd-f9b8b5@vm:11095
+  +41.7s ('leased', 2, 'compiling', 0.08) workerd-f9b8b5@vm:11095
+  +53.8s ('leased', 2, 'writing', 0.12) workerd-f9b8b5@vm:11095
++57.0s SIGCONT 11132 (attempt 2 now holds, leased {'pct': 0.3515, 'phase': 'writing', 'at': '2026-11-22T01:15:47.426529Z'})
+  +82.1s ('leased', 2, 'writing', 0.7) workerd-f9b8b5@vm:11095
+  +82.9s ('leased', 2, 'carrying', 0.72) workerd-f9b8b5@vm:11095
+  +89.6s ('leased', 2, 'committing', 0.82) workerd-f9b8b5@vm:11095
+  +89.9s ('leased', 2, 'finishing', 0.9) workerd-f9b8b5@vm:11095
+  +96.5s ('succeeded', 2, 'done', 1.0) workerd-f9b8b5@vm:11095
++96.5s job succeeded attempts 2 result {"status_code": 201, "id": "ds_7d0e1795", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_7e2be5fb as v5: replaced 'broker' \u2192 'BROKER' in 'channel' (exact): 3333330 cell(s)", "created_at": "2026-11-22T01:16:20+00:00", "size_bytes": 1318 error None
+versions of the root 4 → 5
+versions with this job_id [('ds_7d0e1795', 5, 'edit', 'jb_54b2a4575cc3', '2026-11-22T01:16:20+00:00')]
+version_no duplicates []
+job row [('succeeded', 2, 'workerd-f9b8b5@vm:11095', None, '{"status_code": 201, "id": "ds_7d0e1795", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_7e2be5fb as v5: replaced \'broker\' \\u2192 \'BROKER\' i')]
+audit dataset_version_created for new versions [(1,)]

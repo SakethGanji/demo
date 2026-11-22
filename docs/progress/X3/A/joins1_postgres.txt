@@ -1,0 +1,14 @@
+## J1 n:1 on DATE (apps.applied_on) = TIMESTAMP (daily.day): validation passes?, coverage
+HTTP 201 [('daily', 0, 0.0, 3000, 0)]
+   control: TIMESTAMP applied_day = TIMESTAMP day
+HTTP 201 [('daily', 3000, 1.0, 0)]
+## J2 window on a BIGINT date column (Excel serial paid_serial)
+HTTP 201 {}
+HTTP 201 {'join': {'id': 'jn_45ee4826fb', 'name': 'j_serial', 'spec_version': 1, 'spec_sha256': '359d09554bf3b60fc159c40018a3864392d57c5b35087e7c80b2069c91723259'}}
+## J3 window on a text date column (dd/mm/yyyy)
+HTTP 201 {}
+HTTP 201 ('jf_0be748fab0', 3000)
+## J4 window on DATE paid_on (boundaries, NULL dates) + skew (A00001 has 30k pays) + NULL keys
+HTTP 201 [('cust', 2735, 0.9117, 225, 40, None), ('pays', 2533, 0.8443, 467, 0, 38569)]
+HTTP 201 ('jf_ea61dbfb36', 3000, 0.057, ['y:BIGINT', 'c__score:BIGINT', 'p__n:BIGINT', 'p__amt:DOUBLE', 'p__amt90:DOUBLE', 'p__n90:BIGINT', 'p__n30f:BIGINT', 'p__last:DATE'])
+## J5 n:1 to a non-unique side via a version whose cust has a repeated key (fan-out)

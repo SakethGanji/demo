@@ -1,0 +1,14 @@
+base ds_0e7c8098
+results Counter({('delta', 409): 5, ('edit', 201): 3, ('edit', 400): 3, ('key', 201): 1, ('key', 200): 1, ('relation', 200): 1, ('relation', 201): 1, ('double_commit', 200): 1, ('double_commit', 201): 1, ('delta', 201): 1})
+   delta t:8753/api 409 {'detail': {'code': 'commit_contended', 'message': 'Other versions of this dataset kept being committed; try again.'}}
+   delta t:8754/api 409 {'detail': {'code': 'commit_contended', 'message': 'Other versions of this dataset kept being committed; try again.'}}
+   delta t:8754/api 409 {'detail': {'code': 'commit_contended', 'message': 'Other versions of this dataset kept being committed; try again.'}}
+   delta t:8753/api 409 {'detail': {'code': 'commit_contended', 'message': 'Other versions of this dataset kept being committed; try again.'}}
+   edit t:8754/api 400 {'detail': 'Other versions of this dataset kept being committed; try again.'}
+   delta t:8754/api 409 {'detail': {'code': 'commit_contended', 'message': 'Other versions of this dataset kept being committed; try again.'}}
+   edit t:8753/api 400 {'detail': 'Other versions of this dataset kept being committed; try again.'}
+   edit t:8753/api 400 {'detail': 'Other versions of this dataset kept being committed; try again.'}
+versions 8 | duplicate version_no []
+   [('ds_0e7c8098', 1, 'upload'), ('ds_180f075e', 2, 'declare_key'), ('ds_77bdddc4', 3, 'declare_relation'), ('ds_7a37bce3', 4, 'upload_version'), ('ds_d197169b', 5, 'upload_version'), ('ds_1cf766f5', 6, 'edit'), ('ds_875964a6', 7, 'edit'), ('ds_b8154767', 8, 'edit')]
+problems [] | __row_ids given to different new rows across siblings 0 []
+double commit [('t:8754/api', 200, 'ds_7a37bce3'), ('t:8753/api', 201, 'ds_7a37bce3')]

@@ -1,0 +1,8 @@
+## J5b composite key [cust, score] on cust; delta inserts (C0005, 1): key valid, cust repeats → frame of n:1 on cust
+HTTP 200 composite key version ds_4dd85281
+check blocks [] warnings []
+HTTP 201 ds_5af3f585
+delta version ds_5af3f585
+HTTP 400 {'code': 'one_to_many', 'message': "joins[0] is n:1, but cust(cust) is not a key: 1 repeated value(s), so a grain row would repeat (1:n). Use type 'aggregate' with aggs, or join on a key.", 'join': 0, 'repeated': 1}
+## J5c the same join on the version before the delta (cached frame) still works
+HTTP 200 ('jf_82cd9f850a', True, 'ds_3c7bbcf8')
