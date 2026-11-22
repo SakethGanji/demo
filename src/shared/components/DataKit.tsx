@@ -51,7 +51,7 @@ export function IdDetails({ items, label = 'ids', testId }: { items: [string, st
 const TONE: Record<string, Status> = {
   active: 'success', approved: 'success', ok: 'success', pass: 'success', succeeded: 'success', used: 'success', executed: 'success',
   armed: 'success', valid: 'success', new: 'success', appended: 'success', confirmed: 'success', certified: 'success', clean: 'success',
-  pending: 'warning', warn: 'warning', watch: 'warning', rewritten: 'warning', suggested: 'warning', held: 'warning', disarmed: 'warning',
+  rewritten: 'success', pending: 'warning', warn: 'warning', watch: 'warning', suggested: 'warning', held: 'warning', disarmed: 'warning',
   delta: 'warning', not_checked: 'warning', candidate: 'warning', changed: 'warning',
   rejected: 'danger', revoked: 'danger', expired: 'danger', block: 'danger', failed: 'danger', mismatch: 'danger', deleted: 'danger',
   refused: 'danger', invalid: 'danger', purged: 'danger', drop: 'danger', shift: 'danger',
