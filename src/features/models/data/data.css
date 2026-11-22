@@ -113,3 +113,9 @@
 .up-plan-table td.helper { white-space: normal; min-width: 220px; }
 .up-plan-table td { white-space: nowrap; }
 .up-delta { white-space: normal; display: inline-block; max-width: 420px; }
+/* U3 (F-X3a): the upload check's structured issues */
+.up-issue { margin: 3px 0; line-height: 1.45; }
+.up-issue-t { margin: 4px 0; }
+.up-issue-t td, .up-issue-t th { padding: 2px 8px; font-size: 12px; }
+.up-integrity { display: flex; flex-direction: column; gap: 4px; }
+.up-integrity label { align-items: center; }
