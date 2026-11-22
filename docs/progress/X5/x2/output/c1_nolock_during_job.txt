@@ -1,0 +1,9 @@
+[  0.1s] migrate job 202
+[  0.8s] edit SQL refresh v2 (not migrated yet) 409 {"detail":"ds_1039d9e0 was made before row maps (a SQL refresh or a monitoring window): its rows have no ids to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches
+[  1.6s] edit accounts v3 (not migrated yet, has a row map) 201 {"id":"ds_634c7f7b","name":"accounts","filename":"data.parquet","source":"upload","sample":false,"note":"Edited ds_622c0c0c as v7: 2 row(s) by id","created_at":"2026-11-22T04:28:15+00:00","size_bytes"
+[  4.7s] POST /runs ds_281da07c y → 201 {"id":"run_f7c559e2","name":"x2 concurrent y","dataset_id":"ds_281da07c","label":"y","status":"queued","created_at":"2026-11-22T04:28:19+00:00","started_at":null,"finished_at":null,"error":null,"confi
+[ 28.9s] edit loans v1 (migrated, job still running) 201 {"id":"ds_bdfe226d","name":"loans","filename":"data.parquet","source":"upload","sample":false,"note":"Edited ds_281da07c as v7: set 1 cell(s) in 1 row(s)","crea
+[ 58.7s] POST /runs ds_622c0c0c active → 201 {"id":"run_d12a0ced","name":"x2 concurrent active","dataset_id":"ds_622c0c0c","label":"active","status":"queued","created_at":"2026-11-22T04:29:13+00:00","started_at":null,"finished_at":null,"error":n
+[ 88.4s] job finished {'job_id': 'jb_5c9acc689571', 'by': 'Ada', 'started_at': '2026-11-22T04:28:15+00:00', 'total': 36, 'done': 36, 'migrated': 36, 'skipped': 0, 'failed': 0, 'current': None, 'status': 'finished', 'repaired': [], 'finished_at': '2026-11-22T04:29:43+00:00'}
+[ 88.4s] rL1c succeeded 
+[ 88.4s] rA3c succeeded 

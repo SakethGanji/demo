@@ -1,0 +1,11 @@
+{
+ "QE": "{\"detail\":\"ds_1039d9e0 was made before row maps (a SQL refresh or a monitoring window): its rows have no ids to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches them to its parent's rows. Edit it after that, or edit its parent.\"}",
+ "AE": "ds_634c7f7b",
+ "rL1c": "run_f7c559e2",
+ "LE": "ds_bdfe226d",
+ "rA3c": "run_d12a0ced",
+ "rL1c_status": "succeeded",
+ "rL1c_error": "",
+ "rA3c_status": "succeeded",
+ "rA3c_error": ""
+}

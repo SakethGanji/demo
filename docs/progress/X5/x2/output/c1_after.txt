@@ -1,0 +1,12 @@
+retry POST /runs A3 active → 201 {"id":"run_1a199b6f","name":"x5 retry active","dataset_id":"ds_622c0c0c","label":"active","status":"queued","created_at":"2026-11-22T04:27:27+00:00","started_at
+rL1c run_986af71c: status=succeeded verify ok=True data=True split={"recorded": "0d646dcb865f073eee2d35eb2bf562300f0cf6debc3af6715460c913d16c94ee", "now": "0d646dcb865f073eee2d35eb2bf562300f0cf6debc3af6715460c913d16c94ee", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet
+   run_inputs: [('ds_281da07c', 0, 'spl_a003e9b80a35', 'engine_v1')] pins: ['legacy_csv', 'legacy_json', 'split']
+rA3 retry run_1a199b6f: status=succeeded verify ok=True data=True split={"recorded": "d112571abc970090bcffa318ebbad74c3359d5965d22cbf1c046e8ce0f591d78", "now": "d112571abc970090bcffa318ebbad74c3359d5965d22cbf1c046e8ce0f591d78", "ok": true, "basis": "the pinned Parquet split blob"}
+   run_inputs: [('ds_622c0c0c', 1, 'spl_02f51b49b2e7', 'engine_v1')] pins: ['split']
+  ds_622c0c0c.migrated/splits/random-stratified__y-95cb0bfd.json 1b6174d564af blob: ['legacy_json'] split row: ['spl_70be7fbc4840']
+  ds_622c0c0c/splits/random-stratified__active-2bb6b986.json d9fac6d95287 blob: [] split row: []
+  ds_622c0c0c/splits/random-stratified__y-95cb0bfd.json 6918890862bb blob: [] split row: []
+diff A3 → concurrent edit child ds_baa9353b: identical=False rows={'matched': 761, 'added': 0, 'removed': 2, 'changed': 0}
+lake_migrations A3: [('migrated', None, 1)]
+migrated folders with split JSONs lacking a blob:
+   total 0

@@ -1,0 +1,9 @@
+X5 UI lane — U2/U3 Playwright walks at 1366x900 dSF1, head 5c1732c (worktree /var/tmp/x5/head), API :8660, Vite :5190, fresh data dir per walk
+walk          mode     exit  steps  shots  console errors (unexpected)                         API 5xx  tracebacks
+U2            audit    0     18/18  27     2 (400 one_to_many, 409 legal_hold) -> 0 unexpected   0        0
+U2            enforce  0     18/18  27     4 (400, 403 step 11b, 409 + 403 GET /purges?team=Collections as Ana at step 13 nav) -> 1 unexpected, walk-harness race   0  0
+U3            audit    0     17/17  21     2 (400 delta_op_unknown, 409 legal_hold) -> 0          0        0
+U3 intake     audit    0     1/1    2      0                                                    0        0
+fx3a          audit    0     3/3    6      0                                                    0        0
+sql           audit    0     3/3    4      2 (400 sql_platform_db, 400 sql_path_refused) -> 0   0        1 (handled: data_doctor label quality, ValueError test_size 8 < 36 classes, target guessed 'opened')
+Script changes: scripts/u2_walk.cjs (run poll 127.0.0.1:8000 -> 8660), scripts/u3_walk.cjs (API const 8000 -> 8660). Others run unchanged from the worktree.

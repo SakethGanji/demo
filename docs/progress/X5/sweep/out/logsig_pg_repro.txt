@@ -1,0 +1,3 @@
+     6 | sqlite3.OperationalError: unsupported Unicode escape sequence | inner app/db_pg.py", line 271, in execute | outer app/authz/middleware.py", line 38, in __call__
+     4 | psycopg.DataError: PostgreSQL text fields cannot contain NUL (0x00) bytes | inner app/db_pg.py", line 266, in execute | outer app/db_pg.py", line 266, in execute
+     1 | asyncio.exceptions.CancelledError | inner - | outer -

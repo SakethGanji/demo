@@ -1,0 +1,5 @@
+SIGTERM with a busy heavy pool (10M API pid 13003, SQLite, audit; a GET /runs/run_b26bb90e/doctor in flight whose pool child had been OOM-killed)
+04:05:15 kill -TERM 13003
+log: "Shutting down" / "Waiting for connections to close." 
+04:08:02 still alive; client (the doctor GET) killed -> log: "Waiting for background tasks to complete. (CTRL+C to force quit)"
+04:08:32 still alive (no exit within 30 s after the client hung up) -> kill -9

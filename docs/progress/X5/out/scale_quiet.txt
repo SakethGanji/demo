@@ -1,0 +1,12 @@
+  [POST /uploads (stream)] 4.1 s | peak single process 0.46 GB (.venv/bin/python -m uvicorn app.main:app --port 8604) | peak tree sum 0.87 GB
+  [/check] 20.4 s | peak single process 1.16 GB (.venv/bin/python -m uvicorn app.main:app --port 8604) | peak tree sum 1.57 GB
+  check 200 [('seed10m', 10000000, [('zip', 'VARCHAR'), ('account_no', 'VARCHAR'), ('branch', 'VARCHAR'), ('app_date', 'DATE')])] blocks []
+  [/commit] 17.1 s | peak single process 2.01 GB (.venv/bin/python -m uvicorn app.main:app --port 8604) | peak tree sum 2.42 GB
+  -> 201 {"version_id": "ds_616be7f1", "rows": null, "created": null, "detail": null}
+  [upload+check+commit] 41.9 s | peak single process 2.00 GB (.venv/bin/python -m uvicorn app.main:app --port 8604) | peak tree sum 2.41 GB
+## first
+  [edit preview] 50.8 s | peak single process 3.17 GB (.venv/bin/python -m uvicorn app.main:app --port 8604) | peak tree sum 3.58 GB
+200 {'preview': True, 'v': 2, 'parent': 'ds_616be7f1', 'rows': 10000000, 'n_cols': 13, 'sha256': None, 'matched': 10000000, 'changed': 1, 'added': 0, 'removed': 0, 'columns_before': 13, 'columns_after
+## repeat
+  [edit preview] 9.6 s | peak single process 3.07 GB (.venv/bin/python -m uvicorn app.main:app --port 8604) | peak tree sum 3.48 GB
+200 {'preview': True, 'v': 2, 'parent': 'ds_616be7f1', 'rows': 10000000, 'n_cols': 13, 'sha256': None, 'matched': 10000000, 'changed': 1, 'added': 0, 'removed': 0, 'columns_before': 13, 'columns_after

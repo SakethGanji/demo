@@ -1,0 +1,12 @@
+  202 {'async': True, 'job_id': 'jb_ab103a555d56', 'job': {'id': 'jb_ab103a555d56', 'kind': 'edit', 'status': 'queued', 'created_at': '2026-11-22T03:36:23.627801Z'}, 
+       0.0s queued (None, 0)
+       2.0s leased ('compiling', 0.08)
+      34.9s leased ('carrying', 0.72)
+      41.0s leased ('finishing', 0.9)
+      53.3s succeeded ('done', 1.0)
+  [edit add_column (job)] 53.5 s | peak single process 2.38 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 2.84 GB
+  edited ds_86940adf {'is_default': True, 'why': 'no contract warnings: it is now the default'} 
+  202 {'id': 'fl_0a5e4d45', 'status': 'running', 'phase': 'queued', 'started_at': '2026-11-22T03:37:17+00:00', 'request': {'by': 'x5', 'candidates': [{'op': 'ratio', 'a': 'scaled2', 'b': 'income'}], 'time_l
+  [feature-lab ratio + apply (job)] 216.4 s | peak single process 2.70 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 3.16 GB
+  FL succeeded kept ['scaled2_per_income'] version {'id': 'ds_43ea8c69', 'name': 'x5 seed10m · features v1', 'columns_added': ['scaled2_per_income'], 'rows': 10000000, 'profile_rows': 10000000, 'how': 'sql'} err None
+  keys ['id', 'status', 'phase', 'started_at', 'request', 'journal', 'running_since', 'finished_at', 'result', 'target', 'version', 'masked_columns', 'unmasked', 'masks'] ['task', 'metric', 'metric_label', 'target', 'positive_class', 'rows', 'base_features', 'blocked', 'entity', 'proposed_by', 'base_score_oof', 'final_score_oof', 'journal', 'kept', 'rules', 'improvement_oof', 'holdout', 'seconds', 'sample']

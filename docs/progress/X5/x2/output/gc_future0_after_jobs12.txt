@@ -1,0 +1,36 @@
+{
+ "at": "2026-11-22T04:22:23+00:00",
+ "blobs": {
+  "live": 203,
+  "pending": 1
+ },
+ "blob_refs": 253,
+ "candidates": [],
+ "unreferenced_in_grace": 1,
+ "orphans": [],
+ "integrity": [],
+ "stale_tmp": []
+}
+by kind: blobs / with a ref / refs by owner kind
+  frozen_holdout     1    1  [('version', 1)]
+  legacy_csv        26   26  [('run', 8), ('version', 29)]
+  legacy_json       85   85  [('run', 9), ('split', 30), ('version', 68)]
+  manifest          33   32  [('version', 32)]
+  source             1    1  [('upload', 1)]
+  split             28   28  [('run', 10), ('split', 32)]
+  table             30   30  [('version', 33)]
+runs and their pins (role list):
+  run_356ac901 present  None
+  run_b8ac2e57 present  legacy_csv,split,legacy_json
+  run_df480700 present  None
+  run_4204cb9b present  legacy_csv,split,legacy_json
+  run_e53b2acc present  None
+  run_be6ae6e8 present  legacy_csv,split,legacy_json
+  run_7e2d775c present  split,legacy_json
+  run_b5f2841f present  None
+  run_515f15dd present  legacy_csv,split,legacy_json
+  run_d31c1acc present  split
+  run_0e05b67c present  legacy_csv,split,legacy_json
+  run_29fca109 present  legacy_csv,split,legacy_json
+  run_1b8725be evicted  legacy_csv,split,legacy_json
+  run_ed6ac697 present  legacy_csv,split,legacy_json

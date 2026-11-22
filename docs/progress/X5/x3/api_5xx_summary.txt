@@ -1,0 +1,48 @@
+== sq1 (378 tracebacks)
+      4 /api/admin/lake/blobs/SHA/restore HTTP/1.1"
+      4 /api/admin/lake/gc?dry_run=1 HTTP/1.1"
+      4 /api/admin/lake/migrate/cleanup?dry_run=1 HTTP/1.1"
+      8 /api/admin/lake/seed HTTP/1.1"
+      4 /api/admin/lake/sync-s3?dry_run=1 HTTP/1.1"
+     10 /api/certifications/ID/decide HTTP/1.1"
+      4 /api/certifications/x/decide HTTP/1.1"
+     14 /api/datasets/ID/certifications HTTP/1.1"
+     14 /api/datasets/ID/contract HTTP/1.1"
+     14 /api/datasets/ID/contract/from-version/ID HTTP/1.1"
+      4 /api/runs HTTP/1.1"
+     14 /api/shares HTTP/1.1"
+     14 /api/shares/ID/decide HTTP/1.1"
+     14 /api/shares/ID/revoke HTTP/1.1"
+     27 AttributeError: 'bool' object has no attribute 'strip'
+     27 AttributeError: 'dict' object has no attribute 'strip'
+     14 AttributeError: 'float' object has no attribute 'strip'
+     27 AttributeError: 'int' object has no attribute 'strip'
+     27 AttributeError: 'list' object has no attribute 'strip'
+      1 ValueError: operands could not be broadcast together with shapes (190,) (200,) 
+      1 ValueError: operands could not be broadcast together with shapes (210,) (200,) 
+      2 ValueError: operands could not be broadcast together with shapes (390,) (400,) 
+== pg1 (378 tracebacks)
+      4 /api/admin/lake/blobs/SHA/restore HTTP/1.1"
+      4 /api/admin/lake/gc?dry_run=1 HTTP/1.1"
+      4 /api/admin/lake/migrate/cleanup?dry_run=1 HTTP/1.1"
+      8 /api/admin/lake/seed HTTP/1.1"
+      4 /api/admin/lake/sync-s3?dry_run=1 HTTP/1.1"
+     10 /api/certifications/ID/decide HTTP/1.1"
+      4 /api/certifications/x/decide HTTP/1.1"
+     14 /api/datasets/ID/certifications HTTP/1.1"
+     14 /api/datasets/ID/contract HTTP/1.1"
+     14 /api/datasets/ID/contract/from-version/ID HTTP/1.1"
+      4 /api/runs HTTP/1.1"
+     14 /api/shares HTTP/1.1"
+     14 /api/shares/ID/decide HTTP/1.1"
+     14 /api/shares/ID/revoke HTTP/1.1"
+     27 AttributeError: 'bool' object has no attribute 'strip'
+     27 AttributeError: 'dict' object has no attribute 'strip'
+     14 AttributeError: 'float' object has no attribute 'strip'
+     27 AttributeError: 'int' object has no attribute 'strip'
+     27 AttributeError: 'list' object has no attribute 'strip'
+      1 ValueError: operands could not be broadcast together with shapes (190,) (200,) 
+      1 ValueError: operands could not be broadcast together with shapes (210,) (200,) 
+      2 ValueError: operands could not be broadcast together with shapes (390,) (400,) 
+== s3sq (0 tracebacks)
+== s3pg (0 tracebacks)

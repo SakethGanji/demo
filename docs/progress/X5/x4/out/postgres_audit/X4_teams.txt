@@ -1,0 +1,36 @@
+# mode audit
+# 0. PATCH /datasets/{id} is guarded by run.train (a member)
+## 2a Mo (member) PATCH /datasets/{v} {description} → HTTP 400 | pii 0
+    {"detail": "Send {\"target\": \"<column to predict>\"}."}
+
+# 1. team management
+before: [('Ada', 'owner'), ('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## 1a Ana (maintainer) PATCH /teams/cr/members/Bo {role: viewer}  (demote an owner) → HTTP 200 | would-deny team.settings | pii 0
+    {"display_name": null, "role": null}
+## 1b Ana (maintainer) DELETE /teams/cr/members/Bo  (remove an owner) → HTTP 200 | pii 0
+    {"team_id": "tm_8e653d73", "members": [{"principal_id": "pr_fdee430d40bd", "display_name": "Ada", "identity_key": "ada", "kind": "person", "email": null, "is_admin": true, "role": "owner", "source": "
+## 1c Ana (maintainer) PATCH /teams/cr/members/Mo {role: risk_reviewer} → HTTP 200 | would-deny team.settings | pii 0
+    {"team_id": "tm_8e653d73", "members": [{"principal_id": "pr_fdee430d40bd", "display_name": "Ada", "identity_key": "ada", "kind": "person", "email": null, "is_admin": true, "role": "owner", "source": "
+## 1d Ana (maintainer) PATCH /teams/cr/members/Ana {role: risk_reviewer}  (herself) → HTTP 403 | would-deny team.settings | pii 0
+    {"detail": {"code": "self_grant", "message": "Ana cannot give themselves a role in Credit Risk: another owner (or a platform admin) must make the change."}}
+after: [('Ada', 'owner'), ('Ben', 'owner'), ('Ana', 'maintainer'), ('Mo', 'risk_reviewer'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## 1e /authz/check Ana model.review on the team → HTTP 200 | pii 0
+    {"allow": false, "reason": "model.review needs risk_reviewer in tm_8e653d73; you are maintainer"}
+
+# 3. the SQL source reads other databases under the data dir (Fay, Fraud member, in her own project)
+## 3a Fay POST /sql/preview {sqlite:///mlflow/mlflow.db, SELECT name FROM registered_models} → HTTP 400 | pii 0
+    {"rows": null}
+## 3b Fay POST /sql/preview {sqlite:///ensemble.sqlite3} → HTTP 400 | pii 0
+    {"detail": {"code": "sql_error", "message": "No database file at /var/tmp/x5/x4/w_postgres_audit/import/ensemble.sqlite3."}}
+
+# 4. Postgres deployment: the SQL source pointed at the platform's own database (the server's connection settings)
+## 4 Fay POST /sql/preview {127.0.0.1:5433/x5x4_a, SELECT actor, action, team_id FROM audit…} → HTTP 400 | pii 0
+    {"rows": null}
+## 4 Fay POST /sql/preview {127.0.0.1:5433/x5x4_a, SELECT display_name, is_admin FROM princ…} → HTTP 400 | pii 0
+    {"rows": null}
+## 4 Fay POST /sql/preview {127.0.0.1:5433/x5x4_a, SELECT id, grantee_team, pii FROM shares…} → HTTP 400 | pii 0
+    {"rows": null}
+## 4 Fay POST /sql/preview {127.0.0.1:5433/x5x4_a, SELECT result FROM batch_jobs WHERE resu…} → HTTP 400 | pii 0
+    {"rows": null}
+## 4 Fay POST /sql/preview {127.0.0.1:5433/x5x4_a, SELECT pg_read_file('/etc/hostname') AS …} → HTTP 400 | pii 0
+    {"rows": null}

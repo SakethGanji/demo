@@ -1,0 +1,2 @@
+tracebacks: 3 | HTTP 5xx: 1
+POST /api/sql/preview?project_id=prj_f657bbbc HTTP/1.1" 500 Internal Server Error

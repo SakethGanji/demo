@@ -1,0 +1,40 @@
+# setup (X3 A setup.sh)
+HTTP 201 apps key -> ds_f7c6e80c
+HTTP 201 cust key -> ds_d872af66
+HTTP 201 pays key -> ds_2f9bf30c
+HTTP 201 daily key -> ds_0df3c44b
+# M8 on S3: a stacked object in the bucket while a frame is built
+1. stacked version da758f5c-c7c0-41ef-a600-ab9006cf89bc (y flipped) on apps part 18bc6c2c288a; cache copy removed
+2. POST joins → 409 {"detail":{"code":"blob_integrity","message":"the object store returned bytes for 18bc6c2c288ac266368a0c7dcaff1d7be6442f7a89da65c047f6b0a6af6cebca.parquet whose sha256 is 8ff72d12883cfe907bbc95f8ddedc
+4. stacked version removed
+   POST joins → 201 {"id":"jn_e4a38f9374","root_id":"ds_4d66f8fc","team_id":"tm_default","name":"m8s3b_sq","spec_version":1,"spec_sha256":"2
+5. POST frames (bytes good) → 201 {'id': 'jf_89790a78ba', 'cached': False}
+   frame y = the bucket's original bytes: True
+6. frame verify ok True derived True
+# F-X3b s3.py
+## m9 / M8 (S3): rewrite a cached part (y flipped) and its .meta sidecar
+   tampered 18bc6c2c288a in the cache; the bucket's y mean is 0.279, the cache's 0.721
+   grid serves y = the bucket's bytes: True (200 rows)
+   GET verify: 200 {'ok': True}
+   POST frames (after the tamper): 201 {'id': 'jf_df68fb69c4', 'cached': False}
+   frame y = the bucket's bytes: True
+   frame verify: 200 {'verify': {'cache': {'recorded': 'e5a1b11c4dfc33187e7cece9a561bf5cdc0759ff9450ddb4072e8e0c3abc5b5d', 'now': 'e5a1b11c4dfc33187e7cece9a561bf5cdc0759ff9450ddb4072e8e0c3abc5b5d', 'ok': True}, 'inputs': [{'version_id': 'ds_0df3c44b', 'table': 'apps', 'pinned': 'c
+   cache stats {'tamper_refetch': 1, 'rehash_on_hit': 1, 'first_use_rehash': 0, 'fills': 41}
+## m7: a blob deleted from the bucket (every version) and the cache
+   deleted ef71dbf36d52 (cust)
+   GET grid?table=cust: 409 {'code': 'blob_missing', 'message': 'A file of this data (ef71dbf36d52…) is missing from the lake. GET /api/datasets/{version}/verify names the version and table; restore the object or delete the version.', 'sha256': 'ef71dbf36d529989553d84e65c38c7e1633912ebc3
+   GET rows/count?table=cust: 409 {'code': 'blob_missing', 'message': 'A file of this data (ef71dbf36d52…) is missing from the lake. GET /api/datasets/{version}/verify names the version and table; restore the object or delete the version.', 'sha256': 'ef71dbf36d529989553d84e65c38c7e1633912ebc3
+   GET stats?table=cust: 409 {'code': 'blob_missing', 'message': 'A file of this data (ef71dbf36d52…) is missing from the lake. GET /api/datasets/{version}/verify names the version and table; restore the object or delete the version.', 'sha256': 'ef71dbf36d529989553d84e65c38c7e1633912ebc3
+   GET manifest: 409 {'code': 'blob_missing', 'message': 'A file of this data (ef71dbf36d52…) is missing from the lake. GET /api/datasets/{version}/verify names the version and table; restore the object or delete the version.', 'sha256': 'ef71dbf36d529989553d84e65c38c7e1633912ebc3
+   POST joins (validate reads cust): 409 {'code': 'blob_missing', 'message': 'A file of this data (ef71dbf36d52…) is missing from the lake. GET /api/datasets/{version}/verify names the version and table; restore the object or delete the version.', 'sha256': 'ef71dbf36d529989553d84e65c38c7e1633912ebc3
+   delta /check on cust: 409 {'code': 'blob_missing', 'message': 'A file of this data (ef71dbf36d52…) is missing from the lake. GET /api/datasets/{version}/verify names the version and table; restore the object or delete the version.', 'sha256': 'ef71dbf36d529989553d84e65c38c7e1633912ebc3
+   GET verify: 200 {'ok': False}
+## m8: a newer object version with other bytes stacked on the pays part
+   stacked version adb3ee6f-72f1-475d-aff4-1b51e66c1c7f on de93cfee89cd (pays)
+   upload pays.csv again (dedupes onto the blob): 409 {'code': 'blob_stacked', 'message': 'blobs/de/de93cfee89cdf44c0ed9a3557c5637ee6be99e2124287f3955da47b67fda3972.parquet holds other bytes (a newer object version was stacked on it), so this commit can\'t reuse it. Version f8caea5a-f968-4c9e-9309-1023749517a9 st
+   GET grid?table=pays: 409 {'code': 'blob_integrity', 'message': 'the object store returned bytes for de93cfee89cdf44c0ed9a3557c5637ee6be99e2124287f3955da47b67fda3972.parquet whose sha256 is d225eb5b29e96c6bd9a855f8acb180b884168cba0edc7281ddc61586f6b7ef14; they were not cached (verify t
+   POST restore (no confirm): 400 {'code': 'confirm_required', 'message': 'Send {"confirm": "restore"}: stacked versions are removed.', 'sha256': None, 'matching_version': None}
+   POST restore: 200 {'restored': True, 'matching_version': 'f8caea5a-f968-4c9e-9309-1023749517a9', 'removed_versions': [{'version': 'adb3ee6f-72f1-475d-aff4-1b51e66c1c7f', 'bytes': 6226, 'modified': '2026-11-22 03:33:55.761000+00:00'}]}
+   upload pays.csv again: 201 {'version_id': 'ds_4bb6299c'}
+   GET grid?table=pays: 200 {'total': 38594, 'n_rows': None}
+   GET verify (cust still deleted): 200 {'ok': False, 'problems': ['cust part 0: missing']}

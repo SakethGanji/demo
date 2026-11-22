@@ -1,0 +1,6 @@
+tracebacks: 13 | HTTP 5xx: 5
+GET /api/runs/run_f5d80cfc/explain HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_f5d80cfc/explain HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_cc516fa6/explain HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_cc516fa6/shap?row=1 HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_75638197/shap?row=0 HTTP/1.1" 500 Internal Server Error

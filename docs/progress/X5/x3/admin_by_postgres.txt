@@ -1,0 +1,24 @@
+POST /api/admin/lake/gc?dry_run=1 {"by": 123} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/sync-s3?dry_run=1 {"by": 123} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/migrate?dry_run=1 {"by": 123} [actor Ada] → ion":{},"already_migrated":0,"plan":[],"note":"dry run: nothing was written. POST /api/admin/lake/migrate?dry_run=0 runs it as a job."} 200
+POST /api/admin/lake/migrate/cleanup?dry_run=1 {"by": 123} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/blobs/0000000000000000000000000000000000000000000000000000000000000000/restore {"by": 123} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/seed {"by": 123} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/gc?dry_run=1 {"by": ["x"]} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/sync-s3?dry_run=1 {"by": ["x"]} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/migrate?dry_run=1 {"by": ["x"]} [actor Ada] → ion":{},"already_migrated":0,"plan":[],"note":"dry run: nothing was written. POST /api/admin/lake/migrate?dry_run=0 runs it as a job."} 200
+POST /api/admin/lake/migrate/cleanup?dry_run=1 {"by": ["x"]} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/blobs/0000000000000000000000000000000000000000000000000000000000000000/restore {"by": ["x"]} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/seed {"by": ["x"]} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/gc?dry_run=1 {"by": {"a":1}} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/sync-s3?dry_run=1 {"by": {"a":1}} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/migrate?dry_run=1 {"by": {"a":1}} [actor Ada] → ion":{},"already_migrated":0,"plan":[],"note":"dry run: nothing was written. POST /api/admin/lake/migrate?dry_run=0 runs it as a job."} 200
+POST /api/admin/lake/migrate/cleanup?dry_run=1 {"by": {"a":1}} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/blobs/0000000000000000000000000000000000000000000000000000000000000000/restore {"by": {"a":1}} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/seed {"by": {"a":1}} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/gc?dry_run=1 {"by": true} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/sync-s3?dry_run=1 {"by": true} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/migrate?dry_run=1 {"by": true} [actor Ada] → ion":{},"already_migrated":0,"plan":[],"note":"dry run: nothing was written. POST /api/admin/lake/migrate?dry_run=0 runs it as a job."} 200
+POST /api/admin/lake/migrate/cleanup?dry_run=1 {"by": true} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/blobs/0000000000000000000000000000000000000000000000000000000000000000/restore {"by": true} [actor Ada] → Internal Server Error 500
+POST /api/admin/lake/seed {"by": true} [actor Ada] → Internal Server Error 500

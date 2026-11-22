@@ -1,0 +1,38 @@
+# mode enforce
+
+# M1. decider names outside the body `by`
+## 1a Ana DELETE /registry/versions/{mv}/credit-report/tape?actor=Bo → HTTP 409 | {"detail":"You are signed in as Ana; 'by' says Bo."}
+## 1b Ana DELETE …/credit-report/tape?by=Bo → HTTP 409 | {"detail":"You are signed in as Ana; 'by' says Bo."}
+## 1c Rita review reviewer='bo' → HTTP 409 | {"detail":"You are signed in as Rita; 'by' says bo."}
+## 1c Rita review reviewer='Bo ' → HTTP 409 | {"detail":"You are signed in as Rita; 'by' says Bo ."}
+## 1c Rita review reviewer='Bо' → HTTP 409 | {"detail":"You are signed in as Rita; 'by' says Bо."}
+## 1c Rita review reviewer='Bo\u200b' → HTTP 409 | {"detail":"You are signed in as Rita; 'by' says Bo​."}
+## 1c Rita review reviewer='BO' → HTTP 409 | {"detail":"You are signed in as Rita; 'by' says BO."}
+## 1d Rita review created_by='Bo' (another name field) → HTTP 409 | {"detail":"You are signed in as Rita; 'by' says Bo."}
+
+# C1. the agent's user field
+## 2 Fay POST /agent/sessions user='fay' → HTTP 201 | user Fay owner pr_92beaa3938dc | None
+## 2 Fay POST /agent/sessions user=' Fay ' → HTTP 201 | user Fay owner pr_92beaa3938dc | None
+## 2 Fay POST /agent/sessions user='Fаy' → HTTP 201 | user Fay owner pr_92beaa3938dc | None
+## 2 Fay POST /agent/sessions user='Ana' → HTTP 409 | user None owner None | You are signed in as Fay; 'user' says Ana. The agent acts only on behalf of the person who starts it.
+## 2 Fay POST /agent/sessions user='Vela agent on behalf of Ana' → HTTP 409 | user None owner None | You are signed in as Fay; 'user' says Vela agent on behalf of Ana. The agent acts only on behalf of the person who starts it.
+## 2 Fay POST /agent/sessions user=None → HTTP 201 | user Fay owner pr_92beaa3938dc | None
+## 2b X-Ensemble-Actor 'Vela agent' (the service principal's name) POST /agent/sessions → HTTP 201 | {"id":"as_418374afcea8b136","user":"Vela agent","owner_id":"pr_0ae394f2b650","created_at":"2026-11-22T03:58:25","status":"thinking","decider":"stub","budget":{"max_steps":24,"steps":0,"max_seconds":1800.0,"seconds":0.0},
+## 2c forged internal header (garbage signature) → HTTP 200 | {"principal":{"id":"pr_92beaa3938dc","display_name":"Fay","identity_key":"fay","kind":"person","email":null,"idp":null,"created_at":"2026-11-22T03:57:01+00:00","last_seen_at":"2026-11-22T03:58:25+00:00","disabled_at":nul
+
+# M5. /registry/audit with another team's model / version
+## 3a Fay /registry/audit?model=pd-x4 → HTTP 403 | {"detail":{"code":"forbidden","action":"model.read","team":"tm_bafe8e93","needed":"viewer","message":"model.read needs viewer in tm_bafe8e93; you are not a member"}}
+## 3b Fay /registry/audit?version_id=<cr mv> → HTTP 403 | {"detail":{"code":"forbidden","action":"model.read","team":"tm_bafe8e93","needed":"viewer","message":"model.read needs viewer in tm_bafe8e93; you are not a member"}}
+## 3c Carl /registry/audit?model=pd-x4 → HTTP 403 | {"detail":{"code":"forbidden","action":"model.read","team":"tm_bafe8e93","needed":"viewer","message":"model.read needs viewer in tm_bafe8e93; you are not a member"}}
+
+# C2. a masked-share grantee (Carl) and an outsider (Fay) on run pages, with the unmask path
+## 4 Carl fairness ssn unmasked → HTTP 403 | pii 0
+## 4 Carl scorecard unmasked → HTTP 403 | pii 0
+## 4 Carl batch preview unmasked → HTTP 403 | pii 0
+## 4 Carl anomaly top unmasked → HTTP 403 | pii 0
+## 4 Fay fairness ssn unmasked → HTTP 403 | pii 0
+## 4 Fay scorecard unmasked → HTTP 403 | pii 0
+## 4 Fay batch preview unmasked → HTTP 403 | pii 0
+## 4 Fay anomaly top unmasked → HTTP 403 | pii 0
+## 4b Carl GET /datasets/{v1}/rows?unmasked=1&reason (masked share) → HTTP 403 | pii 0
+    {"masked_columns": null, "unmasked": null}

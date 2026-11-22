@@ -1,0 +1,37 @@
+# mode enforce
+
+# 1. after the purge of loans.ssn (v1 is the purged/deleted version; new_v the kept one)
+    (skipped: X5_M4_PART=2)
+
+# 2. a plain delete (request + four-eyes decide) of a version with a run on it
+## 2a commit small → HTTP 201 | pii 0
+    {"version_id": "ds_7aae4dea"}
+## 2b run on small → HTTP 201 | pii 0
+    {"id": "run_5a05c496"}
+    run: succeeded
+## 2b' a second run on small (never read before the delete: no explain / SHAP cache) → HTTP 201 | pii 0
+    {"id": "run_95732eaf"}
+    run2: succeeded
+## 2c before: Ana GET /runs/{rs}/explain → HTTP 200 | {"run_id":"run_5a05c496","model":"WeightedEnsemble_L2","problem_type":"binary","eval_metric":{"name":"accuracy","greater_is_better":true,"optimum":1.0,"scores_note":"score_* are AutoGluon's higher-is-better scores; *_nat
+## 2d before: Ana GET /runs/{rs}/shap?row=0 → HTTP 200 | {"run_id":"run_5a05c496","row":0,"model":"WeightedEnsemble_L2","problem_type":"binary","target":"1","output":"probability","quantile_level":null,"base_value":0.6085716345906258,"fx":0.9421439170837402,"sum_phi":0.3335722
+## 2e before: Ana GET /datasets/{vs}/export?format=csv → HTTP 200 | <text/csv; charset=utf-8 7528 bytes>
+## 2f Ana POST /datasets/{vs}/delete → HTTP 409 | pii 0
+    {"detail": {"message": "Can't delete: a version is in use. Each line below says how to clear it.", "blockers": ["run run_95732eaf (small · y, succeeded) was trained on ds_7aae4dea: deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send \"irreproducible\": {\"reason\": \"…\"} with the delete to accept that (four eyes, audited).", "run run_5a05c496 (sma
+## 2f' Ana POST /datasets/{vs}/delete {irreproducible: {reason}} → HTTP 201 | pii 0
+    {"id": "dsr_29873e19", "status": "pending", "runs_made_irreproducible": ["run_95732eaf", "run_5a05c496"]}
+## 2g Ben decides → HTTP 200 | pii 0
+    {"status": "approved"}
+## 2h GET /datasets/{vs} → HTTP 410 | pii 0
+    {"id": null, "status": null, "deleted_at": null}
+## 2i Ana GET /datasets/{vs}/export (zip) → HTTP 410 | {"detail":"ds_7aae4dea was deleted: only its tombstone and lineage are kept."}
+## 2j Ana GET /datasets/{vs}/export?format=csv → HTTP 410 | {"detail":"ds_7aae4dea was deleted: only its tombstone and lineage are kept."}
+## 2i Ada GET /datasets/{vs}/export (zip) → HTTP 410 | {"detail":"ds_7aae4dea was deleted: only its tombstone and lineage are kept."}
+## 2j Ada GET /datasets/{vs}/export?format=csv → HTTP 410 | {"detail":"ds_7aae4dea was deleted: only its tombstone and lineage are kept."}
+## 2k Ana GET /runs/{rs}/explain (run on the deleted version) → HTTP 200 | {"run_id":"run_5a05c496","model":"WeightedEnsemble_L2","problem_type":"binary","eval_metric":{"name":"accuracy","greater_is_better":true,"optimum":1.0,"scores_note":"score_* are AutoGluon's higher-is-better scores; *_nat
+## 2l Ana GET /runs/{rs}/shap?row=0 → HTTP 200 | {"run_id":"run_5a05c496","row":0,"model":"WeightedEnsemble_L2","problem_type":"binary","target":"1","output":"probability","quantile_level":null,"base_value":0.6085716345906258,"fx":0.9421439170837402,"sum_phi":0.3335722
+## 2m Ana GET /runs/{rs}/shap?row=3 → HTTP 400 | {"detail":"Row 3 is not in this run's holdout."}
+## 2n Ana GET /datasets/{vs}/rows → HTTP 410 | {"detail":"Dataset 'ds_7aae4dea' was deleted (2026-11-22T03:46:10+00:00, Ben); its lineage is kept."}
+    run2 holdout-predictions → HTTP 200; first holdout row 0
+## 2o Ana GET /runs/{rs2}/explain (uncached, deleted data) → HTTP 200 | {"run_id":"run_95732eaf","model":"WeightedEnsemble_L2","problem_type":"binary","eval_metric":{"name":"accuracy","greater_is_better":true,"optimum":1.0,"scores_note":"score_* are AutoGluon's higher-is-better scores; *_nat
+## 2p Ana GET /runs/{rs2}/shap?row=0 (uncached) → HTTP 500 | Internal Server Error
+## 2q Ana GET /runs/{rs}/shap?row=0 (uncached row on the warmed run) → HTTP 200 | {"run_id":"run_5a05c496","row":0,"model":"WeightedEnsemble_L2","problem_type":"binary","target":"1","output":"probability","quantile_level":null,"base_value":0.6085716345906258,"fx":0.9421439170837402,"sum_phi":0.3335722

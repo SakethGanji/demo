@@ -1,0 +1,13 @@
+## cleanup dry_run=0 with 0 verify-all passes
+{"detail":{"code":"verify_all_needed","message":"The migrated folders are deleted only after two verify-all passes that started after each folder's migration (GET /api/admin/lake/verify-all).","folders":[{"folder":"account-attrition.migrated","migrated_at":"2026-11-22T04:20:53+00:00","verify_all_passes":[]},{"folder":"account-churn.migrated","migrated_at":"2026-11-22T04:20:50+00:00","verify_all_passes":[]},{"folder":"card-transactions.migrated","migrated_at":"2026-11-22T04:20:51+00:00","verify_all_passes":[]},{"folder":"complaint-topics.migrated","migrated_at":"2026-11-22T04:20:54+00:00","veri
+HTTP 409
+## verify-all with outside changes present
+ok False checked 38 failed ['ds_34f3bd4c', 'ds_e7548d86']
+## passes recorded
+[]
+## cleanup dry_run=1
+{"dry_run":true,"verify_all_passes_since_migration":[],"allowed":false,"folders":[{"folder":"account-attrition.migrated","version_id":"account-attrition","delete":false,"why_not":"0 verify-all pass(es) started since its migration (2026-11-22T04:20:53+00:00); 2 are needed","migrated_at":"2026-11-22T04:20:53+00:00","verify_all_passes":[],"bytes":1000040},{"folder":"account-churn.migrated","version_id":"account-churn","delete":false,"why_not":"0 verify-all pass(es) started since its migration (2026
+HTTP 200
+## unpreserved.py before cleanup
+files preserved (a live blob or the same bytes in the fresh folder): 140
+files that cleanup deletes with no other copy: 0

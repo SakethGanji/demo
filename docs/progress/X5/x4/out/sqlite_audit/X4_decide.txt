@@ -1,0 +1,13 @@
+# mode audit
+
+# 1. registry review: the reviewer's name is body.reviewer (BY_FIELDS = by, actor, created_by, requested_by)
+## 1a Ana (registrant, maintainer) reviews her own version, reviewer=Rita → HTTP 409 | would-deny model.review, by_mismatch | pii 0
+    {"detail": "Four-eyes rule: Ana is the registrant, so a second person must decide. (Rita cannot review this version.)"}
+## 1b Rita reviews, reviewer='Ana' (the registrant) → HTTP 409 | would-deny by_mismatch | pii 0
+    {"detail": "Four-eyes rule: Ana is the registrant, so a second person must decide. (Ana cannot review this version.)"}
+## 1c Rita reviews, by='Bo' (a by field ≠ principal) → HTTP 200 | would-deny by_mismatch | pii 0
+    {"version": {"id": "mv_7854c8f7", "model_name": "pd-x4", "version": 1, "run_id": "run_1c0438cc", "status": "ready", "stage": "None", "approval": "approved", "created_at": "2026-11-22T03:37:32+00:00", "created_by": "Ana", "options": {"description": ""
+## 1d Rita reviews, reviewer='Bo' (a real other person; no by field) → HTTP 409 | would-deny by_mismatch | pii 0
+    approval: None | audit entry actor: None
+    credit-risk audit rows: [('approved', 'Rita', 'pr_ffb850b3b060', 'typed'), ('share_approved', 'Bo', 'pr_3d099d0f13df', 'typed'), ('certification_approved', 'Ben', 'pr_6700869c8ff7', 'typed')]
+    /registry/audit: [('batch_scored', 'Vela agent on behalf of Fay'), ('batch_scored', 'Ana'), ('registered', 'Ana')]

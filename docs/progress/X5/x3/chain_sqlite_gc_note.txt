@@ -1,0 +1,3 @@
+# SQLite chain: 'gc run {}' explained. The run answered 409 gc_disarmed because verify-all did not pass: probes.py (run on the same API at the same time) had tampered the m10 dataset's part on purpose. Dry run re-asked after the chain:
+gc dry run candidates [('2d605ebe79d6', 'join_cache')]
+gc run → 409 gc_disarmed (verify-all has not passed: m10 tamper)

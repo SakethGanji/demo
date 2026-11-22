@@ -1,0 +1,7 @@
+rA3c run_d12a0ced: verify ok=True data=True split ok=True
+  run_inputs: [('ds_622c0c0c', 'spl_46f08cf97b0e', 'engine_v1')] pins: ['legacy_csv', 'legacy_json', 'split']
+  ds_622c0c0c.migrated/splits/random-stratified__active-2bb6b986.json 26242fff1549 blob: ['legacy_json'] split row: ['spl_46f08cf97b0e']
+  ds_622c0c0c.migrated/splits/random-stratified__y-95cb0bfd.json 1b6174d564af blob: ['legacy_json'] split row: ['spl_e506e8feccac']
+  ds_622c0c0c/splits/random-stratified__active-2bb6b986.json e285028e472f blob: [] split row: []
+  ds_622c0c0c/splits/random-stratified__y-95cb0bfd.json 620ad8277877 blob: [] split row: []
+lake_migrations A3: [('migrated', None, 1)]

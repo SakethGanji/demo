@@ -1,0 +1,8 @@
+[  0.0s] migrate job 202
+[  0.6s] edit SQL refresh v2 (not migrated yet) 409 {"detail":"ds_1039d9e0 was made before row maps (a SQL refresh or a monitoring window): its rows have no ids to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches
+[  1.5s] edit accounts v3 (not migrated yet, has a row map) 201 {"id":"ds_baa9353b","name":"accounts","filename":"data.parquet","source":"upload","sample":false,"note":"Edited ds_622c0c0c as v7: 2 row(s) by id","created_at":"2026-11-22T04:25:37+00:00","size_bytes"
+[  4.4s] POST /runs ds_281da07c y → 201 {"id":"run_986af71c","name":"x2 concurrent y","dataset_id":"ds_281da07c","label":"y","status":"queued","created_at":"2026-11-22T04:25:40+00:00","started_at":null,"finished_at":null,"error":null,"confi
+[ 30.5s] edit loans v1 (migrated, job still running) 201 {"id":"ds_151717aa","name":"loans","filename":"data.parquet","source":"upload","sample":false,"note":"Edited ds_281da07c as v7: set 1 cell(s) in 1 row(s)","crea
+[ 62.4s] POST /runs ds_622c0c0c active → 409 {"detail":{"code":"version_migrating","message":"version_migrating: ds_622c0c0c is being migrated into the lake right now (job jb_7228a898f6cf): drawing a split is refused until that is done. Try agai
+[ 92.1s] job finished {'job_id': 'jb_7228a898f6cf', 'by': 'Ada', 'started_at': '2026-11-22T04:25:36+00:00', 'total': 36, 'done': 36, 'migrated': 36, 'skipped': 0, 'failed': 0, 'current': None, 'status': 'finished', 'repaired': [], 'finished_at': '2026-11-22T04:27:08+00:00'}
+[ 92.1s] rL1c succeeded 

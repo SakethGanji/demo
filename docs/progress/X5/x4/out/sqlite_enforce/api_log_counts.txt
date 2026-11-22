@@ -1,0 +1,6 @@
+tracebacks: 13 | HTTP 5xx: 5
+GET /api/runs/run_f8e24fce/explain HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_f8e24fce/explain HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_e603ea7b/explain HTTP/1.1" 500 Internal Server Error
+GET /api/runs/run_e603ea7b/shap?row=1 HTTP/1.1" 500 Internal Server Error
+POST /api/sql/preview?project_id=prj_69c9368c HTTP/1.1" 500 Internal Server Error

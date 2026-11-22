@@ -1,0 +1,10 @@
+POST /api/uploads?filename=m1.csv&by=fx1 -> 201 (0.1s) {"upload_id": "up_baba8fdd29a2", "status": "staged", "team_id": "tm_default", "project_id": null, "files": [{"n": 0, "filename": "m1.csv", "bytes": 49235, "sha256": "07104022daf8744e32ed928382431187c01a62a29208d2ecf541210d820478af"}], "parent_version_id": null, "root_id": null, "plan": {}, "check_sha256": null, "committed_version_id": null, "created_by": "fx1", "created_at": "2026-11-22T04:02:03+0
+POST /api/uploads/up_baba8fdd29a2/check -> 200 (0.1s) {"kind": "csv", "tables": [{"name": "m1", "source_file": "m1.csv", "source_sha25
+POST /api/uploads/up_baba8fdd29a2/commit -> 201 (0.2s) {"id": "ds_20e267bd", "root_id": "ds_20e267bd", "version_no": 1, "storage": "parquet", "manifest_sha256": "6b400d19c8662
+commit 201 ds_6fd733c6 4 
+commit 201 ds_b74cf9ef 2 
+commit 201 ds_55176c46 3 
+ds_6fd733c6 new ids 3100 - 3149 n 50 accts Z00000 ...
+ds_b74cf9ef new ids 3050 - 3099 n 50 accts Z10000 ...
+ds_55176c46 new ids 3000 - 3049 n 50 accts Z20000 ...
+diff ds_6fd733c6 vs ds_b74cf9ef {"a_table": "m1", "b_table": "m1", "tables": [{"table": "m1", "status": "changed", "a_sha256": "8824fe5a11edc8e1715f7a8952a8dd52dcb4ee73fc441ed2c7e6c1628b2f8e5e", "b_sha256": "54d1e5643d38fdc1778a3529353b250d8a10bfd5cdf92ca62eebc43aecd2134f", "rows": [3050, 3050]}], "schema": {"columns_added": [], "

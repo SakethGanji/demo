@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "/var/tmp/x5/x3/msq/x4.py", line 3, in <module>
+    F = sys.argv[1]; pid = int(sys.argv[2]); peak = [0]; stop = []
+        ~~~~~~~~^^^
+IndexError: list index out of range

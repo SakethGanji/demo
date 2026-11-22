@@ -1,0 +1,16 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "id": "ds_8beacdde",
+    "ok": null,
+    "status": "deleted (tombstone)",
+    "stored": "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728",
+    "v": 2
+   }
+  ],
+  "root_id": "ds_e7548d86"
+ },
+ "status": 200
+}

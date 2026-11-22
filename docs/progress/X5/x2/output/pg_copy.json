@@ -1,0 +1,484 @@
+{
+ "source": "/var/tmp/x5/x2/build/data/ensemble.sqlite3",
+ "at": "2026-11-22T04:32:54+00:00",
+ "schema": {
+  "skipped": false,
+  "schema": "df5fb03d875c7711",
+  "granted": null
+ },
+ "copy": {
+  "admin_requests": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "annotations": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "approval_requests": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "audit_log": {
+   "rows": 130,
+   "seconds": 0.01
+  },
+  "batch_jobs": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "blobs": {
+   "rows": 4,
+   "seconds": 0.01
+  },
+  "catalog_meta": {
+   "rows": 11,
+   "seconds": 0.01
+  },
+  "certifications": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "champions": {
+   "rows": 2,
+   "seconds": 0.01
+  },
+  "column_tags": {
+   "rows": 7,
+   "seconds": 0.0
+  },
+  "data_contracts": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "dataset_cards": {
+   "rows": 4,
+   "seconds": 0.01
+  },
+  "dataset_requests": {
+   "rows": 1,
+   "seconds": 0.01
+  },
+  "datasets": {
+   "rows": 37,
+   "seconds": 0.01
+  },
+  "diff_cache": {
+   "rows": 11,
+   "seconds": 0.0
+  },
+  "idp_group_roles": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "jobs": {
+   "rows": 23,
+   "seconds": 0.01
+  },
+  "legal_holds": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "lineage_edges": {
+   "rows": 31,
+   "seconds": 0.01
+  },
+  "principals": {
+   "rows": 5,
+   "seconds": 0.01
+  },
+  "projects": {
+   "rows": 22,
+   "seconds": 0.01
+  },
+  "registered_models": {
+   "rows": 2,
+   "seconds": 0.01
+  },
+  "run_events": {
+   "rows": 1949,
+   "seconds": 0.04
+  },
+  "run_inputs": {
+   "rows": 7,
+   "seconds": 0.0
+  },
+  "runs": {
+   "rows": 14,
+   "seconds": 0.04
+  },
+  "shares": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "split_files": {
+   "rows": 24,
+   "seconds": 0.01
+  },
+  "storage_usage": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "table_keys": {
+   "rows": 1,
+   "seconds": 0.01
+  },
+  "table_relations": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "table_stats": {
+   "rows": 16,
+   "seconds": 0.01
+  },
+  "teams": {
+   "rows": 1,
+   "seconds": 0.01
+  },
+  "uploads": {
+   "rows": 1,
+   "seconds": 0.0
+  },
+  "version_requests": {
+   "rows": 0,
+   "seconds": 0.01
+  },
+  "workers": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "blob_refs": {
+   "rows": 5,
+   "seconds": 0.0
+  },
+  "dataset_roots": {
+   "rows": 22,
+   "seconds": 0.01
+  },
+  "model_versions": {
+   "rows": 2,
+   "seconds": 0.0
+  },
+  "splits": {
+   "rows": 1,
+   "seconds": 0.0
+  },
+  "team_members": {
+   "rows": 4,
+   "seconds": 0.01
+  },
+  "version_tables": {
+   "rows": 1,
+   "seconds": 0.01
+  },
+  "dataset_root_tables": {
+   "rows": 1,
+   "seconds": 0.0
+  },
+  "joins": {
+   "rows": 0,
+   "seconds": 0.0
+  },
+  "table_files": {
+   "rows": 1,
+   "seconds": 0.01
+  },
+  "join_frames": {
+   "rows": 0,
+   "seconds": 0.0
+  }
+ },
+ "copy_seconds": 0.5,
+ "schema_after": {
+  "skipped": false,
+  "schema": "df5fb03d875c7711",
+  "granted": null
+ },
+ "verify": {
+  "ok": false,
+  "tables_checked": 45,
+  "mismatched": [
+   "catalog_meta"
+  ],
+  "rows": 2341,
+  "tables": {
+   "admin_requests": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "annotations": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "approval_requests": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "audit_log": {
+    "rows_sqlite": 130,
+    "rows_pg": 130,
+    "sha256": "5167d7ef916e8514",
+    "ok": true
+   },
+   "batch_jobs": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "blobs": {
+    "rows_sqlite": 4,
+    "rows_pg": 4,
+    "sha256": "3c307c8dbc66c17a",
+    "ok": true
+   },
+   "catalog_meta": {
+    "rows_sqlite": 11,
+    "rows_pg": 12,
+    "sha256": "beb989998e9fff0b",
+    "ok": false,
+    "sha256_sqlite": "8d4064a2a3d75ca5"
+   },
+   "certifications": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "champions": {
+    "rows_sqlite": 2,
+    "rows_pg": 2,
+    "sha256": "3658c16922615162",
+    "ok": true
+   },
+   "column_tags": {
+    "rows_sqlite": 7,
+    "rows_pg": 7,
+    "sha256": "3d681433ce5d2619",
+    "ok": true
+   },
+   "data_contracts": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "dataset_cards": {
+    "rows_sqlite": 4,
+    "rows_pg": 4,
+    "sha256": "f3a39093fa5d09bb",
+    "ok": true
+   },
+   "dataset_requests": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "c9cfeed93fae8ff8",
+    "ok": true
+   },
+   "datasets": {
+    "rows_sqlite": 37,
+    "rows_pg": 37,
+    "sha256": "910b493a84319270",
+    "ok": true
+   },
+   "diff_cache": {
+    "rows_sqlite": 11,
+    "rows_pg": 11,
+    "sha256": "feb57f424d6fb861",
+    "ok": true
+   },
+   "idp_group_roles": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "jobs": {
+    "rows_sqlite": 23,
+    "rows_pg": 23,
+    "sha256": "8e360f57b8752a5a",
+    "ok": true
+   },
+   "legal_holds": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "lineage_edges": {
+    "rows_sqlite": 31,
+    "rows_pg": 31,
+    "sha256": "d482fc20750ec4c5",
+    "ok": true
+   },
+   "principals": {
+    "rows_sqlite": 5,
+    "rows_pg": 5,
+    "sha256": "ddbc943b247245af",
+    "ok": true
+   },
+   "projects": {
+    "rows_sqlite": 22,
+    "rows_pg": 22,
+    "sha256": "69f6030d93456712",
+    "ok": true
+   },
+   "registered_models": {
+    "rows_sqlite": 2,
+    "rows_pg": 2,
+    "sha256": "ac3fa730ee96c14e",
+    "ok": true
+   },
+   "run_events": {
+    "rows_sqlite": 1949,
+    "rows_pg": 1949,
+    "sha256": "a54a6569835dc2ad",
+    "ok": true
+   },
+   "run_inputs": {
+    "rows_sqlite": 7,
+    "rows_pg": 7,
+    "sha256": "df3d358b4077fd81",
+    "ok": true
+   },
+   "runs": {
+    "rows_sqlite": 14,
+    "rows_pg": 14,
+    "sha256": "38ebc79d9fa9529a",
+    "ok": true
+   },
+   "shares": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "split_files": {
+    "rows_sqlite": 24,
+    "rows_pg": 24,
+    "sha256": "5e1f79805fec04b7",
+    "ok": true
+   },
+   "storage_usage": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "table_keys": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "4187bb5ccd351587",
+    "ok": true
+   },
+   "table_relations": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "table_stats": {
+    "rows_sqlite": 16,
+    "rows_pg": 16,
+    "sha256": "127d9f59275ff34e",
+    "ok": true
+   },
+   "teams": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "f5f4dedd6c3074c9",
+    "ok": true
+   },
+   "uploads": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "3759639b16e02361",
+    "ok": true
+   },
+   "version_requests": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "workers": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "blob_refs": {
+    "rows_sqlite": 5,
+    "rows_pg": 5,
+    "sha256": "dec5d4b2988d5031",
+    "ok": true
+   },
+   "dataset_roots": {
+    "rows_sqlite": 22,
+    "rows_pg": 22,
+    "sha256": "e482f7b10548f56e",
+    "ok": true
+   },
+   "model_versions": {
+    "rows_sqlite": 2,
+    "rows_pg": 2,
+    "sha256": "479e834d2904ef77",
+    "ok": true
+   },
+   "splits": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "d9f9117cb01ac37e",
+    "ok": true
+   },
+   "team_members": {
+    "rows_sqlite": 4,
+    "rows_pg": 4,
+    "sha256": "0e0d44dc1e711a0e",
+    "ok": true
+   },
+   "version_tables": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "ed12eafec555cbf1",
+    "ok": true
+   },
+   "dataset_root_tables": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "304691ea2c7f4dd4",
+    "ok": true
+   },
+   "joins": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   },
+   "table_files": {
+    "rows_sqlite": 1,
+    "rows_pg": 1,
+    "sha256": "ea27be4261a8f931",
+    "ok": true
+   },
+   "join_frames": {
+    "rows_sqlite": 0,
+    "rows_pg": 0,
+    "sha256": "e3b0c44298fc1c14",
+    "ok": true
+   }
+  },
+  "audit_chains": {
+   "tm_default": {
+    "ok": true,
+    "rows": 68
+   }
+  }
+ }
+}

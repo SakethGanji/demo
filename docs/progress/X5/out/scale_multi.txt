@@ -1,0 +1,4 @@
+  check 200 [('apps', 'new', 10000000), ('branches', 'new', 10000)] blocks []
+  -> 201 {"version_id": "ds_5b355e37", "rows": null, "created": null, "detail": null}
+  [multi upload (10M + branches) + check + commit] 49.1 s | peak single process 2.46 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 2.93 GB
+  -> 201 {"version_id": "ds_44f1eadf", "detail": null}

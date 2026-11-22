@@ -1,0 +1,87 @@
+# mode audit
+
+# 1. Fay (Fraud member, no role in Credit Risk) reads Credit Risk directly
+## 1a Fay GET /datasets/v1/rows → HTTP 200 | would-deny data.preview | pii 0
+    {"dataset_id": "ds_edf1261c", "table": "loans", "total": 600, "after": null, "limit": 3, "q": "", "rows": [{"app_id": "A00000", "applicant_name": "•••", "ssn": 
+
+# 2. X4 C1 repro: Fay starts a conversation naming Ben
+## 2a Fay POST /agent/sessions {user: Ben} → HTTP 409 | pii 0
+    {"detail": "You are signed in as Fay; 'user' says Ben. The agent acts only on behalf of the person who starts it."}
+## 2b anonymous POST /agent/sessions {user: Ben} → HTTP 401 | would-deny agent.use | pii 0
+    {"detail": {"code": "unauthenticated", "message": "Sign in (X-Ensemble-Actor) to use the agent: it acts on your behalf, with your rights."}}
+
+# 3. Fay's own conversation asks for a batch on Ben's team's model: the agent has Fay's rights only
+## 3a Fay POST /agent/sessions (no user) → HTTP 201 | pii 0
+    {"id": "as_96681930697624a7", "user": "Fay", "owner_id": "pr_92beaa3938dc", "status": "thinking"}
+    steps: [('batch_score', 'awaiting', '')]
+## 3b Fay confirms her own pending step → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+    batches on Credit Risk's model: [('batch_43f6ec23', 'Vela agent on behalf of Fay', 'succeeded'), ('batch_a0b11440', 'Ana', 'succeeded')]
+
+# 4. Ana (Credit Risk maintainer) runs the agent as herself (the legitimate path)
+## 4a Ana POST /agent/sessions {user: Ana} → HTTP 201 | pii 0
+    {"id": "as_5a2af35c2c1abdca", "user": "Ana", "owner_id": "pr_24d4b96f58da", "status": "thinking"}
+    steps: [('batch_score', 'awaiting', '')]
+
+# 5. Fay against Ana's conversation (X4: list, read, confirm, stop all worked)
+## 5a Fay GET /agent/sessions → HTTP 200 | pii 0
+    owners listed to Fay: ['Fay']
+## 5b Fay GET /agent/sessions/{Ana's sid} → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_5a2af35c2c1abdca belongs to someone else.", "action": "read"}}
+## 5c Fay POST …/{Ana's sid}/confirm → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_5a2af35c2c1abdca belongs to someone else.", "action": "confirm"}}
+## 5d Fay POST …/{Ana's sid}/messages → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_5a2af35c2c1abdca belongs to someone else.", "action": "message"}}
+## 5e Fay POST …/{Ana's sid}/stop → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_5a2af35c2c1abdca belongs to someone else.", "action": "stop"}}
+
+# 6. Ada (admin) reads Ana's conversation, cannot act in it
+## 6a Ada GET /agent/sessions → HTTP 200 | pii 0
+    owners listed to Ada: ['Ana', 'Fay']
+## 6b Ada GET …/{Ana's sid} → HTTP 200 | pii 0
+    {"id": "as_5a2af35c2c1abdca", "user": "Ana", "status": "awaiting_confirmation"}
+## 6c Ada POST …/{Ana's sid}/confirm → HTTP 403 | pii 0
+    {"detail": {"code": "not_session_owner", "message": "Agent conversation as_5a2af35c2c1abdca belongs to someone else; an admin may read it but not act in it.", "action": "confirm"}}
+
+# 7. Ana confirms her own step
+## 7a Ana POST …/confirm → HTTP 200 | pii 0
+    {"status": "awaiting_confirmation"}
+    steps: [('batch_score', 'done', '')]
+    answer: Batch batch_c619ea73 scored 12000 rows with mv_7854c8f7. Yes: age drifted (PSI above 0.25). Max PSI 0.2547; highest: age PSI 0.2547.
+    batches on Credit Risk's model: [('batch_c619ea73', 'Vela agent on behalf of Ana', 'succeeded'), ('batch_43f6ec23', 'Vela agent on behalf of Fay', 'succeeded'), ('batch_a0b11440', 'Ana', 'succeeded')]
+
+# 8. the audit rows
+  tm_f7acc602    agent:batch_score        actor='Vela agent on behalf of Ana'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_24d4b96f58da session=as_5a2af35c2c1abdca
+  tm_f7acc602    batch_scored             actor='Vela agent on behalf of Ana'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_24d4b96f58da session=None
+  tm_f7acc602    agent:batch_score        actor='Vela agent on behalf of Fay'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=as_96681930697624a7
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    batch_scored             actor='Vela agent on behalf of Fay'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_f7acc602    authz_would_deny         actor='Fay'                                principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_92beaa3938dc session=None
+  tm_default     agent_step_confirmed     actor='Ana'                                principal=pr_24d4b96f58da auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_session_refused    actor='Ada'                                principal=pr_fdee430d40bd auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_session_started    actor='Ana'                                principal=pr_24d4b96f58da auth=typed on_behalf_of=None session=as_5a2af35c2c1abdca
+  tm_default     agent_step_confirmed     actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_96681930697624a7
+  tm_default     agent_session_started    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_96681930697624a7
+  tm_default     agent_session_refused    actor='Vic'                                principal=pr_51c80ba01612 auth=typed on_behalf_of=None session=as_47ebd373f01d4874
+  tm_default     agent_session_refused    actor='Carl'                               principal=pr_69bfe1e6e448 auth=typed on_behalf_of=None session=as_47ebd373f01d4874
+  tm_default     agent_session_refused    actor='Fay'                                principal=pr_92beaa3938dc auth=typed on_behalf_of=None session=as_47ebd373f01d4874
+  tm_default     agent:intake_suggestions actor='Vela agent on behalf of Ana'        principal=pr_0ae394f2b650 auth=agent on_behalf_of=pr_24d4b96f58da session=as_47ebd373f01d4874
+  tm_default     agent_session_started    actor='Ana'                                principal=pr_24d4b96f58da auth=typed on_behalf_of=None session=as_47ebd373f01d4874
+  Ana's principal id: pr_24d4b96f58da | Fay's: pr_92beaa3938dc
+  verify tm_f7acc602: {"ok": true, "rows": 222, "anchored": {"audit_heads": 337, "checkpoint": {"audit_id": 328, "at": "2026-11-22T03:39:48+00:00"}}}
+  verify tm_default: {"ok": true, "rows": 106, "anchored": {"audit_heads": 335, "checkpoint": {"audit_id": 335, "at": "2026-11-22T03:39:48+00:00"}}}

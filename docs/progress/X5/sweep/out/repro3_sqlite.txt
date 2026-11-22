@@ -1,0 +1,7 @@
+## R16 lake/seed project_id non-text (SQLite)
+POST /admin/lake/seed {rows:10, project_id:1} 404
+POST /admin/lake/seed {rows:10, project_id:18446744073709551616} 500
+POST /admin/lake/seed {rows:10, project_id:["a"]} 500
+POST /admin/lake/seed {rows:10, project_id:"nope"} 404
+## R17 concurrent POST /datasets/{id}/decision-time (torn decisions.json read)
+200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 200 500 200 200 200 

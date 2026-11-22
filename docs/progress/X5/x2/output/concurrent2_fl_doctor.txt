@@ -1,0 +1,91 @@
+[  0.1s] migrate job 202
+[ 25.9s] POST feature-lab on fl v1 (in its window) 202 {"id":"fl_e8370f58","status":"running","phase":"queued","started_at":"2026-11-22T04:30:50+00:00","request":{"candidates":[{"op":"ratio","a":"a","b":"b"}],"time_limit":20,"max_candidates":2,"by":"Ana","target":"y"},"journ
+[ 25.9s] POST data-doctor/apply on fl v1 (in its window) 500 Internal Server Error
+Traceback (most recent call last):
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_transports/default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_transports/default.py", line 250, in handle_request
+    resp = self._pool.handle_request(req)
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/connection_pool.py", line 256, in handle_request
+    raise exc from None
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/connection_pool.py", line 236, in handle_request
+    response = connection.handle_request(
+        pool_request.request
+    )
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/connection.py", line 103, in handle_request
+    return self._connection.handle_request(request)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 136, in handle_request
+    raise exc
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 106, in handle_request
+    ) = self._receive_response_headers(**kwargs)
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 177, in _receive_response_headers
+    event = self._receive_event(timeout=timeout)
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_sync/http11.py", line 217, in _receive_event
+    data = self._network_stream.read(
+        self.READ_NUM_BYTES, timeout=timeout
+    )
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_backends/sync.py", line 126, in read
+    with map_exceptions(exc_map):
+         ~~~~~~~~~~~~~~^^^^^^^^^
+  File "/usr/local/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpcore/_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ReadError: [Errno 104] Connection reset by peer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/user/demo/docs/progress/X5/x2/scripts/concurrent2.py", line 19, in <module>
+    while (c.get("/admin/lake/migrate", headers=adm).json().get("progress") or {}).get("status") != "finished":
+           ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_client.py", line 1053, in get
+    return self.request(
+           ~~~~~~~~~~~~^
+        "GET",
+        ^^^^^^
+    ...<7 lines>...
+        extensions=extensions,
+        ^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_client.py", line 825, in request
+    return self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_client.py", line 914, in send
+    response = self._send_handling_auth(
+        request,
+    ...<2 lines>...
+        history=[],
+    )
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_client.py", line 942, in _send_handling_auth
+    response = self._send_handling_redirects(
+        request,
+        follow_redirects=follow_redirects,
+        history=history,
+    )
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_client.py", line 979, in _send_handling_redirects
+    response = self._send_single_request(request)
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_client.py", line 1014, in _send_single_request
+    response = transport.handle_request(request)
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_transports/default.py", line 249, in handle_request
+    with map_httpcore_exceptions():
+         ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/lib/python3.13/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/user/demo/backend/.venv/lib/python3.13/site-packages/httpx/_transports/default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ReadError: [Errno 104] Connection reset by peer
+files preserved (a live blob or the same bytes in the fresh folder): 118
+files that cleanup deletes with no other copy: 0
+job {'migrated': 36, 'skipped': 0, 'failed': 0}
+FL job fl_e8370f58 200 {"id": "fl_e8370f58", "status": "failed", "phase": "done", "started_at": "2026-11-22T04:30:50+00:00", "request": {"candidates": [{"op": "ratio", "a": "a", "b": "b"}], "time_limit": 20, "max_candidates": 2, "by": "Ana", "target": "y"}, "journal": [], "running_since": "2026-11-22T04:30:50+00:00", "finished_at": "2026-11-22T04:30:50+00:00", "error": "DatasetConflict: ds_73d34e26 is being migrated int
+GET feature-lab list {"dataset_id": "ds_73d34e26", "jobs": [{"id": "fl_e8370f58", "status": "failed", "started_at": "2026-11-22T04:30:50+00:00", "finished_at": "2026-11-22T04:30:50+00:00", "target": null, "version": null, "error": "DatasetConflict: ds_73d34e26 is being migrated into the lake right now (job jb_cc98d9094938): drawing a split is refused until that is done. Try again in a moment.", "kept": 0, "tried": 0}]
+   ds_73d34e26.migrated/featurelab/fl_e8370f58.json blob
+   ds_73d34e26/featurelab/fl_e8370f58.json blob
+lake_migrations F1 [('migrated', None, 1)]
+Doctor apply after the job 201 {"dataset":{"id":"ds_2c2464ed","name":"fl · fixed v1","filename":"data.parquet","source":"upload","sample":false,"note":"Data Doctor: 1 fix applied to

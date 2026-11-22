@@ -1,0 +1,38 @@
+M4 (outside change e: pre-DL4 split of loans v1, no recorded hash)
+  L1 ds_281da07c: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+M5 (c: split JSON + split_files.sha256 of accounts v3; f: data.csv + datasets hashes of loans relabel)
+  A3 ds_622c0c0c: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+  LR ds_652418f5: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+DL3/DL4 (a: data of churn v1)
+  C1 ds_34f3bd4c: storage=parquet lake_migrations={'status': 'migrated', 'reason': None}
+      
+M2 (Feature Lab job records)
+  GET /datasets/ds_c9a1ec9c/feature-lab → 1 job(s): ['fl_9a78bdc0']
+  ds_c9a1ec9c/featurelab/fl_9a78bdc0.json: blob ['legacy_json'], refs ['legacy_json:featurelab/fl_9a78bdc0.json']
+M3 (the deleted version's split)
+  split_files splits.json de1753a93a81…: blob ['legacy_json'], Parquet split ['spl_dbad569ec4e5']
+  split_files splits/random-stratified__y-95cb0bfd.json de1753a93a81…: blob ['legacy_json'], Parquet split ['spl_dbad569ec4e5']
+  run run_7e2d775c: run_inputs [{'split_id': 'spl_dbad569ec4e5', 'split_legacy_sha256': 'de1753a93a819ea7f12892099c1c0be2c6068670467e152f2ab968aaef52af5c'}], pins ['legacy_json', 'split']
+  GET /admin/lake/runs/run_7e2d775c/verify → ok=None deleted=True split={"recorded": "de1753a93a819ea7f12892099c1c0be2c6068670467e152f2ab968aaef52af5c", "now": "de1753a93a819ea7f12892099c1c0be2c6068670467e152f2ab968aaef52af5c", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_dbad569ec4e5", "recorded": "feaf2745e81
+  POST /datasets/ds_8beacdde/verify → {"root_id": "ds_e7548d86", "results": [{"id": "ds_8beacdde", "v": 1, "ok": null, "status": "deleted (tombstone)", "stored": "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728"}], "ok": true}
+M6 (SQL refresh, no row map)
+  GET /datasets/diff a=Q1 b=Q2 → method=row_id identical=True rows={'matched': 3000, 'added': 0, 'removed': 0, 'changed': 0}
+  GET /datasets/diff a=Q1 b=Q3 → method=row_id identical=True rows={'matched': 3000, 'added': 0, 'removed': 0, 'changed': 0}
+Every run: GET /admin/lake/runs/{id}/verify
+  run_356ac901 on ds_281da07c (succeeded): ok=True data=True split=None split_id=['spl_d6d3fb0fdea1']
+  run_b8ac2e57 on ds_fd96a8d1 (succeeded): ok=True data=True split=None split_id=['spl_a760790b1547']
+  run_df480700 on ds_34f3bd4c (succeeded): ok=True data=True split=None split_id=['spl_0382efebbba4']
+  run_4204cb9b on ds_525c8e18 (succeeded): ok=True data=True split=True split_id=['spl_7cc3e2d8f8ce']
+  run_e53b2acc on ds_5262b7ad (succeeded): ok=True data=True split=True split_id=['spl_68a8164f3b2e']
+  run_be6ae6e8 on ds_e950e720 (succeeded): ok=True data=True split=True split_id=['spl_ff537a2e96b9']
+  run_7e2d775c on ds_8beacdde (succeeded): ok=None data=None split=True split_id=['spl_dbad569ec4e5']
+  run_b5f2841f on ds_5262b7ad (succeeded): ok=True data=True split=True split_id=['spl_68a8164f3b2e']
+  run_515f15dd on ds_32fabcc7 (succeeded): ok=True data=True split=True split_id=['spl_bfd270a15cd4']
+  run_d31c1acc on ds_89089070 (succeeded): ok=True data=True split=True split_id=['spl_e6ce8571a109']
+  run_0e05b67c on ds_d2046b69 (succeeded): ok=True data=True split=True split_id=['spl_3dbdb71b7630']
+  run_29fca109 on ds_fd96a8d1 (succeeded): ok=True data=True split=True split_id=['spl_a760790b1547']
+  run_1b8725be on ds_fd96a8d1 (succeeded): ok=True data=True split=True split_id=['spl_a760790b1547']
+  run_ed6ac697 on ds_fd96a8d1 (succeeded): ok=True data=True split=True split_id=['spl_a760790b1547']

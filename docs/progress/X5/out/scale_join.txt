@@ -1,0 +1,3 @@
+  -> 201 {"id": "jn_adaab03bb8", "coverage": null, "detail": null}
+  [frame build 10M] 11.6 s | peak single process 2.99 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 3.46 GB
+  -> 201 {"id": "jf_80df8de99b", "rows": null, "coverage": [{"join": 0, "table": "branches", "version_id": "ds_44f1eadf", "type": "n:1", "on": [["branch", "branch"]], "table_rows": 10000, "grain_rows": 10000000, "matched": 10000000, "coverage": 1.0, "orphans": 0, "missing_key": 0, "key": {"columns": ["branch"], "how": "declared", "unique": true, "repeated": 0}, "columns": ["b__region", "b__branch_risk"]}], "frame_sha256": "72651bb6373a05fd8b33ab904df8df2b76f48eda5d8d9678c388598312723696", "detail": null}

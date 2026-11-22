@@ -1,0 +1,95 @@
+# mode enforce
+
+# 1. before the purge
+    API (before): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 200, 500
+      export v1 (unmasked): HTTP 200, 0
+      stats v1: HTTP 200, 0
+      explain run: HTTP 200, 0
+      shap row 1: HTTP 200, 0
+      fairness ssn: HTTP 200, 0
+      scorecard: HTTP 200, 0
+      model card: HTTP 200, 0
+      recourse: HTTP 200, 0
+      batch: HTTP 200, 0
+      batch download: HTTP 200, 0
+      anomaly top (unmasked): HTTP 200, 50
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 200, 0
+      data doctor: HTTP 200, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (before): 16 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+      cache/blobs: [1, 0, 3]
+      ensemble.sqlite3: [1, 109, 0]
+      lake/exports: [1, 600, 0]
+      registry/batch_*/input.csv: [2, 50, 0]
+      registry/batch_*/scored.csv: [2, 50, 0]
+      runs/predictor/models/LightGBM/model.pkl: [1, 3, 0]
+      runs/predictor/models/LightGBMXT/model.pkl: [1, 6, 0]
+      runs/predictor/models/RandomForestEntr/model.pkl: [1, 0, 6]
+      runs/predictor/models/RandomForestGini/model.pkl: [1, 0, 9]
+      runs/predictor/utils/data/X.pkl: [1, 0, 384]
+      runs/predictor/utils/data/X_val.pkl: [1, 0, 96]
+      runs/scorecard/report.json: [1, 2, 0]
+      runs/shap/1_1_50_2048_WeightedEnsemble_L2.json: [1, 1, 0]
+      runs/top.json: [1, 200, 0]
+    database (before): tables with raw SSNs (distinct values per table): {'datasets': 2, 'runs': 8, 'batch_jobs': 100, 'uploads': 5, 'table_stats': 2}
+    S3 (before): 51 object versions in s3://x5x4-purge/; 2 hold raw SSNs: {'blobs/a2/a25b0b0b10fd55b2031edc415a640c639f5def589841eab0ddc6619b18cdd48e.csv@189c7126': (600, 0), 'blobs/b9/b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069.parquet@0348287a': (0, 3)}
+
+# 2. purge loans.ssn
+## 2a Ana POST /datasets/v1/purge {loans, [ssn]} → HTTP 201 | pii 0
+    {"id": "pur_15bc2908fe", "status": "pending", "new_version_id": "ds_7783794d", "teams_needed": ["tm_2475f60b"]}
+    impact teams: ['tm_2475f60b'] | runs: [('run_f5d80cfc', 'tm_2475f60b', 'trained on an affected version'), ('run_96a745aa', 'tm_2475f60b', 'trained on an affected version'), ('run_cc516fa6', 'tm_2475f60b', 'trained on an affected version')] | models: [{'id': 'mv_5c79c040', 'model_name': 'pd-x4', 'version': 1, 'approval': 'pending', 'stage': 'None', 'run_id': 'run_f5d80cfc'}, {'id': 'mv_d7851429', 'model_name': 'pd-x4-nossn', 'version': 1, 'approval': 'pending', 'stage': 'None', 'run_id': 'run_cc516fa6'}] | shares: [None] | join frames: [] | blobs: 2
+## 2b Ben approves for tm_2475f60b → HTTP 200 | pii 0
+    {"status": "used", "waiting_for": []}
+    executed: used | blobs deleted: 2 | failed: []
+    derived: {"n_deleted": 5, "n_redacted": 9, "purged_models": [{"run_id": "run_96a745aa", "why": "trained with purged column(s) ssn"}, {"run_id": "run_f5d80cfc", "why": "trained with purged column(s) ssn"}], "model_versions_purged": ["mv_5c79c040"], "error": null}
+    deleted: ['runs/run_96a745aa/model', 'runs/run_cc516fa6/predictor/utils/data', 'runs/run_f5d80cfc/predictor', 'registry/pd-x4/v1/predictor', 'lake/exports/ds_8dd1296a']
+    redacted: [('registry/batches/batch_1f87086e/input.csv', 50), ('registry/batches/batch_1f87086e/scored.csv', 50), ('registry/batches/batch_a420864c/input.csv', 50), ('registry/batches/batch_a420864c/drift.json', 4), ('registry/batches/batch_a420864c/scored.csv', 50), ('runs/run_96a745aa/top.json', 800), ('runs/run_96a745aa/config.json', 1), ('runs/run_f5d80cfc/scorecard/report.json', 13), ('runs/run_f5d80cfc/shap/1_1_50_2048_WeightedEnsemble_L2.json', 2)]
+    db: {"redacted": {"datasets.profile": 1, "datasets.contract_result": 1, "runs.config": 1, "runs.result": 1, "batch_jobs.result": 2, "uploads.check_json": 1, "table_stats.columns": 1}, "compact": {"vacuum": true, "wal_checkpoint": [0, 0, 0]}}
+    SWEEP: {"status": "clean", "values": 500, "values_total": 600, "files_searched": 204, "n_hits": 0, "hits": [], "s3": {"bucket": "x5x4-purge", "object_versions": 51}, "skipped": []}
+    impact report derived: files [('run_dir', 'runs/run_96a745aa', 'redact'), ('model', 'runs/run_96a745aa/model', 'delete'), ('run_dir', 'runs/run_cc516fa6', 'redact'), ('training_data', 'runs/run_cc516fa6/predictor/utils/data', 'delete'), ('run_dir', 'runs/run_f5d80cfc', 'redact'), ('model', 'runs/run_f5d80cfc/predictor', 'delete'), ('model_version', 'registry/pd-x4/v1/predictor', 'delete'), ('model_version_dir', 'registry/pd-x4/v1', 'redact'), ('model_version_dir', 'registry/pd-x4-nossn/v1', 'redact'), ('training_data', 'registry/pd-x4-nossn/v1/predictor/utils/data', 'delete'), ('batch', 'registry/batches/batch_a420864c', 'redact'), ('batch', 'registry/batches/batch_1f87086e', 'redact'), ('export', 'lake/exports/ds_8dd1296a', 'delete'), ('dataset_dir', 'datasets/ds_8dd1296a', 'redact'), ('export', 'lake/exports/ds_8dd1296a/loans.csv', 'delete')]
+    impact report purged models: [{'run_id': 'run_96a745aa', 'columns': ['ssn'], 'why': 'trained with purged column(s) ssn'}, {'run_id': 'run_f5d80cfc', 'columns': ['ssn'], 'why': 'trained with purged column(s) ssn'}] | model versions: [{'id': 'mv_5c79c040', 'model_name': 'pd-x4', 'version': 1, 'run_id': 'run_f5d80cfc', 'purged': True}, {'id': 'mv_d7851429', 'model_name': 'pd-x4-nossn', 'version': 1, 'run_id': 'run_cc516fa6', 'purged': False}]
+
+# 3. after the purge
+    API (after): distinct raw SSNs per call:
+      rows v1 (unmasked): HTTP 410, 0
+      export v1 (unmasked): HTTP 409, 0
+      stats v1: HTTP 410, 0
+      explain run: HTTP 500, 0
+      shap row 1: HTTP 409, 0
+      fairness ssn: HTTP 400, 0
+      scorecard: HTTP 200, 0
+      model card: HTTP 409, 0
+      recourse: HTTP 409, 0
+      batch: HTTP 200, 0
+      batch download: HTTP 200, 0
+      anomaly top (unmasked): HTTP 200, 0
+      anomaly scores.csv: HTTP 200, 0
+      intake v1: HTTP 410, 0
+      data doctor: HTTP 410, 0
+      audit (credit-risk): HTTP 200, 0
+    disk (after): 0 files hold raw SSNs; by place (files, max distinct as text, max distinct as int64/float64):
+    database (after): tables with raw SSNs (distinct values per table): {}
+    S3 (after): 51 object versions in s3://x5x4-purge/; 0 hold raw SSNs: {}
+## 3a GET /admin/lake/runs/{run}/verify → HTTP 200 | pii 0
+    {"ok": null, "status": "purged"}
+## 3b GET /admin/lake/runs/{run2}/verify → HTTP 200 | pii 0
+    {"ok": null, "status": "purged"}
+## 3c predict mv2 (did not use ssn) → HTTP 200 | pii 0
+    {"version_id": "mv_d7851429", "model_name": "pd-x4-nossn", "version": 1, "model": "WeightedEnsemble_L2", "problem_type": "binary", "missing_columns": [], "features": ["income", "age", "segment"], "classes": [0, 1], "prediction": 1, "probabilities": {"0": 0.0003325939178466797, "1": 0.999667406082153
+## 3d predict run2 → HTTP 200 | pii 0
+    {"run_id": "run_cc516fa6", "model": "WeightedEnsemble_L2", "problem_type": "binary", "n_rows": 1, "missing_columns": [], "classes": [0, 1], "predictions": [1], "probabilities": [{"0": 0.0003325939178466797, "1": 0.9996674060821533}], "positive_class": 1}
+## 3e predict mv (used ssn) → HTTP 409 | pii 0
+    {"detail": {"code": "purged_model", "message": "purged_model: trained with purged column(s) ssn (purge pur_15bc2908fe); retrain on the new version"}}
+## 3f predict run (used ssn) → HTTP 409 | pii 0
+    {"detail": {"code": "purged_model", "message": "The model of run run_f5d80cfc was purged (trained with purged column(s) ssn; purge pur_15bc2908fe): retrain on the new version.", "purge_id": "pur_15bc2908fe"}}
+## 3g batch on mv2 after the purge → HTTP 202 | pii 0
+    {"id": "batch_dc72a4d3", "status": "queued"}
+## 3h batch on mv (purged) → HTTP 409 | pii 0
+    {"detail": {"code": "purged_model", "message": "purged_model: trained with purged column(s) ssn (purge pur_15bc2908fe); retrain on the new version"}}
+## 3i GET /purges/{id} (sweep recorded) → HTTP 200 | pii 0
+    {"status": "used", "sweep": {"status": "clean", "at": "2026-11-22T03:53:41+00:00", "values": 500, "values_total": 600, "sampled_from_lake": false, "files_searched": 204, "skipped": [], "hits": [], "n_hits": 0, "s3": {"bucket": "x5x4-purge", "object_versions": 51}}}
+## 3j POST /purges/{id}/sweep (re-sweep) → HTTP 200 | pii 0
+    {"status": "used", "sweep": {"status": "clean", "at": "2026-11-22T03:53:47+00:00", "values": "unavailable", "values_total": null, "sampled_from_lake": null, "files_searched": 0, "skipped": [], "hits": [], "n_hits": 0, "s3": {"bucket": "x5x4-purge", "object_versions": 51}}}
+    audit purge rows: [('purge_sweep', 'clean'), ('purge_sweep', 'clean'), ('purge_bytes_deleted', None), ('purge_derived_scrubbed', None), ('purge_executed', None), ('purge_approved', None), ('purge_requested', None)]

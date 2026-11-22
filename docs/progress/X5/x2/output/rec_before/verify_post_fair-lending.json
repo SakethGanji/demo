@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "fair-lending",
+    "now": "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3",
+    "v": 1
+   }
+  ],
+  "root_id": "fair-lending"
+ },
+ "status": 200
+}

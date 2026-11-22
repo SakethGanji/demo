@@ -1,0 +1,968 @@
+{
+ "body": {
+  "active_learning": null,
+  "annotations": null,
+  "anomaly": null,
+  "backtests": null,
+  "best_model": "WeightedEnsemble_L2",
+  "classes": [
+   0,
+   1
+  ],
+  "config": {
+   "by": "Ana",
+   "calibrate_threshold": null,
+   "column_types": {},
+   "conformal": null,
+   "csv_path": "/var/tmp/x5/x2/build/data/datasets/ds_fd96a8d1/data.csv",
+   "custom_text_models": true,
+   "data_gate": {
+    "checked_at_fit": "the worker hashes the bytes it reads at fit start and refuses the fit if they differ",
+    "integrity": "not verified",
+    "notes": []
+   },
+   "data_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+   "data_sha256_expected": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+   "data_version_label": "v2 (ds_fd96a8d1)",
+   "dataset_id": "ds_fd96a8d1",
+   "db_path": "/var/tmp/x5/x2/build/data/ensemble.sqlite3",
+   "decision_time": null,
+   "distill": null,
+   "drop_columns": [
+    "loan_id",
+    "acct_no"
+   ],
+   "eval_metric": null,
+   "feature_importance": true,
+   "fit_kwargs": {},
+   "frame_budget_mb": null,
+   "id_columns_dropped": [
+    "loan_id",
+    "acct_no"
+   ],
+   "input_ref": {
+    "kind": "table",
+    "table": "data",
+    "version_id": "ds_fd96a8d1"
+   },
+   "keep_id_columns": false,
+   "label": "y",
+   "parent_run_id": null,
+   "patch": null,
+   "predictor_kwargs": {},
+   "predictor_path": "/var/tmp/x5/x2/build/data/runs/run_29fca109/predictor",
+   "presets": "medium_quality",
+   "problem_type": null,
+   "pseudolabel": null,
+   "quantile_levels": null,
+   "run_dir": "/var/tmp/x5/x2/build/data/runs/run_29fca109",
+   "run_id": "run_29fca109",
+   "sample_seed": null,
+   "scorecard": {
+    "C": 1.0,
+    "base_odds": 50.0,
+    "base_score": 600.0,
+    "fine_bins": 20,
+    "max_bins": 6,
+    "min_bin_share": 0.05,
+    "min_iv": 0.02,
+    "monotone_bins": "auto",
+    "pdo": 20.0
+   },
+   "source": null,
+   "split": {
+    "drawn_for_this_run": false,
+    "holdout_rows": 117,
+    "holdout_share": 0.2,
+    "key": "random-stratified__y-95cb0bfd",
+    "n_folds": 5,
+    "path": "/var/tmp/x5/x2/build/data/datasets/ds_fd96a8d1/splits/random-stratified__y-95cb0bfd.json",
+    "seed": 42,
+    "sha256": "a4b81157a048b8167c326d4b7b5a5788cbe096d8b42e0802c955fbeb9e7c9fee",
+    "strategy": "random-stratified",
+    "stratified": true,
+    "target": "y"
+   },
+   "split_spec": null,
+   "splits_file": "splits/random-stratified__y-95cb0bfd.json",
+   "splits_path": "/var/tmp/x5/x2/build/data/datasets/ds_fd96a8d1/splits/random-stratified__y-95cb0bfd.json",
+   "splits_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+   "splits_sha256_expected": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+   "task": "binary",
+   "text_columns": [],
+   "time_limit": 20.0,
+   "use_decision_time": true
+  },
+  "created_at": "2026-11-22T04:15:07+00:00",
+  "custom_ensembles": null,
+  "data": {
+   "data_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+   "dropped_columns": [
+    "loan_id",
+    "acct_no"
+   ],
+   "dropped_missing_label": 0,
+   "dropped_missing_label_holdout": 0,
+   "dropped_missing_label_train": 0,
+   "features": [
+    "zip",
+    "income",
+    "rate",
+    "n_late",
+    "name",
+    "note",
+    "flag",
+    "opened",
+    "age"
+   ],
+   "frame": {
+    "holdout": {
+     "in_memory": 117,
+     "rows": 117,
+     "scored": "every row, in batches of 500,000"
+    },
+    "holdout_in_memory": 117,
+    "plan": {
+     "budget": {
+      "bytes": 1686911385,
+      "fit_peak": {
+       "base_mb": 2127.0,
+       "measured_1m_x": 6.37,
+       "measured_5m_x": 3.21,
+       "per_frame_byte": 2.43
+      },
+      "fit_peak_mb_at_budget": 6036,
+      "mb": 1608.8,
+      "preset": "medium_quality",
+      "ram_bytes": 16869113856,
+      "ram_source": "the host's RAM",
+      "rule": "10% of the worker's RAM (15.7 GB, the host's RAM)"
+     },
+     "estimate": null,
+     "parquet": false,
+     "sample": false,
+     "why": "a CSV-era version (no __row_id) is read whole: sampling needs a Parquet table (P10 migrates it)"
+    },
+    "read_seconds": 0.02,
+    "rows_total": 582,
+    "rows_used": 465,
+    "sampled": false,
+    "text": "trained on all 465 training rows; holdout scored on all 117 rows",
+    "train_rows_total": 465
+   },
+   "holdout_rows": 117,
+   "label": "y",
+   "read": {
+    "kind": "csv",
+    "mode": "engine_v1"
+   },
+   "rows": 582,
+   "rows_total": 582,
+   "rows_used": 465,
+   "sample_sha256": null,
+   "split": {
+    "drawn_for_this_run": false,
+    "holdout_rows": 117,
+    "holdout_share": 0.2,
+    "key": "random-stratified__y-95cb0bfd",
+    "n_folds": 5,
+    "seed": 42,
+    "sha256": "a4b81157a048b8167c326d4b7b5a5788cbe096d8b42e0802c955fbeb9e7c9fee",
+    "strategy": "random-stratified",
+    "stratified": true,
+    "target": "y"
+   },
+   "splits_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+   "train_rows": 465
+  },
+  "data_integrity": {
+   "basis": "the bytes this fit read",
+   "data_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+   "dataset_id": "ds_fd96a8d1",
+   "expected": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+   "match": true,
+   "version": "v2 (ds_fd96a8d1)"
+  },
+  "data_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+  "dataset_id": "ds_fd96a8d1",
+  "doctor": {
+   "computed_at": "2026-11-22T04:15:45+00:00",
+   "headline": "Time budget (major): The fit took 23 s of \u03c4 = 20 s (117%); AutoGluon skipped 10 model(s) for lack of time.",
+   "latency_budget_ms": null,
+   "missing": [
+    "shift",
+    "data_limited",
+    "weak_slice"
+   ],
+   "no_evidence": [],
+   "open_critical": [],
+   "primary": {
+    "id": "budget",
+    "prescription": {
+     "kind": "gym_patch",
+     "title": "Double the budget"
+    },
+    "reason": "The fit took 23 s of \u03c4 = 20 s (117%); AutoGluon skipped 10 model(s) for lack of time.",
+    "severity": "major",
+    "title": "Time budget"
+   },
+   "schema": "doctor/1",
+   "secondary": [
+    {
+     "id": "leakage",
+     "prescription": {
+      "kind": "experiment",
+      "title": "Retrain Without income (Ablation)"
+     },
+     "reason": "'income' (82%), 'n_late' (15%) carry the most of the model's importance and nobody has said they are known when the decision is made. Open timing questions: a strong real signal and a column recorded after the outcome look the same here; only the timing settles it (a one-column run without each measures how much the score leans on it).",
+     "severity": "minor",
+     "title": "Decision-time questions"
+    },
+    {
+     "id": "overfit",
+     "prescription": {
+      "kind": "gym_patch",
+      "title": "Validate out-of-fold"
+     },
+     "reason": "WeightedEnsemble_L2 scores 0.7634 on validation but 0.6838 on the holdout: a gap of 0.0797, 2.1\u00d7 the noise (holdout bootstrap SE 0.0376). accuracy on the training rows 0.7699 vs the holdout 0.6838: gap 0.0861, z = 2.3 (SE 0.0376).",
+     "severity": "minor",
+     "title": "Overfitting"
+    },
+    {
+     "id": "weak_class",
+     "prescription": {
+      "kind": "gym_patch",
+      "title": "Calibrate for balanced accuracy"
+     },
+     "reason": "Holdout recall on '1' is 0.372 against a macro mean of 0.618 (n = 43); 27 of them were predicted '0'.",
+     "severity": "minor",
+     "title": "Weak class"
+    }
+   ]
+  },
+  "elapsed_seconds": 31.023533821105957,
+  "ensemble": {
+   "best": true,
+   "model": "WeightedEnsemble_L2",
+   "stack_level": 2,
+   "weights": {
+    "LightGBMXT": 0.8571428571428571,
+    "Scorecard": 0.14285714285714285
+   }
+  },
+  "ensembles": [
+   {
+    "best": true,
+    "model": "WeightedEnsemble_L2",
+    "stack_level": 2,
+    "weights": {
+     "LightGBMXT": 0.8571428571428571,
+     "Scorecard": 0.14285714285714285
+    }
+   }
+  ],
+  "error": null,
+  "eval_metric": {
+   "greater_is_better": true,
+   "name": "accuracy",
+   "optimum": 1.0,
+   "scores_note": "score_* are AutoGluon's higher-is-better scores; *_natural are in the metric's own units"
+  },
+  "expected_loss": null,
+  "feature_importance": [
+   {
+    "ci_high": 0.18927197620048597,
+    "ci_level": 0.95,
+    "ci_low": -0.03542582235433214,
+    "feature": "income",
+    "importance": 0.07692307692307691,
+    "n": 3,
+    "p99_high": 0.33607604118960616,
+    "p99_low": -0.1822298873434523,
+    "p_value": 0.04924811977643002,
+    "stddev": 0.04522651813785626,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.026503284130340483,
+    "ci_level": 0.95,
+    "ci_low": 0.0019867443596880505,
+    "feature": "n_late",
+    "importance": 0.014245014245014268,
+    "n": 3,
+    "p99_high": 0.04252092080033729,
+    "p99_low": -0.014030892310308756,
+    "p_value": 0.018874775675312143,
+    "stddev": 0.004934617685381463,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.05188208239030728,
+    "ci_level": 0.95,
+    "ci_low": -0.046184076692301526,
+    "feature": "name",
+    "importance": 0.002849002849002876,
+    "n": 3,
+    "p99_high": 0.1159526290702939,
+    "p99_low": -0.11025462337228815,
+    "p_value": 0.41296117202215027,
+    "stddev": 0.019738470741525665,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.021667536921649282,
+    "ci_level": 0.95,
+    "ci_low": -0.027365542619654962,
+    "feature": "zip",
+    "importance": -0.0028490028490028387,
+    "n": 3,
+    "p99_high": 0.05370281026164248,
+    "p99_low": -0.059400815959648155,
+    "p_value": 0.6666666666666666,
+    "stddev": 0.0098692353707628,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.01268493770726773,
+    "ci_level": 0.95,
+    "ci_low": -0.029778954801284764,
+    "feature": "flag",
+    "importance": -0.008547008547008517,
+    "n": 3,
+    "p99_high": 0.040428298236880204,
+    "p99_low": -0.05752231533089724,
+    "p_value": 0.8872983346207417,
+    "stddev": 0.008547008547008517,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.010271525525638047,
+    "ci_level": 0.95,
+    "ci_low": -0.03876155401566651,
+    "feature": "age",
+    "importance": -0.014245014245014231,
+    "n": 3,
+    "p99_high": 0.04230679886563145,
+    "p99_low": -0.07079682735565991,
+    "p_value": 0.9351941398892442,
+    "stddev": 0.009869235370762862,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.033489539709764454,
+    "ci_level": 0.95,
+    "ci_low": -0.07337557959580426,
+    "feature": "opened",
+    "importance": -0.019943019943019908,
+    "n": 3,
+    "p99_high": 0.10330879926863118,
+    "p99_low": -0.143194839154671,
+    "p_value": 0.875239387193228,
+    "stddev": 0.021509499815586166,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.024254800676999387,
+    "ci_level": 0.95,
+    "ci_low": -0.06414084056303929,
+    "feature": "note",
+    "importance": -0.019943019943019946,
+    "n": 3,
+    "p99_high": 0.0820072110024246,
+    "p99_low": -0.12189325088846449,
+    "p_value": 0.9041451884327381,
+    "stddev": 0.017792017089454125,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.01285878928098811,
+    "ci_level": 0.95,
+    "ci_low": -0.0755368519590508,
+    "feature": "rate",
+    "importance": -0.03133903133903134,
+    "n": 3,
+    "p99_high": 0.07061119960641346,
+    "p99_low": -0.13328926228447613,
+    "p_value": 0.9536323543632772,
+    "stddev": 0.01779201708945417,
+    "t_crit": 4.302652729749462
+   }
+  ],
+  "features": [
+   "zip",
+   "income",
+   "rate",
+   "n_late",
+   "name",
+   "note",
+   "flag",
+   "opened",
+   "age"
+  ],
+  "finished_at": "2026-11-22T04:15:40+00:00",
+  "fit_seconds": 23.46435832977295,
+  "forecast": null,
+  "holdout": {
+   "classes": [
+    0,
+    1
+   ],
+   "confusion_matrix": [
+    [
+     64,
+     10
+    ],
+    [
+     27,
+     16
+    ]
+   ],
+   "eval_metric": "accuracy",
+   "metrics": {
+    "accuracy": 0.6837606837606838,
+    "balanced_accuracy": 0.6184789440603394,
+    "f1": 0.463768115942029,
+    "mcc": 0.2747982027929555,
+    "precision": 0.6153846153846154,
+    "recall": 0.37209302325581395,
+    "roc_auc": 0.7193588937774985
+   },
+   "model": "WeightedEnsemble_L2",
+   "n_rows": 117,
+   "scored": {
+    "batch_rows": 500000,
+    "batches": 1,
+    "of": 117,
+    "rows": 117,
+    "seconds": 0.1
+   },
+   "scores": {
+    "accuracy": 0.6837606837606838,
+    "balanced_accuracy": 0.6184789440603394,
+    "f1": 0.463768115942029,
+    "mcc": 0.2747982027929555,
+    "precision": 0.6153846153846154,
+    "recall": 0.37209302325581395,
+    "roc_auc": 0.7193588937774985
+   }
+  },
+  "id": "run_29fca109",
+  "imported": null,
+  "kind": "tabular",
+  "label": "y",
+  "leaderboard": [
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [
+     "WeightedEnsemble_L2"
+    ],
+    "family": "GBM",
+    "features": [
+     "zip",
+     "income",
+     "rate",
+     "n_late",
+     "age",
+     "name",
+     "note",
+     "flag",
+     "opened",
+     "opened.month",
+     "opened.day",
+     "opened.dayofweek"
+    ],
+    "fit_order": 2,
+    "fit_time": 20.043023347854614,
+    "fit_time_marginal": 20.043023347854614,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "extra_trees": true,
+     "learning_rate": 0.05,
+     "seed": 0
+    },
+    "hyperparameters_fit": {
+     "num_boost_round": 30
+    },
+    "memory_size": 46367,
+    "memory_size_min": 46367,
+    "memory_size_min_w_ancestors": 46367,
+    "memory_size_w_ancestors": 46367,
+    "model": "LightGBMXT",
+    "model_type": "LGBModel",
+    "num_ancestors": 0,
+    "num_descendants": 1,
+    "num_features": 12,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.019542932510375977,
+    "pred_time_test_marginal": 0.019542932510375977,
+    "pred_time_val": 0.021805524826049805,
+    "pred_time_val_marginal": 0.021805524826049805,
+    "rank": 1,
+    "score_test": 0.7264957264957265,
+    "score_test_natural": 0.7264957264957265,
+    "score_val": 0.7526881720430108,
+    "score_val_natural": 0.7526881720430108,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": [
+      "text_as_category",
+      "text_ngram",
+      "text_special",
+      "datetime_as_int",
+      "image_path",
+      "stack"
+     ],
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [
+     "WeightedEnsemble_L2"
+    ],
+    "family": "SCORECARD",
+    "features": [
+     "zip",
+     "income",
+     "rate",
+     "n_late",
+     "age",
+     "name",
+     "note",
+     "flag"
+    ],
+    "fit_order": 1,
+    "fit_time": 0.14050817489624023,
+    "fit_time_marginal": 0.14050817489624023,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "C": 1.0,
+     "base_odds": 50.0,
+     "base_score": 600.0,
+     "enforce_sign": true,
+     "fine_bins": 20,
+     "max_bins": 6,
+     "max_iter": 1000,
+     "min_bin_share": 0.05,
+     "min_iv": 0.02,
+     "monotone_bins": "auto",
+     "pdo": 20.0
+    },
+    "hyperparameters_fit": {},
+    "memory_size": 7206,
+    "memory_size_min": 7206,
+    "memory_size_min_w_ancestors": 7206,
+    "memory_size_w_ancestors": 7206,
+    "model": "Scorecard",
+    "model_type": "ScorecardModel",
+    "num_ancestors": 0,
+    "num_descendants": 1,
+    "num_features": 8,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.0016775131225585938,
+    "pred_time_test_marginal": 0.0016775131225585938,
+    "pred_time_val": 0.0017406940460205078,
+    "pred_time_val_marginal": 0.0017406940460205078,
+    "rank": 2,
+    "score_test": 0.7008547008547008,
+    "score_test_natural": 0.7008547008547008,
+    "score_val": 0.6989247311827957,
+    "score_val_natural": 0.6989247311827957,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "drop_unique": false,
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": null,
+     "valid_special_types": null
+    },
+    "ancestors": [
+     "Scorecard",
+     "LightGBMXT"
+    ],
+    "can_infer": true,
+    "child_ag_args_fit": {
+     "drop_unique": false,
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": null,
+     "valid_special_types": null
+    },
+    "child_hyperparameters": {
+     "ensemble_size": 25,
+     "subsample_size": 1000000
+    },
+    "child_hyperparameters_fit": {
+     "ensemble_size": 7
+    },
+    "child_model_type": "GreedyWeightedEnsembleModel",
+    "compile_time": null,
+    "descendants": [],
+    "family": "ENS_WEIGHTED",
+    "features": [
+     "Scorecard",
+     "LightGBMXT"
+    ],
+    "fit_order": 3,
+    "fit_time": 20.20877742767334,
+    "fit_time_marginal": 0.02524590492248535,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bin": "auto",
+     "custom_splits": null,
+     "max_base_models": 0,
+     "max_base_models_per_type": "auto",
+     "model_random_seed": 0,
+     "n_bins": null,
+     "save_bag_folds": true,
+     "stratify": "auto",
+     "use_orig_features": false,
+     "valid_stacker": true,
+     "vary_seed_across_folds": false
+    },
+    "hyperparameters_fit": {},
+    "memory_size": 3337,
+    "memory_size_min": 3337,
+    "memory_size_min_w_ancestors": 46367,
+    "memory_size_w_ancestors": 56910,
+    "model": "WeightedEnsemble_L2",
+    "model_type": "WeightedEnsembleModel",
+    "num_ancestors": 2,
+    "num_descendants": 0,
+    "num_features": 2,
+    "num_models": 1,
+    "num_models_w_ancestors": 3,
+    "pred_time_test": 0.02256464958190918,
+    "pred_time_test_marginal": 0.0013442039489746094,
+    "pred_time_val": 0.02457451820373535,
+    "pred_time_val_marginal": 0.001028299331665039,
+    "rank": 3,
+    "score_test": 0.6837606837606838,
+    "score_test_natural": 0.6837606837606838,
+    "score_val": 0.7634408602150538,
+    "score_val_natural": 0.7634408602150538,
+    "stack_level": 2,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": {
+     "LightGBMXT": 0.8571428571428571,
+     "Scorecard": 0.14285714285714285
+    }
+   }
+  ],
+  "learning_curve": null,
+  "mlflow": {
+   "artifact_uri": "file:///var/tmp/x5/x2/build/data/mlflow/artifacts/ensemble_ds_fd96a8d1/133d08fc533740c3b2af8e03612373e0/artifacts",
+   "experiment_id": "2",
+   "logged": true,
+   "n_metrics": 12,
+   "n_params": 23,
+   "run_id": "133d08fc533740c3b2af8e03612373e0"
+  },
+  "monotone": null,
+  "multilabel": null,
+  "n_events": 123,
+  "name": "rL2x0",
+  "oof": {
+   "available": false,
+   "models": [],
+   "note": "No bagging in this run (num_bag_folds = 0): no out-of-fold predictions."
+  },
+  "positive_class": 1,
+  "predictor_path": "/var/tmp/x5/x2/build/data/runs/run_29fca109/predictor",
+  "predictor_state": "present",
+  "problem_type": "binary",
+  "quantile": null,
+  "quantile_levels": null,
+  "reject_inference": null,
+  "resolved": {
+   "fit_kwargs": {
+    "hyperparameters": {
+     "CAT": {},
+     "FASTAI": {},
+     "GBM": [
+      {
+       "ag_args": {
+        "name_suffix": "XT"
+       },
+       "extra_trees": true
+      },
+      {},
+      {
+       "ag_args": {
+        "hyperparameter_tune_kwargs": null,
+        "name_suffix": "Large",
+        "priority": 0
+       },
+       "feature_fraction": 0.9,
+       "learning_rate": 0.03,
+       "min_data_in_leaf": 3,
+       "num_leaves": 128
+      }
+     ],
+     "NN_TORCH": {},
+     "RF": [
+      {
+       "ag_args": {
+        "name_suffix": "Gini",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "gini"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "Entr",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "entropy"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "MSE",
+        "problem_types": [
+         "regression",
+         "quantile"
+        ]
+       },
+       "criterion": "squared_error"
+      }
+     ],
+     "SCORECARD": {
+      "C": 1.0,
+      "base_odds": 50.0,
+      "base_score": 600.0,
+      "fine_bins": 20,
+      "max_bins": 6,
+      "min_bin_share": 0.05,
+      "min_iv": 0.02,
+      "monotone_bins": "auto",
+      "pdo": 20.0
+     },
+     "XGB": {},
+     "XT": [
+      {
+       "ag_args": {
+        "name_suffix": "Gini",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "gini"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "Entr",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "entropy"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "MSE",
+        "problem_types": [
+         "regression",
+         "quantile"
+        ]
+       },
+       "criterion": "squared_error"
+      }
+     ]
+    },
+    "presets": "medium_quality",
+    "time_limit": 20.0
+   },
+   "notes": [
+    "added SCORECARD (ensemble_models.scorecard) as the interpretable benchmark: binning (\u2264 6 bins, \u2265 5% of rows each, monotone event rate) \u2192 weight of evidence \u2192 logistic regression \u2192 points (PDO 20, 600 at odds 50:1); bins are fitted on each fold's training rows only"
+   ],
+   "path": "/var/tmp/x5/x2/build/data/runs/run_29fca109/predictor",
+   "predictor_kwargs": {
+    "eval_metric": null,
+    "label": "y",
+    "problem_type": null
+   }
+  },
+  "scorecard": {
+   "auc": 0.7036455273628235,
+   "available": true,
+   "delta_auc": {
+    "B": 1000,
+    "ci": [
+     -0.024392600238402624,
+     0.06039221732664275
+    ],
+    "delta": 0.015713366414674912,
+    "level": 0.95,
+    "method": "paired percentile bootstrap over holdout rows",
+    "p_le_0": 0.218,
+    "se": 0.021554422256684937,
+    "seed": 0
+   },
+   "error": null,
+   "model": "Scorecard",
+   "n_features": 5,
+   "reason": null,
+   "served_auc": 0.7193588937774984
+  },
+  "segmented": null,
+  "shift": null,
+  "slices": null,
+  "split": {
+   "drawn_for_this_run": false,
+   "holdout_rows": 117,
+   "holdout_share": 0.2,
+   "key": "random-stratified__y-95cb0bfd",
+   "n_folds": 5,
+   "path": "/var/tmp/x5/x2/build/data/datasets/ds_fd96a8d1/splits/random-stratified__y-95cb0bfd.json",
+   "seed": 42,
+   "sha256": "a4b81157a048b8167c326d4b7b5a5788cbe096d8b42e0802c955fbeb9e7c9fee",
+   "strategy": "random-stratified",
+   "stratified": true,
+   "target": "y"
+  },
+  "splits_integrity": {
+   "expected": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+   "file": "splits/random-stratified__y-95cb0bfd.json",
+   "match": true,
+   "splits_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47"
+  },
+  "splits_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+  "started_at": "2026-11-22T04:15:07+00:00",
+  "status": "succeeded",
+  "survival": null,
+  "text_models": null,
+  "threshold": {
+   "default": 0.5,
+   "holdout_at_default": {
+    "accuracy": 0.6837606837606838,
+    "balanced_accuracy": 0.6184789440603394,
+    "f1": 0.463768115942029,
+    "fn": 27,
+    "fp": 10,
+    "fpr": 0.13513513513513514,
+    "mcc": 0.2747982027929555,
+    "n": 117,
+    "precision": 0.6153846153846154,
+    "predicted_positive_rate": 0.2222222222222222,
+    "recall": 0.37209302325581395,
+    "specificity": 0.8648648648648649,
+    "threshold": 0.5,
+    "tn": 64,
+    "tp": 16
+   },
+   "holdout_at_threshold": {
+    "accuracy": 0.6837606837606838,
+    "balanced_accuracy": 0.6184789440603394,
+    "f1": 0.463768115942029,
+    "fn": 27,
+    "fp": 10,
+    "fpr": 0.13513513513513514,
+    "mcc": 0.2747982027929555,
+    "n": 117,
+    "precision": 0.6153846153846154,
+    "predicted_positive_rate": 0.2222222222222222,
+    "recall": 0.37209302325581395,
+    "specificity": 0.8648648648648649,
+    "threshold": 0.5,
+    "tn": 64,
+    "tp": 16
+   },
+   "metric": null,
+   "positive_class": 1,
+   "rule": "predict positive when p > t",
+   "seconds": null,
+   "set_at": "2026-11-22T04:15:33Z",
+   "source": "default",
+   "value": 0.5
+  }
+ },
+ "status": 200
+}

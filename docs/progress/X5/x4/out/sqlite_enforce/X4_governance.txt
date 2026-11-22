@@ -1,0 +1,53 @@
+# mode enforce
+
+# 1. Carl (Collections) holds a masked share of loans with scope `certified`; v1's certification expires
+    1a before: GET /datasets/v 200 · rows 200 · export 200 · list 200 total=None · intake 200 · data-doctor 200 · POST /runs 201
+## 1b GET /certifications/{c} (expires_at moved to 2026-01-01) → HTTP 200 | pii 0
+    {"status": "expired", "expires_at": "2026-01-01T00:00:00+00:00"}
+    1c after the certification expired: GET /datasets/v 403 · rows 403 · export 403 · list 200 total=None · intake 403 · data-doctor 403 · POST /runs 403
+
+# 2. a share to Fraud (scope all, masked) that expires in 75 s
+## 2a Ben POST /shares {loans → fraud, scope all, expires_at +75 s} → HTTP 201 | pii 0
+    {"id": "sh_6b9f655982", "expires_at": "2026-11-22T03:32:37+00:00"}
+## 2b Bo approves → HTTP 200 | pii 0
+    {"status": "active", "expires_at": "2026-11-22T03:32:37+00:00"}
+    2c Fay while live: GET /datasets/v 200 · rows 200 · export 200 · list 200 total=None · intake 200 · data-doctor 200 · POST /runs 201
+## 2d Fay POST /datasets/{alerts}/joins {loans v1: income, segment} (share live) → HTTP 201 | pii 0
+    {"id": "jn_7e9dbe58d7"}
+## 2e Fay POST frames → HTTP 201 | pii 0
+    {"id": "jf_3e8c811b8e", "n_rows": 300}
+## 2f GET /shares/{s} after expiry → HTTP 200 | pii 0
+    {"status": "expired", "expires_at": "2026-11-22T03:32:37+00:00"}
+    2g Fay after expiry: GET /datasets/v 403 · rows 403 · export 403 · list 200 total=None · intake 403 · data-doctor 403 · POST /runs 403
+## 2h Fay POST frames after expiry → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_f6c4077e belongs to team tm_c49854c2 and no live share to tm_1bbe189e covers it: ask tm_c49854c2 to share it (POST /shares) before joining it.", 
+## 2i Fay POST /runs {join} after expiry → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_f6c4077e belongs to team tm_c49854c2 and no live share to tm_1bbe189e covers it: ask tm_c49854c2 to share it (POST /shares) before joining it.", 
+## 2j Fay GET existing frame → HTTP 200 | pii 0
+    {"id": "jf_3e8c811b8e", "n_rows": 300, "inputs": [{"role": "grain", "version_id": "ds_002432eb", "root_id": "ds_002432eb", "table": "alerts", "table_sha256": "713aac4a00dbce08626b6bdf3e74d0ad2b3cb5055
+## 2k Fay POST /datasets/{alerts}/joins after expiry → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_f6c4077e belongs to team tm_c49854c2 and no live share to tm_1bbe189e covers it: ask tm_c49854c2 to share it (POST /shares) before joining it.", 
+
+# 3. revoke Carl's share (restore the certification first)
+    3a Carl, certification live again: GET /datasets/v 200 · rows 200 · export 200 · list 200 total=None · intake 200 · data-doctor 200 · POST /runs 201
+## 3b Ben revokes → HTTP 200 | pii 0
+    {"status": "revoked"}
+    3c Carl after revoke: GET /datasets/v 403 · rows 403 · export 403 · list 200 total=None · intake 403 · data-doctor 403 · POST /runs 403
+
+# 4. legal hold on project PD; every destructive path
+## 4a Ada POST /legal-holds {project PD} → HTTP 201 | pii 0
+    {"id": "lh_79a2600fa3", "active": true}
+## 4b Ana DELETE /runs/{run} → HTTP 409 | pii 0
+    {"detail": {"code": "legal_hold", "message": "Can't delete run run_f8e24fce: legal hold CASE-X4 covers it (project prj_627c57dd, lh_79a2600fa3). A platform admin other than the one who placed it relea
+## 4c Mo POST /datasets/v1/delete (request) → HTTP 409 | pii 0
+    {"id": null, "status": null}
+## 4e Ana POST /datasets/v1/purge {ssn} → HTTP 409 | pii 0
+    {"detail": {"code": "legal_hold", "message": "Can't purge loans.ssn: legal hold CASE-X4 covers it (project prj_627c57dd, lh_79a2600fa3). A platform admin other than the one who placed it releases a ho
+## 4f Ana DELETE /uploads/{pending upload in PD} → HTTP 200 | pii 0
+    {"status": "discarded"}
+## 4g Ada POST /retention/run {run_ids, tier evict} → HTTP 409 | pii 0
+    {"detail": {"message": "Pinned runs are never slimmed or evicted.", "pinned": {"run_f8e24fce": ["source of pd-x4 v1 (pending)", "top 3 on ds_f6c4077e · y (binary) by roc_auc (#1)"]}}}
+## 4h Ana POST /registry/versions/{mv}/retire → HTTP 201 | pii 0
+    {"id": "vrq_29006c03", "version_id": "mv_3279d36b", "action": "retire", "status": "pending", "requested_by": "Ana", "requested_at": "2026-11-22T03:32:43+00:00", "reason": "end of life", "decided_by": 
+## 4i Ana DELETE /registry/versions/{mv}/credit-report/tape → HTTP 400 | pii 0
+    {"detail": "actor is required (the removal is audited)."}

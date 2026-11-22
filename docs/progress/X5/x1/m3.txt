@@ -1,0 +1,2 @@
+overfit clear {'metric': 'accuracy', 'train': 0.8294460641399417, 'holdout': 0.7348927875243665, 'gap': 0.09455327661557522, 'se': 0.019096295726824745, 'z': 4.951393608905802, 'overconfident': False, 'vela_val_gap': None}
+checks [('leakage', 'finding'), ('shift', 'missing'), ('label_noise', 'clear'), ('overfit', 'clear'), ('data_limited', 'missing'), ('underfit', 'clear'), ('latency', 'n/a'), ('weak_slice', 'missing'), ('budget', 'clear'), ('imbalance', 'clear'), ('weak_class', 'finding'), ('cost_tradeoff', 'n/a'), ('ceiling', 'clear')]

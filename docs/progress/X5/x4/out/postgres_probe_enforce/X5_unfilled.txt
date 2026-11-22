@@ -1,0 +1,15 @@
+# mode enforce
+Fay's frames: [('jf_a9057b2d2b', 'jn_36bfd53041')]
+## 1a GET /datasets/{fay ds}/frames/{fr} (after the share expired): Fay 200/pii 0 · Carl 403/pii 0 · Vic 403/pii 0 · Ana 403/pii 0
+## 1b GET /datasets/{fay ds}/frames/{fr}/rows (CR columns income/segment in Fay's frame): Fay 200/pii 0 · Carl 403/pii 0 · Vic 403/pii 0 · Ana 403/pii 0
+## 1c GET /datasets/{CR v1}/frames/{fay fr}/rows (path root ≠ frame's root): Fay 403/pii 0 · Carl 403/pii 0 · Vic 404/pii 0 · Ana 404/pii 0
+## 1d GET /datasets/{fay ds}/joins/{jn}: Fay 200/pii 0 · Carl 403/pii 0 · Vic 403/pii 0 · Ana 403/pii 0
+## 1e GET /datasets/{CR v1}/joins/{fay jn} (mismatched root): Fay 403/pii 0 · Carl 403/pii 0 · Vic 404/pii 0 · Ana 404/pii 0
+purge request → HTTP 409 {"detail":{"code":"legal_hold","message":"Can't purge loans.email: legal hold CASE-X4 covers it (project prj_b40e6dd5, lh_1ab69d3d5f). A platform admin other th
+## 2b GET /purges?team=cr: Fay 403/pii 0 · Carl 403/pii 0 · Vic 200/pii 0 · Ana 200/pii 0
+## 2c GET /legal-holds?team=cr: Fay 403/pii 0 · Carl 403/pii 0 · Vic 200/pii 0 · Ana 200/pii 0
+shift POST → HTTP 202 {"run_id":"run_78c04cdd","schema":"shift/1","key":"holdout","source":"holdout","status":"queued","created_at":"2026-11-22T03:59:45+00:00","request":{"source":"h
+## 3a GET /runs/{run}/shift/{key}: Fay 403/pii 0 · Carl 403/pii 0 · Vic 200/pii 0 · Ana 200/pii 0
+## 3b GET /runs/{run}/shift/{key}/rows: Fay 403/pii 0 · Carl 403/pii 0 · Vic 404/pii 0 · Ana 404/pii 0
+## 4a GET /uploads/{Ana's staged upload of 30 loans rows}: Fay 403/pii 0 · Carl 403/pii 0 · Vic 403/pii 0 · Ana 200/pii 0
+## 4b GET /uploads/{up}/preview?: Fay 404/pii 0 · Carl 404/pii 0 · Vic 404/pii 0 · Ana 404/pii 0

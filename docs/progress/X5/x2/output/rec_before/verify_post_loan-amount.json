@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "loan-amount",
+    "now": "afab5c96bf787c3df58bc32615e0254be6ef01474f54a25dd683e1a9ba11c1ed",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "afab5c96bf787c3df58bc32615e0254be6ef01474f54a25dd683e1a9ba11c1ed",
+    "v": 1
+   }
+  ],
+  "root_id": "loan-amount"
+ },
+ "status": 200
+}

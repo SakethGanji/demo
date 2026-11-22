@@ -1,0 +1,16 @@
+# mode enforce
+
+# 1. Fay (Fraud member, no role in Credit Risk, no share) reads Credit Risk rows directly
+## 1a Fay GET /datasets/v1/rows → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "data.preview", "team": "tm_05d73c59", "needed": "viewer", "message": "data.preview needs viewer in tm_05d73c59; you are not a member"}}
+## 1b Fay POST /registry/versions/{mv}/predict → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "model.use", "team": "tm_05d73c59", "needed": "member", "message": "model.use needs member in tm_05d73c59; you are not a member"}}
+
+# 2. Fay starts an agent conversation with user=Ben (an owner of Credit Risk)
+## 2a Fay POST /agent/sessions {user: Ben, 'why was it declined? mv'} → HTTP 409 | pii 0
+    {"id": null, "user": null, "status": null}
+Traceback (most recent call last):
+  File "/home/user/demo/docs/progress/X4/agent.py", line 39, in <module>
+    sid = j["id"]
+          ~^^^^^^
+KeyError: 'id'

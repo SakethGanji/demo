@@ -1,0 +1,9 @@
+HTTP 200
+{"dry_run":false,"plan_id":"gcp_df7386df7b","deleted":0,"bytes":0,"skipped":0,"failed":0,"stale_tmp_removed":0,"aborted_multipart":null,"deleted_versions_refs_dropped":1,"store":"file:///var/tmp/x5/x2/build/data/lake","deleted_blobs":[],"skipped_blobs":[],"failed_blobs":[],"stale_tmp":[],"orphans_reported_only":0,"integrity":[]}
+HTTP 200
+
++60 d after the GC run (refs dropped): candidates [('manifest', 'pending', '75273215c551')] orphans 0 integrity 0
+T2 refs now: [('run', 'split', 'split'), ('version', 'frozen_holdout', 'frozen_holdout'), ('version', 'legacy_json:lineage.json', 'legacy_json'), ('version', 'manifest', 'manifest'), ('version', 'legacy_json:TOMBSTONE.json', 'legacy_json'), ('run', 'legacy_json', 'legacy_json'), ('version', 'legacy_json:splits/random-stratified__y-95cb0bfd.json', 'legacy_json')]
+{"run_id":"run_7e2d775c","dataset_id":"ds_8beacdde","data":{"recorded":"777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728","now":null,"ok":null,"basis":"the version is deleted (four eyes): its data is gone; its tombstone, manifest, frozen holdout sample and splits are kept"},"split":{
+
+ok None split True {'split_id': 'spl_dbad569ec4e5', 'recorded': 'feaf2745e81927ea195f9e1fe4bde7609cac2913c68efa7b9793eae6701b4226', 'now': 'feaf2745e81927ea195f9e1fe4bde7609cac2913c68efa7b9793eae6701b4226', 'ok': True}

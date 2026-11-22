@@ -1,0 +1,58 @@
+## mode audit (head 5c1732c; U3 mask_check.py with longer time limits)
+## forecast transaction-volume ['item_id', 'timestamp', 'volume', 'holiday', 'payday', 'segment']
+  mapping item_id timestamp volume
+  tag transaction-volume.item_id pii_quasi/hash → 200 masked None
+  run run_7a45b5a7 succeeded
+  forecast.csv masked: 200 X-Ensemble-Masked-Columns=item_id first item 'dbac5dc8cd4f'
+  forecast.csv unmasked=1&reason: 200 header=None first item 'branch-city'
+  no reason: 400
+  predictions/fc_678436d1.csv masked: 200 header=item_id first item 'd951879ad6f3'
+## el loan-losses ['loan_id', 'application_date', 'product', 'region', 'income', 'credit_score', 'debt_to_income', 'utilization', 'credit_limit', 'current_balance', 'collateral_value', 'term_months', 'defaulted', 'lgd', 'ead']
+  run run_58572bb7 succeeded
+  tag loan-losses.application_date sensitive/redact → 200 masked None
+  version mv_4d69423d ready
+  predict masked: 200 masked_columns ['application_date'] raw application_date=['2023-01-01'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 0
+  score   masked: 200 masked_columns ['application_date'] raw application_date=['2023-01-01'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 0
+## survival account-attrition ['account_id', 'open_date', 'product', 'region', 'age', 'num_products', 'digital_logins_30d', 'complaints_12m', 'rate_vs_market_pp', 'has_salary_mandate', 'avg_balance_gbp', 'churned', 'duration_months']
+  run run_32053afe succeeded
+  tag account-attrition.product sensitive/redact → 200 masked None
+  version mv_2076132d ready
+  predict masked: 200 masked_columns ['product'] raw product=['current'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 1
+  score   masked: 200 masked_columns ['product'] raw product=['current'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 0
+## segmented segmented-loans ['application_id', 'application_date', 'customer_type', 'income', 'credit_score', 'debt_to_income', 'utilization', 'months_employed', 'num_accounts', 'loan_amount', 'recent_inquiries', 'defaulted']
+  run run_972ae20e succeeded
+  tag segmented-loans.customer_type sensitive/redact → 200 masked None
+  version mv_33b13fdc ready
+  predict masked: 200 masked_columns ['customer_type'] raw customer_type=['salaried'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 4
+  score   masked: 200 masked_columns ['customer_type'] raw customer_type=['salaried'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 2
+api 5xx: 0 tracebacks: 0
+[1]+  Terminated              env ENSEMBLE_DATA_DIR=/var/tmp/x5/mask/$m ENSEMBLE_ADMINS=Ada,Adam ENSEMBLE_DEMO_MODE=1 ENSEMBLE_AUTHZ=$m $EXTRA nohup .venv/bin/python -m uvicorn app.main:app --port 8652 > /var/tmp/x5/mask/api_$m.log 2>&1
+## mode enforce (head 5c1732c; U3 mask_check.py with longer time limits)
+## forecast transaction-volume ['item_id', 'timestamp', 'volume', 'holiday', 'payday', 'segment']
+  mapping item_id timestamp volume
+  tag transaction-volume.item_id pii_quasi/hash → 200 masked None
+  run run_5d71d508 succeeded
+  forecast.csv masked: 200 X-Ensemble-Masked-Columns=item_id first item '1494627de047'
+  forecast.csv unmasked=1&reason: 200 header=None first item 'branch-city'
+  no reason: 400
+  predictions/fc_1e90fe98.csv masked: 200 header=item_id first item '1559c0324f79'
+## el loan-losses ['loan_id', 'application_date', 'product', 'region', 'income', 'credit_score', 'debt_to_income', 'utilization', 'credit_limit', 'current_balance', 'collateral_value', 'term_months', 'defaulted', 'lgd', 'ead']
+  run run_cdeb3b07 succeeded
+  tag loan-losses.application_date sensitive/redact → 200 masked None
+  version mv_781a57f3 ready
+  predict masked: 200 masked_columns ['application_date'] raw application_date=['2023-01-01'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 0
+  score   masked: 200 masked_columns ['application_date'] raw application_date=['2023-01-01'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 0
+## survival account-attrition ['account_id', 'open_date', 'product', 'region', 'age', 'num_products', 'digital_logins_30d', 'complaints_12m', 'rate_vs_market_pp', 'has_salary_mandate', 'avg_balance_gbp', 'churned', 'duration_months']
+  run run_93c71b36 succeeded
+  tag account-attrition.product sensitive/redact → 200 masked None
+  version mv_ed8601b3 ready
+  predict masked: 200 masked_columns ['product'] raw product=['current'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 1
+  score   masked: 200 masked_columns ['product'] raw product=['current'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 0
+## segmented segmented-loans ['application_id', 'application_date', 'customer_type', 'income', 'credit_score', 'debt_to_income', 'utilization', 'months_employed', 'num_accounts', 'loan_amount', 'recent_inquiries', 'defaulted']
+  run run_c10b6ca9 succeeded
+  tag segmented-loans.customer_type sensitive/redact → 200 masked None
+  version mv_8b0b5d83 ready
+  predict masked: 200 masked_columns ['customer_type'] raw customer_type=['salaried'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 2
+  score   masked: 200 masked_columns ['customer_type'] raw customer_type=['salaried'] in body: 0 | unmasked: 200 masked_columns [] unmasked True raw in body: 2
+api 5xx: 0 tracebacks: 0
+[1]+  Terminated              env ENSEMBLE_DATA_DIR=/var/tmp/x5/mask/$m ENSEMBLE_ADMINS=Ada,Adam ENSEMBLE_DEMO_MODE=1 ENSEMBLE_AUTHZ=$m $EXTRA nohup .venv/bin/python -m uvicorn app.main:app --port 8652 > /var/tmp/x5/mask/api_$m.log 2>&1

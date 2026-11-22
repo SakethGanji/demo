@@ -1,0 +1,3 @@
+tracebacks: 6 | HTTP 5xx: 2
+GET /api/runs/run_8a8997cb/shap?row=0 HTTP/1.1" 500 Internal Server Error
+POST /api/sql/preview?project_id=prj_65626418 HTTP/1.1" 500 Internal Server Error

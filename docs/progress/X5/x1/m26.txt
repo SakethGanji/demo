@@ -1,0 +1,29 @@
+## setup
+POST /api/uploads?filename=w1.csv&by=fx1 -> 201 (0.0s) {"upload_id": "up_97748d48c31a", "status": "staged", "team_id": "tm_default", "project_id": null, "files": [{"n": 0, "filename": "w1.csv", "bytes": 71257, "sha256": "bfd2185e61ee486fa4d2d5f3d11f878461a3e90a46b47406fe83bc3e81698886"}], "parent_version_id": null, "root_id": null, "plan": {}, "check_sha256": null, "committed_version_id": null, "created_by": "fx1", "created_at": "2026-11-22T04:02:17+0
+POST /api/uploads/up_97748d48c31a/commit -> 201 (0.2s) {"id": "ds_eb136760", "root_id": "ds_eb136760", "version_no": 1, "storage": "parquet", "manifest_sha
+POST /api/runs -> 201 (1.4s) {"id": "run_e8731546", "name": "fx1-r1", "dataset_id": "ds_eb136760", "label": "y", "status": "queued", "created_at": "2026-11-22T04:02:18+00:00", "started_at": null, "finished_at": null, "error": null, "config": {"dataset_id": "ds_eb136760", "project_id": null, "table": null, "join_id": null, "prob
+r1 run_e8731546 succeeded
+POST /api/datasets/ds_eb136760/edit -> 201 (0.5s) {"id": "ds_2e062d7b", "name": "w1", "filename": "w1.parquet", "source": "upload", "sample": false, "note": "Edited ds_eb136760 as v2: 429 row(s) by id
+splits: [('spl_1202ef29d215', 'support-tickets', None, 4000), ('spl_496e331558f7', 'account-churn', None, 2000), ('spl_6de71c17a784', 'credit-default', None, 2400), ('spl_a9332f67ed8e', 'loan-amount', None, 1600), ('spl_5674a13cddaf', 'transaction-volume', None, 910), ('spl_05ef355cb2f7', 'card-transactions', None, 1200), ('spl_25a617fb5100', 'personal-loans', None, 2000), ('spl_b98682522cd4', 'loan-stream', None, 1800), ('spl_d836f4c3f670', 'loan-losses', None, 4000), ('spl_364ae49ee121', 'fair-lending', None, 4000), ('spl_423e6a647f03', 'segmented-loans', None, 6000), ('spl_9df4d1839401', 'account-attrition', None, 2400), ('spl_f24e622368e2', 'credit-rejects', None, 4800), ('spl_ca8dd1891914', 'complaint-topics', None, 1200), ('spl_59932999ddde', 'credit-book', None, 800), ('spl_56061e58fb33', 'ds_20e267bd', None, 600), ('spl_b3ed06684318', 'ds_b74cf9ef', 'spl_56061e58fb33', 610), ('spl_7396c8c07a61', 'ds_55176c46', 'spl_56061e58fb33', 609), ('spl_21ca0eef8f7c', 'ds_6fd733c6', 'spl_56061e58fb33', 612), ('spl_e8545094db85', 'ds_b4cf741e', 'spl_56061e58fb33', 601), ('spl_e96bdf2f491f', 'ds_5e3931db', 'spl_56061e58fb33', 603), ('spl_1020fc79345f', 'ds_19f6c1d5', 'spl_56061e58fb33', 600), ('spl_9ff45ece3522', 'ds_7b51ec7e', 'spl_56061e58fb33', 598), ('spl_c4d60720274e', 'ds_eb136760', None, 600), ('spl_d2b1ea3c7027', 'ds_2e062d7b', 'spl_c4d60720274e', 513)]
+## attack
+forged spl_c4d60720274e in place: holdout 600 -> 50, split_sha256 8e6c238556a1
+rewrote audit #95 (split_created) to the forged hashes
+(a) DELETE FROM run_inputs → refused: run inputs are immutable
+  verify ds_eb136760: 200 ok=False
+    split spl_c4d60720274e check 3 FAILED: audit #95 (2026-11-22T04:02:17, fx1) records the same split_sha256 and blob; chain link: the row does not re-hash to its row_hash (edited)
+    split spl_c4d60720274e check 4 FAILED: differs from runs run_e8731546: they trained on split_sha256 8f118d541b9b…, the split is 8e6c238556a1… now
+POST /api/runs -> 409 (1.0s) {"detail": "ds_eb136760's last integrity check (2026-11-22T04:02:46) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 Verify hash; a split file: Restore the sp
+(b) with ri_ro_d dropped by hand: deleted 1 run_inputs row(s)
+  verify ds_eb136760: 200 ok=False
+    split spl_c4d60720274e check 3 FAILED: audit #95 (2026-11-22T04:02:17, fx1) records the same split_sha256 and blob; chain link: the row does not re-hash to its row_hash (edited)
+  verify ds_2e062d7b: 200 ok=False
+    split spl_d2b1ea3c7027 check 5 FAILED: 2,571 surviving rows of spl_c4d60720274e: 466 changed fold
+POST /api/runs -> 409 (0.0s) {"detail": "ds_eb136760's last integrity check (2026-11-22T04:02:47) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 Verify hash; a split file: Restore the sp
+GET /api/teams/tm_default/audit/verify -> 200 (0.0s) {"team_id": "tm_default", "ok": false, "rows": 94, "legacy_rows": 0, "first_break": {"id": 95, "ts": "2026-11-22T04:02:17+00:00", "action": "split_created", "problem": "the row does not re-hash to its row_hash (it was edited)", "row_hash": "79c247584791f703", "recomputed": "6fbeb32db79f78b5"}}
+## restore
+POST /api/datasets/ds_eb136760/restore-splits -> 200 (0.0s) {"dataset_id": "ds_eb136760", "applied": false, "offers": [{"split_key": "random-stratified__y-95cb0bfd", "table": "w1", "now": {"split_id": "spl_c4d60720274e", "split_sha256": "8e6c238556a14faf12801b59d75b6073d45b15abd414ce37c251e794540e3e68", "blob_sha256": "dba15b128f1f6f5e051f6a669e2af79c269d28367b85154fb22228952c5e0616", "n_holdout": 50}, "failed": ["audit"], "checks": [{"n": 1, "check": "blob", "ok": true, "detail": "blob dba15b128f1f\u2026 re-hashed: matches its key"}, {"n": 2, "check": "
+Traceback (most recent call last):
+  File "/home/user/demo/docs/progress/X5/x1/m26.py", line 95, in <module>
+    o = next(x for x in off.get("splits", off.get("offers", [])) if x.get("offer")) if isinstance(off, dict) else None
+        ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+StopIteration

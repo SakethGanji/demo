@@ -1,0 +1,22 @@
+versions read before: 35 | migrated: 35
+  legacy_equal: 35/35 
+  dtypes_equal: 35/35 
+  na_kinds_equal: 35/35 
+  text_equal: 35/35 
+  table_values_equal: 35/35 
+  leading-zero cells equal: 35 / 35 | na cells equal: 35 | empty str equal: 35
+  ids: {'root_rows': 3, '0..n-1': 26, 'other': 6}
+  run run_356ac901 ds_281da07c {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_b8ac2e57 ds_fd96a8d1 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_df480700 ds_34f3bd4c {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_4204cb9b ds_525c8e18 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_e53b2acc ds_5262b7ad {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_be6ae6e8 ds_e950e720 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_7e2d775c ds_8beacdde {'note': 'not a CSV-era run on a migrated version'}
+  run run_b5f2841f ds_5262b7ad {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_515f15dd ds_32fabcc7 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_d31c1acc ds_89089070 {'note': 'not a CSV-era run on a migrated version'}
+  run run_0e05b67c ds_d2046b69 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_29fca109 ds_fd96a8d1 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_1b8725be ds_fd96a8d1 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}
+  run run_ed6ac697 ds_fd96a8d1 {'parquet_fold_eq_before': True, 'parquet_fold_eq_original': True, 'parquet_holdout_eq_pred_rows': True, 'view_fold_eq_before': True, 'view_fold_eq_original': True, 'pred_rows_eq_original_holdout': True}

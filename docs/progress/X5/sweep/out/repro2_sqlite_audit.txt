@@ -1,0 +1,35 @@
+## R11 10 KB path id -> OSError(ENAMETOOLONG) on file-backed stores
+500 | GET /agent/sessions/{10KB}
+Internal Server Error
+500 | GET /autopilot/{10KB}
+Internal Server Error
+500 | GET /autopilot/{10KB}/inbox
+Internal Server Error
+500 | POST /autopilot/{10KB}/resume
+Internal Server Error
+500 | GET /datasets/{v1}/feature-lab/{10KB}
+Internal Server Error
+500 | GET /runs/{run}/review/{10KB}
+Internal Server Error
+500 | POST /vela/ask {autopilot_id: 20KB}
+Internal Server Error
+404 | control GET /autopilot/nonexistent
+{"detail":"No autopilot with id 'ap_nonexistent'."}
+## R12 non-text action / kind
+500 | POST /authz/check {action: []}
+Internal Server Error
+500 | POST /registry/versions/{mv}/changes {kind: []}
+Internal Server Error
+200 | POST /datasets/{v1}/decision-time {run_ids: {a:1}}
+{"dataset_id":"ds_3f0c27f8","known":{},"fairness_only":[],"answered_at":"2026-11-22T05:16:49+00:00","by":"Ada","drops":{"not_known":[],"fairness_only":[],"colum
+200 | POST /datasets/{v1}/decision-time {object_id: false}
+{"dataset_id":"ds_3f0c27f8","known":{},"fairness_only":[],"answered_at":"2026-11-22T05:16:50+00:00","by":"Ada","drops":{"not_known":[],"fairness_only":[],"colum
+500 | POST /admin/lake/blobs/{sha}/restore {by: 1}
+Internal Server Error
+## R13 big ints into SQLite
+500 | GET /teams/{cr}/audit?cursor=2**64
+Internal Server Error
+400 | POST /runs/{run}/review {max_experiments: 1e30 int}
+{"detail":"max_experiments is 1–8 and max_minutes 5–240."}
+400 | POST /runs/{run}/review {max_minutes: 1e30 int}
+{"detail":"max_experiments is 1–8 and max_minutes 5–240."}

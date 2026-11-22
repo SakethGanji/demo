@@ -1,0 +1,9 @@
+## S1: POST /admin/lake/sync-s3 as Ada (admin), no S3 configured (SQLite, audit)
+Internal Server Error HTTP 500
+health after: 000
+api pid alive
+95:    raise SystemExit("set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)")
+96:SystemExit: set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)
+260:    |     raise SystemExit("set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)")
+261:    | SystemExit: set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)
+265:task: <Task finished name='starlette.middleware.base.BaseHTTPMiddleware.__call__.<locals>.call_next.<locals>.coro' coro=<TaskHandle._run_coro() done, defined at /home/user/demo/backend/.venv/lib/python3.13/site-packages/anyio/_core/_tasks.py:322> exception=BaseExceptionGroup('unhandled errors in a TaskGroup', [RuntimeError('No response returned.'), SystemExit('set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)')])>

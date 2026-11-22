@@ -1,0 +1,3 @@
+  -> 201 {"id": "run_b26bb90e", "status": "queued", "detail": null}
+  [train (budget 300 MB)] 220.5 s | peak single process 3.33 GB (/home/user/demo/backend/.venv/bin/python -m app.engine.worke) | peak tree sum 5.52 GB
+  run run_b26bb90e succeeded  {'rows_used': None, 'rows_total': None, 'sample_sha256': None, 'frame_estimate_mb': None, 'budget_mb': None} 
