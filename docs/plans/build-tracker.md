@@ -51,6 +51,8 @@
 | P14 | D2 | done (joins validated with coverage, 1:n/non-key/missing column 400; frames = grain rows, cached blob; runs on a join: cache sha as read_sha256, join_input rows, paired with table run, re-verify ok; delete of a joined input blocked via joined_from/merged_from; identical on SQLite and Postgres) | session_018upNdRR2Vg6fMS5HYdUAeG | see report |
 | P15 | D | started (registry/serving parity/batches for join models) | session_018upNdQvtpPYsz4hqNgnPYo | |
 | P21 | G | done (contract block → /check blocks, /commit 409; four eyes 409 on cert/share; Carl sees only v1, trains into own project 201, edit would-deny/403; unmasked only via an explicit pii=unmasked share; revoke stops access, run still verifies; every decide path via policy.four_eyes; SQLite = Postgres in audit and enforce) | session_018upNdNeZFRrGECEyFj5531 | see report |
+| P24 | G | started (manual retention, holds, GC armed, purge) | session_018upNdNGpYr7TwiNUAAa8AD | |
+| F-PII | G | started (PII masking gaps + cross-team join visibility) | session_018upNdRhzDSuoPeKuvRD8Vv | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
