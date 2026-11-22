@@ -55,8 +55,8 @@ Billing) was scored with y_true = Billing.
   DuckDB semi-join): fine for the POC, not 10M.
 - Epochs: the snapshot keeps the latest epoch only (review C2 asks for the latest K); `values_sha256` does not yet cover
   `item_key`/`epoch_hash` (M5).
-- Post-fit readers (review C1: `serving.read_ids`, RunRows, vela/rows, gym/export) still read base labels: correct for
-  the holdout (`holdout: original`), wrong for training-row diagnostics on overlay runs. No `labels_fitted_sha256` yet.
+- C1 is partly closed (see below). `vela/rows.sample_table(ref)` has no run config, so it stays on base labels. The ref
+  subclasses (`LabelledTable`) are not built: the overlay is looked up by the run's pin instead.
 - `holdout: corrected` refused (409); join runs with labels refused (400 labels_unsupported_kind); crowdlab not registered.
 - Upload `/check` does not list `label_identity_lost` yet (only the commit refuses). No remap route.
 - Purge sweep still reports `purge_incomplete` on datasets/projects/dataset_roots (platform tables, not label tables).
@@ -65,3 +65,29 @@ Billing) was scored with y_true = Billing.
 ## Grep gate 3
 `grep -rn "frames.lake_table\|read_part_columns" app | grep -v "^app/(frames.py|lake/|labels/)"`: the one label-column
 read is `engine/serving.py:180` (`read_ids`, holdout / RunRows); the rest read schemas, n_rows or SQL relations.
+
+## C1 follow-up (post-fit readers): `docs/progress/LB-A-c1.py`
+- `serving.RunRows` reads the run's pinned overlay blob (`labels.overlay.run_applied`). `label_ok` covers overlay-only rows,
+  and `read` / `batches` apply it, so it reaches `bounded_train` and `vela/rows.load`, whether the frame is bounded or
+  small. The holdout is never overlaid (the applied set excludes it).
+- `run_inputs.labels_fitted_sha256` is a sha over (__row_id, label) of the fitted training rows, written by the worker.
+  `GET /label-runs/{id}/verify` recomputes it through `RunRows` (unsampled runs).
+- The registry version's `hashes` gain `label_snapshot_id`, `label_snapshot_sha256`, `overlay_sha256` and
+  `labels_fitted_sha256` beside `data_sha256`.
+- `GET /runs/{id}/export.py` on an overlay run → 409 `labels_export_unsupported`.
+
+Results: API started with `ENSEMBLE_DOCTOR_ROWS=1000`, 1500 rows, so the bounded path runs:
+```
+snapshot lsn_1ce69ebcd2201ba0 {'applied': 190}
+run run_51717557 succeeded None train_rows None
+run run_f632e610 succeeded None train_rows None
+verify: ok rows_applied 151 labels_fitted {'ok': True, 'status': 'ok', 'rows': 1200, 'labels_fitted_sha256': '706a8e5feba5a916cad40a0ba707c43e9a20487c69326c2fb681d0695494f661'}
+doctor overlay run: 200 sampled: ""
+doctor base run: 200
+gym export overlay run: 409 labels_export_unsupported
+gym export base run: 200
+register: 202 
+registration mv_… → ready; hashes.overlay_sha256 and labels_fitted_sha256 recorded
+negative control: RunRows without the overlay → 1080 rows, a sha different from the pinned one (with it: 1200 rows, equal)
+```
+The main chain was re-run after this change: same results, 0 tracebacks.

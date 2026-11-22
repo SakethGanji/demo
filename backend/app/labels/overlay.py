@@ -241,9 +241,96 @@ def verify_run(db: Any, store: Any, run_id: str) -> dict[str, Any]:
     osha = overlay_sha(r["label_snapshot_sha256"], spec.get("table_sha256", ""), spec.get("split_sha256", ""),
                        spec.get("holdout", "original"), spec.get("stale", "exclude"), vsha)
     snap = SN.verify(db, store, r["label_snapshot_id"])
-    ok = blob_ok and osha == r["overlay_sha256"] and bool(snap.get("ok"))
+    fitted = _verify_fitted(db, run_id, r)
+    ok = blob_ok and osha == r["overlay_sha256"] and bool(snap.get("ok")) and fitted.get("ok") is not False
     return {**out, "ok": ok, "status": "ok" if ok else "mismatch", "overlay_blob_ok": blob_ok,
-            "overlay_sha_ok": osha == r["overlay_sha256"], "snapshot": snap, "rows_applied": len(rows)}
+            "overlay_sha_ok": osha == r["overlay_sha256"], "snapshot": snap, "rows_applied": len(rows),
+            "labels_fitted": fitted}
+
+
+def _verify_fitted(db: Any, run_id: str, ri: dict[str, Any]) -> dict[str, Any]:
+    """Recompute labels_fitted_sha256 from the lake: the run's training rows (its split, folds ≥ 0) with a label after the
+    run's overlay, labels read through the same overlay. A sampled run: not recomputed here (its sample blob is the pin)."""
+    if not ri.get("labels_fitted_sha256"):
+        return {"ok": None, "status": "not_recorded"}
+    if ri.get("sample_sha256"):
+        return {"ok": None, "status": "sampled_run_not_recomputed"}
+    with db.connect() as con:
+        c = con.execute("SELECT config FROM runs WHERE id = ?", (run_id,)).fetchone()
+    cfg = json.loads(c[0]) if c else {}
+    from ..engine import serving
+
+    try:
+        rr = serving.RunRows(cfg)
+        ids = rr.ids[(rr.fold >= 0) & rr.label_ok]
+        df = rr.read(ids, [cfg["label"]])
+        got = labels_fitted_sha(df.index.to_numpy(), df[cfg["label"]])
+    except Exception as e:  # noqa: BLE001 - an unreadable input is a failed verify, reported
+        return {"ok": False, "status": "error", "message": f"{type(e).__name__}: {e}"[:300]}
+    return {"ok": got == ri["labels_fitted_sha256"], "status": "ok" if got == ri["labels_fitted_sha256"] else "mismatch",
+            "rows": int(len(df)), "labels_fitted_sha256": got}
 
 
 _ = (canon_cell, canon_json)
+
+
+# --------------------------------------------------------------------------- post-fit readers (review C1)
+
+_RUN_CACHE: dict[str, dict[int, str | None]] = {}
+
+
+def run_applied(cfg: dict[str, Any] | None) -> dict[int, str | None] | None:
+    """The applied set a finished run trained with ({__row_id: value}; training rows only by construction), read from
+    its pinned overlay blob; None when the run has no overlay (or the pin is not written yet / purged)."""
+    if not cfg or not cfg.get("labels") or not cfg.get("run_id") or not cfg.get("db_path"):
+        return None
+    import pyarrow.parquet as pq
+
+    from .. import frames
+    from ..db import Database
+
+    with Database(Path(cfg["db_path"])).connect() as con:
+        r = con.execute("SELECT r.overlay_blob, b.key, b.state FROM run_inputs r LEFT JOIN blobs b ON b.sha256 = r.overlay_blob"
+                        " WHERE r.run_id = ? AND r.role = 'train'", (cfg["run_id"],)).fetchone()
+    if not r or not r[0] or not r[1] or r[2] in ("purging", "purged"):
+        return None
+    if r[0] not in _RUN_CACHE:
+        t = pq.read_table(frames._store().local_copy(r[1]))
+        _RUN_CACHE[r[0]] = {int(a): b for a, b in zip(t.column("__row_id").to_pylist(), t.column("value").to_pylist())}
+    return _RUN_CACHE[r[0]]
+
+
+def apply_dict(frame: Any, label: str, applied: dict[int, str | None] | None) -> Any:
+    """Set `label` on the frame's rows in `applied` (index = __row_id). Returns the frame (a copy when changed)."""
+    if frame is None or not applied or label not in getattr(frame, "columns", []):
+        return frame
+    ids = [i for i in frame.index if int(i) in applied]
+    if not ids:
+        return frame
+    frame = frame.copy()
+    col = frame[label]
+    vals = [_cast(applied[int(i)], col) for i in ids]
+    if col.dtype.kind in "iub" and any(v is None or isinstance(v, float) for v in vals):
+        frame[label] = col.astype("float64")
+    frame.loc[ids, label] = vals
+    return frame
+
+
+def apply_run(cfg: dict[str, Any] | None, frame: Any) -> Any:
+    """`apply_dict` with the run's own overlay (no-op for a run without one)."""
+    a = run_applied(cfg)
+    return apply_dict(frame, (cfg or {}).get("label") or "", a) if a else frame
+
+
+def labels_fitted_sha(ids: Any, y: Any) -> str:
+    """sha256 over (__row_id, canonical label) of the rows fitted, sorted by __row_id (review C1 evidence)."""
+    import numpy as np
+
+    h = hashlib.sha256(b"ensemble.labelsfitted/1\n")
+    ids = np.asarray(ids, dtype="int64")
+    order = np.argsort(ids, kind="stable")
+    yv = list(y)
+    for k in order:
+        c = canon_cell(yv[k])
+        h.update(int(ids[k]).to_bytes(8, "little", signed=True) + (b"\x00" if c is None else c.encode()) + b"\x1e")
+    return h.hexdigest()

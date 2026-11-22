@@ -111,6 +111,10 @@ async def export_py(run_id: str, request: Request, download: bool = False):
     rec = run_or_404(request, run_id)
     if rec["status"] != "succeeded":
         raise HTTPException(409, f"Run {run_id} is {rec['status']}; export a run that finished.")
+    if rec["config"].get("labels"):  # LB-A (labeling review C1): the script would train on base labels
+        raise HTTPException(409, {"code": "labels_export_unsupported", "message": "This run trained with a label snapshot "
+                                  "overlaid; the exported script cannot reproduce it yet. Materialise the snapshot into a "
+                                  "version (POST /label-snapshots/{s}/materialise) and export a run on that version."})
     pl = rec["config"].get("pseudolabel") or {}
     unlabeled = str(frames.version_file(pl["dataset_id"])) if pl.get("dataset_id") else None  # a path the script reads
     try:
