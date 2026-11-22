@@ -1,9 +1,9 @@
 """Tasks, queues, review, quality, rules, proposals, migration (labeling plan §6.2; LB-B: L07, L09, L06b guests).
 
-Annotate and review routes are authorised by **task membership**, not by a team role (review C3): a guest annotator
-(a principal with no role in the team) is added to one task and can lease, see masked context and answer there, and
-nothing else (`GET /datasets/{id}/rows` stays 403 for them). These routes are `public()` for the team-role gate and
-check membership in the handler in every authz mode. Annotators write labels only through `answers` against their own
+Annotate and review routes are authorised by **task membership** (review C3): `require("label.annotate" |
+"label.review", label_task)` passes a member through LB-A's `Rule.task_role` even with no team role (a guest), and the
+handlers check membership again in every authz mode, so a guest leases, sees masked context and answers on that task
+only (`GET /datasets/{id}/rows` stays 403 for them). Annotators write labels only through `answers` against their own
 leased assignment (review M12); direct events stay `label.task_manage` (LB-A's route)."""
 
 from __future__ import annotations
@@ -121,23 +121,23 @@ async def fill(task_id: str, request: Request, body: Any = Body(None)) -> dict[s
     return await run_in_threadpool(T.fill, task_id, _b(body), C.caller(request))
 
 
-@router.post("/label-tasks/{task_id}/next", dependencies=[MEMBERSHIP])
+@router.post("/label-tasks/{task_id}/next", dependencies=[require("label.annotate", path("task_id", "label_task"))])
 async def next_items(task_id: str, request: Request, n: int = 25) -> dict[str, Any]:
     return await run_in_threadpool(T.next_items, task_id, C.caller(request), n)
 
 
-@router.post("/label-tasks/{task_id}/answers", dependencies=[MEMBERSHIP])
+@router.post("/label-tasks/{task_id}/answers", dependencies=[require("label.annotate", path("task_id", "label_task"))])
 async def answers(task_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
     b = _b(body)
     return await run_in_threadpool(T.answer, task_id, C.caller(request), list(b.get("items") or []))
 
 
-@router.get("/label-tasks/{task_id}/review", dependencies=[MEMBERSHIP])
+@router.get("/label-tasks/{task_id}/review", dependencies=[require("label.review", path("task_id", "label_task"))])
 async def review(task_id: str, request: Request, kind: str = "disputed") -> dict[str, Any]:
     return await run_in_threadpool(T.review, task_id, kind, C.caller(request))
 
 
-@router.post("/label-tasks/{task_id}/adjudicate", dependencies=[MEMBERSHIP])
+@router.post("/label-tasks/{task_id}/adjudicate", dependencies=[require("label.review", path("task_id", "label_task"))])
 async def adjudicate(task_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
     b = _b(body)
     items = list(b.get("items") or ([{k: b.get(k) for k in ("row_id", "column", "value", "comment")} | {"comment": b.get("note") or b.get("comment")}]

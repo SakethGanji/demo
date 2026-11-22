@@ -27,21 +27,49 @@ dataset is `support-tickets` (20k rows) and the F14 sample is run `lbb-f14`.
 | 6 | F14 sample (300 rows × 3) on run `lbb-f14`: `migrate?dry_run` → plan 900 events (899 simulated); migrate → 900 imported, actor `legacy:<name>`; rerun → 0 new (900 `already`); `GET /runs/{r}/annotations` before == after (byte-equal JSON); `POST …/annotations/answer` → old answer + 1 label event (adapter) | |
 | 7 | rule `subject = "Charged after cancel" → Billing` → 402 rows, `rule` events; analysis: coverage 402, conflicts 0, gold accuracy 0.978 | |
 
-Tracebacks in the API log: **0** on the final fresh replay (see the report). Two bugs found and fixed on the way: a
+Tracebacks in the API log: **0** on the fresh replay of chains 1–7 (new data dir, new F14 run) and **0** on the SQL chain 8 below. Two bugs found and fixed on the way: a
 `Database()` built per call re-ran the migrations, and a write transaction stayed open across the mask code's own
 connection, which caused `database is locked`.
+
+**User decisions (2026-11-22, via the orchestrator; they override labeling.md §5.10 and review M10):**
+- **Any data may go to the LLM.** There is no PII / free-text exclusion and no owner approval. The default destination
+  is `llm`, the real route with llm.py's SDK settings and no server-side fallback; `fake` is kept for tests. The admin
+  allowlist `ENSEMBLE_LABEL_LLM_DESTINATIONS` defaults to `llm,fake`. Each run and its audit record the columns sent,
+  the row count, the query sha256 and the prompt version, never values. Budget, cache and the injection defence (values
+  are JSON-quoted inside `<row>`, "data, not instructions", confidence cap) are unchanged. The old guard can be
+  switched back on with `llm_labeling.pii_guard: true`. Team policy `llm_labeling.enabled` is still the on-switch
+  (default off).
+- **The input is a DuckDB SQL query** (`labels/llm_sql.py`).
+  - The query runs on a private in-memory connection. Every table of the pinned version is a view by name, `__row_id`
+    included.
+  - Guard: F-X4b's `sqlsource.core.check_query` (one SELECT/WITH; no write / ATTACH / COPY / INSTALL / SET / PRAGMA;
+    no read_* / glob / file functions). The tables named must be the version's views; 20 s timeout (interrupt); row
+    caps of 20 / 200 / 100 000.
+  - The result needs a unique `__row_id` and every id must be in the layer's table. Templates name query columns
+    (`{income}`); unknown names are refused at save.
+  - Saved as a prompt version (query + template + `query_sha256`). A job re-runs exactly that query on the pinned
+    version, ordered by `__row_id`. Each event records `prompt_id`, `prompt_version` and `query_sha256`.
+
+| 8 | SQL: join + aggregate (`n_same_subject`) preview 200; `read_csv('/etc/passwd')` → 400 `sql_function`; unknown table → 400 `sql_table`; non-SELECT / ATTACH → 400; no `__row_id` → 400 `no_row_id`; `llm/preview` with `call_llm` → rendered prompts (values JSON-quoted in `<row>`) + fake answers; template `{nope}` → 400 `template_unknown_columns` at save; saved prompt → run of 50 rows → events carry prompt_id, prompt_version 1, query_sha256 | ok |
 
 **Review findings applied (labeling-review.md):**
 - C3: guests are authorised by task membership. Annotate and review routes are `public()` for the team-role gate and
   check membership in every mode.
 - M8: few-shot and calibration pools exclude every finished run's holdout rows.
 - M9: pools are disjoint per layer; calibration is split-half and bound to (prompt, k, mode).
-- M10: PII allowlist with `pii_unreviewed`; the estimate is local (no vendor call); few-shot rows pass the same column
-  policy; the rationale is redacted; the cache key is HMAC; errors are codes only.
+- M10: superseded by the user decision above. What remains: the estimate is local (no vendor call), the cache key is
+  HMAC, and errors carry codes only.
 - M12: annotators write only via `answers` on their own lease; quality is reviewers and managers only.
 - Injection heuristic: confidence is capped at 0.5 and never auto-accepted.
 
 **Not built / notes for the next sessions:**
+- From the orchestrator's review list, still open:
+  - per-class Wilson lower bounds (per-class recall is reported);
+  - the post-run audit sample of auto-accepted rows;
+  - spend reserved in `label_llm_spend` under the team row: today it is a process lock plus reservations of running
+    runs;
+  - `label_llm_batches`: batch mode is refused.
+- `label_calibrations` is created by LB-B (CREATE IF NOT EXISTS) because LB-A's schema had no such table at da3293f.
 - Batch mode → 400 `batch_not_built`: it needs the M11 batch ledger.
 - The spend reservation is a process lock, not a team-row lock.
 - A guest's 403 on `GET /datasets/{id}/rows` only bites in enforce mode, which was not run.
@@ -71,6 +99,10 @@ connection, which caused `database is locked`.
 - `GET /me/label-tasks`.
 
 **LLM:**
+- `POST /label-layers/{l}/sql/preview {version_id, query, limit ≤ 200}`: the query editor's run (read-only, capped).
+- `POST /label-layers/{l}/llm/preview {version_id, query, prompt_template, limit ≤ 20, call_llm?, destination?, column?}`
+  → `{columns, rows, prompts, answers?}`.
+- To save, `POST /label-layers/{l}/prompts` also takes `{version_id, query, prompt_template}`.
 - `POST/GET /label-layers/{l}/prompts {name, column?, model, template, context, send_masked?, few_shot:{per_class, seed}, unmasked_request_id?, task_id?}`.
 - `GET /label-prompts/{p}`.
 - `POST /label-prompts/{p}/preview {version_id, n≤20}`.
