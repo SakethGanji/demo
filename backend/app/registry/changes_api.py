@@ -18,7 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
 from .. import frames
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from ..datasets import now
 from ..http import version_or_404
 from . import changes as C
@@ -190,7 +190,7 @@ async def _refresh(request: Request, vid: str, c: dict[str, Any], items: list[di
     return items
 
 
-@router.get("/registry/versions/{vid}/changes")
+@router.get("/registry/versions/{vid}/changes", dependencies=[require("model.read", path("vid", "model_version"))])
 async def get_changes(vid: str, request: Request) -> dict[str, Any]:
     """D4: the post-deployment experiments of a version, evaluated on its newest labelled batch against the version as
     it serves today; each better result can become a request (four-eyes review, then promotion)."""

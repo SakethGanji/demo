@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ..authz import require  # P19
+from ..authz import public, require  # P19
 from . import loop
 from .tools import TOOLS
 
@@ -43,20 +43,20 @@ def _s(request: Request, sid: str) -> dict[str, Any]:
     return s
 
 
-@router.get("/tools")
+@router.get("/tools", dependencies=[public("the agent's tool list; no data")])
 def tools() -> dict[str, Any]:
     """Every tool the agent can call: name, description, read/write, JSON schema. Approve and promote are not tools."""
     return {"tools": [t.public() for t in TOOLS], "never": ["approve or reject a version (four-eyes)", "promote to Production"]}
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[public("the agent's deciders and budget; no data")])
 def status() -> dict[str, Any]:
     d = loop.deciders()
     return {**d, "default": loop.pick_decider(None), "budget": {"max_steps": loop.MAX_STEPS, "max_seconds": loop.MAX_SECONDS},
             "tools": len(TOOLS), "write_tools": [t.name for t in TOOLS if t.kind == "write"]}
 
 
-@router.get("/sessions")
+@router.get("/sessions", dependencies=[require("agent.use")])
 def sessions(request: Request) -> dict[str, Any]:
     return {"sessions": _m(request).list()}
 
@@ -66,7 +66,7 @@ async def start(body: Start, request: Request) -> dict[str, Any]:
     return _m(request).create(body.message, body.user.strip() or "analyst", body.decider, body.max_steps, body.max_seconds)
 
 
-@router.get("/sessions/{sid}")
+@router.get("/sessions/{sid}", dependencies=[require("agent.use")])
 def get(sid: str, request: Request, since: int | None = None) -> dict[str, Any]:
     s = _s(request, sid)
     if since is not None and s.get("rev", 0) <= since:

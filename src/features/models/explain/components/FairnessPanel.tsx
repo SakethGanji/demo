@@ -37,11 +37,13 @@ export function FairnessPanel({ run, ex, initialGroup }: { run: Run; ex: Explain
   const [group, setGroup] = useState(ex.bisg_surname && (!initialGroup || initialGroup === 'bisg') ? BISG : pref?.column ?? '')
   const [f, setF] = useState<Fairness | null>(null)
   const [err, setErr] = useState('')
+  const [saved, setSaved] = useState('')
   const [ref, W] = useWidth<HTMLDivElement>()
   useEffect(() => {
     if (!group || group === BISG) return
     let alive = true
     setErr('')
+    setSaved('')
     api.runs.fairness(run.id, group).then((r) => alive && setF(r)).catch((e) => alive && setErr((e as Error).message))
     return () => { alive = false }
   }, [run.id, group, run.threshold?.value])
@@ -57,6 +59,13 @@ export function FairnessPanel({ run, ex, initialGroup }: { run: Run; ex: Explain
       </select>
       {f?.threshold != null && <ParamChip sym="t" value={f.threshold.toFixed(3)} />}
       {!f && !err && group !== BISG && <ResonanceWave />}
+      {f && group !== BISG && (
+        <button className="btn sm" data-testid="fair-save" disabled={saved === '…'} title="Save this report into the run; the model card's Fairness section shows it"
+          onClick={() => { setSaved('…'); api.runs.saveFairness(run.id, group).then(() => setSaved('saved to the model card')).catch((e) => setSaved(`✕ ${(e as Error).message}`)) }}>
+          Save to Model Card
+        </button>
+      )}
+      {saved && saved !== '…' && <span className="helper" data-testid="fair-saved">{saved}</span>}
     </div>
   )
   if (group === BISG) return <div className="stack" style={{ gap: 'var(--space-16)' }}><div className="card card-body">{head}</div><FairLendingPanel runId={run.id} /></div>

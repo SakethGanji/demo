@@ -23,7 +23,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -284,9 +284,10 @@ def actions(request: Request, rec: dict[str, Any], st: dict[str, Any]) -> list[d
     return out
 
 
-@router.get("/runs/{run_id}/shift")
-def list_shift(run_id: str, request: Request) -> dict[str, Any]:
-    """F15: this run's shift checks (one per source: holdout, a time cut, a batch) and what a new one can compare."""
+@router.get("/runs/{run_id}/shift", dependencies=[require("run.read", path("run_id", "run"))])
+def list_shift(run_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
+    """F15: this run's shift checks (one per source: holdout, a time cut, a batch) and what a new one can compare.
+    F-X4a (X4 C2): a PII-tagged date column's range (and the default cutoff on it) is masked; `unmasked=1&reason=…`."""
     rec = run_or_404(request, run_id)
     store = request.app.state.runs
     root = sh.shift_root(Path(rec["config"]["run_dir"]))
@@ -308,14 +309,25 @@ def list_shift(run_id: str, request: Request) -> dict[str, Any]:
                 batches.append({"id": b["id"], "version_id": v["id"], "filename": b.get("filename"), "created_at": b.get("created_at"),
                                 "rows": ((b.get("result") or {}).get("summary") or {}).get("n_rows"),
                                 "max_psi": ((b.get("result") or {}).get("drift") or {}).get("max_psi")})
-    return {"run_id": run_id, "checks": checks, "latest": (rec.get("result") or {}).get("shift"),
+    from ..lake import mask as M
+
+    return _cut_masked(M.run_page(request, rec, {"run_id": run_id, "checks": checks, "latest": (rec.get("result") or {}).get("shift"),
             "options": {"date_columns": opts.get("date_columns") or [], "time_column": tcol, "cutoff": cut, "batches": batches,
                         "defaults": {"null_refits": sh.DEFAULT_NULL_REFITS, "permutations": sh.DEFAULT_PERMUTATIONS,
                                      "shuffle_sets": sh.DEFAULT_SHUFFLES, "clip": sh.DEFAULT_CLIP, "num_bag_folds": sh.DEFAULT_FOLDS,
-                                     "hyperparameters": {"GBM": {}}}}}
+                                     "hyperparameters": {"GBM": {}}}}}, by=by, unmasked=unmasked, reason=reason,
+                                  read="shift_options"))
 
 
-@router.get("/runs/{run_id}/shift/{key}")
+def _cut_masked(out: dict[str, Any]) -> dict[str, Any]:
+    """F-X4a: the default cutoff is a value of the time column: masked with it."""
+    o = out.get("options") or {}
+    if o.get("time_column") in (out.get("masked_columns") or []) and o.get("cutoff") is not None:
+        o["cutoff"] = "•••"
+    return out
+
+
+@router.get("/runs/{run_id}/shift/{key}", dependencies=[require("run.read", path("run_id", "run"))])
 def get_shift(run_id: str, key: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F15: one shift check: status while it runs; then the AUC with its DeLong CI, the permutation and refit nulls,
     the verdict, the shifting features (importance with CI, PSI), the excluded columns, the weights and the actions.
@@ -533,7 +545,7 @@ def start_batch_shift(bid: str, request: Request, body: ShiftRequest | None = No
     return start(request, rec, body)
 
 
-@router.get("/registry/batches/{bid}/shift")
+@router.get("/registry/batches/{bid}/shift", dependencies=[require("model.read", path("bid", "batch"))])
 def get_batch_shift(bid: str, request: Request) -> dict[str, Any]:
     """The batch's shift check (status 'none' when none was started), for Batch & Drift next to PSI."""
     reg = request.app.state.registry

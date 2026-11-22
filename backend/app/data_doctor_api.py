@@ -21,7 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from . import data_doctor as dd
 from . import frames
-from .authz import path, require  # P19
+from .authz import path, require# P19
 from .datasets import DatasetError, DatasetStore, now
 from .http import dataset_or_404
 
@@ -103,7 +103,7 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     return out
 
 
-@router.get("/datasets/{dataset_id}/data-doctor")
+@router.get("/datasets/{dataset_id}/data-doctor", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 async def data_doctor(dataset_id: str, request: Request) -> dict[str, Any]:
     """The Data Report: every check with its severity, numbers, rule, example rows and fix; the decision-time question.
     P20: the example rows' values of PII-tagged columns are masked."""
@@ -288,7 +288,7 @@ def _apply(request: Request, dataset_id: str, transforms: Any, by: str, acknowle
             "columns_removed": [c for c in df.columns if c not in new_df.columns], "created": True}
 
 
-@router.get("/datasets/{dataset_id}/decision-time")
+@router.get("/datasets/{dataset_id}/decision-time", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
 def get_decision_time(dataset_id: str, request: Request) -> dict[str, Any]:
     dataset_or_404(request, dataset_id)
     return {"dataset_id": dataset_id, **answers(_store(request), dataset_id)}

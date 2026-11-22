@@ -21,7 +21,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from .. import config, frames
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from ..http import version_or_404
 from . import credit_report as C
 from .scoring import read_batch
@@ -290,13 +290,19 @@ def build(request: Request, vid: str, on: str = "holdout", date_column: str | No
     return out
 
 
-@router.get("/registry/versions/{vid}/credit-report")
+@router.get("/registry/versions/{vid}/credit-report", dependencies=[require("model.read", path("vid", "model_version"))])
 async def credit_report(vid: str, request: Request, on: Literal["holdout", "batches"] = "holdout",
                         date_column: str | None = None, cohort: Literal["auto", "month", "quarter"] = "auto",
-                        format: Literal["json", "md", "html"] = "json", download: bool = False):
+                        format: Literal["json", "md", "html"] = "json", download: bool = False, by: str = "",
+                        unmasked: str = "", reason: str = ""):
     """G2: rank ordering (Gini with DeLong CI, KS with a bootstrap CI) overall and per month, score bands, deciles, score
     PSI, CSI per feature per month, vintage curves; exportable as Markdown or HTML."""
     rep = await run_in_threadpool(build, request, vid, on, date_column, cohort)
+    from ..lake import mask as M  # F-X4a (X4 C2): role evidence quotes values (dob ranges): masked like the run pages
+
+    v = request.app.state.registry.get_version(vid) or {}
+    run = request.app.state.runs.get(v.get("run_id") or "") or {}
+    rep = await run_in_threadpool(M.run_page, request, run, rep, by=by, unmasked=unmasked, reason=reason, read="credit_report")
     fname = f"model-performance-report_{_safe(rep['model'])}_v{rep['label'].split(' v')[-1]}"
     if format == "md":
         return PlainTextResponse(C.to_markdown(rep), media_type="text/markdown; charset=utf-8",

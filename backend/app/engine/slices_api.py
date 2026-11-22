@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -175,7 +175,7 @@ async def search_slices(run_id: str, body: SliceRequest, request: Request) -> di
     return _masked(rec, _view(out))
 
 
-@router.get("/runs/{run_id}/slices")
+@router.get("/runs/{run_id}/slices", dependencies=[require("run.read", path("run_id", "run"))])
 async def get_slices(run_id: str, request: Request) -> dict[str, Any]:
     rec = _rec(request, run_id)
     return _masked(rec, _view(await run_in_threadpool(_latest, request, rec)))

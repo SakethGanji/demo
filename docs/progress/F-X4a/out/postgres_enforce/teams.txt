@@ -1,0 +1,36 @@
+# mode enforce
+# 0. PATCH /datasets/{id} is guarded by run.train (a member)
+## 2a Mo (member) PATCH /datasets/{v} {description} → HTTP 400 | pii 0
+    {"detail": "Send {\"target\": \"<column to predict>\"}."}
+
+# 1. team management
+before: [('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## 1a Ana (maintainer) PATCH /teams/cr/members/Bo {role: viewer}  (demote an owner) → HTTP 403 | pii 0
+    {"display_name": null, "role": null}
+## 1b Ana (maintainer) DELETE /teams/cr/members/Bo  (remove an owner) → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_9f0caf74", "needed": "owner", "message": "team.settings needs owner in tm_9f0caf74; you are maintainer"}}
+## 1c Ana (maintainer) PATCH /teams/cr/members/Mo {role: risk_reviewer} → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_9f0caf74", "needed": "owner", "message": "team.settings needs owner in tm_9f0caf74; you are maintainer"}}
+## 1d Ana (maintainer) PATCH /teams/cr/members/Ana {role: risk_reviewer}  (herself) → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "team.settings", "team": "tm_9f0caf74", "needed": "owner", "message": "team.settings needs owner in tm_9f0caf74; you are maintainer"}}
+after: [('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## 1e /authz/check Ana model.review on the team → HTTP 200 | pii 0
+    {"allow": false, "reason": "model.review needs risk_reviewer in tm_9f0caf74; you are maintainer"}
+
+# 3. the SQL source reads other databases under the data dir (Fay, Fraud member, in her own project)
+## 3a Fay POST /sql/preview {sqlite:///mlflow/mlflow.db, SELECT name FROM registered_models} → HTTP 200 | pii 0
+    {"rows": [{"name": "pd-x4", "description": ""}]}
+## 3b Fay POST /sql/preview {sqlite:///ensemble.sqlite3} → HTTP 400 | pii 0
+    {"detail": "That is the workbench's own database, not a data source."}
+
+# 4. Postgres deployment: the SQL source pointed at the platform's own database (the server's connection settings)
+## 4 Fay POST /sql/preview {/fx_ape?host=/var/tmp/x4/pg&port=5433, SELECT actor, action, team_id FROM audit…} → HTTP 200 | pii 0
+    {"rows": [{"actor": "Ana", "action": "authz_denied", "team_id": "tm_9f0caf74"}, {"actor": "Ana", "action": "authz_denied", "team_id": "tm_9f0caf74"}, {"actor": "Ana", "action": "authz_denied", "team_id": "tm_9f0caf74"}]}
+## 4 Fay POST /sql/preview {/fx_ape?host=/var/tmp/x4/pg&port=5433, SELECT display_name, is_admin FROM princ…} → HTTP 200 | pii 0
+    {"rows": [{"display_name": "Adam", "is_admin": 1}, {"display_name": "Ada", "is_admin": 1}]}
+## 4 Fay POST /sql/preview {/fx_ape?host=/var/tmp/x4/pg&port=5433, SELECT id, grantee_team, pii FROM shares…} → HTTP 200 | pii 0
+    {"rows": [{"id": "sh_55252a7385", "grantee_team": "tm_65d94128", "pii": "masked"}]}
+## 4 Fay POST /sql/preview {/fx_ape?host=/var/tmp/x4/pg&port=5433, SELECT result FROM batch_jobs WHERE resu…} → HTTP 200 | pii 200
+    {"rows": [{"result": "{\"summary\": {\"n_rows\": 50, \"seconds\": 0.5736212730407715, \"score_seconds\": 0.004484415054321289, \"us_per_row\": 89.68830108642578, \"missing_columns\": [], \"extra_columns\": [\"app_id\", \"applicant_name\", \"email\", \"dob\", \"y\"], \"model\": \"WeightedEnsemble_L2\
+## 4 Fay POST /sql/preview {/fx_ape?host=/var/tmp/x4/pg&port=5433, SELECT pg_read_file('/etc/hostname') AS …} → HTTP 200 | pii 0
+    {"rows": [{"f": "vm\n"}]}

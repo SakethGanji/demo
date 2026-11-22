@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import learning_curve as lc
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from ..jobs import queue as Q
 from .store import now
 from ..http import run_or_404
@@ -66,7 +66,7 @@ def defaults(rec: dict[str, Any]) -> dict[str, Any]:
             if res.get("fit_seconds") else None}
 
 
-@router.get("/runs/{run_id}/learning-curve")
+@router.get("/runs/{run_id}/learning-curve", dependencies=[require("run.read", path("run_id", "run"))])
 def get_learning_curve(run_id: str, request: Request) -> dict[str, Any]:
     """F12: the run's learning curve: status and progress while it runs; then every point, the mean ± t-interval per
     fraction, the fitted power law with its bootstrap band, extrapolation to 2N and 4N, and the verdict. Status 'none'

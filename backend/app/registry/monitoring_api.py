@@ -24,7 +24,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import config, frames
-from ..authz import path, require  # P19
+from ..authz import path, public, require# P19
 from ..http import batch_or_404, version_or_404
 from . import monitoring as M
 from .scoring import read_batch
@@ -386,7 +386,7 @@ def _feed_fixes(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return []
 
 
-@router.get("/registry/versions/{vid}/monitoring")
+@router.get("/registry/versions/{vid}/monitoring", dependencies=[require("model.read", path("vid", "model_version"))])
 async def get_monitoring(vid: str, request: Request) -> dict[str, Any]:
     """F18: the version's batches in data order: PSI per feature, the score's PSI and distribution, F15's adversarial AUC
     where checked, performance once labels arrived (with the lag), alerts against the model's thresholds, the
@@ -495,7 +495,7 @@ def _join_block(jn: dict[str, Any]) -> str:
             f"join (POST /runs {{dataset_id, join_id: {jn['join_id']}, label}}).")
 
 
-@router.get("/registry/versions/{vid}/monitoring/retrain")
+@router.get("/registry/versions/{vid}/monitoring/retrain", dependencies=[require("model.read", path("vid", "model_version"))])
 async def get_retrain(vid: str, request: Request, window_months: int | None = None, include_reference: bool = False) -> dict[str, Any]:
     if window_months is not None and not 1 <= window_months <= 36:
         raise HTTPException(422, "window_months must be 1 … 36.")
@@ -578,7 +578,7 @@ def _window_dataset(request: Request, v: dict[str, Any], run: dict[str, Any], pr
 # --------------------------------------------------------------------------- the simulated stream
 
 
-@router.get("/monitoring/stream")
+@router.get("/monitoring/stream", dependencies=[public("the bundled loan-stream sample's simulation spec")])
 def stream_spec(request: Request) -> dict[str, Any]:
     """The simulated 12-month stream behind the loan-stream sample: months, label arrival dates, what drifts when."""
     sc = request.app.state.datasets.sidecar(STREAM_DATASET, "stream_truth.json")

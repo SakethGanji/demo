@@ -23,10 +23,10 @@ router = APIRouter(prefix="/api")
 log = logging.getLogger("ensemble.authz")
 
 
-@router.get("/authz/coverage")
+@router.get("/authz/coverage", dependencies=[public("the route map and its markers; no data")])
 def authz_coverage(request: Request, all: bool = False) -> dict[str, Any]:
-    """Every route with its method and its marker (action + object, or public). `uncovered` must be empty: every non-GET
-    route and every row-returning GET carries require() or public(). ?all=true lists every route, else only the
+    """Every route with its method and its marker (action + object, or public). `uncovered` must be empty: F-X4a, every
+    route of every method carries require() or public(). ?all=true lists every route, else only the
     ones that must be covered."""
     out = coverage(request.app)
     if not all:
@@ -154,6 +154,9 @@ def install(app: Any) -> None:
                     ", ".join(f"{u['method']} {u['path']}" for u in cov["uncovered"]))
     else:
         log.info("P19 authz: mode %s; coverage %d/%d routes that must be covered, 0 uncovered", m, cov["n_must"], cov["n_must"])
+    if cov["uncovered"] and os.environ.get("ENSEMBLE_AUTHZ_STRICT_COVERAGE") == "1":
+        raise RuntimeError(f"ENSEMBLE_AUTHZ_STRICT_COVERAGE=1 refuses to start: {cov['n_uncovered']} route(s) carry neither "
+                           "require() nor public(): " + ", ".join(f"{u['method']} {u['path']}" for u in cov["uncovered"][:20]))
     if m != "enforce":
         return
     typed = identity.typed_in_chain()

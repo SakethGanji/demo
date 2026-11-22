@@ -40,7 +40,7 @@ from .catalog import datasets_api as catalog_datasets_api
 from .catalog import teams_api
 from .catalog.retention import EvictedError
 from .authz import api as authz_api
-from .authz import body, path, query, require, with_team
+from .authz import body, path, public, query, require, with_team
 
 log = logging.getLogger("ensemble.main")
 from .http import dataset_or_404
@@ -220,13 +220,13 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     def store(request: Request) -> DatasetStore:
         return request.app.state.datasets
 
-    @app.get("/api/health", response_model=Health)
+    @app.get("/api/health", dependencies=[public("liveness")], response_model=Health)
     def health(request: Request) -> dict[str, Any]:
         return {"status": "ok", "version": __version__, "datasets": request.app.state.db.count_datasets(),
                 "data_dir": str(settings.data_dir), "runs": request.app.state.runs.count(),
                 "engine": engine_api.engine_info()}
 
-    @app.get("/api/datasets", response_model=DatasetList)
+    @app.get("/api/datasets", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")], response_model=DatasetList)
     def list_datasets(request: Request, all: bool = False, limit: int | None = None, after: str | None = None,
                       project_id: str | None = None, root_id: str | None = None) -> dict[str, Any]:
         """Samples first, in a fixed order; then uploads, oldest first. DL1: archived and deleted ones are hidden
@@ -289,7 +289,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e)) from e
         return _detail(rec)
 
-    @app.get("/api/datasets/{dataset_id}/splits")
+    @app.get("/api/datasets/{dataset_id}/splits", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
     def dataset_splits(dataset_id: str, request: Request) -> dict[str, Any]:
         """Every split stored for the dataset, one per (target, strategy) used so far, and the current target's key."""
         rec = dataset_or_404(request, dataset_id)
@@ -297,7 +297,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         return {"dataset_id": dataset_id, "target": rec["target"], "current": cur.get("key"),
                 "splits": store(request).list_splits(dataset_id)}
 
-    @app.get("/api/datasets/{dataset_id}/split-options")
+    @app.get("/api/datasets/{dataset_id}/split-options", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
     def split_options(dataset_id: str, request: Request, target: str | None = None, by: str = "", unmasked: str = "",
                       reason: str = "") -> dict[str, Any]:
         """F6: the split strategies (random, group, time, time + group), the date and entity columns found, the
@@ -325,7 +325,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             return out
         return {**(m.scrub(out, extra) if m.cols else out), **m.info()}
 
-    @app.get("/api/datasets/{dataset_id}/intake")
+    @app.get("/api/datasets/{dataset_id}/intake", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
     def dataset_intake(dataset_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
         """G0 Smart Intake: each column's role (target, date, entity, money, ...) with a confidence and its evidence,
         and what can be built from the table, best first, each with a reason and the pre-fill for its flow.
@@ -534,7 +534,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
             audit(con, who, f"admin_reset_{status}", comment=comment, details={"request_id": rid, "requested_by": r["requested_by"]})
             return dict(con.execute("SELECT * FROM admin_requests WHERE id = ?", (rid,)).fetchone())
 
-    @app.get("/api/admin/reset-requests")
+    @app.get("/api/admin/reset-requests", dependencies=[require("admin.reset")])
     def reset_requests(request: Request) -> dict[str, Any]:
         from . import reset as reset_mod
 

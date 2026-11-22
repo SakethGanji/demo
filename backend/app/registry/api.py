@@ -16,7 +16,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
-from ..authz import path, query, require, variant, with_team  # P19
+from ..authz import path, public, query, require, variant, with_team# P19
 from pydantic import BaseModel, Field
 
 from .. import config, frames
@@ -175,7 +175,7 @@ async def register(run_id: str, body: RegisterRequest, request: Request) -> dict
     return version_out(v)
 
 
-@router.get("/runs/{run_id}/latency")
+@router.get("/runs/{run_id}/latency", dependencies=[require("run.read", path("run_id", "run"))])
 async def latency_profile(run_id: str, request: Request, batch: int = Query(1000, ge=1, le=10_000)) -> dict[str, Any]:
     """Every model of the run that can predict: validation and holdout score, measured batch time per row on the
     holdout (µs, p50 of 3), one-row latency as the run holds it and **as it would be served** (feature pipeline
@@ -249,7 +249,7 @@ def scoring_profile(cfg: dict[str, Any], batch: int) -> dict[str, Any]:
 # --------------------------------------------------------------------------- read
 
 
-@router.get("/registry")
+@router.get("/registry", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")])
 def registry(request: Request) -> dict[str, Any]:
     reg = _reg(request)
     versions = [version_out(v, full=False) for v in reg.list_versions()]
@@ -262,10 +262,10 @@ def registry(request: Request) -> dict[str, Any]:
     return with_team(request, {"models": models, "versions": versions, "counts": reg.counts()}, "registry")
 
 
-@router.get("/registry/summary")
+@router.get("/registry/summary", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")])
 def registry_summary(request: Request) -> dict[str, Any]:
     reg = _reg(request)
-    return with_team(request, {"counts": reg.counts(), "audit": reg.audit_log(limit=8),
+    return with_team(request, {"counts": reg.counts(), "audit": _audit_mine(request, 8),
                                "production": [version_out(v, full=False) for v in reg.list_versions() if v["stage"] == "Production"]},
                      "registry_summary")
 
@@ -282,13 +282,13 @@ def _ready_version(request: Request, vid: str) -> dict[str, Any]:
     return v
 
 
-@router.get("/registry/versions")
+@router.get("/registry/versions", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")])
 def list_versions(request: Request, model: str | None = None) -> dict[str, Any]:
     return with_team(request, {"versions": [version_out(v, full=False) for v in _reg(request).list_versions(model)]},
                      "registry_versions")
 
 
-@router.get("/registry/versions/{vid}")
+@router.get("/registry/versions/{vid}", dependencies=[require("model.read", path("vid", "model_version"))])
 def get_version(vid: str, request: Request) -> dict[str, Any]:
     return version_out(_version(request, vid))
 
@@ -296,10 +296,35 @@ def get_version(vid: str, request: Request) -> dict[str, Any]:
 @router.get("/registry/audit", dependencies=[require("model.read", query("version_id", "model_version"), query("model", "model"))])
 def audit(request: Request, model: str | None = None, version_id: str | None = None,
           limit: int = Query(200, ge=1, le=2000)) -> dict[str, Any]:
-    return {"entries": _reg(request).audit_log(model_name=model, version_id=version_id, limit=limit)}
+    if model or version_id:
+        return {"entries": _reg(request).audit_log(model_name=model, version_id=version_id, limit=limit)}
+    return {"entries": _audit_mine(request, limit)}
 
 
-@router.get("/registry/versions/{vid}/mlflow")
+def _audit_mine(request: Request, limit: int) -> list[dict[str, Any]]:
+    """F-X4a (X4 M5): the audit rows with no filter are scoped to the caller's own teams (audit.read is team-scoped,
+    C §1.3; a share does not grant it). tm_default is not a catch-all: every principal is a member of it, so its rows
+    are shown only when they are registry events (a model version or model named: the samples' models); its other
+    rows (platform-level denials of other people, rows that named no object) are not. Admins (and mode off): all."""
+    from ..authz import deps
+
+    reg = _reg(request)
+    if deps.mode() == "off":
+        return reg.audit_log(limit=limit)
+    with request.app.state.db.connect() as con:
+        teams = deps.own_teams(con, deps.principal(request))
+        if teams is None:
+            return reg.audit_log(limit=limit)
+        from ..catalog.schema import DEFAULT_TEAM
+
+        t = sorted(teams - {DEFAULT_TEAM}) or ["-"]
+        rows = con.execute(f"SELECT * FROM audit_log WHERE team_id IN ({', '.join('?' * len(t))}) OR (team_id = ? AND"
+                           " (version_id IS NOT NULL OR model_name IS NOT NULL)) ORDER BY id DESC LIMIT ?",
+                           (*t, DEFAULT_TEAM, limit)).fetchall()
+    return [reg._row("audit_log", r) for r in rows]
+
+
+@router.get("/registry/versions/{vid}/mlflow", dependencies=[require("model.read", path("vid", "model_version"))])
 async def version_mlflow(vid: str, request: Request) -> dict[str, Any]:
     """MLflow's own record of the version: stage, aliases, tags, and the source run's params and metrics."""
     v = _ready_version(request, vid)
@@ -323,7 +348,7 @@ class TransitionRequest(BaseModel):
 
 class ReviewRequest(BaseModel):
     decision: Literal["approve", "reject"]
-    reviewer: str
+    reviewer: str = ""  # F-X4a: defaults to the principal; in enforce mode a different name is refused (409)
     comment: str = ""
 
 
@@ -438,7 +463,7 @@ async def transition(vid: str, body: TransitionRequest, request: Request) -> dic
     return {"version": version_out(v2), "audit": entry, "archived": [o["id"] for o in changed], "mlflow": ml}
 
 
-@router.post("/registry/versions/{vid}/review", dependencies=[require("model.review", path("vid", "model_version"))])
+@router.post("/registry/versions/{vid}/review", dependencies=[require("model.review", path("vid", "model_version"), names=("reviewer",))])
 @_refusal_audited("review")
 async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, Any]:
     """Approve or reject a version, with the reviewer's name and comment. Four eyes: the reviewer cannot be the
@@ -447,7 +472,10 @@ async def review(vid: str, body: ReviewRequest, request: Request) -> dict[str, A
     Production."""
     reg = _reg(request)
     v = _ready_version(request, vid)
-    who = _name_ok(body.reviewer, "reviewer")
+    from ..authz import deps as _deps
+
+    p = _deps.principal(request, body.reviewer or None)  # F-X4a (X4 M1): the decider is the principal when one is known
+    who = _name_ok(body.reviewer or (p.display_name if p else ""), "reviewer")
     if v["approval"] != "pending":
         raise HTTPException(409, f"Version {v['version']} was already {v['approval']}; register the run again for a new review.")
     # Four eyes (C §1.5, P21: through policy.four_eyes): the reviewer (and the request's principal) is not the registrant,
@@ -583,7 +611,7 @@ async def _decide_retire(request: Request, rid: str, approve: bool, who: str, co
     return {**_vreq(request, rid), "version": version_out(v2, full=False), "self_approved_by_admin": self_admin}
 
 
-@router.get("/registry/versions/{vid}/retire")
+@router.get("/registry/versions/{vid}/retire", dependencies=[require("model.read", path("vid", "model_version"))])
 def retire_state(vid: str, request: Request) -> dict[str, Any]:
     """The version's retirement requests, newest first."""
     _version(request, vid)
@@ -657,9 +685,14 @@ def _reasons_for_card(request: Request, v: dict[str, Any], run: dict[str, Any]) 
             "reference": str(conf.get("reference") or "approved")}
 
 
-@router.get("/registry/versions/{vid}/card")
-async def model_card(vid: str, request: Request, format: Literal["json", "md", "html"] = "json", download: bool = False):
+@router.get("/registry/versions/{vid}/card", dependencies=[require("model.read", path("vid", "model_version"))])
+async def model_card(vid: str, request: Request, format: Literal["json", "md", "html"] = "json", download: bool = False,
+                     by: str = "", unmasked: str = "", reason: str = ""):
     c = await run_in_threadpool(_card, request, vid)
+    from ..lake import mask as M  # F-X4a (X4 C2): saved fairness reports, recourse ranges, credit evidence: masked
+
+    run = request.app.state.runs.get(_version(request, vid)["run_id"]) or {}
+    c = await run_in_threadpool(M.run_page, request, run, c, by=by, unmasked=unmasked, reason=reason, read="model_card")
     fname = f"model-card_{c['model_name']}_v{c['version']}"
     if format == "md":
         return PlainTextResponse(card.to_markdown(c), media_type="text/markdown; charset=utf-8",
@@ -704,7 +737,7 @@ def edit_card(vid: str, body: CardFields, request: Request) -> dict[str, Any]:
     return {"card": cur, "changed": changed}
 
 
-@router.get("/registry/versions/{vid}/monotone")
+@router.get("/registry/versions/{vid}/monotone", dependencies=[require("model.read", path("vid", "model_version"))])
 async def version_monotone(vid: str, request: Request, constraints: str | None = None,
                            rows: int = Query(200, ge=10, le=2000), grid: int = Query(25, ge=3, le=101),
                            curves: int = Query(30, ge=0, le=200)) -> dict[str, Any]:
@@ -958,7 +991,7 @@ async def score(vid: str, body: ScoreRequest, request: Request) -> dict[str, Any
             "where": "api" if inproc else "worker", "warm_before_call": was_warm, "server_ms": (_t.perf_counter() - t0) * 1e3}
 
 
-@router.get("/registry/serving")
+@router.get("/registry/serving", dependencies=[require("admin.config")])
 def serving_state() -> dict[str, Any]:
     """Deployed versions loaded (persisted, warmed) in the API process for the online path, with their warm-up."""
     return {"api_process": [{"path": p, "warm": _SERVE.warm.get(p)} for p in list(_SERVE._d)],
@@ -1064,7 +1097,7 @@ def submit_batch(request: Request, v: dict[str, Any], content: bytes, name: str,
     return reg.get_batch(bid)
 
 
-@router.get("/registry/versions/{vid}/batches")
+@router.get("/registry/versions/{vid}/batches", dependencies=[require("model.read", path("vid", "model_version"))])
 def list_batches(vid: str, request: Request) -> dict[str, Any]:
     _version(request, vid)
     out = []
@@ -1076,19 +1109,42 @@ def list_batches(vid: str, request: Request) -> dict[str, Any]:
     return {"batches": out}
 
 
-@router.get("/registry/batches/{bid}")
-def get_batch(bid: str, request: Request) -> dict[str, Any]:
-    return batch_or_404(request, bid)
+@router.get("/registry/batches/{bid}", dependencies=[require("model.read", path("bid", "batch"))])
+def get_batch(bid: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
+    """A batch (status, summary, drift, the preview of its rows). F-X4a (X4 M3): PII-tagged columns of the model's input
+    are masked in the preview and the drift report; `unmasked=1&reason=…` (with `by`) shows them (data.read_unmasked,
+    audited)."""
+    from ..lake import mask as M
+
+    b = batch_or_404(request, bid)
+    run = request.app.state.runs.get((_reg(request).get_version(b["version_id"]) or {}).get("run_id") or "") or {}
+    m = M.batch_mask(request, run, unmasked=unmasked, reason=reason, by=by, read="batch_preview")
+    if m is None:
+        return b
+    out = m.scrub(b) if m.cols else b
+    return {**out, **m.info()}
 
 
 @router.get("/registry/batches/{bid}/download", dependencies=[require("model.read", path("bid", "batch"))])
-def download_batch(bid: str, request: Request):
+def download_batch(bid: str, request: Request, by: str = "", unmasked: str = "", reason: str = ""):
+    """The scored file. F-X4a (X4 M3): PII-tagged columns masked; `unmasked=1&reason=…` needs data.export_unmasked
+    (maintainer, or an unmasked share) and is audited (dataset_rows_read, read batch_download)."""
+    from fastapi.responses import StreamingResponse
+
+    from ..lake import mask as M
+
     b = batch_or_404(request, bid)
     if b["status"] != "succeeded":
         raise HTTPException(409, f"Batch {bid} is {b['status']}.")
     path = _dir(request) / "batches" / bid / "scored.csv"
     stem = Path(b["filename"]).stem
-    return FileResponse(path, media_type="text/csv", filename=f"{stem}_scored_{bid}.csv")
+    run = request.app.state.runs.get((_reg(request).get_version(b["version_id"]) or {}).get("run_id") or "") or {}
+    m = M.batch_mask(request, run, unmasked=unmasked, reason=reason, by=by, export=True, read="batch_download")
+    if m is None or not m.cols:
+        return FileResponse(path, media_type="text/csv", filename=f"{stem}_scored_{bid}.csv")
+    return StreamingResponse(M.csv_stream(path, m), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{stem}_scored_{bid}.csv"',
+                                      "X-Ensemble-Masked-Columns": ",".join(m.masked)})
 
 
 # --------------------------------------------------------------------------- reason codes (F10)
@@ -1132,7 +1188,7 @@ def _stability_path(v: dict[str, Any]) -> Path:
     return Path(v["path"]).parent / "reasons_stability.json"
 
 
-@router.get("/registry/versions/{vid}/reasons")
+@router.get("/registry/versions/{vid}/reasons", dependencies=[require("model.read", path("vid", "model_version"))])
 async def reasons_config(vid: str, request: Request) -> dict[str, Any]:
     """F10: the reason-code set-up of a binary version: the adverse class, the served threshold t, the attribution
     method chosen for the served model, and the mapping table (feature → code and statements; edited per model)."""
@@ -1248,8 +1304,8 @@ def _recourse_check_path(v: dict[str, Any]) -> Path:
     return Path(v["path"]).parent / "recourse_check.json"
 
 
-@router.get("/registry/versions/{vid}/recourse")
-async def recourse_config(vid: str, request: Request) -> dict[str, Any]:
+@router.get("/registry/versions/{vid}/recourse", dependencies=[require("model.read", path("vid", "model_version"))])
+async def recourse_config(vid: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """G1: what a counterfactual may change for this binary version: feature → fixed / any / increase / decrease,
     detected from G0's column roles (age, dates, IDs, geography fixed; history only down; time only up) and narrowed
     by F8 monotone constraints; the training ranges and categories it stays inside; the last acceptance check."""
@@ -1265,8 +1321,12 @@ async def recourse_config(vid: str, request: Request) -> dict[str, Any]:
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     cp = _recourse_check_path(v)
-    return {"version_id": vid, "model_name": v["model_name"], **info, "updated_by": saved.get("updated_by"),
-            "updated_at": saved.get("updated_at"), "check": json.loads(cp.read_text()) if cp.exists() else None}
+    from ..lake import mask as M  # F-X4a (X4 C2): ranges / categories of a PII-tagged feature are its values
+
+    return await run_in_threadpool(M.run_page, request, run, {
+        "version_id": vid, "model_name": v["model_name"], **info, "updated_by": saved.get("updated_by"),
+        "updated_at": saved.get("updated_at"), "check": json.loads(cp.read_text()) if cp.exists() else None},
+        by=by, unmasked=unmasked, reason=reason, read="recourse")
 
 
 class RecourseEdit(BaseModel):

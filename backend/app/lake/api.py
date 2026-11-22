@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
-from ..authz import require  # P19
+from ..authz import path, public, require# P19
 from ..catalog import governance as G
 from ..catalog import schema as S
 from . import duck, gc
@@ -55,13 +55,13 @@ def _admin(request: Request, by: str | None, action: str) -> str:
 
 # -- self-check, status ---------------------------------------------------------------------------------------------
 
-@router.get("/admin/lake/selfcheck")
+@router.get("/admin/lake/selfcheck", dependencies=[public("re-hashes fixed test vectors in code; no data")])
 async def selfcheck() -> dict[str, Any]:
     """Re-runs the startup self-check: fixed vectors hashed by this code against constants (§7 risk 3)."""
     return await run_in_threadpool(M.selfcheck)
 
 
-@router.get("/admin/lake/status")
+@router.get("/admin/lake/status", dependencies=[require("admin.lake")])
 def status(request: Request) -> dict[str, Any]:
     st = request.app.state.lake
     with request.app.state.db.connect() as con:
@@ -102,7 +102,7 @@ async def sync_s3(request: Request, dry_run: int = Query(1), deep_verify: int = 
 
 # -- a version's manifest and verify -------------------------------------------------------------------------------
 
-@router.get("/datasets/{dataset_id}/manifest")
+@router.get("/datasets/{dataset_id}/manifest", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
 def get_manifest(dataset_id: str, request: Request) -> dict[str, Any]:
     """The version's manifest blob as stored (hashes, schemas, files), with each file's resolved location (A §2.1)."""
     db, st = request.app.state.db, request.app.state.lake
@@ -121,7 +121,7 @@ def get_manifest(dataset_id: str, request: Request) -> dict[str, Any]:
             "bytes": len(raw), "manifest": m, "resolved": files}
 
 
-@router.get("/datasets/{dataset_id}/verify")
+@router.get("/datasets/{dataset_id}/verify", dependencies=[require("data.verify", path("dataset_id", "dataset"))])
 def verify(dataset_id: str, request: Request) -> dict[str, Any]:
     """Re-hash a Parquet version (parts, table shas, manifest, splits). CSV-era versions keep POST …/verify (DL2)."""
     db = request.app.state.db

@@ -16,6 +16,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 
+from ..authz import path, require  # F-X4a
+
 from .. import frames
 from .. import intake
 from ..engine import explain
@@ -128,7 +130,7 @@ def analyse(rec: dict[str, Any], *, surname: str | None, zip_col: str | None, tr
     return out
 
 
-@router.get("/runs/{run_id}/fair-lending")
+@router.get("/runs/{run_id}/fair-lending", dependencies=[require("run.read", path("run_id", "run"))])
 async def fair_lending(run_id: str, request: Request, surname: str | None = None, zip: str | None = None,  # noqa: A002
                        truth: str | None = None, t: float | None = Query(None, ge=0, le=1),
                        favourable: Literal["negative", "positive"] | None = None) -> dict[str, Any]:

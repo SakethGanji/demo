@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from .. import frame_io as FIO
 from .. import frames
-from ..authz import body, path, query, require  # P19
+from ..authz import body, path, public, query, require# P19
 from ..datasets import DatasetError
 from ..http import dataset_or_404
 from . import core
@@ -76,7 +76,7 @@ def _rows(df: pd.DataFrame) -> list[dict[str, Any]]:
     return df.head(core.PREVIEW_ROWS).astype(object).where(df.head(core.PREVIEW_ROWS).notna(), None).to_dict("records")
 
 
-@router.get("/demo")
+@router.get("/demo", dependencies=[public("the bundled demo SQLite file's tables")])
 def demo(request: Request) -> dict[str, Any]:
     dd = _data_dir(request)
     try:
@@ -175,7 +175,7 @@ async def refresh(dataset_id: str, request: Request, body: Refresh | None = None
                                         "unchanged": out["profile"]["lineage"]["data_sha"] == lin.get("data_sha")}}
 
 
-@router.get("/datasets/{dataset_id}/versions")
+@router.get("/datasets/{dataset_id}/versions", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
 def versions(dataset_id: str, request: Request) -> dict[str, Any]:
     dataset_or_404(request, dataset_id)
     lin = request.app.state.datasets.lineage(dataset_id) or {}

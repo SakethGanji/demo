@@ -232,6 +232,9 @@ export const api = {
     explain: (id: string) => request<Explain>(`/runs/${encodeURIComponent(id)}/explain`, { timeoutMs: 60_000 }),
     fairness: (id: string, group: string, t?: number) =>
       request<Fairness>(`/runs/${encodeURIComponent(id)}/fairness?group=${encodeURIComponent(group)}${t != null ? `&t=${t}` : ''}`, { timeoutMs: 60_000 }),
+    /** F-X4a: the GET is a pure read; this saves the report into the run (the model card's Fairness section). */
+    saveFairness: (id: string, group: string, t?: number) =>
+      json<Fairness & { saved: boolean }>(`/runs/${encodeURIComponent(id)}/fairness`, 'POST', { group, ...(t != null ? { t } : {}) }),
     fairLending: (id: string, q: { surname?: string; zip?: string; truth?: string } = {}) =>
       request<FairLending>(`/runs/${encodeURIComponent(id)}/fair-lending?${new URLSearchParams(Object.entries(q).filter(([, v]) => v != null) as [string, string][])}`, { timeoutMs: 90_000 }),
     shap: (id: string, row: number, target?: string) =>

@@ -13,7 +13,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -178,7 +178,7 @@ def _sample_available(request: Request, rec: dict[str, Any]) -> bool:
         return False
 
 
-@router.get("/runs/{run_id}/annotations")
+@router.get("/runs/{run_id}/annotations", dependencies=[require("run.read", path("run_id", "run"))])
 def get_annotations(run_id: str, request: Request, offset: int = 0, limit: int = 30,
                     include: Literal["queue", "all"] = "queue", by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F14: annotators' agreement and quality, the CROWDLAB consensus, and the disagreement queue (lowest consensus

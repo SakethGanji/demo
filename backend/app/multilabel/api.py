@@ -15,7 +15,7 @@ from typing import Any, Literal
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from ..authz import body, require  # P19
+from ..authz import body, path, query, require# P19
 from pydantic import BaseModel, Field
 
 from ..datasets import DatasetError
@@ -65,7 +65,7 @@ def detect(df: pd.DataFrame) -> dict[str, Any]:
     return out
 
 
-@router.get("/detect")
+@router.get("/detect", dependencies=[require("data.preview", query("dataset_id", "dataset"))])
 def detect_route(dataset_id: str, request: Request) -> dict[str, Any]:
     dataset_or_404(request, dataset_id)
     return {"dataset_id": dataset_id, **detect(frames.read_version(dataset_id))}
@@ -144,7 +144,7 @@ def _create(body: MLCreate, request: Request) -> dict[str, Any]:
     return run_out(store.get(run_id), store)
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", dependencies=[require("run.read", path("run_id", "run"))])
 def get(run_id: str, request: Request) -> dict[str, Any]:
     rec = request.app.state.runs.get(run_id)
     if not rec or rec["config"].get("kind") != "multilabel":

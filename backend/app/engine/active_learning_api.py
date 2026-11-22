@@ -17,7 +17,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 from pydantic import BaseModel, Field
 
 from .. import frames
@@ -120,7 +120,7 @@ def _view(rec: dict[str, Any], st: dict[str, Any], answers: dict[str, Any]) -> d
     return {**st, "arms": out_arms, "queue": q, "versions": answers.get("versions") or []}
 
 
-@router.get("/runs/{run_id}/active-learning")
+@router.get("/runs/{run_id}/active-learning", dependencies=[require("run.read", path("run_id", "run"))])
 def get_active_learning(run_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F13: the labelling queue (items with their answers), the score per round against labels used, and the simulated
     active-vs-random comparison with its summary (`summary`, schema active_learning/1). Status 'none' with the defaults

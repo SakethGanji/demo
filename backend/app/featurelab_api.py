@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from . import featurelab as fl
 from . import frames
-from .authz import path, require  # P19
+from .authz import path, require# P19
 from .data_doctor_api import answers, run_drops
 from .datasets import DatasetError, now
 from .http import dataset_or_404
@@ -29,7 +29,7 @@ from .splits import holdout_mask
 router = APIRouter(prefix="/api")
 
 
-@router.get("/datasets/{dataset_id}/feature-lab")
+@router.get("/datasets/{dataset_id}/feature-lab", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
 def list_feature_lab(dataset_id: str, request: Request) -> dict[str, Any]:
     dataset_or_404(request, dataset_id)
     store = request.app.state.datasets
@@ -38,7 +38,7 @@ def list_feature_lab(dataset_id: str, request: Request) -> dict[str, Any]:
             "agg_fns": list(fl.AGG_FNS), "date_parts": list(fl.DATE_PARTS)}
 
 
-@router.get("/datasets/{dataset_id}/feature-lab/{job_id}")
+@router.get("/datasets/{dataset_id}/feature-lab/{job_id}", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 def get_feature_lab(dataset_id: str, job_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """A Feature Lab job (its journal while it runs, then the result). F-PII: values of PII-tagged columns in it (a bin's
     edges, statistics) are masked; `unmasked=1&reason=…` (with `by`) shows them, decided as data.read_unmasked and audited."""

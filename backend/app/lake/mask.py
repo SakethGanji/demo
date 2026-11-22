@@ -51,7 +51,8 @@ DOTS = "•••"
 #: keys `Mask.scrub` leaves alone: what a response says about masking itself
 META_KEYS = ("masks", "masked_columns", "unmasked_refused", "tags", "pending_review", "pii_features",
              "kinds", "types", "column_types", "roles")  # F-PII: column → kind / type / role maps hold no values
-PAIR_KEYS = ("value", "a", "b", "example", "values", "top", "key", "old", "new", "from", "to", "lo", "hi", "min", "max", "edges")
+PAIR_KEYS = ("value", "a", "b", "example", "values", "top", "key", "old", "new", "from", "to", "lo", "hi", "min", "max", "edges",
+             "cuts", "range", "lower", "upper", "group")  # F-X4a: scorecard cuts, ranges, fairness groups
 #: F-PII: statistics of a masked column that a report quotes (anomaly reasons' median, a shift check's means): nulled,
 #: as `stats` nulls a masked column's number stats
 STAT_KEYS = ("median", "mean", "std", "mean_expected", "mean_actual", "std_expected", "std_actual", "q1", "q3", "p25", "p75")
@@ -289,6 +290,10 @@ class Mask:
                         out[k] = v
                     elif k in self.cols and not isinstance(v, (dict, list)):
                         out[k] = note(k, v)
+                    elif k in self.cols and isinstance(v, dict):  # F-X4a: {ssn: {min, max}} (recourse ranges): its column
+                        out[k] = walk(v, k)
+                    elif k in self.cols and isinstance(v, list):  # {ssn: [values]} (categories, cuts)
+                        out[k] = [walk(x, k) if isinstance(x, (dict, list)) else note(k, x) for x in v]
                     elif ref is not None and k in STAT_KEYS and not isinstance(v, (dict, list)):
                         out[k] = None
                     elif ref is not None and k in PAIR_KEYS and not isinstance(v, (dict, list)):
@@ -767,3 +772,110 @@ def stats(body: dict[str, Any], m: Mask | None) -> dict[str, Any]:
                     c[f] = mask_value(c[f], k, m.salt)
         cols.append(c)
     return {**body, "columns": cols, "masked_columns": m.masked}
+
+
+def run_page(request: Any, rec: dict[str, Any], out: Any, *, by: str = "", unmasked: Any = "", reason: str = "",
+             read: str = "run_page") -> Any:
+    """F-X4a (X4 C2): a run or model-version page that quotes values of the run's input columns (fairness groups,
+    scorecard cuts, recourse ranges, shift options, the credit report, the model card): the run input's PII-tagged
+    columns masked through `Mask.scrub`, plus `masked_columns` / `masks` / `unmasked`. `unmasked=1&reason=…` shows them
+    as on the other run pages (data.read_unmasked on the input version, audited as dataset_rows_read; 400 without a
+    reason, 403 in enforce when not allowed). Unchanged when the input is not a catalog version."""
+    from fastapi import HTTPException
+
+    from ..catalog import governance as G
+
+    try:
+        who = G.reader(by) if str(unmasked).lower() in TRUE else (by or None)
+        m = for_run_request(request, rec, unmasked=unmasked, reason=reason, by=who, read=read)
+    except MaskError as e:
+        raise HTTPException(e.status, e.payload()) from e
+    if m is None:
+        return out
+    if m.cols:
+        out = m.scrub(out)
+    if isinstance(out, dict):
+        out.update(m.info())
+    return out
+
+
+def group_labels(m_out: dict[str, Any], group: str) -> dict[str, Any]:
+    """F-X4a: a fairness report on a masked group column: its group labels are its values (or quartile edges of them),
+    so each is replaced by `••• 1`, `••• 2`, … (distinct, in the report's order; coverage keys follow)."""
+    if not isinstance(m_out, dict):
+        return m_out
+    masked = set(m_out.get("masked_columns") or [])
+    if group not in masked:
+        return m_out
+    rows = m_out.get("by_group") or []
+    names = {str(r.get("group")): f"••• {i + 1}" for i, r in enumerate(rows) if isinstance(r, dict)}
+    m_out["by_group"] = [{**r, "group": names.get(str(r.get("group")), "•••")} if isinstance(r, dict) else r for r in rows]
+    for k in ("coverage", "mean_width"):
+        if isinstance(m_out.get(k), dict):
+            m_out[k] = {names.get(str(a), "•••"): b for a, b in m_out[k].items()}
+    m_out["groups_masked"] = True
+    return m_out
+
+
+def _join_view(cfg: dict[str, Any]) -> Mask | None:
+    """F-X4a: a run on a join frame: the union of its pinned inputs' masked columns (by column name; the frame and a
+    join model's batch files carry the inputs' column names)."""
+    ins = ((cfg.get("join") or {}).get("inputs") or []) if isinstance(cfg, dict) else []
+    out: Mask | None = None
+    for x in ins:
+        m = masked_view(x.get("version_id"), x.get("table")) if x.get("version_id") else None
+        if m is None:
+            continue
+        if out is None:
+            out = m
+        else:
+            out.cols = {**m.cols, **out.cols}
+            out.tags = {**m.tags, **out.tags}
+    return out
+
+
+def batch_mask(request: Any, rec: dict[str, Any], *, unmasked: Any = "", reason: str = "", by: str = "",
+               export: bool = False, read: str = "batch") -> Mask | None:
+    """F-X4a (X4 M3): the mask for a batch of a model (its input preview, its scored file): the PII-tagged columns of the
+    run's input (a join run: of its pinned inputs). Masked by default; `unmasked=1&reason=…` is data.read_unmasked, or
+    data.export_unmasked for a download (`export`), on the run's input version, audited as dataset_rows_read."""
+    from fastapi import HTTPException
+
+    from ..catalog import governance as G
+
+    cfg = rec.get("config") if isinstance(rec.get("config"), dict) else rec
+    ref = run_ref(rec) if not (cfg or {}).get("join") else None
+    try:
+        if str(unmasked).lower() in TRUE:
+            vid, table = ref if ref else (((cfg.get("join") or {}).get("inputs") or [{}])[0].get("version_id"), None)
+            if not vid:
+                return None
+            if ref is None:  # a join: decide on the grain input; every input's tagged columns are shown
+                _reason_ok(reason)
+                m = _join_view(cfg)
+                if m is None or not m.cols:
+                    return m
+                for_request(request, m.version_id, m.table, unmasked=unmasked, reason=reason, by=G.reader(by), read=read, export=export)
+                cols = m.masked
+                m.cols, m.unmasked, m.reason = {}, True, str(reason).strip()
+                m.unmasked_columns = cols  # type: ignore[attr-defined]
+                return m
+            return for_request(request, vid, table, unmasked=unmasked, reason=reason, by=G.reader(by), read=read, export=export)
+    except MaskError as e:
+        raise HTTPException(e.status, e.payload()) from e
+    return masked_view(*ref) if ref else _join_view(cfg or {})
+
+
+def csv_stream(path: Any, m: Mask | None, chunk_rows: int = 100_000):
+    """F-X4a: a CSV file with the masked columns of `m` masked, streamed in chunks (every cell read as text, so values
+    and blanks stay as written). The file as is when nothing is masked."""
+    import pandas as pd
+
+    first = True
+    for df in pd.read_csv(path, dtype=str, keep_default_na=False, chunksize=chunk_rows):
+        if m is not None and m.cols:
+            for c in df.columns:
+                if c in m.cols:
+                    df[c] = [v if v == "" else mask_value(v, m.cols[c], m.salt) for v in df[c]]
+        yield df.to_csv(index=False, header=first)
+        first = False

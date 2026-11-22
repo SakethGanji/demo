@@ -13,7 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 
 from .. import config, frames
-from ..authz import path, query, require, with_team  # P19
+from ..authz import path, public, query, require, with_team# P19
 from ..datasets import DatasetConflict, DatasetError
 from . import dsets as D
 from . import governance as G
@@ -45,7 +45,7 @@ async def _thread(fn, *a, **k):
         raise HTTPException(400, str(e)) from e
 
 
-@router.get("/data/search")
+@router.get("/data/search", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")])
 def search(request: Request, q: str = "", project: str | None = None, tag: str | None = None, owner: str | None = None,
            op: str | None = None, since: str | None = None, until: str | None = None, state: str = "active") -> dict[str, Any]:
     """Datasets (one row per root) by text (name, file, id, description, owner, source, tags), project, tag, owner,
@@ -65,7 +65,7 @@ def search(request: Request, q: str = "", project: str | None = None, tag: str |
     return with_team(request, {"datasets": out, "total": len(out)}, "search")
 
 
-@router.get("/datasets/{dataset_id}/history")
+@router.get("/datasets/{dataset_id}/history", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
 async def history(dataset_id: str, request: Request) -> dict[str, Any]:
     """The dataset this id belongs to: card, default version, every version (who, when, op, changes, rows × cols, hash,
     integrity, use), pending requests and its audit trail. P20: values of PII-tagged columns in edit logs and audit
@@ -333,7 +333,7 @@ async def _diff_q(request: Request, a: str, b: str, by: str = "", key: str = "",
     return out
 
 
-@router.get("/datasets/{dataset_id}/usage")
+@router.get("/datasets/{dataset_id}/usage", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
 def usage(dataset_id: str, request: Request, descendants: bool = True) -> dict[str, Any]:
     """Reverse lineage: the runs trained on this version (and, by default, on versions derived from it), the registered
     versions built from them and the champions among those; plus what blocks an archive or delete."""
@@ -1152,7 +1152,7 @@ async def create_upload(request: Request, filename: str | None = None, by: str |
         raise
 
 
-@router.get("/uploads/{up}")
+@router.get("/uploads/{up}", dependencies=[require("data.upload", path("up", "upload"))])
 async def get_upload(up: str, request: Request) -> dict[str, Any]:
     from ..lake import upload as U
 

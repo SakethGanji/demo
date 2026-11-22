@@ -23,13 +23,16 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
-from ..authz import path, require, variant
+from ..authz import path, public, require, variant
 from . import governance as G
 from . import schema as S
 
 router = APIRouter(prefix="/api")
 #: P19: making someone owner or maintainer is a team setting (owners only); members below that are team.manage
-OWNERS = variant("role", {"owner": "team.settings", "maintainer": "team.settings"})
+OWNERS = variant("role", {"owner": "team.settings", "maintainer": "team.settings", "risk_reviewer": "team.settings"})
+#: F-X4a (X4 M2): roles only an owner (or a platform admin) grants, changes or removes: C §1.3 team.manage is "members
+#: below owner"; owners and maintainers are team settings; a risk reviewer approves the team's models (C §1.2).
+SETTINGS_ROLES = ("owner", "maintainer", "risk_reviewer")
 log = logging.getLogger(__name__)
 
 ROLES = ("viewer", "member", "maintainer", "owner", "risk_reviewer")
@@ -210,7 +213,7 @@ def team_refs(con) -> dict[str, dict[str, str]]:
     return {r[0]: {"id": r[0], "slug": r[1], "name": r[2]} for r in con.execute("SELECT id, slug, name FROM teams")}
 
 
-@router.get("/me")
+@router.get("/me", dependencies=[public("the caller's own principal and teams")])
 def me(request: Request, by: str | None = None) -> dict[str, Any]:
     """Who the API thinks you are (the X-Ensemble-Actor name, or ?by=): the principal, its teams with roles, and the
     authorisation mode. `default_team` is your only team when you are in exactly one (where POST /projects puts a
@@ -228,7 +231,7 @@ def me(request: Request, by: str | None = None) -> dict[str, Any]:
             "default_team": live[0]["id"] if len(live) == 1 else None, "authz_mode": mode}
 
 
-@router.get("/teams")
+@router.get("/teams", dependencies=[public("team directory: names and counts; members need team.read")])
 def list_teams(request: Request, all: bool = False, mine: bool = False) -> dict[str, Any]:
     """Teams with member, owner and project counts. `my_role` is the caller's role (X-Ensemble-Actor). all=true also
     lists archived teams; mine=true only the caller's."""
@@ -271,7 +274,7 @@ def create_team(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-@router.get("/teams/{team}")
+@router.get("/teams/{team}", dependencies=[require("team.read", path("team", "team"))])
 def get_team(team: str, request: Request) -> dict[str, Any]:
     """A team (by id or slug) with its members and projects."""
     with request.app.state.db.connect() as con:
@@ -316,7 +319,7 @@ def update_team(team: str, request: Request, body: dict[str, Any]) -> dict[str, 
 
 # -- members ------------------------------------------------------------------------------------------------------------
 
-@router.get("/teams/{team}/members")
+@router.get("/teams/{team}/members", dependencies=[require("team.read", path("team", "team"))])
 def list_members(team: str, request: Request) -> dict[str, Any]:
     with request.app.state.db.connect() as con:
         r = team_or_404(con, team)
@@ -333,6 +336,7 @@ def add_member(team: str, request: Request, body: dict[str, Any]) -> dict[str, A
     refs = [k for k in ("principal", "name", "email") if body.get(k) not in (None, "")]
     if len(refs) != 1 or not isinstance(body[refs[0]], str):
         raise HTTPException(400, 'Send one of {"principal": "pr_…"}, {"name": …} or {"email": …}, with {"role": …}.')
+    _gate_first(request, team, refs[0], body[refs[0]], role, by)  # F-X4a (X4 M2)
     with request.app.state.db.connect() as con:
         t = team_or_404(con, team)
         if t["state"] != "active":
@@ -365,6 +369,45 @@ def add_member(team: str, request: Request, body: dict[str, Any]) -> dict[str, A
         return {"team_id": t["id"], "members": _members(con, t["id"])}
 
 
+def _gate_first(request: Request, team: str, kind: str, ref: Any, after: str | None, by: str) -> None:
+    """Run `_member_gate` on read-only lookups, before the handler's own connection writes anything (the gate may
+    audit a denial on a connection of its own). `kind`: principal (id or name) | name | email."""
+    if not isinstance(ref, str) or not ref.strip():
+        return
+    ref = ref.strip()
+    with request.app.state.db.connect() as con:
+        t = team_or_404(con, team)
+        if kind == "email":
+            r = con.execute("SELECT * FROM principals WHERE lower(email) = lower(?)", (ref,)).fetchone()
+        else:
+            r = con.execute("SELECT * FROM principals WHERE id = ?", (ref,)).fetchone()
+            if r is None and G.identity_key(ref):
+                r = con.execute("SELECT * FROM principals WHERE identity_key = ?", (G.identity_key(ref),)).fetchone()
+        target = {"id": r["id"], "identity_key": r["identity_key"]} if r else {"id": None, "identity_key": G.identity_key(ref)}
+        m = con.execute("SELECT role FROM team_members WHERE team_id = ? AND principal_id = ?", (t["id"], target["id"])).fetchone() \
+            if target["id"] else None
+        t = {"id": t["id"], "name": t["name"]}
+    _member_gate(request, t, target, m[0] if m else None, after, by)
+
+
+def _member_gate(request: Request, t: Any, target: Any, before: str | None, after: str | None, by: str) -> None:
+    """F-X4a (X4 M2), the checks a route-level variant cannot make (it sees only the body's new role):
+    - nobody grants themselves a role or changes their own (403 `self_grant`, every mode: like four eyes);
+    - the target's CURRENT role counts too: changing or removing an owner, a maintainer or a risk reviewer is
+      team.settings (owner or platform admin), as is granting one; below that team.manage (the route's check).
+    The decision follows the mode exactly like require() (deps.check: would-deny in audit, 403 in enforce)."""
+    from ..authz import deps
+
+    if deps.mode() == "off":
+        return
+    p = deps.principal(request, by or None)
+    if p is not None and after is not None and (target["id"] == p.id or target.get("identity_key") == p.identity_key):
+        raise HTTPException(403, {"code": "self_grant", "message": f"{p.display_name} cannot give themselves a role in "
+                                  f"{t['name']}: another owner (or a platform admin) must make the change."})
+    if before in SETTINGS_ROLES or after in SETTINGS_ROLES:
+        deps.check(request, "team.settings", "team", t["id"], by or None)
+
+
 def _member_or_404(con, t: Any, ref: str) -> tuple[Any, str]:
     p = _principal_or_404(con, ref)
     m = con.execute("SELECT role FROM team_members WHERE team_id = ? AND principal_id = ?", (t["id"], p["id"])).fetchone()
@@ -387,6 +430,7 @@ def change_member(team: str, principal: str, request: Request, body: dict[str, A
     body = body if isinstance(body, dict) else {}
     by = _who(body.get("by"))
     role = _role(body.get("role"))
+    _gate_first(request, team, "principal", principal, role, by)  # F-X4a (X4 M2)
     with request.app.state.db.connect() as con:
         t = team_or_404(con, team)
         p, before = _member_or_404(con, t, principal)
@@ -405,6 +449,7 @@ def change_member(team: str, principal: str, request: Request, body: dict[str, A
 def remove_member(team: str, principal: str, request: Request, by: str = "") -> dict[str, Any]:
     """?by=: remove a member. The last owner cannot be removed. Audited (team_member_removed)."""
     who = _who(by)
+    _gate_first(request, team, "principal", principal, None, who)  # F-X4a (X4 M2)
     with request.app.state.db.connect() as con:
         t = team_or_404(con, team)
         p, before = _member_or_404(con, t, principal)
@@ -418,7 +463,7 @@ def remove_member(team: str, principal: str, request: Request, by: str = "") -> 
 
 # -- principals ---------------------------------------------------------------------------------------------------------
 
-@router.get("/principals")
+@router.get("/principals", dependencies=[public("people directory for the member picker")])
 def list_principals(request: Request, q: str = "", kind: str | None = None, limit: int = 200) -> dict[str, Any]:
     """People (and service / system principals) by name or email: the member picker."""
     limit = max(1, min(int(limit), 1000))
@@ -437,7 +482,7 @@ def list_principals(request: Request, q: str = "", kind: str | None = None, limi
     return {"principals": [{**_principal_out(r), "n_teams": r["n_teams"]} for r in rows]}
 
 
-@router.get("/principals/{principal}")
+@router.get("/principals/{principal}", dependencies=[public("people directory: one principal and its team names")])
 def get_principal(principal: str, request: Request) -> dict[str, Any]:
     with request.app.state.db.connect() as con:
         p = _principal_or_404(con, principal)

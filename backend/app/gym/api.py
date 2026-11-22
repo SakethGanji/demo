@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.concurrency import run_in_threadpool
-from ..authz import body, require  # P19
+from ..authz import body, path, public, require# P19
 
 from .. import frames
 from ..http import run_or_404
@@ -64,7 +64,7 @@ async def check_run_body(request: Request, body: dict[str, Any]) -> None:
         raise HTTPException(400, "; ".join(f"{e['path']}: {e['message']}" for e in errs))
 
 
-@router.get("/gym/schema")
+@router.get("/gym/schema", dependencies=[public("the Gym's request schema; no data")])
 async def gym_schema(request: Request) -> dict[str, Any]:
     cached = getattr(request.app.state, "gym_schema", None)
     if cached is None:
@@ -91,7 +91,7 @@ def run_body(rec: dict[str, Any]) -> dict[str, Any]:
     return body
 
 
-@router.get("/runs/{run_id}/gym")
+@router.get("/runs/{run_id}/gym", dependencies=[require("run.read", path("run_id", "run"))])
 def run_gym_config(run_id: str, request: Request) -> dict[str, Any]:
     """The run's request as the Gym edits it (the body that would start it again), plus its lineage."""
     rec = run_or_404(request, run_id)
@@ -101,7 +101,7 @@ def run_gym_config(run_id: str, request: Request) -> dict[str, Any]:
             "parent_run_id": cfg.get("parent_run_id"), "patch": cfg.get("patch")}
 
 
-@router.get("/runs/{run_id}/export.py")
+@router.get("/runs/{run_id}/export.py", dependencies=[require("run.read", path("run_id", "run"))])
 async def export_py(run_id: str, request: Request, download: bool = False):
     from importlib import metadata
 

@@ -103,6 +103,17 @@ def _share(con: Any, i: str) -> Scope | None:
     return Scope(r[0], s.project_id if s else None, "share", i)
 
 
+def _job(con: Any, i: str) -> Scope | None:
+    """F-X4a: a queued job belongs to its team, else to the object it works on (run, dataset, model version, batch)."""
+    r = _one(con, "SELECT team_id, ref_kind, ref_id FROM jobs WHERE id = ?", i)
+    if not r:
+        return None
+    s = RESOLVERS[r[1]](con, r[2]) if r[1] in ("run", "dataset", "model_version", "batch") and r[2] else None
+    tid = r[0] or (s.team_id if s else None) or DEFAULT_TEAM
+    return Scope(tid, s.project_id if s and s.team_id == tid else None, "job", i)
+
+
+RESOLVERS["job"] = _job
 RESOLVERS["shareable"] = _shareable
 RESOLVERS["share"] = _share
 #: the lineage / annotation node kinds (/annotations/{kind}/{id}, /lineage/{kind}/{id}) → resolver kinds

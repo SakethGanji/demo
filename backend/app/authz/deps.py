@@ -71,6 +71,9 @@ def variant(field: str, actions: dict[str, str]) -> Variant:
     return Variant(field, tuple(actions.items()))
 
 
+#: body / query fields that name the person acting. In enforce mode EVERY one present must be the principal (409), not
+#: only the first. F-X4a (X4 M1): a route adds its own decider fields with `require(..., names=("reviewer",))` (the
+#: registry review). The active-learning / annotation `reviewer` is an annotator label ("you", a crowd name), not one.
 BY_FIELDS = ("by", "actor", "created_by", "requested_by")
 
 
@@ -150,7 +153,7 @@ def _decide(request: Request, action: str, objs: tuple[Obj, ...], also: tuple[tu
 
 
 def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, when: Variant | None = None,
-            default: str = "tm_default") -> Any:
+            default: str = "tm_default", names: tuple[str, ...] = ()) -> Any:
     if action not in policy.ACTIONS:
         raise ValueError(f"require(): unknown action {action!r}")
     for a, _ in also or []:
@@ -178,8 +181,10 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
         act = action
         if when is not None:
             act = dict(when.actions).get(str(b.get(when.field)), action)
-        by = next((str(b[k]) for k in BY_FIELDS if isinstance(b.get(k), str) and b[k].strip()), None) \
-            or request.query_params.get("by")
+        fields = (*BY_FIELDS, *names)
+        who = [str(b[k]) for k in fields if isinstance(b.get(k), str) and b[k].strip()] + \
+            [v for k in ("by", "actor", *names) if (v := request.query_params.get(k)) and v.strip()]
+        by = who[0] if who else None
         decisions = await run_in_threadpool(_decide, request, act, objs, also_t, vals, by, m, default)
         ctx = current()
         if ctx is not None:
@@ -195,10 +200,11 @@ def require(action: str, *objs: Obj, also: list[tuple[str, Obj]] | None = None, 
                                     headers={"WWW-Authenticate": 'Typed realm="ensemble"'})
             raise HTTPException(403, {"code": "forbidden", "action": d["action"], "team": d["team"], "needed": d["needed"],
                                       "message": d["reason"]})
-        if p is not None and by and p.auth != "agent":
+        if p is not None and who and p.auth != "agent":
             from ..catalog.governance import same_person
-            if not same_person(by, p.display_name):
-                raise HTTPException(409, f"You are signed in as {p.display_name}; 'by' says {by}.")
+            for n in who:
+                if not same_person(n, p.display_name):
+                    raise HTTPException(409, f"You are signed in as {p.display_name}; 'by' says {n}.")
 
     authz_dependency.authz = {"action": action, "objs": [str(o) for o in objs],  # type: ignore[attr-defined]
                               "also": [[a, str(o)] for a, o in also_t],
@@ -280,3 +286,14 @@ def check(request: Request, action: str, kind: str, object_id: str, by: str | No
             return None
         d = policy.decide(con, p, action, sc)
     return record(request, d, by)
+
+
+def can(request: Request, action: str, kind: str, object_id: Any) -> bool:
+    """F-X4a: may the request's principal do `action` on (kind, id)? A pure decision (nothing recorded or audited), for
+    filtering list rows in enforce mode. True when the mode is not enforce or the object does not resolve."""
+    if mode() != "enforce":
+        return True
+    p = principal(request)
+    with request.app.state.db.connect() as con:
+        sc = resolve(request.app, con, kind, object_id)
+        return not sc.found or bool(policy.decide(con, p, action, sc)["allow"])

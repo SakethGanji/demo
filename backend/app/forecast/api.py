@@ -12,7 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-from ..authz import body, path, require  # P19
+from ..authz import body, path, public, require# P19
 from pydantic import BaseModel, Field
 
 from . import core
@@ -64,7 +64,7 @@ class PreviewRequest(BaseModel):
     mapping: Mapping
 
 
-@router.get("/options")
+@router.get("/options", dependencies=[public("forecast presets and metrics; no data")])
 def options() -> dict[str, Any]:
     return {"presets": [{"key": k, "info": core.PRESET_INFO[k]} for k in core.PRESETS],
             "metrics": [{"key": k, "formula": f, "quantile": k in core.QUANTILE_METRICS} for k, f in core.METRICS.items()],
@@ -111,7 +111,7 @@ def suggest_mapping(request: Request, dataset_id: str) -> dict[str, Any]:
             "prediction_length": None}
 
 
-@router.get("/mapping/{dataset_id}")
+@router.get("/mapping/{dataset_id}", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
     return suggest_mapping(request, dataset_id)
 
@@ -172,7 +172,7 @@ def _run(request: Request, run_id: str) -> dict[str, Any]:
     return rec
 
 
-@router.get("/runs/{run_id}/chart")
+@router.get("/runs/{run_id}/chart", dependencies=[require("run.read", path("run_id", "run"))])
 def chart(run_id: str, request: Request) -> dict[str, Any]:
     rec = _run(request, run_id)
     p = Path(rec["config"]["run_dir"]) / "chart.json"

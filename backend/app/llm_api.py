@@ -7,12 +7,12 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from . import llm
-from .authz import require  # P19
+from .authz import public, require# P19
 
 router = APIRouter(prefix="/api/llm")
 
 
-@router.get("")
+@router.get("", dependencies=[public("LLM route status and latencies; no keys")])
 async def llm_status() -> dict[str, Any]:
     """Settings, route (the paths a call would try, in order), SDK / CLI availability, p50/p95 latency per decider over
     the last 200 calls, call and cache counts."""

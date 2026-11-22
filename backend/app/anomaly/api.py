@@ -13,7 +13,7 @@ import pandas as pd
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
-from ..authz import body, path, require  # P19
+from ..authz import body, path, require# P19
 from pydantic import BaseModel, Field
 
 from ..engine.store import now
@@ -121,7 +121,7 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     return out
 
 
-@router.get("/mapping/{dataset_id}")
+@router.get("/mapping/{dataset_id}", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
     """Suggested entity, time and relative columns for group-relative features: the sample's spec, else names and
     types (a repeated ID-like column, a datetime column, amount-like numbers)."""
@@ -216,7 +216,7 @@ def _labels_out(request: Request, rec: dict[str, Any], cur: dict[int, dict[str, 
     return out
 
 
-@router.get("/runs/{run_id}/labels")
+@router.get("/runs/{run_id}/labels", dependencies=[require("run.read", path("run_id", "run"))])
 def get_labels(run_id: str, request: Request) -> dict[str, Any]:
     """The dataset's reviewed rows (confirmed fraud = 1, dismissed = 0) and whether "Train supervised" is open."""
     rec = _run(request, run_id)
@@ -347,7 +347,7 @@ def _sup_list(d: Path) -> list[dict[str, Any]]:
     return json.loads(p.read_text()) if p.exists() else []
 
 
-@router.get("/runs/{run_id}/supervised")
+@router.get("/runs/{run_id}/supervised", dependencies=[require("run.read", path("run_id", "run"))])
 async def list_supervised(run_id: str, request: Request) -> dict[str, Any]:
     """The supervised runs trained from this run's reviews, each (once finished) compared with the isolation forest on
     the rows the analyst did not review: out-of-sample scores only (out-of-fold for training rows, the holdout's own)."""
@@ -463,16 +463,30 @@ async def score_batch(run_id: str, request: Request, file: UploadFile = File(...
                                                 str(d / "scored.csv"), frames.to_json(frames.resolve(rec["config"])))
     except core.AnomalyError as e:
         raise HTTPException(400, str(e)) from e
-    return {"run_id": run_id, "id": bid, "filename": file.filename, **out,
+    from ..lake import mask as M  # F-X4a (X4 M3): the top rows and reasons quote the batch's values: masked
+
+    m = M.batch_mask(request, rec, read="batch_preview")
+    body = {"run_id": run_id, "id": bid, "filename": file.filename, **out,
             "download": f"/api/anomaly/runs/{run_id}/batches/{bid}.csv"}
+    return {**m.scrub(body), **m.info()} if m is not None and m.cols else body
 
 
 @router.get("/runs/{run_id}/batches/{bid}.csv", dependencies=[require("run.read", path("run_id", "run"))])
-def batch_csv(run_id: str, bid: str, request: Request):
+def batch_csv(run_id: str, bid: str, request: Request, by: str = "", unmasked: str = "", reason: str = ""):
+    """F-X4a (X4 M3): PII-tagged columns masked; `unmasked=1&reason=…` needs data.export_unmasked and is audited."""
     rec = _run(request, run_id)
     if not re.fullmatch(r"ab_[0-9a-f]{8}", bid):
         raise HTTPException(404, "No such batch.")
     p = Path(rec["config"]["run_dir"]) / "batches" / bid / "scored.csv"
     if not p.exists():
         raise HTTPException(404, "No such batch.")
-    return FileResponse(p, media_type="text/csv", filename=f"{run_id}_{bid}_scored.csv")
+    from fastapi.responses import StreamingResponse
+
+    from ..lake import mask as M
+
+    m = M.batch_mask(request, rec, unmasked=unmasked, reason=reason, by=by, export=True, read="batch_download")
+    if m is None or not m.cols:
+        return FileResponse(p, media_type="text/csv", filename=f"{run_id}_{bid}_scored.csv")
+    return StreamingResponse(M.csv_stream(p, m), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{run_id}_{bid}_scored.csv"',
+                                      "X-Ensemble-Masked-Columns": ",".join(m.masked)})

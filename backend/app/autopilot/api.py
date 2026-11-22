@@ -6,7 +6,7 @@ import json
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from ..authz import body, path, require  # P19
+from ..authz import body, path, public, require# P19
 from pydantic import BaseModel, Field
 
 from .. import llm
@@ -108,17 +108,19 @@ def start(body: Brief, request: Request) -> dict[str, Any]:
     return out(st)
 
 
-@router.get("/autopilot")
+@router.get("/autopilot", dependencies=[public("list: filtered to the caller's visible teams in enforce mode")])
 def list_autopilots(request: Request) -> dict[str, Any]:
-    return {"autopilots": [out(s, full=False) for s in _mgr(request).store.list()]}
+    from ..authz.deps import can  # F-X4a: in enforce mode, only the autopilots the caller may read
+
+    return {"autopilots": [out(s, full=False) for s in _mgr(request).store.list() if can(request, "run.read", "autopilot", s["id"])]}
 
 
-@router.get("/autopilot/{aid}")
+@router.get("/autopilot/{aid}", dependencies=[require("run.read", path("aid", "autopilot"))])
 def get_autopilot(aid: str, request: Request) -> dict[str, Any]:
     return out(_get(request, aid))
 
 
-@router.get("/autopilot/{aid}/inbox")
+@router.get("/autopilot/{aid}/inbox", dependencies=[require("run.read", path("aid", "autopilot"))])
 def inbox(aid: str, request: Request, kind: str | None = None, offset: int = 0, limit: int = 2000) -> dict[str, Any]:
     st = _get(request, aid)
     ib = st.get("inbox")

@@ -88,6 +88,7 @@ ACTIONS: dict[str, Rule] = {
     "legal_hold.place": R(None, admin=True),
     "legal_hold.release": R(None, admin=True, note="≠ placer"),
     "team.create": R(None, admin=True, note="anyone when tm_default's policy has self_service_teams"),
+    "team.read": R("viewer", rr=True, admin=True, note="F-X4a: a team's members and projects (the directory /teams is public)"),
     "team.manage": R("maintainer", admin=True, note="members below owner"),
     "team.settings": R("owner", admin=True, note="policy, owners and maintainers"),
     "principal.manage": R(None, admin=True, self_ok=True),

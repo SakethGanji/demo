@@ -17,7 +17,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from ..authz import body, path, require, with_team  # P19
+from ..authz import body, path, public, require, with_team# P19
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
@@ -371,7 +371,7 @@ def run_out(rec: dict[str, Any], store: RunStore, full: bool = True) -> dict[str
     return out
 
 
-@router.get("/models")
+@router.get("/models", dependencies=[public("the model-family catalogue; no data")])
 def models() -> dict[str, Any]:
     return {"families": catalogue.catalogue(), "engine": engine_info()}
 
@@ -814,7 +814,7 @@ def check_cost(body: RunCreate, app: Any, ds: dict[str, Any], label: str, cols: 
         raise HTTPException(400, f"cost: {e}") from e
 
 
-@router.get("/runs")
+@router.get("/runs", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")])
 def list_runs(request: Request, dataset_id: str | None = None, full: bool = False,
               kind: str = Query("tabular", description="tabular (includes imports) | forecast | anomaly | all"),
               project_id: str | None = None, light: bool = False, limit: int | None = Query(None, ge=1, le=5000),
@@ -839,7 +839,7 @@ def list_runs(request: Request, dataset_id: str | None = None, full: bool = Fals
     return with_team(request, {"runs": [run_out(r, store, full=full) for r in recs], "total": total}, "runs")
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", dependencies=[require("run.read", path("run_id", "run"))])
 def get_run(run_id: str, request: Request) -> dict[str, Any]:
     return run_out(run_or_404(request, run_id), _store(request))
 
@@ -881,7 +881,7 @@ def _score(rec: dict[str, Any]) -> tuple[str | None, float | None, bool]:
     return m, (None if v is None else float(v)), bool(em.get("greater_is_better", True))
 
 
-@router.get("/runs/{run_id}/split-comparison")
+@router.get("/runs/{run_id}/split-comparison", dependencies=[require("run.read", path("run_id", "run"))])
 def split_comparison(run_id: str, request: Request) -> dict[str, Any]:
     """F6: this run's holdout score next to the same dataset and label scored under other splits (the latest
     succeeded run per split), so the optimism of a random split is visible: Δ = score(random) − score(other) in the
@@ -986,7 +986,7 @@ def delete_run(run_id: str, request: Request, by: str = "", reason: str = "") ->
     shutil.rmtree(request.app.state.settings.runs_dir / run_id, ignore_errors=True)
 
 
-@router.get("/runs/{run_id}/events")
+@router.get("/runs/{run_id}/events", dependencies=[require("run.read", path("run_id", "run"))])
 async def run_events(run_id: str, request: Request, start: int = Query(0, alias="from", ge=0),
                      format: Literal["sse", "json"] = "sse"):
     """Every event of the run from `from` (default 0). SSE by default: `id` is the event's seq, `event` its type,
@@ -1075,7 +1075,7 @@ def parse_constraints(text: str | None, rec: dict[str, Any]) -> dict[str, int]:
     return cons
 
 
-@router.get("/runs/{run_id}/monotone")
+@router.get("/runs/{run_id}/monotone", dependencies=[require("run.read", path("run_id", "run"))])
 async def monotone_check(run_id: str, request: Request, model: str | None = None, constraints: str | None = None,
                          rows: int = Query(200, ge=10, le=2000), grid: int = Query(25, ge=3, le=101),
                          curves: int = Query(30, ge=0, le=200)) -> dict[str, Any]:
@@ -1113,19 +1113,22 @@ def _scorecard_report(rec: dict[str, Any]) -> dict[str, Any]:
     return sc
 
 
-@router.get("/runs/{run_id}/scorecard")
-def scorecard_report(run_id: str, request: Request) -> dict[str, Any]:
+@router.get("/runs/{run_id}/scorecard", dependencies=[require("run.read", path("run_id", "run"))])
+def scorecard_report(run_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F11: the scorecard challenger. The deployable scorecard's table (points per bin, refitted on all training rows),
     IV and coefficient per feature, its holdout AUC / Gini / KS next to the served model's, and ΔAUC (served −
     scorecard) with a paired bootstrap CI. With an F7 cost: both models' expected cost per 1,000 decisions."""
     rec = run_or_404(request, run_id)
     sc = _scorecard_report(rec)
-    return {"run_id": run_id, **sc, "family": catalogue.get("SCORECARD"),
-            "export": f"/api/runs/{run_id}/scorecard.csv"}
+    from ..lake import mask as M  # F-X4a (X4 C2): bin cuts and labels of a PII-tagged feature are its values
+
+    return M.run_page(request, rec, {"run_id": run_id, **sc, "family": catalogue.get("SCORECARD"),
+                                     "export": f"/api/runs/{run_id}/scorecard.csv"}, by=by, unmasked=unmasked, reason=reason,
+                      read="scorecard")
 
 
 @router.get("/runs/{run_id}/scorecard.csv", dependencies=[require("run.read", path("run_id", "run"))])
-def scorecard_csv(run_id: str, request: Request):
+def scorecard_csv(run_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = ""):
     """F11: the exported scorecard: feature, bin, points (rounded and exact), WoE, counts, event rate, IV, coefficient;
     a last `_scaling` row with PDO, base score / odds, factor, offset and intercept."""
     from fastapi.responses import FileResponse
@@ -1135,7 +1138,21 @@ def scorecard_csv(run_id: str, request: Request):
     path = Path(rec["config"]["run_dir"]) / "scorecard" / "scorecard.csv"
     if not path.exists():
         raise HTTPException(404, "The scorecard table was not saved.")
-    return FileResponse(path, media_type="text/csv", filename=f"scorecard_{run_id}.csv")
+    from ..lake import mask as M  # F-X4a: a PII-tagged feature's bin labels quote its values: `••• bin i`
+
+    info = M.run_page(request, rec, {}, by=by, unmasked=unmasked, reason=reason, read="scorecard_csv")
+    masked = set(info.get("masked_columns") or [])
+    if not masked:
+        return FileResponse(path, media_type="text/csv", filename=f"scorecard_{run_id}.csv")
+    import pandas as pd
+    from fastapi.responses import Response
+
+    df = pd.read_csv(path, dtype={"bin": str})
+    hit = df["feature"].isin(masked)
+    df.loc[hit, "bin"] = ["••• bin " + str(i + 1) for i in df[hit].groupby("feature").cumcount()]
+    return Response(df.to_csv(index=False), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="scorecard_{run_id}.csv"',
+                             "X-Ensemble-Masked-Columns": ",".join(sorted(masked))})
 
 
 class ScorecardScore(BaseModel):
@@ -1159,7 +1176,7 @@ async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -
     return {"run_id": run_id, **out}
 
 
-@router.get("/runs/{run_id}/ladder")
+@router.get("/runs/{run_id}/ladder", dependencies=[require("run.read", path("run_id", "run"))])
 async def model_ladder(run_id: str, request: Request, refresh: bool = False) -> dict[str, Any]:
     """D2: the model ladder. Baseline → scorecard (or linear) → single GBM → AutoGluon's best, every rung a model of
     this run scored on the same holdout, the gap to the best with a paired bootstrap CI, one-row latency and size, and
@@ -1195,7 +1212,7 @@ async def out_of_fold(run_id: str, request: Request, model: str | None = None) -
     return {"run_id": run_id, **out}
 
 
-@router.get("/runs/{run_id}/feature-importance")
+@router.get("/runs/{run_id}/feature-importance", dependencies=[require("run.read", path("run_id", "run"))])
 async def feature_importance(run_id: str, request: Request,
                              shuffles: int | None = Query(None, ge=2, le=50)) -> dict[str, Any]:
     """Permutation importance on the holdout: stored if the run computed it, else computed now and stored.
@@ -1348,7 +1365,7 @@ def _current_threshold(res: dict[str, Any]) -> float:
     return float((res.get("threshold") or {}).get("value", 0.5))
 
 
-@router.get("/runs/{run_id}/threshold")
+@router.get("/runs/{run_id}/threshold", dependencies=[require("run.read", path("run_id", "run"))])
 async def get_threshold(run_id: str, request: Request, cost_fp: float = Query(1.0, ge=0), cost_fn: float = Query(1.0, ge=0),
                         t: float | None = Query(None, ge=0, le=1)) -> dict[str, Any]:
     """Binary runs: precision, recall, F1, balanced accuracy, MCC, the confusion counts and the cost
@@ -1411,7 +1428,7 @@ def _validation_threshold(app: Any, rec: dict[str, Any], cost: dict[str, Any]) -
     return t
 
 
-@router.get("/runs/{run_id}/cost")
+@router.get("/runs/{run_id}/cost", dependencies=[require("run.read", path("run_id", "run"))])
 async def run_cost(run_id: str, request: Request, c_fp: float | None = Query(None, ge=0), c_fn: float | None = Query(None, ge=0),
                    g_tp: float | None = Query(None, ge=0)) -> dict[str, Any]:
     """F7: the expected cost of the run's holdout decisions per 1,000 with a 95% bootstrap interval. Binary: at the
@@ -1467,7 +1484,7 @@ async def metric_twin(run_id: str, body: MetricTwin, request: Request) -> dict[s
 COST_FAIR_KEYS = tuple(k for k in FAIR_KEYS if k not in ("eval_metric", "cost", "calibrate_threshold"))
 
 
-@router.get("/runs/{run_id}/cost-comparison")
+@router.get("/runs/{run_id}/cost-comparison", dependencies=[require("run.read", path("run_id", "run"))])
 async def cost_comparison(run_id: str, request: Request, c_fp: float | None = Query(None, ge=0),
                           c_fn: float | None = Query(None, ge=0), g_tp: float | None = Query(None, ge=0)) -> dict[str, Any]:
     """F7: this run beside the same fit trained to other metrics (same data, label, split rows and fit settings;
@@ -1627,13 +1644,51 @@ async def explain_run(run_id: str, request: Request) -> dict[str, Any]:
             **body}
 
 
-@router.get("/runs/{run_id}/fairness")
+@router.get("/runs/{run_id}/fairness", dependencies=[require("run.read", path("run_id", "run"))])
 async def fairness(run_id: str, request: Request, group: str = Query(..., min_length=1),
-                   t: float | None = Query(None, ge=0, le=1)) -> dict[str, Any]:
+                   t: float | None = Query(None, ge=0, le=1), by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """fairlearn's MetricFrame on the holdout, one row per value of `group` (numbers with more than 8 values are cut
     into quartiles). Binary: selection rate, base rate, accuracy, TPR, FPR, precision per group at the run's threshold
-    (or `t`), with the demographic parity difference and the equalised odds difference."""
+    (or `t`), with the demographic parity difference and the equalised odds difference. F-X4a: a pure read (POST
+    …/fairness saves the report into the run and its model card); a PII-tagged group column's labels (its values or
+    quartile edges) are masked as `••• 1…n`; `unmasked=1&reason=…` (with `by`) shows them, decided and audited."""
     rec = run_or_404(request, run_id)
+    out = await _fairness(rec, group, t)
+    from ..lake import mask as M
+
+    out = await run_in_threadpool(M.run_page, request, rec, out, by=by, unmasked=unmasked, reason=reason, read="fairness")
+    return M.group_labels(out, group)
+
+
+class FairnessSave(BaseModel):
+    group: str = Field(..., min_length=1)
+    t: float | None = Field(None, ge=0, le=1)
+
+
+@router.post("/runs/{run_id}/fairness", dependencies=[require("run.train", path("run_id", "run"))])
+async def fairness_save(run_id: str, body: FairnessSave, request: Request) -> dict[str, Any]:
+    """F-X4a (X4 C2 / m6): compute the fairness report for `group` and save it into the run's result (the model card's
+    Fairness section reads it). The GET is a pure read. Audited (fairness_report_saved). Answers like the GET (masked)."""
+    rec = run_or_404(request, run_id)
+    out = await _fairness(rec, body.group, body.t)
+    res = rec.get("result") or {}
+    reports = dict(res.get("fairness_reports") or {})
+    reports[body.group] = {"gaps": out.get("gaps"), "threshold": out.get("threshold"), "computed_at": now(),
+                           "binning": out.get("binning"), "by_group": (out.get("by_group") or [])[:20]}
+    _store(request).merge_result(run_id, fairness_reports=reports)
+    from ..catalog import governance as G
+    from ..catalog.schema import audit
+    from ..lake import mask as M
+
+    with request.app.state.db.connect() as con:
+        audit(con, G.current_actor() or "anonymous", "fairness_report_saved", {"run_id": run_id, "group": body.group,
+                                                                               "threshold": out.get("threshold")})
+    out = await run_in_threadpool(M.run_page, request, rec, out, read="fairness")
+    return {**M.group_labels(out, body.group), "saved": True}
+
+
+async def _fairness(rec: dict[str, Any], group: str, t: float | None) -> dict[str, Any]:
+    run_id = rec["id"]
     _require_succeeded(rec)
     res = rec.get("result") or {}
     df = _holdout_df(rec)
@@ -1646,11 +1701,7 @@ async def fairness(run_id: str, request: Request, group: str = Query(..., min_le
         raise HTTPException(400, str(e)) from e
     except ValueError as e:
         raise HTTPException(400, f"No column named {group!r} in the dataset." if "not in list" in str(e) or "Usecols" in str(e) else str(e)) from e
-    reports = dict(res.get("fairness_reports") or {})
-    reports[group] = {"gaps": out.get("gaps"), "threshold": thr_value, "computed_at": now(),
-                      "binning": out.get("binning"), "by_group": (out.get("by_group") or [])[:20]}
-    _store(request).merge_result(run_id, fairness_reports=reports)
-    return {"run_id": run_id, "model": res.get("best_model"), **out}
+    return {"run_id": run_id, "model": res.get("best_model"), "threshold": thr_value, **out}
 
 
 @router.get("/runs/{run_id}/shap", dependencies=[require("run.read", path("run_id", "run"))])
@@ -1676,7 +1727,7 @@ def _run_lock(run_id: str) -> threading.Lock:
         return _ensemble_locks.setdefault(run_id, threading.Lock())
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[public("machine status bar: active run ids only for visible teams")])
 def status(request: Request) -> dict[str, Any]:
     """What the status bar shows in live mode: the machine (CPU count, memory), versions, the active run and its
     progress (models started and finished, best validation score so far, elapsed against the budget) and the queue."""
@@ -1686,6 +1737,9 @@ def status(request: Request) -> dict[str, Any]:
     active = store.list_active()
     running = [r for r in active if r["status"] == "running"]
     cur = None
+    from ..authz.deps import can  # F-X4a: the active run is shown only to who may read it (enforce)
+
+    running = [r for r in running if can(request, "run.read", "run", r["id"])]
     if running:
         r = running[0]
         with request.app.state.db.connect() as con:

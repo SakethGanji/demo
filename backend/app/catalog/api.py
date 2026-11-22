@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
-from ..authz import body, path, query, require, with_team  # P19
+from ..authz import body, path, public, query, require, with_team# P19
 from . import compare as C
 from . import governance as G
 from . import lineage as L
@@ -59,7 +59,7 @@ def _exists(request: Request, kind: str, id_: str) -> None:
 
 # -- projects --------------------------------------------------------------------------------------------------------
 
-@router.get("/projects")
+@router.get("/projects", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")])
 def list_projects(request: Request, team: str | None = None) -> dict[str, Any]:
     """One project per dataset root (the default), with dataset and run counts and its champion. P18: every row carries
     its `team` ({id, slug, name}); ?team= (id or slug) lists one team's projects."""
@@ -77,7 +77,7 @@ def list_projects(request: Request, team: str | None = None) -> dict[str, Any]:
     return with_team(request, {"projects": out}, "projects")
 
 
-@router.get("/projects/{project_id}")
+@router.get("/projects/{project_id}", dependencies=[require("data.read_meta", path("project_id", "project"))])
 def get_project(project_id: str, request: Request) -> dict[str, Any]:
     cat = request.app.state.catalog
     p = cat.project(project_id)
@@ -172,7 +172,7 @@ def move_dataset(project_id: str, request: Request, body: dict[str, Any]) -> dic
 
 # -- lineage -----------------------------------------------------------------------------------------------------------
 
-@router.get("/lineage/{kind}/{node_id}")
+@router.get("/lineage/{kind}/{node_id}", dependencies=[require("data.read_meta", path("node_id", "node"))])
 async def get_lineage(kind: str, node_id: str, request: Request) -> dict[str, Any]:
     """The whole project tree around a node: one recursive CTE down from the project's root dataset."""
     _exists(request, kind, node_id)
@@ -182,7 +182,7 @@ async def get_lineage(kind: str, node_id: str, request: Request) -> dict[str, An
         raise HTTPException(404, f"No {kind} '{node_id}'.") from e
 
 
-@router.get("/runs/{run_id}/children")
+@router.get("/runs/{run_id}/children", dependencies=[require("run.read", path("run_id", "run"))])
 def run_children(run_id: str, request: Request, source: str | None = None) -> dict[str, Any]:
     """Runs branched from this one (from the edges)."""
     _exists(request, "run", run_id)
@@ -216,7 +216,7 @@ async def compare(request: Request, body: dict[str, Any]) -> dict[str, Any]:
 TAG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,39}$")
 
 
-@router.get("/annotations/{kind}/{node_id}")
+@router.get("/annotations/{kind}/{node_id}", dependencies=[require("data.read_meta", path("node_id", "node"))])
 def get_annotations(kind: str, node_id: str, request: Request) -> dict[str, Any]:
     _exists(request, kind, node_id)
     return request.app.state.catalog.annotations(kind, node_id)

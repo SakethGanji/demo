@@ -1,0 +1,13 @@
+# mode enforce
+
+# 1. registry review: the reviewer's name is body.reviewer (BY_FIELDS = by, actor, created_by, requested_by)
+## 1a Ana (registrant, maintainer) reviews her own version, reviewer=Rita → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "model.review", "team": "tm_2d325616", "needed": "risk_reviewer", "message": "model.review needs risk_reviewer in tm_2d325616; you are maintainer"}}
+## 1b Rita reviews, reviewer='Ana' (the registrant) → HTTP 409 | pii 0
+    {"detail": "You are signed in as Rita; 'by' says Ana."}
+## 1c Rita reviews, by='Bo' (a by field ≠ principal) → HTTP 409 | pii 0
+    {"detail": "You are signed in as Rita; 'by' says Bo."}
+## 1d Rita reviews, reviewer='Bo' (a real other person; no by field) → HTTP 409 | pii 0
+    approval: None | audit entry actor: None
+    credit-risk audit rows: [('share_approved', 'Bo', 'pr_3d099d0f13df', 'typed'), ('certification_approved', 'Ben', 'pr_6700869c8ff7', 'typed')]
+    /registry/audit: [('batch_scored', 'Ana'), ('registered', 'Ana')]

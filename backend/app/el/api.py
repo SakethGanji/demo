@@ -13,7 +13,7 @@ from typing import Any, Literal
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from ..authz import body, path, require  # P19
+from ..authz import body, path, query, require# P19
 from pydantic import BaseModel, Field
 
 from ..engine.api import alloc_run, queue_run, run_out, split_record
@@ -82,7 +82,7 @@ def detect(df: pd.DataFrame) -> dict[str, Any]:
     return out
 
 
-@router.get("/detect")
+@router.get("/detect", dependencies=[require("data.preview", query("dataset_id", "dataset"))])
 def detect_route(dataset_id: str, request: Request) -> dict[str, Any]:
     """What an EL run on this table would use, from the G0 roles, with the evidence (the Build page shows it)."""
     dataset_or_404(request, dataset_id)
@@ -169,7 +169,7 @@ def _run(request: Request, run_id: str) -> dict[str, Any]:
     return rec
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", dependencies=[require("run.read", path("run_id", "run"))])
 def get(run_id: str, request: Request) -> dict[str, Any]:
     rec = _run(request, run_id)
     res = rec.get("result") or {}

@@ -10,7 +10,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from ..authz import path, require  # P19
+from ..authz import path, require# P19
 
 from ..gym.api import run_body
 from ..http import run_or_404
@@ -55,7 +55,7 @@ async def compute_findings(request: Request, run_id: str) -> tuple[dict[str, Any
     return rec, out
 
 
-@router.get("/runs/{run_id}/vela")
+@router.get("/runs/{run_id}/vela", dependencies=[require("run.read", path("run_id", "run"))])
 async def vela_findings(run_id: str, request: Request) -> dict[str, Any]:
     """Findings computed from the run (numbers, the formula behind each, one patch each) and the cached wording,
     if `POST …/vela/wording` produced one for these exact findings."""
@@ -272,7 +272,7 @@ async def warm_doctor(app, run_id: str) -> None:
         logging.getLogger("ensemble.doctor").exception("warming the doctor for %s failed", run_id)
 
 
-@router.get("/runs/{run_id}/doctor")
+@router.get("/runs/{run_id}/doctor", dependencies=[require("run.read", path("run_id", "run"))])
 async def model_doctor(run_id: str, request: Request, latency_ms: float | None = None, measure_latency: bool = False,
                        served_p95_ms: float | None = None) -> dict[str, Any]:
     """F17 · Model Doctor: every check (status, evidence numbers, the rule, a reason), the primary limiting factor and
@@ -558,7 +558,7 @@ async def start_experiment(run_id: str, request: Request, body: dict[str, Any]) 
     return await start_experiment_impl(request, run_id, body)
 
 
-@router.get("/runs/{run_id}/experiments")
+@router.get("/runs/{run_id}/experiments", dependencies=[require("run.read", path("run_id", "run"))])
 async def list_experiments(run_id: str, request: Request) -> dict[str, Any]:
     from . import experiments as X
 
@@ -600,7 +600,7 @@ async def start_review(run_id: str, request: Request, body: dict[str, Any] | Non
     return {k: rv[k] for k in ("id", "run_id", "status", "mode", "mode_note", "options", "llm_route", "model")}
 
 
-@router.get("/runs/{run_id}/review")
+@router.get("/runs/{run_id}/review", dependencies=[require("run.read", path("run_id", "run"))])
 async def list_run_reviews(run_id: str, request: Request) -> dict[str, Any]:
     from . import review as R
 
@@ -608,7 +608,7 @@ async def list_run_reviews(run_id: str, request: Request) -> dict[str, Any]:
     return {"run_id": run_id, "reviews": await run_in_threadpool(R.list_reviews, rec), "rules": R.RULES}
 
 
-@router.get("/runs/{run_id}/review/{review_id}")
+@router.get("/runs/{run_id}/review/{review_id}", dependencies=[require("run.read", path("run_id", "run"))])
 async def get_run_review(run_id: str, review_id: str, request: Request) -> dict[str, Any]:
     from . import review as R
 

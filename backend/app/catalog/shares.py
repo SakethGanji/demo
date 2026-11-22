@@ -24,7 +24,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 
-from ..authz import body, path, require
+from ..authz import body, path, public, require
 from . import governance as G
 from .schema import audit, now
 
@@ -137,6 +137,9 @@ def grant(con: Any, principal_id: str, scope: Any, *, unmasked: bool = False) ->
         k, i = scope.object_kind, scope.object_id
         if k == "dataset" and i:
             return grant_for_version(con, teams, i, unmasked=unmasked)
+        if k == "share" and i and not unmasked:  # F-X4a: the grantee team reads its own share
+            r = con.execute("SELECT grantee_team FROM shares WHERE id = ?", (i,)).fetchone()
+            return get(con, i) if r and r[0] in teams else None
         if k in ("project", "run") and scope.project_id and not unmasked:
             rows = _live_to(con, teams - {scope.team_id}, [("project", scope.project_id)])
             return next((s for s in rows if k == "project" or s["scope"] == "all"), None)
@@ -388,7 +391,7 @@ async def create_share(request: Request, b: dict[str, Any]) -> dict[str, Any]:
     return await _run(request_share, request.app.state.db, b, _by(b))
 
 
-@router.get("/shares")
+@router.get("/shares", dependencies=[public("list: filtered to shares from or to the caller's teams in enforce mode")])
 async def list_shares(request: Request, team: str | None = None, object_id: str | None = None, status: str | None = None) -> dict[str, Any]:
     """P21: shares (newest first), each with its effective status (expired past expires_at). `team` (id or slug): shares
     from or to that team. In enforce mode only shares from or to the caller's teams (admins: all)."""
@@ -420,7 +423,7 @@ async def list_shares(request: Request, team: str | None = None, object_id: str 
     return await _run(go)
 
 
-@router.get("/shares/{sid}")
+@router.get("/shares/{sid}", dependencies=[require("data.read_meta", path("sid", "share"))])
 async def get_share(sid: str, request: Request) -> dict[str, Any]:
     def go() -> dict[str, Any]:
         with request.app.state.db.connect() as con:

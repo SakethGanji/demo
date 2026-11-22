@@ -1,0 +1,24 @@
+# mode enforce
+# 0. PATCH /datasets/{id} is guarded by run.train (a member)
+## 2a Mo (member) PATCH /datasets/{v} {description} → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "run.train", "team": "tm_b43d98c3", "needed": "member", "message": "run.train needs member in tm_b43d98c3; you are risk_reviewer"}}
+
+# 1. team management
+before: [('Ada', 'owner'), ('Ana', 'risk_reviewer'), ('Mo', 'risk_reviewer'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## 1a Ana (maintainer) PATCH /teams/cr/members/Bo {role: viewer}  (demote an owner) → HTTP 403 | pii 0
+    {"display_name": null, "role": null}
+## 1b Ana (maintainer) DELETE /teams/cr/members/Bo  (remove an owner) → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "team.manage", "team": "tm_b43d98c3", "needed": "maintainer", "message": "team.manage needs maintainer in tm_b43d98c3; you are risk_reviewer"}}
+## 1c Ana (maintainer) PATCH /teams/cr/members/Mo {role: risk_reviewer} → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "team.manage", "team": "tm_b43d98c3", "needed": "maintainer", "message": "team.manage needs maintainer in tm_b43d98c3; you are risk_reviewer"}}
+## 1d Ana (maintainer) PATCH /teams/cr/members/Ana {role: risk_reviewer}  (herself) → HTTP 403 | pii 0
+    {"detail": {"code": "forbidden", "action": "team.manage", "team": "tm_b43d98c3", "needed": "maintainer", "message": "team.manage needs maintainer in tm_b43d98c3; you are risk_reviewer"}}
+after: [('Ada', 'owner'), ('Ana', 'risk_reviewer'), ('Mo', 'risk_reviewer'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')]
+## 1e /authz/check Ana model.review on the team → HTTP 200 | pii 0
+    {"allow": true, "reason": "risk reviewer of the team"}
+
+# 3. the SQL source reads other databases under the data dir (Fay, Fraud member, in her own project)
+## 3a Fay POST /sql/preview {sqlite:///mlflow/mlflow.db, SELECT name FROM registered_models} → HTTP 200 | pii 0
+    {"rows": [{"name": "pd-x4", "description": ""}]}
+## 3b Fay POST /sql/preview {sqlite:///ensemble.sqlite3} → HTTP 400 | pii 0
+    {"detail": "That is the workbench's own database, not a data source."}
