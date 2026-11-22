@@ -165,3 +165,9 @@
 - **U5 → all lanes:** `GET /datasets/{id}/history` versions with > 1 table carry `table_changes: [{table, change, primary, rows_before, rows_after, added, changed, removed}]` (counts from the manifest ops, null when no op counted rows); `changes` is still the primary table's. Grep gate 1 is 0: outside `frames.py` / `lake/`, read a part's columns with `frames.read_part_columns`, a frame file with `frames.read_frame_file`, and put Parquet into DuckDB SQL with `lake.duck.parquet_rel`.
 
 - **POC mode (2026-11-22):** `ENSEMBLE_POC_MODE=1` (default off) for single-person testing: `policy.four_eyes` returns nothing, `policy.decide` allows every identified principal, `governance.is_admin` / `allow_admin_self_approve` / `allow_self_promote` are true, self-grant and the purge owner/one-person-per-team rules are skipped. Withdraw paths use the new `policy.is_requester`. `/api/me` returns `poc_mode`; the UI (usePoc) stops greying own-request approvals and shows "▲ POC mode" in the status bar. Masking, integrity, legal holds, acks and audit unchanged.
+
+## Labeling plan (LBL-PLAN, 2026-11-22)
+
+**Plan:** docs/plans/labeling.md (plan only, no code). Label layers attached to a dataset root, keyed by `(layer, table, __row_id, column)`, append-only; carry over across versions by `__row_id` with HMAC row-hash staleness; runs pin a frozen snapshot (overlay at read, like joins) or materialise it into a version; holdout never overlaid in training. Sources: human, LLM (calibrated on gold, off by default, PII-governed), model, rule, import, cleanlab. F13/F14 migrate into layers (L09).
+**Phases:** L01–L10, UL1, UL2, XL1 (13 sessions ≈ 26 h); §13 of the plan. Not started: waiting on the user's answers to §14 (defaults apply if none).
+**Note → all lanes:** new tables are `label_*` and actions `label.*` (the existing `annotations` table and `annotate` action are lineage tags/notes, unrelated).
