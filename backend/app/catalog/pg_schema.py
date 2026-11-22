@@ -93,6 +93,13 @@ PG_TRIGGERS: dict[str, tuple[str, str]] = {
     "ahead_ro_u": ("audit_heads", _ro("ahead_ro_u", "UPDATE", "audit_heads", "audit heads are write-once")),
     "ahead_ro_d": ("audit_heads", _ro("ahead_ro_d", "DELETE", "audit_heads", "audit heads are write-once")),
 }
+def _label_triggers() -> None:
+    from ..labels.schema import pg_triggers
+
+    PG_TRIGGERS.update(pg_triggers())
+
+
+_label_triggers()
 #: the tables the app role may only INSERT into and SELECT from (§2.2)
 APPEND_ONLY = ("audit_log", "audit_heads", "splits", "run_inputs", "version_tables", "table_files")
 
@@ -140,6 +147,9 @@ def ddl() -> list[str]:
     out.append("CREATE INDEX IF NOT EXISTS ix_datasets_list ON datasets (state, created_at, id)")  # P08
     for s in split_script(S.P10_DDL + LEGACY_DDL):
         out.append(translate(s, False))
+    from ..labels import schema as LS  # LB-A: label tables, run pins, blob kinds
+
+    out += LS.pg_ddl()
     return out
 
 
@@ -171,6 +181,10 @@ def migrate(con: Any, *, app_role: str | None = None, force: bool = False) -> di
     S.ensure_default_team(con)
     S._step(con, "p01_team_default")
     S._step(con, "p10_ddl")
+    from ..labels import schema as LS
+
+    LS.seed(con)
+    S._step(con, "labels_l01a")
     # as on SQLite: the audit triggers come once the P01 backfill has run (it is the last UPDATE audit_log gets)
     if con.execute("SELECT 1 FROM catalog_meta WHERE key = 'backfill_p01'").fetchone():
         for name in ("audit_ro_u", "audit_ro_d"):
@@ -193,6 +207,10 @@ def grant(con: Any, role: str) -> dict[str, Any]:
         else:
             con.raw.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {t} TO {role}")
     con.raw.execute(f"GRANT UPDATE (split_id, match) ON run_inputs TO {role}")
+    # LB-A: label events are append-only except the purge redaction columns (the trigger enforces the rest)
+    con.raw.execute(f"REVOKE UPDATE, DELETE ON label_events FROM {role}")
+    con.raw.execute(f"GRANT UPDATE (value, provenance, row_hash_ctx, row_hash_all, base_value_hash, purged_at, purge_id)"
+                    f" ON label_events TO {role}")
     con.raw.execute(f"GRANT SELECT ON sqlite_master TO {role}")
     con.raw.execute(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}")
     return {"role": role, "append_only": list(APPEND_ONLY), "tables": len(tables)}
