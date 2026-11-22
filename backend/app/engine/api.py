@@ -1040,6 +1040,9 @@ def _require_succeeded(rec: dict[str, Any]) -> None:
 async def predict(run_id: str, body: PredictRequest, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     _require_succeeded(rec)
+    from ..catalog.artifacts import refuse_purged  # F-X4c
+
+    refuse_purged(rec)
     if len(body.rows) > 10_000:
         raise HTTPException(413, "At most 10,000 rows per request.")
     try:
@@ -1150,6 +1153,9 @@ async def scorecard_score(run_id: str, body: ScorecardScore, request: Request) -
     the scorecard's own reason codes: features ranked by points lost against their best bin."""
     rec = run_or_404(request, run_id)
     _scorecard_report(rec)
+    from ..catalog.artifacts import refuse_purged  # F-X4c
+
+    refuse_purged(rec)
     if (body.rows is None) == (body.holdout_index is None):
         raise HTTPException(400, "Give rows or holdout_index (one of them).")
     try:
@@ -1660,6 +1666,9 @@ async def shap_values(run_id: str, request: Request, row: int = Query(..., ge=0)
     value (regression), φ₀ = E[f] over a fixed sample of 50 training rows. Cached per row."""
     rec = run_or_404(request, run_id)
     _require_succeeded(rec)
+    from ..catalog.artifacts import refuse_purged  # F-X4c
+
+    refuse_purged(rec)
     cfg = rec["config"]
     app = request.app
 

@@ -1,0 +1,15 @@
+row ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] | values to erase: 30
+    before: files holding erased values: {'ensemble.sqlite3': 30, 'lake/exports/ds_e3169849/loans.csv': 30, 'lake/blobs/e9/e9348836728995bce83f20435c389823c76fd30a9143ce99bc992c9112a0593a.parquet': 2, 'lake/blobs/a2/a25b0b0b10fd55b2031edc415a640c639f5def589841eab0ddc6619b18cdd48e.csv': 30, 'lake/blobs/b9/b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069.parquet': 2, 'registry/batches/batch_913d39cc/input.csv': 30, 'registry/batches/batch_913d39cc/scored.csv': 30, 'runs/run_27c160c6/shap/1_1_50_2048_WeightedEnsemble_L2.json': 1, 'runs/run_4f505a8f/top.json': 20}
+    before: DB tables: {'datasets': 7, 'batch_jobs': 30, 'uploads': 15, 'table_stats': 21}
+## purge rows → HTTP 201 | pii 0
+    {"id": "pur_f0fdbb3910", "status": "pending", "teams_needed": ["tm_2b48823e"]}
+    impact derived: [('run_dir', '/var/tmp/x4/w_sq/data/runs/run_27c160c6', 'redact'), ('training_data', '/var/tmp/x4/w_sq/data/runs/run_27c160c6/predictor/utils/data', 'delete'), ('run_dir', '/var/tmp/x4/w_sq/data/runs/run_4f505a8f', 'redact'), ('training_data', '/var/tmp/x4/w_sq/data/runs/run_4f505a8f/model/utils/data', 'delete'), ('run_dir', '/var/tmp/x4/w_sq/data/runs/run_c9901b12', 'redact'), ('training_data', '/var/tmp/x4/w_sq/data/runs/run_c9901b12/predictor/utils/data', 'delete'), ('model_version_dir', '/var/tmp/x4/w_sq/data/registry/pd-x4/v1', 'redact'), ('training_data', '/var/tmp/x4/w_sq/data/registry/pd-x4/v1/predictor/utils/data', 'delete'), ('model_version_dir', '/var/tmp/x4/w_sq/data/registry/pd-x4-nossn/v1', 'redact'), ('training_data', '/var/tmp/x4/w_sq/data/registry/pd-x4-nossn/v1/predictor/utils/data', 'delete'), ('batch', 'registry/batches/batch_913d39cc', 'redact'), ('batch', 'registry/batches/batch_81eb598c', 'redact'), ('export', 'lake/exports/ds_3406c70a', 'delete'), ('dataset_dir', 'datasets/ds_3406c70a', 'redact'), ('export', 'lake/exports/ds_e3169849', 'delete'), ('dataset_dir', 'datasets/ds_e3169849', 'redact'), ('run_dir', 'runs/run_27c160c6', 'redact'), ('run_dir', 'runs/run_4f505a8f', 'redact'), ('run_dir', 'runs/run_c9901b12', 'redact'), ('export', 'lake/exports/ds_e3169849/loans.csv', 'delete')] | purged models: []
+## approve tm_2b48823e → HTTP 200 | pii 0
+    {"status": "used"}
+    derived: {"n_deleted": 3, "n_redacted": 4, "purged_models": [], "model_versions_purged": [], "error": null}
+    deleted: ['lake/exports/ds_e3169849', 'runs/run_27c160c6/predictor/utils/data/X.pkl', 'runs/run_27c160c6/predictor/utils/data/X_val.pkl']
+    db: {"redacted": {"datasets.profile": 1, "batch_jobs.result": 1, "uploads.check_json": 1, "table_stats.columns": 2, "jobs.payload": 1}, "compact": {"vacuum": true, "wal_checkpoint": [0, 0, 0]}}
+    SWEEP: {"status": "clean", "values": 50, "values_total": 50, "files_searched": 198, "n_hits": 0, "hits": []}
+    after: files holding erased values: {}
+    after: DB tables: {}
+    new version ds_6af58f64: 500 rows; kept ssns present: 500/590; erased present: 0

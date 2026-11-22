@@ -796,6 +796,12 @@ CREATE TABLE IF NOT EXISTS table_stats (table_sha256 TEXT PRIMARY KEY, stats_ver
   n_rows BIGINT NOT NULL, n_cols INTEGER NOT NULL, columns TEXT NOT NULL, seconds REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS diff_cache (a_sha256 TEXT NOT NULL, b_sha256 TEXT NOT NULL, key TEXT NOT NULL, computed_at TEXT NOT NULL,
   result TEXT NOT NULL, PRIMARY KEY (a_sha256, b_sha256, key));
+-- F-X4c: the registry of derived artifacts (a value-bearing copy made outside the lake; purge walks it)
+CREATE TABLE IF NOT EXISTS derived_artifacts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, path TEXT, version_id TEXT, table_name TEXT,
+  run_id TEXT, object_id TEXT, columns_json TEXT NOT NULL DEFAULT '[]', created_at TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'live',
+  purge_id TEXT);
+CREATE INDEX IF NOT EXISTS ix_derived_artifacts_version ON derived_artifacts (version_id);
+CREATE INDEX IF NOT EXISTS ix_derived_artifacts_run ON derived_artifacts (run_id);
 CREATE TABLE IF NOT EXISTS storage_usage (team_id TEXT NOT NULL, computed_at TEXT NOT NULL, bytes_referenced BIGINT NOT NULL,
   bytes_unique BIGINT NOT NULL, n_blobs BIGINT NOT NULL, PRIMARY KEY (team_id, computed_at));
 CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, kind TEXT NOT NULL, team_id TEXT, resource TEXT NOT NULL, mem_mb INTEGER NOT NULL,

@@ -1,0 +1,13 @@
+## run2 (ssn dropped) → HTTP 201 | pii 0
+    {"id": "run_4d2024ab"}
+run2: succeeded
+## register run2 → HTTP 202 | pii 0
+    {"id": "mv_e098cf3c", "status": "building"}
+version2: ready
+batch2: batch_9f44c732 succeeded
+## credit report mv → HTTP 200
+## export v1 unmasked → HTTP 200
+## fairness ssn → HTTP 200
+## recourse → HTTP 200
+## card → HTTP 200
+## predict mv2 (before) → HTTP 200

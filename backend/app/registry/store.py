@@ -81,6 +81,9 @@ class RegistryStore:
                 (rec["id"], rec["model_name"], n, rec["run_id"], now(), rec["created_by"], _dump(rec["options"]),
                  _dump({"steps": []}), _dump(rec.get("card") or {})))
         v = self.get_version(rec["id"])
+        from ..catalog import artifacts  # F-X4c: the deploy copy is a copy of the run's model (purge walks it)
+
+        artifacts.record_safe(self.db, "model_version", None, run_id=rec["run_id"], object_id=rec["id"])
         from ..catalog.store import Catalog  # P1: the version's built_from edge to its run
 
         Catalog(self.db).record_build(v)
@@ -159,6 +162,11 @@ class RegistryStore:
                         " VALUES (?, ?, 'queued', ?, ?, ?, ?, ?)",
                         (rec["id"], rec["version_id"], now(), rec.get("created_by") or "", rec["filename"], rec.get("n_rows"),
                          rec.get("data_date")))
+        from ..catalog import artifacts  # F-X4c: batch input / scored rows (purge walks them)
+
+        from pathlib import Path
+
+        artifacts.record_safe(self.db, "batch", Path(self.db.path).parent / "registry" / "batches" / rec["id"], object_id=rec["id"])
 
     def get_batch(self, bid: str) -> dict[str, Any] | None:
         return self._get("batch_jobs", bid)

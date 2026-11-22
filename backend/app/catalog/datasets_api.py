@@ -522,6 +522,10 @@ def _export_csv(request: Request, dataset_id: str, m: Any = None) -> tuple[Any, 
                 con.execute("SET preserve_insertion_order = true")
                 con.execute(f"COPY (SELECT {cols} FROM {src} ORDER BY __row_id) TO {_lit(tmp)} (FORMAT csv, HEADER true)")
         tmp.replace(out)
+        from . import artifacts  # F-X4c: the export cache holds the values (purge deletes it)
+
+        artifacts.record_safe(request.app.state.db, "export", out, version_id=dataset_id, table=lt.name,
+                              columns=[c["name"] for c in lt.schema])
     h = hashlib.sha256()
     with open(out, "rb") as f:
         while b := f.read(8 * 1024 * 1024):

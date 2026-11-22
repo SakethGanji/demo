@@ -375,7 +375,15 @@ def ensure(version_id: str, table: str | None = None) -> tuple[str, str, str]:
     from . import duck
     from . import pages as PG
 
-    src, tname = _table_cols(version_id, table)
+    try:
+        src, tname = _table_cols(version_id, table)
+    except Exception:  # noqa: BLE001 - F-X4c: a purged / deleted version's bytes are gone; its tags still mask
+        with _db().connect() as con:
+            r = con.execute("SELECT state, primary_table FROM datasets WHERE id = ?", (version_id,)).fetchone()
+            if not r or r[0] != "deleted":
+                raise
+            root, team = root_and_team(con, version_id)
+        return root, table or r[1], team
     with _db().connect() as con:
         root, team = root_and_team(con, version_id)
         k = (root, tname, src.identity)
