@@ -125,7 +125,7 @@ function CertPanel({ root, vid, v, d, by, onChanged }: { root: string; vid: stri
           const can = x.level === 'certified' ? canCert : canModel
           const own = me && me === x.requested_by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
           return <div key={x.id} className="gov-item" data-testid={`cert-${x.id}`}>
-            <div className="gov-line"><Badge status={x.status} /><b>{x.level.replace(/_/g, ' ')}</b><span className="v-tag mono">v{vOf(x.version_id)}</span><span className="gov-reason" title={x.reason}>“{x.reason}”</span></div>
+            <div className="gov-line"><span className={`cert-mark cert-${x.status}`}><Badge status={x.status} /></span><b>{x.level.replace(/_/g, ' ')}</b><span className="v-tag mono">v{vOf(x.version_id)}</span><span className="gov-reason" title={x.reason}>“{x.reason}”</span></div>
             <span className="sub-line">asked by {x.requested_by}{x.decided_by ? ` · ${x.status === 'active' ? 'approved' : x.status} by ${x.decided_by}` : ''}{x.expires_at ? ` · expires ${when(x.expires_at)}` : ''}</span>
             {x.status === 'pending' && <div className="row" style={{ gap: 6, marginTop: 4 }}>
               <input className="input" style={{ flex: 1 }} placeholder="comment (required to reject)" value={comment} onChange={(e) => setComment(e.target.value)} />
@@ -164,7 +164,7 @@ function SharePanel({ root, vid, by, onChanged }: { root: string; vid: string; b
         {(s.data ?? []).map((x) => {
           const own = me && me === x.requested_by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
           return <div key={x.id} className="gov-item" data-testid={`share-${x.id}`}>
-            <div className="gov-line"><Badge status={x.status} /><span>to <b>{name(x.grantee_team)}</b></span><span className="pt-chip" title="which versions it covers">{x.scope === 'default' ? 'the default version' : x.scope === 'all' ? 'every version' : 'certified versions'}{x.pinned_version ? ` (${x.pinned_version})` : ''}</span>
+            <div className="gov-line"><span className={`cert-mark cert-${x.status}`}><Badge status={x.status} /></span><span>to <b>{name(x.grantee_team)}</b></span><span className="pt-chip" title="which versions it covers">{x.scope === 'default' ? 'the default version' : x.scope === 'all' ? 'every version' : 'certified versions'}{x.pinned_version ? ` (${x.pinned_version})` : ''}</span>
               <span className={`pt-chip ${x.pii === 'unmasked' ? 'appr-rejected' : ''}`}>{x.pii === 'unmasked' ? '🔓 PII unmasked' : '🔒 PII masked'}</span>
 </div>
             <span className="sub-line">“{x.reason}” · asked by {x.requested_by}{x.decided_by ? ` · decided by ${x.decided_by}` : ''}{x.revoked_by ? ` · revoked by ${x.revoked_by}` : ''}</span>

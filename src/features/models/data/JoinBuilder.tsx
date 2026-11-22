@@ -193,8 +193,8 @@ function FramePreview({ r }: { r: FrameRows }) {
   return (
     <details open data-testid="frame-preview"><summary className="micro-label">preview · first {r.rows.length} of {n(r.n_rows)} rows{r.masked_columns.length ? ` · 🔒 ${r.masked_columns.length} masked (${r.masked_columns.join(', ')})` : ''}</summary>
       <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}><table className="table up-preview">
-        <thead><tr><th className="r">__row_id</th>{r.columns.map((c) => <th key={c} title={r.masks[c] ? `PII: masked (${r.masks[c]})` : undefined}>{r.masks[c] ? '🔒 ' : ''}{c}</th>)}</tr></thead>
-        <tbody>{r.rows.map((row, i) => <tr key={r.row_ids[i]}><td className="r mono muted">{r.row_ids[i]}</td>{row.map((x, k) => <td key={k} className={`mono ${r.masks[r.columns[k]] ? 'masked-cell' : ''}`}>{x == null ? <span className="muted">∅</span> : typeof x === 'number' && !Number.isInteger(x) ? x.toPrecision(4) : String(x)}</td>)}</tr>)}</tbody>
+        <thead><tr><th className="r">__row_id</th>{r.columns.map((c, k) => <th key={c} className={typeof r.rows[0]?.[k] === 'number' ? 'r' : undefined} title={r.masks[c] ? `PII: masked (${r.masks[c]})` : undefined}>{r.masks[c] ? '🔒 ' : ''}{c}</th>)}</tr></thead>
+        <tbody>{r.rows.map((row, i) => <tr key={r.row_ids[i]}><td className="r mono muted">{r.row_ids[i]}</td>{row.map((x, k) => <td key={k} className={`mono ${r.masks[r.columns[k]] ? 'masked-cell' : ''} ${typeof x === 'number' ? 'r' : ''}`}>{x == null ? <span className="muted">∅</span> : typeof x === 'number' && !Number.isInteger(x) ? x.toPrecision(4) : String(x)}</td>)}</tr>)}</tbody>
       </table></div></details>
   )
 }

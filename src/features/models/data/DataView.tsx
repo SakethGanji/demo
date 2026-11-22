@@ -8,7 +8,7 @@ import { fmtScore } from '@/shared/lib/metrics'
 import { NotesStrip } from '../components/NotesStrip'
 import { Badge, CardHead, ChangeBar, ConfirmButton, CopyId, Flash, Callout } from '@/shared/components/DataKit'
 import { EmptyState } from '@/shared/components/EmptyState'
-import { day, when, plural } from '@/shared/lib/format'
+import { day, when, plural, pct } from '@/shared/lib/format'
 import { ProjectTree } from '../components/ProjectTree'
 import { EditVersion } from './EditVersion'
 import { StagedUpload } from './StagedUpload'
@@ -21,7 +21,6 @@ import { readActor, saveActor, useTeam } from '@/shared/lib/team'
 import './data.css'
 
 export { readActor, saveActor }
-const pct = (v?: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
 const num = (v?: number | null) => (v == null ? '—' : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toPrecision(4).replace(/\.?0+$/, ''))
 const BAND: Record<string, Status> = { stable: 'success', watch: 'warning', shift: 'danger' }
 const OP: Record<string, string> = { edit: 'edit', sample_regenerated: 'sample regenerated', upload: 'upload', sample: 'sample', upload_version: 'new file', data_doctor: 'Data Doctor', clean_labels: 'relabel', feature_lab: 'Feature Lab', 'monitoring-window': 'drift window', sql: 'SQL load', refresh: 'SQL refresh' }
@@ -482,7 +481,7 @@ function AuditCard({ d }: { d: DsHistory }) {
         <tbody>{d.audit.slice(0, 30).map((a) => (
           <tr key={a.id}><td className="muted" style={{ whiteSpace: 'nowrap', fontSize: 12 }} title={when(a.ts)}>{day(a.ts)}</td><td>{a.actor}</td>
             <td><span className="audit-act">{a.action.replace(/^dataset_/, '').replace(/_/g, ' ')}</span>
-              {(a.comment || a.details?.dataset_id) ? <span className="sub-line data-audit-line" title={String(a.details?.dataset_id ?? '')}>{a.comment || String(a.details?.dataset_id ?? '')}</span> : null}</td></tr>))}
+              {(a.comment || a.details?.dataset_id) ? <span className="sub-line data-audit-line" title={`${a.comment ?? ''} ${String(a.details?.dataset_id ?? '')}`.trim()}>{a.comment || String(a.details?.dataset_id ?? '')}</span> : null}</td></tr>))}
           {!d.audit.length && <tr><td colSpan={3} className="helper">Nothing recorded yet.</td></tr>}</tbody>
       </table></div>
     </div>

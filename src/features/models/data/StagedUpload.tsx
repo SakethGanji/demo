@@ -11,7 +11,7 @@ import { INTEGRITY_ACKS, IntegrityAcks, IssueLine, type Issue } from './UploadIs
 export type UpParent = { id: string; v: number; name: string; nextV?: number; root?: string }
 
 const n = (x?: number | null) => (x == null ? '—' : x.toLocaleString())
-const share = (x?: number | null) => (x == null ? '' : `${(x * 100).toFixed(x > 0 && x < 0.001 ? 2 : 1)} %`)
+const share = (x?: number | null) => (x == null ? '' : `${(x * 100).toFixed(x > 0 && x < 0.001 ? 2 : 1)}%`)
 const same = (a?: MatchSpec | null, b?: MatchSpec | null) => !!a && !!b && a.method === b.method && (a.columns ?? []).join(',') === (b.columns ?? []).join(',')
 const errText = (e: unknown) => {
   const d = e instanceof ApiError ? e.detail as { code?: string; message?: string; keys?: { value: unknown[]; rows: number }[] } | undefined : undefined
