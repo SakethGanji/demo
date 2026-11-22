@@ -1,0 +1,3 @@
+  -> 201 {"id": "run_cc4a0a84", "status": "queued", "detail": null}
+  [trainjoin (budget 300 MB)] 236.2 s | peak single process 3.14 GB (.venv/bin/python -m uvicorn app.main:app --port 8621) | peak tree sum 5.08 GB
+  run run_cc4a0a84 succeeded  {'rows_used': None, 'rows_total': None, 'sample_sha256': None, 'frame_estimate_mb': None, 'budget_mb': None} 

@@ -1,0 +1,2 @@
+dataset credit-default (12000, 16) label defaulted num 8 cat 7
+audit 9.1 s, items 440, VmHWM 0.57 GB

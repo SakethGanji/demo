@@ -29,15 +29,12 @@ number is computed here from the run's own files (data.csv, splits, holdout_pred
 
 from __future__ import annotations
 
-import json
 import math
 import time
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
-from .. import frames
 
 K_NN = 15
 MAX_TRAIN = 30_000
@@ -453,9 +450,13 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
     if hp is None or pt not in ("binary", "multiclass", "regression"):
         out["errors"].append("no holdout predictions, or a problem type the gap analysis does not cover")
         return out
-    df = frames.read(frames.resolve(cfg))
+    from . import rows as R
+
+    b = R.load(cfg, hp)  # F-X5a (X5 K2): above ENSEMBLE_DOCTOR_ROWS a bounded sample of the run's rows, not the table
+    df, sp, hp = b.df, b.sp, b.hp
+    if b.sampled:
+        out["sample"] = b.info
     label = cfg["label"]
-    sp = json.loads(Path(cfg["splits_path"]).read_text())
     is_h = holdout_mask(sp, len(df))
     y_all = df[label]
     tr = np.flatnonzero(~is_h & y_all.notna().to_numpy())

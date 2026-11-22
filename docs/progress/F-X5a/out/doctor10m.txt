@@ -1,0 +1,4 @@
+  [GET /runs/run_13171ab8/doctor] 264.2 s | peak single process 1.51 GB (.venv/bin/python -m uvicorn app.main:app --port 8621) | peak tree sum 3.61 GB
+200 [('leakage', 'finding'), ('shift', 'missing'), ('label_noise', 'clear'), ('overfit', 'clear'), ('data_limited', 'missing'), ('underfit', 'clear'), ('latency', 'n/a'), ('weak_slice', 'missing'), ('budget', 'finding'), ('imbalance', 'clear'), ('weak_class', 'clear'), ('cost_tradeoff', 'n/a')] None
+
+[exited with code 0]

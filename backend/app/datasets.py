@@ -1245,6 +1245,10 @@ class DatasetStore:
         # the diff on __row_id: matched / changed (a shared column of the same type family differs) / added / removed
         shared = [(n, inv.get(n, n)) for n, t in comp.cols
                   if inv.get(n, n) in ptypes and type_family(ptypes[inv.get(n, n)]) == type_family(t)]
+        # F-X5a (X5 J6): a column no op changed is passed through as is, so only the touched (or renamed / cast) ones are
+        # compared: the same counts, a narrow join (10M rows: 5.6 s → < 1 s)
+        moved = set(comp.touched) | set(comp.renamed) | set(comp.renamed.values()) | set(comp.casts) | set(comp.widened)
+        shared = [(n, o) for n, o in shared if n in moved or o in moved]
         diffx = " OR ".join(f"a.{DE.q(o)} IS DISTINCT FROM b.{DE.q(n)}" for n, o in shared) or "false"
         matched, changed = con.execute(f"SELECT count(*), count(*) FILTER (WHERE {diffx}) FROM _e0 a JOIN {v} b USING (__row_id)").fetchone()
         sel = ", ".join(f"{DE.q(n)} AS {DE.q(inv.get(n, n))}" for n in names)
@@ -1311,8 +1315,8 @@ class DatasetStore:
         JP.mark(0.01, "verifying")
         self.verify_for_edit(parent_id, parent)
         lake = open_store(self.settings)
-        try:
-            pr = LD.ParentRows(self.db, lake, self, parent_id)
+        try:  # F-X5a (X5 J6): a preview needs no split; drawing one (10M rows: ~35 s, 1 GB of JSON view) waits for the commit
+            pr = LD.ParentRows(self.db, lake, self, parent_id, split=not preview)
         except LakeError as e:
             raise DatasetError(e.message) from e
         n_ver = 1 + len(self.catalog.tree_ids(parent_id))

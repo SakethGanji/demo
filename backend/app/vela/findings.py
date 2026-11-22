@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .. import frames
+from .. import config, frames
 from ..splits import holdout_mask
 
 ID_NAME = re.compile(r"(^id$|_id$|^id_|uuid|^key$|_key$|^row$|^index$)", re.I)
@@ -151,13 +151,15 @@ def _with_params(hp: dict[str, Any], fam: str, params: dict[str, Any]) -> dict[s
 # --------------------------------------------------------------------------- the findings
 
 
-def f_overfit(rec, base, hp, out):
+def f_overfit(rec, base, hp, out, se_scale: float = 1.0):
     res = rec["result"]
     best = _best_row(res)
     if not best or best.get("score_val") is None or best.get("score_test") is None or hp is None or len(hp) < 30:
         return
     gap = float(best["score_val"]) - float(best["score_test"])
     se = bootstrap_se(rec, hp)
+    if se is not None:
+        se *= se_scale  # F-X5a: an SE on a holdout sample, as over the whole holdout
     sd = float(best.get("val_score_std") or 0.0)
     if se is None and sd == 0.0:  # no noise estimate at all: a gap/noise ratio would be meaningless
         return
@@ -363,7 +365,7 @@ def _single_feature_score(data: pd.DataFrame, rows_train: np.ndarray, rows_hold:
     return float((m.predict(X[ok_ho]) == ys.iloc[ok_ho].to_numpy()).mean())
 
 
-def f_leakage(rec, base, data, out):
+def f_leakage(rec, base, data, out, splits=None):
     res = rec["result"]
     if data is None:
         return
@@ -372,7 +374,8 @@ def f_leakage(rec, base, data, out):
     fi = res.get("feature_importance") or []
     imp = {r["feature"]: float(r.get("importance") or 0) for r in fi if r.get("feature")}
     pos_total = sum(v for v in imp.values() if v > 0) or 0.0
-    splits = json.loads(Path(rec["config"]["splits_path"]).read_text())
+    if splits is None:
+        splits = json.loads(Path(rec["config"]["splits_path"]).read_text())
     is_h = holdout_mask(splits, len(data))
     rows_tr, rows_ho = np.flatnonzero(~is_h), np.flatnonzero(is_h)
     pt = res.get("problem_type")
@@ -504,14 +507,23 @@ ORDER = {"leakage": 0, "budget": 1, "overfit": 2, "imbalance": 3, "weak_class": 
 def compute(rec: dict[str, Any], base: dict[str, Any], events: list[dict[str, Any]], ds: dict[str, Any] | None,
             batches: list[dict[str, Any]]) -> dict[str, Any]:
     """All findings for a succeeded run, most severe first. Runs in a worker (bootstrap, single-feature trees)."""
+    from . import rows as R
+
     out: list[dict[str, Any]] = []
     hp = holdout_frame(rec)
-    try:
-        data = frames.read(frames.resolve(rec["config"]))
-    except Exception:  # noqa: BLE001
-        data = None
-    steps = [lambda: f_leakage(rec, base, data, out), lambda: f_budget(rec, base, events, out),
-             lambda: f_overfit(rec, base, hp, out), lambda: f_imbalance(rec, base, hp, data, out),
+    splits = None
+    try:  # F-X5a (X5 K2): above ENSEMBLE_DOCTOR_ROWS a bounded sample of the run's rows, not the table
+        b = R.load(rec["config"], hp)
+        data, splits, hp = b.df, b.sp, b.hp
+        se_scale = b.se_scale()
+    except Exception:  # noqa: BLE001 — an unreadable table: the findings that need only the predictions still run
+        data, se_scale = None, 1.0
+        hb = R.bound_hp(hp, config.doctor_rows())
+        if hp is not None and hb is not None and len(hb) < len(hp):
+            se_scale = float(np.sqrt(len(hb) / len(hp)))
+        hp = hb
+    steps = [lambda: f_leakage(rec, base, data, out, splits), lambda: f_budget(rec, base, events, out),
+             lambda: f_overfit(rec, base, hp, out, se_scale), lambda: f_imbalance(rec, base, hp, data, out),
              lambda: f_weak_class(rec, base, hp, out), lambda: f_segment(rec, base, hp, data, out),
              lambda: f_drift(rec, base, batches, out), lambda: f_columns(rec, base, ds, out)]
     errors = []

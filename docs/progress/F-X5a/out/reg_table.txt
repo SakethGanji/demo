@@ -1,0 +1,3 @@
+  -> 202 {"id": "mv_603ba63b", "status": "building", "detail": null, "code": null, "parity": null}
+  [register run_13171ab8 (parity)] 245.8 s | peak single process 1.54 GB (/home/user/demo/backend/.venv/bin/python -c from multiproces) | peak tree sum 2.61 GB
+  model mv_603ba63b ready None parity null

@@ -372,6 +372,8 @@ def _read_parquet(ref: Table | JoinFrame, columns: Any, rows: range | None, mode
     names = [c["name"] for c in lt.schema]
     keep = _cols_filter(columns)
     want = [c for c in names if keep is None or keep(c)]
+    if rows is not None and hash_into is None:  # F-X5a: a window reads only the row groups it covers, never the table
+        return _read_window(ref, lt, want, rows, mode)
     pieces = []
     for p in lt.parts:
         try:
@@ -400,6 +402,46 @@ def _read_parquet(ref: Table | JoinFrame, columns: Any, rows: range | None, mode
         return df
     cols = {c: _v1_column(at.column(c), c) for c in want}
     df = pd.DataFrame(cols, columns=want)
+    df.index = idx
+    return df
+
+
+def _read_window(ref: Table | JoinFrame, lt: "LakeTable", want: list[str], rows: range, mode: str) -> pd.DataFrame:
+    """F-X5a: rows [start, stop) of the parts' concatenation, read row group by row group (the groups outside the window are
+    skipped). The same frame as slicing the whole read (engine_v1 types of the window's own cells)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    start, stop = rows.start, rows.start + max(0, len(rows))
+    pieces, at_row = [], 0
+    for p in lt.parts:
+        if at_row >= stop:
+            break
+        try:
+            pf = pq.ParquetFile(p["path"])
+        except FileNotFoundError as e:
+            raise FrameError(f"A file of {ref.version_id} ({p['sha256'][:12]}…) is missing from the lake.") from e
+        for rg in range(pf.num_row_groups):
+            n = pf.metadata.row_group(rg).num_rows
+            lo, hi = at_row, at_row + n
+            at_row = hi
+            if hi <= start:
+                continue
+            if lo >= stop:
+                break
+            t = pf.read_row_group(rg, columns=["__row_id", *want])
+            pieces.append(t.slice(max(0, start - lo), min(hi, stop) - max(lo, start)))
+    if pieces:
+        at = pa.concat_tables(pieces, promote_options="default") if len(pieces) > 1 else pieces[0]
+    else:
+        sch = pq.ParquetFile(lt.parts[0]["path"]).schema_arrow if lt.parts else None
+        at = sch.empty_table().select(["__row_id", *want]) if sch is not None else pa.table({"__row_id": pa.array([], pa.int64())})
+    idx = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False), name=None)
+    if mode == "native":
+        df = at.drop(["__row_id"]).to_pandas()
+        df.index = idx
+        return df
+    df = pd.DataFrame({c: _v1_column(at.column(c), c) for c in want}, columns=want)
     df.index = idx
     return df
 

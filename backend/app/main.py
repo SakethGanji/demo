@@ -191,6 +191,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         app.state.worker.app = app
         app.state.worker.hooks += [app.state.runner.poll_finished, app.state.heavy.poll_durable]
         app.state.worker.start()
+        from .engine import shutdown as _shutdown
+
+        _shutdown.install(app)  # F-X5a (X5 J4): SIGTERM with a busy heavy pool exits within the grace period
         yield
         if verify_task:
             verify_task.cancel()

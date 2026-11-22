@@ -58,11 +58,11 @@ def _q(s: str) -> str:
 class ParentRows:
     """The parent table a derived version continues: its row ids by read position, its table names, its column types."""
 
-    def __init__(self, db, store, dstore, vid: str) -> None:
+    def __init__(self, db, store, dstore, vid: str, *, split: bool = True) -> None:
         from .upload import _Parent
 
         try:
-            p = _Parent(db, store, dstore, vid, None)
+            p = _Parent(db, store, dstore, vid, None, split=split)
             self.fresh = False
         except LakeError as e:
             if e.code != "parent_unmapped":

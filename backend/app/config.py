@@ -244,6 +244,19 @@ def doctor_rows() -> int:
     return int(_env_num("ENSEMBLE_DOCTOR_ROWS", 200_000, 1000))
 
 
+#: F-X5a (X5 K1): a registry build of a run on a table above doctor_rows() keeps at most this many holdout rows in memory
+#: (latency, distillation, the monotone / quantile checks: a splitmix64 sample); every holdout row is still scored, in
+#: batches of HOLDOUT_BATCH_ROWS read by __row_id, for the version's metrics and holdout_predictions.csv.
+def build_holdout_rows() -> int:
+    return int(_env_num("ENSEMBLE_BUILD_HOLDOUT_ROWS", 100_000, 1000))
+
+
+#: F-X5a: percentile-bootstrap intervals over more holdout rows than this resample this many rows (m-out-of-n) and scale
+#: the interval by √(m / n); B is capped at 200 there.
+def ci_rows() -> int:
+    return int(_env_num("ENSEMBLE_CI_ROWS", 100_000, 1000))
+
+
 #: F-X1 C2: DuckDB's memory limit for writing a Doctor / Feature Lab version as SQL (it runs in the API process).
 def doctor_write_mb() -> int:
     return int(_env_num("ENSEMBLE_DOCTOR_WRITE_MB", 1024, 256))

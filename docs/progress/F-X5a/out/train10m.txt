@@ -1,0 +1,5 @@
+  -> 201 {"id": "run_13171ab8", "status": "queued", "detail": null}
+  [train (budget 300 MB)] 210.6 s | peak single process 2.70 GB (/home/user/demo/backend/.venv/bin/python -m app.engine.worke) | peak tree sum 4.57 GB
+  run run_13171ab8 succeeded  {'rows_used': None, 'rows_total': None, 'sample_sha256': None, 'frame_estimate_mb': None, 'budget_mb': None} 
+
+[exited with code 0]

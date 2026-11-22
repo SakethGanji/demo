@@ -1,0 +1,22 @@
+== fix
+/var/tmp/fx5/pooltest/pt2.py:23: RuntimeWarning: coroutine 'sleep' was never awaited
+  res = await asyncio.gather(one("waiting call (slow 8 s)", H.slow, 8), (asyncio.sleep(0.5) and None) or one("killed call", H.die))
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+heavy pool: pool process 31116 was killed by SIGKILL (the kernel's OOM killer sends it when memory runs out); replacing the pool
+heavy pool: pool process 31116 was killed by SIGKILL (the kernel's OOM killer sends it when memory runs out); replacing the pool
+  waiting call (slow 8 s): BrokenProcessPool after 1.5 s
+  killed call: BrokenProcessPool after 1.5 s
+  next call: 31149 (1.6 s)
+== base (HEAD 75fc854 pool.py)
+/var/tmp/fx5/pooltest/pt2_base.py:23: RuntimeWarning: coroutine 'sleep' was never awaited
+  res = await asyncio.gather(one("waiting call (slow 8 s)", H.slow, 8), (asyncio.sleep(0.5) and None) or one("killed call", H.die))
+RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+  waiting call (slow 8 s): 31184
+  killed call: NO ANSWER after 40 s
+  next call: 32094 (40.1 s)
+== pt.py (fix: a killed call, then the next call, sync and async)
+ok 32127
+call die -> BrokenProcessPool pool process 32127 was killed by SIGKILL (the kernel's OOM killer sends it when memory runs out) 0.0 s
+next call ok 32135
+run die -> pool process 32135 was killed by SIGKILL (the kernel's OOM killer sends it when memory runs out) 0.0 s
+next run ok 32140

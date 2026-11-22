@@ -842,7 +842,7 @@ def _check_parquet(tmp: Path, src: Path, f: dict[str, Any], plan: dict[str, Any]
 class _Parent:
     """The parent table an upload continues: its relation, its row ids by position, its holdout ids, its keys."""
 
-    def __init__(self, db, store, dstore, vid: str, table: str | None) -> None:
+    def __init__(self, db, store, dstore, vid: str, table: str | None, *, split: bool = True) -> None:
         from .. import frames
 
         self.vid = vid
@@ -915,7 +915,7 @@ class _Parent:
         self.holdout_ids = None
         self.split_key = None
         self.split = None
-        if dstore is not None and self.is_primary:
+        if dstore is not None and self.is_primary and split:  # F-X5a: an edit preview asks for no split (split=False)
             try:
                 _, sp, _ = dstore.ensure_splits(vid, tg)
                 import numpy as np
