@@ -129,7 +129,7 @@ async def next_items(task_id: str, request: Request, n: int = 25) -> dict[str, A
 @router.post("/label-tasks/{task_id}/answers", dependencies=[require("label.annotate", path("task_id", "label_task"))])
 async def answers(task_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
     b = _b(body)
-    return await run_in_threadpool(T.answer, task_id, C.caller(request), list(b.get("items") or []))
+    return await run_in_threadpool(T.answer, task_id, C.caller(request), C.as_list(b.get("items"), "items", of_dicts=True))
 
 
 @router.get("/label-tasks/{task_id}/review", dependencies=[require("label.review", path("task_id", "label_task"))])
@@ -140,7 +140,7 @@ async def review(task_id: str, request: Request, kind: str = "disputed") -> dict
 @router.post("/label-tasks/{task_id}/adjudicate", dependencies=[require("label.review", path("task_id", "label_task"))])
 async def adjudicate(task_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
     b = _b(body)
-    items = list(b.get("items") or ([{k: b.get(k) for k in ("row_id", "column", "value", "comment")} | {"comment": b.get("note") or b.get("comment")}]
+    items = list(C.as_list(b.get("items"), "items", of_dicts=True) or ([{k: b.get(k) for k in ("row_id", "column", "value", "comment")} | {"comment": b.get("note") or b.get("comment")}]
                                     if b.get("row_id") is not None else []))
     return await run_in_threadpool(T.adjudicate, task_id, C.caller(request), items)
 

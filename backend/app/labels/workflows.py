@@ -117,27 +117,39 @@ def rule_analysis(layer_id: str) -> dict[str, Any]:
 # -- proposals -------------------------------------------------------------------------------------------------------------
 
 def propose(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
-    cells = body.get("cells") or []
     vid = body.get("version_id")
-    if not cells or not vid:
+    if not body.get("cells") or not vid or not isinstance(vid, str):
         raise HTTPException(400, "A proposal is {version_id, cells: [{row_id, column, value}], reason}.")
+    cells = C.as_list(body.get("cells"), "cells", of_dicts=True)
+    if len(cells) > 500:
+        raise C.bad("cells", "at most 500 cells per proposal.")
+    clean = []
+    for i, c in enumerate(cells):
+        if not isinstance(c.get("column"), str) or not c.get("column"):
+            raise C.bad(f"cells[{i}].column", "is required.")
+        clean.append({"row_id": C.as_row_id(c.get("row_id"), f"cells[{i}].row_id"), "column": c["column"], "value": c.get("value")})
     reason = str(body.get("reason") or "").strip()
     if len(reason) < 3:
         raise HTTPException(400, "reason: why these cells should change.")
+    origin = body.get("origin", "edit")
+    if not isinstance(origin, str):
+        raise C.bad("origin", "is text.")
     with C.db().connect() as con:
         lay = C.layer(con, layer_id)
         C.check_version_of_layer(con, lay, vid)
-        pid = C.new_id("lpr_")
-        con.execute("INSERT INTO label_proposals (id, layer_id, origin, base_version_id, n_cells, reason, status, proposed_by, proposed_at, cells)"
-                    " VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)", (pid, layer_id, body.get("origin", "edit"), vid, len(cells), reason, by,
-                                                                       C.now(), C.canon(cells)))
-    evs = [{"row_id": int(c["row_id"]), "column": c["column"], "kind": "propose", "value": c.get("value"), "source": "edit",
-            "seen_version_id": vid, "refers_to": pid, "provenance": {"proposal_id": pid, "reason": reason[:300]}} for c in cells]
+    pid = C.new_id("lpr_")
+    # The events first: the core validates every cell (row, column, class, type) and refuses the lot before any
+    # proposal row exists, so a refused proposal leaves nothing pending behind (LB-FIX M2).
+    evs = [{"row_id": c["row_id"], "column": c["column"], "kind": "propose", "value": c["value"], "source": "edit",
+            "seen_version_id": vid, "refers_to": pid, "provenance": {"proposal_id": pid, "reason": reason[:300]}} for c in clean]
     res = C.append(layer_id, evs, by)
     with C.db().connect() as con:
-        C.audit(con, by, "label_proposal_created", {"proposal_id": pid, "layer_id": layer_id, "n_cells": len(cells), "version_id": vid},
+        con.execute("INSERT INTO label_proposals (id, layer_id, origin, base_version_id, n_cells, reason, status, proposed_by, proposed_at, cells)"
+                    " VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)", (pid, layer_id, origin, vid, len(clean), reason, by,
+                                                                       C.now(), C.canon(clean)))
+        C.audit(con, by, "label_proposal_created", {"proposal_id": pid, "layer_id": layer_id, "n_cells": len(clean), "version_id": vid},
                 object_kind="label_proposal", object_id=pid, team_id=lay.get("team_id"))
-    return {"id": pid, "status": "pending", "n_cells": len(cells), "events": [r["id"] for r in res]}
+    return {"id": pid, "status": "pending", "n_cells": len(clean), "events": [r["id"] for r in res]}
 
 
 def proposals(layer_id: str) -> list[dict[str, Any]]:
@@ -162,8 +174,10 @@ def decide(proposal_id: str, approve: bool, comment: str, by: str, app: Any) -> 
         if p["proposed_by"] == by and not G.poc_mode():
             raise HTTPException(409, {"code": "four_eyes", "message": "The proposer cannot decide their own proposal."})
         lay = C.layer(con, p["layer_id"])
-        con.execute("UPDATE label_proposals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
-                    ("approved" if approve else "rejected", by, C.now(), comment or "", proposal_id))
+        cur = con.execute("UPDATE label_proposals SET status = ?, decided_by = ?, decided_at = ?, comment = ? WHERE id = ? AND status = 'pending'",
+                          ("approved" if approve else "rejected", by, C.now(), comment or "", proposal_id))
+        if getattr(cur, "rowcount", 1) == 0:
+            raise HTTPException(409, "The proposal was decided concurrently.")
         C.audit(con, by, "label_proposal_decided", {"proposal_id": proposal_id, "approve": approve}, object_kind="label_proposal",
                 object_id=proposal_id, team_id=lay.get("team_id"))
     if not approve:
@@ -172,18 +186,44 @@ def decide(proposal_id: str, approve: bool, comment: str, by: str, app: Any) -> 
     evs = [{"row_id": int(c["row_id"]), "column": c["column"], "kind": "label", "value": c.get("value"), "source": "edit",
             "seen_version_id": p["base_version_id"], "refers_to": None,
             "provenance": {"proposal_id": proposal_id, "approved_by": by}} for c in cells]
-    C.append(p["layer_id"], evs, p["proposed_by"])
     cols = sorted({c["column"] for c in cells})
+    appended: list[dict[str, Any]] = []
     try:
+        appended = C.append(p["layer_id"], evs, p["proposed_by"])
         snap = L.create_snapshot(app.state.db, app.state.lake, p["layer_id"], {"columns": cols, "accept": {"edit": True}}, by)
         mat = L.materialise(app, snap["id"], p["base_version_id"], by, columns=cols, reason=f"proposal {proposal_id}: {p['reason']}"[:300])
-    except L.LabelError as e:
-        with C.db().connect() as con:
-            con.execute("UPDATE label_proposals SET comment = ? WHERE id = ?", (f"{comment or ''} [materialise pending: {e.code}]".strip(), proposal_id))
-        return {"id": proposal_id, "status": "approved", "materialised": False, "reason": e.payload()}
+    except Exception as e:  # noqa: BLE001 — any failure: the approval is undone (LB-FIX C1), then the error is reported
+        err = e.payload() if isinstance(e, L.LabelError) else (e.detail if isinstance(e, HTTPException) else
+                                                                {"code": "approval_failed", "message": f"{type(e).__name__}: {e}"[:300]})
+        _undo_approval(p, proposal_id, by, appended, err)
+        if isinstance(e, L.LabelError):
+            raise HTTPException(e.status, {**e.payload(), "proposal_status": "pending"}) from e
+        if isinstance(e, HTTPException):
+            raise
+        raise
     with C.db().connect() as con:
         con.execute("UPDATE label_proposals SET status = 'applied', applied_version_id = ? WHERE id = ?", (mat.get("version_id"), proposal_id))
     return {"id": proposal_id, "status": "applied", "snapshot_id": snap["id"], "version_id": mat.get("version_id"), "materialise": mat}
+
+
+def _undo_approval(p: dict[str, Any], proposal_id: str, by: str, appended: list[dict[str, Any]], err: Any) -> None:
+    """A failed approval goes back to `pending` with the error in its comment, and the label events it appended are
+    retracted, so the layer is as before the approval and the proposal can be decided again."""
+    ids = [r["id"] for r in appended if r.get("id") and not r.get("already")]
+    if ids:
+        try:
+            C.append(p["layer_id"], [{"row_id": int(c["row_id"]), "column": c["column"], "kind": "retract", "refers_to": eid,
+                                      "source": "edit", "seen_version_id": p["base_version_id"],
+                                      "provenance": {"proposal_id": proposal_id, "undo": "approval_failed"}}
+                                     for c, eid in zip(C.loads(p["cells"], []), ids)], p["proposed_by"])
+        except Exception:  # noqa: BLE001 — best effort; the proposal state below is what matters
+            pass
+    msg = err.get("message") if isinstance(err, dict) else str(err)
+    with C.db().connect() as con:
+        con.execute("UPDATE label_proposals SET status = 'pending', decided_by = NULL, decided_at = NULL, comment = ? WHERE id = ?",
+                    (f"approval failed: {msg}"[:500], proposal_id))
+        C.audit(con, by, "label_proposal_approval_failed", {"proposal_id": proposal_id, "error": err}, object_kind="label_proposal",
+                object_id=proposal_id)
 
 
 # -- migration (L09) ---------------------------------------------------------------------------------------------------------

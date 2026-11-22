@@ -20,7 +20,7 @@ from ..catalog.schema import DEFAULT_TEAM, audit, now
 from . import registry as REG
 from . import rowhash as RH
 from . import rows as ROWS
-from .values import LabelError, canon_json, canon_label
+from .values import LabelError, base_kind, canon_json, canon_label, cast_to_kind
 
 MAX_BATCH = 500
 EVENT_KINDS = ("label", "confirm", "reject", "adjudicate", "retract", "propose", "flag")
@@ -230,7 +230,8 @@ def append_events(db: Any, layer_id: str, events: list[dict[str, Any]], by: str,
         srcs = REG.sources(con)
         sch = current_schema(con, layer_id)
     cols_spec = schema_columns(sch)
-    table_cols = ROWS.column_names(vid, lay["table_name"])
+    table_types = {c["name"]: c.get("type") for c in ROWS.table_of(vid, lay["table_name"]).schema}
+    table_cols = list(table_types)
     norm: list[dict[str, Any]] = []
     for i, e in enumerate(events):
         if not isinstance(e, dict):
@@ -270,6 +271,18 @@ def append_events(db: Any, layer_id: str, events: list[dict[str, Any]], by: str,
             value, is_null = canon_label(None, cols_spec.get(col), column=col)
         else:
             value, is_null = canon_label(e.get("value"), cols_spec.get(col), column=col)
+            # LB-FIX M1: the value must fit the base column's type (a BOOLEAN column takes true/false, yes/no, 1/0; an
+            # integer column integers). Free values are normalised to that type; a class keeps its schema spelling (the
+            # class list is the vocabulary) and is compared and written in the column's type.
+            bk = base_kind(table_types.get(col)) if col in table_types else "text"
+            if bk != "text" and value is not None and not (cols_spec.get(col) or {}).get("multi"):
+                try:
+                    typed = cast_to_kind(value, bk)
+                except (ValueError, TypeError, OverflowError) as ex:
+                    raise LabelError(400, "value_type", f"events[{i}]: {col} is a {table_types.get(col)} column: {ex}.",
+                                     column=col, column_type=table_types.get(col)) from None
+                if (cols_spec.get(col) or {}).get("type") != "class":
+                    value = typed
         if kind in ("confirm", "reject", "retract", "adjudicate") and e.get("refers_to") is not None \
                 and not isinstance(e.get("refers_to"), str):
             raise LabelError(400, "bad_event", f"events[{i}]: refers_to is an event id.")

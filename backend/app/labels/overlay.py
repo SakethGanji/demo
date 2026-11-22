@@ -63,8 +63,11 @@ def _cast(value: str | None, series: Any) -> Any:
 
     if value is None:
         return None
-    if pd.api.types.is_bool_dtype(series.dtype):
-        return value == "true"
+    if pd.api.types.is_bool_dtype(series.dtype) or (series.dtype == object and len(series.dropna())
+                                                     and series.dropna().map(lambda x: isinstance(x, bool)).all()):
+        from .values import cast_to_kind
+
+        return cast_to_kind(value, "bool") == "true"  # LB-FIX M1: "no" / "false" / "0" → False
     if pd.api.types.is_integer_dtype(series.dtype):
         try:
             return int(value)

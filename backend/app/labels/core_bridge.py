@@ -32,18 +32,20 @@ def append(layer_id: str, events: list[dict[str, Any]], actor: str) -> list[dict
         if e.get("id") and e["id"] in have:
             out_by_idx[i] = {"id": e["id"], "seq": None, "already": True}
             continue
-        groups.setdefault((e.get("seen_version_id"), e.get("actor") or actor), []).append(i)
-    for (vid, who), idx in groups.items():
+        ctx = tuple(e["ctx_columns"]) if isinstance(e.get("ctx_columns"), (list, tuple)) else None
+        groups.setdefault((e.get("seen_version_id"), e.get("actor") or actor, ctx), []).append(i)
+    for (vid, who, ctx), idx in groups.items():
         for j in range(0, len(idx), 500):
             part = idx[j:j + 500]
-            evs = [{k: v for k, v in events[i].items() if k not in ("seen_version_id", "schema_version", "created_at", "actor")} for i in part]
+            evs = [{k: v for k, v in events[i].items() if k not in ("seen_version_id", "schema_version", "created_at", "actor", "ctx_columns")} for i in part]
             try:
                 if who != actor:  # an explicit actor (legacy:<name>): outside the request context, so the core keeps it
                     import contextvars
 
-                    res = contextvars.Context().run(L.append_events, db, layer_id, evs, who, version_id=vid)
+                    res = contextvars.Context().run(L.append_events, db, layer_id, evs, who, version_id=vid,
+                                                     ctx_columns=list(ctx) if ctx is not None else None)
                 else:
-                    res = L.append_events(db, layer_id, evs, who, version_id=vid)
+                    res = L.append_events(db, layer_id, evs, who, version_id=vid, ctx_columns=list(ctx) if ctx is not None else None)
             except L.LabelError as e:
                 raise HTTPException(e.status, e.payload()) from e
             for i, r in zip(part, res["events"]):

@@ -99,7 +99,7 @@ async def send_to_task(run_id: str, request: Request, body: Any = Body(None)) ->
 
     b = _b(body)
     r = await run_in_threadpool(LL.get_run, run_id)
-    sel = {"strategy": "llm_low_conf", "n": int(b.get("n") or 500), "version_id": (r["selector"] or {}).get("version_id")}
+    sel = {"strategy": "llm_low_conf", "n": C.as_int(b.get("n"), "n", default=500, lo=1, hi=100_000), "version_id": (r["selector"] or {}).get("version_id")}
     if b.get("tau") is not None:
         sel["below"] = b["tau"]
     out = await run_in_threadpool(T.fill, b.get("task_id"), sel, C.caller(request))
@@ -126,7 +126,7 @@ async def sql_preview(layer_id: str, request: Request, body: Any = Body(None)) -
         with C.db().connect() as con:
             lay = C.layer(con, layer_id)
             C.check_version_of_layer(con, lay, b.get("version_id") or "")
-        res = llm_sql.run(b["version_id"], b.get("query") or "", limit=max(1, min(int(b.get("limit") or 50), llm_sql.PREVIEW_CAP)))
+        res = llm_sql.run(b["version_id"], b.get("query") or "", limit=C.as_int(b.get("limit"), "limit", default=50, lo=1, hi=llm_sql.PREVIEW_CAP, clamp=True))
         with C.db().connect() as con:
             C.audit(con, by, "label_sql_preview", {"layer_id": layer_id, "version_id": b["version_id"], "query_sha256": res["query_sha256"],
                                                    "rows": res["n"], "columns": res["columns"]}, object_kind="label_layer", object_id=layer_id)

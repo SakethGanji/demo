@@ -256,7 +256,7 @@ def request_unmasked(layer_id: str, body: dict[str, Any], by: str) -> dict[str, 
     reason = str(body.get("reason") or "").strip()
     if len(reason) < 5:
         raise HTTPException(400, "reason: why these columns must be sent unmasked (≥ 5 characters).")
-    days = min(int(body.get("days", 30)), 30)
+    days = C.as_int(body.get("days"), "days", default=30, lo=1, hi=30, clamp=True)
     with C.db().connect() as con:
         lay = C.layer(con, layer_id)
         rid = C.new_id("ar_")
@@ -338,9 +338,22 @@ class Plan:
         self.system = self._system()
         self.redactions = 0
 
+    def input_columns(self) -> list[str]:
+        """The columns the model saw: the query's output columns for a SQL input, else the column plan's."""
+        if self.query:
+            return [c for c in (self.spec.get("query_columns") or self.cols["sent"]) if c != "__row_id"]
+        return list(self.cols["sent"]) + list(self.cols["masked"]) + list(self.cols["free_text"])
+
+    def ctx_columns(self) -> list[str]:
+        """The staleness context of an LLM label (LB-FIX m2): the input columns that are columns of the labelled
+        table. A joined or computed query column has no cell in the labelled table, so it cannot be hashed there; the
+        query's sha256 and `query_columns` in the provenance record it instead."""
+        names = set(C.column_kinds(self.version_id, self.table))
+        return sorted({c for c in self.input_columns() if c in names and c != self.column})
+
     def _few_shot(self, con: Any) -> tuple[list[int], list[dict[str, Any]]]:
         fs = self.spec.get("few_shot") or {}
-        per = int(fs.get("per_class", 0))
+        per = C.as_int(fs.get("per_class") if isinstance(fs, dict) else None, "few_shot.per_class", default=0, lo=0, hi=50, clamp=True)
         if per <= 0:
             return [], []
         gold = C.rows(con, "SELECT g.row_id, g.value FROM label_gold g JOIN label_tasks t ON t.id = g.task_id WHERE t.layer_id = ?"
@@ -629,7 +642,7 @@ def start_run(prompt_id: str, purpose: str, body: dict[str, Any], by: str, db_fo
 
     d = _ensure()
     destination = body.get("destination")
-    k = max(1, min(int(body.get("k", 1)), 5))
+    k = C.as_int(body.get("k"), "k", default=1, lo=1, hi=5, clamp=True)
     mode = body.get("mode", "online")
     if mode != "online":
         raise HTTPException(400, {"code": "batch_not_built", "message": "mode batch is not built yet (review M11: needs the batch "
@@ -660,7 +673,7 @@ def start_run(prompt_id: str, purpose: str, body: dict[str, Any], by: str, db_fo
             row_ids = _select(con, plan, selector)
         if len(row_ids) > int(pol.get("max_rows_job") or 100_000):
             raise HTTPException(409, {"code": "too_many_rows", "message": "Over the team's llm_labeling.max_rows_job."})
-        max_usd = float(body.get("max_usd") or 0)
+        max_usd = C.as_num(body.get("max_usd"), "max_usd", default=0)
         if max_usd <= 0:
             raise HTTPException(400, "max_usd: the spend cap of this run (> 0).")
         est = estimate(plan, len(row_ids), k)
@@ -750,12 +763,13 @@ def run_job(ctx) -> dict[str, Any]:
                 cal = latest_calibration(con, prompt, plan.k, plan.mode)
             tau = cal["tau_star"] if cal and cal.get("passed") else None
             evs = []
+            ctx_cols = plan.ctx_columns()
             for row_id, lab in sorted(res["labels"].items()):
                 auto = bool(tau is not None and lab["confidence"] >= tau and not lab["injection"])
                 evs.append({"row_id": row_id, "column": plan.column, "kind": "label", "value": lab["label"], "source": "llm",
                             "confidence": f"{lab['confidence']:.4f}", "seen_version_id": plan.version_id, "task_id": r.get("task_id"),
-                            "schema_version": prompt["schema_version"],
-                            "provenance": {"model": prompt["model"], "prompt_id": prompt["id"], "prompt_sha": prompt["prompt_sha256"],
+                            "schema_version": prompt["schema_version"], "ctx_columns": ctx_cols,
+                            "provenance": {"query_columns": plan.input_columns(), "model": prompt["model"], "prompt_id": prompt["id"], "prompt_sha": prompt["prompt_sha256"],
                                            "prompt_version": prompt["version"], "query_sha256": prompt["spec"].get("query_sha256"),
                                            "few_shot_sha": plan.few_shot_sha, "sample_k": lab["samples"], "llm_run_id": rid,
                                            "destination": r["destination"], "auto_accept": auto, "injection": lab["injection"],
@@ -859,16 +873,21 @@ def preview(prompt_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
     """Synchronous, ≤ 20 rows; sends data, so it goes through the same policy, column guard and budget, and is audited."""
     d = _ensure()
     destination = body.get("destination")
-    n = max(1, min(int(body.get("n", 5)), 20))
+    n = C.as_int(body.get("n"), "n", default=5, lo=1, hi=20, clamp=True)
+    if not isinstance(body.get("version_id"), str) or not body.get("version_id"):
+        raise C.bad("version_id", "is required.")
+    k_prev = C.as_int(body.get("k"), "k", default=1, lo=1, hi=5, clamp=True)
+    max_prev = C.as_num(body.get("max_usd"), "max_usd", default=0.05)
+    row_ids_in = [C.as_row_id(x, f"row_ids[{i}]") for i, x in enumerate(C.as_list(body.get("row_ids"), "row_ids"))]
     with d.connect() as con:
         prompt = get_prompt(con, prompt_id)
         lay = C.layer(con, prompt["layer_id"])
         destination = destination or default_destination((C.team_policy(con, lay.get("team_id")).get("llm_labeling") or {}))
         check_policy(con, lay.get("team_id"), destination)
-        plan = Plan(con, prompt, body["version_id"], int(body.get("k", 1)))
-        ids = body.get("row_ids") or _select(con, plan, {"strategy": "any", "n": n})
+        plan = Plan(con, prompt, body["version_id"], k_prev)
+        ids = row_ids_in or _select(con, plan, {"strategy": "any", "n": n})
     est = estimate(plan, len(ids), plan.k)
-    res = label_rows(plan, [int(i) for i in ids][:n], destination, max_usd=float(body.get("max_usd") or 0.05), keep_messages=n)
+    res = label_rows(plan, [int(i) for i in ids][:n], destination, max_usd=max_prev, keep_messages=n)
     with d.connect() as con:
         C.audit(con, by, "label_llm_preview", {"prompt_id": prompt_id, "rows": len(ids[:n]), "destination": destination,
                                                "columns_sent": plan.cols, "spent_usd": res["spent_usd"]},
@@ -891,7 +910,7 @@ def query_preview(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any
     from . import llm_sql
 
     vid, sql, tmpl = body.get("version_id"), body.get("query") or "", body.get("prompt_template") or body.get("template") or ""
-    limit = max(1, min(int(body.get("limit") or 10), 20))
+    limit = C.as_int(body.get("limit"), "limit", default=10, lo=1, hi=20, clamp=True)
     with C.db().connect() as con:
         lay = C.layer(con, layer_id)
         C.check_version_of_layer(con, lay, vid or "")
@@ -914,7 +933,7 @@ def query_preview(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any
                                 "few_shot": {}}}
         with C.db().connect() as con:
             plan = Plan(con, fake_prompt, vid)
-        r2 = label_rows(plan, [p["row_id"] for p in prompts], destination, max_usd=float(body.get("max_usd") or 0.05))
+        r2 = label_rows(plan, [p["row_id"] for p in prompts], destination, max_usd=C.as_num(body.get("max_usd"), "max_usd", default=0.05))
         out["answers"] = [{"row_id": k, **v} for k, v in r2["labels"].items()]
         out["spent_usd"] = r2["spent_usd"]
         out["system"] = plan.system

@@ -245,3 +245,81 @@ def check_version_of_layer(con: Any, lay: dict[str, Any], version_id: str) -> No
 def split(seed: str, n: int = 1) -> float:
     """A deterministic draw in [0, 1) from a string (splitmix-like via sha256)."""
     return int(hashlib.sha256(seed.encode()).hexdigest()[:13], 16) / float(1 << 52)
+
+
+# -- request validation (LB-FIX M2: a bad body is a 400, never a 500) ----------------------------------------------------
+
+def bad(field: str, message: str) -> HTTPException:
+    return HTTPException(400, {"code": "bad_request", "field": field, "message": f"{field}: {message}"})
+
+
+def as_int(v: Any, field: str, *, default: int | None = None, lo: int | None = None, hi: int | None = None,
+           clamp: bool = False) -> int:
+    """An integer from a request body (bools, floats with a fraction and text that is not an integer → 400)."""
+    if v is None or v == "":
+        if default is None:
+            raise bad(field, "is required (an integer).")
+        v = default
+    if isinstance(v, bool):
+        raise bad(field, "is an integer, not a boolean.")
+    try:
+        if isinstance(v, float):
+            if not v.is_integer():
+                raise ValueError
+            n = int(v)
+        else:
+            n = int(str(v).strip())
+    except (TypeError, ValueError, OverflowError):
+        raise bad(field, f"{str(v)[:40]!r} is not an integer.") from None
+    if lo is not None and n < lo:
+        if not clamp:
+            raise bad(field, f"is at least {lo}.")
+        n = lo
+    if hi is not None and n > hi:
+        if not clamp:
+            raise bad(field, f"is at most {hi}.")
+        n = hi
+    return n
+
+
+def as_share(v: Any, field: str, default: str) -> str:
+    """A fraction in [0, 1] from a request body, kept as text (the tables store it as text)."""
+    v = default if v is None or v == "" else v
+    try:
+        f = float(v) if not isinstance(v, bool) else float("nan")
+    except (TypeError, ValueError):
+        f = float("nan")
+    if not (0.0 <= f <= 1.0):
+        raise bad(field, f"{str(v)[:40]!r} is a number between 0 and 1.")
+    return str(v)
+
+
+def as_list(v: Any, field: str, *, of_dicts: bool = False, required: bool = False) -> list[Any]:
+    if v is None:
+        if required:
+            raise bad(field, "is required (a list).")
+        return []
+    if not isinstance(v, list):
+        raise bad(field, "is a list.")
+    if of_dicts:
+        for i, x in enumerate(v):
+            if not isinstance(x, dict):
+                raise bad(f"{field}[{i}]", "is an object.")
+    return v
+
+
+def as_row_id(v: Any, field: str) -> int:
+    return as_int(v, field, lo=0)
+
+
+def as_num(v: Any, field: str, *, default: float, lo: float = 0.0, hi: float | None = None) -> float:
+    import math
+
+    v = default if v is None or v == "" else v
+    try:
+        f = float(v) if not isinstance(v, bool) else float("nan")
+    except (TypeError, ValueError):
+        f = float("nan")
+    if not math.isfinite(f) or f < lo or (hi is not None and f > hi):
+        raise bad(field, f"{str(v)[:40]!r} is a number ≥ {lo}" + (f" and ≤ {hi}." if hi is not None else "."))
+    return f

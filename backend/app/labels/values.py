@@ -128,3 +128,66 @@ def canon_cell(v: Any) -> str | None:
 
 def canon_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+# -- typed label values (LB-FIX M1) ------------------------------------------------------------------------------------
+
+TRUE_WORDS = {"true", "t", "yes", "y", "1"}
+FALSE_WORDS = {"false", "f", "no", "n", "0"}
+
+
+def base_kind(type_name: str | None) -> str:
+    """bool · integer · number · text: the kind of a version column's type (a lake schema type name)."""
+    t = (type_name or "").upper()
+    if t in ("BOOLEAN", "BOOL"):
+        return "bool"
+    if t in ("BIGINT", "INTEGER", "INT", "SMALLINT", "TINYINT", "HUGEINT", "UBIGINT", "UINTEGER", "USMALLINT", "UTINYINT") \
+            or t.startswith("INT") or t.startswith("UINT"):
+        return "integer"
+    if t in ("DOUBLE", "FLOAT", "REAL") or t.startswith("DECIMAL") or t.startswith("NUMERIC") or t.startswith("FLOAT"):
+        return "number"
+    return "text"
+
+
+def cast_to_kind(text: str, kind: str) -> str:
+    """The canonical text of a label value as the base column's kind would hold it: what `canon_cell` gives for the
+    same value written into that column. ValueError when the value cannot be one of that kind."""
+    if kind == "bool":
+        w = text.strip().lower()
+        if w in TRUE_WORDS:
+            return "true"
+        if w in FALSE_WORDS:
+            return "false"
+        raise ValueError(f"{text[:40]!r} is not a boolean (true/false, yes/no, 1/0)")
+    if kind == "integer":
+        s = _num(text)
+        if "." in s or "e" in s or "inf" in s or "nan" in s:
+            raise ValueError(f"{text[:40]!r} is not an integer")
+        return s
+    if kind == "number":
+        return _num(text)
+    return text
+
+
+def typed_equal(label: str | None, cell: Any) -> bool:
+    """A resolved label's text equals a version cell, compared in the cell's type ("no" equals false on a BOOLEAN
+    column; "3" equals 3.0 on a DOUBLE column)."""
+    c = canon_cell(cell)
+    if label is None or c is None:
+        return label is None and c is None
+    if c == label:
+        return True
+    try:
+        import numpy as np
+
+        if isinstance(cell, np.generic):
+            cell = cell.item()
+    except ImportError:  # pragma: no cover
+        pass
+    kind = "bool" if isinstance(cell, bool) else "integer" if isinstance(cell, int) else "number" if isinstance(cell, float) else None
+    if kind is None:
+        return False
+    try:
+        return cast_to_kind(label, kind) == c
+    except (ValueError, TypeError, OverflowError):
+        return False

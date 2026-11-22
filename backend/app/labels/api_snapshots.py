@@ -70,7 +70,7 @@ async def rows(snapshot_id: str, request: Request, after: int = -1, limit: int =
              dependencies=[require("label.read", path("snapshot_id", "label_snapshot"),
                                    also=[("data.version", path("snapshot_id", "label_snapshot"))])])
 async def materialise(snapshot_id: str, request: Request, body: dict[str, Any] | None = None) -> Any:
-    from .materialise import materialise as m
+    from .materialise_snapshot import materialise as m
 
     b = obj(body)
     return await call(m, request.app, snapshot_id, b.get("version_id"), who(request, b), columns=b.get("columns"),

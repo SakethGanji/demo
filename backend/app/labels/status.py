@@ -16,7 +16,7 @@ from . import rows as ROWS
 from . import rowhash as RH
 from .resolve import resolve
 from .store import _layer_full, current_schema, default_version, schema_columns
-from .values import LabelError, canon_cell
+from .values import LabelError, canon_cell, typed_equal
 
 STATUSES = ("ok", "absorbed", "stale", "base_changed", "conflict", "orphaned")
 
@@ -26,25 +26,34 @@ def judge(salt: str, r: dict[str, Any], row: dict[str, Any] | None, spec_col: di
     if row is None:
         return "orphaned", None
     col = r["column"]
-    if r["status"] == "applied" and not r["is_null"] and canon_cell(row.get(col)) == r["value"]:
-        return "absorbed", None
-    if r["status"] == "applied" and r["is_null"] and row.get(col) is None:
-        return "absorbed", None
+    stale = _stale(salt, r, row, col, stale_on)
+    # Typed comparison (LB-FIX M1): "no" on a BOOLEAN column is absorbed by false.
+    absorbed = r["status"] == "applied" and (
+        (not r["is_null"] and typed_equal(r["value"], row.get(col))) or (bool(r["is_null"]) and row.get(col) is None))
+    if absorbed:
+        # Stale takes precedence (LB-FIX m3): a label whose context changed is stale even when the version holds it.
+        return ("stale", stale) if stale else ("absorbed", None)
     if r.get("base_value_hash") and col in row and RH.cell_hash(salt, row.get(col)) != r["base_value_hash"]:
         return ("conflict" if (spec_col or {}).get("role") == "feature" else "base_changed"), "base_value_changed"
+    if stale:
+        return "stale", stale
+    return "ok", None
+
+
+def _stale(salt: str, r: dict[str, Any], row: dict[str, Any], col: str, stale_on: str) -> str | None:
     if stale_on == "all":
         others = [c for c in row if c not in (col, "__row_id")]
         if r.get("row_hash_all") and RH.row_hash(salt, others, row) != r["row_hash_all"]:
-            return "stale", "row_changed"
-        return "ok", None
+            return "row_changed"
+        return None
     ctx = json.loads(r["ctx_cols"]) if r.get("ctx_cols") else None
     if ctx is None:
         ctx = [c for c in row if c not in (col, "__row_id")]
     if any(c not in row for c in ctx):
-        return "stale", "context_changed"
+        return "context_changed"
     if r.get("row_hash_ctx") and RH.row_hash(salt, ctx, row) != r["row_hash_ctx"]:
-        return "stale", "context_changed"
-    return "ok", None
+        return "context_changed"
+    return None
 
 
 def judged(db: Any, layer_id: str, version_id: str, res: dict[str, Any], stale_on: str = "ctx") -> list[dict[str, Any]]:

@@ -72,7 +72,17 @@ async def append(layer_id: str, request: Request, body: dict[str, Any] | None = 
         evs = [b]  # a single event as the body
     return await call(ST.append_events, request.app.state.db, layer_id, evs, who(request, b),
                       version_id=b.get("version_id"), source=b.get("source") or "human",
-                      ctx_columns=b.get("context_columns"))
+                      ctx_columns=_ctx_cols(b.get("context_columns")))
+
+
+def _ctx_cols(v: Any) -> list[str] | None:
+    if v is None or v == []:
+        return None  # as before: an empty list means every other column of the row
+    if not isinstance(v, list) or not all(isinstance(c, str) for c in v):
+        from fastapi import HTTPException
+
+        raise HTTPException(400, {"code": "bad_request", "message": "context_columns is a list of column names."})
+    return v
 
 
 @router.get("/label-layers/{layer_id}/events", dependencies=[require("label.read", path("layer_id", "label_layer"))])

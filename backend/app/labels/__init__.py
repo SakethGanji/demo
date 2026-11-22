@@ -36,6 +36,6 @@ def get_layer(db, layer_id):
 
 
 def materialise(app, snapshot_id, version_id, by, columns=None, reason=""):
-    from .materialise import materialise as _m
+    from .materialise_snapshot import materialise as _m
 
     return _m(app, snapshot_id, version_id, by, columns=columns, reason=reason)

@@ -35,7 +35,7 @@ def hashes(salt: str, row: dict[str, Any] | None, column: str, ctx: list[str] | 
     if row is None:
         return {"row_hash_ctx": None, "row_hash_all": None, "ctx_cols_sha256": None, "base_value_hash": None}
     others = [c for c in row if c != column and c != "__row_id"]
-    ctx_cols = [c for c in (ctx or others) if c != column and c != "__row_id"]
+    ctx_cols = [c for c in (ctx if ctx is not None else others) if c != column and c != "__row_id"]
     return {"row_hash_ctx": row_hash(salt, ctx_cols, row), "row_hash_all": row_hash(salt, others, row),
             "ctx_cols_sha256": cols_sha(ctx_cols), "base_value_hash": cell_hash(salt, row.get(column)),
             "_ctx": sorted(ctx_cols)}

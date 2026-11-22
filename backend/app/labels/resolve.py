@@ -26,6 +26,10 @@ DEFAULT_POLICY: dict[str, Any] = {
 
 
 def normalise_policy(p: dict[str, Any] | None) -> dict[str, Any]:
+    if p is not None and not isinstance(p, dict):
+        raise LabelError(400, "bad_policy", "policy is an object of policy keys.")
+    if p is not None and p.get("accept") is not None and not isinstance(p.get("accept"), dict):
+        raise LabelError(400, "bad_policy", "policy.accept is an object {source: true|false}.")
     p = dict(p or {})
     bad = [k for k in p if k not in DEFAULT_POLICY and k not in ("reference_run",)]
     if bad:

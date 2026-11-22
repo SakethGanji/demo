@@ -51,8 +51,8 @@ def create_task(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
         sch = C.schema(con, layer_id, body.get("schema_version"))
         if sch is None:
             raise HTTPException(409, {"code": "no_schema", "message": "The layer has no schema version yet: POST …/schemas first."})
-        cols = body.get("columns") or []
-        if not cols:
+        cols = C.as_list(body.get("columns"), "columns")
+        if not cols or not all(isinstance(c, str) for c in cols):
             raise HTTPException(400, "columns: the columns this task labels (at least one).")
         for c in cols:
             if body.get("task_type", "class") == "class" and not C.classes_of(sch["spec_obj"], c):
@@ -64,10 +64,11 @@ def create_task(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
             " created_at, created_by, min_gold_items, guidelines, team_id)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)",
             (tid, layer_id, body.get("name") or "task", body.get("task_type", "class"), body.get("consensus", "majority"),
-             sch["version"], C.canon(cols), C.canon(body.get("context") or []), int(body.get("votes_per_row", 1)),
-             str(body.get("gold_share", "0.05")), str(body.get("blind_share", "0.10")), 1 if body.get("show_prelabel", True) else 0,
-             body.get("review", "disputed"), str(body.get("min_gold_accuracy", "0.80")), int(body.get("lease_seconds", 900)),
-             C.now(), by, int(body.get("min_gold_items", 20)), body.get("guidelines") or sch.get("guidelines") or "",
+             sch["version"], C.canon(cols), C.canon(body.get("context") or []), C.as_int(body.get("votes_per_row"), "votes_per_row", default=1, lo=1, hi=50),
+             C.as_share(body.get("gold_share"), "gold_share", "0.05"), C.as_share(body.get("blind_share"), "blind_share", "0.10"), 1 if body.get("show_prelabel", True) else 0,
+             body.get("review", "disputed"), C.as_share(body.get("min_gold_accuracy"), "min_gold_accuracy", "0.80"),
+             C.as_int(body.get("lease_seconds"), "lease_seconds", default=900, lo=10, hi=7 * 86400),
+             C.now(), by, C.as_int(body.get("min_gold_items"), "min_gold_items", default=20, lo=0, hi=100_000), body.get("guidelines") or sch.get("guidelines") or "",
              lay.get("team_id")))
         C.audit(con, by, "label_task_created", {"task_id": tid, "layer_id": layer_id, "root_id": lay["root_id"],
                                                  "columns": cols, "schema_version": sch["version"]},
@@ -152,7 +153,7 @@ def set_gold(task_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
         t = get_task(con, task_id)
         lay = C.layer(con, t["layer_id"])
         col = body.get("column") or t["columns"][0]
-        items = list(body.get("items") or [])
+        items = list(C.as_list(body.get("items"), "items", of_dicts=True))
         if body.get("from_version"):
             v = body["from_version"]
             C.check_version_of_layer(con, lay, v)
@@ -161,11 +162,12 @@ def set_gold(task_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
             seed = str(body.get("seed", 0))
             cand = sorted((r for r in allr if r["__row_id"] not in taken and r.get(col) is not None),
                           key=lambda r: C.split(f"{seed}:{pool}:{r['__row_id']}"))
-            items = [{"row_id": int(r["__row_id"]), "value": str(r[col])} for r in cand[: int(body.get("n", 20))]]
+            items = [{"row_id": int(r["__row_id"]), "value": str(r[col])} for r in cand[: C.as_int(body.get("n"), "n", default=20, lo=1, hi=100_000)]]
         sch = C.schema(con, t["layer_id"], t["schema_version"])
         classes = C.classes_of(sch["spec_obj"], col) if sch else None
         added = clash = 0
-        for it in items:
+        for i, it in enumerate(items):
+            it["row_id"] = C.as_row_id(it.get("row_id"), f"items[{i}].row_id")
             val = None if it.get("value") is None else str(it["value"])
             if classes and val is not None and val not in classes:
                 raise HTTPException(400, f"Gold value '{val}' is not a class of {col}.")
@@ -202,7 +204,7 @@ def fill(task_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
     strategy = body.get("strategy", "random")
     if strategy not in STRATEGIES:
         raise HTTPException(400, {"code": "bad_strategy", "message": f"strategy is one of {', '.join(STRATEGIES)}.", "strategies": list(STRATEGIES)})
-    n = max(1, min(int(body.get("n", 50)), 10_000))
+    n = C.as_int(body.get("n"), "n", default=50, lo=1, hi=10_000, clamp=True)
     with C.db().connect() as con:
         t = get_task(con, task_id)
         lay = C.layer(con, t["layer_id"])
@@ -224,7 +226,7 @@ def fill(task_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
             ids.sort(key=lambda i: C.split(f"{seed}:{i}"))
             picked = [(int(i), "0") for i in ids[:n]]
         elif strategy == "manual":
-            ids = [int(i) for i in body.get("row_ids") or []]
+            ids = [C.as_row_id(x, f"row_ids[{i}]") for i, x in enumerate(C.as_list(body.get("row_ids"), "row_ids"))]
             picked = [(i, "0") for i in ids if i not in already][:n]
         elif strategy == "gold":
             picked = [(int(r["row_id"]), "1") for r in gold_rows(con, task_id, "qa", col)][:n]
@@ -381,7 +383,7 @@ def _expire(con: Any, task_id: str) -> None:
 
 
 def next_items(task_id: str, pid: str, n: int) -> dict[str, Any]:
-    n = max(1, min(int(n), 100))
+    n = C.as_int(n, "n", default=10, lo=1, hi=100, clamp=True)
     with C.db().connect() as con:
         t = get_task(con, task_id)
         if t["state"] != "open":
@@ -491,7 +493,7 @@ def answer(task_id: str, pid: str, items: list[dict[str, Any]]) -> dict[str, Any
             refers = None
             if kind == "label" and a.get("prelabel_event") and it.get("confirm"):
                 kind, refers = "confirm", a["prelabel_event"]
-            prov = {"ms_spent": int(it.get("ms") or 0), "blind": bool(a["is_blind"] or a["is_gold"] or not t["show_prelabel"]),
+            prov = {"ms_spent": C.as_int(it.get("ms"), "ms", default=0, lo=0, clamp=True), "blind": bool(a["is_blind"] or a["is_gold"] or not t["show_prelabel"]),
                     "gold": bool(a["is_gold"]), "shown_prelabel": bool(a.get("prelabel_event") and t["show_prelabel"]
                                                                        and not a["is_blind"] and not a["is_gold"])}
             if it.get("note"):
@@ -622,7 +624,7 @@ def adjudicate(task_id: str, pid: str, items: list[dict[str, Any]]) -> dict[str,
         evs = []
         for it in items:
             col = it.get("column") or t["columns"][0]
-            k = (int(it["row_id"]), col)
+            k = (C.as_row_id(it.get("row_id"), "row_id"), col)
             if k not in vs or not vs[k]["votes"]:
                 raise HTTPException(404, f"Row {k[0]} has no votes on {col} in this task.")
             if pid in vs[k]["votes"] and not poc:
