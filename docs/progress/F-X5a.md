@@ -29,7 +29,7 @@
 | **J3** full Autopilot on credit-default (12k) | (F-JOBS: 5.6 GB in the pool) | **finished**: profile → baseline → audit → apply → retrain → final, 161 s. Heavy-pool processes at VmHWM ≤ 0.71 GB; the largest process was the fit worker (0.82 GB) |
 | **J4** SIGTERM with the heavy pool busy (2 open 50-shuffle importance requests) | waits as long as the work runs: 43.4 s here, for ever with a hung call (X5: > 3 min, then `kill -9`) | **exits 10.2 s after SIGTERM** with `ENSEMBLE_SHUTDOWN_GRACE_S=10` (default 20 s) |
 | **J6** first edit preview at 10M (new version) | 44.6 s, 3.12 GB in the API (X5: 50.8 s) | **3.5 s, 1.24 GB**; repeat 2.8 s, 1.27 GB. Counts unchanged: matched 10M, changed 1 |
-| batch scoring on the 10M model | (not reached in X5) | Before the fix, a 20k-row batch was **OOM-killed at 12 GB** (training table read whole for PSI and the reason codes' background, `out/batch20k_before_stages.log`). After: **20k rows succeeded at a peak of 1.34 GB** (`out/batch20k_after_stages.log`). 200k rows: scoring and drift done, reason codes for 84,903 adverse rows at ≈ 40 rows/s, peak 2.48 GB in the workerd tree (with a concurrent build); see the note on the 200k batch below |
+| batch scoring on the 10M model | (not reached in X5) | Before the fix, a 20k-row batch was **OOM-killed at 12 GB** (training table read whole for PSI and the reason codes' background, `out/batch20k_before_stages.log`). After: **20k rows succeeded at a peak of 1.34 GB** (`out/batch20k_after_stages.log`). **200k rows succeeded** (scoring, drift, reason codes for 84,903 adverse rows at ≈ 40 rows/s): peak 1.35 GB while it ran alone, 2.48 GB as the largest workerd process while a build ran beside it (`out/batch200k.txt`) |
 | Postgres 16 pass (300k rows, external workerd) | — | upload → train (sampled, budget 20 MB) → register **ready** on the bounded path (`holdout` step, 60,000 holdout rows, peak 1.63 GB) → batch of 5,000 **succeeded** → Model Doctor **200** |
 | small-data regression (12k rows, SQLite) | — | the same run registered on HEAD and on the fix: `holdout`, `holdout_ci`, the confusion matrix, `best_model`, `source.holdout_ci` and `data_sha256` are equal, and `holdout_predictions.csv` is **byte-equal** |
 | edit preview regression | — | 8 op lists (cells, rename → set, set → rename, cast, replace, fill, delete + add rows, add_column): previews are **identical on HEAD and the fix** (`out/peq_*.json`) |
@@ -150,8 +150,6 @@ The 45–51 s first preview was not the re-hash, which costs < 1 s here: profile
 - the join chain on Postgres (the single-table chain was run);
 - S3;
 - 50M rows.
-
-**The 200k batch.** At the time of writing it was in its reason-code stage (≈ 70 % of the adverse rows) and had peaked ≤ 2.48 GB; its final state is in `out/batch200k.txt`.
 
 ## Files
 
