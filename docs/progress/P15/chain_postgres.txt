@@ -1,0 +1,95 @@
+## 0. P14 setup: save the join, a table run and a join run on credit-book
+HTTP 201 jn_955d29e4b6 4a205cc7d5931ee5
+HTTP 201 table run run_04405cf9
+HTTP 201 join run run_3be568e1
+run_04405cf9 succeeded
+run_3be568e1 succeeded
+## 1. POST /runs/{join run}/register → 202; the build's steps
+HTTP 202 mv_cf2b61b3 building
+mv_cf2b61b3 ready
+[('parity', 'done', 'serving frame = training frame (every cell, by __row_id)'), ('clone', 'done', ''), ('refit_full', 'skipped', ''), ('distill', 'skipped', ''), ('infer_limit', 'skipped', ''), ('deploy_copy', 'done', ''), ('measure', 'done', ''), ('hash', 'done', ''), ('mlflow', 'done', '')]
+hashes {'model_sha256': 'e63c4199bb52418c', 'data_sha256': '6fbecdf9e34dc5f4', 'splits_sha256': '51e1f5678523104d', 'data_file': 'join_frame jf_99', 'join': {'id': 'jn_955d29e4b6', 'spec_sha256': '4a205cc7d5931ee50c97bad83c7b2bf912cf8c2423f9cc83bb81bf6d926666ca'}}
+hashes.inputs [('applications', 'credit-book', '1bfe38b901ae'), ('bureau', 'credit-book', 'f4c114a62a3a'), ('payments', 'credit-book', '7608b9f3bd39')]
+## 2. GET /registry/versions/{v}/card → tables, join sha, parity
+HTTP 200 inputs.frame {'kind': 'join_frame', 'id': 'jf_996ec3b611', 'sha256': '6fbecdf9e34dc5f4ba9a7016e3166c74d39f405a8651490681f56422527bb57f', 'frame_sha256': '580444248db84f117555128608853e5a6a4252314af22fd43ea8807ab2cc3b0e', 'rows': 4000}
+inputs.dataset {'root': 'credit-book', 'name': 'Credit book (sample, 3 tables)', 'team': 'tm_default', 'project': 'prj_credit-book'} | version {'dv': 'credit-book', 'v': 1, 'created_by': 'system:samples', 'contract': None, 'certification': None}
+   table applications grain   credit-book rows  4000 sha 1bfe38b901ae… source credit_book_sample.xlsx#applications uploaded_by system:samples
+   table bureau       join:0  credit-book rows  3194 sha f4c114a62a3a… source credit_book_sample.xlsx#bureau uploaded_by system:samples
+   table payments     join:1  credit-book rows 19395 sha 7608b9f3bd39… source credit_book_sample.xlsx#payments uploaded_by system:samples
+join {'id': 'jn_955d29e4b6', 'name': 'apps_full', 'spec_version': 1, 'spec_sha256': '4a205cc7d5931ee50c97bad83c7b2bf912cf8c2423f9cc83bb81bf6d926666ca', 'spec_frozen': True, 'coverage': {'bureau': 0.945, 'payments': 0.924}}
+split {'id': 'spl_da70eaa59cd0', 'key': 'random-stratified__defaulted-883cb8a7', 'sha256': 'e55b2ad49c880c31d78100795df866fe309db689d65d2fc7873e8d1685194e59', 'target': 'defaulted', 'strategy': 'random-stratified'} | pii_features [] | recorded True
+parity ok | serving frame = training frame (every cell, by __row_id); the version's predictions on 800 holdout rows equal
+parity detail: cache True | inputs [('applications', True), ('bureau', True), ('payments', True)] | rows {'training': 4000, 'serving': 4000, 'ids_unmatched': 0} | columns 17 | types_equal True | byte_equal True | predictions {'status': 'ok', 'rows': 800, 'ids_equal': True, 'columns': ['y_pred', 'p_0', 'p_1'], 'max_abs_diff': 0.0, 'labels_equal': True}
+**Data used in development** (input record, frozen at registration)
+
+- Frame: join_frame `jf_996ec3b611`, 4000 rows, SHA-256 `6fbecdf9e34dc5f4ba9a7016e3166c74d39f405a8651490681f56422527bb57f`
+- Dataset: Credit book (sample, 3 tables) (`credit-book`), team tm_default, project prj_credit-book
+- Version: `credit-book` v1 by system:samples, reason “Generated sample · 3 tables (applications, bureau, payments) with keys and relations; 2 classes (~9% default)”; contract none; not certified
+
+| Table | Role | Version | Rows | SHA-256 | Source file | Uploaded by |
+| --- | --- | --- | ---: | --- | --- | --- |
+| applications | grain | `credit-book` | 4000 | `1bfe38b901aecf02…` | credit_book_sample.xlsx#applications | system:samples |
+| bureau | join:0 | `credit-book` | 3194 | `f4c114a62a3a7e4d…` | credit_book_sample.xlsx#bureau | system:samples |
+| payments | join:1 | `credit-book` | 19395 | `7608b9f3bd39b0b4…` | credit_book_sample.xlsx#payments | system:samples |
+
+Join **apps_full** (`jn_955d29e4b6`, spec v1), spec SHA-256 `4a205cc7d5931ee50c97bad83c7b2bf912cf8c2423f9cc83bb81bf6d926666ca`; coverage bureau 94.5%, payments 92.4%.
+Split `spl_da70eaa59cd0` SHA-256 `e55b2ad49c880c31d78100795df866fe309db689d65d2fc7873e8d1685194e59`. PII features: none. Protected columns left out: none.
+
+**Serving parity: ok.** serving frame = training frame (every cell, by __row_id); the version's predictions on 800 holdout rows equal
+## 3. POST /registry/versions/{v}/batches with 3 files → scored
+HTTP 202 batch_292a4dde applications.csv + bureau.csv + payments.csv queued
+batch_292a4dde succeeded
+n_rows 500 | join {'join_name': 'apps_full', 'spec_sha256': '4a205cc7d5931ee50c97bad83c7b2bf912cf8c2423f9cc83bb81bf6d926666ca', 'spec_frozen': True, 'grain': 'applications', 'grain_rows': 500, 'frame_rows': 500, 'rows_equal_grain': True}
+tables {'applications': ('applications.csv', 500, {}), 'bureau': ('bureau.csv', 435, {}), 'payments': ('payments.csv', 2565, {})}
+missing [] | extra ['app_id', 'defaulted'] | predicted {'0': 477, '1': 23} | max_psi 0.062492964864307936
+scored.csv rows 500 columns ['__row_id', 'app_id', 'customer_id'] … ['reason_4_feature', 'reason_4_phi', 'recourse']
+## 4. a batch file without a column, a missing file, an unknown file, a single CSV → 400
+HTTP 400 {'code': 'batch_column_missing', 'message': "bureau.csv (table bureau) has no column 'n_open_accounts': the model's join reads it from bureau as trained (pinned credit-book).", 'table': 'bureau', 'file': 'bureau.csv', 'columns': ['n_open_accounts']}
+HTTP 400 {'code': 'batch_table_missing', 'message': "The model's join reads 3 tables; the batch has no file for bureau. Send one file per input table: applications.csv, bureau.csv, payments.csv.", 'tables': ['bureau'], 'expected': ['applications', 'bureau', 'payments']}
+HTTP 400 {'code': 'batch_table_unknown', 'message': "single.csv: the model's join has no table 'single'. Send one file per input table, named after it: applications.csv, bureau.csv, payments.csv (or one .xlsx with a sheet per table).", 'file': 'single.csv', 'tables': ['applications', 'bureau', 'payments']}
+## 5. GET /registry/versions/{v}/monitoring (join version); retrain proposal
+HTTP 200 monitoring {'schema': 'monitoring/1', 'version_id': 'mv_cf2b61b3', 'label': 'credit-join v1', 'stage': 'None', 'model': 'credit-join', 'run_id': 'run_3be568e1'} | points 1 | alerts ['first_covariate', 'first_score', 'first_performance', 'active', 'latest_labelled', 'unlabelled_since', 'n_points', 'n_labelled']
+HTTP 200 retrain ready False | This model reads the join apps_full (applications, bureau, payments): a window of scored frames is not a version of those tables. Commit the window's tables as a new version of the dataset and train on the same join (POST /runs {dataset_id, join_id: jn_955d29e4b6, label}).
+## 6. GET /registry/versions/{v}/inputs.zip → manifest + spec + hashes, no rows
+HTTP 200 application/zip 3922 bytes
+   files [('manifest.json', 6952), ('hashes.json', 1556), ('contracts.json', 129), ('join_spec.json', 1120), ('README.txt', 584)]
+   manifest ensemble.model_inputs_export/1 credit-join v 1 rows_included False | parity ok
+   hashes {'model_sha256': 'e63c4199bb52418c', 'data_sha256': '6fbecdf9e34dc5f4', 'data_file': 'join_frame jf_99', 'splits_sha256': '51e1f5678523104d', 'join': {'id': 'jn_955d29e4b6', 'spec_sha256': '4a205cc7d5931ee50c97bad83c7b2bf912cf8c2423f9cc83bb81bf6d926666ca'}}
+   hashes.tables [('applications', 'credit-book', '1bfe38b901ae'), ('bureau', 'credit-book', 'f4c114a62a3a'), ('payments', 'credit-book', '7608b9f3bd39')]
+   join_spec ensemble.join/1 applications ['bureau', 'payments']
+   no rows: an app_id of the data in the zip? False | a customer id? False
+## 7. single-table model: register, card, batch, monitoring (unchanged)
+HTTP 202 mv_520b8773 ready
+HTTP 200 parity {'status': 'not_applicable', 'reason': 'single-table model'} | frame {'kind': 'table', 'id': 'credit-book', 'table': 'applications', 'sha256': '1bfe38b901aecf025a5966737c659173b86e90f8d42fffc6baab27721be6837a', 'rows': 4000} | tables [('applications', 'credit-book', '1bfe38b901ae')] | join None
+HTTP 202 batch_28bcafeb succeeded
+n_rows 500 | join None | missing [] | predicted {'0': 485, '1': 15} | max_psi 0.062492964864307936
+HTTP 400 This model reads one table: send one file, not 2.
+HTTP 200 monitoring keys ['alerts', 'baseline', 'challenger', 'config', 'formulas', 'label', 'model', 'points'] | points 1
+HTTP 200 inputs.zip (table model)
+   ['manifest.json', 'hashes.json', 'contracts.json', 'README.txt']
+## 8. approve and promote stay human, four eyes
+HTTP 409 Four-eyes rule: Ana is the registrant, so a second person must decide. (Ana cannot review this version.)
+HTTP 200 approved
+HTTP 200 Staging
+HTTP 409 Four-eyes rule: Ana registered this version (Ana); someone else moves it to Production (policy ENSEMBLE_ALLOW_SELF_PROMOTE is off).
+HTTP 409 Production is blocked while a leak question is open on run_3be568e1: Is 'bureau__score' known at the moment the decision is made? The Doctor flags it (concentrated, 70% of the importance; leakage major); if it is recorded after the outcome the score is a leak. Fix it, or send {"override_reason": "…"} to proceed on the record (audited).
+HTTP 200 Production
+## 8b. a batch on the Production join version (monitoring point 2)
+HTTP 202 batch_4899e4cf succeeded
+HTTP 200 monitoring points [('batch_4899e4cf', '2026-10-31', 500), ('batch_292a4dde', '2026-11-22', 500)]
+HTTP 200 [('batch_scored', 'Ana', None), ('stage_changed', 'Ben', 'Production'), ('stage_changed', 'Ben', 'Staging'), ('approved', 'Ben', None), ('batch_scored', 'Ana', None), ('registered', 'Ana', 'None')]
+## 9. independent check: the batch frame = the training frame's rows 3000–3499; scored = predictor on them
+   batch frame rows 500 = batch grain rows 500: True; __row_id 0…499
+   16 columns compared with the training frame by app_id: mismatched cells 0; dtypes equal True
+   scored.csv 500 rows; max |p(batch) − p(training-frame rows)| = 4.99e-07
+   input record tables = run_inputs join_input rows: True (3 tables)
+## 10. tamper the join cache blob (one byte) → registration refused 409; restored → 202
+cache blob 6fbecdf9e34dc5f4… at blobs/6f/6fbecdf9e34dc5f4ba9a7016e3166c74d39f405a8651490681f56422527bb57f.parquet
+HTTP 409 parity_mismatch | Serving parity failed for run run_3be568e1: the training frame's cache file reads 5a7cf059935c…, the run recorded 6fbecdf9e34d…; the training frame could not be read for the comparison (InvalidInputException). The model was not registered.
+parity mismatch cache {'recorded': '6fbecdf9e34dc5f4ba9a7016e3166c74d39f405a8651490681f56422527bb57f', 'now': '5a7cf059935c404290298ea36eb9db77ea3afb5a3ebc92dd59315d54664dc8bb', 'ok': False}
+HTTP 202 mv_5032d7ec ready
+restored: parity ok ok
+HTTP 200 [('register_refused', 'Ana', 'run', 'run_3be568e1', "the training frame's cache file reads 5a7cf059935c…, the run recorded 6fbecdf9e34d…; the training frame could not be rea")]
+## 10b. tamper the bureau table's blob (a pinned input) → 409 naming it; restored
+bureau blob 3daf3b3902c33230…
+HTTP 409 parity_mismatch | Serving parity failed for run run_3be568e1: input bureau (credit-book) reads 6796b86924af…, pinned f4c114a62a3a…. The model was not registered.
