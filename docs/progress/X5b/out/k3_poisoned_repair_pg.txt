@@ -1,0 +1,34 @@
+-- old code 75fc854
+{"status":"ok","version":"0.4.0","datasets":15,"data_dir":"/
+200 | history credit-default | {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credit-default","description":"","owner":"","
+400 | POST /projects {name:p, by:NUL} | {"detail":"'by' needs at least one letter or digit (names are compared on letters and digits only)."}
+500 | POST /projects {name:NUL, by:Ada} | Internal Server Error
+500 | GET /runs?status=%00 | Internal Server Error
+200 | GET /datasets?project_id=%00 | {"datasets":[{"id":"support-tickets","name":"Support tickets (sample)","filename":"support_tickets_sample.csv","source":"sample","sample":true,"note":"Generated sample · text, 6 classes, planted labe
+500 | history credit-default | Internal Server Error
+500 | history loan-losses | Internal Server Error
+500 | history account-attrition | Internal Server Error
+  history of every dataset:      15 500
+  (15 datasets)
+-- old code restarted
+{"status":"ok","version":"0.4.0","datasets":15,"data_dir":"/
+  history of every dataset:      15 500
+  (15 datasets)
+46|t
+-- same data dir + db, restarted on HEAD (ced8fe7)
+{"status":"ok","version":"0.4.0","datasets":15,"data_dir":"/
+row 46 still holds the NUL escape: true
+  history of every dataset:      15 200
+  (15 datasets)
+verify: {"team_id":"tm_default","ok":true,"rows":47,"legacy_rows":0,"head":"06df8a8fa2011087fb74516bd88fd402d20eb68a0e8eb00539845003640fcd15","anchored":{"audit_heads":47,"checkpoint":{"audit_id":46,"at":"2026-11-22T08:17:59+00:00"}}}
+200 | history credit-default | {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credit-default","description":"","owner":"","
+400 | POST /projects {name:p, by:NUL} | {"detail": {"code": "bad_text", "message": "A text value in the body holds a NUL character."}}
+400 | POST /projects {name:NUL, by:Ada} | {"detail": {"code": "bad_text", "message": "A text value in the body holds a NUL character."}}
+400 | GET /runs?status=%00 | {"detail": {"code": "bad_text", "message": "The query parameter 'status' holds a NUL character."}}
+400 | GET /datasets?project_id=%00 | {"detail": {"code": "bad_text", "message": "The query parameter 'project_id' holds a NUL character."}}
+200 | history credit-default | {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credit-default","description":"","owner":"","
+200 | history loan-losses | {"root_id":"loan-losses","name":"Loan losses (sample)","project":{"id":"prj_loan-losses","name":"Loan losses"},"state":null,"card":{"root_id":"loan-losses","description":"","owner":"","source":"","lab
+200 | history account-attrition | {"root_id":"account-attrition","name":"Account attrition, time to close (sample)","project":{"id":"prj_account-attrition","name":"Account attrition, time to close"},"state":null,"card":{"root_id":"acc
+  history of every dataset:      15 200
+  (15 datasets)
+verify: {"team_id":"tm_default","ok":true,"rows":47,"legacy_rows":0,"head":"06df8a8fa2011087fb74516bd88fd402d20eb68a0e8eb00539845003640fcd15","anchored":{"audit_heads":47,"checkpoint":{"audit_id":46,"at":"2026-11-22T08:17:59+00:00"}}}

@@ -1,0 +1,5 @@
+# X5b J3: scripts/autopilot.py on the SQLite audit API (:8701, embedded worker), credit-default 12k rows (console copy)
+201 {'id': 'ap_f1404adb', ..., 'status': 'queued', 'brief': {'dataset_id': 'credit-default', 'label': 'defaulted', 'requirements': [{'metric': 'roc_auc', 'op': '>=', 'value': 0.5}], 'budget_seconds': 300.0, 'autonomy': 'auto', ...
+  [autopilot credit-default (12k rows), API tree] 166.8 s | peak single process 0.89 GB (/home/user/x5b_wt/backend/.venv/bin/python -m app.engine.wor) | peak tree sum 5.50 GB
+status finished error None steps [('profile', 'done'), ('baseline', 'done'), ('audit', 'done'), ('apply', 'done'), ('retrain', 'done'), ('final', 'done')]
+max VmHWM per process (GB): [0.92, 0.85, 0.74, 0.73, 0.53, 0.31, 0.31, 0.31]

@@ -1,0 +1,9 @@
+  -> 201 {"id": "run_1a7e738e", "status": "queued", "detail": null}
+  [train (budget 300 MB)] 223.3 s | peak single process 2.98 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 6.25 GB
+  run run_1a7e738e succeeded  {'rows_used': None, 'rows_total': None, 'sample_sha256': None, 'frame_estimate_mb': None, 'budget_mb': None} 
+== GET doctor right after the fit 08:52:24
+  [GET /runs/run_1a7e738e/doctor] 383.7 s | peak single process 2.96 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 5.75 GB
+200 [('leakage', 'finding'), ('shift', 'missing'), ('label_noise', 'clear'), ('overfit', 'finding'), ('data_limited', 'missing'), ('underfit', 'clear'), ('latency', 'n/a'), ('weak_slice', 'missing'), ('budget', 'finding'), ('imbalance', 'clear'), ('weak_class', 'clear'), ('cost_tradeoff', 'n/a')] None
+== GET doctor again (cache) 08:58:48
+  [GET /runs/run_1a7e738e/doctor] 0.3 s | peak single process 1.52 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 4.36 GB
+200 [('leakage', 'finding'), ('shift', 'missing'), ('label_noise', 'clear'), ('overfit', 'finding'), ('data_limited', 'missing'), ('underfit', 'clear'), ('latency', 'n/a'), ('weak_slice', 'missing'), ('budget', 'finding'), ('imbalance', 'clear'), ('weak_class', 'clear'), ('cost_tradeoff', 'n/a')] None

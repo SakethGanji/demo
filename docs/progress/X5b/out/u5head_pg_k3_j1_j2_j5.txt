@@ -1,0 +1,31 @@
+## 274a07d, Postgres, audit
+  history of every dataset:      15 200
+  (15 datasets)
+200 | history credit-default | {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credit-default","description":"","owner":"","
+400 | POST /projects {name:p, by:NUL} | {"detail": {"code": "bad_text", "message": "A text value in the body holds a NUL character."}}
+400 | POST /projects {name:NUL, by:Ada} | {"detail": {"code": "bad_text", "message": "A text value in the body holds a NUL character."}}
+400 | GET /runs?status=%00 | {"detail": {"code": "bad_text", "message": "The query parameter 'status' holds a NUL character."}}
+400 | GET /datasets?project_id=%00 | {"detail": {"code": "bad_text", "message": "The query parameter 'project_id' holds a NUL character."}}
+200 | history credit-default | {"root_id":"credit-default","name":"Credit default (sample)","project":{"id":"prj_credit-default","name":"Credit default"},"state":null,"card":{"root_id":"credit-default","description":"","owner":"","
+200 | history loan-losses | {"root_id":"loan-losses","name":"Loan losses (sample)","project":{"id":"prj_loan-losses","name":"Loan losses"},"state":null,"card":{"root_id":"loan-losses","description":"","owner":"","source":"","lab
+200 | history account-attrition | {"root_id":"account-attrition","name":"Account attrition, time to close (sample)","project":{"id":"prj_account-attrition","name":"Account attrition, time to close"},"state":null,"card":{"root_id":"acc
+  history of every dataset:      15 200
+  (15 datasets)
+verify: {"team_id":"tm_default","ok":true,"rows":46,"legacy_rows":0,"head":"d292f3d5e91bf4f391552a716e78d1dd0dc1ec1fef36e4bd55e8
+400 POST /runs {"time_limit":1e400}
+400 POST /runs {"dataset_id": NaN}
+400 POST /runs {"time_limit": Infinity}
+400 POST /runs 1000-deep
+400 POST /admin/lake/sync-s3?dry_run=1 (no bucket)
+{"detail":{"code":"s3_not_configured","message":"No bucket is configured: set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix) and restart."}}
+200 GET /health after
+parent: key customers.cust_id + relation app_cust → 201 ds_18186b9a
+1. preview, add_rows repeating C001 → 200 warnings [('key_invalidated', True, 'not_unique'), ('relation_dropped', True, 'relation_to_not_unique')] needs_acknowledge ['key_invalidated', 'relation_dro
+2. commit, no acknowledge → 400 acknowledge_required acknowledge ['key_invalidated', 'relation_dropped']
+3. commit, acknowledge key_invalidated only → 400 acknowledge_required acknowledge ['relation_dropped']
+4. commit, both acknowledged → 201 ds_f45f261f
+   keys [('customers', [(['cust_id'], 'primary', False)])]
+   relations []
+   manifest ops [{'acknowledged': True, 'name': 'app_cust', 'op': 'relation_dropped', 'why': 'relation_to_not_unique'}]
+  history of every dataset:      22 200
+  (22 datasets)

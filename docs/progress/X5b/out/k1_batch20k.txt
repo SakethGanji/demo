@@ -1,0 +1,22 @@
+  -> {'id': 'batch_8fb400f8', 'version_id': 'mv_f07c0f3b', 'status': 'queued', 'created_at': '2026-11-22T08:42:55+00:00', 'finished_at': None, 'created_by': 'x5', 'filename': 'batch20k.csv', 'n_rows': None
+  [batch batch20k.csv on mv_f07c0f3b] 215.2 s | peak single process 1.41 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 5.03 GB
+  batch batch_8fb400f8 succeeded rows 20000 
+  max VmHWM per process (GB): [3.77, 3.11, 2.9, 1.47, 1.03]
+  -> {'detail': {'code': 'batch_table_unknown', 'message': "batch20k.csv: the model's join has no table 'batch20k'. Send one file per input table, named after it: apps.csv, branches.csv (or one .xlsx with 
+  [batch batch20k.csv on mv_8d0e5cad] 0.3 s | peak single process 1.35 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 3.62 GB
+Traceback (most recent call last):
+  File "/var/tmp/x5b/scale/batchpk.py", line 14, in <module>
+    print("  batch", bid, x.get("status"), "rows", x.get("n_rows"), str(x.get("error") or "")[:300])
+                          ^
+NameError: name 'x' is not defined
+  -> {'detail': {'code': 'batch_table_missing', 'message': "The model's join reads 2 tables; the batch has no file for apps. Send one file per input table: apps.csv, branches.csv.", 'tables': ['apps'], 'ex
+  [batch branches.csv on mv_8d0e5cad] 0.3 s | peak single process 1.35 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 3.62 GB
+Traceback (most recent call last):
+  File "/var/tmp/x5b/scale/batchpk.py", line 14, in <module>
+    print("  batch", bid, x.get("status"), "rows", x.get("n_rows"), str(x.get("error") or "")[:300])
+                          ^
+NameError: name 'x' is not defined
+  -> {'id': 'batch_1d08d049', 'version_id': 'mv_8d0e5cad', 'status': 'queued', 'created_at': '2026-11-22T08:46:40+00:00', 'finished_at': None, 'created_by': 'x5', 'filename': 'apps.csv + branches.csv', 'n_
+  [batch branches.csv on mv_8d0e5cad] 90.4 s | peak single process 1.55 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 5.03 GB
+  batch batch_1d08d049 succeeded rows 20000 
+  max VmHWM per process (GB): [3.77, 3.11, 2.9, 1.55, 1.03]

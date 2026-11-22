@@ -1,0 +1,10 @@
+  [POST /runs request only (API tree)] 8.8 s | peak single process 3.04 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 5.65 GB
+  201 run_431ea4e8 queued
+  [next 45 s (API tree)] 45.2 s | peak single process 1.39 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 3.98 GB
+  API VmHWM now 3.77218 GB
+  cancel 200
+  [POST /runs request only (API tree)] 8.3 s | peak single process 3.03 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 5.63 GB
+  201 run_e6c50f13 queued
+  [next 45 s (API tree)] 45.1 s | peak single process 1.41 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 4.02 GB
+  API VmHWM now 3.77218 GB
+  cancel 200

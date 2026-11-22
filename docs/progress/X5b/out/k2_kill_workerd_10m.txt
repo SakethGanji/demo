@@ -1,0 +1,11 @@
+1. build mv_585b55c7 202 building
+   build process 22566 /home/user/x5b_wt/backend/.venv/bin/python -c from multiproc steps [('holdout', 'done'), ('clone', 'done'), ('refit_full', 'skipped'), ('distill', 'skipped'), ('infer_limit', 'skipped'), ('deploy_copy', 'done'), ('measure', 'running')]
+2. batch beside it batch_e5016fd5
+   batch process [22619]
+3. SIGKILL build process 22566
+   build mv_585b55c7 → failed | The process running this build stopped: pool process 22566 was killed by SIGKILL (the kernel's OOM killer sends it when memory runs out)
+   steps [('refit_full', 'skipped', ''), ('distill', 'skipped', ''), ('infer_limit', 'skipped', ''), ('measure', 'failed', '')]
+4. batch beside it batch_e5016fd5 → succeeded rows 20000 
+5. next build (no restart) mv_3b32758e → ready 
+6. next batch (no restart) batch_b30999e6 → succeeded rows 20000 
+7. health 200 API pid alive True

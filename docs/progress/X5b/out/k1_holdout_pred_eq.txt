@@ -1,0 +1,6 @@
+run_05987ae7: lines 2000001 / 2000001; sorted-equal: yes; byte-equal: yes
+row,y_true,y_pred,p_0,p_1
+6,0,0,0.9966605305671692,0.0033394801430404186
+run_b2d949fb: lines 2000001 / 2000001; sorted-equal: yes; byte-equal: yes
+row,y_true,y_pred,p_0,p_1
+6,0,0,0.701918363571167,0.2980816066265106

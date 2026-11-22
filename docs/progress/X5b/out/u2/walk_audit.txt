@@ -1,0 +1,49 @@
+## 1. Ana · Build › Data: New project, Upload… book.xlsx + bureau.csv → one check, three tables
+shot 01-multi-check
+## 1b. keys on the three tables, both suggested relations declared → Check again
+shot 02-plan-keys-relations
+shot 03-created-tables
+## 2. Ana · Upload a new version… bureau_delta.csv → looks_like_delta → Apply as delta (bureau) → counts → Create v2
+shot 04-looks-like-delta
+shot 05-delta-counts
+shot 06-delta-created
+## 2b. table picker → bureau: diff v1 → v2 of bureau
+shot 07-diff-bureau
+## 3. Ana · Joins: a bad join (payments as a lookup) → 400 one_to_many; then bureau n:1 + payments aggregated → coverage
+shot 08-join-400
+shot 09-join-form
+shot 10-join-coverage
+## 4. build the frame on v2 → preview (masked)
+shot 11-frame-preview
+## 5. train on the join (label defaulted, 60 s)
+## 6. Ana · register the join run → the card: input record, parity ok, inputs.zip
+shot 12-card-inputs-parity
+## 7. batch: three files (applications, bureau, payments) through the saved join
+shot 13-batch-map
+shot 14-batch-join
+## 8. lineage: v1 / v2 → join frame → run → registered version; usage via_join
+shot 15-lineage-frame
+shot 16-usage-join-frame
+## 9. governance as Ana: confirm the PII tags, freeze the contract, ask for certification, ask to share with Collections (masked)
+shot 17-governance-ana
+## 10. governance as Ben (owner): approve the certification and the share (Ana could not: four eyes)
+shot 18-governance-ben
+## 10b. Ana (maintainer) unmasks with a reason: clear values, the read audited
+shot 23-ana-unmasked
+## 11. Carl (Collections): the shared dataset in the catalog, masked rows, Unmask (reason) refused
+shot 19-carl-catalog
+shot 20-carl-masked-greyed
+## 11b. the same, with /authz/check stubbed to a stale "allow" (walk only): the API refuses → still masked, unmasked_refused shown
+shot 21-carl-unmasked-refused
+## 12. Carl trains the shared version into his own project (project_id)
+shot 22-carl-train-shared
+## 13. Settings › Teams: Ana (New team greyed), Ada (members, policy, legal holds)
+shot 24-teams-ana
+shot 25-teams-ada
+## 13b. Ada places a legal hold on the dataset (P24): it then blocks a delete of v1
+shot 26-holds
+shot 27-delete-held
+errors 2 [
+  '[/#/build?view=data&dataset=ds_38bd8bff] Failed to load resource: the server responded with a status of 400 (Bad Request)',
+  '[/#/build?view=data&dataset=ds_38bd8bff] Failed to load resource: the server responded with a status of 409 (Conflict)'
+]

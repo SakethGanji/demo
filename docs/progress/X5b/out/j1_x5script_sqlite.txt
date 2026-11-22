@@ -1,0 +1,3 @@
+parent: key customers.cust_id + relation app_cust → 201 ds_ce3560b4
+edit preview (repeats C001) → 200 {'preview': True, 'v': 4, 'parent': 'ds_ce3560b4', 'rows': 21, 'n_cols': 3, 'sha256': None, 'matched': 20, 'changed': 0, 'added': 1, 'removed': 0, 'columns_before': 3, 'columns_after': 3, 'checks': {'warnings': [{'code': 'key_invalidated', 'table': 'customers', 'columns': ['cust_id'], 'kind': 'prima
+edit commit (no acknowledge) → 400 {'detail': {'code': 'acknowledge_required', 'message': 'After this edit, cust_id is no longer a key of \'customers\' (1 repeated, 0 missing). Its primary key is kept but marked invalid, and later deltas must name their key. Send acknowledge: ["key_invalidated"] to commit it anyway, or change the edi

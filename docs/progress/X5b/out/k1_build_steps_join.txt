@@ -1,0 +1,13 @@
+  parity done 42.9 
+  holdout done 4.5 2,000,000 holdout rows located by __row_id in a 10,000,000-row table; 100,009 held in memory (splitmix64 sample), every row scored in batches
+  clone done 0.6 
+  refit_full skipped 0 
+  distill skipped 0 
+  infer_limit skipped 0 
+  deploy_copy done 1.5 clone_for_deployment(model='best'): only the best model and its dependencies, save_space()
+  measure done 287.4 
+  hash done 0 
+  mlflow done 0 
+ status ready
+  result.parity {"status": "ok", "join_frame_id": "jf_df8f3d56f6", "spec_sha256": "a470b3ea67459cea6703128884c33cd49cc104bf71fce734e3041eabb2948dbf", "method": "frame rebuilt from the pinned inputs with frames.materialise (the serving path), compared with the training frame by __row_id, every cell (IS DISTINCT FROM)", "cache": {"recorded": "fbfc5cd28c87317869f6e96109e6417e2524e75f42c6ee0e2aa1cfb52211dd48", "now": "fbfc5cd28c87317869f6e96109e6417e2524e75f42c6ee0e2aa1cfb52211dd48", "ok": true}, "inputs": [{"table": "apps", "version_id": "ds_9176a787", "pinned": "9b799648d52c32f2e6dd5a950f39512ecdaa887441ede2686
+{'status': 'ok', 'join_frame_id': 'jf_df8f3d56f6', 'serving': {'rows': 10000000, 'sha256': 'fbfc5cd28c87317869f6e96109e6417e2524e75f42c6ee0e2aa1cfb52211dd48', 'seconds': 30.676}, 'training': {'rows': 10000000, 'sha256': 'fbfc5cd28c87317869f6e96109e6417e2524e75f42c6ee0e2aa1cfb52211dd48'}, 'rows': {'training': 10000000, 'serving': 10000000, 'ids_unmatched': 0}, 'columns_compared': 15, 'column_set_equal': True, 'types_equal': True, 'mismatched_cells': {}, 'byte_equal': True, 'summary': 'serving frame = training frame (every cell, by __row_id)', 'checked_at': '2026-11-22T08:37:13Z', 'seconds': 42.887, 'predictions': {'status': 'ok', 'rows': 2000000, 'ids_equal': True, 'columns': ['y_pred', 'p_0', 'p_1'], 'max_abs_diff': 8.326672684688674e-17, 'labels_equal': True, 'method': 'batches of 500,000 holdout rows of the rebuilt frame, read by __row_id'}}

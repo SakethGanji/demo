@@ -1,0 +1,11 @@
+== register run_trainjoin on 274a07d 09:18:01
+  -> 202 {"id": "mv_c9187e1b", "status": "building", "detail": null, "code": null, "parity": null}
+  [register run_b2d949fb (parity)] 314.0 s | peak single process 2.58 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 3.72 GB
+  model mv_c9187e1b ready None parity null
+ status ready | parity ok serving frame = training frame (every cell, by __row_id) | predictions {'status': 'ok', 'rows': 2000000, 'max_abs_diff': 8.326672684688674e-17, 'ids_equal': True}
+== batch 20k on mv_c9187e1b
+  -> {'id': 'batch_6cf5fa1e', 'version_id': 'mv_c9187e1b', 'status': 'queued', 'created_at': '2026-11-22T09:23:16+00:00', 'finished_at': None, 'created_by': 'x5', 'filename': 'apps.csv + branches.csv', 'n_
+  [batch branches.csv on mv_c9187e1b] 58.1 s | peak single process 1.52 GB (/home/user/x5b_ui/backend/.venv/bin/python -c from multiproc) | peak tree sum 2.73 GB
+  batch batch_6cf5fa1e succeeded rows 20000 
+  max VmHWM per process (GB): [2.63, 1.54, 0.25, 0.25, 0.21]
+== end 09:24:13

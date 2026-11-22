@@ -1,0 +1,6 @@
+interactive pool children [14930, 14933] busy 14930 ticks 295
+SIGKILL 14930
+waiting request → (500, "b'Internal Server Error'", 3.0)
+next interactive call → 200 11.3 s
+next build → ready 
+next batch → succeeded 3000

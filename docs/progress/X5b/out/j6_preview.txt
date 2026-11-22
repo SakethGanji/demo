@@ -1,0 +1,6 @@
+  [edit preview] 3.5 s | peak single process 1.57 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 4.38 GB
+200 {'preview': True, 'v': 2, 'parent': 'ds_b484755f', 'rows': 10000000, 'n_cols': 13, 'sha256': None, 'matched': 10000000, 'changed': 1, 'added': 0, 'removed': 0, 'columns_before': 13, 'columns_after': 13, 'checks': {'warnings': [], 'columns_added': [], 'columns_removed': [], 'type_changes': [], 'rows_
+  [edit preview] 2.8 s | peak single process 1.57 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 4.38 GB
+200 {'preview': True, 'v': 2, 'parent': 'ds_b484755f', 'rows': 10000000, 'n_cols': 13, 'sha256': None, 'matched': 10000000, 'changed': 1, 'added': 0, 'removed': 0, 'columns_before': 13, 'columns_after': 13, 'checks': {'warnings': [], 'columns_added': [], 'columns_removed': [], 'type_changes': [], 'rows_
+  [edit preview] 2.8 s | peak single process 1.57 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 4.38 GB
+200 {'preview': True, 'v': 3, 'parent': 'ds_9176a787', 'rows': 10000000, 'n_cols': 13, 'sha256': None, 'matched': 10000000, 'changed': 1, 'added': 0, 'removed': 0, 'columns_before': 13, 'columns_after': 13, 'checks': {'warnings': [], 'columns_added': [], 'columns_removed': [], 'type_changes': [], 'rows_

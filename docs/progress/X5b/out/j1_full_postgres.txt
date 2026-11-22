@@ -1,0 +1,17 @@
+parent: key customers.cust_id + relation app_cust → 201 ds_800bcb4e
+1. preview, add_rows repeating C001 → 200 warnings [('key_invalidated', True, 'not_unique'), ('relation_dropped', True, 'relation_to_not_unique')] needs_acknowledge ['key_invalidated', 'relation_dropped'] would_be_default False
+2. commit, no acknowledge → 400 acknowledge_required acknowledge ['key_invalidated', 'relation_dropped']
+3. commit, acknowledge key_invalidated only → 400 acknowledge_required acknowledge ['relation_dropped']
+4. commit, both acknowledged → 201 ds_3071e38a
+   keys [('customers', [(['cust_id'], 'primary', False)])]
+   relations []
+   manifest ops [{'acknowledged': True, 'name': 'app_cust', 'op': 'relation_dropped', 'why': 'relation_to_not_unique'}]
+   edit warnings [('key_invalidated', True), ('relation_dropped', True)]
+5. control: add_rows with a new cust_id, no acknowledge → 201 ds_8c3ec712
+   relations ['app_cust']
+6. preview, drop the key column → 200 [('column_removed', None), ('key_invalidated', 'column_gone'), ('relation_dropped', 'column_gone')]
+7. commit drop, no acknowledge → 400 {'code': 'acknowledge_required', 'message': '\'customers\' loses its primary key cust_id: the new table has no cust_id. Send acknowledge: ["key_invalidated"] to commit it anyway. Relation app_cust (ap
+8. control: from-side edit adds an orphan (relation kept, orphans counted) → 201 ds_68478932
+   relations [('app_cust', 1)]
+9. PUT key on a repeating column → 400 {'code': 'key_invalid', 'message': "region is not a key of 'customers': 18 repeated value(s), 0 missing.", 'table': 'customers', 'columns': ['region'], 'n_dupli
+10. PUT a second key (unique score) → relation kept 201 ['app_cust']

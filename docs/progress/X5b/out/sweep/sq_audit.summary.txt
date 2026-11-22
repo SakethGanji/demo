@@ -1,0 +1,3 @@
+destructive POST /api/admin/lake/sync-s3: 603 req, total sent 101738 5xx 0 hang 0 (2769s)
+{"sent": 101738, "5xx": 0, "hang": 0, "leak": 0, "err": 0, "by_status": {"200": 10241, "400": 51443, "404": 8083, "422": 24052, "403": 73, "201": 1156, "409": 6254, "405": 11, "202": 425}, "routes_total": 317, "routes_hit": 317, "seconds": 2769}
+done

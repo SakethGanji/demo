@@ -1,0 +1,11 @@
+# X5b K3 extra: NUL / control characters on the paths around the guard, fresh Postgres audit API on ced8fe7 (console copy)
+201 multipart name with \x01 | {"upload_id":"up_109590a7cb71","status":"staged",...}          <- control char (not NUL) in a multipart name: accepted
+400 multipart name/by with NUL | {"detail":{"code":"bad_text","message":"A value in the request cannot be stored (for example a NUL character)."}}
+400 form-urlencoded NUL | {"detail": {"code": "bad_text", "message": "The query parameter 'name' holds a NUL character."}}
+400 actor header with \x01 | Invalid HTTP request received.   (uvicorn/h11 refuses it)
+400 text/plain JSON NUL | {"detail": {"code": "bad_text", ...}}
+400 lone surrogate | {"detail": {"code": "bad_text", "message": "A text value in the body holds an unpaired UTF-16 surrogate."}}
+400 path NUL | {"detail": {"code": "bad_id", "message": "The path holds a NUL character."}}
+  history of every dataset:      15 200
+verify: {"team_id":"tm_default","ok":true,"rows":48,...}
+audit_log rows holding a NUL escape or \x01 in actor: 0 ; tracebacks in the API log: 0

@@ -1,0 +1,11 @@
+  holdout done 8.0 2,000,000 holdout rows located by __row_id in a 10,000,000-row table; 100,009 held in memory (splitmix64 sample), every row scored in batches
+  clone done 1.6 
+  refit_full skipped 0 
+  distill skipped 0 
+  infer_limit skipped 0 
+  deploy_copy done 5.3 clone_for_deployment(model='best'): only the best model and its dependencies, save_space()
+  measure done 473.1 
+  hash done 0 
+  mlflow done 0 
+ status ready
+single-table: parity None scored null

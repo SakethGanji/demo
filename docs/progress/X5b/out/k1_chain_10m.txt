@@ -1,0 +1,33 @@
+== upload 08:15:51
+  [POST /uploads (stream)] 5.4 s | peak single process 0.48 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 1.26 GB
+  [/check] 22.7 s | peak single process 1.23 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 1.97 GB
+  check 200 [('seed10m', 10000000, [('zip', 'VARCHAR'), ('account_no', 'VARCHAR'), ('branch', 'VARCHAR'), ('app_date', 'DATE')])] blocks []
+  [/commit] 16.9 s | peak single process 2.08 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 2.82 GB
+  -> 201 {"version_id": "ds_b484755f", "rows": null, "created": null, "detail": null}
+  [upload+check+commit] 45.3 s | peak single process 2.08 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 2.82 GB
+== multi 08:16:37
+  check 200 [('apps', 'new', 10000000), ('branches', 'new', 10000)] blocks []
+  -> 201 {"version_id": "ds_3b32454f", "rows": null, "created": null, "detail": null}
+  [multi upload (10M + branches) + check + commit] 43.9 s | peak single process 2.11 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 2.85 GB
+  -> 201 {"version_id": "ds_9176a787", "detail": null}
+== join 08:17:21
+  -> 201 {"id": "jn_efa4b307aa", "coverage": null, "detail": null}
+  [frame build 10M] 12.1 s | peak single process 2.61 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 3.35 GB
+  -> 201 {"id": "jf_df8f3d56f6", "rows": null, "coverage": [{"join": 0, "table": "branches", "version_id": "ds_9176a787", "type": "n:1", "on": [["branch", "branch"]], "table_rows": 10000, "grain_rows": 10000000, "matched": 10000000, "coverage": 1.0, "orphans": 0, "missing_key": 0, "key": {"columns": ["branch"], "how": "declared", "unique": true, "repeated": 0}, "columns": ["b__region", "b__branch_risk"]}], "frame_sha256": "215984e0134ca81976db1579b42ebcbe4b16ca9fa7b4575630f717142f68ca90", "detail": null}
+== train 08:17:33
+  -> 201 {"id": "run_05987ae7", "status": "queued", "detail": null}
+  [train (budget 300 MB)] 267.7 s | peak single process 3.46 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 4.45 GB
+  run run_05987ae7 succeeded  {'rows_used': None, 'rows_total': None, 'sample_sha256': None, 'frame_estimate_mb': None, 'budget_mb': None} 
+== trainjoin 08:22:01
+  -> 201 {"id": "run_b2d949fb", "status": "queued", "detail": null}
+  [trainjoin (budget 300 MB)] 315.7 s | peak single process 3.72 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 6.06 GB
+  run run_b2d949fb succeeded  {'rows_used': None, 'rows_total': None, 'sample_sha256': None, 'frame_estimate_mb': None, 'budget_mb': None} 
+== register run_train 08:27:17
+  -> 202 {"id": "mv_f07c0f3b", "status": "building", "detail": null, "code": null, "parity": null}
+  [register run_05987ae7 (parity)] 500.4 s | peak single process 3.09 GB (/home/user/x5b_wt/backend/.venv/bin/python -c from multiproc) | peak tree sum 6.88 GB
+  model mv_f07c0f3b ready None parity null
+== register run_trainjoin 08:35:37
+  -> 202 {"id": "mv_8d0e5cad", "status": "building", "detail": null, "code": null, "parity": null}
+  [register run_b2d949fb (parity)] 396.9 s | peak single process 3.02 GB (/home/user/x5b_wt/backend/.venv/bin/python -m uvicorn app.ma) | peak tree sum 6.38 GB
+  model mv_8d0e5cad ready None parity null
+== end 08:42:14

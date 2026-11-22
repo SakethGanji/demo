@@ -1,0 +1,6 @@
+400 sync-s3 {"detail":{"code":"s3_not_configured","message":"No bucket is configured: set EN
+400 sync-s3?dry_run=0 {"detail":{"code":"s3_not_configured","message":"No bucket is configured: set EN
+200 health
+400 sync-s3 {"detail":{"code":"s3_not_configured","message":"No bucket is configured: set EN
+400 sync-s3?dry_run=0 {"detail":{"code":"s3_not_configured","message":"No bucket is configured: set EN
+200 health
