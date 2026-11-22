@@ -180,9 +180,11 @@ def _sample_available(request: Request, rec: dict[str, Any]) -> bool:
 
 @router.get("/runs/{run_id}/annotations")
 def get_annotations(run_id: str, request: Request, offset: int = 0, limit: int = 30,
-                    include: Literal["queue", "all"] = "queue") -> dict[str, Any]:
+                    include: Literal["queue", "all"] = "queue", by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F14: annotators' agreement and quality, the CROWDLAB consensus, and the disagreement queue (lowest consensus
-    quality first). `summary` (schema annotations/1) is also on the run payload as `annotations.summary` for F17."""
+    quality first). `summary` (schema annotations/1) is also on the run payload as `annotations.summary` for F17.
+    F-PII: the queue items' fields of PII-tagged columns are masked; `unmasked=1&reason=…` (with `by`) shows them,
+    decided as data.read_unmasked and audited."""
     rec = run_or_404(request, run_id)
     cfg = rec["config"]
     run_dir = Path(cfg["run_dir"])
@@ -205,11 +207,38 @@ def get_annotations(run_id: str, request: Request, offset: int = 0, limit: int =
     items, total = an.queue_items(res, data, cfg["label"], _show_cols(cfg, data), offset=max(0, offset),
                                   limit=max(1, min(limit, 500)), include=include)
     truth = an.read_truth(run_dir)
-    return {**out, "summary": res["summary"], "annotators": res["annotators"], "pairwise": res["pairwise"],
+    items, minfo = _mask_items(request, rec, items, data, by, unmasked, reason)
+    return {**out, **minfo, "summary": res["summary"], "annotators": res["annotators"], "pairwise": res["pairwise"],
             "fleiss": res["fleiss"], "probs": {k: v for k, v in res["probs_meta"].items() if k not in ("rows",)},
             "queue": {"items": items, "total": total, "offset": offset, "limit": limit, "include": include},
             "show_columns": _show_cols(cfg, data), "simulated": bool(truth),
             "simulation": {"annotators": truth.get("annotators"), "params": truth.get("params")} if truth else None}
+
+
+def _mask_items(request: Request, rec: dict[str, Any], items: list[dict[str, Any]], data: pd.DataFrame, by: str, unmasked: str,
+                reason: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """F-PII: the queue items with the run input's PII-tagged fields masked (and `given` when the label is tagged), or in
+    clear for an allowed unmasked read (audited as dataset_rows_read, read annotations_queue)."""
+    from ..catalog import governance as G
+    from ..catalog.datasets_api import _mask_err
+    from ..lake import mask as M
+
+    try:
+        who = G.reader(by) if str(unmasked).lower() in M.TRUE else (by or None)
+        m = M.for_run_request(request, rec, unmasked=unmasked, reason=reason, by=who, read="annotations_queue")
+    except M.MaskError as e:
+        raise _mask_err(e) from e
+    if m is None:
+        return items, {}
+    if m.cols:
+        rows = [it["row"] for it in items]
+        raw = {c: [v for v in data[c].iloc[[r for r in rows if r < len(data)]].tolist() if not pd.isna(v)]
+               for c in m.cols if c in data.columns}
+        items = m.scrub(items, raw)
+        label = rec["config"].get("label")
+        if label in m.cols:
+            items = [{**it, "given": m.value(label, it.get("given"))} for it in items]
+    return items, m.info()
 
 
 def _replace(request: Request, rec: dict[str, Any], long: pd.DataFrame, source: str, load: dict[str, Any],

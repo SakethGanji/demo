@@ -149,13 +149,20 @@ def _run(request: Request, run_id: str, done: bool = True) -> dict[str, Any]:
 
 @router.get("/runs/{run_id}/top", dependencies=[require("run.read", path("run_id", "run"))])
 def top(run_id: str, request: Request, contamination: float | None = Query(None, gt=0, lt=0.5),
-        limit: int = Query(100, ge=1, le=1000), by: str = "") -> dict[str, Any]:
+        limit: int = Query(100, ge=1, le=1000), by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """The most anomalous rows with their reasons; with `contamination`, the threshold and the flags at that share
-    (and, for the sample, precision@k against the hidden ground truth). DL3 (m2): a read of rows, audited (needs a name)."""
+    (and, for the sample, precision@k against the hidden ground truth). DL3 (m2): a read of rows, audited (needs a name).
+    F-PII: values of PII-tagged columns (row values, reasons, `why`) are masked; `unmasked=1&reason=…` as on …/rows."""
     from ..catalog import governance as G
+    from ..catalog.datasets_api import _mask_err
+    from ..lake import mask as M
 
-    G.reader(by)
+    who = G.reader(by)
     rec = _run(request, run_id)
+    try:
+        m = M.for_run_request(request, rec, unmasked=unmasked, reason=reason, by=who, read="anomaly_top")
+    except M.MaskError as e:
+        raise _mask_err(e) from e
     G.run_read_audit(request.app, "anomaly_top", run_id, {"limit": limit}, by=by)
     d = Path(rec["config"]["run_dir"])
     a = (rec.get("result") or {}).get("anomaly") or {}
@@ -178,8 +185,11 @@ def top(run_id: str, request: Request, contamination: float | None = Query(None,
     for r in rows:
         v = lab.get(r["row"])
         r["review"] = None if v is None else {"label": v["label"], "by": v["by"], "at": v["at"]}
-    return {"run_id": run_id, "contamination": c, "threshold": thr, "n_flagged": n_flag, "rows": rows[:limit],
-            "truth": check, "n_rows": int(len(s)), "review": review.summary(lab)}
+    out = {"run_id": run_id, "contamination": c, "threshold": thr, "n_flagged": n_flag, "rows": rows[:limit],
+           "truth": check, "n_rows": int(len(s)), "review": review.summary(lab)}
+    if m is None:
+        return out
+    return {**m.scrub(out), **m.info()}
 
 
 # --------------------------------------------------------------------------- review loop (F2)

@@ -316,22 +316,42 @@ def list_shift(run_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/runs/{run_id}/shift/{key}")
-def get_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
+def get_shift(run_id: str, key: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F15: one shift check: status while it runs; then the AUC with its DeLong CI, the permutation and refit nulls,
-    the verdict, the shifting features (importance with CI, PSI), the excluded columns, the weights and the actions."""
+    the verdict, the shifting features (importance with CI, PSI), the excluded columns, the weights and the actions.
+    F-PII: a PII-tagged feature's means / stds (and a cutoff on a masked date) are masked; `unmasked=1&reason=…` (with
+    `by`) shows them, decided as data.read_unmasked and audited."""
     rec = run_or_404(request, run_id)
     if not re.fullmatch(r"[a-z0-9_-]+", key):
         raise HTTPException(400, "Bad key.")
     st = _state(rec, key, request.app.state.runs)
     if not st:
         raise HTTPException(404, f"Run {run_id} has no shift check '{key}'.")
-    return {"run_id": run_id, **_public(st), "summary": sh.summary(st), "actions": actions(request, rec, st)}
+    m = _mask(request, rec, by, unmasked, reason, "shift_check")
+    out = {"run_id": run_id, **_public(st), "summary": sh.summary(st), "actions": actions(request, rec, st)}
+    return out if m is None else {**m.scrub(out), **m.info()}
+
+
+def _mask(request: Request, rec: dict[str, Any], by: str, unmasked: str, reason: str, read: str) -> Any:
+    """F-PII: the run input's mask for this request (None: not a catalog version)."""
+    from ..catalog import governance as G
+    from ..catalog.datasets_api import _mask_err
+    from ..lake import mask as M
+
+    try:
+        who = G.reader(by) if str(unmasked).lower() in M.TRUE else (by or None)
+        return M.for_run_request(request, rec, unmasked=unmasked, reason=reason, by=who, read=read)
+    except M.MaskError as e:
+        raise _mask_err(e) from e
 
 
 @router.get("/runs/{run_id}/shift/{key}/rows", dependencies=[require("run.read", path("run_id", "run"))])
-def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: int = 100000, by: str = "") -> dict[str, Any]:
+def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: int = 100000, by: str = "",
+               unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """Per row: its set, origin o, row number (in the dataset, or in the batch file) and the out-of-fold P(o = 1 | x);
-    reference rows also carry their weight w. Paged. DL3 (m2): audited as a read (needs a name)."""
+    reference rows also carry their weight w. Paged. DL3 (m2): audited as a read (needs a name). F-PII: the page holds
+    no column values; it carries the run input's masking state (`masked_columns`), and `unmasked=1&reason=…` is decided
+    and audited as on the other run pages."""
     from ..catalog import governance as G
 
     G.reader(by)
@@ -341,6 +361,7 @@ def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: 
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
     if not (d / "scores.csv").exists():
         raise HTTPException(404, "No finished shift check with this key.")
+    m = _mask(request, rec, by, unmasked, reason, "shift_rows")
     G.run_read_audit(request.app, "shift_rows", run_id, {"key": key}, by=by)
     sc = frames.read_artifact(d / "scores.csv")
     w = frames.read_artifact(d / "weights.csv")
@@ -349,7 +370,7 @@ def shift_rows(run_id: str, key: str, request: Request, offset: int = 0, limit: 
     page = sc.iloc[offset: offset + limit]
     return {"run_id": run_id, "key": key, "total": len(sc), "offset": offset,
             "rows": [{"set": r.set, "origin": int(r.origin), "row": int(r.row), "p_new_oof": float(r.p_new_oof),
-                      "w": None if pd.isna(r.w) else float(r.w)} for r in page.itertuples()]}
+                      "w": None if pd.isna(r.w) else float(r.w)} for r in page.itertuples()], **(m.info() if m is not None else {})}
 
 
 def start(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str, Any]:

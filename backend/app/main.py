@@ -296,18 +296,39 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                 "splits": store(request).list_splits(dataset_id)}
 
     @app.get("/api/datasets/{dataset_id}/split-options")
-    def split_options(dataset_id: str, request: Request, target: str | None = None) -> dict[str, Any]:
+    def split_options(dataset_id: str, request: Request, target: str | None = None, by: str = "", unmasked: str = "",
+                      reason: str = "") -> dict[str, Any]:
         """F6: the split strategies (random, group, time, time + group), the date and entity columns found, the
-        suggested strategy, and warnings for a random split on data with a date or entity column."""
+        suggested strategy, and warnings for a random split on data with a date or entity column. F-PII: a PII-tagged
+        date column's range (from / to, in the warnings too) is masked; `unmasked=1&reason=…` (with `by`) as on …/rows."""
         rec = dataset_or_404(request, dataset_id)
-        return {"dataset_id": dataset_id, "target": target or rec["target"],
-                **store(request).split_options(dataset_id, target or rec["target"])}
+        out = {"dataset_id": dataset_id, "target": target or rec["target"],
+               **store(request).split_options(dataset_id, target or rec["target"])}
+        return _pii_view(request, dataset_id, out, by, unmasked, reason, "split_options")
+
+    def _pii_view(request: Request, dataset_id: str, out: dict[str, Any], by: str, unmasked: Any, reason: Any, read: str,
+                  extra: dict[str, list[Any]] | None = None) -> dict[str, Any]:
+        """F-PII: a page of values already computed (split options, intake) with PII-tagged values masked
+        (`Mask.scrub`), or in clear for an allowed unmasked read (audited as dataset_rows_read)."""
+        from .catalog import governance as G
+        from .catalog.datasets_api import _mask_err
+        from .lake import mask as M
+
+        try:
+            who = G.reader(by) if str(unmasked).lower() in M.TRUE else (by or None)
+            m = M.for_version_request(request, dataset_id, unmasked=unmasked, reason=reason, by=who, read=read)
+        except M.MaskError as e:
+            raise _mask_err(e) from e
+        if m is None:
+            return out
+        return {**(m.scrub(out, extra) if m.cols else out), **m.info()}
 
     @app.get("/api/datasets/{dataset_id}/intake")
-    def dataset_intake(dataset_id: str, request: Request) -> dict[str, Any]:
+    def dataset_intake(dataset_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
         """G0 Smart Intake: each column's role (target, date, entity, money, ...) with a confidence and its evidence,
-        and what can be built from the table, best first, each with a reason and the pre-fill for its flow."""
-        return _intake(request, dataset_id, None)
+        and what can be built from the table, best first, each with a reason and the pre-fill for its flow.
+        F-PII: values of PII-tagged columns quoted in the evidence and reasons are masked; `unmasked=1&reason=…`."""
+        return _intake(request, dataset_id, None, (by, unmasked, reason))
 
     @app.post("/api/datasets/{dataset_id}/intake", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
     def dataset_intake_edit(dataset_id: str, request: Request, body: dict[str, Any]) -> dict[str, Any]:
@@ -315,9 +336,11 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         roles = (body or {}).get("roles") or {}
         if not isinstance(roles, dict):
             raise HTTPException(400, 'Send {"roles": {"<column>": "<role>"}}.')
-        return _intake(request, dataset_id, roles)
+        b = body or {}
+        return _intake(request, dataset_id, roles, (str(b.get("by") or ""), b.get("unmasked") or "", b.get("reason") or ""))
 
-    def _intake(request: Request, dataset_id: str, roles: dict[str, str] | None) -> dict[str, Any]:
+    def _intake(request: Request, dataset_id: str, roles: dict[str, str] | None,
+                pii: tuple[str, Any, Any] = ("", "", "")) -> dict[str, Any]:
         from .intake import intake
 
         rec = dataset_or_404(request, dataset_id)
@@ -346,6 +369,32 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
                     tgt = p.get("target")
                     p["drop"] = list(dict.fromkeys([*(p.get("drop") or []), *[c for c in drops["columns"] if c != tgt]]))
             out["decision_time_drops"] = drops
+        return _pii_view(request, dataset_id, out, *pii, "intake", extra=_quoted_values(request, dataset_id, df))
+
+    def _quoted_values(request: Request, dataset_id: str, df: Any) -> dict[str, list[Any]]:
+        """F-PII: the values Smart Intake may quote of a PII-tagged column (its top 20, min, max, median), for the scrub."""
+        import pandas as pd
+
+        from .lake import mask as M
+
+        m = M.masked_view(dataset_id)
+        out: dict[str, list[Any]] = {}
+        for c in (m.cols if m is not None else {}):
+            if c not in df.columns:
+                continue
+            s = df[c].dropna()
+            vals = list(s.value_counts().index[:20])
+            if len(s):
+                try:
+                    vals += [s.min(), s.max()]
+                except TypeError:  # mixed types: no order
+                    pass
+                if pd.api.types.is_numeric_dtype(s):
+                    vals.append(float(s.median()))
+            forms: list[Any] = []
+            for v in vals:  # a date as Intake writes it (1999-12-20) as well as stored
+                forms += [v.item() if hasattr(v, "item") else v] + ([v.isoformat()[:10], str(v)] if hasattr(v, "isoformat") else [])
+            out[c] = forms
         return out
 
     def _binary_versions(request: Request, dataset_id: str) -> list[dict[str, Any]]:

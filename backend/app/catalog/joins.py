@@ -184,9 +184,48 @@ def _version(con, version_id: str) -> dict[str, Any]:
     return dict(r)
 
 
-def inputs_for(db, spec: dict[str, Any], version_id: str) -> list[dict[str, Any]]:
-    """[{version_id, root_id, table, table_sha256, lt, role}] in spec order (the grain first). 400 when a table or a
-    pinned version is unknown, 409 when a version is deleted or still CSV-era."""
+def _shares_of_inputs(con, version_id: str, vids: list[str]) -> tuple[str | None, dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """F-PII (P14 → P21): the join's team (the grain version's) and, for every pinned input of another team, the live
+    share to that team covering the version: {vid: {share_id, pii, owner_team, scope}}; the inputs with none."""
+    from . import shares as SH
+
+    g = SH.version_info(con, version_id)
+    team = g.get("team") if g else None
+    got: dict[str, dict[str, Any]] = {}
+    missing: list[dict[str, Any]] = []
+    if not team:
+        return team, got, missing
+    for vid in dict.fromkeys(vids):
+        v = SH.version_info(con, vid)
+        if v is None or not v.get("team") or v["team"] == team:
+            continue
+        s = SH.grant_for_version(con, {team}, vid)
+        if s is None:
+            missing.append({"version_id": vid, "owner_team": v["team"]})
+            continue
+        su = SH.grant_for_version(con, {team}, vid, unmasked=True)
+        s = su or s
+        got[vid] = {"share_id": s["id"], "pii": "unmasked" if su else "masked", "owner_team": v["team"], "scope": s["scope"]}
+    return team, got, missing
+
+
+def _refuse(db, by: str | None, code: str, version_id: str, details: dict[str, Any]) -> None:
+    """F-PII: a refused cross-team input is audited in the joining team's chain (`join_input_refused`; `version_id` is
+    the grain version the join was applied to)."""
+    from . import shares as SH
+
+    with db.connect() as con:
+        team = (SH.version_info(con, version_id) or {}).get("team")
+        S.audit(con, by, "join_input_refused", details={"code": code, "version_id": version_id, **details},
+                object_kind="dataset", object_id=version_id, **({"team_id": team} if team else {}))
+
+
+def inputs_for(db, spec: dict[str, Any], version_id: str, by: str | None = None) -> list[dict[str, Any]]:
+    """[{version_id, root_id, table, table_sha256, lt, role, share?}] in spec order (the grain first). 400 when a table or
+    a pinned version is unknown, 409 when a version is deleted or still CSV-era. F-PII (P14 → P21): a pinned input of
+    another team needs a live share to the joining team that covers that version (`visible_teams`), else 403
+    `input_not_shared` (in every authz mode: a join reads the other team's rows into a frame of this team); the share
+    is named on the input (`share {share_id, pii, owner_team, scope}`)."""
     with db.connect() as con:
         v = _version(con, version_id)
         refs: list[tuple[str, str, str]] = [("grain", version_id, spec["grain"])]
@@ -201,6 +240,13 @@ def inputs_for(db, spec: dict[str, Any], version_id: str) -> list[dict[str, Any]
             t = j["table"]
             if isinstance(t, dict) and t.get("root_id") and rows[t["version_id"]]["root_id"] != t["root_id"]:
                 raise _bad("version_not_in_root", f"joins[{i}]: {t['version_id']} is not a version of {t['root_id']}.")
+        team, shared, missing = _shares_of_inputs(con, version_id, [vid for _, vid, _t in refs[1:] if rows[vid]["state"] != "deleted"])
+    if missing:
+        x = missing[0]
+        _refuse(db, by, "input_not_shared", version_id, {"inputs": missing})
+        raise JoinError(403, "input_not_shared", f"{x['version_id']} belongs to team {x['owner_team']} and no live share to "
+                                                 f"{team} covers it: ask {x['owner_team']} to share it (POST /shares) before joining it.",
+                        version_id=x["version_id"], owner_team=x["owner_team"], team=team, inputs=missing)
     out = []
     for role, vid, tname in refs:
         r = rows[vid]
@@ -218,7 +264,49 @@ def inputs_for(db, spec: dict[str, Any], version_id: str) -> list[dict[str, Any]
             raise _bad("table_unknown", f"{vid} has no table {tname!r} (its tables: {', '.join(names) or 'none'}).",
                        table=tname, version_id=vid)
         out.append({"role": role, "version_id": vid, "root_id": r["root_id"], "table": tname,
-                    "table_sha256": lt.table_sha256, "n_rows": lt.n_rows, "lt": lt})
+                    "table_sha256": lt.table_sha256, "n_rows": lt.n_rows, "lt": lt,
+                    **({"share": shared[vid]} if vid in shared else {})})
+    return out
+
+
+def _used_columns(j: dict[str, Any], jcols: list[str]) -> set[str]:
+    """The columns of a joined table a join reads: its keys, its output columns (every column when none are listed),
+    its aggregates' columns and window dates."""
+    used = {r for _, r in j["on"]}
+    if j["type"] == "aggregate":
+        for a in j["aggs"]:
+            used |= {a["column"]} if a["column"] else set()
+            used |= {a["window"]["date"]} if a.get("window") else set()
+    else:
+        used |= set(j.get("columns") or jcols)
+    return used
+
+
+def pii_check(db, spec: dict[str, Any], ins: list[dict[str, Any]], version_id: str, by: str | None = None) -> list[dict[str, Any]]:
+    """F-PII (P14 → P21): a joined table shared to this team with pii='masked' may not bring its PII-tagged columns
+    (mask ≠ none; suggested tags count) into the frame, nor be joined on one (a match count would tell their values):
+    409 `pii_masked_share` naming the columns. An unmasked share (granted with grant_unmasked) allows them. The frame is
+    never written masked: a frame holds stored values, like any version. Returns what was checked, per shared input."""
+    from ..lake import mask as MK
+
+    out: list[dict[str, Any]] = []
+    for i, j in enumerate(spec["joins"]):
+        inp = ins[i + 1]
+        sh = inp.get("share")
+        if not sh:
+            continue
+        cols = [c["name"] for c in inp["lt"].schema if c["name"] != "__row_id"]
+        tagged = MK.masked_view(inp["version_id"], inp["table"])
+        pii = sorted(set(tagged.cols if tagged is not None else {}) & _used_columns(j, cols))
+        ent = {"join": i, "version_id": inp["version_id"], "table": inp["table"], **sh, "pii_columns": pii}
+        if pii and sh["pii"] != "unmasked":
+            _refuse(db, by, "pii_masked_share", version_id, {"inputs": [ent]})
+            raise JoinError(409, "pii_masked_share",
+                            f"joins[{i}] reads PII-tagged column(s) {', '.join(pii)} of {inp['version_id']} ({inp['table']}), "
+                            f"which is shared to this team masked ({sh['share_id']}): leave them out of `on` / `columns` / "
+                            "`aggs` (list the columns you need), or ask the owner for a share with pii unmasked.",
+                            join=i, columns=pii, share_id=sh["share_id"], version_id=inp["version_id"])
+        out.append(ent)
     return out
 
 
@@ -231,13 +319,13 @@ def _declared_key(db, version_id: str, table: str, cols: list[str]) -> bool:
     return False
 
 
-def validate(db, spec: dict[str, Any], version_id: str) -> dict[str, Any]:
+def validate(db, spec: dict[str, Any], version_id: str, by: str | None = None) -> dict[str, Any]:
     """§5.8: the spec against a concrete version. Columns exist and compare; an n:1 / 1:1 right side is a key (declared,
     else counted now); 1:n without an aggregate → 400; output names don't collide. Returns the inputs and the coverage of
     every joined table (grain rows with at least one match)."""
     from ..lake import duck
 
-    ins = inputs_for(db, spec, version_id)
+    ins = inputs_for(db, spec, version_id, by)
     g = ins[0]["lt"]
     gcols = {c["name"]: c["type"] for c in g.schema}
     q = frames._qi
@@ -277,6 +365,7 @@ def validate(db, spec: dict[str, Any], version_id: str) -> dict[str, Any]:
             for c in j.get("columns") or []:
                 if c not in jcols:
                     raise _bad("column_unknown", f"{where}.columns: table {inp['table']!r} has no column {c!r}.", join=i, column=c)
+    shared = pii_check(db, spec, ins, version_id, by)  # F-PII: after the column checks (an unknown column is a 400 first)
     # output names
     seen: dict[str, str] = {}
     for name, origin, _src in frames.join_output_columns(spec, [x["lt"] for x in ins]):
@@ -336,7 +425,7 @@ def validate(db, spec: dict[str, Any], version_id: str) -> dict[str, Any]:
     return {"version_id": version_id, "grain": spec["grain"], "grain_rows": g.n_rows,
             "inputs": [{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")} for x in ins],
             "coverage": report, "columns": [{"name": n, "from": o} for n, o, _ in cols], "n_columns": len(cols),
-            "_inputs": ins}
+            **({"shared_inputs": shared} if shared else {}), "_inputs": ins}
 
 
 def public(rep: dict[str, Any]) -> dict[str, Any]:
@@ -392,7 +481,7 @@ def save(db, root_id: str, name: str, spec: Any, by: str, version_id: str | None
     norm = normalise(spec)
     vid = version_id or _latest_version(db, root_id, root.get("default_version_id"))
     version_of_root(db, root_id, vid)
-    rep = validate(db, norm, vid)
+    rep = validate(db, norm, vid, by)
     sha = spec_sha256(norm)
     with db.connect() as con:
         same = con.execute("SELECT * FROM joins WHERE root_id = ? AND spec_sha256 = ? AND state = 'active'"
@@ -471,7 +560,7 @@ def frame(db, store: Any, join_id: str, version_id: str, by: str) -> dict[str, A
     j = get(db, join_id)
     version_of_root(db, j["root_id"], version_id)
     spec = j["spec"]
-    rep = validate(db, spec, version_id)
+    rep = validate(db, spec, version_id, by)  # F-PII: a revoked share refuses here, the cached frame too
     ins = rep.pop("_inputs")
     fsha = frame_sha256(j["spec_sha256"], ins)
     with db.connect() as con:
@@ -494,7 +583,8 @@ def frame(db, store: Any, join_id: str, version_id: str, by: str) -> dict[str, A
     finally:
         if hasattr(store, "remove_tmp"):
             store.remove_tmp(tmp)
-    pinned = [{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")} for x in ins]
+    pinned = [{**{k: x[k] for k in ("role", "version_id", "root_id", "table", "table_sha256", "n_rows")},
+               **({"share_id": x["share"]["share_id"], "share_pii": x["share"]["pii"]} if x.get("share") else {})} for x in ins]
     with db.connect() as con:
         con.execute("INSERT INTO blobs (sha256, key, kind, bytes, n_rows, state, created_at) VALUES (?, ?, 'join_cache', ?, ?, 'live', ?)"
                     " ON CONFLICT (sha256) DO UPDATE SET state = 'live' WHERE state IN ('pending', 'live')",

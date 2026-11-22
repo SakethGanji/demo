@@ -49,8 +49,15 @@ DEFAULT_MASK = {"pii_direct": "redact", "pii_quasi": "bucket", "sensitive": "red
 DOTS = "•••"
 #: in `Mask.scrub`, the keys that hold a value of the column named by the same dict's column / feature / name
 #: keys `Mask.scrub` leaves alone: what a response says about masking itself
-META_KEYS = ("masks", "masked_columns", "unmasked_refused", "tags", "pending_review", "pii_features")
-PAIR_KEYS = ("value", "a", "b", "example", "values", "top", "key", "old", "new", "from", "to", "lo", "hi")
+META_KEYS = ("masks", "masked_columns", "unmasked_refused", "tags", "pending_review", "pii_features",
+             "kinds", "types", "column_types", "roles")  # F-PII: column → kind / type / role maps hold no values
+PAIR_KEYS = ("value", "a", "b", "example", "values", "top", "key", "old", "new", "from", "to", "lo", "hi", "min", "max", "edges")
+#: F-PII: statistics of a masked column that a report quotes (anomaly reasons' median, a shift check's means): nulled,
+#: as `stats` nulls a masked column's number stats
+STAT_KEYS = ("median", "mean", "std", "mean_expected", "mean_actual", "std_expected", "std_actual", "q1", "q3", "p25", "p75")
+#: the keys that name the column a dict is about (`col` before `name`: a Feature Lab transform {name, op, col, edges})
+COLUMN_KEYS = ("column", "feature", "col", "name")
+TRUE = ("1", "true", "yes")
 SAMPLE = 200
 
 
@@ -255,7 +262,7 @@ class Mask:
             if not _missing(v) and isinstance(v, (str, int, float)) and not isinstance(v, bool):
                 forms = {_text(v)}
                 if isinstance(v, (int, float)) and math.isfinite(v):  # as reports format numbers: 1,234,567 · 1234.5
-                    forms |= {f"{v:,.0f}", f"{v:,}", f"{v:.0f}", f"{v:.1f}", f"{v:.3g}", f"{v:,.2f}"}
+                    forms |= {f"{v:,.0f}", f"{v:,}", f"{v:.0f}", f"{v:.1f}", f"{v:.3g}", f"{v:,.2f}", f"{v:g}", f"{v:,.4g}"}
                 for s in forms:
                     if len(s) >= 3:
                         seen[s] = str(m)
@@ -269,7 +276,7 @@ class Mask:
         def walk(o: Any, ctx: str | None = None) -> Any:
             """`ctx`: the masked column an enclosing dict names ({column: dob, bins: [{from, to}]})."""
             if isinstance(o, dict):
-                own = next((o[k] for k in ("column", "feature", "name") if isinstance(o.get(k), str)), None)
+                own = next((o[k] for k in COLUMN_KEYS if isinstance(o.get(k), str)), None)
                 ref = own if own in self.cols else (ctx if own is None else None)
                 out = {}
                 cols = o.get("columns")
@@ -282,6 +289,8 @@ class Mask:
                         out[k] = v
                     elif k in self.cols and not isinstance(v, (dict, list)):
                         out[k] = note(k, v)
+                    elif ref is not None and k in STAT_KEYS and not isinstance(v, (dict, list)):
+                        out[k] = None
                     elif ref is not None and k in PAIR_KEYS and not isinstance(v, (dict, list)):
                         out[k] = note(ref, v)
                     elif ref is not None and k in PAIR_KEYS and isinstance(v, list):
@@ -457,9 +466,9 @@ def masked_view(version_id: str, table: str | None = None) -> Mask | None:
             return None
 
 
-def for_run(cfg_or_rec: dict[str, Any]) -> Mask | None:
-    """The masked view of a run's input table, for run pages (holdout rows, slices, SHAP row, Model Doctor). None when
-    the run's input is not a catalog version (an old run on a path, a join frame)."""
+def run_ref(cfg_or_rec: dict[str, Any]) -> tuple[str, str | None] | None:
+    """(version id, table or None for the primary) of a run's input, or None when it is not a catalog version (an old
+    run on a path, a join frame)."""
     cfg = cfg_or_rec.get("config") if isinstance(cfg_or_rec.get("config"), dict) else cfg_or_rec
     from .. import frames
 
@@ -470,7 +479,70 @@ def for_run(cfg_or_rec: dict[str, Any]) -> Mask | None:
     vid = ref.version_id if isinstance(ref, frames.Table) else cfg.get("dataset_id") or cfg_or_rec.get("dataset_id")
     if not vid:
         return None
-    return masked_view(str(vid), ref.table if isinstance(ref, frames.Table) and ref.table != frames.PRIMARY_TABLE else None)
+    return str(vid), ref.table if isinstance(ref, frames.Table) and ref.table != frames.PRIMARY_TABLE else None
+
+
+def for_run(cfg_or_rec: dict[str, Any]) -> Mask | None:
+    """The masked view of a run's input table, for run pages (holdout rows, slices, SHAP row, Model Doctor). None when
+    the run's input is not a catalog version (an old run on a path, a join frame)."""
+    ref = run_ref(cfg_or_rec)
+    return None if ref is None else masked_view(*ref)
+
+
+def for_run_request(request: Any, cfg_or_rec: dict[str, Any], *, unmasked: Any = False, reason: str | None = None,
+                    by: str | None = None, read: str = "run_rows") -> Mask | None:
+    """F-PII: `for_request` for a page of a run's rows (anomaly top rows, shift rows, the active-learning queue,
+    annotations): masked by default; `unmasked=1&reason=…` is decided as data.read_unmasked on the run's input version
+    and audited as dataset_rows_read (`read` names the page). None when the input is not a catalog version."""
+    ref = run_ref(cfg_or_rec)
+    if ref is None:
+        return None
+    if str(unmasked).lower() in TRUE:
+        return for_request(request, ref[0], ref[1], unmasked=unmasked, reason=reason, by=by, read=read)
+    return masked_view(*ref)
+
+
+def for_version_request(request: Any, version_id: str, table: str | None = None, *, unmasked: Any = False,
+                        reason: str | None = None, by: str | None = None, read: str = "rows") -> Mask | None:
+    """F-PII: `for_request` for pages that render values already computed (split options, intake, Feature Lab): the
+    masked view (falling back to the stored tags) unless an unmasked read is asked for and allowed."""
+    if str(unmasked).lower() in TRUE:
+        return for_request(request, version_id, table, unmasked=unmasked, reason=reason, by=by, read=read)
+    return masked_view(version_id, table)
+
+
+def raw_values(m: Mask | None, version_id: str, rows: list[int], table: str | None = None, limit: int = 2000, *,
+               by_row_id: bool = False) -> dict[str, list[Any]]:
+    """F-PII: the stored values of `m`'s masked columns at `rows` (read positions; `__row_id`s with `by_row_id`, as the
+    active-learning queue names them), so `Mask.scrub` can also replace them inside free text (an item's joined text).
+    Empty when nothing is masked or the version can't be read."""
+    if m is None or not m.cols or not rows:
+        return {}
+    from .. import frames
+
+    try:
+        want = sorted({int(r) for r in rows if r is not None and int(r) >= 0})[:limit]
+        df = frames.read(frames.Table(version_id, table or frames.PRIMARY_TABLE), list(m.cols))
+        if by_row_id:
+            df = df.loc[df.index.intersection(want)]
+        else:
+            df = df.reset_index(drop=True)
+            df = df.iloc[[r for r in want if r < len(df)]]
+        return {c: [v for v in df[c].tolist() if not _missing(v)] for c in m.cols if c in df.columns}
+    except Exception:  # noqa: BLE001 - a net
+        return {}
+
+
+def audit_text(con: Any, team_id: str | None, text: Any) -> dict[str, Any] | None:
+    """F-PII: search text kept in an audit row (dataset_read `q`): never the text itself, which may be a person's name or
+    an SSN, but its salted hash (the team's salt, as the `hash` mask: an investigator who knows a value can check it) and
+    its length."""
+    t = str(text or "")
+    if not t.strip():
+        return None
+    from ..catalog.schema import DEFAULT_TEAM
+
+    return {"hash": mask_value(t, "hash", team_salt(con, team_id or DEFAULT_TEAM)), "len": len(t), "redacted": True}
 
 
 def _reason_ok(reason: str | None) -> str:
@@ -487,7 +559,7 @@ def for_request(request: Any, version_id: str, table: str | None = None, *, unma
     `data.read_unmasked` (or `data.export_unmasked`), and the read is audited as `dataset_rows_read`. Without it (or
     when it is not allowed) the masked view."""
     m = for_version(version_id, table)
-    if str(unmasked).lower() not in ("1", "true", "yes"):
+    if str(unmasked).lower() not in TRUE:
         return m
     why = _reason_ok(reason)
     if not m.cols:  # nothing to unmask: the plain view, no unmasked read happened

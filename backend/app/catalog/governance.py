@@ -200,8 +200,13 @@ def read_audit(db: Any, what: str, dataset_id: str, details: dict[str, Any] | No
     key = identity_key(who)
     since = (datetime.now(timezone.utc) - timedelta(seconds=READ_AUDIT_DEDUPE_S)).isoformat(timespec="seconds")
     with db.connect() as con:
-        r = con.execute("SELECT root_id FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        r = con.execute("SELECT d.root_id, COALESCE(d.team_id, p.team_id) FROM datasets d LEFT JOIN projects p ON p.id = d.project_id"
+                        " WHERE d.id = ?", (dataset_id,)).fetchone()
         root = (r[0] if r else None) or dataset_id
+        if details and details.get("q"):  # F-PII: search text may be a name or an SSN: kept as a salted hash, never as typed
+            from ..lake.mask import audit_text
+
+            details = {**details, "q": audit_text(con, r[1] if r else None, details["q"])}
         if con.execute("SELECT 1 FROM audit_log WHERE action = 'dataset_read' AND ts >= ? AND json_extract(details, '$.actor_key') = ?"
                        " AND json_extract(details, '$.dataset_id') = ? AND json_extract(details, '$.read') = ? LIMIT 1",
                        (since, key, dataset_id, what)).fetchone():

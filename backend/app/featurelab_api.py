@@ -39,12 +39,25 @@ def list_feature_lab(dataset_id: str, request: Request) -> dict[str, Any]:
 
 
 @router.get("/datasets/{dataset_id}/feature-lab/{job_id}")
-def get_feature_lab(dataset_id: str, job_id: str, request: Request) -> dict[str, Any]:
+def get_feature_lab(dataset_id: str, job_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
+    """A Feature Lab job (its journal while it runs, then the result). F-PII: values of PII-tagged columns in it (a bin's
+    edges, statistics) are masked; `unmasked=1&reason=…` (with `by`) shows them, decided as data.read_unmasked and audited."""
+    from .catalog import governance as G
+    from .catalog.datasets_api import _mask_err
+    from .lake import mask as M
+
     dataset_or_404(request, dataset_id)
     j = fl.read_job(request.app.state.datasets.dir(dataset_id), job_id)
     if not j:
         raise HTTPException(404, f"No Feature Lab job '{job_id}' on {dataset_id}.")
-    return j
+    try:
+        who = G.reader(by) if str(unmasked).lower() in M.TRUE else (by or None)
+        m = M.for_version_request(request, dataset_id, unmasked=unmasked, reason=reason, by=who, read="feature_lab")
+    except M.MaskError as e:
+        raise _mask_err(e) from e
+    if m is None:
+        return j
+    return {**(m.scrub(j) if m.cols else j), **m.info()}
 
 
 def _check_request(dataset_id: str, rec: dict[str, Any], body: dict[str, Any]) -> dict[str, Any]:

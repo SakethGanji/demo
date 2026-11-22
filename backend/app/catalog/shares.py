@@ -346,12 +346,21 @@ def revoke_share(db: Any, sid: str, by: str, reason: str) -> dict[str, Any]:
 
 
 def runs_on(con: Any, s: dict[str, Any]) -> list[dict[str, Any]]:
-    """Runs of the grantee team that trained on the shared object (they keep their pinned inputs after a revoke)."""
+    """Runs of the grantee team that trained on the shared object (they keep their pinned inputs after a revoke).
+    F-PII: also the grantee's runs on a join frame that read a version of it (`run_inputs` role join_input, `via_join`)."""
     col = "COALESCE(d.root_id, d.id)" if s["object_kind"] == "dataset" else "d.project_id"
     rows = con.execute("SELECT r.id, r.status, r.dataset_id, r.project_id FROM runs r JOIN datasets d ON d.id = r.dataset_id"
                        f" LEFT JOIN projects p ON p.id = r.project_id WHERE {col} = ? AND COALESCE(r.team_id, p.team_id) = ?"
                        " ORDER BY r.created_at", (s["object_id"], s["grantee_team"]))
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    seen = {r["id"] for r in out}
+    for r in con.execute("SELECT DISTINCT r.id, r.status, r.dataset_id, r.project_id, r.created_at FROM run_inputs i"
+                         " JOIN runs r ON r.id = i.run_id JOIN datasets d ON d.id = i.version_id"
+                         f" LEFT JOIN projects p ON p.id = r.project_id WHERE i.role = 'join_input' AND {col} = ?"
+                         " AND COALESCE(r.team_id, p.team_id) = ? ORDER BY r.created_at", (s["object_id"], s["grantee_team"])):
+        if r["id"] not in seen:
+            out.append({k: r[k] for k in ("id", "status", "dataset_id", "project_id")} | {"via_join": True})
+    return out
 
 
 # --------------------------------------------------------------------------- routes

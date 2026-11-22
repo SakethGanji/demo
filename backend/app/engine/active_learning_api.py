@@ -121,15 +121,40 @@ def _view(rec: dict[str, Any], st: dict[str, Any], answers: dict[str, Any]) -> d
 
 
 @router.get("/runs/{run_id}/active-learning")
-def get_active_learning(run_id: str, request: Request) -> dict[str, Any]:
+def get_active_learning(run_id: str, request: Request, by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
     """F13: the labelling queue (items with their answers), the score per round against labels used, and the simulated
     active-vs-random comparison with its summary (`summary`, schema active_learning/1). Status 'none' with the defaults
-    when none was started."""
+    when none was started. F-PII: the items' features and text of PII-tagged columns are masked; `unmasked=1&reason=…`
+    (with `by`) shows them, decided as data.read_unmasked and audited."""
     rec = run_or_404(request, run_id)
     st = _state(rec, request.app.state.runs)
     if not st:
         return {"run_id": run_id, "status": "none", "defaults": defaults(rec)}
-    return {"run_id": run_id, **_view(rec, st, al.read_answers(Path(rec["config"]["run_dir"]))), "defaults": defaults(rec)}
+    out = {"run_id": run_id, **_view(rec, st, al.read_answers(Path(rec["config"]["run_dir"]))), "defaults": defaults(rec)}
+    return _masked(request, rec, out, [it.get("row") for it in (out.get("queue") or {}).get("queue") or []],
+                   by, unmasked, reason, "active_learning_queue", by_row_id=True)
+
+
+def _masked(request: Request, rec: dict[str, Any], out: dict[str, Any], rows: list[Any], by: str, unmasked: str, reason: str,
+            read: str, by_row_id: bool = False) -> dict[str, Any]:
+    """F-PII: `out` with the run input's PII-tagged values masked (`Mask.scrub`, plus the items' stored values so a
+    joined text is masked too), or in clear for an allowed unmasked read (audited)."""
+    from ..catalog import governance as G
+    from ..catalog.datasets_api import _mask_err
+    from ..lake import mask as M
+
+    try:
+        who = G.reader(by) if str(unmasked).lower() in M.TRUE else (by or None)
+        m = M.for_run_request(request, rec, unmasked=unmasked, reason=reason, by=who, read=read)
+    except M.MaskError as e:
+        raise _mask_err(e) from e
+    if m is None:
+        return out
+    if m.cols:
+        ref = M.run_ref(rec)
+        out = m.scrub(out, M.raw_values(m, ref[0], [r for r in rows if isinstance(r, int)], ref[1], by_row_id=by_row_id)
+                      if ref else None)
+    return {**out, **m.info()}
 
 
 def _enqueue(request: Request, rec: dict[str, Any]) -> None:
