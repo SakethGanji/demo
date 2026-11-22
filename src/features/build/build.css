@@ -76,3 +76,5 @@
 .feature-lab tr.fl-kept td { background: var(--status-success-bg); }
 .feature-lab tr.fl-skipped td { color: var(--text-muted); }
 .feature-lab .chip.ok { border-color: var(--status-success); color: var(--status-success); }
+.sql-src .th-kind, .sql-preview .th-kind { display: block; font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-muted); }
+.sql-src .callout { margin: 0; }
