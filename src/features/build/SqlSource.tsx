@@ -6,6 +6,8 @@ import { catalog, type Project } from '@/shared/api/catalog'
 import { ApiError } from '@/shared/api/client'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { useTeam } from '@/shared/lib/team'
+import { ChangeBar, CopyId, Why } from '@/shared/components/DataKit'
+import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 
 const fail = { color: 'var(--status-danger)' } as const
 
@@ -72,7 +74,7 @@ export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }
           {!projects?.length && <option value="">{projects ? `no project in ${team?.name ?? 'your team'} yet: create one in Build › Data` : 'reading projects…'}</option>}
           {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
       </div>
-      {project && can && !can.allow && <span className="helper" style={{ fontSize: 12 }} data-testid="sql-why">{why(can)}</span>}
+      {project && can && !can.allow && <Why testId="sql-why">{why(can)}</Why>}
       <input className="input mono" value={url} onChange={(e) => { setUrl(e.target.value); setTables(null) }} placeholder="sqlite:///file.sqlite · postgresql://user@host/db" aria-label="Connection URL" data-testid="sql-url" spellCheck={false} />
       <div className="row" style={{ gap: 6 }}>
         <input className="input" style={{ flex: 1 }} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="password, if any · never stored" aria-label="Password (this session only)" title="Sent with each request for this session only; never stored" autoComplete="off" data-testid="sql-password" />
@@ -90,12 +92,12 @@ export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }
         </div>
       </details>
       <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
-        {busy && <span className="helper" style={{ fontSize: 12, marginRight: 'auto' }}>{busy}</span>}
+        {busy && <span className="helper row" style={{ fontSize: 12, marginRight: 'auto', gap: 8 }}><ResonanceWave /> {busy}</span>}
         <button className="btn sm" onClick={run} disabled={!!busy || !url || !query.trim() || off} title={why(can)} data-testid="sql-preview">Preview</button>
         <button className="btn sm primary" onClick={load} disabled={!!busy || !url || !query.trim() || off} title={why(can)} data-testid="sql-load">Load as dataset →</button>
       </div>
       {preview && <PreviewTable p={preview} />}
-      {(err || demo.err) && <p className="helper" role="alert" style={fail} data-testid="sql-err">✕ {err || demo.err}</p>}
+      {(err || demo.err) && <div className="callout danger" role="alert" data-testid="sql-err"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body"><div className="callout-title">The source was refused</div>{err || demo.err}</div></div>}
       <p className="helper" style={{ fontSize: 11.5, margin: 0 }}>Read-only: one SELECT, on a read-only connection, at most {limit.toLocaleString()} rows. The password is used for this session only and never stored; lineage keeps the query.</p>
     </div>
   )
@@ -104,10 +106,10 @@ export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }
 function PreviewTable({ p }: { p: SqlPreview }) {
   return (
     <div data-testid="sql-preview-table">
-      <p className="helper mono" style={{ fontSize: 12, margin: '0 0 4px' }}>{p.n_rows.toLocaleString()}{p.truncated ? '+' : ''} rows × {p.columns.length} columns · {(p.seconds * 1000).toFixed(0)} ms{p.truncated ? ` · stopped at the limit ${p.limit.toLocaleString()}` : ''}</p>
+      <p className="helper" style={{ fontSize: 12, margin: '0 0 6px' }}><b className="mono">{p.n_rows.toLocaleString()}{p.truncated ? '+' : ''}</b> rows × <b className="mono">{p.columns.length}</b> columns · {(p.seconds * 1000).toFixed(0)} ms{p.truncated ? <span className="g-warn"> · stopped at the limit {p.limit.toLocaleString()}</span> : ''} · first 5 rows</p>
       <div className="table-wrap sql-preview"><table className="table compact">
-        <thead><tr>{p.columns.map((c) => <th key={c.name} title={`${c.dtype}${c.missing ? ` · ${c.missing} missing` : ''}`}>{c.name}</th>)}</tr></thead>
-        <tbody>{p.rows.slice(0, 5).map((r, i) => <tr key={i}>{p.columns.map((c) => <td key={c.name} className="mono">{r[c.name] == null ? '—' : String(r[c.name])}</td>)}</tr>)}</tbody>
+        <thead><tr>{p.columns.map((c) => <th key={c.name} title={`${c.dtype}${c.missing ? ` · ${c.missing} missing` : ''}`}>{c.name}<span className="th-kind">{c.dtype}</span></th>)}</tr></thead>
+        <tbody>{p.rows.slice(0, 5).map((r, i) => <tr key={i}>{p.columns.map((c) => <td key={c.name} className={`mono ${typeof r[c.name] === 'number' ? 'r' : ''}`}>{r[c.name] == null ? <span className="muted">—</span> : String(r[c.name])}</td>)}</tr>)}</tbody>
       </table></div>
     </div>
   )
@@ -144,7 +146,7 @@ export function SqlLineageLine({ ds, note, onRefreshed }: { ds: DatasetDetail; n
         <pre className="sql-query mono">{lin.query}</pre>
         {vs.length > 0 && <table className="table compact" data-testid="sql-versions"><thead><tr><th>v</th><th className="r">rows</th><th>change</th><th>data SHA-256</th></tr></thead>
           <tbody>{vs.map((v) => <tr key={v.id} className={v.id === ds.id ? 'on' : ''}><td className="mono"><a href={`#/build?dataset=${encodeURIComponent(v.id)}`}>v{v.version}</a></td><td className="r mono">{v.rows.toLocaleString()}</td>
-            <td className="helper mono" style={{ fontSize: 11.5 }}>{v.diff ? `+${v.diff.added} −${v.diff.removed}` : 'first load'}</td><td className="mono" style={{ fontSize: 11.5 }}>{v.data_sha}</td></tr>)}</tbody></table>}
+            <td>{v.diff ? <ChangeBar add={v.diff.added} del={v.diff.removed} /> : <span className="helper">first load</span>}</td><td><CopyId value={v.data_sha} n={10} /></td></tr>)}</tbody></table>}
       </details>
     </div>
   )

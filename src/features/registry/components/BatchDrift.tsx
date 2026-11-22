@@ -7,6 +7,7 @@ import { useWidth } from '@/shared/hooks/useWidth'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
+import { CopyId } from '@/shared/components/DataKit'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { BAND_COLOR, BAND_STATUS, pct, us, when } from '../lib'
 
@@ -178,15 +179,16 @@ function JoinFiles({ tables, files, setFiles }: { tables: { name: string; role: 
         <input ref={one} type="file" accept=".csv,text/csv,.parquet" data-testid="batch-file-table" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f && target) put(target, f); e.target.value = '' }} />
         <button className="btn sm" onClick={() => all.current?.click()} data-testid="batch-files-pick">Choose files…</button>
         {files.length > 0 && <button className="btn sm ghost" onClick={() => setFiles([])}>Clear</button>}
-        <span className="helper">{book ? `workbook ${book.name}: its sheets are matched to the tables by name` : `${files.length} file${files.length === 1 ? '' : 's'} chosen`}</span>
+        <span className="helper">{book ? `workbook ${book.name}: its sheets are matched to the tables by name` : `${files.length} file${files.length === 1 ? '' : 's'} chosen · one per input table, matched by file name`}</span>
       </div>
       <table className="table compact" data-testid="batch-table-map">
-        <thead><tr><th>table</th><th>role</th><th>file</th><th /></tr></thead>
+        <thead><tr><th style={{ width: 28 }} /><th>table</th><th>role</th><th>file</th><th /></tr></thead>
         <tbody>{tables.map((t) => { const f = book ?? of(t.name); return (
-          <tr key={t.name} data-testid={`batch-map-${t.name}`}>
-            <td className="mono">{t.name}</td><td className="muted">{t.role === 'grain' ? 'grain (one row per scored row)' : t.role}</td>
-            <td className="mono">{f ? <>{book ? `${f.name} › ${t.name}` : f.name} <span className="muted">{(f.size / 1024).toFixed(1)} KB</span></> : <span style={{ color: 'var(--status-warning)' }}>▲ no file yet</span>}</td>
-            <td>{!book && <button className="chip-btn" onClick={() => { setTarget(t.name); setTimeout(() => one.current?.click(), 0) }} data-testid={`batch-pick-${t.name}`}>Browse…</button>}</td>
+          <tr key={t.name} data-testid={`batch-map-${t.name}`} className={f ? '' : 'batch-missing'}>
+            <td className={f ? 'g-ok' : 'g-warn'} aria-label={f ? 'file chosen' : 'no file yet'}>{f ? '✓' : '○'}</td>
+            <td className="mono"><b>{t.name}</b></td><td>{t.role === 'grain' ? <span className="pt-chip" title="one row per scored row">grain</span> : <span className="pt-chip">joined #{t.role.replace('join:', '')}</span>}</td>
+            <td className="mono">{f ? <>{book ? `${f.name} › ${t.name}` : f.name} <span className="muted">{(f.size / 1024).toFixed(1)} KB</span></> : <span className="g-warn">no file yet: choose one</span>}</td>
+            <td className="r">{!book && <button className="btn sm ghost" onClick={() => { setTarget(t.name); setTimeout(() => one.current?.click(), 0) }} data-testid={`batch-pick-${t.name}`}>Browse…</button>}</td>
           </tr>) })}
           {unknown.map((f) => <tr key={f.name}><td colSpan={2} style={{ color: 'var(--status-danger)' }}>✕ matches no table</td><td className="mono">{f.name}</td><td /></tr>)}
         </tbody>
@@ -199,16 +201,16 @@ function JoinFiles({ tables, files, setFiles }: { tables: { name: string; role: 
 function JoinSummary({ j }: { j: BatchJoin }) {
   return (
     <div className="card" data-testid="batch-join">
-      <div className="card-head"><div className="left"><h3 className="card-title">Join {j.join_name}</h3>
-        <span className="helper" style={{ fontSize: 12 }}>spec <span className="mono">{j.spec_sha256.slice(0, 12)}</span>{j.spec_frozen ? ' (the spec the model was trained with)' : ' · ⚠ the spec changed since training'}</span></div>
+      <div className="card-head"><div className="left"><h3 className="card-title">⋈ Join {j.join_name}</h3>
+        <span className="helper" style={{ fontSize: 12 }} title={j.spec_sha256}>{j.spec_frozen ? 'the spec the model was trained with' : <b className="g-warn">▲ the spec changed since training</b>}</span></div>
         <StatusPill status={j.rows_equal_grain ? 'success' : 'danger'}>{j.rows_equal_grain ? 'rows = grain rows' : 'rows ≠ grain rows'}</StatusPill></div>
       <div className="card-body mono helper" data-testid="batch-join-rows">frame rows n_f = {j.frame_rows.toLocaleString()} · grain rows n_g = {j.grain_rows.toLocaleString()} ({j.grain}) · n_f {j.frame_rows === j.grain_rows ? '=' : '≠'} n_g · frame sha {j.frame_sha256.slice(0, 12)}…</div>
       <div className="table-wrap"><table className="table compact">
         <thead><tr><th>table</th><th>file</th><th className="r">rows</th><th>sha256</th><th>cast failures</th><th>extra columns</th></tr></thead>
         <tbody>{Object.entries(j.tables).map(([t, x]) => (
           <tr key={t}><td className="mono">{t}{t === j.grain ? <span className="pt-chip" style={{ marginLeft: 4 }}>grain</span> : null}</td><td className="mono">{x.file}</td><td className="r mono">{x.rows.toLocaleString()}</td>
-            <td className="mono">{x.sha256.slice(0, 12)}…</td>
-            <td className="mono">{Object.keys(x.cast_failures).length ? Object.entries(x.cast_failures).map(([c, n]) => `${c} ${n}`).join(', ') : <span className="muted">none</span>}</td>
+            <td><CopyId value={x.sha256} n={8} /></td>
+            <td className="mono">{Object.keys(x.cast_failures).length ? <span className="g-warn">{Object.entries(x.cast_failures).map(([c, n]) => `${c} ${n}`).join(', ')}</span> : <span className="g-ok">none</span>}</td>
             <td className="mono muted">{x.extra_columns.join(', ') || '—'}</td></tr>))}</tbody>
       </table></div>
     </div>

@@ -5,6 +5,7 @@ import { tables as tablesApi, type VTable } from '@/shared/api/tables'
 import { PurgeDetail, lifecycleLine } from '@/shared/components/PurgeDetail'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { useTeam } from '@/shared/lib/team'
+import { Badge, CardHead, Field, Why } from '@/shared/components/DataKit'
 
 /** U3 (P24, plan §5.10, §11 item 5): purge values out of a dataset for good, e.g. a column that should never have been
  *  kept, or the rows of a person who asked to be forgotten. The request writes a new version without them and an
@@ -40,32 +41,29 @@ export function PurgeCard({ d, vid, v, table, by, onChanged }: { d: DsHistory; v
   }
   return (
     <div className="card" data-testid="purge-card">
-      <div className="card-head"><div className="left"><h3 className="card-title">Purge values</h3>
-        <span className="helper" style={{ fontSize: 12 }}>removes columns or rows from every version for good · an owner of every involved team approves</span></div>
-        {!open && <button className="btn sm" disabled={!by || !can?.allow} title={why(can, `Ask to purge columns or rows of v${v}`)} onClick={() => setOpen(true)} data-testid="purge-open">Request a purge…</button>}</div>
+      <CardHead title="Purge values" sub="removes columns or rows from every version, for good · an owner of every involved team approves"
+        badge={list.some((p) => p.status === 'pending') ? <Badge status="pending">{list.filter((p) => p.status === 'pending').length} waiting</Badge> : undefined}
+        actions={!open ? <button className="btn sm danger" disabled={!by || !can?.allow} title={why(can, `Ask to purge columns or rows of v${v}`)} onClick={() => setOpen(true)} data-testid="purge-open">Request a purge…</button> : undefined} />
       <div className="card-body stack" style={{ gap: 8 }}>
-        {can && !can.allow && <span className="helper" style={{ fontSize: 12 }} data-testid="purge-why">{why(can)}</span>}
-        {open && <div className="stack" style={{ gap: 6 }} data-testid="purge-form">
-          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-            <span className="micro-label">table</span>
-            <select className="select" value={t} onChange={(e) => setT(e.target.value)} data-testid="purge-table">{tabs.map((x) => <option key={x.name}>{x.name}</option>)}</select>
-            <span className="helper">of v{v} · {schema.length} columns</span></div>
-          <div className="row" style={{ gap: 4, flexWrap: 'wrap' }} data-testid="purge-columns"><span className="micro-label">columns</span>
-            {schema.map((c) => <label key={c.name} className={`pt-chip ${cols.includes(c.name) ? 'purge-st-used' : ''}`} style={{ cursor: 'pointer' }}>
-              <input type="checkbox" checked={cols.includes(c.name)} onChange={(e) => setCols(e.target.checked ? [...cols, c.name] : cols.filter((x) => x !== c.name))} data-testid={`purge-col-${c.name}`} /> {c.name}</label>)}</div>
-          <div className="row" style={{ gap: 6 }}><span className="micro-label">and/or rows</span>
-            <input className="input mono" style={{ flex: 1 }} placeholder="__row_id values, comma separated (e.g. a person who asked to be forgotten)" value={rows} onChange={(e) => setRows(e.target.value)} data-testid="purge-rows" /></div>
+        {can && !can.allow && <Why testId="purge-why">{why(can)}</Why>}
+        {!open && !list.length && <span className="helper">No purge asked for on this dataset. Use it for values that must not be kept anywhere: a column that should never have been stored, or the rows of a person who asked to be forgotten.</span>}
+        {open && <div className="purge-form" data-testid="purge-form">
+          <Field label={`table of v${v}`} hint={`${schema.length} columns`}><select className="select" value={t} onChange={(e) => setT(e.target.value)} data-testid="purge-table">{tabs.map((x) => <option key={x.name}>{x.name}</option>)}</select></Field>
+          <div className="field" data-testid="purge-columns"><span className="micro-label">columns to purge {cols.length ? <b className="g-bad">· {cols.length} chosen</b> : null}</span>
+            <div className="purge-cols">{schema.map((c) => <label key={c.name} className={`purge-col ${cols.includes(c.name) ? 'on' : ''}`}>
+              <input type="checkbox" checked={cols.includes(c.name)} onChange={(e) => setCols(e.target.checked ? [...cols, c.name] : cols.filter((x) => x !== c.name))} data-testid={`purge-col-${c.name}`} /> <span className="mono">{c.name}</span></label>)}</div></div>
+          <Field label="and/or rows (__row_id)" hint="comma separated, e.g. the rows of a person who asked to be forgotten"><input className="input mono" placeholder="1042, 2093" value={rows} onChange={(e) => setRows(e.target.value)} data-testid="purge-rows" /></Field>
           {badIds.length > 0 && <span className="helper up-err">✕ Row ids are whole numbers (__row_id): {badIds.slice(0, 5).join(', ')}</span>}
           {cols.length > 0 && cols.length >= schema.length && <span className="helper up-err">✕ A purge keeps at least one column: delete the dataset instead.</span>}
-          <input className="input" placeholder="why these values must go (at least 10 characters; every team sees it)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="purge-reason" />
-          <p className="helper" style={{ margin: 0, fontSize: 12 }}>The request writes a new version without these values and lists everything that still holds them: every version of this dataset, other teams' versions sharing the bytes, runs, shares whose grantee trained on it, join frames, models. Nothing is deleted until each team's owner approves.</p>
+          <Field label="reason" hint="at least 10 characters; every involved team sees it"><input className="input" placeholder="why these values must go" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="purge-reason" /></Field>
+          <p className="helper purge-note">The request writes a new version without these values and lists everything that still holds them: every version of this dataset, other teams' versions sharing the bytes, runs, shares whose grantee trained on it, join frames, models. Nothing is deleted until each team's owner approves.</p>
           <div className="row" style={{ gap: 6 }}>
-            <button className="btn sm primary" disabled={!ok || busy} onClick={send} data-testid="purge-send">{busy ? 'Writing the new version…' : 'Request the purge'}</button>
+            <button className="btn sm danger-fill" disabled={!ok || busy} title={ok ? 'Writes the new version and the impact report; nothing is deleted yet' : reason.trim().length < 10 ? 'Give a reason of at least 10 characters' : 'Choose at least one column or row id'} onClick={send} data-testid="purge-send">{busy ? 'Writing the new version…' : 'Request the purge'}</button>
             <button className="btn sm ghost" onClick={() => { setOpen(false); setErr('') }}>Cancel</button></div>
         </div>}
-        {err && <p className="helper data-warn" role="alert" data-testid="purge-refused">✕ {err}</p>}
-        {list.length > 0 && <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}><span className="micro-label">requests</span>
-          {list.map((p) => <button key={p.id} className={`chip-btn ${sel === p.id ? 'on' : ''}`} onClick={() => setSel(sel === p.id ? null : p.id)} data-testid={`purge-row-${p.id}`}>{p.id} · {p.table}.{(p.columns ?? []).join(',') || 'rows'} · {p.status}</button>)}</div>}
+        {err && <div className="callout danger" role="alert" data-testid="purge-refused"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body"><div className="callout-title">The purge was refused</div>{err}</div></div>}
+        {list.length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">requests</span>
+          {list.map((p) => <button key={p.id} className={`join-chip ${sel === p.id ? 'on' : ''}`} aria-pressed={sel === p.id} title={p.id} onClick={() => setSel(sel === p.id ? null : p.id)} data-testid={`purge-row-${p.id}`}><span className="mono">{p.table}.{(p.columns ?? []).join(',') || 'rows'}</span><Badge status={p.status} /></button>)}</div>}
         {sel && <PurgeDetail key={`${sel}:${tick}`} id={sel} by={by} onChanged={(p) => { setTick((x) => x + 1); if (p.executed) onChanged(`Purge ${p.id} executed: ${p.executed.versions_deleted.length} version(s) deleted, ${p.executed.bytes_deleted ?? 0} blob(s) removed.`) }} />}
       </div>
     </div>

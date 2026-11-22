@@ -7,7 +7,7 @@ const [out, callsOut, stateFile, vid] = process.argv.slice(2)
 const S = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
 ;(async () => {
   const b = await chromium.launch()
-  const p = await b.newPage({ viewport: { width: 1366, height: 900 }, deviceScaleFactor: 1 })
+  const p = await b.newPage({ viewport: { width: 1366, height: 900 }, deviceScaleFactor: Number(process.env.DSF || 1) })
   const calls = ['\n## 7. Ana · Build (Smart Intake) on the newest version: masked statistics → Unmask (reason)']
   const errors = []
   p.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })

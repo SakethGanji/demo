@@ -40,3 +40,8 @@
 .notes-card .note { font-size: 12.5px; border-left: 2px solid var(--border-default); padding-left: 8px; margin: 4px 0; }
 .project-switch select { min-width: 220px; }
 .paired-card .ci { font-family: var(--font-mono); }
+/* U4: join frames in the lineage tree */
+.pt-frame-row { background: color-mix(in srgb, var(--bg-wave-tint) 60%, transparent); border-radius: var(--radius-control); padding: 1px 6px; margin-left: -6px; }
+.pt-frame-ico { color: var(--accent-secondary); font-weight: 700; }
+.pt-frame-tables { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0; }
+.pt-row { min-height: 26px; }

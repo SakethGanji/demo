@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { purges, LIFECYCLE_CODES, type Purge, type RunVerify } from '@/shared/api/lifecycle'
 import { refusal, teamsApi, type Team } from '@/shared/api/governance'
 import { useCan, why } from '@/shared/hooks/useCan'
+import { Badge, CopyId, Flash, Steps } from './DataKit'
 
 /** U3 (P24 §5.10, plan §11 item 5): one purge request. The impact report says what the purge reaches in every team (the
  *  versions holding the values, the runs trained on them or pinning the bytes, shares whose grantee trained on them,
@@ -22,6 +23,7 @@ export function useTeamNames(): (id: string) => string {
   return (id) => list.find((t) => t.id === id)?.name ?? id
 }
 
+const TONE_OF: Record<Purge['status'], string> = { pending: 'pending', approved: 'pending', used: 'executed', rejected: 'rejected', withdrawn: 'withdrawn' }
 const STATUS: Record<Purge['status'], string> = { pending: 'waiting for approvals', approved: 'executed, bytes still being deleted', used: 'executed', rejected: 'rejected', withdrawn: 'withdrawn' }
 
 export function PurgeDetail({ id, by, onChanged }: { id: string; by: string; onChanged?: (p: Purge) => void }) {
@@ -31,8 +33,8 @@ export function PurgeDetail({ id, by, onChanged }: { id: string; by: string; onC
   const [busy, setBusy] = useState('')
   const name = useTeamNames()
   useEffect(() => { let live = true; purges.get(id).then((x) => live && setP(x)).catch((e) => live && setErr(lifecycleLine(e))); return () => { live = false } }, [id])
-  if (err && !p) return <p className="helper up-err" data-testid="purge-err">✕ {err}</p>
-  if (!p) return <p className="helper">Reading purge {id}…</p>
+  if (err && !p) return <div className="callout danger" data-testid="purge-err"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body">{err}</div></div>
+  if (!p) return <p className="helper">Reading the purge…</p>
   const im = p.impact
   const act = (team: string, approve: boolean) => {
     setBusy(team); setMsg(null)
@@ -45,24 +47,25 @@ export function PurgeDetail({ id, by, onChanged }: { id: string; by: string; onC
   const approvedByMe = Object.values(p.approvals).some((a) => a.by.toLowerCase() === by.toLowerCase())
   return (
     <div className="stack purge-detail" style={{ gap: 10 }} data-testid="purge-detail" data-status={p.status} data-purge={p.id}>
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <b>Purge <span className="mono">{p.id}</span></b>
-        <span className={`pt-chip purge-st-${p.status}`} data-testid="purge-status">{STATUS[p.status]}</span>
-        <span className="helper">{p.table}: {p.columns.length ? <>columns <span className="mono">{p.columns.join(', ')}</span></> : null}{p.columns.length && p.n_row_ids ? ' and ' : ''}{p.n_row_ids ? `${p.n_row_ids} row id(s)` : ''} · asked by {p.requested_by} {when(p.requested_at)} · “{p.reason}”</span>
+      <div className="purge-top">
+        <div className="purge-title"><b>Purge of {p.table}: {p.columns.length ? <span className="mono">{p.columns.join(', ')}</span> : null}{p.columns.length && p.n_row_ids ? ' and ' : ''}{p.n_row_ids ? `${p.n_row_ids} row id(s)` : ''}</b>
+          <span data-testid="purge-status" data-status={p.status}><Badge status={TONE_OF[p.status]}>{STATUS[p.status]}</Badge></span><span className="spacer" /><CopyId value={p.id} /></div>
+        <span className="sub-line">“{p.reason}” · asked by {p.requested_by} · {when(p.requested_at)}</span>
+        {p.status !== 'rejected' && p.status !== 'withdrawn' && <Steps steps={['requested', `approved by ${p.teams_needed.length} team${p.teams_needed.length === 1 ? '' : 's'}`, 'executed']} at={p.executed ? 3 : 1 + (Object.keys(p.approvals).length === p.teams_needed.length ? 1 : 0)} />}
       </div>
       <p className="helper" style={{ margin: 0 }}>{p.executed
         ? <>The values now live nowhere: <span className="mono">{p.new_version_id}</span>, written at the request without them, is what remains of the dataset.</>
         : <>The request already wrote <span className="mono">{p.new_version_id}</span>: a new version without these values (the other tables carried, the kept rows' splits carried). {p.status === 'pending' ? 'Until every involved team approves, the old versions and their bytes stay as they are.' : 'The old versions and their bytes were left as they are.'}</>}</p>
-      {msg && <p className={`helper data-msg ${msg.ok ? 'ok' : 'bad'}`} role={msg.ok ? 'status' : 'alert'} style={{ margin: 0 }} data-testid="purge-msg">{msg.ok ? '✓' : '✕'} {msg.text}</p>}
+      <Flash msg={msg} testId="purge-msg" className="inline" />
 
       <div className="purge-impact" data-testid="purge-impact">
-        <span className="micro-label">impact report · {im.teams.length} team{im.teams.length === 1 ? '' : 's'} · {im.blobs.length} blobs ({kb(im.bytes)})</span>
-        <table className="table lc-t"><thead><tr><th>team</th><th>what it holds</th><th>approval</th></tr></thead>
+        <div className="purge-impact-head"><b>Impact report</b><span className="helper">{im.teams.length} team{im.teams.length === 1 ? '' : 's'} · {im.versions_with_values.length} version{im.versions_with_values.length === 1 ? '' : 's'} · {im.runs.length} run{im.runs.length === 1 ? '' : 's'} · {im.blobs.length} blobs ({kb(im.bytes)})</span></div>
+        <table className="table lc-t purge-teams"><thead><tr><th>team</th><th>what it holds there</th><th>approval</th></tr></thead>
           <tbody>{p.teams_needed.map((t) => {
             const b = im.by_team[t] ?? { versions: [], runs: [], refs: 0, shares: [] }
             const a = p.approvals[t]
             return <tr key={t} data-testid={`purge-team-${t}`}>
-              <td><b>{name(t)}</b>{t === im.owner_team && <span className="pt-chip" style={{ marginLeft: 4 }}>owner of the data</span>}<div className="mono muted" style={{ fontSize: 11 }}>{t}</div></td>
+              <td title={t}><b>{name(t)}</b>{t === im.owner_team && <span className="pt-chip" style={{ marginLeft: 6 }}>owner of the data</span>}</td>
               <td className="helper" style={{ fontSize: 12 }}>
                 {b.versions.length > 0 && <div>versions deleted: <span className="mono">{b.versions.map((v) => { const x = im.versions.find((y) => y.id === v); return x ? `v${x.version_no}${x.other_dataset ? ` of ${x.name}` : ''}` : v }).join(', ')}</span></div>}
                 {b.runs.length > 0 && <div>runs that lose their data: <span className="mono">{b.runs.join(', ')}</span></div>}
@@ -70,7 +73,7 @@ export function PurgeDetail({ id, by, onChanged }: { id: string; by: string; onC
                 {b.refs > 0 && <div>{b.refs} blob reference{b.refs === 1 ? '' : 's'}</div>}
                 {!b.versions.length && !b.runs.length && !b.shares.length && !b.refs && <div>involved as the owner</div>}
               </td>
-              <td>{a ? <span data-testid={`purge-approved-${t}`}>✓ {a.by} <span className="helper">{when(a.at)}</span></span>
+              <td>{a ? <span data-testid={`purge-approved-${t}`} title={when(a.at)}><Badge status="approved">✓ {a.by}</Badge></span>
                 : p.status === 'pending' ? <TeamDecide team={t} by={by} mine={mine} approvedByMe={approvedByMe} busy={busy === t} onDecide={(ok) => act(t, ok)} />
                   : <span className="helper">—</span>}</td>
             </tr>
@@ -84,7 +87,7 @@ export function PurgeDetail({ id, by, onChanged }: { id: string; by: string; onC
               <tbody>{im.blobs.map((b) => <tr key={b.sha256}><td className="mono">{b.sha256.slice(0, 12)}</td><td>{b.why.join('; ')}</td><td className="r mono">{kb(b.bytes)}</td><td>{b.state}</td></tr>)}</tbody></table>
             <div>{im.note}</div>
           </div></details>
-        {im.holds.length > 0 && <p className="data-warn" data-testid="purge-holds">A legal hold covers part of this ({im.holds.map((h) => h.case_ref).join(', ')}): the purge cannot execute until it is released.</p>}
+        {im.holds.length > 0 && <p className="data-warn callout-like" data-testid="purge-holds">A legal hold covers part of this ({im.holds.map((h) => h.case_ref).join(', ')}): the purge cannot execute until it is released.</p>}
       </div>
       {p.status === 'pending' && mine && <p className="helper" style={{ margin: 0 }}>You asked for this purge, so an owner of each team above decides, never you (four eyes). <button className="chip-btn" onClick={() => purges.withdraw(p.id, by).then((x) => { setP(x); onChanged?.(x) }).catch((e) => setMsg({ ok: false, text: lifecycleLine(e) }))} data-testid="purge-withdraw">withdraw</button></p>}
       {p.executed && <Executed p={p} by={by} />}
@@ -96,11 +99,11 @@ function TeamDecide({ team, by, mine, approvedByMe, busy, onDecide }: { team: st
   const can = useCan('data.purge_decide', 'team', team, by)
   const no = !by || mine || approvedByMe || !can?.allow
   const reason = mine ? 'Four eyes: you asked for this purge, so someone else decides.' : approvedByMe ? 'You already approved for another team: each team is a different person.' : why(can, 'Approve for this team: when every team has approved, the purge executes')
-  return <span className="stack" style={{ gap: 2 }}>
+  return <span className="stack" style={{ gap: 4 }}>
     <span className="row" style={{ gap: 4 }}>
       <button className="btn sm primary" disabled={no || busy} title={reason} onClick={() => onDecide(true)} data-testid={`purge-approve-${team}`}>{busy ? '…' : 'Approve'}</button>
       <button className="btn sm ghost" disabled={no || busy} title={reason} onClick={() => onDecide(false)} data-testid={`purge-reject-${team}`}>Reject</button></span>
-    {no && can && <span className="helper" style={{ fontSize: 11 }}>{reason}</span>}
+    {no && can && <span className="why" style={{ fontSize: 11.5, maxWidth: 260, whiteSpace: 'normal' }}><span aria-hidden>⊘</span> {reason}</span>}
   </span>
 }
 
@@ -112,7 +115,7 @@ function Executed({ p, by }: { p: Purge; by: string }) {
   const verify = (r: string) => purges.verifyRun(r).then((v) => setVer((o) => ({ ...o, [r]: v }))).catch((e) => setVer((o) => ({ ...o, [r]: lifecycleLine(e) })))
   return (
     <div className="purge-executed" data-testid="purge-executed">
-      <span className="micro-label">executed {when(x.at)} by {x.by}</span>
+      <div className="row" style={{ gap: 8 }}><Badge status="executed" /><b>Executed</b><span className="helper">{when(x.at)} · by {x.by}</span></div>
       <ul className="helper" style={{ margin: '4px 0', paddingLeft: 18, fontSize: 12.5 }}>
         <li>versions deleted: <span className="mono">{x.versions_deleted.join(', ') || 'none'}</span>{x.default_moved ? <> · the default moved {x.default_moved.from} → <span className="mono">{x.default_moved.to}</span></> : null}</li>
         <li>{x.blobs.length} blob{x.blobs.length === 1 ? '' : 's'} marked; {x.bytes_deleted ?? 0} deleted from the store (every S3 version){(x.bytes_failed?.length ?? 0) > 0 ? `, ${x.bytes_failed!.length} failed (resume below)` : ''}</li>

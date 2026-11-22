@@ -10,7 +10,7 @@ const from = Number(FROM || 0)
 ;(async () => {
   fs.mkdirSync(out, { recursive: true })
   const b = await chromium.launch()
-  const p = await b.newPage({ viewport: { width: 1366, height: 900 }, deviceScaleFactor: 1 })
+  const p = await b.newPage({ viewport: { width: 1366, height: 900 }, deviceScaleFactor: Number(process.env.DSF || 1) })
   const calls = []
   const mark = (s) => { calls.push(`\n## ${s}`); console.log('##', s) }
   const noisy = /\.tsx?(\?|$)|\/api\/(health|status|runs\?kind=all&light|runs\/[^/]+\/events|llm|agent|vela|annotations|me$|authz\/check)/
@@ -255,6 +255,8 @@ const from = Number(FROM || 0)
     await p.selectOption(tid('data-remove-target'), { index: 1 })
     await p.fill(tid('data-remove-reason'), 'old extract, not needed')
     await p.click(tid('data-delete'))
+    // U4: the delete asks once more (ConfirmButton); the pre-U4 UI sends at the first click
+    await p.waitForTimeout(300); if (await p.locator(tid('data-delete-confirm')).count()) await p.click(tid('data-delete-confirm'))
     await p.waitForSelector(`${tid('data-msg')}`, { timeout: 30000 })
     await shot('27-delete-held', tid('data-msg'))
   }

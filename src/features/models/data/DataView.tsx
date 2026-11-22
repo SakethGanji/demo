@@ -6,6 +6,9 @@ import { ErrorCard, Loading } from '@/shared/components/Status'
 import { StatusPill, type Status } from '@/shared/primitives/StatusPill'
 import { fmtScore } from '@/shared/lib/metrics'
 import { NotesStrip } from '../components/NotesStrip'
+import { Badge, CardHead, ChangeBar, ConfirmButton, CopyId, Flash, Callout } from '@/shared/components/DataKit'
+import { EmptyState } from '@/shared/components/EmptyState'
+import { day, when, plural, pct } from '@/shared/lib/format'
 import { ProjectTree } from '../components/ProjectTree'
 import { EditVersion } from './EditVersion'
 import { StagedUpload } from './StagedUpload'
@@ -18,9 +21,6 @@ import { readActor, saveActor, useTeam } from '@/shared/lib/team'
 import './data.css'
 
 export { readActor, saveActor }
-const day = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—')
-const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
-const pct = (v?: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)} %`)
 const num = (v?: number | null) => (v == null ? '—' : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toPrecision(4).replace(/\.?0+$/, ''))
 const BAND: Record<string, Status> = { stable: 'success', watch: 'warning', shift: 'danger' }
 const OP: Record<string, string> = { edit: 'edit', sample_regenerated: 'sample regenerated', upload: 'upload', sample: 'sample', upload_version: 'new file', data_doctor: 'Data Doctor', clean_labels: 'relabel', feature_lab: 'Feature Lab', 'monitoring-window': 'drift window', sql: 'SQL load', refresh: 'SQL refresh' }
@@ -54,23 +54,21 @@ export function DataView({ go }: { go: (r: string) => void }) {
   const sharedIn = (root: string) => (incoming.data ?? []).find((x) => x.object_id === root && x.grantee_team === team?.id)
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-view">
-      <div className="card">
-        <div className="card-head">
-          <div className="left"><h3 className="card-title">Data catalog</h3>
-            <div className="seg" role="group" aria-label="Whose datasets">
-              <button className={scope === 'team' ? 'on' : ''} onClick={() => setScope('team')} data-testid="data-scope-team">{team?.name ?? 'my team'}</button>
-              <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} data-testid="data-scope-all">all teams</button></div>
-            <span className="helper" style={{ fontSize: 12 }}>{rows.length} dataset{rows.length === 1 ? '' : 's'}</span></div>
-          <div className="data-tools">
+      <div className="card data-catalog">
+        <CardHead title="Data catalog"
+          badge={<div className="seg" role="group" aria-label="Whose datasets">
+            <button className={scope === 'team' ? 'on' : ''} onClick={() => setScope('team')} data-testid="data-scope-team">{team?.name ?? 'my team'}</button>
+            <button className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')} data-testid="data-scope-all">all teams</button></div>}
+          sub={list.data ? plural(rows.length, 'dataset') : undefined}
+          actions={<>
             <NewProject team={team} onMade={(p) => { setMade(`Project ${p} created in ${team?.name ?? 'your team'}.`); setProjTick((x) => x + 1) }} />
             <button className="btn primary" disabled={!actor} onClick={() => setUploading(!uploading)} data-testid="data-upload"
               title={actor ? 'Check a file, then create a dataset from it' : 'Type your name in the sidebar first'}>Upload…</button>
-          </div>
-        </div>
-        {made && <p className="helper data-msg ok" role="status" style={{ padding: '6px 16px', margin: 0 }}>✓ {made}</p>}
-        {uploading && <StagedUpload key={projTick} by={actor} team={team} onCancel={() => setUploading(false)}
-          onDone={(r, text) => { setUploading(false); setMade(text); list.reload(); setParam('dataset', r.root_id) }} />}
-        <div className="card exp-filters data-filters" style={{ border: 0, boxShadow: 'none' }}>
+          </>} />
+        <Flash msg={made ? { ok: true, text: made } : null} />
+        {uploading && <div className="data-upload-panel"><StagedUpload key={projTick} by={actor} team={team} onCancel={() => setUploading(false)}
+          onDone={(r, text) => { setUploading(false); setMade(text); list.reload(); setParam('dataset', r.root_id) }} /></div>}
+        <div className="exp-filters data-filters">
           <label style={{ flex: 1 }}><span className="micro-label">search</span>
             <input className="input" placeholder="name, file, id, description, owner, tag…" value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} data-testid="data-q" /></label>
           <label><span className="micro-label">project</span>
@@ -87,15 +85,15 @@ export function DataView({ go }: { go: (r: string) => void }) {
         </div>
         {list.err && !list.data ? <ErrorCard inline err={list.err} /> : !list.data ? <Loading inline>Reading the datasets…</Loading> : (
           <div className="table-wrap data-list"><table className="table" data-testid="data-table">
-            <thead><tr><th>dataset</th><th>team · project</th><th className="r">versions</th><th className="r">default · rows × cols</th><th>owner</th><th className="r">runs</th><th className="data-when">last change</th></tr></thead>
+            <thead><tr><th>dataset</th><th>team · project</th><th className="r">versions</th><th className="r" title="the default version's rows × columns">rows × cols</th><th>owner</th><th className="r">runs</th><th className="data-when">last change</th></tr></thead>
             <tbody>
               {rows.map((d) => <DsListRow key={d.root_id} d={d} share={sharedIn(d.root_id)} on={sel != null && (sel === d.root_id || sel === d.default_version_id)} pick={() => setParam('dataset', d.root_id)} />)}
-              {!rows.length && <tr><td colSpan={7} className="helper" style={{ padding: 16 }}>No dataset{scope === 'team' && team ? ` of ${team.name}` : ''} matches. Upload one.</td></tr>}
+              {!rows.length && <tr className="empty-row"><td colSpan={7}><b>No dataset{scope === 'team' && team ? ` of ${team.name}` : ''} matches.</b> <span className="helper">{Object.entries(f).some(([k, v]) => v && !(k === 'state' && v === 'active')) ? 'Clear a filter, or upload one.' : 'Upload a file to make the first one.'}</span></td></tr>}
             </tbody>
           </table></div>)}
       </div>
       {sel ? <DatasetPage key={sel} id={sel} go={go} team={team} ownerTeam={(list.data ?? []).find((d) => d.root_id === sel || d.default_version_id === sel)?.team_id ?? null} onChanged={list.reload} />
-        : <p className="helper">Pick a dataset to see its versions, who made each one and how, what changed, and which runs and models used it.</p>}
+        : list.data && rows.length > 0 && <EmptyState title="Pick a dataset above">Its page shows the versions (who made each one and how, what changed), the tables and joins, who may see and use it, and which runs and models used it.</EmptyState>}
     </div>
   )
 }
@@ -122,13 +120,17 @@ const f_state = (d: DsRow) => `${d.versions_in_state!.length} version${d.version
 
 function DsListRow({ d, on, pick, share }: { d: DsRow; on: boolean; pick: () => void; share?: Share }) {
   return (
-    <tr className={on ? 'sel' : ''} onClick={pick} style={{ cursor: 'pointer' }} data-testid={`data-row-${d.root_id}`}>
-      <td className="data-ds-cell"><b>{d.name}</b>{d.tags.map((t) => <span key={t} className="pt-tag"> #{t}</span>)}<div className="mono muted" style={{ fontSize: 11 }}>{d.root_id}{d.versions_in_state?.length ? ` · ${f_state(d)}` : ''}</div>{d.description && <div className="helper ellip">{d.description}</div>}</td>
-      <td className="muted ellip-cell" title={d.team?.name}>{d.team?.name ?? 'Default team'}{(share || d.access === 'shared') && <span className="pt-chip up-pii" style={{ marginLeft: 4 }} title={share ? `shared by ${share.requested_by}, decided by ${share.decided_by}: scope ${share.scope}, PII ${share.pii}` : 'another team shared it with yours'} data-testid={`data-shared-${d.root_id}`}>shared with you{share ? ` · ${share.scope} · PII ${share.pii}` : ''}</span>}<div style={{ fontSize: 11 }}>{d.project ?? '—'}</div></td>
+    <tr className={on ? 'sel' : ''} onClick={pick} style={{ cursor: 'pointer' }} data-testid={`data-row-${d.root_id}`} tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && pick()} aria-selected={on}>
+      <td className="data-ds-cell"><span className="ds-name">{d.name}</span>{d.tags.map((t) => <span key={t} className="pt-tag"> #{t}</span>)}
+        {d.description ? <span className="sub-line trunc" title={d.description}>{d.description}</span> : null}
+        {d.versions_in_state?.length ? <span className="sub-line">{f_state(d)}</span> : null}</td>
+      <td className="ellip-cell" title={`${d.team?.name ?? 'Default team'} · ${d.project ?? 'no project'}`}>{d.team?.name ?? 'Default team'}
+        {(share || d.access === 'shared') && <span className="ds-shared" title={share ? `shared by ${share.requested_by}, decided by ${share.decided_by}: scope ${share.scope}, PII ${share.pii}` : 'another team shared it with yours'} data-testid={`data-shared-${d.root_id}`}>shared with you{share ? ` · ${share.scope} · PII ${share.pii}` : ''}</span>}
+        <span className="sub-line">{d.project ?? '—'}</span></td>
       <td className="r mono" title={`${d.n_live} live of ${d.n_versions}`}>{d.n_live}{d.n_versions !== d.n_live ? <span className="muted"> / {d.n_versions}</span> : ''}</td>
-      <td className="r mono" title={`${d.default_version_id} · ${d.default_how}`}>{d.default_how === 'set' ? '★ ' : ''}{d.rows.toLocaleString()} × {d.n_cols ?? '—'}</td>
+      <td className="r mono" title={`default ${d.default_version_id} · ${d.default_how === 'set' ? 'set by hand' : 'the latest'}`}>{d.rows.toLocaleString()} <span className="muted">×</span> {d.n_cols ?? '—'}</td>
       <td className="ellip-cell">{d.owner || <span className="muted">{d.created_by ?? '—'}</span>}</td>
-      <td className="r mono">{d.n_runs}</td>
+      <td className="r mono">{d.n_runs || <span className="muted">0</span>}</td>
       <td className="muted data-when" title={when(d.last_change)}>{day(d.last_change)}</td>
     </tr>
   )
@@ -173,21 +175,26 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
   const nodeId = shared ? (focusV ?? d.versions.find((v) => v.state !== 'deleted'))?.id ?? d.root_id : d.root_id
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-page" data-root={d.root_id}>
-      <div className="card">
-        <div className="card-head">
-          <div className="left"><h3 className="card-title" data-testid="data-name">{d.name}</h3>
-            <span className="mono muted">{d.root_id}</span>
-            {d.project && <span className="pt-chip">{d.project.name}</span>}
-            <span className="pt-chip">{d.versions.length} version{d.versions.length === 1 ? '' : 's'}</span>
-            {def && <span className="champ-badge" title={d.default_how} data-testid="data-default">★ default v{def.v}{d.default_how === 'set' ? '' : ' (latest)'}</span>}
-            {d.state && <StatusPill status="warning">{d.state}</StatusPill>}
+      <div className="card ds-head">
+        <div className="ds-head-top">
+          <div className="ds-head-title">
+            <span className="micro-label">dataset{d.project ? <> · {d.project.name}</> : null}</span>
+            <h2 className="page-title ds-title" data-testid="data-name">{d.name}</h2>
+            <div className="ds-head-meta">
+              {def && <span className="champ-badge" title={d.default_how === 'set' ? 'set as the default by hand' : 'the latest version is the default'} data-testid="data-default">★ default v{def.v}{d.default_how === 'set' ? '' : ' (latest)'}</span>}
+              <span>{plural(d.versions.length, 'version')}</span>
+              {def && <span className="mono">{def.rows.toLocaleString()} rows × {def.n_cols ?? '—'}</span>}
+              {d.state && <StatusPill status="warning">{d.state}</StatusPill>}
+              {shared && <Badge status="shared">shared with your team</Badge>}
+              <CopyId value={d.root_id} />
+            </div>
           </div>
-          <label className="row" style={{ gap: 6 }}><span className="micro-label">acting as</span>
-            <input className="input" style={{ width: 120 }} value={by} maxLength={80} onChange={(e) => setBy(e.target.value)} data-testid="data-by" title="Names, not authenticated identities: every action records it in the audit log" /></label>
+          <label className="field ds-actor" title="Names, not authenticated identities: every action records it in the audit log"><span className="micro-label">acting as</span>
+            <input className="input" style={{ width: 140 }} value={by} maxLength={80} onChange={(e) => setBy(e.target.value)} data-testid="data-by" /></label>
         </div>
         <NextVersion d={d} by={by} team={team} onDone={(vid, text) => { setMsg({ ok: true, text }); setPair([d.default_version_id ?? d.versions[d.versions.length - 1].id, vid]); reload() }} />
-        {msg && <div className={`card-body data-msg ${msg.ok ? 'ok' : 'bad'}`} role={msg.ok ? 'status' : 'alert'} data-testid="data-msg">{msg.ok ? '✓' : '✕'} {msg.text}
-          {msg.blockers && <ul>{msg.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}</div>}
+        {msg && <div className={`flash ${msg.ok ? 'ok' : 'bad'} ds-msg`} role={msg.ok ? 'status' : 'alert'} data-testid="data-msg"><span aria-hidden>{msg.ok ? '✓' : '✕'}</span> <span>{msg.text}
+          {msg.blockers && <ul>{msg.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}</span></div>}
       </div>
 
       <Versions d={d} pair={pair} setPair={setPair} focus={focus} setFocus={setFocus} by={by}
@@ -216,7 +223,8 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
       {focusV && focusV.state !== 'deleted' && <Governance d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
       {focusV && focusV.state !== 'deleted' && <PurgeCard key={`pg:${focusV.id}`} d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
       <NotesStrip key={`n:${nodeId}`} kind="dataset" id={nodeId} />
-      <div className="card card-body"><h3 className="card-title" style={{ marginBottom: 8 }}>Lineage</h3><ProjectTree key={`l:${nodeId}`} kind="dataset" id={nodeId} go={go} compact /></div>
+      <div className="card"><CardHead title="Lineage" sub="where each version came from, the join frames built on it, and the runs and models made from it" />
+        <div className="card-body"><ProjectTree key={`l:${nodeId}`} kind="dataset" id={nodeId} go={go} compact /></div></div>
       <div className="grid two">
         <RemoveCard d={d} by={by} act={act} />
         <AuditCard d={d} />
@@ -231,9 +239,9 @@ function NextVersion({ d, by, team, onDone }: { d: DsHistory; by: string; team: 
   const parent = d.versions.find((v) => v.id === d.default_version_id)
   if (!parent) return <div className="card-body helper data-upload">No active version to build on: every version is archived or deleted{d.state === 'archived' ? ' (unarchive the dataset below to add one)' : ''}.</div>
   return open ? <div className="data-upload"><StagedUpload by={by} team={team} parent={{ id: parent.id, v: parent.v, name: d.name, root: d.root_id, nextV: Math.max(...d.versions.map((v) => v.v)) + 1 }} onCancel={() => setOpen(false)} onDone={(r, text) => { setOpen(false); onDone(r.version_id, text) }} /></div>
-    : <div className="card-body row data-upload" style={{ gap: 8 }}>
+    : <div className="card-body row data-upload ds-next" style={{ gap: 10 }}>
       <button className="btn primary" disabled={!by} onClick={() => setOpen(true)} data-testid="data-upload-version" title={by ? `Check a file as the next version, with v${parent.v} as its parent (nothing is written yet)` : 'Type your name in “acting as” first'}>Upload a new version…</button>
-      <span className="helper">parent: v{parent.v} (the default). You choose how its rows match; to change cells, use Edit on a version.</span></div>
+      <span className="helper">Built on <b>v{parent.v}</b>, the default. Nothing is written until you check the file and create it. To change a few cells, use Edit on a version below.</span></div>
 }
 
 function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, onVerifyAll, onArchive, onEdit, onAdopt, onRestoreSplits }: {
@@ -244,10 +252,10 @@ function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, 
   const def = d.versions.find((v) => v.id === d.default_version_id)
   return (
     <div className="card" data-testid="data-versions">
-      <div className="card-head"><div className="left"><h3 className="card-title">Versions</h3><span className="helper" style={{ fontSize: 12 }}>A and B pick the diff · click a row for what used it</span></div>
-        <button className="btn sm" disabled={!by} onClick={onVerifyAll} title="Re-hash every version's file against its stored sha256" data-testid="data-verify-all">Check every hash</button></div>
+      <CardHead title="Versions" sub="pick A and B to diff them · click a row to act on that version and see what used it"
+        actions={<button className="btn sm" disabled={!by} onClick={onVerifyAll} title={by ? "Re-hash every version's file against its stored sha256" : 'Type your name in “acting as” first'} data-testid="data-verify-all">Check every hash</button>} />
       <div className="table-wrap"><table className="table data-versions">
-        <thead><tr><th title="diff from">A</th><th title="diff to">B</th><th>version · made by</th><th>who · when</th><th>changes</th><th className="r">rows × cols</th><th>sha256</th><th>used by</th></tr></thead>
+        <thead><tr><th className="ab" title="diff from">A</th><th className="ab" title="diff to">B</th><th>version · how it was made</th><th>who · when</th><th>changes from its parent</th><th className="r">rows × cols</th><th title="sha256 of the stored data; ✓ = it matched at the last check">integrity</th><th>used by</th></tr></thead>
         <tbody>{d.versions.map((v) => {
           const gone = v.state === 'deleted'
           const par = d.versions.find((p) => p.id === v.parent_id)
@@ -255,21 +263,20 @@ function Versions({ d, pair, setPair, focus, setFocus, by, onDefault, onVerify, 
             <tr key={v.id} className={`${focus === v.id ? 'sel' : ''} ${v.state ? 'muted' : ''}`} onClick={() => setFocus(v.id)} style={{ cursor: 'pointer' }} data-testid={`data-v-${v.v}`} data-id={v.id}>
               <td onClick={(e) => e.stopPropagation()}><input type="radio" name="dsA" disabled={gone} checked={pair?.[0] === v.id} onChange={() => setPair([v.id, pair?.[1] ?? v.id])} aria-label={`A = v${v.v}`} /></td>
               <td onClick={(e) => e.stopPropagation()}><input type="radio" name="dsB" disabled={gone} checked={pair?.[1] === v.id} onChange={() => setPair([pair?.[0] ?? v.id, v.id])} aria-label={`B = v${v.v}`} /></td>
-              <td><b className="mono">v{v.v}</b>{v.is_default && <span className="champ-badge" style={{ marginLeft: 4 }} title="the default: what Build opens">★ default</span>}
-                {v.state && <span className={`pt-chip ${gone ? 'data-rm' : ''}`} style={{ marginLeft: 4 }} title={`${v.state} ${when(v.state_at)} by ${v.state_by}${gone ? ': files removed, tombstone and lineage kept' : ''}`}>{v.state}</span>}
-                <span className="muted"> · {opName(v.op)}{par ? ` from v${par.v}` : ''}{v.paired_with_parent === false ? ' ◇' : ''}</span>
-                <div className="muted mono" style={{ fontSize: 11 }}>{v.id}</div></td>
-              <td>{v.created_by ?? '—'}<div className="muted" style={{ fontSize: 11 }}>{when(v.created_at)}</div></td>
-              <td className="data-changes">{changeLine(v)}{v.edit_ops?.length ? <div className="muted" title={v.edit_ops.map((o) => o.summary).join('\n')} data-testid={`data-ops-${v.v}`}>{v.edit_ops.length} edit{v.edit_ops.length === 1 ? '' : 's'}: {v.edit_ops.slice(0, 2).map((o) => o.summary).join('; ')}{v.edit_ops.length > 2 ? '…' : ''}</div> : null}{v.reason && <div className="muted" title="reason / change ticket" data-testid={`data-reason-${v.v}`}>“{v.reason}”</div>}{v.warnings.length > 0 && <div title={v.warnings.map((w) => w.message).join('\n')} style={{ color: 'var(--status-warning)' }}>⚠ {v.warnings.length} warning{v.warnings.length === 1 ? '' : 's'}</div>}</td>
+              <td title={v.id}><span className="v-tag mono">v{v.v}</span>{v.is_default && <span className="champ-badge" style={{ marginLeft: 6 }} title="the default: what Build opens">★ default</span>}
+                {v.state && <span style={{ marginLeft: 6 }}><Badge status={v.state} title={`${v.state} ${when(v.state_at)} by ${v.state_by}${gone ? ': files removed, tombstone and lineage kept' : ''}`} /></span>}
+                <span className="sub-line">{opName(v.op)}{par ? ` from v${par.v}` : ''}{v.paired_with_parent === false ? <span title="new rows with no mapping to the original rows (never paired)"> ◇</span> : ''}</span></td>
+              <td>{v.created_by ?? '—'}<span className="sub-line" title={when(v.created_at)}>{day(v.created_at)}</span></td>
+              <td className="data-changes">{changeLine(v)}{v.edit_ops?.length ? <span className="sub-line trunc" title={v.edit_ops.map((o) => o.summary).join('\n')} data-testid={`data-ops-${v.v}`}>{plural(v.edit_ops.length, 'edit')}: {v.edit_ops.slice(0, 2).map((o) => o.summary).join('; ')}{v.edit_ops.length > 2 ? '…' : ''}</span> : null}{v.reason && <span className="sub-line trunc" title={`reason / change ticket: ${v.reason}`} data-testid={`data-reason-${v.v}`}>“{v.reason}”</span>}{v.warnings.length > 0 && <span className="sub-line g-warn" title={v.warnings.map((w) => w.message).join('\n')}>▲ {plural(v.warnings.length, 'warning')}</span>}</td>
               <td className="r mono">{v.rows.toLocaleString()} × {v.n_cols ?? '—'}</td>
-              <td className="mono" title={v.sha256 ?? ''}>{v.sha256?.slice(0, 10) ?? '—'}{integrity(v)}</td>
-              <td className="mono" style={{ fontSize: 12 }}>{v.used_by.runs} run{v.used_by.runs === 1 ? '' : 's'}{v.used_by.versions ? ` · ${v.used_by.versions} model${v.used_by.versions === 1 ? '' : 's'}` : ''}{v.used_by.champion && <div><span className="champ-badge">champion</span></div>}</td>
+              <td className="nowrap">{v.sha256 ? <CopyId value={v.sha256} n={8} /> : <span className="muted">—</span>}{integrity(v)}</td>
+              <td className="used-by">{v.used_by.runs || v.used_by.versions ? <span className="mono">{plural(v.used_by.runs, 'run')}{v.used_by.versions ? ` · ${plural(v.used_by.versions, 'model')}` : ''}</span> : <span className="muted">unused</span>}{v.used_by.champion && <div><span className="champ-badge">champion</span></div>}</td>
             </tr>
           )
         })}</tbody>
       </table></div>
       <VersionActions v={d.versions.find((v) => v.id === focus) ?? null} def={def} root={d.root_id} by={by} onDefault={onDefault} onVerify={onVerify} onArchive={onArchive} onEdit={onEdit} onAdopt={onAdopt} onRestoreSplits={onRestoreSplits} />
-      <p className="helper" style={{ fontSize: 12, padding: '6px 16px 10px' }}>Versions are made by transforms (Data Doctor, Feature Lab, relabel, the label queue, drift windows, SQL refresh), by a new file, or by an edit; every change is a new version, nothing is modified in place, and a file changed on disk outside the app fails its hash check. The default is a pointer: rolling back moves it and never changes or copies data. ◇ = new rows with no mapping to the original rows (never paired).</p>
+      <p className="card-foot">Versions are made by transforms (Data Doctor, Feature Lab, relabel, the label queue, drift windows, SQL refresh), by a new file, or by an edit; every change is a new version, nothing is modified in place, and a file changed on disk outside the app fails its hash check. The default is a pointer: rolling back moves it and never changes or copies data. ◇ = new rows with no mapping to the original rows (never paired).</p>
     </div>
   )
 }
@@ -284,10 +291,10 @@ function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEd
   const bad = v.verified_ok === 0
   return (
     <div className="card-body row data-actions" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="data-actions">
-      <b className="mono">v{v.v}</b>
+      <span className="data-actions-who"><span className="v-tag mono">v{v.v}</span><CopyId value={v.id} /></span>
       {gone ? <span className="muted">deleted {when(v.state_at)} by {v.state_by}: the files are gone; this row, lineage.json, the tombstone, every edge and the audit stay.</span> : <>
         {!bad && <button className="btn sm" disabled={!by} onClick={() => onEdit(v)} data-testid={`data-edit-${v.v}`} title={by ? 'Edit cells, rows and columns; the changes are saved as a new version' : 'Type your name in “acting as” first'}>Edit v{v.v}…</button>}
-        {bad && <div className="data-warn" data-testid={`data-integrity-${v.v}`}><b>v{v.v}'s data or split file was changed outside the app</b> (its sha256 no longer matches; Verify hash says which): it is not trusted, and training on it is refused.
+        {bad && <div className="data-warn callout-like" data-testid={`data-integrity-${v.v}`}><b>v{v.v}'s data or split file was changed outside the app</b> (its sha256 no longer matches; Verify hash says which): it is not trusted, and training on it is refused.
           A split file (which rows are held out) is restored as it was drawn: <button className="btn sm" disabled={!by} onClick={() => onRestoreSplits(v)} data-testid={`data-restore-splits-${v.v}`}>Restore the split as drawn</button>.
           For data.csv, restore the file, or keep what is on disk as a new, named version:
           {adopt == null ? <button className="btn sm" style={{ marginLeft: 6 }} disabled={!by} onClick={() => setAdopt('')} data-testid={`data-adopt-${v.v}`}>Create a new version from this file…</button>
@@ -297,9 +304,10 @@ function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEd
         {!v.is_default && !v.state && <button className="btn sm" disabled={!by} onClick={() => onDefault(v)} data-testid={`data-default-${v.v}`} title="Moves the pointer only: no data changes">{def && v.v < def.v ? `Roll back to v${v.v}` : `Make v${v.v} the default`}</button>}
         <a className="btn sm" href={data.exportUrl(v.id, by || 'unknown')} title="data.csv + lineage.json + manifest.json (hashes, the chain to the root); audited" data-testid={`data-zip-${v.v}`}>Export with lineage (.zip)</a>
         <a className="btn sm ghost" href={data.exportUrl(v.id, by || 'unknown', 'csv')} data-testid={`data-csv-${v.v}`}>CSV only</a>
-        <button className="btn sm ghost" disabled={!by} onClick={() => onVerify(v)} data-testid={`data-verify-${v.v}`}>Verify hash</button>
-        <button className="btn sm ghost" disabled={!by} onClick={() => onArchive(v, !v.state)} data-testid={`data-archive-${v.v}`} title={v.id === root ? 'v1 alone: later versions stay' : undefined}>{v.state === 'archived' ? 'Unarchive' : 'Archive'} v{v.v}</button>
-        {v.warnings.length > 0 && <div className="data-warn" style={{ marginTop: 4 }}>{v.warnings.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>}
+        <span className="spacer" />
+        <button className="btn sm ghost" disabled={!by} onClick={() => onVerify(v)} data-testid={`data-verify-${v.v}`} title="Re-hash this version's file against its stored sha256">Verify hash</button>
+        <button className="btn sm ghost" disabled={!by} onClick={() => onArchive(v, !v.state)} data-testid={`data-archive-${v.v}`} title={v.id === root ? 'v1 alone: later versions stay' : 'Hide it from Build and the pickers (reversible)'}>{v.state === 'archived' ? 'Unarchive' : 'Archive'} v{v.v}</button>
+        {v.warnings.length > 0 && <Callout tone="warn" className="full">{v.warnings.map((w, i) => <div key={i}>{w.message}</div>)}</Callout>}
       </>}
     </div>
   )
@@ -307,19 +315,19 @@ function VersionActions({ v, def, root, by, onDefault, onVerify, onArchive, onEd
 
 const changeLine = (v: DsVersion) => {
   const c = v.changes
-  if (c.matched != null) return <span>{c.changed?.toLocaleString()} changed · +{c.added?.toLocaleString()} · −{c.removed?.toLocaleString()}</span>
+  if (c.matched != null) return <ChangeBar add={c.added} upd={c.changed} del={c.removed} base={c.rows_before ?? null} />
   if (c.rows_before != null && c.rows_after != null && v.parent_id) return <span>{c.rows_before.toLocaleString()} → {c.rows_after.toLocaleString()} rows{v.n_changes ? ` · ${v.n_changes} change${v.n_changes === 1 ? '' : 's'}` : ''}</span>
-  return <span className="muted">{v.parent_id ? `${v.n_changes ?? 0} changes` : 'original'}</span>
+  return <span className="muted">{v.parent_id ? plural(v.n_changes ?? 0, 'change') : 'the original'}</span>
 }
 
 const integrity = (v: DsVersion) => v.verified_ok == null || v.state === 'deleted' ? null
-  : v.verified_ok ? <span className="data-ok" title={`file matches the stored hash · checked ${when(v.verified_at)}`}> ✓</span>
+  : v.verified_ok ? <span className="data-ok" title={`file matches the stored hash · checked ${when(v.verified_at)}`} aria-label="hash verified"> ✓</span>
     : <span className="data-bad" title={`file does NOT match the stored hash · checked ${when(v.verified_at)}`} data-testid={`data-mismatch-${v.v}`}> ✕ mismatch</span>
 
 function DiffCard({ a, b, name, table }: { a: string; b: string; name: (id: string) => string; table: string | null }) {
   const { data: df, err } = useFetch<DsDiff | null>(a === b ? () => Promise.resolve(null) : () => data.diff(a, b, table), [a, b, table])
   const [all, setAll] = useState(false)
-  if (a === b) return <div className="card card-body helper">Pick two different versions in A and B to diff them.</div>
+  if (a === b) return <EmptyState title="Nothing to diff">Pick two different versions in the A and B columns of Versions to see what changed between them.</EmptyState>
   if (err && !df) return <ErrorCard err={err} />
   if (!df) return <Loading>Diffing {name(a)} → {name(b)}{table ? ` (table ${table})` : ''}…</Loading>
   const s = df.schema, r = df.rows
@@ -328,8 +336,8 @@ function DiffCard({ a, b, name, table }: { a: string; b: string; name: (id: stri
   const cols = all ? df.columns : [...df.columns.filter(key), ...df.columns.filter((c) => !key(c))].slice(0, Math.max(10, df.columns.filter(key).length))
   return (
     <div className="card" data-testid="data-diff">
-      <div className="card-head"><div className="left"><h3 className="card-title">Diff {name(a)} → {name(b)}{table ? <span className="mono" data-testid="diff-table"> · {table}</span> : null}</h3><span className="helper" style={{ fontSize: 12 }}>rows matched by {r.matched_by}</span></div>
-        {df.tables && df.tables.length > 1 && <span className="helper diff-tables" data-testid="diff-tables">{df.tables.map((t) => <span key={t.table} className={`pt-chip ${t.status === 'unchanged' ? '' : 'data-type'}`} title={`${t.a_sha256?.slice(0, 10) ?? '—'} → ${t.b_sha256?.slice(0, 10) ?? '—'} · rows ${t.rows.map((x) => x?.toLocaleString() ?? '—').join(' → ')}`}>{t.table} {t.status}</span>)}</span>}</div>
+      <CardHead title={<>What changed: {name(a)} → {name(b)}{table ? <span className="mono" data-testid="diff-table"> · {table}</span> : null}</>} sub={`rows matched by ${r.matched_by}`}
+        actions={df.tables && df.tables.length > 1 ? <span className="diff-tables" data-testid="diff-tables"><span className="micro-label">tables</span>{df.tables.map((t) => <Badge key={t.table} status={t.status === 'unchanged' ? 'unchanged' : 'changed'} title={`${t.a_sha256?.slice(0, 10) ?? '—'} → ${t.b_sha256?.slice(0, 10) ?? '—'} · rows ${t.rows.map((x) => x?.toLocaleString() ?? '—').join(' → ')}`}>{t.table} {t.status}</Badge>)}</span> : undefined} />
       <div className="card navy explain-hero data-hero">
         <div><span className="micro-label">rows</span><b>{r.a.toLocaleString()} → {r.b.toLocaleString()}</b></div>
         <div><span className="micro-label">changed</span><b data-testid="diff-changed">{r.changed.toLocaleString()}</b></div>
@@ -337,6 +345,7 @@ function DiffCard({ a, b, name, table }: { a: string; b: string; name: (id: stri
         <div><span className="micro-label">removed</span><b data-testid="diff-removed">−{r.removed.toLocaleString()}</b></div>
         <div><span className="micro-label">columns</span><b>{s.n_columns[0]} → {s.n_columns[1]}</b></div>
       </div>
+      {r.changed + r.added + r.removed > 0 && <div className="diff-bar-row"><ChangeBar add={r.added} upd={r.changed} del={r.removed} base={r.a} words /><span className="helper">{((r.changed + r.added + r.removed) / Math.max(1, r.a) * 100).toFixed(1)}% of {name(a)}'s {r.a.toLocaleString()} rows touched</span></div>}
       <div className="card-body stack" style={{ gap: 6 }}>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="diff-schema">
           {s.columns_added.map((c) => <span key={c} className="pt-chip data-add">+ {c}</span>)}
@@ -347,42 +356,50 @@ function DiffCard({ a, b, name, table }: { a: string; b: string; name: (id: stri
         </div>
         {df.edit && <div className="data-preview" data-testid="diff-edit"><b>Edited by {df.edit.by}{df.edit.reason ? <span className="muted" style={{ fontWeight: 400 }}> · “{df.edit.reason}”</span> : null}</b>
           <ol className="edit-ops">{df.edit.ops.map((o) => <li key={o.i}>{o.summary}{o.examples.length > 0 && <div className="helper" style={{ fontSize: 12 }}>{o.examples.slice(0, 4).map((x, i) => <span key={i} className="data-cell">row {String(x.row)}{x.column ? <> <span className="mono">{x.column}</span> {String(x.old ?? '—')} → <b>{String(x.new ?? '—')}</b></> : x.deleted ? ' deleted' : x.added ? ' added' : ''}</span>)}{o.examples_truncated ? '…' : ''}</div>}</li>)}</ol></div>}
-        {df.checks.length > 0 && <div className="data-warn">{df.checks.map((w, i) => <div key={i}>⚠ {w.message}</div>)}</div>}
+        {df.checks.length > 0 && <Callout tone="warn">{df.checks.map((w, i) => <div key={i}>{w.message}</div>)}</Callout>}
         {r.changed_examples.length > 0 && <details><summary className="micro-label">{r.changed_examples.length} changed rows, cell by cell</summary>
           <table className="table"><tbody>{r.changed_examples.map((x) => <tr key={x.row_b}><td className="mono">{x.key != null ? String(x.key) : `row ${x.row_b}`}</td>
             <td>{x.cells.map((c) => <span key={c.column} className="data-cell"><span className="mono">{c.column}</span> {String(c.a)} → <b>{String(c.b)}</b></span>)}</td></tr>)}</tbody></table></details>}
       </div>
       <div className="table-wrap"><table className="table" data-testid="diff-columns">
-        <thead><tr><th>column</th><th>missing A → B</th><th>mean A → B</th><th>median / top value A → B</th><th className="r">PSI</th></tr></thead>
+        <thead><tr><th>column</th><th className="r">missing A → B</th><th className="r">mean A → B</th><th>median / top value A → B</th><th className="r">PSI</th></tr></thead>
         <tbody>{cols.map((c) => (
           <tr key={c.column}>
-            <td className="mono">{c.column}{c.in !== 'both' && <span className={`pt-chip ${c.in === 'b' ? 'data-add' : 'data-rm'}`} style={{ marginLeft: 4 }}>{c.in === 'b' ? 'new' : 'gone'}</span>} <span className="muted">{c.kind}</span></td>
-            <td className="mono">{pct(c.missing_a)} → {pct(c.missing_b)}</td>
-            <td className="mono">{c.kind === 'number' ? `${num(c.mean_a)} → ${num(c.mean_b)}` : '—'}</td>
+            <td className="mono">{c.column}{c.in !== 'both' && <span className={`pt-chip ${c.in === 'b' ? 'data-add' : 'data-rm'}`} style={{ marginLeft: 6 }}>{c.in === 'b' ? 'new' : 'gone'}</span>} <span className="muted col-kind">{c.kind}</span></td>
+            <td className="mono r">{pct(c.missing_a)} → {pct(c.missing_b)}</td>
+            <td className="mono r">{c.kind === 'number' ? `${num(c.mean_a)} → ${num(c.mean_b)}` : <span className="muted">—</span>}</td>
             <td className="mono">{c.kind === 'number' ? `${num(c.median_a)} → ${num(c.median_b)}` : `${c.top_a?.[0] ? `${c.top_a[0].value} ${pct(c.top_a[0].share)}` : '—'} → ${c.top_b?.[0] ? `${c.top_b[0].value} ${pct(c.top_b[0].share)}` : '—'}`}</td>
             <td className="r">{c.psi == null ? '—' : <span title={c.note}><StatusPill status={BAND[c.band ?? ''] ?? 'neutral'}>{c.psi.toFixed(3)} {c.band}</StatusPill></span>}</td>
           </tr>))}</tbody>
       </table></div>
-      <p className="helper" style={{ fontSize: 12, padding: '6px 16px 10px' }}>{r.note}. PSI: &lt; 0.10 stable, 0.10–0.25 watch, &gt; 0.25 shift (A's deciles or top categories as the bins). {!all && df.columns.length > cols.length && <button className="chip-btn" onClick={() => setAll(true)}>Show all {df.columns.length} columns</button>}</p>
+      <p className="card-foot">{r.note}. PSI: &lt; 0.10 stable, 0.10–0.25 watch, &gt; 0.25 shift (A's deciles or top categories as the bins). {!all && df.columns.length > cols.length && <button className="chip-btn" onClick={() => setAll(true)}>Show all {df.columns.length} columns</button>}</p>
     </div>
   )
 }
 
 function Usage({ id, v, go }: { id: string; v?: number; go: (r: string) => void }) {
   const { data: u, err } = useFetch<DsUsage>(() => data.usage(id), [id])
+  const approved = (u?.champions ?? []).filter((c) => c.status === 'approved')
   return (
     <div className="card" data-testid="data-usage">
-      <div className="card-head"><div className="left"><h3 className="card-title">Used by {v ? `v${v}` : id}</h3><span className="helper" style={{ fontSize: 12 }}>and the versions derived from it</span></div></div>
-      <div className="card-body stack" style={{ gap: 6 }}>
-        {err && !u ? <span className="helper">{err}</span> : !u ? <span className="helper">…</span> : <>
-          {u.champions.filter((c) => c.status === 'approved').map((c) => <div key={c.id}><span className="champ-badge">★ champion</span> of {c.project_id} · run <span className="mono">{c.run_id}</span></div>)}
-          {u.versions.map((x) => <div key={x.id}>◆ <button className="linkish" onClick={() => go(`registry?version=${x.id}`)}>{x.model_name} v{x.version}</button> <span className="pt-chip">{x.stage}</span> <span className={`pt-chip appr-${x.approval}`}>{x.approval}</span>{x.retired && <span className="pt-chip" title={`retired ${when(x.retired_at)}`}>retired</span>} <span className="muted mono">{x.dataset_id}</span></div>)}
-          {u.runs.map((r) => <div key={r.id} data-testid={`usage-run-${r.id}`}>● <button className="linkish" onClick={() => go(`models?run=${r.id}`)}>{r.name}</button> <span className="mono muted">{r.id} · {r.dataset_id}</span> <span className="mono">{r.status !== 'succeeded' ? r.status : r.primary_metric ? `${r.primary_metric} ${fmtScore(r.primary_score, 4)}` : ''}</span>
-            {r.via_join && <span className="pt-chip" style={{ marginLeft: 4 }} title={`P14: read through join frame ${r.via_join.join_frame_id} (${r.via_join.relation})`} data-testid="usage-via-join">via join {r.via_join.join_frame_id} · {r.via_join.tables.join(', ')}{r.via_join.relation === 'merged_from' ? ' (another dataset)' : ''}</span>}</div>)}
-          {(u.join_frames ?? []).map((f) => <div key={f.id} data-testid="usage-frame">⋈ join frame <span className="mono">{f.id}</span> <span className="pt-chip">{f.relation.replace('_', ' ')}: {f.tables.join(', ')}</span> <span className="helper">its runs are listed above; deleting this version is refused while one of them needs it</span></div>)}
-          {!u.runs.length && <span className="helper">No run has trained on it.</span>}
-          {u.blocks_archive.length > 0 ? <p className="helper" style={{ fontSize: 12 }}>Can't be archived or deleted while: {u.blocks_archive.join(' ')}</p>
-            : u.blocks_archive_or_delete.length > 0 && <p className="helper" style={{ fontSize: 12 }}>Can be archived. Can't be deleted yet: {u.blocks_archive_or_delete.join(' ')}</p>}
+      <CardHead title={`Used by ${v ? `v${v}` : id}`} sub="runs and models trained on it, and on the versions derived from it" />
+      <div className="card-body stack usage" style={{ gap: 8 }}>
+        {err && !u ? <ErrorCard inline err={err} /> : !u ? <Loading inline>Reading what used it…</Loading> : <>
+          {approved.map((c) => <div key={c.id} className="use-row"><span className="champ-badge">★ champion</span><span>of {c.project_id}</span><CopyId value={c.run_id} /></div>)}
+          {u.versions.length > 0 && <div className="use-group"><span className="micro-label">models</span>
+            {u.versions.map((x) => <div key={x.id} className="use-row"><span className="use-ico" aria-hidden>◆</span><button className="linkish" onClick={() => go(`registry?version=${x.id}`)}>{x.model_name} v{x.version}</button>
+              <Badge status={x.stage === 'Production' ? 'active' : 'none'}>{x.stage}</Badge><Badge status={x.approval} />{x.retired && <Badge status="archived" title={`retired ${when(x.retired_at)}`}>retired</Badge>}</div>)}</div>}
+          {u.runs.length > 0 && <div className="use-group"><span className="micro-label">runs</span>
+            {u.runs.map((r) => <div key={r.id} className="use-row" data-testid={`usage-run-${r.id}`}><span className="use-ico" aria-hidden>●</span><button className="linkish" onClick={() => go(`models?run=${r.id}`)}>{r.name}</button>
+              <span className="mono use-metric">{r.status !== 'succeeded' ? <Badge status={r.status === 'failed' ? 'failed' : 'pending'}>{r.status}</Badge> : r.primary_metric ? `${r.primary_metric} ${fmtScore(r.primary_score, 4)}` : ''}</span>
+              {r.via_join && <span className="pt-chip" title={`P14: read through join frame ${r.via_join.join_frame_id} (${r.via_join.relation})`} data-testid="usage-via-join">⋈ via join · {r.via_join.tables.join(', ')}{r.via_join.relation === 'merged_from' ? ' (another dataset)' : ''}</span>}
+              <span className="spacer" /><CopyId value={r.id} /></div>)}</div>}
+          {(u.join_frames ?? []).length > 0 && <div className="use-group"><span className="micro-label">join frames built on it</span>
+            {(u.join_frames ?? []).map((f) => <div key={f.id} className="use-row" data-testid="usage-frame"><span className="use-ico" aria-hidden>⋈</span><span className="pt-chip">{f.relation.replace('_', ' ')}: {f.tables.join(', ')}</span><span className="spacer" /><CopyId value={f.id} /></div>)}
+            <span className="helper" style={{ fontSize: 12 }}>Their runs are listed above. Deleting this version is refused while one of them needs it.</span></div>}
+          {!u.runs.length && !u.versions.length && <span className="helper">No run has trained on it yet.</span>}
+          {u.blocks_archive.length > 0 ? <Callout tone="neutral" icon={false}><span><b>Can't be archived or deleted while:</b> {u.blocks_archive.join(' ')}</span></Callout>
+            : u.blocks_archive_or_delete.length > 0 && <Callout tone="neutral" icon={false}><span><b>Can be archived. Can't be deleted yet:</b> {u.blocks_archive_or_delete.join(' ')}</span></Callout>}
         </>}
       </div>
     </div>
@@ -399,16 +416,16 @@ function CardEditor({ d, by, onSaved, onErr }: { d: DsHistory; by: string; onSav
   const c = d.card
   return (
     <div className="card" data-testid="data-card">
-      <div className="card-head"><div className="left"><h3 className="card-title">Dataset card</h3>{c.updated_by && <span className="helper" style={{ fontSize: 12 }}>{c.updated_by} · {when(c.updated_at)}</span>}</div>
-        {!edit ? <button className="btn sm" disabled={!by} onClick={() => setEdit({ name: d.name, ...c })} data-testid="data-card-edit">Edit</button>
-          : <span className="row" style={{ gap: 6 }}><button className="btn sm" onClick={() => setEdit(null)}>Cancel</button>
-            <button className="btn sm" onClick={() => { const { name, ...rest } = edit; data.editCard(d.root_id, { ...(name !== d.name ? { name } : {}), ...Object.fromEntries(CARD.map(([k]) => [k, (rest[k] as string) ?? ''])) }, by).then(() => { setEdit(null); onSaved() }).catch(onErr) }} data-testid="data-card-save">Save</button></span>}</div>
+      <CardHead title="Dataset card" sub={c.updated_by ? `last edited by ${c.updated_by} · ${when(c.updated_at)}` : 'what it is, who answers for it, and its caveats'}
+        actions={!edit ? <button className="btn sm" disabled={!by} title={by ? 'Edit the card (audited)' : 'Type your name in “acting as” first'} onClick={() => setEdit({ name: d.name, ...c })} data-testid="data-card-edit">Edit</button>
+          : <><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button>
+            <button className="btn sm primary" onClick={() => { const { name, ...rest } = edit; data.editCard(d.root_id, { ...(name !== d.name ? { name } : {}), ...Object.fromEntries(CARD.map(([k]) => [k, (rest[k] as string) ?? ''])) }, by).then(() => { setEdit(null); onSaved() }).catch(onErr) }} data-testid="data-card-save">Save</button></>} />
       <div className="card-body stack" style={{ gap: 6 }}>
         {edit && <label className="stack" style={{ gap: 2 }}><span className="micro-label">Name</span><input className="input" value={edit.name ?? ''} maxLength={120} onChange={(e) => setEdit({ ...edit, name: e.target.value })} data-testid="data-card-name" /></label>}
         {CARD.map(([k, label, ph]) => edit
           ? <label key={k} className="stack" style={{ gap: 2 }}><span className="micro-label">{label}</span>
             <textarea className="input" rows={k === 'description' || k === 'known_issues' ? 2 : 1} placeholder={ph} value={(edit[k] as string) ?? ''} onChange={(e) => setEdit({ ...edit, [k]: e.target.value })} data-testid={`data-card-${k}`} /></label>
-          : <div key={k} className="data-card-row"><span className="micro-label">{label}</span><span className={c[k] ? '' : 'muted'}>{(c[k] as string) || '—'}</span></div>)}
+          : <div key={k} className="data-card-row"><span className="micro-label">{label}</span><span className={c[k] ? 'dc-val' : 'muted'}>{(c[k] as string) || 'not written yet'}</span></div>)}
       </div>
     </div>
   )
@@ -425,16 +442,16 @@ function RemoveCard({ d, by, act }: { d: DsHistory; by: string; act: <T>(p: Prom
   const label = (id: string, o = false) => (id === d.root_id && !o ? 'the whole dataset' : `v${vOf(id)?.v} (${id})`)
   return (
     <div className="card" data-testid="data-remove">
-      <div className="card-head"><div className="left"><h3 className="card-title">Archive or delete</h3><span className="helper" style={{ fontSize: 12 }}>refused while a registered model or a champion comes from it</span></div></div>
+      <CardHead title="Archive or delete" sub="refused while a registered model or a champion comes from it" />
       <div className="card-body stack" style={{ gap: 8 }}>
         {pending.map((r) => (
-          <div key={r.id} className="data-warn" data-testid={`data-req-${r.id}`}>Delete {label(r.dataset_id)} asked by <b>{r.requested_by}</b> · {when(r.requested_at)} · “{r.reason}”
+          <div key={r.id} className="callout warn" data-testid={`data-req-${r.id}`}><span className="callout-ico" aria-hidden>▲</span><div className="callout-body"><div><b>Delete {label(r.dataset_id)}</b> asked by <b>{r.requested_by}</b> · {when(r.requested_at)} · “{r.reason}”</div>
             <div className="row" style={{ gap: 6, marginTop: 4 }}>
               <button className="btn sm" disabled={!by} onClick={() => act(data.decideDelete(r.id, true, by), () => `Deleted ${label(r.dataset_id)}: files removed, tombstone and lineage kept.`)} data-testid="data-req-approve">Approve delete</button>
               {me && me === r.requested_by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
                 ? <button className="btn sm ghost" onClick={() => act(data.decideDelete(r.id, false, by, '', true), () => 'Your delete request was withdrawn.')} data-testid="data-req-withdraw">Withdraw my request</button>
                 : <button className="btn sm ghost" disabled={!by} onClick={() => act(data.decideDelete(r.id, false, by), () => 'Delete rejected.')}>Reject</button>}
-              <span className="helper">someone other than {r.requested_by} (admins too)</span></div></div>))}
+              <span className="helper">someone other than {r.requested_by} decides (admins too)</span></div></div></div>))}
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <select className="select" value={target} onChange={(e) => setTarget(e.target.value)} data-testid="data-remove-target">
             <option value={d.root_id}>the whole dataset</option>
@@ -445,9 +462,12 @@ function RemoveCard({ d, by, act }: { d: DsHistory; by: string; act: <T>(p: Prom
         <div className="row" style={{ gap: 6 }}>
           {target === d.root_id && <button className="btn sm" disabled={!by} onClick={() => act(data.archive(target, d.state !== 'archived', by, reason), (r) => `${label(target)}: ${r.state}.`)} data-testid="data-archive-all">{d.state === 'archived' ? 'Unarchive' : 'Archive'} the dataset</button>}
           <label className="row helper" style={{ gap: 4 }} title="Keep up to 2,000 holdout rows beside the tombstone so retired models can be re-validated. Leave off for a PII purge."><input type="checkbox" checked={freeze} onChange={(e) => setFreeze(e.target.checked)} data-testid="data-freeze" /> keep a holdout sample</label>
-          <button className="btn sm danger" disabled={!by || reason.trim().length < 5} onClick={() => act(data.requestDelete(tid, by, reason, only, freeze), (r) => r.status === 'approved' ? `Deleted ${label(tid, only)} (admin).` : `Delete of ${label(tid, only)} asked: someone else must approve.`)} data-testid="data-delete">Ask to delete…</button>
+          <span className="spacer" />
+          <ConfirmButton className="btn sm danger" disabled={!by || reason.trim().length < 5} title={!by ? 'Type your name in “acting as” first' : reason.trim().length < 5 ? 'Give a reason (at least 5 characters)' : `Ask to delete ${label(tid, only)}: a second person approves (an admin's request deletes at once)`}
+            warning={`Delete ${label(tid, only)}? Its files go; the hash, tombstone, lineage and audit stay.`} confirm="Ask to delete" testId="data-delete"
+            onConfirm={() => act(data.requestDelete(tid, by, reason, only, freeze), (r) => r.status === 'approved' ? `Deleted ${label(tid, only)} (admin).` : `Delete of ${label(tid, only)} asked: someone else must approve.`)}>Ask to delete…</ConfirmButton>
         </div>
-        <p className="helper" style={{ fontSize: 12, margin: 0 }}>Archive hides it from Build and the pickers; it is allowed once the only models on it are Archived or retired and none is champion. Delete needs every model on it retired for {d.retention_days.toLocaleString()} days (retention policy, needs model-risk approval) and a second person (or an admin{d.admins_configured ? '' : ': none configured'}); the files go, the hash, tombstone, lineage and audit stay. Retire models in the Registry.</p>
+        <p className="helper" style={{ fontSize: 12, margin: 0, lineHeight: '17px' }}>Archive hides it from Build and the pickers; it is allowed once the only models on it are Archived or retired and none is champion. Delete needs every model on it retired for {d.retention_days.toLocaleString()} days (retention policy, needs model-risk approval) and a second person (or an admin{d.admins_configured ? '' : ': none configured'}); the files go, the hash, tombstone, lineage and audit stay. Retire models in the Registry.</p>
       </div>
     </div>
   )
@@ -456,12 +476,13 @@ function RemoveCard({ d, by, act }: { d: DsHistory; by: string; act: <T>(p: Prom
 function AuditCard({ d }: { d: DsHistory }) {
   return (
     <div className="card" data-testid="data-audit">
-      <div className="card-head"><h3 className="card-title">Audit</h3><span className="helper" style={{ fontSize: 12 }}>every dataset action, newest first</span></div>
+      <CardHead title="Audit" sub="every dataset action, newest first" />
       <div className="table-wrap" style={{ maxHeight: 260, overflow: 'auto' }}><table className="table">
         <tbody>{d.audit.slice(0, 30).map((a) => (
           <tr key={a.id}><td className="muted" style={{ whiteSpace: 'nowrap', fontSize: 12 }} title={when(a.ts)}>{day(a.ts)}</td><td>{a.actor}</td>
-            <td><span className="mono" style={{ fontSize: 12 }}>{a.action.replace(/^dataset_/, '').replace(/_/g, ' ')}</span>
-              <div className="mono muted data-audit-line">{String(a.details?.dataset_id ?? '')}{a.comment ? ` · ${a.comment}` : ''}</div></td></tr>))}</tbody>
+            <td><span className="audit-act">{a.action.replace(/^dataset_/, '').replace(/_/g, ' ')}</span>
+              {(a.comment || a.details?.dataset_id) ? <span className="sub-line data-audit-line" title={`${a.comment ?? ''} ${String(a.details?.dataset_id ?? '')}`.trim()}>{a.comment || String(a.details?.dataset_id ?? '')}</span> : null}</td></tr>))}
+          {!d.audit.length && <tr><td colSpan={3} className="helper">Nothing recorded yet.</td></tr>}</tbody>
       </table></div>
     </div>
   )

@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { catalog, uploads, type MatchMethod, type MatchSpec, type MyTeam, type Project, type TableAction, type TablePlan, type UpCheck, type UpCommitted, type UpDelta, type UpRelation, type UpTable, type Upload, type UploadPlan } from '@/shared/api/catalog'
 import { tables as tablesApi, type VTable } from '@/shared/api/tables'
 import { ApiError } from '@/shared/api/client'
 import { Tabs } from '@/shared/primitives/Tabs'
+import { Badge, ChangeBar, CoverageBar, Stats } from '@/shared/components/DataKit'
+import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { INTEGRITY_ACKS, IntegrityAcks, IssueLine, type Issue } from './UploadIssues'
 
 /** The parent of a next version: the dataset's default version. */
 export type UpParent = { id: string; v: number; name: string; nextV?: number; root?: string }
 
 const n = (x?: number | null) => (x == null ? '—' : x.toLocaleString())
-const share = (x?: number | null) => (x == null ? '' : `${(x * 100).toFixed(x > 0 && x < 0.001 ? 2 : 1)} %`)
+const share = (x?: number | null) => (x == null ? '' : `${(x * 100).toFixed(x > 0 && x < 0.001 ? 2 : 1)}%`)
 const same = (a?: MatchSpec | null, b?: MatchSpec | null) => !!a && !!b && a.method === b.method && (a.columns ?? []).join(',') === (b.columns ?? []).join(',')
 const errText = (e: unknown) => {
   const d = e instanceof ApiError ? e.detail as { code?: string; message?: string; keys?: { value: unknown[]; rows: number }[] } | undefined : undefined
@@ -192,10 +194,12 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
   const canCreate = !!chk && !blocked && !dirty && matchedOk && (!needsAck || ack) && integrityCodes.every((c) => iack.has(c))
   return (
     <div className="card-body stack up-flow" style={{ gap: 10 }} data-testid="up-flow">
-      {!chk && <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {!chk && <div className="up-step-title"><span className="up-step-n">1</span><b>{next ? `Check a file as v${parent!.nextV ?? parent!.v + 1} of ${parent!.name}` : 'Check files for a new dataset'}</b><span className="helper">nothing is written until you create it</span></div>}
+      {!chk && <div className="row up-pickrow" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <button className="btn" disabled={!!busy} onClick={() => ref.current?.click()} data-testid="up-pick">{files.length ? 'Other files…' : 'Choose files…'}</button>
         <input ref={ref} type="file" multiple accept={accept} hidden onChange={(e) => { const f = [...(e.target.files ?? [])]; if (f.length) setFiles(f); e.target.value = '' }} data-testid="up-file" />
-        {files.length > 0 && <span className="mono up-files" data-testid="up-filename">{files.map((f) => <span key={f.name}>{f.name} <span className="muted">{(f.size / 1024).toFixed(0)} KB</span></span>)}</span>}
+        {files.length > 0 ? <span className="up-files" data-testid="up-filename">{files.map((f) => <span key={f.name} className="up-file-chip"><span aria-hidden>▤</span> <span className="mono">{f.name}</span> <span className="muted">{(f.size / 1024).toFixed(0)} KB</span></span>)}</span>
+          : <span className="helper">CSV, TSV, Parquet or Excel (.xlsx)</span>}
         {next ? <span className="helper">next version of <b>{parent!.name}</b>, from v{parent!.v} (the default){ptables && ptables.length > 1 ? ` · its tables: ${ptables.map((t) => t.name).join(', ')}` : ''}</span>
           : <label className="row helper" style={{ gap: 6 }}>project
             <select className="select" value={project} onChange={(e) => setProject(e.target.value)} disabled={!projects} data-testid="up-project">
@@ -209,10 +213,10 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
         {onCancel && <button className="btn ghost" disabled={!!busy} onClick={discard}>Cancel</button>}
       </div>}
       {!chk && <span className="helper" style={{ fontSize: 12 }}>Several files make one version: each CSV or Parquet file is a table, and each sheet of a workbook (.xlsx) is one.</span>}
-      {busy && <p className="helper" role="status" data-testid="up-busy">… {busy}</p>}
-      {err && <p className="helper up-err" role="alert" data-testid="up-err">✕ {err}</p>}
+      {busy && <div className="up-busy" role="status" data-testid="up-busy"><ResonanceWave /> {busy}</div>}
+      {err && <div className="callout danger up-err" role="alert" data-testid="up-err"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body">{err}</div></div>}
       {chk && !showPlan && (looksDelta || deltaOpen) && ptables && <DeltaHint chk={chk} parents={ptables} busy={!!busy} onApply={asDelta} hinted={!!looksDelta} />}
-      {chk && !showPlan && !looksDelta && !deltaOpen && next && !multi && ptables && <button className="chip-btn" style={{ alignSelf: 'flex-start' }} onClick={() => setDeltaOpen(true)} data-testid="up-delta-open">This file is a change set (insert / update / delete by key)…</button>}
+      {chk && !showPlan && !looksDelta && !deltaOpen && next && !multi && ptables && <button className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setDeltaOpen(true)} data-testid="up-delta-open">This file is a change set (insert / update / delete by key)…</button>}
       {chk && showPlan && <PlanView chk={chk} next={next} parents={ptables ?? []} parentRels={prels} plan={plan} setPlan={(p) => { setPlan(p); setDirty(true) }} dirty={dirty} busy={!!busy} apply={() => replan(plan)} />}
       {chk && <CheckView chk={chk} label={label} onFormat={withFormats} onOpColumn={opColumn} busy={!!busy} />}
       {chk && !showPlan && next && nv && (looksDelta || deltaOpen
@@ -221,15 +225,16 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
         : <MatchView nv={nv} parentV={parent!.v} match={match} setMatch={(m) => { setMatch(m); setAck(false) }} simulate={(m) => simulate(m)} busy={!!busy} />)}
       {chk && rewrites.map((t) => <MatchView key={t.name} nv={t.next_version!} parentV={parent?.v ?? 0} table={t.name} match={matches[t.name] ?? null}
         setMatch={(m) => { setMatches({ ...matches, [t.name]: m }); setAck(false) }} simulate={(m) => simulate(m, t.name)} busy={!!busy} />)}
-      {chk && needsAck && <label className="data-warn up-ack" data-testid="up-ack">
+      {chk && needsAck && <label className="callout warn up-ack" data-testid="up-ack">
         <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} data-testid="up-ack-box" />
         <span><b>Acknowledge to create it with {acks.map((m) => m.label).join(', ')}</b> (recorded in the version's manifest):{acks.flatMap((m) => m.warnings.filter((w) => w.needs_ack)).map((w, i) => <span key={i} className="up-ackline">⚠ {w.message}</span>)}</span>
       </label>}
       {chk && integrity.length > 0 && <IntegrityAcks items={integrity} acked={iack} setAcked={setIack} />}
-      {chk && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <input className="input" style={{ flex: 1, minWidth: 220 }} maxLength={500} placeholder="reason or change ticket (optional, kept with the version)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="up-reason" />
+      {chk && <div className="row up-commit-row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <span className="up-step-n">2</span>
+        <input className="input" style={{ flex: 1, minWidth: 220 }} aria-label="Reason or change ticket" maxLength={500} placeholder="reason or change ticket (optional, kept with the version)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="up-reason" />
         <button className="btn primary" disabled={!canCreate || !!busy} onClick={commit} data-testid="up-commit"
-          title={blocked ? 'The check found problems that block it' : dirty ? 'Check again with the changed plan first' : (needsAck && !ack) || integrityCodes.some((c) => !iack.has(c)) ? 'Acknowledge the warning first' : undefined}>{next ? `Create v${parent!.nextV ?? parent!.v + 1}` : 'Create dataset'}</button>
+          title={blocked ? 'The check found problems that block it' : dirty ? 'Check again with the changed plan first' : !matchedOk ? 'Choose how the rows match first' : (needsAck && !ack) || integrityCodes.some((c) => !iack.has(c)) ? 'Acknowledge the warning first' : 'Write it: stored as typed Parquet, audited'}>{next ? `Create v${parent!.nextV ?? parent!.v + 1}` : 'Create dataset'}</button>
         <button className="btn ghost" disabled={!!busy} onClick={discard} data-testid="up-discard">Discard</button>
       </div>}
     </div>
@@ -258,7 +263,7 @@ function DeltaHint({ chk, parents, busy, onApply, hinted }: { chk: UpCheck; pare
   const op = opt.op_column || '_op'
   const [t, setT] = useState(() => guessTable(cols, parents, op))
   return (
-    <div className="data-warn up-delta-hint" data-testid="up-delta-hint">
+    <div className="callout info up-delta-hint" data-testid="up-delta-hint"><span className="callout-ico" aria-hidden>i</span><div className="callout-body">
       {hinted ? <><b>This file looks like a change set.</b> It has an <span className="mono">_op</span> column: as it stands it would replace the table, with <span className="mono">_op</span> as a column.</>
         : <><b>Apply this file as a change set.</b> Each row names its operation in one column; the other columns are the table's, matched by its key.</>}
       <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -268,7 +273,7 @@ function DeltaHint({ chk, parents, busy, onApply, hinted }: { chk: UpCheck; pare
         <span className="helper" title={w?.message}>the other tables are carried</span>
       </div>
       {chk.tables[0] && <DeltaOptions t={chk.tables[0]} tp={opt} blocks={chk.blocks} set={(x) => { const n = { ...opt, ...x }; setOpt(n); if (x.op_column) setT(guessTable(cols, parents, x.op_column)) }} />}
-    </div>
+    </div></div>
   )
 }
 
@@ -293,65 +298,65 @@ function PlanView({ chk, next, parents, parentRels, plan, setPlan, dirty, busy, 
   const primary = plan.primary_table ?? chk.primary_table
   return (
     <div className="data-preview" data-testid="up-plan">
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <b>Tables in this version</b>
-        <span className="helper">{chk.tables.length} from the upload{notUploaded.length ? ` · ${notUploaded.length} of the parent's not in it` : ''} · primary table (what Build and runs use by default):</span>
-        <select className="select" value={primary ?? ''} onChange={(e) => setPlan({ ...plan, primary_table: e.target.value })} data-testid="up-primary">
-          {[...chk.tables.map((t) => t.name), ...notUploaded.map((t) => t.name)].map((t) => <option key={t}>{t}</option>)}</select>
+      <div className="up-sec-head">
+        <div><b>The version it would make</b><span className="helper"> · {chk.tables.length} table{chk.tables.length === 1 ? '' : 's'} from the upload{notUploaded.length ? `, ${notUploaded.length} from the parent` : ''}</span></div>
+        <label className="row helper" style={{ gap: 6 }} title="what Build and runs use by default"><span className="micro-label">primary table</span>
+          <select className="select" value={primary ?? ''} onChange={(e) => setPlan({ ...plan, primary_table: e.target.value })} data-testid="up-primary">
+            {[...chk.tables.map((t) => t.name), ...notUploaded.map((t) => t.name)].map((t) => <option key={t}>{t}</option>)}</select></label>
       </div>
       <div className="table-wrap"><table className="table up-plan-table" data-testid="up-plan-table">
-        <thead><tr><th>table</th><th>from</th><th className="r">rows × cols</th><th>action</th><th>key</th><th>what happens</th><th>contract · PII</th></tr></thead>
+        <thead><tr><th>table · from</th><th className="r">rows × cols</th><th>action</th><th>key</th><th>what happens</th><th>contract · PII</th></tr></thead>
         <tbody>
           {chk.tables.map((t) => {
             const a = tp(t.name).action ?? t.action ?? 'new'
             const k = key(t.name)
             const kText = tp(t.name).key ? tp(t.name).key!.join(', ') : k?.columns.join(', ') ?? parents.find((p) => p.name === t.name)?.keys.find((x) => x.valid)?.columns.join(', ') ?? ''
             return (
-              <tr key={t.name} data-testid={`up-plan-${t.name}`} className={t.blocked ? 'up-flag' : ''}>
-                <td className="mono"><b>{t.name}</b>{t.name === primary && <span className="pt-chip" style={{ marginLeft: 4 }}>primary</span>}</td>
-                <td className="helper">{t.source_file}{t.sheet ? <> › {t.sheet}</> : null}</td>
+              <Fragment key={t.name}><tr data-testid={`up-plan-${t.name}`} className={`${t.blocked ? 'up-flag' : ''} ${a === 'delta' ? 'has-sub' : ''}`}>
+                <td><span className="tbl-name">{t.name}</span>{t.name === primary && <span className="pt-chip" style={{ marginLeft: 6 }}>primary</span>}<span className="sub-line">{t.source_file}{t.sheet ? <> › {t.sheet}</> : null}</span></td>
                 <td className="r mono">{n(t.n_rows)} × {t.n_cols}</td>
                 <td><select className="select" value={a} onChange={(e) => setT(t.name, { action: e.target.value as TableAction })} data-testid={`up-action-${t.name}`} title={ACTION_HELP[a]}>
                   {(next ? ACTIONS_NEXT : ACTIONS_NEW).filter((x) => next || x !== 'rewrite').map((x) => <option key={x} value={x} disabled={next && ['rewrite', 'append', 'delta'].includes(x) && !parents.some((p) => p.name === t.name)}>{x}</option>)}</select></td>
                 <td><input className="input mono" style={{ width: 130 }} placeholder="key column(s)" defaultValue={kText} key={kText}
                   onBlur={(e) => { const v = e.target.value.split(',').map((x) => x.trim()).filter(Boolean); if (v.join(',') !== kText.replace(/ /g, '')) setT(t.name, { key: v }) }} data-testid={`up-key-${t.name}`} />
-                  {k && <div className={k.valid ? 'data-ok' : 'up-colwarn'} style={{ fontSize: 11.5 }}>{k.valid ? '✓ unique, no missing' : `✕ ${n(k.n_duplicates)} repeated · ${n(k.n_nulls)} missing`}</div>}</td>
-                <td className="helper">{t.delta ? <DeltaCounts d={t.delta} table={t.name} /> : t.action === 'append' && (t.rows_added ?? t.append?.rows_added) != null
-                  ? <span>+{n(t.rows_added ?? t.append?.rows_added)} rows after the parent's {n(t.parent_rows ?? t.append?.parent_rows)} → {n(t.rows_after ?? t.append?.rows_after)}</span>
-                  : ACTION_HELP[a]}{a === 'delta' && !t.delta && <span> · check again to count it</span>}
-                  {a === 'delta' && <DeltaOptions t={t} tp={tp(t.name)} blocks={chk.blocks.filter((b) => (b as { table?: string }).table === t.name || !(b as { table?: string }).table)} set={(x) => setT(t.name, x)} />}</td>
-                <td>{t.contract && <span className={`pt-chip up-ct-${t.contract}`} title="the dataset contract on this table">contract {t.contract}</span>}
+                  {k && <div className={k.valid ? 'data-ok' : 'up-colwarn'} style={{ fontSize: 11.5, fontWeight: 600 }}>{k.valid ? '✓ unique, none missing' : `✕ ${n(k.n_duplicates)} repeated · ${n(k.n_nulls)} missing`}</div>}</td>
+                <td className="up-what">{t.delta ? <DeltaCounts d={t.delta} table={t.name} /> : t.action === 'append' && (t.rows_added ?? t.append?.rows_added) != null
+                  ? <span><ChangeBar add={t.rows_added ?? t.append?.rows_added} base={t.parent_rows ?? t.append?.parent_rows} /><span className="sub-line">after the parent's {n(t.parent_rows ?? t.append?.parent_rows)} rows → {n(t.rows_after ?? t.append?.rows_after)}</span></span>
+                  : <span className="helper">{ACTION_HELP[a]}</span>}{a === 'delta' && !t.delta && <span className="sub-line g-warn">check again to count it</span>}</td>
+                <td className="up-marks">{t.contract && <Badge status={t.contract} title="the dataset contract on this table">contract {t.contract}</Badge>}
                   {(t.pii ?? []).map((p) => <span key={p.column} className="pt-chip up-pii" title={`${p.tag} · masked ${p.mask} · ${p.source}${p.why ? ` (${p.why})` : ''}`} data-testid={`up-pii-${t.name}-${p.column}`}>🔒 {p.column}</span>)}</td>
-              </tr>)
+              </tr>
+              {a === 'delta' && <tr className="up-sub-row"><td colSpan={6}><DeltaOptions t={t} tp={tp(t.name)} blocks={chk.blocks.filter((b) => (b as { table?: string }).table === t.name || !(b as { table?: string }).table)} set={(x) => setT(t.name, x)} /></td></tr>}
+              </Fragment>)
           })}
           {notUploaded.map((p) => {
             const a = tp(p.name).action ?? (chk.dropped?.includes(p.name) ? 'drop' : 'carry')
             return (
               <tr key={p.name} className="muted" data-testid={`up-plan-${p.name}`}>
-                <td className="mono">{p.name}{p.name === primary && <span className="pt-chip" style={{ marginLeft: 4 }}>primary</span>}</td>
-                <td className="helper">the parent's table · sha {p.table_sha256.slice(0, 8)}</td>
+                <td><span className="tbl-name muted-name">{p.name}</span>{p.name === primary && <span className="pt-chip" style={{ marginLeft: 6 }}>primary</span>}<span className="sub-line" title={p.table_sha256}>the parent's table</span></td>
                 <td className="r mono">{n(p.n_rows)} × {p.n_cols}</td>
                 <td><select className="select" value={a} onChange={(e) => setT(p.name, { action: e.target.value as TableAction })} data-testid={`up-action-${p.name}`}>
                   <option value="carry">carry</option><option value="drop">drop</option></select></td>
                 <td className="mono helper">{p.keys.find((k) => k.valid)?.columns.join(', ') ?? '—'}</td>
-                <td className="helper">{ACTION_HELP[a]}</td><td />
+                <td className="helper">{ACTION_HELP[a]}</td><td><Badge status={a} /></td>
               </tr>)
           })}
         </tbody>
       </table></div>
-      {(rels.length > 0 || kept.length > 0) && <div className="stack" style={{ gap: 4 }} data-testid="up-relations"><span className="micro-label">relations (n:1, from → to)</span>
-        {kept.map((r) => <span key={r.name} className="row up-rel" style={{ gap: 6 }} data-testid={`up-rel-kept-${r.name}`}><span className="data-ok">✓</span>
-          <span className="mono">{r.from.table}.{r.from.columns.join('+')} → {r.to.table}.{r.to.columns.join('+')}</span><span className="helper">kept from the parent (orphans counted again at commit)</span></span>)}
-        {rels.map((r) => <label key={r.name} className="row up-rel" style={{ gap: 6 }} data-testid={`up-rel-${r.name}`}>
-          <input type="checkbox" checked={isDeclared(r)} onChange={() => toggleRel(r)} />
-          <span className="mono">{r.from.table}.{r.from.columns.join('+')} → {r.to.table}.{r.to.columns.join('+')}</span>
-          <span className="helper">coverage {(Number(r.coverage) * 100).toFixed(1)} % · {n(r.n_orphans)} orphan{r.n_orphans === 1 ? '' : 's'} of {n(r.n_from_rows)}{r.to_unique ? '' : ' · ✕ the “to” side is not unique'}</span>
-          {r.suggested && !(chk.relations ?? []).some((x) => x.name === r.name) && <span className="pt-chip">suggested</span>}
+      {(rels.length > 0 || kept.length > 0) && <div className="stack" style={{ gap: 0 }} data-testid="up-relations"><span className="micro-label sec-label">relations · many → one</span>
+        {kept.map((r) => <span key={r.name} className="rel-row" data-testid={`up-rel-kept-${r.name}`}><span className="data-ok rel-box" aria-label="kept">✓</span>
+          <span className="mono rel-path">{r.from.table}.{r.from.columns.join('+')} <span className="muted">→</span> {r.to.table}.{r.to.columns.join('+')}</span><span className="helper">kept from the parent (orphans counted again at commit)</span></span>)}
+        {rels.map((r) => <label key={r.name} className="rel-row" data-testid={`up-rel-${r.name}`}>
+          <span className="rel-box"><input type="checkbox" checked={isDeclared(r)} onChange={() => toggleRel(r)} aria-label={`declare ${r.name}`} /></span>
+          <span className="mono rel-path">{r.from.table}.{r.from.columns.join('+')} <span className="muted">→</span> {r.to.table}.{r.to.columns.join('+')}</span>
+          <CoverageBar value={Number(r.coverage)} m={r.n_from_rows != null && r.n_orphans != null ? r.n_from_rows - r.n_orphans : null} N={r.n_from_rows} />
+          <span className="helper">{n(r.n_orphans)} orphan{r.n_orphans === 1 ? '' : 's'} of {n(r.n_from_rows)}{r.to_unique ? '' : <b className="g-bad"> · ✕ the “to” side is not unique</b>}</span>
+          {r.suggested && !(chk.relations ?? []).some((x) => x.name === r.name) && <><span className="spacer" /><Badge status="suggested" /></>}
         </label>)}
         <span className="helper" style={{ fontSize: 12 }}>coverage = matched “from” rows ÷ “from” rows with a value; an orphan is a “from” value with no row on the “to” side.</span></div>}
       {(chk.sheets?.length ?? 0) > 0 && <details><summary className="micro-label">{chk.sheets!.length} sheet{chk.sheets!.length === 1 ? '' : 's'} read</summary>
         <ul className="helper up-sheets">{chk.sheets!.map((s) => <li key={`${s.file}/${s.sheet}`}><span className="mono">{s.file} › {s.sheet}</span> → {s.included ? <b>{s.table}</b> : <span className="muted">{s.why ?? (s.hidden ? 'hidden' : 'left out')}</span>} {s.included && <span className="muted">{n(s.rows)} × {s.columns}</span>}</li>)}</ul></details>}
-      {dirty && <div className="row" style={{ gap: 8 }}><button className="btn primary" disabled={busy} onClick={apply} data-testid="up-recheck">Check again with this plan</button><span className="helper">the plan changed: nothing is created until it is checked</span></div>}
+      {dirty && <div className="callout warn up-dirty"><span className="callout-ico" aria-hidden>▲</span><div className="callout-body row" style={{ gap: 10, flexDirection: 'row', alignItems: 'center' }}><button className="btn primary" disabled={busy} onClick={apply} data-testid="up-recheck">Check again with this plan</button><span>The plan changed: nothing is created until it is checked.</span></div></div>}
     </div>
   )
 }
@@ -368,7 +373,7 @@ function DeltaOptions({ t, tp, blocks, set }: { t: UpTable; tp: TablePlan; block
   const newCols = blocks.find((b) => b.code === 'delta_new_columns')
   const setOps = (rows: [string, string][]) => set({ ops: rows.length ? Object.fromEntries(rows) : undefined })
   return (
-    <div className="up-delta-opts stack" style={{ gap: 4, marginTop: 4 }} data-testid={`up-delta-opts-${t.name}`}>
+    <div className="up-delta-opts" data-testid={`up-delta-opts-${t.name}`}><span className="micro-label sec-label up-opts-title">change-set options</span>
       <span className="row" style={{ gap: 4, flexWrap: 'wrap' }}><span className="micro-label">op column</span>
         <select className="select" value={op} onChange={(e) => set({ op_column: e.target.value || undefined })} data-testid={`up-opcol-${t.name}`}>
           <option value="">none: every row is an upsert</option>
@@ -391,12 +396,11 @@ function DeltaOptions({ t, tp, blocks, set }: { t: UpTable; tp: TablePlan; block
 function DeltaCounts({ d, table }: { d: UpDelta; table: string }) {
   return (
     <span className="up-delta" data-testid={`up-delta-${table}`}>
-      <b className="mono">+{n(d.inserted)} ~{n(d.updated)} −{n(d.deleted)}</b> by <span className="mono">{d.key.join('+')}</span> ({d.key_from === 'parent' ? 'the table\'s key' : 'the plan\'s key'}) ·
-      rows {n(d.parent_rows)} → {n(d.rows_after)} · {d.mode === 'append' ? 'insert-only: written as an append part' : d.mode === 'carry' ? 'changes nothing: carried' : 'the table is rewritten'}
-      {d.updated_unchanged > 0 && <> · {n(d.updated_unchanged)} updates change nothing</>}
-      {d.missing > 0 && <> · {n(d.missing)} deletes of missing keys</>}{d.update_of_missing_key > 0 && <> · {n(d.update_of_missing_key)} updates of missing keys (inserted)</>}
-      {d.insert_of_existing_key > 0 && <> · {n(d.insert_of_existing_key)} inserts of existing keys (updated)</>}
-      {d.holdout_rows_deleted > 0 && <> · {n(d.holdout_rows_deleted)} holdout rows deleted</>}
+      <ChangeBar add={d.inserted} upd={d.updated} del={d.deleted} base={d.parent_rows} />
+      <span className="sub-line">by <span className="mono">{d.key.join('+')}</span> ({d.key_from === 'parent' ? 'the table\'s key' : 'the plan\'s key'}) · rows {n(d.parent_rows)} → {n(d.rows_after)} · {d.mode === 'append' ? 'insert-only: written as an append part' : d.mode === 'carry' ? 'changes nothing: carried' : 'the table is rewritten'}</span>
+      {(d.updated_unchanged > 0 || d.missing > 0 || d.update_of_missing_key > 0 || d.insert_of_existing_key > 0 || d.holdout_rows_deleted > 0) && <span className="sub-line g-warn">
+        {[d.updated_unchanged > 0 && `${n(d.updated_unchanged)} updates change nothing`, d.missing > 0 && `${n(d.missing)} deletes of missing keys`, d.update_of_missing_key > 0 && `${n(d.update_of_missing_key)} updates of missing keys (inserted)`,
+          d.insert_of_existing_key > 0 && `${n(d.insert_of_existing_key)} inserts of existing keys (updated)`, d.holdout_rows_deleted > 0 && `${n(d.holdout_rows_deleted)} holdout rows deleted`].filter(Boolean).join(' · ')}</span>}
     </span>
   )
 }
@@ -409,9 +413,9 @@ function CheckView({ chk, label, ...h }: { chk: UpCheck; label: string } & Issue
   const t = chk.tables.find((x) => x.name === tab) ?? chk.tables[0]
   return (
     <div className="data-preview" data-testid="up-check-result">
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <b>Check: {label || t?.source_file}</b>
-        <span className="helper">{chk.tables.length} table{chk.tables.length === 1 ? '' : 's'} · checked in {chk.seconds} s · nothing is written until you create it</span>
+      <div className="up-sec-head">
+        <div><b>Columns as they would be stored</b><span className="helper"> · {label || t?.source_file} · {chk.tables.length} table{chk.tables.length === 1 ? '' : 's'} · checked in {chk.seconds} s</span></div>
+        {chk.blocks.length ? <Badge status="block">{chk.blocks.length} blocking</Badge> : chk.warnings.length ? <Badge status="warn">{chk.warnings.length} warning{chk.warnings.length === 1 ? '' : 's'}</Badge> : <Badge status="ok">checks clean</Badge>}
       </div>
       {chk.blocks.length > 0 && <div className="up-block" data-testid="up-blocks"><b>{chk.blocks.length} problem{chk.blocks.length === 1 ? '' : 's'} block this upload</b>{chk.blocks.map((b, i) => <IssueLine key={i} x={b as Issue} tone="block" chk={chk} {...h} />)}</div>}
       {chk.contract && <span className={`helper up-ct-line up-ct-${chk.contract.status}`} data-testid="up-contract-status">Contract{chk.contract.version ? ` v${chk.contract.version}` : ''}: <b>{chk.contract.status}</b> · {chk.contract.n_rules} rules, {chk.contract.n_blocks} blocking, {chk.contract.n_warnings} warnings</span>}
@@ -429,13 +433,8 @@ function TableCheck({ t, chk, ...h }: { t: UpTable; chk: UpCheck } & IssueHandle
   const pii = new Map((t.pii ?? []).map((p) => [p.column, p]))
   return (
     <div className="stack" style={{ gap: 8 }} data-testid={`up-table-${t.name}`}>
-      <div className="data-hero data-hero-sm">
-        <div><span className="micro-label">rows</span><b data-testid="up-rows">{n(t.n_rows)}</b></div>
-        <div><span className="micro-label">columns</span><b>{t.n_cols}</b></div>
-        <div><span className="micro-label">from</span><b className="up-small">{t.source_file}</b></div>
-        <div><span className="micro-label">read as</span><b className="up-small">{t.encoding ?? 'parquet'}{t.separator ? ` · sep ${t.separator === '\t' ? 'tab' : t.separator}` : ''}</b></div>
-        <div><span className="micro-label">warnings</span><b>{chk.warnings.filter(mine).length}</b></div>
-      </div>
+      <Stats items={[{ label: 'rows', value: n(t.n_rows), testId: 'up-rows' }, { label: 'columns', value: t.n_cols }, { label: 'from', value: <span className="up-small" title={t.source_file}>{t.source_file}</span> },
+        { label: 'read as', value: <span className="up-small">{t.encoding ?? 'parquet'}{t.separator ? ` · sep ${t.separator === '\t' ? 'tab' : t.separator}` : ''}</span> }, { label: 'warnings', value: chk.warnings.filter(mine).length }]} />
       <div className="table-wrap up-cols"><table className="table" data-testid="up-columns">
         <thead><tr><th>column</th><th>stored as</th><th>why</th><th className="r">non-null</th></tr></thead>
         <tbody>{t.schema.map((c) => {
@@ -450,7 +449,7 @@ function TableCheck({ t, chk, ...h }: { t: UpTable; chk: UpCheck } & IssueHandle
           )
         })}</tbody>
       </table></div>
-      {other.length > 0 && <div className="data-warn">{other.map((w, i) => <IssueLine key={i} x={w as Issue} tone="warn" chk={chk} {...h} />)}</div>}
+      {other.length > 0 && <div className="data-warn callout-like">{other.map((w, i) => <IssueLine key={i} x={w as Issue} tone="warn" chk={chk} {...h} />)}</div>}
       {chk.notes.length > 0 && <span className="helper">{chk.notes.join(' · ')}</span>}
       {pii.size > 0 && <span className="helper" style={{ fontSize: 12 }}>🔒 PII tags: {[...pii.values()].map((p) => `${p.column} (${p.tag}, masked ${p.mask}, ${p.source})`).join(' · ')}. Once created, these columns are masked for everyone without data.read_unmasked; review the tags on the dataset page.</span>}
       <details><summary className="micro-label">first {t.preview.rows.length} rows, as in the file (your own upload: not masked)</summary>
