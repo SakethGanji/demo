@@ -1,24 +1,13 @@
-import { useEffect, useState } from 'react'
-import { authz, certifications, contracts, pii, refusal, shares, teamsApi, PII_MASKS, PII_TAGS, type AuthzDecision, type Certification, type ContractResult, type PiiTag, type Share } from '@/shared/api/governance'
+import { useState } from 'react'
+import { certifications, contracts, pii, refusal, shares, teamsApi, PII_MASKS, PII_TAGS, type Certification, type ContractResult, type PiiTag, type Share } from '@/shared/api/governance'
 import type { DsHistory } from '@/shared/api/catalog'
 import { useFetch } from '@/shared/hooks/useFetch'
 
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const errLine = (e: unknown) => { const x = refusal(e); return `${x.message}${x.code ? ` (${x.code})` : ''}` }
 
-/** P19: ask the API whether the acting person may do `action` on the object; a button greys out on `allow: false`,
- *  with the reason as its title. Audit mode lets a would-deny request through, so this is the honest signal. */
-export function useCan(action: string, kind: string | null, id: string | null, by: string): AuthzDecision | null {
-  const [d, setD] = useState<AuthzDecision | null>(null)
-  useEffect(() => {
-    let live = true
-    if (!by) { setD(null); return }
-    authz.check(action, kind, id).then((r) => live && setD(r)).catch(() => live && setD(null))
-    return () => { live = false }
-  }, [action, kind, id, by])
-  return d
-}
-export const why = (d: AuthzDecision | null, fallback?: string) => (d && !d.allow ? `Not allowed for you: ${d.reason ?? `needs ${d.needed}`}${d.role ? ` (you are ${d.role})` : ''}.` : fallback)
+export { useCan, why } from '@/shared/hooks/useCan'
+import { useCan, why } from '@/shared/hooks/useCan'
 
 /**
  * U2 (P20, P21, C §4.3–4.5): who may see and use this dataset. PII tags per table (suggested tags mask until a

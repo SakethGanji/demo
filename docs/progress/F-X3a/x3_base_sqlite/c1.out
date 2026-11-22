@@ -1,0 +1,4 @@
+case headers a,A: check 500 Internal Server Error
+empty header: check 200 [[{'name': 'a', 'type': 'BIGINT', 'nullable': False, 'reason': 'whole numbers', 'non_null': 3}, {'name': 'col_2', 'type': 'BIGINT', 'nullable': False, 'reason': 'whole numbers', 'non_null': 3}, {'name': 'b', 'type': 'BIGINT', 'nullable': False, 'reason': 'whole numbers', 'non_null': 3}]]
+header __row_id: check 400 {'code': 'reserved_column', 'message': "These column names are reserved for the row id: __row_id. Rename them (names starting with '__', and '_row_id' / '_row', which the API uses for the row id, are reserved) and upload again."}
+header _op on a plain upload: check 200 [[{'name': 'k', 'type': 'BIGINT', 'nullable': False, 'reason': 'whole numbers', 'non_null': 3}, {'name': '_op', 'type': 'VARCHAR', 'nullable': False, 'reason': 'text', 'non_null': 3}]]

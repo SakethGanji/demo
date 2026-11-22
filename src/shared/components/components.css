@@ -247,3 +247,19 @@
 .fr-note { font-size: 12px; color: var(--text-muted); line-height: 1.45; flex: 1; }
 .fr-go { font-size: 12.5px; font-weight: 600; color: var(--accent-primary); margin-top: 4px; }
 .fr-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+
+/* U3 (F-PII): the masking line of a computed page (MaskBar) */
+.mask-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; padding: 6px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-subtle); margin: 6px 0; }
+.mask-bar .mono { font-size: 11.5px; }
+.mask-refused { width: 100%; font-size: 12.5px; background: var(--status-warning-bg); border-left: 3px solid var(--status-warning); padding: 6px 10px; border-radius: var(--radius-control); }
+
+/* U3 (P24): purge request, impact report, approvals, executed state */
+.lc-t td, .lc-t th { padding: 3px 8px; font-size: 12.5px; vertical-align: top; }
+.purge-impact { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: 8px 10px; }
+.purge-executed { border-left: 3px solid var(--status-danger, #DC2626); padding: 6px 10px; background: var(--bg-subtle); border-radius: var(--radius-control); }
+.purge-st-pending { background: var(--status-warning-bg); }
+.purge-st-used { background: #FEE2E2; color: #991B1B; }
+.purge-st-rejected, .purge-st-withdrawn { opacity: .7; }
+.lc-confirm { background: var(--status-warning-bg); padding: 6px 10px; border-radius: var(--radius-control); }
+.lc-result { border-left: 3px solid var(--status-success, #059669); padding: 6px 10px; background: var(--bg-subtle); border-radius: var(--radius-control); font-size: 13px; }
+.lc-manual { font-size: 13px; line-height: 1.5; }

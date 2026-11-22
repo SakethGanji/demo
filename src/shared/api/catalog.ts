@@ -180,7 +180,9 @@ export type UpRelation = { name: string; from: { table: string; columns: string[
 export type UpSheet = { file: string; sheet: string; table: string; hidden: boolean; rows: number; columns: number; reader?: string; included: boolean; why?: string }
 export type UpContract = { contract_id?: string; version?: number; status: 'pass' | 'warn' | 'block'; n_rules: number; n_blocks: number; n_warnings: number } | null
 /** The plan PATCH (P12/P13): per-table actions, keys, deltas; relations; the primary table. */
-export type TablePlan = { action?: TableAction; key?: string[]; match?: MatchSpec; op_column?: string; ops?: Record<string, string>; allow_new_columns?: boolean }
+export type TablePlan = { action?: TableAction; key?: string[]; match?: MatchSpec; op_column?: string; ops?: Record<string, string>; allow_new_columns?: boolean
+  /** P12 / F-X3a M3: declared column types, and the date formats that settle an ambiguous dd/mm vs mm/dd */
+  types?: Record<string, string>; formats?: Record<string, string> }
 export type UploadPlan = { table?: string; tables?: Record<string, TablePlan>; relations?: { name?: string; from: { table: string; columns: string[] }; to: { table: string; columns: string[] }; cardinality: 'n:1' | '1:1' }[]
   primary_table?: string; match?: MatchSpec }
 export type Upload = { upload_id: string; status: string; team_id: string; project_id: string | null; parent_version_id: string | null; root_id: string | null

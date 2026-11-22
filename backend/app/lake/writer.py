@@ -747,7 +747,14 @@ class VersionWriter:
                 self.relation(r["name"], r["from_table"], json.loads(r["from_cols_json"]), r["to_table"],
                               json.loads(r["to_cols_json"]), cardinality=r["cardinality"], declared_by=r["declared_by"])
             except LakeError as e:
-                self.op_log.append({"op": "relation_dropped", "name": r["name"], "why": e.code})
+                ack = getattr(self, "relations_acknowledged", None)
+                if ack is not None and r["name"] not in ack:  # F-X3a M1: never dropped unacknowledged on such a path
+                    raise LakeError(400, "acknowledge_required",
+                                    f"Relation {r['name']} ({r['from_table']} → {r['to_table']}) would be dropped ({e.code}). "
+                                    "Check the upload again and send acknowledge: [\"relation_dropped\"] to commit it anyway.",
+                                    acknowledge=["relation_dropped"], relation=r["name"], why=e.code) from None
+                self.op_log.append({"op": "relation_dropped", "name": r["name"], "why": e.code,
+                                    **({"acknowledged": True} if ack is not None else {})})
 
     def committed_for_job(self) -> str | None:
         """The version this writer's job_id already committed (check before doing the work of a re-run)."""

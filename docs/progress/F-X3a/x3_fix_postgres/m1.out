@@ -1,0 +1,32 @@
+v1 commit 200 201 []
+key customers 201
+key apps 201
+key payments composite 201 [{'columns': ['app_id', 'seq'], 'kind': 'primary', 'valid': True, 'declared_by': 'Ana', 'n_duplicates': 0, 'n_nulls': 0}]
+relation 201 {'name': 'app_cust', 'from': {'table': 'apps', 'columns': ['cust_id']}, 'to': {'table': 'customers', 'columns': ['cust_id']}, 'cardinality': 'n:1', 'n_orphans': 0, 'declared_by': 'Ana', 'n_from_rows': 200, 'n_from_missing': 0, 'coverage': '1.0000', 'to_unique': True}
+
+### composite-key delta on payments: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['app_id', 'seq'], 'inserted': 1, 'updated': 1, 'updated_unchanged': 0, 'deleted': 1, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 600}
+  schema [('app_id', 'VARCHAR'), ('seq', 'BIGINT'), ('amount', 'BIGINT'), ('paid_on', 'DATE'), ('_op', 'VARCHAR')]
+  warnings []
+  tables [('apps', 'carried', 200), ('customers', 'carried', 20), ('payments', 'rewritten', 600)]
+  relations carried [('app_cust', 0, True)]
+
+### customers delta keyed (cust_id, region) duplicating cust_id: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['cust_id', 'region'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 20}
+  schema [('cust_id', 'VARCHAR'), ('region', 'VARCHAR'), ('score', 'BIGINT')]
+  warnings []
+  tables [('apps', 'carried', 200, [['app_id']]), ('customers', 'rewritten', 20, [['cust_id'], ['cust_id', 'region']]), ('payments', 'carried', 600, [['app_id', 'seq']])]
+  relations [('app_cust', 'n:1', 0, True, '1.0000')]
+
+### key change customers→score 201 [{'columns': ['cust_id'], 'kind': 'primary', 'valid': True, 'declared_by': 'Ana', 'n_duplicates': 0, 'n_nulls': 0}, {'columns': ['score'], 'kind': 'primary', 'valid': True, 'declared_by': 'Ana', 'n_duplicates': 0, 'n_nulls': 0}]
+  relations [('app_cust', True, 0)]
+  keys [('apps', [['app_id']]), ('customers', [['cust_id'], ['score']]), ('payments', [['app_id', 'seq']])]
+
+### drop customers commit 200 201 [] {'id': 'ds_85be6581', 'root_id': 'ds_5eb02c33', 'version_no': 9, 'storage': 'parquet', 'manifest_sha256': '3a45779fe709970e0bac7004bbf4f03e35fb0231dc9e8875d31b45877f595131', 'data_sha256': 'c6f43e165e92f9609850bfd9de216a58e943ae91959b76dda537ed8609ef2883', 'n_tables': 2, 'n_rows': 200, 'n_cols': 5, 
+  tables [('apps', 'rewritten'), ('payments', 'carried')]
+  relations []
+### re-add customers commit 200 201 [] {'id': 'ds_e8e0105a', 'root_id': 'ds_5eb02c33', 'version_no': 10, 'storage': 'parquet', 'manifest_sha256': 'e75ea7822e10d6666f4711618ed15944c898f9434600dce2137b0b13f0884473', 'data_sha256': '43a727734f81ab545c2616d4b6e9f98fa3e6daf82535d3fe46aac600102e9628', 'n_tables': 3, 'n_rows': 200, 'n_cols': 5,
+  tables [('apps', 'carried', 'b3d985f3d843', [['app_id']]), ('payments', 'carried', '311ffe4575a0', [['app_id', 'seq']]), ('customers', 'new', 'c3604e1d2cbb', [])]
+  vs VR [('apps', 'b3d985f3d843'), ('customers', '0c535a427e9b'), ('payments', '311ffe4575a0')]
+  re-added customers row ids [20, 21, 22, 23, 24] …
+  original customers row ids [0, 1, 2, 3, 4] …

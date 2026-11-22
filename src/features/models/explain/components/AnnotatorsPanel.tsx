@@ -1,4 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
+import { MaskBar } from '@/shared/components/MaskBar'
+import type { Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { AnnItem, Annotations, Run } from '@/shared/api/types'
 import { NumberInput } from '@/shared/primitives/NumberInput'
@@ -17,7 +19,8 @@ const PAGE = 30
  *  untouched). Every number is GET /api/runs/{id}/annotations. */
 export function AnnotatorsPanel({ run }: { run: Run }) {
   const [page, setPage] = useState(0)
-  const { data: an, setData: setAn, err, setErr, reload } = useFetch(() => api.runs.annotations(run.id, { offset: page * PAGE, limit: PAGE }), [run.id, page], { pollMs: 2000, while: (d) => d?.status === 'computing' })
+  const [unmask, setUnmask] = useState<Unmask>(null)
+  const { data: an, setData: setAn, err, setErr, reload } = useFetch(() => api.runs.annotations(run.id, { offset: page * PAGE, limit: PAGE }, unmask ?? undefined), [run.id, page, unmask], { pollMs: 2000, while: (d) => d?.status === 'computing' })
   const working = an?.status === 'computing'
 
   if (!an && !err) return <div className="card card-body row"><ResonanceWave /> Reading the annotations…</div>
@@ -25,6 +28,7 @@ export function AnnotatorsPanel({ run }: { run: Run }) {
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="ann-panel" data-status={an?.status}>
       {err && <div className="card card-body" role="alert"><p className="helper">✕ {err}</p></div>}
+      <MaskBar info={an} kind="run" id={run.id} value={unmask} onChange={setUnmask} what="fields in the queue" />
       {an && working && (
         <div className="card card-body row" data-testid="ann-progress" style={{ gap: 'var(--space-12)' }}>
           <ResonanceWave />

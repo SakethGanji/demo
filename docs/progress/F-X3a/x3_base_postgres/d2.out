@@ -1,0 +1,86 @@
+
+### update of missing key (_op=U): stage=commit check=200 commit=201
+  delta {'mode': 'append', 'key': ['acct'], 'inserted': 2, 'updated': 0, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 2, 'insert_of_existing_key': 0, 'rows_after': 42}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT'), ('_op', 'VARCHAR')]
+  warnings [('delta_update_missing', '2 update(s) name a key that is not in the parent: they are added as new rows (counted in inserted).')]
+  n rows 42 [{'_row_id': 40, 'acct': '00099', 'amt': 1, 'seg': 'a', 'target': 0}, {'_row_id': 41, 'acct': '00098', 'amt': 1, 'seg': 'a', 'target': 0}]
+
+### key dtype: 3,4 vs '00003' (no zeros): stage=commit check=200 commit=201
+  delta {'mode': 'append', 'key': ['acct'], 'inserted': 2, 'updated': 0, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 42}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  n rows 42 [{'_row_id': 2, 'acct': '00003', 'amt': 103, 'seg': 'b', 'target': 1}, {'_row_id': 3, 'acct': '00004', 'amt': 104, 'seg': 'a', 'target': 0}, {'_row_id': 42, 'acct': '3', 'amt': 999, 'seg': 'a', 'target': 1}, {'_row_id': 43, 'acct': '4', 'amt': 999, 'seg': 'a', 'target': 1}]
+
+### key with zeros '00003','00004': stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  n rows 40 [{'_row_id': 2, 'acct': '00003', 'amt': 999, 'seg': 'a', 'target': 1}, {'_row_id': 3, 'acct': '00004', 'amt': 999, 'seg': 'a', 'target': 1}]
+
+### no-op delta (same values): stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  v 8 [('loans', 'rewritten', '2c1a4f886597')] 142eb3e1b66a
+  parent v 2 [('loans', 'carried', '4d3907f85b27')] 0b2b8b2e20d3
+
+### no-op delta again: stage=commit check=200 commit=200
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  same version as first no-op? False
+
+### type drift in a value column (amt text): stage=check check=200 commit=None
+  blocks [{'code': 'declared_type_mismatch', 'column': 'amt', 'message': "'amt' is declared BIGINT but 1 value(s) do not read as BIGINT.", 'examples': ['abc'], 'table': 'loans'}]
+  delta {'mode': None, 'key': ['acct'], 'inserted': None, 'updated': None, 'updated_unchanged': None, 'deleted': None, 'missing': None, 'update_of_missing_key': None, 'insert_of_existing_key': None, 'rows_after': None}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+
+### delete missing keys only: stage=commit check=200 commit=200
+  delta {'mode': 'carry', 'key': ['acct'], 'inserted': 0, 'updated': 0, 'updated_unchanged': 0, 'deleted': 0, 'missing': 2, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT'), ('_op', 'VARCHAR')]
+  warnings [('delta_delete_missing', '2 delete(s) name a key that is not in the parent: nothing to delete for them.')]
+
+### delta without key column: stage=check check=400 commit=None
+  detail {'code': 'delta_key_missing', 'message': "Delta of 'loans': The key acct must be in the parent table and the delta: the delta has no acct.", 'table': 'loans', 'columns': ['acct']}
+  warnings []
+
+### partial-column update (acct,amt): stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT')]
+  warnings [('delta_columns_missing', "The delta has no seg, target: updated rows keep the parent's values, inserted rows get missing values.")]
+  n rows 40 [{'_row_id': 10, 'acct': '00011', 'amt': 5555, 'seg': 'b', 'target': 1}, {'_row_id': 11, 'acct': '00012', 'amt': 6666, 'seg': 'a', 'target': 0}]
+
+### partial-column INSERT (acct,amt) new keys: stage=commit check=200 commit=201
+  delta {'mode': 'append', 'key': ['acct'], 'inserted': 2, 'updated': 0, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 42}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT')]
+  warnings [('delta_columns_missing', "The delta has no seg, target: updated rows keep the parent's values, inserted rows get missing values.")]
+  n rows 42 [{'_row_id': 44, 'acct': '00511', 'amt': 5555, 'seg': None, 'target': None}, {'_row_id': 45, 'acct': '00512', 'amt': 6666, 'seg': None, 'target': None}]
+
+### target set to NULL by update: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  n rows 40 [{'_row_id': 12, 'acct': '00013', 'amt': 1, 'seg': 'a', 'target': None}, {'_row_id': 13, 'acct': '00014', 'amt': 1, 'seg': 'a', 'target': None}]
+
+### insert of existing key (_op=I): stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 2, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT'), ('_op', 'VARCHAR')]
+  warnings [('delta_insert_existing', '2 insert(s) name a key the parent already has: they replace that row (counted in updated; the row keeps its id')]
+  n rows 40 [{'_row_id': 14, 'acct': '00015', 'amt': 1, 'seg': 'a', 'target': 0}, {'_row_id': 15, 'acct': '00016', 'amt': 1, 'seg': 'a', 'target': 0}]
+
+### upsert column named _op with a value 'X': stage=check check=400 commit=None
+  detail {'code': 'delta_op_unknown', 'message': 'Delta of \'loans\': Column _op has value(s) X that are not an operation: use I / U / D (insert / update / delete) or upsert, or map them with tables.<t>.ops {"<value>": "insert" | "update" | "delete" | "upsert"}.', 'table': 'loans', 'values': ['X']}
+  warnings []
+
+### float amt into BIGINT column: stage=commit check=200 commit=201
+  delta {'mode': 'rewrite', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  n rows 40 [{'_row_id': 18, 'acct': '00019', 'amt': 2, 'seg': 'a', 'target': 0}, {'_row_id': 19, 'acct': '00020', 'amt': 3, 'seg': 'a', 'target': 0}]
+
+### case-different key '0001A' style + whitespace key: stage=commit check=200 commit=201
+  delta {'mode': 'append', 'key': ['acct'], 'inserted': 2, 'updated': 0, 'updated_unchanged': 0, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 42}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  n rows 42 [{'_row_id': 20, 'acct': '00021', 'amt': 121, 'seg': 'b', 'target': 1}, {'_row_id': 21, 'acct': '00022', 'amt': 122, 'seg': 'a', 'target': 0}, {'_row_id': 46, 'acct': ' 00021', 'amt': 1, 'seg': 'a', 'target': 0}, {'_row_id': 47, 'acct': '00022 ', 'amt': 1, 'seg': 'a', 'target': 0}]
