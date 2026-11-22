@@ -3,6 +3,7 @@
 @import './base.css';
 @import '../primitives/primitives.css';
 @import '../components/components.css';
+@import '../components/datakit.css';
 @import '../../app/shell/shell.css';
 @import '../../features/vela/vela.css';
 @import '../../features/home/home.css';

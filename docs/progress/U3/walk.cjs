@@ -12,7 +12,7 @@ const S = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
 ;(async () => {
   fs.mkdirSync(out, { recursive: true })
   const b = await chromium.launch()
-  const p = await b.newPage({ viewport: { width: 1366, height: 900 }, deviceScaleFactor: 1 })
+  const p = await b.newPage({ viewport: { width: 1366, height: 900 }, deviceScaleFactor: Number(process.env.DSF || 1) })
   const calls = []
   const mark = (s) => { calls.push(`\n## ${s}`); console.log('##', s) }
   const noisy = /\.tsx?(\?|$)|\/api\/(health|status|runs\?kind=all&light|runs\/[^/]+\/events|llm|agent|vela|annotations\/|me$|authz\/check)/

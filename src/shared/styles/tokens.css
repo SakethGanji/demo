@@ -66,4 +66,7 @@
   --ease-pluck: cubic-bezier(0.22, 1, 0.36, 1);
   --duration-snap-min: 180ms; --duration-snap-max: 240ms;
   --duration-wave: 4s; --duration-vela-drift: 3s; --duration-reduced: 80ms;
+
+  /* U4: names some feature CSS used without a definition (so their colours fell back to inherit) */
+  --text-secondary: var(--text-muted); --font-body: var(--font-sans); --border-subtle: var(--border-row);
 }

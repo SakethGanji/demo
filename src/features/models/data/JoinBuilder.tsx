@@ -5,6 +5,7 @@ import { refusal } from '@/shared/api/governance'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 import { TrainOn } from './TrainOn'
+import { CardHead, CopyId, CoverageBar, IdDetails, Stats } from '@/shared/components/DataKit'
 
 const n = (x?: number | null) => (x == null ? '—' : x.toLocaleString())
 const FNS: JoinAgg['fn'][] = ['count', 'count_distinct', 'sum', 'mean', 'min', 'max']
@@ -38,16 +39,16 @@ export function JoinBuilder({ root, vid, v, team, ownerTeam, target, by, go }: {
   const cur = (saved.data ?? []).find((j) => j.id === sel) ?? null
   return (
     <div className="card" data-testid="join-builder">
-      <div className="card-head"><div className="left"><h3 className="card-title">Joins</h3>
-        <span className="helper" style={{ fontSize: 12 }}>train on several tables at once: one frame row per grain row, the other tables looked up or aggregated onto it</span></div>
-        <button className="btn sm" disabled={!by} onClick={() => { setMaking(!making); setSel(null) }} data-testid="join-new">{making ? 'Close' : 'New join…'}</button></div>
+      <CardHead title="Joins" sub="train on several tables at once: one row per grain row, the other tables looked up or aggregated onto it"
+        actions={<button className={`btn sm ${making ? 'ghost' : ''}`} disabled={!by} title={by ? undefined : 'Type your name in “acting as” first'} onClick={() => { setMaking(!making); setSel(null) }} data-testid="join-new">{making ? 'Close' : 'New join…'}</button>} />
       {making && <NewJoin d={d} root={root} by={by} onSaved={(j) => { setMaking(false); setTick((x) => x + 1); setSel(j.id) }} />}
       <div className="card-body stack" style={{ gap: 6 }}>
-        {saved.err && !saved.data ? <span className="helper">{saved.err}</span> : !saved.data ? <span className="helper">…</span>
+        {saved.err && !saved.data ? <ErrorCard inline err={saved.err} /> : !saved.data ? <Loading inline>Reading the saved joins…</Loading>
           : !saved.data.length ? <span className="helper">No saved join yet. A join is saved on the dataset, so it applies to every version that has its tables.</span>
-            : <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="join-list">{saved.data.map((j) =>
-              <button key={j.id} className={`chip-btn ${sel === j.id ? 'on' : ''}`} onClick={() => { setSel(j.id); setMaking(false) }} data-testid={`join-${j.name}`}
-                title={`${j.id} · spec ${j.spec_sha256.slice(0, 10)} · by ${j.created_by}`}>{j.name} <span className="muted">v{j.spec_version} · grain {j.spec.grain} + {j.spec.joins.length}</span></button>)}</div>}
+            : <div className="row join-list" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="join-list"><span className="micro-label">saved</span>{saved.data.map((j) =>
+              <button key={j.id} className={`join-chip ${sel === j.id ? 'on' : ''}`} aria-pressed={sel === j.id} onClick={() => { setSel(j.id); setMaking(false) }} data-testid={`join-${j.name}`}
+                title={`${j.id} · spec ${j.spec_sha256.slice(0, 10)} · by ${j.created_by}`}><b>⋈ {j.name}</b> <span className="muted">{j.spec.grain} + {j.spec.joins.length} · spec v{j.spec_version}</span></button>)}
+              {!sel && <span className="helper">pick one to check it on v{v}, build its frame and train on it</span>}</div>}
       </div>
       {cur && <JoinDetail key={`${cur.id}@${vid}`} j={cur} root={root} vid={vid} v={v} d={d} team={team} ownerTeam={ownerTeam} target={target} by={by} go={go} />}
     </div>
@@ -87,17 +88,17 @@ function NewJoin({ d, root, by, onSaved }: { d: VersionTables; root: string; by:
   return (
     <div className="card-body stack join-new" style={{ gap: 8 }} data-testid="join-form">
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        <label className="row helper" style={{ gap: 4 }}>name <input className="input" style={{ width: 160 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="apps_bureau_pay" data-testid="join-name" /></label>
-        <label className="row helper" style={{ gap: 4 }}>grain (one row per)
-          <select className="select" value={grain} onChange={(e) => { setGrain(e.target.value); setSteps([]) }} data-testid="join-grain">{d.tables.map((t) => <option key={t.name}>{t.name}</option>)}</select></label>
-        <span className="helper">{n(d.tables.find((t) => t.name === grain)?.n_rows)} rows</span>
+        <label className="field"><span className="micro-label">name</span><input className="input" style={{ width: 180 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="apps_bureau_pay" data-testid="join-name" /></label>
+        <label className="field"><span className="micro-label">grain · one frame row per</span>
+          <select className="select" value={grain} onChange={(e) => { setGrain(e.target.value); setSteps([]) }} data-testid="join-grain">{d.tables.map((t) => <option key={t.name} value={t.name}>{t.name} ({n(t.n_rows)} rows)</option>)}</select></label>
         <span className="grow" />
-        <span className="helper">add</span>{others.map((t) => <button key={t} className="chip-btn" onClick={() => add(t)} data-testid={`join-add-${t}`}>+ {t}</button>)}
+        <span className="field"><span className="micro-label">add a table</span><span className="row" style={{ gap: 6 }}>{others.map((t) => <button key={t} className="btn sm" onClick={() => add(t)} data-testid={`join-add-${t}`}>+ {t}</button>)}</span></span>
       </div>
+      {!steps.length && <span className="helper">Add the tables to bring onto <b>{grain}</b>. A lookup takes one row per grain row (n:1); an aggregate summarises many (count, mean, …).</span>}
       {steps.map((s, i) => (
         <div key={i} className="join-step" data-testid={`join-step-${i}`}>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-            <b className="mono">{s.table}</b>
+            <span className="join-step-n mono">{i + 1}</span><b className="mono">{s.table}</b>
             <select className="select" value={s.type} onChange={(e) => set(i, { type: e.target.value as Step['type'], aggs: e.target.value === 'aggregate' && !s.aggs.length ? [{ name: 'n', fn: 'count' }] : s.aggs })} data-testid={`join-type-${i}`}>
               <option value="n:1">look up (n:1)</option><option value="aggregate">aggregate (many rows per grain row)</option></select>
             <span className="helper">on</span>
@@ -117,10 +118,11 @@ function NewJoin({ d, root, by, onSaved }: { d: VersionTables; root: string; by:
           </div>}
         </div>))}
       <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-        <button className="btn primary" disabled={busy || !name.trim() || !steps.length || steps.some((s) => !s.left || !s.right)} onClick={save} data-testid="join-save">{busy ? 'Checking…' : 'Check and save'}</button>
+        <button className="btn primary" disabled={busy || !name.trim() || !steps.length || steps.some((s) => !s.left || !s.right)} onClick={save} data-testid="join-save"
+          title={!name.trim() ? 'Name the join first' : !steps.length ? 'Add a table first' : steps.some((s) => !s.left || !s.right) ? 'Every table needs its "on" columns' : undefined}>{busy ? 'Checking…' : 'Check and save'}</button>
         <span className="helper">checked against v{d.version_no} first; nothing is saved if a rule fails</span>
       </div>
-      {err && <p className="helper up-err" role="alert" data-testid="join-err">✕ {err}</p>}
+      {err && <div className="callout danger" role="alert" data-testid="join-err"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body"><div className="callout-title">The join was not saved</div>{err}</div></div>}
     </div>
   )
 }
@@ -128,17 +130,17 @@ function NewJoin({ d, root, by, onSaved }: { d: VersionTables; root: string; by:
 function Coverage({ cov, grainRows }: { cov: JoinCoverage[]; grainRows: number }) {
   return (
     <div className="stack" style={{ gap: 4 }}>
-      <table className="table join-cov" data-testid="join-coverage">
-        <thead><tr><th>joined table</th><th>type · on</th><th className="r">matched m</th><th className="r">coverage c = m / N</th><th className="r">orphans</th><th className="r">missing key</th><th>key</th></tr></thead>
+      <div className="table-wrap join-cov-wrap"><table className="table join-cov" data-testid="join-coverage">
+        <thead><tr><th>joined table</th><th>type · on</th><th className="r th-math" title="coverage c = m / N"><i>c</i> = <i>m</i> / <i>N</i></th><th>coverage</th><th className="r">orphans</th><th className="r">missing key</th><th>key</th></tr></thead>
         <tbody>{cov.map((c) => <tr key={c.join} data-testid={`join-cov-${c.table}`}>
           <td className="mono"><b>{c.table}</b> <span className="muted">{n(c.table_rows)} rows</span></td>
           <td className="mono" style={{ fontSize: 12 }}>{c.type} · {c.on.map(([l, r]) => `${l} = ${r}`).join(', ')}{c.rows_aggregated != null && <div className="helper">{n(c.rows_aggregated)} rows aggregated</div>}</td>
-          <td className="r mono">{n(c.matched)}</td>
           <td className="r mono">{n(c.matched)} / {n(grainRows)} = <b>{c.coverage == null ? '—' : c.coverage.toFixed(3)}</b></td>
+          <td><CoverageBar m={c.matched} N={grainRows} value={c.coverage} /></td>
           <td className="r mono">{n(c.orphans)}</td><td className="r mono">{n(c.missing_key)}</td>
           <td className="helper" style={{ fontSize: 12 }}>{c.key?.how ? `${c.key.how}${c.key.unique ? ', unique' : ''}` : c.type === 'aggregate' ? 'grouped' : '—'}</td></tr>)}</tbody>
-      </table>
-      <span className="helper" style={{ fontSize: 12 }}>where N = {n(grainRows)} grain rows (the frame has exactly N rows), m = grain rows with at least one matching row; an orphan is a grain row whose key has no match (its joined columns are missing); a missing key is a grain row with no key value.</span>
+      </table></div>
+      <dl className="where join-where"><dt>N</dt><dd>{n(grainRows)} grain rows (the frame has exactly N rows)</dd><dt>m</dt><dd>grain rows with at least one matching row</dd><dt>c</dt><dd>coverage: the share of grain rows the table reaches</dd><dt className="up">orphan</dt><dd>a grain row whose key has no match (its joined columns are missing)</dd><dt className="up">missing key</dt><dd>a grain row with no key value</dd></dl>
     </div>
   )
 }
@@ -160,28 +162,26 @@ function JoinDetail({ j, root, vid, v, d, team, ownerTeam, target, by, go }: { j
   const grainCols = (d.tables.find((t) => t.name === j.spec.grain)?.schema ?? []).map((c) => c.name)
   return (
     <div className="card-body stack" style={{ gap: 8, borderTop: '1px solid var(--border-default)' }} data-testid="join-detail">
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'baseline' }}>
-        <b>{j.name}</b><span className="mono muted">{j.id} · spec v{j.spec_version} · sha {j.spec_sha256.slice(0, 12)}</span>
-        <span className="helper">grain {j.spec.grain}{j.spec.joins.map((s) => ` + ${typeof s.table === 'string' ? s.table : `${s.table.table}@${s.table.version_id}`} (${s.type})`).join('')}</span>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+        <b className="join-title">⋈ {j.name}</b>
+        <span className="join-recipe mono"><b>{j.spec.grain}</b>{j.spec.joins.map((s, i) => <span key={i}> <span className="muted">{s.type === 'aggregate' ? '⊕' : '+'}</span> {typeof s.table === 'string' ? s.table : `${s.table.table}@${s.table.version_id}`}<span className="muted"> ({s.type})</span></span>)}</span>
+        <span className="spacer" /><IdDetails items={[['join', j.id], ['spec sha256', j.spec_sha256]]} label={`spec v${j.spec_version}`} />
       </div>
-      {val.err && !val.data ? <p className="helper up-err">✕ {val.err} — this join does not apply to v{v}</p> : !val.data ? <span className="helper">checking the join on v{v}…</span>
+      {val.err && !val.data ? <div className="callout warn"><span className="callout-ico" aria-hidden>▲</span><div className="callout-body"><div className="callout-title">This join does not apply to v{v}</div>{val.err}</div></div> : !val.data ? <Loading inline>Checking the join on v{v}…</Loading>
         : <>
           <Coverage cov={val.data.coverage} grainRows={val.data.grain_rows} />
-          <span className="helper" style={{ fontSize: 12 }}>{val.data.n_columns} frame columns: {val.data.columns.map((c) => c.name).join(', ')}</span>
+          <details className="join-cols"><summary className="micro-label">{val.data.n_columns} frame columns</summary><span className="helper mono" style={{ fontSize: 12 }}>{val.data.columns.map((c) => c.name).join(', ')}</span></details>
           <div className="row" style={{ gap: 8, alignItems: 'center' }}>
             <button className="btn primary" disabled={busy || !by} onClick={build} data-testid="join-frame">{busy ? 'Building…' : `Build the frame on v${v}`}</button>
             <span className="helper">one DuckDB pass; the frame is kept by content, so the same join on the same tables is built once</span></div>
         </>}
       {err && <p className="helper up-err" role="alert" data-testid="join-frame-err">✕ {err}</p>}
       {fr && <div className="data-preview" data-testid="frame-result">
-        <div className="data-hero data-hero-sm">
-          <div><span className="micro-label">frame</span><b className="up-small mono">{fr.id}</b></div>
-          <div><span className="micro-label">rows = grain rows</span><b data-testid="frame-rows">{n(fr.n_rows)}</b></div>
-          <div><span className="micro-label">columns</span><b>{fr.schema.length - 1}</b></div>
-          <div><span className="micro-label">{fr.cached ? 'cached' : 'built in'}</span><b>{fr.cached ? 'yes' : `${fr.seconds?.toFixed(2)} s`}</b></div>
-          <div><span className="micro-label">frame sha256</span><b className="mono up-small" title={fr.frame_sha256}>{fr.frame_sha256.slice(0, 12)}</b></div>
-        </div>
-        <span className="helper" style={{ fontSize: 12 }}>inputs pinned: {fr.inputs.map((x) => `${x.table} @ ${x.version_id} (${n(x.n_rows)} rows, sha ${x.table_sha256.slice(0, 8)})`).join(' · ')}{fr.same_frame_as_version ? ` · the same frame as on ${fr.same_frame_as_version} (same table bytes)` : ''}</span>
+        <div className="row" style={{ gap: 8, alignItems: 'center' }}><b>Frame on v{v}</b><span className="helper">{fr.cached ? 'already built: read from the cache' : `built in ${fr.seconds?.toFixed(2)} s`}{fr.same_frame_as_version ? ` · the same frame as on ${fr.same_frame_as_version} (same table bytes)` : ''}</span>
+          <span className="spacer" /><IdDetails items={[['frame', fr.id], ['frame sha256', fr.frame_sha256]]} /></div>
+        <Stats items={[{ label: 'rows = grain rows', value: n(fr.n_rows), testId: 'frame-rows' }, { label: 'columns', value: fr.schema.length - 1 }, { label: 'input tables', value: fr.inputs.length }]} />
+        <table className="table lc-t frame-inputs"><thead><tr><th>input pinned</th><th>version</th><th className="r">rows</th><th>sha256</th></tr></thead>
+          <tbody>{fr.inputs.map((x) => <tr key={`${x.table}@${x.version_id}`}><td className="mono">{x.table}</td><td><CopyId value={x.version_id} /></td><td className="r mono">{n(x.n_rows)}</td><td><CopyId value={x.table_sha256} n={8} /></td></tr>)}</tbody></table>
         {rows && <FramePreview r={rows} />}
         <TrainOn datasetId={vid} joinId={j.id} columns={grainCols} defaultLabel={target} ownerTeam={ownerTeam} team={team} by={by} go={go} what={`join ${j.name}`} />
       </div>}
@@ -191,10 +191,10 @@ function JoinDetail({ j, root, vid, v, d, team, ownerTeam, target, by, go }: { j
 
 function FramePreview({ r }: { r: FrameRows }) {
   return (
-    <details open data-testid="frame-preview"><summary className="micro-label">first {r.rows.length} of {n(r.n_rows)} frame rows{r.masked_columns.length ? ` · 🔒 ${r.masked_columns.length} masked (${r.masked_columns.join(', ')})` : ''}</summary>
+    <details open data-testid="frame-preview"><summary className="micro-label">preview · first {r.rows.length} of {n(r.n_rows)} rows{r.masked_columns.length ? ` · 🔒 ${r.masked_columns.length} masked (${r.masked_columns.join(', ')})` : ''}</summary>
       <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}><table className="table up-preview">
-        <thead><tr><th className="r">__row_id</th>{r.columns.map((c) => <th key={c} title={r.masks[c] ? `PII: masked (${r.masks[c]})` : undefined}>{r.masks[c] ? '🔒 ' : ''}{c}</th>)}</tr></thead>
-        <tbody>{r.rows.map((row, i) => <tr key={r.row_ids[i]}><td className="r mono muted">{r.row_ids[i]}</td>{row.map((x, k) => <td key={k} className={`mono ${r.masks[r.columns[k]] ? 'masked-cell' : ''}`}>{x == null ? <span className="muted">∅</span> : typeof x === 'number' && !Number.isInteger(x) ? x.toPrecision(4) : String(x)}</td>)}</tr>)}</tbody>
+        <thead><tr><th className="r">__row_id</th>{r.columns.map((c, k) => <th key={c} className={typeof r.rows[0]?.[k] === 'number' ? 'r' : undefined} title={r.masks[c] ? `PII: masked (${r.masks[c]})` : undefined}>{r.masks[c] ? '🔒 ' : ''}{c}</th>)}</tr></thead>
+        <tbody>{r.rows.map((row, i) => <tr key={r.row_ids[i]}><td className="r mono muted">{r.row_ids[i]}</td>{row.map((x, k) => <td key={k} className={`mono ${r.masks[r.columns[k]] ? 'masked-cell' : ''} ${typeof x === 'number' ? 'r' : ''}`}>{x == null ? <span className="muted">∅</span> : typeof x === 'number' && !Number.isInteger(x) ? x.toPrecision(4) : String(x)}</td>)}</tr>)}</tbody>
       </table></div></details>
   )
 }

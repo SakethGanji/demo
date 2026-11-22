@@ -89,9 +89,10 @@ function FrameNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge: LEdge }) {
   const tables = (edge.meta.tables as { table: string; role: string; table_sha256: string }[] | undefined) ?? []
   return (
     <li data-testid={`pt-frame-${n.id}`} className={ctx.focus === `join_frame:${n.id}` ? 'pt-focus' : ''}>
-      <div className="pt-row"><span className="pt-ico" title="join frame">⋈</span><b>{n.join_name ?? n.join_id}</b> <span className="muted">v{n.spec_version}</span> <span className="mono muted">{n.id}</span>
-        <span className={`pt-chip ${edge.relation === 'merged_from' ? 'op' : ''}`} title={edge.relation === 'merged_from' ? 'this version is an input from another dataset' : "this version's tables are inputs"}>{edge.relation.replace('_', ' ')}: {tables.map((t) => `${t.table} (${t.role})`).join(', ')}</span>
-        <span className="pt-chip">{(n.n_rows ?? 0).toLocaleString()} rows · grain {n.grain_table}</span>
+      <div className="pt-row pt-frame-row" title={n.id}><span className="pt-ico pt-frame-ico" title="join frame">⋈</span><b>{n.join_name ?? n.join_id}</b> <span className="muted">join frame · spec v{n.spec_version}</span>
+        <span className="pt-frame-tables" title={edge.relation === 'merged_from' ? 'merged from: this version is an input from another dataset' : "joined from: this version's tables are inputs"}>
+          {tables.map((t, i) => <span key={t.table}>{i > 0 && <span className="muted">{edge.relation === 'merged_from' ? ' + ' : ' ⋈ '}</span>}<span className={`pt-chip ${t.role === 'grain' ? 'op' : ''}`}>{t.table}{t.role === 'grain' ? ' · grain' : ''}</span></span>)}</span>
+        <span className="pt-chip">{(n.n_rows ?? 0).toLocaleString()} rows</span>
         {n.frame_sha256 && <span className="pt-chip mono" title={`frame identity ${n.frame_sha256}; cache file ${n.cache_blob}`}>frame {n.frame_sha256.slice(0, 8)}</span>}</div>
       {runs.length > 0 && <ul>{runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} trained={e} /> : null })}</ul>}
     </li>

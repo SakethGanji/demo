@@ -1,0 +1,6 @@
+u2-audit exit 0 | tracebacks 0 | 500s 0
+u3 exit 0 | tracebacks 0 | 500s 0
+intake exit 0 (ds_5cb3d82e)
+fx3a exit 0 | tracebacks 0 | 500s 0
+sql exit 0 | tracebacks 1 | 500s 0
+DONE
