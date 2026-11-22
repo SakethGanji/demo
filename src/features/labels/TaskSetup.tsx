@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { labels, classesOf, type Layer, type Task, type TaskType } from '@/shared/api/labels'
+import { labels, specCol, type Layer, type Task, type TaskType } from '@/shared/api/labels'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { CardHead, Callout, Field, Flash, Steps, Why } from '@/shared/components/DataKit'
 import { errText } from './parts'
@@ -17,12 +17,13 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
   onCancel: () => void; onMade: (t: Task, text: string) => void }) {
   const can = useCan('label.task_manage', 'dataset', root, by)
   const sc = layer.schema
+  const col0 = specCol(sc?.spec)
   const [at, setAt] = useState(0)
   const [name, setName] = useState(`${layer.name} · round 1`)
   const [type, setType] = useState<TaskType>('class')
-  const [column, setColumn] = useState(sc?.spec.column ?? cols[cols.length - 1] ?? '')
-  const [classes, setClasses] = useState(classesOf(sc?.spec.classes).map((c) => c.value).join(', '))
-  const [context, setContext] = useState<string[]>(() => cols.filter((c) => c !== (sc?.spec.column ?? '')).slice(0, 8))
+  const [column, setColumn] = useState(col0?.column ?? cols[cols.length - 1] ?? '')
+  const [classes, setClasses] = useState((col0?.classes ?? []).join(', '))
+  const [context, setContext] = useState<string[]>(() => cols.filter((c) => c !== (col0?.column ?? '')).slice(0, 8))
   const [guide, setGuide] = useState(sc?.guidelines ?? '')
   const [strategy, setStrategy] = useState('random')
   const [n, setN] = useState(50)
@@ -42,7 +43,8 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
   const create = async () => {
     setBusy(true); setMsg(null)
     try {
-      const spec = { task_type: type, column, classes: cs.map((c, i) => ({ value: c, hotkey: i < 9 ? String(i + 1) : undefined })), multi: type === 'multi_label' }
+      const ctype = type === 'number' ? 'number' : type === 'text' ? 'text' : 'class'
+      const spec = { columns: [{ column, role: 'target' as const, type: ctype as 'class', ...(ctype === 'class' ? { classes: cs } : {}), multi: type === 'multi_label' }] }
       const t = await labels.createTask(layer.id, { name: name.trim(), task_type: type, columns: [column], context, votes_per_row: votes, review,
         gold_share: goldShare / 100, blind_share: blindShare / 100, min_gold_accuracy: minGold / 100, show_prelabel: true, schema: { spec, guidelines: guide }, by })
       for (const p of people.filter((x) => x.name.trim() && !(x.name === by && x.role === 'annotator' && t.members?.some((m) => m.principal_id === by)))) await labels.addMember(t.id, p.name.trim(), p.role, by, p.guest)
@@ -113,6 +115,7 @@ export function TaskSetup({ layer, root, vid, v, cols, by, onCancel, onMade }: {
           {at > 0 && <button className="btn sm ghost" onClick={() => setAt(at - 1)}>← Back</button>}
           {at < 3 ? <button className="btn sm primary" disabled={!okStep[at]} onClick={() => setAt(at + 1)} data-testid="lbl-task-next">Next: {STEPS[at + 1]} →</button>
             : <button className="btn sm primary" disabled={busy || !by || !can?.allow || !okStep.every(Boolean)} title={why(can, 'Create the task and queue the rows')} onClick={create} data-testid="lbl-task-create">{busy ? 'Creating…' : 'Create task and queue rows'}</button>}
+          {at < 3 && !okStep[at] && <Why>{at === 0 ? (!column ? 'Choose the column labelled.' : 'At least two classes, comma-separated.') : at === 2 ? 'How many rows to queue.' : ''}</Why>}
           <span className="spacer" />
           <button className="btn sm ghost" onClick={onCancel}>Cancel</button>
           {at === 3 && can && !can.allow && <Why>{why(can)}</Why>}

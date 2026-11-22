@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { labels, wilson, arr, num, type Calibration, type Layer, type LlmRun, type Prompt } from '@/shared/api/labels'
+import { labels, wilson, arr, num, specCol, type Calibration, type Layer, type LlmRun, type Prompt } from '@/shared/api/labels'
 import { pii } from '@/shared/api/governance'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { Badge, CardHead, Callout, ConfirmButton, CopyId, CoverageBar, Field, Flash, Stats, Why } from '@/shared/components/DataKit'
 import { day, int, pct, plural } from '@/shared/lib/format'
-import { Busy, errText, show } from './parts'
+import { Busy, ReadErr, errText, show } from './parts'
 import { settle } from './LabelsTab'
 
 const DEFAULT_TEMPLATE = 'You label rows of a table.\nClasses: {classes}\n\nGuidelines:\n{guidelines}\n\nRow:\n{row}\n\nAnswer with one class and a confidence from 0 to 1.'
@@ -40,7 +40,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const dest = policy?.enabled === false ? 'off' : policy?.destination ?? 'fake'
   const destWhy = policy?.reason ?? (dest === 'fake' ? 'No real destination is allowed for this team (no API key or the team policy does not enable one): the fake destination answers deterministically so the flow can be tried end to end, at $0.'
     : dest === 'off' ? 'LLM labeling is off in this team\'s policy: a maintainer turns it on in Settings › Teams.' : 'Allowed by the team policy.')
-  const context = edit?.context ?? (p ? arr(p.context ?? p.context_json) : cols.filter((c) => c !== layer.schema?.spec.column).slice(0, 8))
+  const context = edit?.context ?? (p ? arr(p.context ?? p.context_json) : cols.filter((c) => c !== specCol(layer.schema?.spec)?.column).slice(0, 8))
   const masked = new Set([...(tags.data?.masked_columns ?? []), ...(policy?.pii?.masked ?? [])])
   const excluded = policy?.pii?.excluded ?? context.filter((c) => masked.has(c))
   const sent = policy?.pii?.sent ?? context.filter((c) => !excluded.includes(c))
@@ -76,10 +76,10 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
               {!edit && <button className="btn sm" disabled={gate} title={gateWhy || 'Edit as a new version'} onClick={() => setEdit({ template: p?.template ?? DEFAULT_TEMPLATE, context, model: p?.model ?? 'claude-haiku-5-5' })} data-testid="lbl-llm-edit">{p ? 'New version…' : 'Write prompt…'}</button>}
             </span>} />
           <div className="card-body stack" style={{ gap: 8 }}>
-            {ps.err && !ps.data ? <Callout tone="danger">{ps.err}</Callout> : edit ? <>
+            {ps.err && !ps.data ? <ReadErr err={ps.err} what="Prompts" /> : edit ? <>
               <Field label="Template" hint="{classes}, {guidelines}, {row} are filled in; the row holds only the columns sent"><textarea className="input mono lbl-guide-edit" rows={8} value={edit.template} onChange={(e) => setEdit({ ...edit, template: e.target.value })} data-testid="lbl-llm-template" /></Field>
               <Field label="Model" hint="a full model id, never an alias"><input className="input mono" value={edit.model} onChange={(e) => setEdit({ ...edit, model: e.target.value })} /></Field>
-              <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== layer.schema?.spec.column).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
+              <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== specCol(layer.schema?.spec)?.column).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
                 <input type="checkbox" checked={edit.context.includes(c)} onChange={(e) => setEdit({ ...edit, context: e.target.checked ? [...edit.context, c] : edit.context.filter((x) => x !== c) })} />{masked.has(c) && '🔒 '}{c}</label>)}</div></Field>
               <div className="row" style={{ gap: 6 }}><button className="btn sm primary" disabled={busy === 'save'} onClick={save} data-testid="lbl-llm-save">Save as v{(p?.version ?? 0) + 1}</button><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button></div>
             </> : p ? <>
@@ -123,7 +123,7 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
       <div className="card" data-testid="lbl-llm-runs">
         <CardHead title="Runs" badge={runs.data ? <Badge status="none">{runs.data.length}</Badge> : undefined} sub="preview, calibration and labeling runs: rows, spend against the cap, PII redactions" />
         <div className="card-body">
-          {runs.err && !runs.data ? <Callout tone="danger">{runs.err}</Callout> : !runs.data ? <Busy>Reading runs…</Busy> : !runs.data.length ? <span className="muted">No run yet.</span>
+          {runs.err && !runs.data ? <ReadErr err={runs.err} what="Runs" /> : !runs.data ? <Busy>Reading runs…</Busy> : !runs.data.length ? <span className="muted">No run yet.</span>
             : <div className="table-wrap"><table className="table">
               <thead><tr><th>Run</th><th>Purpose</th><th>Rows</th><th className="r">Spent / cap</th><th className="r">Redactions</th><th>Status</th><th>Made</th></tr></thead>
               <tbody>{runs.data.map((r) => <tr key={r.id} className={r.id === cur?.id ? 'sel' : ''} onClick={() => setRunSel(r.id)} style={{ cursor: 'pointer' }} data-testid={`lbl-llm-runrow-${r.purpose}`}>

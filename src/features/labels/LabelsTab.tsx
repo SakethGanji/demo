@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DsHistory } from '@/shared/api/catalog'
 import { tables } from '@/shared/api/tables'
 import { isAccepted, waitJob } from '@/shared/api/jobs'
-import { labels, classesOf, countsOf, arr, type Layer, type LayerKind, type Snapshot, type Task, type Proposal, type LayerStatus } from '@/shared/api/labels'
+import { labels, classesOf, countsOf, specCol, type Layer, type LayerKind, type Snapshot, type Task, type Proposal, type LayerStatus } from '@/shared/api/labels'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { usePoc } from '@/shared/hooks/usePoc'
@@ -10,7 +10,7 @@ import { Badge, CardHead, Callout, ConfirmButton, CopyId, CoverageBar, Field, Fl
 import { EmptyState } from '@/shared/components/EmptyState'
 
 import { day, int, plural, when } from '@/shared/lib/format'
-import { Busy, CarryBar, errText, STATUS_KEYS, STATUS_WORDS, totals } from './parts'
+import { Busy, CarryBar, ReadErr, columnsOf, errText, STATUS_KEYS, STATUS_WORDS, totals } from './parts'
 import { TaskSetup } from './TaskSetup'
 import { LabelScreen } from './LabelScreen'
 import { LlmPanel } from './LlmPanel'
@@ -41,10 +41,13 @@ export function LabelsTab({ d, vid, v, table, by, go }: { d: DsHistory; vid: str
   const layers = ls.data ?? []
   const layer = layers.find((l) => l.id === sel) ?? layers.find((l) => l.is_default) ?? layers[0] ?? null
   useEffect(() => { if (!sel && layer) setSel(layer.id) }, [layer?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  const full = useFetch(layer ? () => labels.layer(layer.id) : null, [layer?.id, tick])  // with its schema (the list has only its version)
+  const L = full.data && full.data.id === layer?.id ? full.data : layer
   const done = (text: string) => { setMsg({ ok: true, text }); setTick((x) => x + 1) }
   const fail = (e: unknown) => setMsg({ ok: false, text: errText(e) })
 
-  if (view.kind !== 'home' && layer) {
+  if (view.kind !== 'home' && L) {
+    const layer = L
     const back = () => { setView({ kind: 'home' }); setTick((x) => x + 1) }
     if (view.kind === 'new-task') return <TaskSetup layer={layer} root={d.root_id} vid={vid} v={v} cols={cols} by={by} onCancel={back} onMade={(t, text) => { setMsg({ ok: true, text }); setView({ kind: 'home' }); setTick((x) => x + 1); void t }} />
     if (view.kind === 'llm') return <LlmPanel layer={layer} root={d.root_id} vid={vid} v={v} cols={cols} by={by} onBack={back} />
@@ -69,7 +72,7 @@ export function LabelsTab({ d, vid, v, table, by, go }: { d: DsHistory; vid: str
             <tbody>{layers.map((l) => <LayerRow key={l.id} l={l} vid={vid} on={l.id === layer?.id} pick={() => setSel(l.id)} tick={tick} />)}</tbody>
           </table></div>}
       </div>
-      {layer && <LayerDetail key={layer.id} layer={layer} d={d} vid={vid} v={v} cols={cols} by={by} tick={tick} go={go} open={setView} done={done} fail={fail} />}
+      {L && <LayerDetail key={L.id} layer={L} d={d} vid={vid} v={v} cols={cols} by={by} tick={tick} go={go} open={setView} done={done} fail={fail} />}
     </div>
   )
 }
@@ -103,7 +106,7 @@ function NewLayer({ root, tables: tbls, table, cols, by, onCancel, onMade, onErr
     try {
       const l = await labels.createLayer(root, { table: t, name: name.trim(), kind, purpose }, by)
       const cs = classes.split(',').map((x) => x.trim()).filter(Boolean)
-      if (column && cs.length) await labels.addSchema(l.id, { task_type: 'class', column, classes: cs.map((c, i) => ({ value: c, hotkey: i < 9 ? String(i + 1) : undefined })) }, '', by)
+      if (column && cs.length) await labels.addSchema(l.id, { columns: [{ column, role: 'target', type: 'class', classes: cs }] }, '', by)
       onMade(l)
     } catch (e) { onErr(e) } finally { setBusy(false) }
   }
@@ -132,9 +135,9 @@ function NewLayer({ root, tables: tbls, table, cols, by, onCancel, onMade, onErr
 function LayerDetail({ layer, d, vid, v, cols, by, tick, go, open, done, fail }: { layer: Layer; d: DsHistory; vid: string; v: number; cols: string[]; by: string; tick: number
   go: (r: string) => void; open: (v: View) => void; done: (t: string) => void; fail: (e: unknown) => void }) {
   void go
-  const full = useFetch(() => labels.layer(layer.id), [layer.id, tick])
-  const L = full.data ?? layer
-  const classes = classesOf(L.schema?.spec?.classes)
+  const L = layer
+  const sc = specCol(L.schema?.spec)
+  const classes = classesOf(sc?.classes)
   return (
     <>
       <StatusCard layer={L} d={d} vid={vid} v={v} tick={tick} />
@@ -145,7 +148,7 @@ function LayerDetail({ layer, d, vid, v, cols, by, tick, go, open, done, fail }:
             sub="the classes (with their keys) and the instructions labellers see" />
           <div className="card-body stack" style={{ gap: 8 }}>
             {L.schema ? <>
-              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">{L.schema.spec.column ?? arr(L.schema.spec.columns).join(', ')}</span>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">{(L.schema.spec.columns ?? []).map((c) => `${c.column} · ${c.type ?? 'class'}`).join(', ')}</span>
                 {classes.map((c) => <span key={c.value} className="pt-chip lbl-class">{c.hotkey && <kbd className="kbd">{c.hotkey}</kbd>}{c.label ?? c.value}</span>)}</div>
               {L.schema.guidelines ? <pre className="lbl-guidelines">{L.schema.guidelines}</pre> : <span className="muted">No guidelines written yet.</span>}
             </> : <span className="muted">No schema yet: a task sets one.</span>}
@@ -180,16 +183,17 @@ function StatusCard({ layer, d, vid, v, tick }: { layer: Layer; d: DsHistory; vi
         {st.err && !st.data ? <Callout tone="danger" title="Status not available">{st.err}</Callout> : !st.data ? <Busy>Checking every label against v{onV}…</Busy> : <>
           <Stats testId="lbl-status-stats" items={[
             ...STATUS_KEYS.map((k) => ({ label: k, value: int(t[k]), testId: `lbl-st-${k}`, title: STATUS_WORDS[k] })),
-            ...(t.base_changed ? [{ label: 'base changed', value: int(t.base_changed), title: 'the version itself now has a different value in a labelled cell' }] : []),
+            ...(t.base_changed ? [{ label: 'of which base changed', value: int(t.base_changed), title: 'the version itself now has a different value in a labelled cell' }] : []),
+            ...(t.disputed ? [{ label: 'disputed', value: int(t.disputed), title: 'votes disagree: not applied until reviewed' }] : []),
           ]} />
           <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
             <CarryBar c={t} testId="lbl-carry" />
-            <span className="muted">labelled share</span><CoverageBar m={t.live} N={all - t.orphaned || null} wide />
+            <span className="muted">labelled share</span><CoverageBar m={t.live} N={st.data.rows_in_version ?? (all - t.orphaned || null)} wide />
           </div>
-          {(st.data.columns?.length ?? 0) > 0 && <div className="table-wrap"><table className="table" data-testid="lbl-status-cols">
-            <thead><tr><th>Column</th><th>Carry-over</th>{STATUS_KEYS.map((k) => <th key={k} className="r">{k}</th>)}</tr></thead>
-            <tbody>{st.data.columns!.map((c) => <tr key={c.column}><td className="mono">{c.column}</td><td><CarryBar c={c} words={false} /></td>
-              {STATUS_KEYS.map((k) => <td key={k} className={`r mono ${c[k] ? `lbl-n-${k}` : 'muted'}`}>{int(c[k] ?? 0)}</td>)}</tr>)}</tbody></table></div>}
+          {columnsOf(st.data).length > 0 && <div className="table-wrap"><table className="table" data-testid="lbl-status-cols">
+            <thead><tr><th>Column</th><th>Carry-over</th>{STATUS_KEYS.filter((k) => k !== 'unlabelled').map((k) => <th key={k} className="r">{k}</th>)}<th className="r">disputed</th></tr></thead>
+            <tbody>{columnsOf(st.data).map((c) => <tr key={c.column}><td className="mono">{c.column}</td><td><CarryBar c={c} words={false} /></td>
+              {STATUS_KEYS.filter((k) => k !== 'unlabelled').map((k) => <td key={k} className={`r mono ${c[k] ? `lbl-n-${k}` : 'muted'}`}>{int(c[k] ?? 0)}</td>)}<td className="r mono">{int(c.disputed)}</td></tr>)}</tbody></table></div>}
           {Object.keys(by).length > 0 && <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}><span className="micro-label">sources</span>
             {Object.entries(by).map(([s, n]) => <span key={s} className="pt-chip" data-testid={`lbl-src-${s}`}>{s} <b className="mono">{int(n)}</b></span>)}</div>}
           {(t.stale > 0 || t.conflict > 0) && <Callout tone="warn" title={`${plural(t.stale + t.conflict, 'label')} need a look on v${onV}`} testId="lbl-stale-callout">
@@ -208,7 +212,7 @@ function TasksCard({ layer, by, tick, open, root }: { layer: Layer; by: string; 
       <CardHead title="Tasks" badge={ts.data ? <Badge status="none">{ts.data.length}</Badge> : undefined} sub="who labels which rows, with gold checks and review"
         actions={<button className="btn sm primary" disabled={!by || !canTask?.allow} title={!by ? 'Type your name first' : why(canTask, 'Schema, guidelines, queue, people and gold')} onClick={() => open({ kind: 'new-task' })} data-testid="lbl-new-task">Create task…</button>} />
       <div className="card-body">
-        {ts.err && !ts.data ? <Callout tone="danger">{ts.err}</Callout> : !ts.data ? <Busy>Reading tasks…</Busy> : !ts.data.length ? <span className="muted">No task yet.</span>
+        {ts.err && !ts.data ? <ReadErr err={ts.err} what="Tasks" /> : !ts.data ? <Busy>Reading tasks…</Busy> : !ts.data.length ? <span className="muted">No task yet.</span>
           : <table className="table lbl-tasks-t"><tbody>{ts.data.map((t) => <TaskRow key={t.id} t={t} open={open} />)}</tbody></table>}
       </div>
     </div>
@@ -269,13 +273,13 @@ function SnapshotsCard({ layer, d, vid, v, cols, by, tick, done, fail }: { layer
       <CardHead title="Snapshots" badge={ss.data ? <Badge status="none">{ss.data.length}</Badge> : undefined}
         sub="a frozen, hashed copy of the resolved labels: what a run pins, what is approved, what is materialised into a version"
         actions={<span className="row" style={{ gap: 6 }}>
-          <select className="select" value={policy} onChange={(e) => setPolicy(e.target.value)} aria-label="Resolution" data-testid="lbl-snap-policy" title="how several votes on a row become one label">
+          <select className="select" style={{ width: 150 }} value={policy} onChange={(e) => setPolicy(e.target.value)} aria-label="Resolution" data-testid="lbl-snap-policy" title="how several votes on a row become one label">
             <option value="majority">majority vote</option><option value="crowdlab">CROWDLAB</option><option value="single">single (latest)</option></select>
-          <label className="helper row" style={{ gap: 4 }} title="apply LLM labels above the calibrated threshold τ*; below it they stay pre-labels"><input type="checkbox" checked={acceptLlm} onChange={(e) => setAcceptLlm(e.target.checked)} /> accept LLM ≥ τ*</label>
+          <label className="helper row nowrap" style={{ gap: 4, whiteSpace: 'nowrap' }} title="apply LLM labels above the calibrated threshold τ*; below it they stay pre-labels"><input type="checkbox" checked={acceptLlm} onChange={(e) => setAcceptLlm(e.target.checked)} /> accept LLM ≥ τ*</label>
           <button className="btn sm primary" disabled={!by || !canSnap?.allow || busy === 'snap'} title={why(canSnap, 'Freeze the labels up to now')} onClick={take} data-testid="lbl-snap-take">{busy === 'snap' ? 'Taking…' : 'Take snapshot'}</button>
         </span>} />
       <div className="card-body">
-        {ss.err && !ss.data ? <Callout tone="danger">{ss.err}</Callout> : !ss.data ? <Busy>Reading snapshots…</Busy> : !ss.data.length ? <span className="muted">No snapshot yet.</span>
+        {ss.err && !ss.data ? <ReadErr err={ss.err} what="Snapshots" /> : !ss.data ? <Busy>Reading snapshots…</Busy> : !ss.data.length ? <span className="muted">No snapshot yet.</span>
           : <div className="table-wrap"><table className="table" data-testid="lbl-snap-list">
             <thead><tr><th>Snapshot</th><th>Through</th><th className="r">Applied</th><th className="r">Disputed</th><th className="r">Pre-label only</th><th>State</th><th>Made</th><th /></tr></thead>
             <tbody>{ss.data.map((s) => {
@@ -329,7 +333,7 @@ function ProposalsCard({ layer, d, by, tick, done, fail }: { layer: Layer; d: Ds
       <CardHead title="Correction proposals" badge={<Badge status={pending.length ? 'pending' : 'none'}>{pending.length ? `${pending.length} waiting` : 'none waiting'}</Badge>}
         sub="edits and Data Doctor fixes sent for review; approved ones become a version" />
       <div className="card-body stack" style={{ gap: 6 }}>
-        {ps.err && !ps.data ? <Callout tone="danger">{ps.err}</Callout> : !ps.data ? <Busy>Reading proposals…</Busy> : !ps.data.length ? <span className="muted">No proposal yet.</span>
+        {ps.err && !ps.data ? <ReadErr err={ps.err} what="Proposals" /> : !ps.data ? <Busy>Reading proposals…</Busy> : !ps.data.length ? <span className="muted">No proposal yet.</span>
           : ps.data.map((p) => {
             const own = !poc && same(p.proposed_by, by)
             return <div key={p.id} className="gov-item" data-testid={`lbl-prop-${p.id}`}>
