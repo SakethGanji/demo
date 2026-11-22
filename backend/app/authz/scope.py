@@ -127,6 +127,8 @@ def _dataset_root(con: Any, i: str) -> Scope | None:
 RESOLVERS["dataset_root"] = _dataset_root
 # LB-A (labeling plan §6): a label layer belongs to its root's team; a snapshot to its layer's
 RESOLVERS["label_layer"] = _via("label_layer", "SELECT root_id FROM label_layers WHERE id = ?", _dataset)
+RESOLVERS["label_task"] = _via("label_task", "SELECT l.root_id FROM label_tasks t JOIN label_layers l ON l.id = t.layer_id"
+                                             " WHERE t.id = ?", _dataset)
 RESOLVERS["label_snapshot"] = _via("label_snapshot", "SELECT l.root_id FROM label_snapshots s JOIN label_layers l ON l.id = s.layer_id"
                                                      " WHERE s.id = ?", _dataset)
 RESOLVERS["shareable"] = _shareable

@@ -1226,6 +1226,29 @@ def _commit_next(db, store, dstore, u: dict[str, Any], chk: dict[str, Any], plan
     return res, created
 
 
+def _label_identity_lost(db, con, parent: "_Parent") -> dict[str, Any]:
+    """LB-A (labeling plan §5.1a): the parent's labelled rows (any label layer of the root/table) that the chosen match
+    leaves unmatched (they would get new ids: their labels orphaned). `_m` holds the matched parent ids (pid)."""
+    try:
+        with db.connect() as c:
+            layers = [r[0] for r in c.execute("SELECT id FROM label_layers WHERE root_id = ? AND table_name = ?",
+                                              (parent.root, parent.table))]
+            if not layers:
+                return {"n": 0, "layers": []}
+            ids = {int(r[0]) for r in c.execute(f"SELECT DISTINCT row_id FROM label_events WHERE purged_at IS NULL AND layer_id IN"
+                                                 f" ({','.join('?' for _ in layers)})", layers)}
+    except Exception:  # noqa: BLE001 - a database without the label tables (never after migrate)
+        return {"n": 0, "layers": []}
+    if not ids:
+        return {"n": 0, "layers": layers}
+    from ..labels.rows import all_ids
+
+    present = ids & set(all_ids(parent.vid, parent.table)) if parent.storage == "parquet" else ids
+    matched = {int(r[0]) for r in con.execute("SELECT pid FROM _m WHERE pid IS NOT NULL").fetchall()}
+    lost = sorted(present - matched)
+    return {"n": len(lost), "layers": layers, "examples": lost[:10]}
+
+
 def _write_matched(w, db, parent: "_Parent", t: dict[str, Any], typed: Path, m: dict[str, Any], acks: list[str], by: str,
                    target: str | None, filename: str) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any], dict[str, Any], list[int]]:
     """§5.3 steps 3–4 for one table (P06, shared by P12's multi-table commit): the person's `match` re-simulated, its
@@ -1262,6 +1285,13 @@ def _write_matched(w, db, parent: "_Parent", t: dict[str, Any], typed: Path, m: 
         x["acknowledged"] = bool(x["needs_ack"])
     contract = mt.contract(target)
     mt.materialise(m, "_m")
+    label_lost = _label_identity_lost(db, w.con, parent)  # LB-A (labeling §5.1a): labelled rows that would get new ids
+    if label_lost["n"] and "label_identity_loss" not in acks:
+        raise LakeError(400, "acknowledge_required",
+                        f"{label_lost['n']:,} labelled row(s) of {len(label_lost['layers'])} label layer(s) would get new ids "
+                        "under this match, so their labels would be orphaned. Send acknowledge: [\"label_identity_loss\"] to "
+                        "commit anyway (remap later by a business key), or choose a key match.",
+                        code_detail="label_identity_lost", label_identity_lost=label_lost, chosen=chosen, table=parent.table)
     # F-X1 M1: the new rows' ids are taken atomically on the root counter (UPSERT ... RETURNING), so sibling
     # uploads committed at the same time can never be given the same range.
     n_new = int(w.con.execute("SELECT count(*) FROM (SELECT __fr FROM _n) n LEFT JOIN _m m USING (__fr)"
@@ -1290,8 +1320,9 @@ def _write_matched(w, db, parent: "_Parent", t: dict[str, Any], typed: Path, m: 
     rec = {"method": m["method"], **({"columns": m["columns"]} if m.get("columns") else {}), "confirmed_by": by,
            "matched_by": chosen["label"], "candidates": scores,
            **{k: chosen[k] for k in ("matched", "changed", "added", "removed", "holdout_identity_lost", "parent_holdout")},
-           "acknowledged": [x["code"] for x in mw if x["needs_ack"]], "warnings": [x["code"] for x in mw],
-           "parent": parent.vid, "parent_storage": parent.storage, "next_row_id": int(nxt),
+           "acknowledged": [x["code"] for x in mw if x["needs_ack"]] + (["label_identity_loss"] if label_lost["n"] else []),
+           "warnings": [x["code"] for x in mw] + (["label_identity_lost"] if label_lost["n"] else []),
+           "label_identity_lost": label_lost["n"], "parent": parent.vid, "parent_storage": parent.storage, "next_row_id": int(nxt),
            **({"best_candidate": {"columns": best["columns"], "matched": best["matched"],
                                   "holdout_identity_lost": best["holdout_identity_lost"]}} if best else {})}
     w.extra_ops.append({"op": "upload_version", "table": parent.table, "match": rec})

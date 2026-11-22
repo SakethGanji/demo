@@ -4,7 +4,7 @@
     judge(salt, resolved_rows, version_rows, spec_cols, stale_on) -> per-row status
 
 Per resolved (row, column): ok · stale (context changed) · base_changed (the labelled cell's base value changed) ·
-conflict (a correction whose base changed) · orphaned (row absent) · in_base (the version already holds the label).
+conflict (a correction whose base changed) · orphaned (row absent) · absorbed (the version already holds the label).
 Plus `unlabelled`: rows of the version with no resolved label."""
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from .resolve import resolve
 from .store import _layer_full, current_schema, default_version, schema_columns
 from .values import LabelError, canon_cell
 
-STATUSES = ("ok", "in_base", "stale", "base_changed", "conflict", "orphaned")
+STATUSES = ("ok", "absorbed", "stale", "base_changed", "conflict", "orphaned")
 
 
 def judge(salt: str, r: dict[str, Any], row: dict[str, Any] | None, spec_col: dict[str, Any] | None, stale_on: str = "ctx") -> tuple[str, str | None]:
@@ -27,9 +27,9 @@ def judge(salt: str, r: dict[str, Any], row: dict[str, Any] | None, spec_col: di
         return "orphaned", None
     col = r["column"]
     if r["status"] == "applied" and not r["is_null"] and canon_cell(row.get(col)) == r["value"]:
-        return "in_base", None
+        return "absorbed", None
     if r["status"] == "applied" and r["is_null"] and row.get(col) is None:
-        return "in_base", None
+        return "absorbed", None
     if r.get("base_value_hash") and col in row and RH.cell_hash(salt, row.get(col)) != r["base_value_hash"]:
         return ("conflict" if (spec_col or {}).get("role") == "feature" else "base_changed"), "base_value_changed"
     if stale_on == "all":
@@ -85,7 +85,7 @@ def status(db: Any, layer_id: str, version_id: str | None = None, policy: dict[s
             labelled.add(r["row_id"])
     n_rows = len(ROWS.all_ids(vid, lay["table_name"]))
     totals = {s: sum(c[s] for c in cols.values()) for s in (*STATUSES, "disputed", "prelabel_only", "schema_dropped")}
-    totals["live"] = totals["ok"] + totals["in_base"]
+    totals["live"] = totals["ok"] + totals["absorbed"]
     totals["unlabelled"] = n_rows - len(labelled)
     out = {"layer_id": layer_id, "version_id": vid, "through_seq": res["through_seq"], "rows_in_version": n_rows,
            "columns": cols, "totals": totals}

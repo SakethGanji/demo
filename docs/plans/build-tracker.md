@@ -181,3 +181,5 @@
 
 **Phases now 19 sessions (≈ 38–44 h):** L01a, L01b, L02, L03, L04a, L04b, L07a, XL0 (slice check), L05, L06a, L06b, L07b, L08a, L08b, L09, L10, UL1, UL2, XL1.
 **Note → L01a:** don't start until it carries the authz rule, the triggers and the format fields listed in the review's "Required changes before L01a".
+
+**LB-A (2026-11-22, labels core):** docs/progress/LB-A.md. Layers, append-only events, carry-over status, per-epoch resolution, snapshots (Parquet blobs), training overlay pinned in run_inputs, materialise (`apply_labels`), purge redaction, label_identity_lost ack. Contract for LB-B/LB-C in `backend/app/labels/__init__.py`.

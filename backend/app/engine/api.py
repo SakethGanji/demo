@@ -114,6 +114,9 @@ class RunCreate(BaseModel):
     integrity_override_reason: str | None = Field(
         None, description="DL2: train on a version whose last integrity check was a MISMATCH; an admin only (with `by`), audited.")
     by: str | None = Field(None, description="DL2: who starts the run (the integrity override's admin).")
+    labels: dict[str, Any] | None = Field(None, description="LB-A (labeling §5.5): train with a pinned label snapshot "
+                                                            "overlaid on the training rows: {snapshot_id, columns?, "
+                                                            "holdout: 'original', stale: 'exclude' | 'keep'}.")
     frame_budget_mb: float | None = Field(
         None, gt=0, description="P11 (§5.9): the training frame's memory budget for this run, in MB (default: "
                                 "ENSEMBLE_TRAIN_FRAME_SHARE = 10 % of the worker's RAM). Over it, the training rows are a "
@@ -401,6 +404,9 @@ async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
 
 
 def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
+    if body.labels and body.join_id:
+        raise HTTPException(400, {"code": "labels_unsupported_kind", "message": "A label overlay applies to a run on a dataset "
+                                  "table, not on a join (materialise the snapshot into a version first)."})
     if body.join_id:
         return _create_join_run(body, request)
     if not body.table:
@@ -635,6 +641,16 @@ def _create_run_on(body: RunCreate, request: Request, ds: dict[str, Any] | None 
         dt = {**dt, "applied": body.use_decision_time, "dropped": added}
         text_cols = [c for c in text_cols if c not in drop]
 
+    labels_pin = None
+    if body.labels:  # LB-A: the snapshot checked against this run; the worker computes and pins the overlay
+        from ..labels import LabelError
+        from ..labels.overlay import pin_spec
+
+        try:
+            labels_pin = pin_spec(app.state.db, body.labels, body.dataset_id,
+                                  frames.current_table(), label)
+        except LabelError as e:
+            raise HTTPException(e.status, e.payload()) from e
     settings = app.state.settings
     run_id, run_dir = alloc_run(app)
     cfg = {
@@ -650,6 +666,7 @@ def _create_run_on(body: RunCreate, request: Request, ds: dict[str, Any] | None 
         "splits_path": split["path"], "split": split, "run_dir": str(run_dir),
         "predictor_path": str(run_dir / "predictor"),
     }
+    cfg["labels"] = labels_pin
     if cost is not None:
         cfg["cost"] = cost
         cfg["eval_metric"] = costs.METRIC_NAME

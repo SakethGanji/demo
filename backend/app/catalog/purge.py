@@ -469,6 +469,10 @@ def execute(app, pid: str, by: str) -> dict[str, Any]:
                          "blobs": shas, "default_moved": moved}
         con.execute("UPDATE approval_requests SET status = 'approved', decided_by = ?, decided_at = ?, payload = ? WHERE id = ?",
                     (by, now(), json.dumps(p, default=str), pid))
+        from ..labels.purge import purge_in_tx  # LB-A: label events redacted, snapshots + overlays purged with the rest
+
+        p["executed"]["labels"] = purge_in_tx(con, pid, p["root_id"], p["table"], p["columns"], p.get("row_ids") or [], by)
+        con.execute("UPDATE approval_requests SET payload = ? WHERE id = ?", (json.dumps(p, default=str), pid))
         _audit_all(con, by, "purge_executed", p["teams_needed"], {
             "purge_id": pid, "root_id": p["root_id"], "new_version_id": p["new_version_id"], "versions_deleted": vids,
             "run_pins_marked": n_marked, "refs_dropped": n_dropped, "n_blobs": len(shas), "approvals": {t: a["by"] for t, a in p["approvals"].items()},
