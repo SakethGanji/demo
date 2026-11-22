@@ -120,7 +120,7 @@ function TeamDetail({ t, actor, onChanged }: { t: Team; actor: string; onChanged
                 onChange={(e) => did(teamsApi.setRole(t.id, m.principal_id, e.target.value as Role, actor), `${m.display_name} is now ${e.target.value}.`)} data-testid={`member-role-${m.identity_key}`} aria-label={`role of ${m.display_name}`}>{ROLES.map((r) => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}</select></td>
               <td className="muted">{m.source === 'manual' ? 'added here' : m.source}</td>
               <td className="muted" style={{ fontSize: 12 }} title={when(m.added_at)}>{m.added_by} · {day(m.added_at)}</td>
-              <td className="r"><ConfirmButton className="btn sm ghost danger-text" disabled={no} title={no ? why(canManage) : `remove ${m.display_name} from ${t.name}`} testId={`member-remove-${m.identity_key}`} confirm="Remove"
+              <td className="r"><ConfirmButton className="btn sm ghost remove-btn" disabled={no} title={no ? why(canManage) : `remove ${m.display_name} from ${t.name}`} testId={`member-remove-${m.identity_key}`} confirm="Remove"
                 warning={`Remove ${m.display_name}?`} onConfirm={() => did(teamsApi.remove(t.id, m.principal_id, actor), `${m.display_name} removed.`)}>Remove…</ConfirmButton></td>
             </tr>))}</tbody>
         </table></div>)}
@@ -194,7 +194,7 @@ function HoldsPanel({ t, actor }: { t: Team; actor: string }) {
   return (
     <div className="card" data-testid="holds-panel">
       <CardHead title="Legal holds" badge={list.data ? <span data-testid="holds-active"><Badge status={list.data.n_active ? 'held' : 'none'}>{list.data.n_active} active</Badge></span> : undefined} sub="freeze every destructive path on what they cover"
-        actions={<label className="row helper" style={{ gap: 4 }}><input type="checkbox" checked={showReleased} onChange={(e) => setShowReleased(e.target.checked)} /> show released</label>} />
+        actions={<label className="row helper nowrap" style={{ gap: 4 }}><input type="checkbox" checked={showReleased} onChange={(e) => setShowReleased(e.target.checked)} /> show released</label>} />
       {missing && <p className="helper data-warn" style={{ margin: '8px 16px' }} data-testid="holds-note">Legal holds arrive with P24: the API does not serve /legal-holds yet (restart it on a head with P24).</p>}
       <Flash msg={msg} testId="holds-msg" />
       <div className="card-body stack" style={{ gap: 6 }}>
