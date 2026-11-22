@@ -57,6 +57,10 @@ const TONE: Record<string, Status> = {
   refused: 'danger', invalid: 'danger', purged: 'danger', drop: 'danger', shift: 'danger',
   carried: 'neutral', carry: 'neutral', withdrawn: 'neutral', archived: 'neutral', skip: 'neutral', kept: 'neutral', released: 'neutral',
   not_applicable: 'neutral', unchanged: 'neutral', none: 'neutral', stable: 'success',
+  // LB-C: labeling (carry-over status, tasks, snapshots, LLM runs)
+  live: 'success', stale: 'warning', conflict: 'danger', orphaned: 'neutral', unlabelled: 'neutral', open: 'success', draft: 'warning',
+  paused: 'warning', closed: 'neutral', frozen: 'neutral', superseded: 'neutral', applied: 'success', running: 'warning', queued: 'warning',
+  cancelled: 'neutral', fake: 'warning', off: 'neutral', gold: 'warning', disputed: 'warning', flagged: 'warning', excluded: 'danger', sent: 'success',
 }
 export const toneOf = (s: string | null | undefined): Status => TONE[(s ?? '').toLowerCase()] ?? 'neutral'
 

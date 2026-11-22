@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { RunLabels, pinOf } from '@/features/labels/Training'
 import { api } from '@/shared/api/client'
 import { useApi } from '@/shared/api/mode'
 import type { DoctorAction, Run } from '@/shared/api/types'
@@ -90,6 +91,7 @@ function TabularRun({ run, go, onApplyPatch, reload }: { run: Run; go: (r: strin
       {kindOf(run) === 'import' && <ImportRun runId={run.id} />}
       {evicted && <EvictedBanner run={run} go={go} />}
       <NotesStrip kind="run" id={run.id} />
+      <RunLabels pin={pinOf(run)} />
       {tabs.length > 1 && <Tabs tabs={tabs} value={cur} onChange={pickTab} testIds={{ Explain: 'results-explain', Doctor: 'run-doctor' }} />}
       {!done && (run.status === 'failed' || run.status === 'cancelled'
         ? <ErrorCard inline err={`This run ${run.status}${run.error ? `: ${run.error}` : '.'}`} />

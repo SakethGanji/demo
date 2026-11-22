@@ -87,6 +87,8 @@ export const joins = {
 
 /** A run on one table of a version, or on a saved join's frame. P21: a version another team shared needs `project_id`
  *  (a project of yours), else 400 `project_required`. */
-export type TrainBody = RunCreate & { table?: string; join_id?: string; project_id?: string }
+export type TrainBody = RunCreate & { table?: string; join_id?: string; project_id?: string
+  /** LB-C (§5.5): pin a label snapshot; overlaid on the training rows only */
+  labels?: { snapshot_id: string; columns?: string[]; holdout?: 'original' | 'corrected'; stale?: 'exclude' | 'keep'; features?: false } }
 export const trainOn = (body: TrainBody) =>
   request<Run>('/runs', { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 })

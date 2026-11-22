@@ -16,6 +16,8 @@ import { TablesCard } from './TablesCard'
 import { JoinBuilder } from './JoinBuilder'
 import { Governance } from './Governance'
 import { PurgeCard } from './PurgeCard'
+import { LabelsTab } from '@/features/labels/LabelsTab'
+import { Tabs } from '@/shared/primitives/Tabs'
 import { shares as sharesApi, type Share } from '@/shared/api/governance'
 import { readActor, saveActor, useTeam } from '@/shared/lib/team'
 import './data.css'
@@ -146,6 +148,7 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
   const [focus, setFocus] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)  // DL3: the version open in the editor
   const [table, setTable] = useState<string | null>(null)  // U2 (P12): the table the diff, Edit and training use (null = primary)
+  const dtab = useHashParam('dtab')  // LB-C: the page's tabs (versions and data | labels), kept in the hash
   const reload = () => { h.reload(); onChanged() }
   const fail = (e: unknown) => {
     const t = (e as Error).message
@@ -173,6 +176,7 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
   const def = vOf(d.default_version_id)
   const focusV = vOf(focus) ?? def
   const nodeId = shared ? (focusV ?? d.versions.find((v) => v.state !== 'deleted'))?.id ?? d.root_id : d.root_id
+  const labelsOn = dtab === 'labels' && !!focusV && focusV.state !== 'deleted'
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-page" data-root={d.root_id}>
       <div className="card ds-head">
@@ -195,7 +199,12 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
         <NextVersion d={d} by={by} team={team} onDone={(vid, text) => { setMsg({ ok: true, text }); setPair([d.default_version_id ?? d.versions[d.versions.length - 1].id, vid]); reload() }} />
         {msg && <div className={`flash ${msg.ok ? 'ok' : 'bad'} ds-msg`} role={msg.ok ? 'status' : 'alert'} data-testid="data-msg"><span aria-hidden>{msg.ok ? '✓' : '✕'}</span> <span>{msg.text}
           {msg.blockers && <ul>{msg.blockers.map((b) => <li key={b}>{b}</li>)}</ul>}</span></div>}
+        <div className="ds-tabs"><Tabs tabs={['Versions and data', 'Labels'] as const} value={dtab === 'labels' ? 'Labels' : 'Versions and data'}
+          onChange={(t) => setParam('dtab', t === 'Labels' ? 'labels' : null)} testIds={{ 'Versions and data': 'ds-tab-data', Labels: 'ds-tab-labels' }} /></div>
       </div>
+
+      {labelsOn && focusV && <LabelsTab key={`lb:${d.root_id}`} d={d} vid={focusV.id} v={focusV.v} table={table} by={by} go={go} />}
+      {!labelsOn && <>
 
       <Versions d={d} pair={pair} setPair={setPair} focus={focus} setFocus={setFocus} by={by}
         onDefault={(v) => act(data.setDefault(d.root_id, v.id, by), (r) => `${r.rollback ? 'Rolled back' : 'Default set'} to v${r.v} (${v.id}). ${r.note}.`)}
@@ -229,6 +238,7 @@ function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (
         <RemoveCard d={d} by={by} act={act} />
         <AuditCard d={d} />
       </div>
+      </>}
     </div>
   )
 }

@@ -1,0 +1,92 @@
+/* LB-C: the labeling screens, on top of the U4 kit (datakit.css). */
+
+.ds-tabs { padding: 0 var(--space-20); }
+.ds-tabs .tabs { border-bottom: 0; }
+.lbl .table tr.sel td { background: var(--bg-subtle); }
+.lbl .table tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent-primary); }
+.lbl-flash { margin: 8px 16px 0; }
+.lbl-busy { padding: 12px 0; gap: 8px; }
+.lbl-mini { display: block; font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.lbl-well { background: var(--bg-subtle); border-top: 1px solid var(--border-row); border-bottom: 1px solid var(--border-row); padding: 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+/* carry-over bar: the ChangeBar's form with five segments */
+.carry { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; vertical-align: middle; }
+.carry-bar { display: inline-flex; width: 96px; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border-row); flex: none; }
+.carry-bar i { display: block; height: 100%; }
+.carry-bar i + i { box-shadow: inset 1px 0 0 var(--bg-surface); }
+.carry-bar .live { background: var(--accent-primary); } .carry-bar .stale { background: var(--status-warning); }
+.carry-bar .conflict { background: var(--status-danger); } .carry-bar .orphaned { background: var(--text-muted); }
+.carry-bar .unlabelled { background: var(--border-default); } .carry-bar .z { width: 100%; background: var(--border-row); }
+.carry-n { display: inline-flex; gap: 10px; font-size: 12px; } .carry-n b { font-weight: 600; }
+.carry-n .live { color: var(--accent-primary); } .carry-n .stale { color: var(--status-warning); } .carry-n .conflict { color: var(--status-danger); } .carry-n .orphaned { color: var(--text-muted); }
+.lbl-n-stale { color: var(--status-warning); font-weight: 600; } .lbl-n-conflict { color: var(--status-danger); font-weight: 600; } .lbl-n-live { color: var(--accent-primary); }
+
+.kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; margin-right: 4px; border: 1px solid var(--border-default);
+  border-bottom-width: 2px; border-radius: 4px; background: var(--bg-surface); font: 600 11px/1 var(--font-mono); color: var(--text-body); vertical-align: middle; }
+.lbl-class { gap: 2px; }
+.lbl-guidelines { white-space: pre-wrap; font: 13px/1.5 var(--font-sans); color: var(--text-body); margin: 0; background: var(--bg-subtle); border: 1px solid var(--border-row); border-radius: var(--radius-control); padding: 10px 12px; max-height: 320px; overflow: auto; }
+.lbl-guidelines.mono { font-family: var(--font-mono); font-size: 12px; }
+.lbl-guide-edit { width: 100%; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; min-height: 120px; resize: vertical; }
+.lbl-cols { display: flex; flex-wrap: wrap; gap: 6px; }
+.lbl-col { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border-default); border-radius: var(--radius-full); font: 12px var(--font-mono); color: var(--text-body); cursor: pointer; }
+.lbl-col.on { border-color: var(--accent-primary); background: var(--status-success-bg); color: var(--text-primary); }
+.lbl-col.pii { border-style: dashed; }
+.lbl-tasks-t td { height: auto; padding-top: 8px; padding-bottom: 8px; vertical-align: middle; }
+.lbl-cells { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* the task bar over the working screens */
+.lbl-taskbar { padding: 0 16px; }
+.lbl-taskbar-row { display: flex; align-items: center; gap: 12px; padding: 10px 0 8px; flex-wrap: wrap; }
+.lbl-taskbar-title { display: flex; flex-direction: column; } .lbl-taskbar-title b { font: 600 18px/1.2 var(--font-display); color: var(--text-primary); }
+.lbl-taskstats { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.lbl-ts { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.lbl-ts b { font-size: 15px; color: var(--text-primary); }
+.lbl-dest { display: inline-flex; align-items: center; gap: 6px; }
+
+/* the labelling screen */
+.lbl-work { display: grid; grid-template-columns: 1fr; gap: var(--space-12); }
+.lbl-work.with-guide { grid-template-columns: minmax(0, 1fr) 340px; }
+.lbl-item:focus { outline: none; box-shadow: 0 0 0 2px var(--border-focus); }
+.lbl-ctx td { height: 30px; }
+.lbl-ctx-k { width: 220px; color: var(--text-muted); font-size: 12px; }
+.lbl-ctx-v { white-space: normal !important; color: var(--text-primary); }
+.lbl-ctx-v.masked-cell { color: var(--text-muted); font-family: var(--font-mono); }
+.lbl-pre { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px dashed var(--accent-secondary); border-radius: var(--radius-control); background: var(--status-info-bg); font-size: 13px; }
+.lbl-classes { display: flex; flex-wrap: wrap; gap: 8px; }
+.lbl-cbtn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface); font-weight: 600; color: var(--text-primary); cursor: pointer; transition: border-color var(--duration-snap-min), background var(--duration-snap-min); }
+.lbl-cbtn:hover:not(:disabled) { border-color: var(--accent-primary); }
+.lbl-cbtn.on { border-color: var(--accent-primary); background: var(--status-success-bg); box-shadow: inset 0 0 0 1px var(--accent-primary); }
+.lbl-cbtn.on .kbd { border-color: var(--accent-primary); color: var(--accent-primary); }
+.lbl-cbtn:disabled { opacity: 0.55; cursor: default; }
+.lbl-keys { font-size: 12px; display: flex; align-items: center; gap: 2px; flex-wrap: wrap; border-top: 1px solid var(--border-row); padding-top: 8px; }
+.lbl-qa { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.lbl-guide .card-body { display: flex; flex-direction: column; gap: 10px; }
+.lbl-legend { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+
+/* review */
+.lbl-rv { border: 1px solid var(--border-row); border-radius: var(--radius-control); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
+.lbl-rv.on { border-color: var(--accent-primary); box-shadow: inset 3px 0 0 var(--accent-primary); }
+.lbl-votes { display: flex; gap: 8px; flex-wrap: wrap; }
+.lbl-vote { display: inline-flex; flex-direction: column; gap: 2px; min-width: 110px; padding: 6px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-subtle); font-size: 12px; }
+.lbl-vote b { font-size: 14px; color: var(--text-primary); }
+.lbl-rv-ctx { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+
+/* LLM */
+.lbl-pii-row { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: baseline; font-size: 13px; }
+.lbl-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.lbl-excl { border-color: var(--status-danger) !important; color: var(--status-danger); background: var(--status-danger-bg); }
+.lbl-cal { border: 1px solid var(--border-row); border-radius: var(--radius-control); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.lbl-cal-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.lbl-cal-acc { font-size: 22px; color: var(--text-primary); }
+.lbl-ci { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.lbl-ci-track { position: relative; flex: 1; height: 10px; border-radius: 5px; background: var(--border-row); order: 1; }
+.lbl-ci > .mono:first-of-type { order: 0; } .lbl-ci .spacer { display: none; } .lbl-ci > .mono:last-of-type { order: 2; }
+.lbl-ci-track i { position: absolute; top: 0; bottom: 0; background: var(--status-success-bg); border: 1px solid var(--accent-primary); border-radius: 5px; }
+.lbl-ci-track b { position: absolute; top: -3px; width: 2px; height: 16px; margin-left: -1px; background: var(--accent-primary); }
+.lbl-rel { max-width: 420px; }
+
+/* training: the run form's label pin and the run / card sections */
+.train-labels { display: inline-flex; align-items: center; gap: 4px; }
+.lbl-pin { display: flex; flex-direction: column; gap: 6px; }
+
+@media (max-width: 1200px) { .lbl-work.with-guide { grid-template-columns: 1fr; } }

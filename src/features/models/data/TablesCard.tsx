@@ -76,7 +76,7 @@ export function TablesCard({ root, vid, v, table, setTable, team, ownerTeam, tar
           <span className="helper" style={{ fontSize: 12 }}>checked for uniqueness on the stored table; makes a new version, no bytes copied</span>
           {msg && <span className="helper up-err" role="alert" data-testid="table-msg">✕ {msg}</span>}
         </div>}
-        {cur && <TrainOn datasetId={vid} table={cur.name} columns={cols} defaultLabel={cur.primary ? target : null} ownerTeam={ownerTeam} team={team} by={by} go={go} what={`table ${cur.name}`} />}
+        {cur && <TrainOn datasetId={vid} root={root} table={cur.name} columns={cols} defaultLabel={cur.primary ? target : null} ownerTeam={ownerTeam} team={team} by={by} go={go} what={`table ${cur.name}`} />}
       </div>
     </div>
   )
