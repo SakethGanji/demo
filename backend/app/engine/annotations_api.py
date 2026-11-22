@@ -6,7 +6,6 @@ names, adjudications), and save the consensus labels as a dataset version with l
 from __future__ import annotations
 
 import json
-import subprocess
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -19,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .. import frames
 from . import annotations as an
-from .jobs import alive, kill_group, spawn
+from ..jobs import queue as Q
 from .jsonsafe import write_json
 from .store import now
 from ..http import run_or_404
@@ -27,7 +26,7 @@ from ..http import run_or_404
 router = APIRouter(prefix="/api")
 
 _LOCK = threading.Lock()
-_PROCS: dict[str, subprocess.Popen] = {}
+_DB = None  # bound at API start (main.py): active() and _status() ask the queue
 _CACHE: dict[str, tuple[tuple, dict[str, Any], pd.DataFrame]] = {}
 
 
@@ -69,44 +68,79 @@ def _classes(rec: dict[str, Any]) -> list[str]:
 
 
 def _spawn(request: Request, rec: dict[str, Any]) -> None:
-    """p̂ in its own process (the run's OOF, or a quick bagged fit). One per run."""
+    """p̂ in its own process (the run's OOF, or a quick bagged fit). One per run. F-JOBS: an `annotations` job on the
+    durable queue (resource `train`); whichever worker leases it runs the process (`run_job`)."""
     run_id = rec["id"]
     run_dir = Path(rec["config"]["run_dir"])
-    p = _PROCS.get(run_id)
-    if p is not None and p.poll() is None:
+    db = request.app.state.db
+    if Q.active_for(db, "run", run_id, "annotations"):
         return
     d = an.ann_dir(run_dir)
     d.mkdir(parents=True, exist_ok=True)
     st = an.read_state(run_dir) or {}
     st.update(status="computing", error=None, started_at=now())
+    st.pop("pid", None)
     an.write_state(run_dir, st)
-    p = spawn("app.engine.annotations", [str(run_dir)], d / "probs.log")
-    _PROCS[run_id] = p
-    st["pid"] = p.pid
-    an.write_state(run_dir, st)
-    store = request.app.state.runs
+    from ..catalog import governance as G
 
-    def wait():
-        code = p.wait()
+    Q.enqueue(db, "annotations", {"run_id": run_id}, resource="train", by=G.current_actor() or "system",
+              team_id=rec.get("team_id"), ref_kind="run", ref_id=run_id)
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side: the p̂ process (it watches this worker). A re-leased job computes p̂ again and writes the same
+    probs.json / state: nothing is appended, so a second attempt has no double effect."""
+    from .workerd import Cancelled
+
+    store = ctx.state.runs
+    run_id = ctx.payload["run_id"]
+    rec = store.get(run_id)
+    run_dir = Path(rec["config"]["run_dir"])
+    d = an.ann_dir(run_dir)
+    d.mkdir(parents=True, exist_ok=True)
+    ctx.progress(0.05, "computing p̂")
+    code = ctx.run_process("app.engine.annotations", [str(run_dir), ctx.watch_pid()], d / "probs.log",
+                           on_start=lambda pid: _note_pid(run_dir, pid))
+    if ctx.stop_reason in ("shutdown", "lost"):
+        raise Cancelled(ctx.stop_reason)
+    with _LOCK:
         s = an.read_state(run_dir) or {}
         if s.get("status") == "computing":
-            s.update(status="failed", error=f"The p̂ process exited with code {code}.")
+            s.update(status="failed", error="Cancelled." if ctx.cancelled else f"The p̂ process exited with code {code}.")
             an.write_state(run_dir, s)
-        store.merge_result(run_id, annotations=an.headline(s))
+    store.merge_result(run_id, annotations=an.headline(s))
+    return {"run_id": run_id, "status": s.get("status"), "code": code}
 
-    threading.Thread(target=wait, name=f"ann-{run_id}", daemon=True).start()
+
+def _note_pid(run_dir: Path, pid: int) -> None:
+    with _LOCK:
+        st = an.read_state(run_dir) or {}
+        st["pid"] = pid
+        an.write_state(run_dir, st)
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    rec = state.runs.get(job["ref_id"])
+    if not rec:
+        return
+    run_dir = Path(rec["config"]["run_dir"])
+    st = an.read_state(run_dir) or {}
+    if st.get("status") == "computing":
+        st.update(status="failed", error=f"The worker computing p̂ stopped every time it was tried ({job.get('error')}).")
+        an.write_state(run_dir, st)
+        state.runs.merge_result(rec["id"], annotations=an.headline(st))
 
 
 def _status(rec: dict[str, Any]) -> dict[str, Any] | None:
     run_dir = Path(rec["config"]["run_dir"])
     st = an.read_state(run_dir)
-    if st and st.get("status") == "computing":
-        p = _PROCS.get(rec["id"])
-        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.annotations"):
-            st = an.read_state(run_dir) or st
-            if st.get("status") == "computing":
-                st.update(status="failed", error="The p̂ process stopped (the API restarted). Load the annotations again.")
-                an.write_state(run_dir, st)
+    if st and st.get("status") == "computing" and _DB is not None and not Q.active_for(_DB, "run", rec["id"], "annotations"):
+        st = an.read_state(run_dir) or st  # the handler may have just closed it
+        if st.get("status") == "computing":
+            j = Q.latest_for(_DB, "run", rec["id"], "annotations") or {}
+            st.update(status="failed", error=f"The p̂ job ended without finishing ({j.get('error') or j.get('status') or 'no job'}). "
+                                             "Load the annotations again.")
+            an.write_state(run_dir, st)
     return st
 
 
@@ -408,11 +442,14 @@ def make_version(run_id: str, request: Request) -> dict[str, Any]:
     return {"dataset_version": ver}
 
 
+def bind(db) -> None:
+    global _DB
+    _DB = db
+
+
 def shutdown() -> None:
-    for p in list(_PROCS.values()):
-        if p.poll() is None:
-            kill_group(p.pid)
+    """F-JOBS: nothing to stop here: the p̂ job's worker gives it back (or keeps it) when the API stops."""
 
 
 def active() -> list[str]:
-    return [r for r, p in _PROCS.items() if p.poll() is None]
+    return [j["ref_id"] for j in Q.active_of_kind(_DB, "annotations")] if _DB is not None else []

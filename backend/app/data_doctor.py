@@ -1148,7 +1148,7 @@ def label_key(target: str, version_id: str) -> str:
     return f"{target}|{st.st_size}|{int(st.st_mtime)}"
 
 
-def label_state(dirpath: Path, target: str | None, version_id: str) -> dict[str, Any] | None:
+def label_state(dirpath: Path, target: str | None, version_id: str, db: Any = None) -> dict[str, Any] | None:
     if not target:
         return None
     p = dirpath / "data_doctor_labels.json"
@@ -1159,6 +1159,11 @@ def label_state(dirpath: Path, target: str | None, version_id: str) -> dict[str,
                 return s
         except (OSError, frames.FrameError):  # the version's data is gone: the cached result is not trusted
             pass
+    if db is not None:  # F-JOBS: "running" is the queue's word, so any API process (and a worker) agrees
+        from .jobs import queue as Q
+
+        if Q.active_for(db, "doctor_labels", f"{version_id}|{target}", "doctor_labels"):
+            return {"status": "running"}
     key = f"{dirpath}|{target}"
     with _label_lock:
         t = _label_jobs.get(key)
@@ -1167,35 +1172,76 @@ def label_state(dirpath: Path, target: str | None, version_id: str) -> dict[str,
     return None
 
 
+def _compute_labels(dirpath: Path, target: str, version_id: str, roles: list[dict[str, Any]], frame: pd.DataFrame | None) -> dict[str, Any]:
+    """The label-quality result, written whole (tmp + rename): a job killed halfway leaves no partial file, and a re-run
+    of the same job writes the same file again (idempotent)."""
+    t0 = time.perf_counter()
+    k = None
+    try:
+        k = label_key(target, version_id)
+        df = frame if frame is not None else frames.read_version(version_id).reset_index(drop=True)
+        out = label_issues(df, target, roles, all_rows=True)
+    except Exception as e:  # noqa: BLE001
+        log.exception("label quality failed")
+        out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
+    out.update(key=k, seconds=round(time.perf_counter() - t0, 1))
+    dirpath.mkdir(parents=True, exist_ok=True)
+    tmp = dirpath / "data_doctor_labels.json.tmp"
+    tmp.write_text(json.dumps(out, default=_jsonable))
+    tmp.replace(dirpath / "data_doctor_labels.json")
+    return out
+
+
 def start_labels(dirpath: Path, target: str, version_id: str, roles: list[dict[str, Any]],
-                 frame: pd.DataFrame | None = None) -> dict[str, Any]:
-    """Start the quick out-of-fold model + cleanlab in a thread (once per dataset and target). The version is read
-    through frames (P07: a Parquet version's table, a CSV-era version's typed data.csv). F-X1 C2: `frame` is the
-    report's bounded frame (the version, or its recorded sample above config.doctor_rows()); it is used as given, so
-    the job's row numbers are the report's."""
+                 frame: pd.DataFrame | None = None, db: Any = None) -> dict[str, Any]:
+    """Start the quick out-of-fold model + cleanlab (once per dataset and target). The version is read through frames
+    (P07: a Parquet version's table, a CSV-era version's typed data.csv). F-X1 C2: `frame` is the report's bounded frame
+    (the version, or its recorded sample above config.doctor_rows()), so the job's row numbers are the report's.
+
+    F-JOBS: with `db` it is a `doctor_labels` job on the durable queue (resource `light`); the worker loads the same
+    bounded frame (doctor_frame.load: the whole version, or its recorded sample). Without a queue: a thread, as before."""
+    if db is not None:
+        from .catalog import governance as G
+        from .jobs import queue as Q
+
+        ref = f"{version_id}|{target}"
+        try:
+            with _label_lock:
+                if not Q.active_for(db, "doctor_labels", ref, "doctor_labels"):
+                    Q.enqueue(db, "doctor_labels", {"version_id": version_id, "target": target,
+                                                                  "roles": json.loads(json.dumps(roles, default=_jsonable))},
+                              resource="light", by=G.current_actor() or "system", ref_kind="doctor_labels", ref_id=ref)
+            return {"status": "running"}
+        except Exception:  # noqa: BLE001 - no queue to write: the thread below
+            log.exception("could not queue the label-quality job; running it in a thread")
     key = f"{dirpath}|{target}"
     with _label_lock:
         t = _label_jobs.get(key)
         if t is not None and t.is_alive():
             return {"status": "running"}
-
-        def run():
-            t0 = time.perf_counter()
-            k = None
-            try:
-                k = label_key(target, version_id)
-                df = frame if frame is not None else frames.read_version(version_id).reset_index(drop=True)
-                out = label_issues(df, target, roles, all_rows=True)
-            except Exception as e:  # noqa: BLE001
-                log.exception("label quality failed")
-                out = {"status": "failed", "error": f"{type(e).__name__}: {e}"[:300]}
-            out.update(key=k, seconds=round(time.perf_counter() - t0, 1))
-            (dirpath / "data_doctor_labels.json").write_text(json.dumps(out, default=_jsonable))
-
-        th = threading.Thread(target=run, name=f"data-doctor-labels-{dirpath.name}", daemon=True)
+        th = threading.Thread(target=_compute_labels, args=(dirpath, target, version_id, roles, frame),
+                              name=f"data-doctor-labels-{dirpath.name}", daemon=True)
         _label_jobs[key] = th
         th.start()
     return {"status": "running"}
+
+
+def run_labels_job(ctx) -> dict[str, Any]:
+    """Worker side (F-JOBS): the report's bounded frame, the label model, the file. A re-leased job recomputes and
+    rewrites the same file; nothing else is written."""
+    from . import doctor_frame as DF
+
+    pl = ctx.payload
+    vid, target = pl["version_id"], pl["target"]
+    dirpath = ctx.state.datasets.dir(vid)
+    cur = label_state(dirpath, target, vid)
+    if cur and cur.get("key"):
+        return {"status": cur.get("status"), "cached": True}
+    ctx.progress(0.05, "reading")
+    df = DF.load(vid).df
+    ctx.progress(0.2, "fitting")
+    out = _compute_labels(dirpath, target, vid, pl.get("roles") or [], df)
+    return {"status": out.get("status"), "seconds": out.get("seconds"), "issues": len(out.get("issues") or [])}
 
 
 def label_issues(df: pd.DataFrame, target: str, roles: list[dict[str, Any]], seed: int = 0, all_rows: bool = False) -> dict[str, Any]:

@@ -81,11 +81,11 @@ def _report(request: Request, dataset_id: str) -> dict[str, Any]:
     store.dir(dataset_id).mkdir(parents=True, exist_ok=True)  # a lake version may have no folder yet (suspects, labels)
     roles = _roles(store, dataset_id, df)
     target = rec["target"]
-    labels = dd.label_state(store.dir(dataset_id), target, dataset_id)  # P07: keyed and read through frames
+    labels = dd.label_state(store.dir(dataset_id), target, dataset_id, request.app.state.db)  # P07: keyed and read through frames
     task_ok = target is not None and target in df.columns and \
         not (df[target].dtype.kind in "fi" and df[target].nunique() > dd.MAX_CLASSES)
     if labels is None and task_ok and df[target].nunique(dropna=True) >= 2:
-        labels = dd.start_labels(store.dir(dataset_id), target, dataset_id, roles, frame=df)
+        labels = dd.start_labels(store.dir(dataset_id), target, dataset_id, roles, frame=df, db=request.app.state.db)
     cpath = store.dir(dataset_id) / "coerced.json"
     lin_ = store.lineage(dataset_id) or {}
     if not cpath.exists() and lin_.get("root"):
@@ -139,6 +139,23 @@ async def apply_fixes(dataset_id: str, request: Request, body: dict[str, Any]) -
     from .lake.values import SafeJSONResponse
 
     body = body or {}
+    # F-JOBS: above the row threshold the apply is a queued `doctor_apply` job: 202 + its id (jobs/writes.py)
+    from .jobs import progress as JP
+    from .jobs import writes as JW
+
+    rec = dataset_or_404(request, dataset_id)
+    n = int(rec.get("rows") or 0)
+    if n > JP.threshold_rows():
+        from .catalog import governance as G
+
+        by = str(body.get("by") or "").strip()[:80] or G.current_actor()
+        if not by:
+            raise HTTPException(400, "Say who is applying these fixes: send by (or the X-Ensemble-Actor header).")
+        if not isinstance(body.get("transforms"), list) or not body["transforms"]:
+            raise HTTPException(400, "transforms is a non-empty list of typed fixes.")
+        job = await run_in_threadpool(JW.enqueue, request.app.state.db, "doctor_apply", dataset_id,
+                                      {"transforms": body["transforms"], "acknowledge": body.get("acknowledge")}, by)
+        return SafeJSONResponse(JW.accepted(job, n, "Data Doctor apply"), status_code=202)
     # DL3 (m3): a version records a real name: by, else the X-Ensemble-Actor header (derive() refuses neither)
     out = await run_in_threadpool(_canonical_400, _apply, request, dataset_id, body.get("transforms"), str(body.get("by") or "").strip()[:80] or None,
                                   body.get("acknowledge"))

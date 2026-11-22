@@ -45,12 +45,14 @@
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
 | P10b | S | done (S3BlobStore + verified LRU cache + httpfs; chain equal on s3/local; Object Lock tested on MinIO built from source) | session_018upNdRLNhdMckTGcyQS5SA | see report |
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
-| F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
+| F-JOBS | O | done: edit / Doctor apply / Feature Lab 10M writes are jobs (202 + progress, idempotent by job_id, ≤ 2.2 GB); profile, labels, annotations, shift, Autopilot on the queue; P22 attempt-scoped lease fix; missing.py fixed | session_018upNdMmZAHQ2H5ofowVFXx | see report |
 | F-X2 | D | done: C1 (per-version migration lock + commit re-check + run pins/re-verify), M1–M6, m1–m3 fixed and shown against base repros; replay identical, GC 0 candidates | session_018upNdNvnaG9wjQHpViW7q9 | see report |
 | P13 | D | done (delta action per table by key + _op; check counts = diff counts; insert-only → append part; holdout ids kept; dup keys / no key 400; identical on SQLite and Postgres) | session_018upNdMmQyXrKkqxx22sMTS | see report |
 | P14 | D2 | done (joins validated with coverage, 1:n/non-key/missing column 400; frames = grain rows, cached blob; runs on a join: cache sha as read_sha256, join_input rows, paired with table run, re-verify ok; delete of a joined input blocked via joined_from/merged_from; identical on SQLite and Postgres) | session_018upNdRR2Vg6fMS5HYdUAeG | see report |
 | P15 | D | started (registry/serving parity/batches for join models) | session_018upNdQvtpPYsz4hqNgnPYo | |
-| P21 | G | started (contracts/certify/shares + decide_check rewire + share pii) | session_018upNdNeZFRrGECEyFj5531 | |
+| P21 | G | done (contract block → /check blocks, /commit 409; four eyes 409 on cert/share; Carl sees only v1, trains into own project 201, edit would-deny/403; unmasked only via an explicit pii=unmasked share; revoke stops access, run still verifies; every decide path via policy.four_eyes; SQLite = Postgres in audit and enforce) | session_018upNdNeZFRrGECEyFj5531 | see report |
+| P24 | G | started (manual retention, holds, GC armed, purge) | session_018upNdNGpYr7TwiNUAAa8AD | |
+| F-PII | G | started (PII masking gaps + cross-team join visibility) | session_018upNdRhzDSuoPeKuvRD8Vv | |
 | P12 | D | done (4 tables from book.xlsx + bureau.csv; append = 3 carried same sha + 1 appended; key/relation as new versions; runs on a named table; same output on SQLite and Postgres) | session_018upNdQBD1YfmthVvNNLCxe | see report |
 | X2 | ⟂ | done: 1 critical (a run created mid-migration loses its split), 6 major (cleanup gate global, Feature Lab records + tombstone split not kept, pre-DL4 / DB-hash laundering, no-map diff), 4 minor → fixes needed before P12 | session_018upNdNbAs6Mvojf6VJc3XR | see report |
 
@@ -62,9 +64,9 @@
 - **Still on in-process threads (not on the queue):** stats profile, annotations, shift, Data Doctor label job, Autopilot. Move them in P23 or a follow-up.
 - **U lane:** send project_id in the /uploads query (it authorises from the query). Grey out "New team" via /authz/check unless self_service_teams.
 - **P23:** keep audit_log.details/decision as TEXT (not jsonb), copy prev_hash/row_hash/audit_head verbatim, and use FOR UPDATE on the head row.
-- **X4:** rewire the four-eyes decide paths to policy.decide_check (they use governance.same_person today).
+- **X4 (done in P21):** every four-eyes decide path goes through `policy.four_eyes` → `decide_check` (decider name and request principal).
 - **PII not masked yet (P20 left these out):** anomaly top rows, shift rows, the active-learning queue/annotations, Feature Lab previews, split-options/intake examples, q search text in dataset_read audit rows. Pick them up in a follow-up before X4.
-- **P21:** add the share pii='unmasked' case to data.read_unmasked.
+- **P21 (done):** the share pii='unmasked' case of data.read_unmasked / data.export_unmasked.
 - **P23:** copy the catalog_meta pii_salt:* rows verbatim.
 - **U2:** masked indicators + "Unmask (reason)" action (greyed out via /authz/check), unmasked_refused, a PII tags panel, tables[].pii in the upload check, pii_features in the Doctor.
 - **F-X1 → P11 scale gate:** 10M Data Doctor apply (SQL) takes 28–103 s and the Feature Lab SQL write about 50 s, at ≤ 2.1 GB. Run them as jobs with progress, alongside the 10M edit commit.
@@ -98,3 +100,9 @@
 - **P14 → P21:** a join's pinned input from another dataset is only checked to exist and be live; apply `visible_teams` / shares in `joins.inputs_for` for another team's input.
 - **P14 → P24:** `join_cache` blobs are pinned by `blob_refs (join_frame, cache)` and `(run, join_frame)`; a frame without runs is re-creatable (GC candidate).
 - **P14 → U2:** join builder on `POST /datasets/{root}/joins` (400 codes listed in P14.md), `POST …/versions/{v}/frames`, run form `join_id` (label from the grain), usage `via_join`, lineage `join_frame` nodes. `where` is refused (400) until frames get their own split.
+- **P21 → U2:** contract editor + freeze, `check.contract` / `tables[].contract`, certification request/decide (grey out with `/authz/check data.certify_decide_certified|_model`), share request/decide (`grant_unmasked` for pii unmasked)/revoke, `access: shared` on list rows, `project_required` when training a shared version (send `project_id`).
+- **P21 → P24:** `shares.runs_on(share)` = the grantee's runs on a shared object (purge impact report); `shares.live_certification()` for `keep_certified`.
+- **P21 → follow-up:** not built: forks of a shared dataset, discoverable "request access" rows in search, contracts on the edit path, `project_id` on the other kinds' `/{kind}/runs`, the model card rendering `result.input_certifications`, a certification revoke route.
+- **P21 → enforce semantics:** role is checked before four eyes (C §1.5), so a maintainer deciding their own certification gets 403 in enforce and 409 in audit.
+- **F-JOBS → all lanes:** above `ENSEMBLE_JOB_ROWS` (200,000) `POST …/edit` and `…/data-doctor/apply` answer 202 `{job_id, poll}`; poll `GET /api/jobs/{id}` (`progress {pct, phase}`, `result` = the old body, `result.refused` = the old 4xx). UI helper: `src/shared/api/jobs.ts` `settle()`. Leases are now (worker, attempt): pass `attempt` to `Q.heartbeat/finish/requeue/set_progress` if you call them directly.
+- **F-JOBS → X5/ops:** `autopilot.audit.audit` peaks at 5.6 GB on 12k rows in the API's heavy-pool child (two OOM kills under a 14.3 GB cgroup); an API with a busy heavy pool ignores SIGTERM. Both pre-existing.

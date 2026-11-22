@@ -1,0 +1,5 @@
+request delete → 201 dsr_1591d6b3 pending
+spoofs: 'Ana'→403 'A.n.a'→403 'Anà'→403 'Аna'→403 'ANA'→403 'A n a'→403 'An\u200ba'→403 'Ａna'→403
+last: Four eyes: Ana asked for this delete, so someone else must decide, admins included (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE is off; names are compared on letters and 
+Ben approves → 200 approved Ben
+tracebacks: 0

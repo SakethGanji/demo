@@ -61,7 +61,7 @@ def _row(r) -> dict[str, Any] | None:
     if r is None:
         return None
     d = dict(r)
-    for k in ("payload", "result"):
+    for k in ("payload", "result", "progress"):
         if d.get(k):
             try:
                 d[k] = json.loads(d[k])
@@ -118,7 +118,7 @@ def team_cap(db, resource: str) -> int:
 
 
 _CLAIM = """
-UPDATE jobs SET status = 'leased', leased_by = :w, lease_until = :until, attempts = attempts + 1,
+UPDATE jobs SET status = 'leased', leased_by = :w, lease_until = :until, attempts = attempts + 1, progress = NULL,
        started_at = COALESCE(started_at, :now)
 WHERE id = (
   SELECT j.id FROM jobs j
@@ -155,32 +155,47 @@ def claim(db, worker_id: str, resource: str, free_mem_mb: int = 1 << 30, *, cap:
 def claim_id(db, job_id: str, worker_id: str) -> dict[str, Any] | None:
     """Lease one named queued job (the API starting an agent turn it just queued)."""
     rows = _exec(db, "UPDATE jobs SET status = 'leased', leased_by = :w, lease_until = :until, attempts = attempts + 1,"
-                     " started_at = COALESCE(started_at, :now) WHERE id = :id AND status = 'queued' RETURNING *",
+                     " progress = NULL, started_at = COALESCE(started_at, :now) WHERE id = :id AND status = 'queued' RETURNING *",
                  {"w": worker_id, "until": ts(plus_s=LEASE_S), "now": ts(), "id": job_id}, immediate=True)
     return rows[0] if rows and "id" in rows[0] else None
 
 
-def heartbeat(db, job_id: str, worker_id: str, extend: bool = True) -> str:
+def _att(attempt: int | None) -> str:
+    """F-JOBS: a lease is (worker, attempt). A worker can lose a job and lease it again (a stalled API process, a forced
+    expiry); the old attempt's thread must then see 'lost', and must not extend, report on or close the new attempt."""
+    return " AND attempts = :a" if attempt is not None else ""
+
+
+def heartbeat(db, job_id: str, worker_id: str, extend: bool = True, attempt: int | None = None) -> str:
     """'ok' while we hold the lease (extended by LEASE_S), else the row's status ('cancelled', or 'lost')."""
     if extend:
-        n = _exec(db, "UPDATE jobs SET lease_until = :until WHERE id = :id AND leased_by = :w AND status = 'leased'",
-                  {"until": ts(plus_s=LEASE_S), "id": job_id, "w": worker_id})[0]["rowcount"]
+        n = _exec(db, "UPDATE jobs SET lease_until = :until WHERE id = :id AND leased_by = :w AND status = 'leased'" + _att(attempt),
+                  {"until": ts(plus_s=LEASE_S), "id": job_id, "w": worker_id, "a": attempt})[0]["rowcount"]
         if n:
             return "ok"
     j = get(db, job_id)
-    if j and j["status"] == "leased" and j["leased_by"] == worker_id:
+    if j and j["status"] == "leased" and j["leased_by"] == worker_id and (attempt is None or j["attempts"] == attempt):
         return "ok"
     return "cancelled" if j and j["status"] == "cancelled" else "lost"
 
 
-def finish(db, job_id: str, worker_id: str | None, status: str, *, result: Any = None, error: str | None = None) -> bool:
+def finish(db, job_id: str, worker_id: str | None, status: str, *, result: Any = None, error: str | None = None,
+           attempt: int | None = None) -> bool:
     """Close a job we hold. False if it was not ours any more (cancelled or re-queued meanwhile)."""
     if status not in TERMINAL:
         raise ValueError(status)
     q = ("UPDATE jobs SET status = :s, finished_at = :now, result = :res, error = :err, lease_until = NULL"
-         " WHERE id = :id AND status = 'leased'" + (" AND leased_by = :w" if worker_id else ""))
+         " WHERE id = :id AND status = 'leased'" + (" AND leased_by = :w" if worker_id else "") + _att(attempt))
     n = _exec(db, q, {"s": status, "now": ts(), "res": None if result is None else json.dumps(result, default=str),
-                      "err": (error or None) and str(error)[:2000], "id": job_id, "w": worker_id})[0]["rowcount"]
+                      "err": (error or None) and str(error)[:2000], "id": job_id, "w": worker_id, "a": attempt})[0]["rowcount"]
+    return bool(n)
+
+
+def set_progress(db, job_id: str, worker_id: str | None, progress: dict[str, Any], attempt: int | None = None) -> bool:
+    """F-JOBS: the holder's progress ({pct 0–1, phase}), written only while it still holds the lease."""
+    q = ("UPDATE jobs SET progress = :p WHERE id = :id AND status = 'leased'" + (" AND leased_by = :w" if worker_id else "")
+         + _att(attempt))
+    n = _exec(db, q, {"p": json.dumps({**progress, "at": ts()}), "id": job_id, "w": worker_id, "a": attempt})[0]["rowcount"]
     return bool(n)
 
 
@@ -194,12 +209,14 @@ def cancel(db, job_id: str, reason: str = "Cancelled.") -> dict[str, Any] | None
     return before if n else None
 
 
-def requeue(db, job_id: str, reason: str) -> bool:
+def requeue(db, job_id: str, reason: str, worker_id: str | None = None, attempt: int | None = None) -> bool:
     """Put a leased job back (its holder is stopping without finishing it: a worker shutting down). A give-back does
-    not use up an attempt (attempts count holders that died with the job)."""
+    not use up an attempt (attempts count holders that died with the job). F-JOBS: with worker_id/attempt, only the
+    lease that holder still has (never a job another worker leased since)."""
     n = _exec(db, "UPDATE jobs SET status = 'queued', leased_by = NULL, lease_until = NULL, error = :err,"
                   " attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END"
-                  " WHERE id = :id AND status = 'leased'", {"err": reason, "id": job_id})[0]["rowcount"]
+                  " WHERE id = :id AND status = 'leased'" + (" AND leased_by = :w" if worker_id else "") + _att(attempt),
+              {"err": reason, "id": job_id, "w": worker_id, "a": attempt})[0]["rowcount"]
     return bool(n)
 
 
@@ -290,7 +307,7 @@ def list_jobs(db, status: str | None = None, kind: str | None = None, limit: int
         where.append("kind = :k")
         p["k"] = kind
     q = ("SELECT id, kind, team_id, resource, mem_mb, priority, status, attempts, max_attempts, created_at, leased_by,"
-         " lease_until, started_at, finished_at, error, by_principal, ref_kind, ref_id FROM jobs"
+         " lease_until, started_at, finished_at, error, by_principal, ref_kind, ref_id, progress FROM jobs"
          + (" WHERE " + " AND ".join(where) if where else "")
          + " ORDER BY CASE status WHEN 'leased' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, created_at DESC LIMIT :lim")
     return _exec(db, q, p)

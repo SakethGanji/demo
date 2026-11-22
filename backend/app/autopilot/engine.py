@@ -12,9 +12,14 @@ from the same fixed menu given the state (scores, gaps, inbox stats, budget left
 voice. If no model answers within 60 s, or it picks something not on the menu, layer 1 decides that step. Every
 decision records which layer made it.
 
-The orchestrator is a thread in the API process that calls the API over HTTP, the way the UI does, so every run goes
-through the same validation. State is one JSON file per autopilot (data/autopilot/<id>.json); a restart resumes
-autopilots that were running.
+The orchestrator calls the API over HTTP, the way the UI does, so every run goes through the same validation. State is
+one JSON file per autopilot (data/autopilot/<id>.json).
+
+F-JOBS: an autopilot is an `autopilot` job on the durable queue (resource `api`: only API processes hold those slots,
+because it uses the API's heavy pool). A restart gives the job back and the next API process resumes it from its saved
+state; an API killed outright loses its lease and the janitor re-queues the job. A re-leased autopilot does not repeat
+an effect: a run it posted but did not record is found again by its name, and a version it derived but did not record
+is found again by its name and note (and the apply derives with dedupe on).
 """
 
 from __future__ import annotations
@@ -114,18 +119,37 @@ class Manager:
         self.cancel: dict[str, threading.Event] = {}
         self.wake: dict[str, threading.Event] = {}
 
+    def _db(self) -> Any:
+        return getattr(getattr(self.app, "state", None), "db", None)
+
     def start(self, aid: str) -> None:
+        """F-JOBS: queue the autopilot (once); whichever API process leases it runs `run_job`. Already running here:
+        wake it (an inbox was submitted)."""
         t = self.threads.get(aid)
         if t and t.is_alive():
             self.wake.setdefault(aid, threading.Event()).set()
             return
-        self.cancel[aid] = threading.Event()
-        self.wake[aid] = threading.Event()
-        t = threading.Thread(target=self._run, args=(aid,), name=f"autopilot-{aid}", daemon=True)
-        self.threads[aid] = t
-        t.start()
+        db = self._db()
+        if db is None:  # no queue (a bare Manager): the thread, as before
+            self.cancel[aid] = threading.Event()
+            self.wake[aid] = threading.Event()
+            t = threading.Thread(target=self._run, args=(aid,), name=f"autopilot-{aid}", daemon=True)
+            self.threads[aid] = t
+            t.start()
+            return
+        from ..jobs import queue as Q
+
+        with self.store.lock:
+            if Q.active_for(db, "autopilot", aid, "autopilot"):
+                return  # held by another API process: it polls the saved state every 2 s while it waits
+            st = self.store.get(aid) or {}
+            by = ((st.get("brief") or {}).get("by")) or f"system:autopilot {aid}"
+            Q.enqueue(db, "autopilot", {"autopilot_id": aid}, resource="api", by=str(by), max_attempts=5,
+                      ref_kind="autopilot", ref_id=aid)
 
     def resume_all(self) -> None:
+        """Autopilots left queued/running with no live job (an API from before F-JOBS, or a job that ran out of
+        attempts while the state still says running) are queued again; the others are resumed by the queue."""
         for st in self.store.list():
             if st["status"] in ("queued", "running"):
                 log.info("resuming autopilot %s", st["id"])
@@ -135,6 +159,18 @@ class Manager:
         if aid in self.cancel:
             self.cancel[aid].set()
             self.wake[aid].set()
+        db = self._db()
+        if db is not None:  # held by another API process: its heartbeat check stops the pilot (2 s)
+            from ..jobs import queue as Q
+
+            j = Q.active_for(db, "autopilot", aid, "autopilot")
+            if j:
+                Q.cancel(db, j["id"], "Cancelled.")
+                if j["status"] == "queued":  # never started: close it here
+                    st = self.store.get(aid)
+                    if st and st["status"] in ("queued", "running", "awaiting_inbox"):
+                        st.update(status="cancelled", finished_at=now())
+                        self.store.save(st)
 
     def _run(self, aid: str) -> None:
         try:
@@ -143,8 +179,48 @@ class Manager:
             log.exception("autopilot %s crashed", aid)
 
 
+class Yield(Exception):
+    """The job holding this autopilot is stopping (API shutdown, lease lost): leave the state for the next holder."""
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side (F-JOBS): run the pilot in this API process. `api` slots exist only in the API's embedded worker."""
+    from ..engine.workerd import Cancelled
+
+    mgr: Manager = ctx.worker.app.state.autopilot
+    aid = ctx.payload["autopilot_id"]
+    st = mgr.store.get(aid)
+    if not st or st["status"] in ("finished", "failed", "cancelled"):
+        return {"autopilot_id": aid, "status": (st or {}).get("status"), "skipped": True}
+    mgr.cancel[aid] = threading.Event()
+    mgr.wake[aid] = threading.Event()
+    mgr.threads[aid] = threading.current_thread()
+    try:
+        p = Pilot(mgr, aid, ctx=ctx)
+        if ctx.attempt > 1:
+            p.note(f"Resumed on {ctx.worker.id} (attempt {ctx.attempt}); continuing from the saved state.")
+        p.run()
+    finally:
+        if mgr.threads.get(aid) is threading.current_thread():
+            mgr.threads.pop(aid, None)
+    if ctx.stop_reason in ("shutdown", "lost"):
+        raise Cancelled(ctx.stop_reason)
+    return {"autopilot_id": aid, "status": (mgr.store.get(aid) or {}).get("status")}
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    mgr = getattr(state, "autopilot", None)
+    if mgr is None:
+        return
+    st = mgr.store.get(job["ref_id"])
+    if st and st["status"] in ("queued", "running", "awaiting_inbox"):
+        st.update(status="failed", error=f"The API process running it stopped every time it was tried ({job.get('error')}).")
+        mgr.store.save(st)
+
+
 class Pilot:
-    def __init__(self, mgr: Manager, aid: str) -> None:
+    def __init__(self, mgr: Manager, aid: str, ctx: Any = None) -> None:
+        self.ctx = ctx  # F-JOBS: the queue job (None: a bare thread)
         self.mgr = mgr
         self.store = mgr.store
         self.aid = aid
@@ -157,10 +233,14 @@ class Pilot:
     # ------------------------------------------------------------------ plumbing
 
     def save(self) -> None:
+        if self.ctx is not None and self.ctx.stop_reason in ("shutdown", "lost"):
+            raise Yield(self.ctx.stop_reason)  # F-JOBS: another holder may own the state now: never overwrite it
         self.store.save(self.st)
 
     def cancelled(self) -> bool:
-        return self.mgr.cancel.get(self.aid, threading.Event()).is_set()
+        if self.ctx is not None and self.ctx.stop_reason in ("shutdown", "lost"):
+            raise Yield(self.ctx.stop_reason)
+        return self.mgr.cancel.get(self.aid, threading.Event()).is_set() or bool(self.ctx and self.ctx.cancelled)
 
     def http(self, method: str, path: str, **kw: Any) -> Any:
         for attempt in range(30):
@@ -223,7 +303,11 @@ class Pilot:
             self.finalize()
         except Stop:
             self.finalize(cancelled=True)
+        except Yield:  # F-JOBS: the next holder resumes from the saved state (_recover follows a run still in flight)
+            pass
         except Exception as e:  # noqa: BLE001
+            if self.ctx is not None and self.ctx.stop_reason in ("shutdown", "lost"):
+                return
             log.exception("autopilot %s failed", self.aid)
             st["status"] = "failed"
             st["error"] = f"{type(e).__name__}: {e}"[:600]
@@ -239,6 +323,11 @@ class Pilot:
         for s in self.st["steps"]:
             if s["status"] != "running":
                 continue
+            if not s.get("run_id") and s.get("body", {}).get("name"):
+                rid = self._posted_run(s)  # F-JOBS: posted by the last holder, which died before recording it
+                if rid:
+                    s["run_id"], s["dataset_id"] = rid, s["body"].get("dataset_id")
+                    self.save()
             if s.get("run_id"):
                 self.note(f"Resumed after a restart: following {s['run_id']} ({s['title'].lower()}).")
                 self._complete_train(s)
@@ -247,6 +336,20 @@ class Pilot:
                 s["finished_at"] = now()
         self.st["current"] = None
         self.save()
+
+    def _posted_run(self, s: dict[str, Any]) -> str | None:
+        """The run a train step posted (its name is `Autopilot <id> · <title>`, created after the step started)."""
+        rows = self.mgr.app.state.runs.list_light(source="autopilot", name=s["body"]["name"])
+        rows = [r for r in rows if str(r.get("created_at") or "") >= str(s.get("started_at") or "")[:19]]
+        return rows[-1]["id"] if rows else None
+
+    def _derived(self, name: str) -> dict[str, Any] | None:
+        """A version this autopilot derived under `name` (its note starts `Autopilot <id>:`), e.g. by a holder that died
+        before recording it."""
+        with self.mgr.app.state.db.connect() as con:
+            r = con.execute("SELECT id FROM datasets WHERE name = ? AND note LIKE ? AND state IS DISTINCT FROM 'deleted'"
+                            " ORDER BY created_at LIMIT 1", (name, f"Autopilot {self.aid}:%")).fetchone()
+        return self.mgr.app.state.db.get_dataset(r[0]) if r else None
 
     def _wait_api(self) -> None:
         for _ in range(120):
@@ -344,6 +447,7 @@ class Pilot:
             body["patch"] = {"finding": f"autopilot:{kind}", "title": title, "changes": [{"path": change}]}
         s = self.step(kind, title, body=body, change=change, decision=decision)
         s["t0"] = time.time()
+        self.cancelled()  # F-JOBS: a holder that lost its lease (Yield) never posts a run
         r = self.http("POST", "/api/runs", json=body)
         s["run_id"] = r["id"]
         s["dataset_id"] = body["dataset_id"]
@@ -393,7 +497,7 @@ class Pilot:
 
     def wait_run(self, run_id: str) -> dict[str, Any]:
         while True:
-            if self.cancelled():
+            if self.cancelled():  # (a Yield, not a cancel, leaves the run running for the next holder)
                 try:
                     self.http("POST", f"/api/runs/{run_id}/cancel")
                 except Exception:  # noqa: BLE001
@@ -621,8 +725,10 @@ class Pilot:
         n_rel = sum(1 for c in changes if c["op"] == "relabel")
         lineage = {"version": n_ver, "autopilot": self.aid, "relabelled": n_rel, "dropped": len(drop), "synthetic": 0,
                    "relabelled_holdout": sum(1 for c in changes if c["op"] == "relabel" and c["row"] in set(sp["holdout"]))}
-        rec = ds.derive(src, df2, keep, "autopilot", changes, splits=new_sp, extra=lineage,  # P1: root rows through `keep`
-                        name=f"{root_name} · v{n_ver}", note=f"Autopilot {self.aid}: {n_rel} relabelled, {len(drop)} dropped from {src}")
+        rec = self._derived(f"{root_name} · v{n_ver}") or ds.derive(  # F-JOBS: once, even when re-leased
+            src, df2, keep, "autopilot", changes, splits=new_sp, extra=lineage,  # P1: root rows through `keep`
+            name=f"{root_name} · v{n_ver}", note=f"Autopilot {self.aid}: {n_rel} relabelled, {len(drop)} dropped from {src}",
+            dedupe=True)
         self.st["dataset_versions"].append({"id": rec["id"], "name": rec["name"], "parent": src, "version": n_ver,
                                             "rows": rec["rows"], "relabelled": n_rel, "dropped": len(drop),
                                             "synthetic": 0, "relabelled_holdout": lineage["relabelled_holdout"],
@@ -981,7 +1087,7 @@ class Pilot:
         n_ver = len(self.st["dataset_versions"]) + 2
         root_name = f["dataset_name"].replace(" (sample)", "")
         syn_start = len(df)
-        rec = ds.derive(src, df2, None, "autopilot_synthetic",  # P1: every parent row, then synthetic rows (root -1-i)
+        rec = self._derived(f"{root_name} · v{n_ver}") or ds.derive(src, df2, None, "autopilot_synthetic",  # P1: every parent row, then synthetic rows (root -1-i)
                         [{"op": "synthetic", "row": syn_start + i, "label": cls} for i in range(len(add))], splits=new_sp,
                         extra={"version": n_ver, "autopilot": self.aid, "relabelled": 0, "dropped": 0, "synthetic": len(add),
                                "synthetic_rows": list(range(syn_start, len(df2))), "synthetic_source": meta["source"]},

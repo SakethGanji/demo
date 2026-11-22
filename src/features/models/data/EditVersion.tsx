@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { data, type DsEditOp, type DsEditPreview, type DsGrid, type DsHistory, type DsVersion } from '@/shared/api/catalog'
 import { useFetch } from '@/shared/hooks/useFetch'
+import { pctText, settle, type JobProgress } from '@/shared/api/jobs'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 
 /** DL3: edit a version as typed operations. Cell edits, row deletes and column actions pile up as pending operations;
@@ -24,6 +25,7 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
   const [pv, setPv] = useState<DsEditPreview | null>(null)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
+  const [prog, setProg] = useState<JobProgress | null>(null)  // F-JOBS: a large edit runs as a job (202 + its progress)
   // column action form
   const [col, setCol] = useState('')
   const [act, setAct] = useState<ColAction>('rename_column')
@@ -86,13 +88,13 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
     try { setPv(await data.editPreview(v.id, allOps, by)) } catch (e) { onErr(e) } finally { setBusy(false) }
   }
   const create = async () => {
-    setBusy(true)
+    setBusy(true); setProg(null)
     try {
-      const r = await data.edit(v.id, allOps, by, reason.trim())
+      const r = await settle(data.edit(v.id, allOps, by, reason.trim()), (p) => setProg(p))
       if (!r.created) onCreated(r.duplicate_of ?? r.id, `Nothing new: the result has the same bytes as ${r.duplicate_of}, so no version was made.`)
-      else onCreated(r.id, `v${pv?.v} (${r.id}) created from v${v.v}: ${r.edit.ops_summary.join('; ')}. `
+      else onCreated(r.id, `v${pv?.v} (${r.id}) created from v${v.v}: ${(r.edit?.ops_summary ?? []).join('; ')}. `
         + (r.default?.is_default ? 'It is now the default.' : `Not the default (${r.default?.why}): review it, then make it the default.`))
-    } catch (e) { onErr(e) } finally { setBusy(false) }
+    } catch (e) { onErr(e) } finally { setBusy(false); setProg(null) }
   }
 
   const g = grid.data
@@ -189,7 +191,7 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
         <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
           <input className="input" style={{ flex: 1, minWidth: 240 }} maxLength={500} placeholder="reason or change ticket (required, kept with the version and in the audit log)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="edit-reason" />
           {pv ? <button className="btn primary" disabled={busy || !by || reason.trim().length < 3} onClick={create} data-testid="edit-create"
-            title={reason.trim().length < 3 ? 'Give a reason first' : undefined}>{busy ? 'Creating…' : `Create v${pv.v}`}</button>
+            title={reason.trim().length < 3 ? 'Give a reason first' : undefined}>{busy ? (prog ? `Creating… ${pctText(prog)}` : 'Creating…') : `Create v${pv.v}`}</button>
             : <button className="btn primary" disabled={busy || !by || !allOps.length} onClick={preview} data-testid="edit-preview-btn">{busy ? 'Previewing…' : 'Preview'}</button>}
         </div>
       </div>

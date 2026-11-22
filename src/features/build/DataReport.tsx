@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
+import { pctText, settle } from '@/shared/api/jobs'
 import type { DataFinding, DataFixEffect, DataReport as Report } from '@/shared/api/types'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 import { useFetch } from '@/shared/hooks/useFetch'
@@ -76,7 +77,9 @@ function ReportCard({ r, onVersion, reload }: { r: Report; onVersion: (id: strin
   const apply = async () => {
     setErr(''); setBusy(`Applying ${chosen.length} fix${chosen.length === 1 ? '' : 'es'}…`)
     try {
-      const out = await api.datasets.applyFixes(r.dataset_id, transforms)
+      // F-JOBS: above the row threshold the apply is a job (202): show its progress on the button while it runs
+      const label = `Applying ${chosen.length} fix${chosen.length === 1 ? '' : 'es'}…`
+      const out = await settle(api.datasets.applyFixes(r.dataset_id, transforms), (p) => setBusy(`${label} ${pctText(p)}`))
       const what = [out.rows_before !== out.rows_after ? `${(out.rows_before - out.rows_after).toLocaleString()} rows dropped` : '',
         out.columns_added.length ? `+ ${out.columns_added.join(', ')}` : '', out.columns_removed.length ? `− ${out.columns_removed.join(', ')}` : ''].filter(Boolean).join(' · ')
       onVersion(out.dataset.id, `${out.dataset.name}: ${chosen.length} fix${chosen.length === 1 ? '' : 'es'} applied to a copy${what ? ` (${what})` : ''}. The original is unchanged.`)

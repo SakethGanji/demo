@@ -119,9 +119,11 @@ class Q:
             return m.predict(X)
         p = m.predict_proba(X)
         if self.pt == "binary":
+            if len(m.classes_) == 1:  # fit on one class: that class (p[:, 1] would be P(encoded 1) of the one class)
+                return np.full(len(X), float(m.classes_[0]))
             return p[:, 1]
         full = np.zeros((len(X), len(self.classes)))
-        full[:, m.classes_.astype(int)] = p
+        _proba_into(full, np.arange(len(X)), m, p)
         return full
 
     def score(self, y, p) -> float:
@@ -136,6 +138,32 @@ class Q:
 
     def natural(self, s: float) -> float:
         return -s if self.pt in ("regression", "quantile") else s
+
+
+def _proba_into(P: np.ndarray, rows: np.ndarray, m: Any, pp: np.ndarray) -> None:
+    """Write a fitted classifier's predict_proba into P's columns by class code. F-JOBS (the clean-labels shape bug): a
+    LightGBM classifier fit on ONE class has classes_ = [c] but still answers two columns (binary [1 − p, p]), so
+    `P[np.ix_(rows, classes_)] = pp` failed with (n, 2) into (n, 1). One class seen: it is that class, probability 1."""
+    cls = np.asarray(m.classes_).astype(int)
+    if len(cls) == 1:
+        P[rows, :] = 0.0
+        P[rows, cls[0]] = 1.0
+        return
+    P[np.ix_(rows, cls)] = pp[:, :len(cls)]
+
+
+def oof_proba(q: "Q", X: pd.DataFrame, tr: np.ndarray, ytr: np.ndarray, ncls: int, seed: int = 0) -> np.ndarray:
+    """The quick model's 3-fold out-of-fold p̂ over the rows `tr` (labels ytr, class codes 0..ncls-1). A fold whose
+    training part holds a single class (a class with one training row, e.g. after a group split with a gap) predicts that
+    class instead of failing."""
+    from sklearn.model_selection import StratifiedKFold
+
+    Pt = np.zeros((len(tr), ncls))
+    for a, b in StratifiedKFold(3, shuffle=True, random_state=seed).split(np.zeros(len(tr)), ytr):
+        m = q.model()
+        m.fit(X.iloc[tr[a]], ytr[a])
+        _proba_into(Pt, b, m, m.predict_proba(X.iloc[tr[b]]))
+    return Pt
 
 
 def _paired(q: Q, y: np.ndarray, p_new, p_base, seed: int = 0, b: int = B) -> dict[str, Any]:
@@ -847,16 +875,10 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any], hints: dict[str, Any] | No
     if X is not None and pt in ("binary", "multiclass"):
         try:
             from cleanlab.filter import find_label_issues
-            from sklearn.model_selection import StratifiedKFold
 
             ytr = q.y[tr].astype(int)
             ncls = 2 if pt == "binary" else len(q.classes)
-            Pt = np.zeros((len(tr), ncls))
-            for a, b in StratifiedKFold(3, shuffle=True, random_state=0).split(np.zeros(len(tr)), ytr):
-                m = q.model()
-                m.fit(X.iloc[tr[a]], ytr[a])
-                pp = m.predict_proba(X.iloc[tr[b]])
-                Pt[np.ix_(b, m.classes_.astype(int))] = pp
+            Pt = oof_proba(q, X, tr, ytr, ncls)
             if len(np.unique(ytr)) == ncls:
                 fl = find_label_issues(ytr, Pt, filter_by="prune_by_noise_rate", n_jobs=1)
                 share_f = float(fl.mean())
