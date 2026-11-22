@@ -75,6 +75,9 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
   const [prels, setPrels] = useState<UpRelation[]>([])  // and its relations (carried while both tables stay)
   const [ack, setAck] = useState(false)
   const [iack, setIack] = useState<Set<string>>(new Set())  // F-X3a: integrity codes acknowledged
+  // LB-C: the commit refuses (400 label_identity_lost) when labelled rows would get new ids; acknowledged by token
+  const [labelLost, setLabelLost] = useState<{ n: number; layers: unknown[] } | null>(null)
+  const [labelAck, setLabelAck] = useState(false)
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
@@ -176,14 +179,17 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
       const mt = multi ? (rewrites.length ? Object.fromEntries(rewrites.map((t) => [t.name, matches[t.name]]).filter(([, m]) => m)) : undefined) : next && match ? match : undefined
       const token = (multi ? rewrites[0]?.next_version : nv)?.commit_needs?.acknowledge_token ?? 'holdout_identity_loss'
       // F-X3a: the integrity codes are acknowledged by code, beside P06's holdout token
-      const acknowledge = [...(needsAck && ack ? [token] : []), ...integrityCodes.filter((c) => iack.has(c))]
+      const acknowledge = [...(needsAck && ack ? [token] : []), ...integrityCodes.filter((c) => iack.has(c)), ...(labelLost && labelAck ? ['label_identity_loss'] : [])]
       const r = await uploads.commit(up.upload_id, {
         by, check_sha256: chk.check_sha256, ...(reason.trim() ? { reason: reason.trim() } : {}),
         ...(mt ? { match: mt } : {}), ...(acknowledge.length ? { acknowledge } : {}),
       })
-      setUp(null); setChk(null)
+      setUp(null); setChk(null); setLabelLost(null); setLabelAck(false)
       onDone(r, resultText(r, label, parent))
-    } catch (e) { setErr(errText(e)) } finally { setBusy('') }
+    } catch (e) {
+      const d = (e as { detail?: { code_detail?: string; label_identity_lost?: { n: number; layers: unknown[] } } }).detail
+      if (d?.code_detail === 'label_identity_lost' && d.label_identity_lost) { setLabelLost(d.label_identity_lost); setErr('') } else setErr(errText(e))
+    } finally { setBusy('') }
   }
   const discard = async () => { if (up) await uploads.discard(up.upload_id).catch(() => null); setUp(null); setChk(null); setFiles([]); onCancel?.() }
 
@@ -191,7 +197,7 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
   const matchedOk = multi ? rewrites.every((t) => chosenOf(t)?.valid) : !next || (!!chosen && chosen.valid)
   const integrity = (chk?.warnings ?? []).filter((w) => (w as Issue).needs_ack && (INTEGRITY_ACKS as readonly string[]).includes(w.code)) as Issue[]
   const integrityCodes = [...new Set(integrity.map((x) => x.code))]
-  const canCreate = !!chk && !blocked && !dirty && matchedOk && (!needsAck || ack) && integrityCodes.every((c) => iack.has(c))
+  const canCreate = !!chk && !blocked && !dirty && matchedOk && (!needsAck || ack) && integrityCodes.every((c) => iack.has(c)) && (!labelLost || labelAck)
   return (
     <div className="card-body stack up-flow" style={{ gap: 10 }} data-testid="up-flow">
       {!chk && <div className="up-step-title"><span className="up-step-n">1</span><b>{next ? `Check a file as v${parent!.nextV ?? parent!.v + 1} of ${parent!.name}` : 'Check files for a new dataset'}</b><span className="helper">nothing is written until you create it</span></div>}
@@ -230,6 +236,9 @@ export function StagedUpload({ by, team, parent, initialFile, onDone, onCancel }
         <span><b>Acknowledge to create it with {acks.map((m) => m.label).join(', ')}</b> (recorded in the version's manifest):{acks.flatMap((m) => m.warnings.filter((w) => w.needs_ack)).map((w, i) => <span key={i} className="up-ackline">⚠ {w.message}</span>)}</span>
       </label>}
       {chk && integrity.length > 0 && <IntegrityAcks items={integrity} acked={iack} setAcked={setIack} />}
+      {chk && labelLost && <label className="data-warn up-integrity row" style={{ gap: 6 }} data-testid="up-label-lost">
+        <input type="checkbox" checked={labelAck} onChange={(e) => setLabelAck(e.target.checked)} data-testid="up-ack-label_identity_loss" />
+        <span>⚠ <b>{labelLost.n.toLocaleString()} labelled row{labelLost.n === 1 ? '' : 's'}</b> of {labelLost.layers.length} label layer{labelLost.layers.length === 1 ? '' : 's'} would get new ids under this match, so their labels would be orphaned (kept, not applied). Choose a key match, or acknowledge <span className="mono">label_identity_loss</span> and remap later by a business key.</span></label>}
       {chk && <div className="row up-commit-row" style={{ gap: 8, flexWrap: 'wrap' }}>
         <span className="up-step-n">2</span>
         <input className="input" style={{ flex: 1, minWidth: 220 }} aria-label="Reason or change ticket" maxLength={500} placeholder="reason or change ticket (optional, kept with the version)" value={reason} onChange={(e) => setReason(e.target.value)} data-testid="up-reason" />

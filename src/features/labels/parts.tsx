@@ -20,7 +20,7 @@ export const STATUS_WORDS: Record<StatusKey, string> = {
 /** Per column carry-over counts in the five words the screens use (live = ok + in_base; base_changed counts as stale). */
 export function carryOf(c: StatusCounts | ColStatus | null | undefined): Record<StatusKey, number> & { base_changed: number; disputed: number } {
   const x = (c ?? {}) as StatusCounts & ColStatus
-  return { live: x.live ?? (x.ok ?? 0) + (x.in_base ?? 0), stale: (x.stale ?? 0) + (x.base_changed ?? 0), conflict: x.conflict ?? 0, orphaned: x.orphaned ?? 0,
+  return { live: x.live ?? (x.ok ?? 0) + (x.absorbed ?? 0) + (x.in_base ?? 0), stale: (x.stale ?? 0) + (x.base_changed ?? 0), conflict: x.conflict ?? 0, orphaned: x.orphaned ?? 0,
     unlabelled: x.unlabelled ?? 0, base_changed: x.base_changed ?? 0, disputed: x.disputed ?? 0 }
 }
 /** The status's totals (and its columns as a list). */
@@ -53,8 +53,18 @@ export function CarryBar({ c, testId, words = true }: { c: Partial<Record<Status
 export const Kbd = ({ children }: { children: ReactNode }) => <kbd className="kbd">{children}</kbd>
 
 /** A refusal as a readable line: the message, then the code. */
+const SENTENCE: Record<string, string> = {
+  annotator_paused: 'You are paused on this task: your gold accuracy fell below its minimum. A reviewer or task manager resumes you.',
+  over_budget: 'The estimated cost is over this run\'s budget: raise the budget, label fewer rows, or let it stop at the cap.',
+  over_month_budget: 'This would pass the team\'s monthly LLM budget: a maintainer raises max_usd_month in the team policy.',
+  not_calibrated: 'This prompt has no passed calibration, so its labels cannot be accepted: calibrate against the gold set first.',
+  batch_not_built: 'Batch mode is not available yet: run it online.',
+  gold_too_small: 'Calibration needs at least 200 calibration gold rows and 20 per class: draw more calibration gold on the task.',
+  llm_labeling_disabled: 'LLM labeling is off for this team: an owner turns it on.',
+}
 export function errText(e: unknown): string {
   const x = refusal(e)
+  if (x.code && SENTENCE[x.code]) return `${SENTENCE[x.code]} (${x.code})`
   return `${x.message}${x.code ? ` (${x.code})` : ''}`
 }
 

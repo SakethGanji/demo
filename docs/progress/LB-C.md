@@ -13,7 +13,7 @@ card uses the DataKit (`CardHead`, `Badge`, `CopyId`, `ChangeBar`-style bars, `C
 | **Labelling screen** | `LabelScreen.tsx` | Keyboard-first: `1–9` class, `Enter` submit (or confirm the pre-label), `S` skip, `F` flag with a note, `←/→` (↑/↓) between rows, `?` guidelines. The row with **PII columns masked** (mask band + 🔒), the guidelines panel, pre-label chip (never on gold / blind), session count and pace, **QA** (gold graded blind, with the Wilson interval), pause callout. Task bar: progress, **κ** with its reading, disputed. |
 | **Review / adjudication** | same | disputed / gold failures / stale / flagged; votes side by side (gold beside them); adjudicate by button or hotkey; "you voted on this item" lock (four eyes, relaxed under POC). |
 | **Quality** | same | κ (Fleiss or Cohen), done / backlog / disputed, anchoring; per annotator items, per hour, gold accuracy bar with `k/n` and 95 % Wilson CI, agreement with the majority, paused state; pairwise κ chips. |
-| **LLM labeling** | `LlmPanel.tsx` | Destination badge (**off** by default with the API's reason; **fake** first when allowed, with why); "Turn on (fake)" sets the team policy with a monthly cap; prompt versions (columns **or a DuckDB SQL query** with a query preview); **What is sent**: columns sent, PII-tagged ones flagged ⚠ when the team has no PII guard (LB-B's user decision), excluded when `pii_guard` is on (with a steward "review as no PII" action for unreviewed tags); budget, estimate, team monthly cap; preview (20 rows), **calibration against gold** (accuracy, Wilson CI bar, passed / not, τ* with coverage and certified accuracy, per class, thresholds table), runs (spend vs cap, cache, redactions), then **Accept ≥ τ\*** (the run's snapshot policy → snapshot) or **Send the rest to people** (`llm_low_conf` fill). |
+| **LLM labeling** | `LlmPanel.tsx`, `PromptEditor.tsx` | Destination badge (**off** by default with the API's reason; **fake** first when allowed, with why); "Turn on (fake)" sets the team policy with a monthly cap. **The input is a DuckDB query** (user decision): a SQL editor (⌘/Ctrl+Enter) with the version's tables, their columns (click inserts) and saved joins beside it; **Run preview** → the first rows, DuckDB errors inline as a Callout; the rule shown ("must return `__row_id` of the target table plus the columns the prompt uses"); a **template** naming `{column}`s with chips that insert them and an error for unknown names; **Test on 5 rows** shows each rendered prompt next to the answer; **Save as prompt version**. **Will be sent**: n columns × m rows → destination, no PII exclusion shown (user decision; the run's audit records columns, rows, query sha, prompt version); budget, estimate, team monthly cap; preview (20 rows), **calibration against gold** (accuracy, Wilson CI bar, passed / not, τ* with coverage and certified accuracy, per class, thresholds table), runs (spend vs cap, cache, redactions), then **Accept ≥ τ\*** (the run's snapshot policy → snapshot) or **Send the rest to people** (`llm_low_conf` fill). |
 | **Training** | `Training.tsx`, `models/data/TrainOn.tsx`, `TablesCard.tsx`, `models/RunPage.tsx`, `registry/components/ModelCardView.tsx`, `shared/api/tables.ts` | The run form gains "labels: none \| snapshot …" (`labels: {snapshot_id, holdout: original, stale: exclude}`); the run page and the model card show a **Labels** section: snapshot, its sha, the overlay sha (re-verified through `/label-runs/{id}/verify`), "applied to training rows only (n rows)", "holdout: original labels, untouched". |
 
 Client: `shared/api/labels.ts` (every route of labeling.md §6.2 plus LB-B's aliases; tolerant of both shapes where
@@ -32,7 +32,7 @@ LB-B changed them mid-build). Greying: every action button asks `/authz/check` (
    |---|---|
    | 1. New layer `category` (6 classes) → create a task (4 steps, Ana annotator + reviewer, Gus, 3 QA gold, 1 000 calibration gold) | ✓ "40 items queued (random) from v1; 3 memberships, 3 QA gold, 1000 calibration gold" |
    | 2. Label 5 rows by keyboard (number key + Enter, then ←) | ✓ 5 `human` events; quality page |
-   | 3. LLM: off → turn on (fake, cap $20) → prompt v1 → SQL input shown → preview 20 → calibrate → run 60 rows → send the rest to people | ✓ calibration 83.8 % (95 % CI 81.4–86.0 %) on 1 000 gold, **passed**, τ* 0.80; run succeeded, 52 accepted ≥ τ*, 8 pre-labels → "8 low-confidence rows sent to people" |
+   | 3. LLM: off → turn on (fake, cap $20) → SQL query → Run preview → Test on 5 rows → save v1 → calibrate → run 60 rows → send the rest to people | ✓ calibration 84.7 % (95 % CI 82.3–86.8 %) on 1 000 gold, **passed**, τ* 0.80; run succeeded, 52 accepted ≥ τ*, 8 pre-labels → "8 low-confidence rows sent to people" |
    | 4. Take a snapshot | ✓ `lsn_…` through event 65, Verify → hash verified |
    | 5. `set_cells` on one labelled row's `subject` → v2; status against v2 | ✓ live 4, **stale 1**, unlabelled 19 995 |
    | extra: `POST /runs` with that snapshot pinned | ✓ succeeded; run page Labels: 4 rows applied to training, holdout untouched, overlay re-verified |
@@ -40,10 +40,16 @@ LB-B changed them mid-build). Greying: every action button asks `/authz/check` (
    **0 failed steps, 0 console errors**; API log **0 × 4xx, 0 × 5xx, 0 tracebacks** on the final run. Call log:
    `LB-C/calls.txt`.
 3. Screenshots (`docs/progress/LB-C/`): `01`/`02` task setup, `03` task list, `04`/`05` labelling, `06` quality,
-   `07` LLM off, `08` calibration, `08b` SQL input, `08c` what is sent, `09` LLM page, `10` run report, `11` snapshots,
+   `07` LLM off, `08a` SQL editor + preview, `08b` test on 5 rows, `08c` will be sent, `08` calibration, `09` LLM page, `10` run report, `11` snapshots,
    `12` carry-over after the edit, `13` the Labels tab, `14` run page Labels.
 
 ## Notes
+
+- **Late orchestrator items, also done:** status `absorbed` counted healthy, with healthy / needs-attention badge groups;
+  "include simulated (test) labels" on snapshot create; Approve shown as "coming" (no approve route yet); the
+  materialised version shown with a link; `label_identity_lost` at upload commit acknowledged as `label_identity_loss`
+  (StagedUpload, same pattern as the integrity acks); `annotator_paused`, `over_budget`, `not_calibrated`,
+  `batch_not_built`, `gold_too_small` shown as sentences.
 
 - **Gus was not a guest** on the walk: everyone has a role in the default team under POC, so the API reports `guest: false`.
   The UI shows what the API says (the task list counts guests from `members[].guest`).

@@ -186,6 +186,13 @@ function StatusCard({ layer, d, vid, v, tick }: { layer: Layer; d: DsHistory; vi
             ...(t.base_changed ? [{ label: 'of which base changed', value: int(t.base_changed), title: 'the version itself now has a different value in a labelled cell' }] : []),
             ...(t.disputed ? [{ label: 'disputed', value: int(t.disputed), title: 'votes disagree: not applied until reviewed' }] : []),
           ]} />
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }} data-testid="lbl-status-groups">
+            <span className="micro-label">healthy</span>
+            {(['ok', 'absorbed'] as const).map((k) => <Badge key={k} status="ok" title={k === 'absorbed' ? 'the version already holds this label' : 'labelled, row unchanged'}>{int(st.data!.totals?.[k] ?? 0)} {k}</Badge>)}
+            <span className="micro-label" style={{ marginLeft: 10 }}>needs attention</span>
+            {(['stale', 'base_changed', 'conflict', 'orphaned', 'disputed'] as const).map((k) => { const n = st.data!.totals?.[k] ?? 0
+              return <Badge key={k} status={n ? (k === 'conflict' ? 'conflict' : k === 'orphaned' ? 'orphaned' : 'stale') : 'none'}>{int(n)} {k.replace('_', ' ')}</Badge> })}
+          </div>
           <div className="row" style={{ gap: 12, flexWrap: 'wrap' }}>
             <CarryBar c={t} testId="lbl-carry" />
             <span className="muted">labelled share</span><CoverageBar m={t.live} N={st.data.rows_in_version ?? (all - t.orphaned || null)} wide />
@@ -246,23 +253,23 @@ function TaskRow({ t: t0, open }: { t: Task; open: (v: View) => void }) {
 function SnapshotsCard({ layer, d, vid, v, cols, by, tick, done, fail }: { layer: Layer; d: DsHistory; vid: string; v: number; cols: string[]; by: string; tick: number; done: (t: string) => void; fail: (e: unknown) => void }) {
   const ss = useFetch(() => labels.snapshots(layer.id), [layer.id, tick])
   const canSnap = useCan('label.snapshot', 'dataset', d.root_id, by)
-  const canApprove = useCan('label.snapshot_approve', 'dataset', d.root_id, by)
   const canVersion = useCan('data.version', 'dataset', d.root_id, by)
   const poc = usePoc()
   const [policy, setPolicy] = useState('majority')
   const [acceptLlm, setAcceptLlm] = useState(false)
+  const [simulated, setSimulated] = useState(false)
   const [busy, setBusy] = useState('')
   const [mat, setMat] = useState<{ id: string; reason: string; target: string } | null>(null)
   const [checks, setChecks] = useState<Record<string, string>>({})
+  const [made, setMade] = useState<string | null>(null)
   const take = async () => {
     setBusy('snap')
     try {
-      const r = await settle(await labels.snapshot(layer.id, { method: policy, accept: { llm: acceptLlm } }, by))
+      const r = await settle(await labels.snapshot(layer.id, { method: policy, accept: { llm: acceptLlm }, ...(simulated ? { exclude_simulated: false } : {}) }, by))
       const s = r as Partial<Snapshot>
       done(`Snapshot ${s.id ?? (r as { snapshot_id?: string }).snapshot_id ?? ''} taken through event ${s.through_seq ?? '…'}: frozen and hashed; a run can pin it.`)
     } catch (e) { fail(e) } finally { setBusy('') }
   }
-  const approve = async (s: Snapshot) => { try { await labels.approveSnapshot(s.id, 'approved in the Labels tab', by); done(`Snapshot ${s.id} approved by ${by}.`) } catch (e) { fail(e) } }
   const verify = async (s: Snapshot) => { try { const r = await labels.verifySnapshot(s.id); setChecks((c) => ({ ...c, [s.id]: r.ok ? 'ok' : 'mismatch' })) } catch (e) { fail(e) } }
   const materialise = async () => {
     if (!mat) return
@@ -270,7 +277,8 @@ function SnapshotsCard({ layer, d, vid, v, cols, by, tick, done, fail }: { layer
     try {
       const r = await settle(await labels.materialise(mat.id, { version_id: mat.target, reason: mat.reason, holdout: 'original' }, by))
       const nv = (r as { version_id?: string; id?: string }).version_id ?? (r as { id?: string }).id
-      setMat(null); done(`Materialised into a new version${nv ? ` (${nv})` : ''}: labels applied to the training rows, the holdout kept as it was.`)
+      const rc = (r as { rows_changed?: number }).rows_changed
+      setMat(null); setMade(nv ?? null); done(`Materialised into a new version${nv ? ` (${nv})` : ''}${rc != null ? `: ${int(rc)} rows changed` : ''}; labels applied to the training rows, the holdout kept as it was.`)
     } catch (e) { fail(e) } finally { setBusy('') }
   }
   const live = d.versions.filter((x) => x.state !== 'deleted')
@@ -283,6 +291,7 @@ function SnapshotsCard({ layer, d, vid, v, cols, by, tick, done, fail }: { layer
           <select className="select" style={{ width: 150 }} value={policy} onChange={(e) => setPolicy(e.target.value)} aria-label="Resolution" data-testid="lbl-snap-policy" title="how several votes on a row become one label">
             <option value="majority">majority vote</option><option value="crowdlab">CROWDLAB</option><option value="single">single (latest)</option></select>
           <label className="helper row nowrap" style={{ gap: 4, whiteSpace: 'nowrap' }} title="apply LLM labels above the calibrated threshold τ*; below it they stay pre-labels"><input type="checkbox" checked={acceptLlm} onChange={(e) => setAcceptLlm(e.target.checked)} /> accept LLM ≥ τ*</label>
+          <label className="helper row" style={{ gap: 4, whiteSpace: 'nowrap' }} title="labels from the fake LLM destination are marked simulated and left out unless you include them"><input type="checkbox" checked={simulated} onChange={(e) => setSimulated(e.target.checked)} data-testid="lbl-snap-simulated" /> include simulated (test) labels</label>
           <button className="btn sm primary" disabled={!by || !canSnap?.allow || busy === 'snap'} title={why(canSnap, 'Freeze the labels up to now')} onClick={take} data-testid="lbl-snap-take">{busy === 'snap' ? 'Taking…' : 'Take snapshot'}</button>
         </span>} />
       <div className="card-body">
@@ -300,13 +309,14 @@ function SnapshotsCard({ layer, d, vid, v, cols, by, tick, done, fail }: { layer
                 <td><Badge status={s.state} />{s.approved_by && <span className="sub-line">by {s.approved_by}</span>}</td>
                 <td className="r nowrap">
                   <button className="btn sm ghost" onClick={() => verify(s)} data-testid={`lbl-snap-verify-${s.id}`} title="Re-hash the blob against the recorded sha">Verify</button>{' '}
-                  {s.state === 'draft' && <button className="btn sm" disabled={!by || !canApprove?.allow || own} onClick={() => approve(s)} data-testid={`lbl-snap-approve-${s.id}`}
-                    title={own ? `Four eyes: ${s.created_by} took it, so someone else approves` : why(canApprove, 'Approve (required for certified datasets and shares)')}>Approve</button>}{' '}
+                  {s.state === 'draft' && <button className="btn sm" disabled title={own ? `Four eyes: ${s.created_by} took it, so someone else approves` : 'Approval (four eyes, for certified datasets and shares) is coming: the API has no approve route yet'} data-testid={`lbl-snap-approve-${s.id}`}>Approve · coming</button>}{' '}
                   <button className="btn sm" disabled={!by || !canVersion?.allow || s.state === 'purged'} onClick={() => setMat({ id: s.id, reason: '', target: vid })} data-testid={`lbl-snap-mat-${s.id}`}
                     title={why(canVersion, 'Write these labels into a new version (explicit; the holdout is not relabelled)')}>Materialise…</button>
                 </td>
               </tr>
             })}</tbody></table></div>}
+        {made && <Callout tone="success" title="New version made from the snapshot" testId="lbl-mat-done">
+          <span className="row" style={{ gap: 6 }}><CopyId value={made} /><button className="btn sm" onClick={() => { location.hash = `#/build?view=data&dataset=${encodeURIComponent(d.root_id)}`; setTimeout(() => location.reload(), 50) }} data-testid="lbl-mat-open">Open its versions →</button></span></Callout>}
         {mat && <div className="card-section lbl-well" data-testid="lbl-mat-form">
           <div className="form-row">
             <Field label="Into a new version of"><select className="select" value={mat.target} onChange={(e) => setMat({ ...mat, target: e.target.value })} data-testid="lbl-mat-version">

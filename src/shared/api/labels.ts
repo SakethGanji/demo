@@ -24,7 +24,7 @@ export type Layer = {
 export type ColStatus = { column: string; live?: number; stale?: number; conflict?: number; orphaned?: number; unlabelled?: number; base_changed?: number; total?: number; labelled?: number }
 /** LB-A: `{version_id, through_seq, rows_in_version, columns: {col: counts}, totals}`; counts are ok · in_base · stale ·
  *  base_changed · conflict · orphaned · disputed · prelabel_only (+ live = ok + in_base and unlabelled in totals). */
-export type StatusCounts = { ok?: number; in_base?: number; live?: number; stale?: number; base_changed?: number; conflict?: number; orphaned?: number; disputed?: number; prelabel_only?: number; unlabelled?: number; schema_dropped?: number }
+export type StatusCounts = { ok?: number; absorbed?: number; in_base?: number; live?: number; stale?: number; base_changed?: number; conflict?: number; orphaned?: number; disputed?: number; prelabel_only?: number; unlabelled?: number; schema_dropped?: number }
 export type LayerStatus = {
   layer_id?: string; version_id: string; through_seq?: number; rows_in_version?: number
   columns?: Record<string, StatusCounts> | ColStatus[]; totals?: StatusCounts; by_source?: Record<string, number>
@@ -159,6 +159,9 @@ export const labels = {
   /** The snapshot policy that accepts this run's LLM labels at ≥ τ* (409 not_calibrated without a passed calibration). */
   acceptRun: (r: string, b: string) => json<{ accepted?: number; tau_star?: number; snapshot_policy: Record<string, unknown> }>(`/label-llm-runs/${e(r)}/accept`, 'POST', { by: b }),
   toHumans: (r: string, body: { task_id: string; tau?: number | null; n?: number }, b: string) => json<{ added?: number; items?: number; rows?: number }>(`/label-llm-runs/${e(r)}/send-to-task`, 'POST', { ...body, by: b }),
+  /** The query + template test (LB-B): rows, rendered prompts and (call_llm) the LLM's answers; ≤ 20 rows. */
+  llmPreview: (l: string, body: { version_id: string; query: string; prompt_template: string; limit?: number; call_llm?: boolean; destination?: string; column?: string; model?: string }, b: string) =>
+    json<SqlResult & { prompts?: { row_id: number; user: string }[]; answers?: { row_id: number; label: string; confidence: number; rationale?: string }[]; template_columns?: string[] }>(`/label-layers/${e(l)}/llm/preview`, 'POST', { ...body, by: b }, 120_000),
   sqlPreview: (l: string, versionId: string, query: string, limit = 50) => json<SqlResult>(`/label-layers/${e(l)}/sql/preview`, 'POST', { version_id: versionId, query, limit }, 60_000),
   unmaskRequest: (l: string, columns: string[], reason: string, b: string) => json<{ id: string; status: string }>(`/label-layers/${e(l)}/llm-unmasked-requests`, 'POST', { columns, reason, by: b }),
 
