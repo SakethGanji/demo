@@ -321,7 +321,13 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
             ans["answers"][a.id] = {"answer": a.answer, "label": lab, "by": body.reviewer, "at": now()}
         al.write_answers(Path(rec["config"]["run_dir"]), ans)
     n = sum(1 for it in items if it in ans["answers"])
-    return {"answered": len(body.answers), "round": qr, "queue_answered": n, "queue_items": len(items)}
+    from ..labels import workflows as LW  # L09 adapter: a migrated run's answers also become label events
+
+    dual = LW.dual_write(request.app, rec, [{"row": items[a.id]["row"], "label": ans["answers"][a.id]["label"], "annotator": body.reviewer}
+                                            for a in body.answers if a.id in ans["answers"] and ans["answers"][a.id].get("label") is not None],
+                         body.reviewer)
+    return {"answered": len(body.answers), "round": qr, "queue_answered": n, "queue_items": len(items),
+            **({"label_events": dual} if dual else {})}
 
 
 @router.post("/runs/{run_id}/active-learning/simulate", dependencies=[require("run.train", path("run_id", "run"))])

@@ -140,7 +140,7 @@ CREATE INDEX IF NOT EXISTS ix_llc_row ON label_llm_cache (layer_id, row_id);
 
 #: run pins (columns added to run_inputs; written at INSERT by the worker, never updated)
 RUN_INPUT_COLS = [("label_snapshot_id", "TEXT"), ("label_snapshot_sha256", "TEXT"), ("overlay_sha256", "TEXT"),
-                  ("overlay_blob", "TEXT"), ("overlay_spec", "TEXT")]
+                  ("overlay_blob", "TEXT"), ("overlay_spec", "TEXT"), ("labels_fitted_sha256", "TEXT")]
 
 SEEDS = {
     "label_source_types": ("name, machine, precedence, may_grade_holdout, module", [
@@ -178,7 +178,7 @@ TRIGGERS = {
     "le_ro_u": ("CREATE TRIGGER IF NOT EXISTS le_ro_u BEFORE UPDATE ON label_events WHEN NOT (" + _REDACT + " AND "
                 + _FROZEN.format(is_="IS") + ") BEGIN SELECT RAISE(ABORT, 'label events are append-only (only a purge may redact)'); END"),
     "ri_label_ro_u": ("CREATE TRIGGER IF NOT EXISTS ri_label_ro_u BEFORE UPDATE OF label_snapshot_id, label_snapshot_sha256, overlay_sha256,"
-                      " overlay_blob, overlay_spec ON run_inputs BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END"),
+                      " overlay_blob, overlay_spec, labels_fitted_sha256 ON run_inputs BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END"),
 }
 
 
@@ -191,7 +191,7 @@ def pg_triggers() -> dict[str, tuple[str, str]]:
         "le_ro_u": ("label_events", _ro("le_ro_u", "UPDATE", "label_events", "label events are append-only (only a purge may redact)",
                                         "NOT (" + _REDACT + " AND " + _FROZEN.format(is_="IS NOT DISTINCT FROM") + ")")),
         "ri_label_ro_u": ("run_inputs", _ro("ri_label_ro_u", "UPDATE OF label_snapshot_id, label_snapshot_sha256, overlay_sha256,"
-                                            " overlay_blob, overlay_spec", "run_inputs", "run inputs are immutable")),
+                                            " overlay_blob, overlay_spec, labels_fitted_sha256", "run_inputs", "run inputs are immutable")),
     }
 
 
@@ -258,7 +258,8 @@ def migrate(con: Any) -> None:
         if c not in have:
             con.execute(f"ALTER TABLE run_inputs ADD COLUMN {c} {typ}")
     seed(con)
-    con.execute("DROP TRIGGER IF EXISTS lsch_ro_u")  # an early LB-A build: it blocked the purge scrub of class names
+    con.execute("DROP TRIGGER IF EXISTS lsch_ro_u")
+    con.execute("DROP TRIGGER IF EXISTS ri_label_ro_u")  # re-created below with labels_fitted_sha256  # an early LB-A build: it blocked the purge scrub of class names
     for q in TRIGGERS.values():
         con.execute(q)
     _step(con, "labels_l01a")
