@@ -1,0 +1,15 @@
+## R0 ext = cust.csv as its own dataset, key cust
+HTTP 201 ds_aa4b98d3
+HTTP 201 ext keyed ds_6dbb0b2c
+HTTP 201 join jn_29ed2a329d
+HTTP 201 join (two tables named cust) jn_53f3963be2
+## R1 runs on both joins (time_limit 20)
+HTTP 201 HTTP 201 run_9c01519d succeeded
+run_15af0743 succeeded
+## R2 register the join model
+HTTP 202 mv_d7d0c35a ready
+HTTP 200 parity ok | serving frame = training frame (every cell, by __row_id); the version's predictions on 600 holdout rows equal | tables [('apps', 'ds_3c7bbcf8'), ('cust', 'ds_6dbb0b2c'), ('pays', 'ds_3c7bbcf8')]
+HTTP 202 mv_9ff13699 ready
+HTTP 200 parity ok | serving frame = training frame (every cell, by __row_id); the version's predictions on 600 holdout rows equal
+## R3 batch on the two-cust model (tables share a name)
+HTTP 400 {'code': 'ambiguous_tables', 'message': "The model's join reads two tables with the same name; name the files by role is not supported yet."}

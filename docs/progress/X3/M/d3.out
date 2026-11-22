@@ -1,0 +1,22 @@
+
+### true no-op delta: stage=commit check=200 commit=200
+  delta {'mode': 'carry', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 2, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  returned ds_1251ad13 v 2 [('loans', 'carried', '4d3907f85b27')] parent is ds_1251ad13 True
+
+### true no-op with float spelled 104.0: stage=commit check=200 commit=200
+  delta {'mode': 'carry', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 2, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+   True
+
+### float 104.4 (rounds to parent 104): stage=commit check=200 commit=200
+  delta {'mode': 'carry', 'key': ['acct'], 'inserted': 0, 'updated': 2, 'updated_unchanged': 2, 'deleted': 0, 'missing': 0, 'update_of_missing_key': 0, 'insert_of_existing_key': 0, 'rows_after': 40}
+  schema [('acct', 'VARCHAR'), ('amt', 'BIGINT'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]
+  warnings []
+  same as parent (value change swallowed)? True
+
+### plain new version with amt = 101.6 … commit 200 400
+  blocks [] warnings []
+  schema [[('acct', 'VARCHAR'), ('amt', 'DOUBLE'), ('seg', 'VARCHAR'), ('target', 'BIGINT')]]

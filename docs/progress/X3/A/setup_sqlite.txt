@@ -1,0 +1,6 @@
+HTTP 201 ds_61653fd7
+[('apps', 'new', 3000, ['app_id:VARCHAR', 'cust:VARCHAR', 'applied_on:DATE', 'applied_day:TIMESTAMP', 'x1:DOUBLE', 'y:BIGINT']), ('cust', 'new', 1100, ['cust:VARCHAR', 'score:BIGINT']), ('pays', 'new', 38594, ['pay_id:VARCHAR', 'app_id:VARCHAR', 'amount:DOUBLE', 'paid_on:DATE', 'paid_serial:BIGINT', 'paid_dmy:VARCHAR']), ('daily', 'new', 611, ['day:TIMESTAMP', 'rate:DOUBLE'])] []
+HTTP 201 apps key -> ds_5548eeb9
+HTTP 201 cust key -> ds_feb2ced7
+HTTP 201 pays key -> ds_8f69713d
+HTTP 201 daily key -> ds_3c7bbcf8

@@ -5,6 +5,7 @@ import type { MetricCI, ModelCard, ModelVersion } from '@/shared/api/types'
 import { fmtScore } from '@/shared/lib/metrics'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
+import { InputsSection } from './InputsSection'
 import { ACTION_WORD, APPROVAL_STATUS, STAGE_STATUS, bytes, ms, pct, short, us, when } from '../lib'
 
 const ci = (m?: MetricCI) => (m ? <><b>{fmtScore(m.value)}</b> <span className="muted">[{fmtScore(m.ci_low, 3)}, {fmtScore(m.ci_high, 3)}]</span></> : '—')
@@ -87,6 +88,7 @@ export function ModelCardView({ v, actor, onEdited }: { v: ModelVersion; actor: 
         </div>
         <table className="table compact"><thead><tr><th>feature</th><th>type</th><th className="r">missing</th><th className="r">distinct</th></tr></thead>
           <tbody>{d.feature_table.map((f) => <tr key={f.name}><td className="mono">{f.name}</td><td>{f.type}</td><td className="r mono">{pct(f.missing_share)}</td><td className="r mono">{f.unique.toLocaleString()}</td></tr>)}</tbody></table>
+        {d.inputs && <InputsSection inputs={d.inputs} parity={d.parity} vid={v.id} />}
       </section>
 
       <section className="mc-sec"><h3><i>4</i> Development</h3>

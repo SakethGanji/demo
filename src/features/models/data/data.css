@@ -81,3 +81,35 @@
 .up-ackline { display: block; }
 .data-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .up-cols td.helper { white-space: normal; }
+
+/* U2: several files, per-table plans, deltas, PII and contract marks */
+.up-files { display: inline-flex; gap: 10px; flex-wrap: wrap; }
+.up-plan-table td, .up-plan-table th { padding: 5px 8px; font-size: 12.5px; vertical-align: top; }
+.up-plan-table .select { font-size: 12px; padding: 2px 6px; }
+.up-delta b { font-size: 13px; }
+.up-delta-hint .select { font-size: 12px; }
+.up-pii { font-size: 11px; background: var(--status-warning-bg); color: var(--text-primary); margin-right: 3px; }
+.up-ct-pass { color: var(--status-success); } .up-ct-warn { color: var(--status-warning); } .up-ct-block { color: var(--status-danger); }
+.pt-chip.up-ct-pass { background: var(--status-success-bg); } .pt-chip.up-ct-warn { background: var(--status-warning-bg); } .pt-chip.up-ct-block { background: var(--status-danger-bg); }
+.up-rel { font-size: 12.5px; align-items: baseline; }
+.up-sheets { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
+.data-tables-t td, .data-tables-t th { padding: 5px 8px; font-size: 12.5px; vertical-align: top; }
+.data-tables-t tr.sel td { background: var(--status-info-bg); }
+.tbl-carried { background: var(--bg-subtle); } .tbl-appended, .tbl-new { background: var(--status-success-bg); } .tbl-rewritten { background: var(--status-warning-bg); }
+.join-step { border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: 6px 10px; }
+.join-step .select, .join-new .select { font-size: 12px; padding: 2px 6px; }
+.join-agg { display: inline-flex; gap: 4px; align-items: center; padding: 2px 6px; border: 1px dashed var(--border-default); border-radius: var(--radius-control); }
+.join-cov td, .join-cov th { padding: 5px 8px; font-size: 12.5px; }
+.chip-btn.on { background: var(--status-info-bg); border-color: var(--status-info); }
+.masked-cell { color: var(--text-secondary); }
+.train-on { border-top: 1px dashed var(--border-default); padding-top: 8px; }
+.train-on .select { font-size: 12px; padding: 2px 6px; }
+.gov-t td, .gov-t th { padding: 3px 8px; font-size: 12.5px; }
+.gov-t .select { font-size: 12px; padding: 1px 4px; }
+.gov-item { font-size: 12.5px; padding: 4px 0; border-bottom: 1px solid var(--border-subtle, var(--border-default)); }
+.gov-pre { font-size: 11px; max-height: 260px; overflow: auto; white-space: pre; margin: 0; }
+.cert-active { background: var(--status-success-bg); } .cert-pending { background: var(--status-warning-bg); } .cert-rejected, .cert-revoked, .cert-expired { background: var(--status-danger-bg); }
+.unmask-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+.up-plan-table td.helper { white-space: normal; min-width: 220px; }
+.up-plan-table td { white-space: nowrap; }
+.up-delta { white-space: normal; display: inline-block; max-width: 420px; }

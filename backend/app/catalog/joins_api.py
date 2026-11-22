@@ -138,3 +138,48 @@ async def get_frame(root_id: str, frame_id: str, request: Request, verify: int =
         return fr
 
     return await _run(work)
+
+
+@router.get("/datasets/{root_id}/frames/{frame_id}/rows", dependencies=[require("data.preview", path("root_id", "dataset"))])
+async def frame_rows(root_id: str, frame_id: str, request: Request, limit: int = 20) -> dict[str, Any]:
+    """U2: the first rows of a join frame (in __row_id order) for the join builder's preview. Masked like every row read:
+    a frame column whose source column (grain or joined table, or an aggregate's column) is PII-tagged gets that
+    column's mask; there is no unmasked path here."""
+    from .. import frames
+    from ..lake import duck
+    from ..lake import mask as MK
+
+    db = request.app.state.db
+    n = max(1, min(int(limit), 100))
+
+    def work():
+        fr = J.get_frame(db, frame_id)
+        J.version_of_root(db, root_id, fr["version_id"])
+        spec = J.get(db, fr["join_id"])["spec"]
+        ins = fr["inputs"]
+        lts = [frames.lake_table(frames.Table(x["version_id"], x["table"])) for x in ins]
+        masks = [MK.for_version(x["version_id"], x["table"]) for x in ins]
+        lt = frames.lake_table(frames.JoinFrame(frame_id))
+        types = {c["name"]: c["type"] for c in lt.schema}
+        sel, masked = ["__row_id"], {}
+        for name, origin, src in frames.join_output_columns(spec, lts):
+            i = 0 if origin == "grain" else int(origin.split(":")[1]) + 1
+            col = src
+            if origin != "grain" and spec["joins"][i - 1]["type"] == "aggregate":
+                agg = next((a for a in spec["joins"][i - 1]["aggs"] if spec["joins"][i - 1].get("prefix", "") + a["name"] == name), {})
+                col = agg.get("column") if agg.get("fn") not in ("count",) else None
+            m = masks[i] if i < len(masks) else None
+            if m is not None and col and col in m.cols:
+                masked[name] = m.cols[col]
+                sel.append(f"{m.sql(col, frames._qi(name), types.get(name, 'VARCHAR'))} AS {frames._qi(name)}")
+            else:
+                sel.append(frames._qi(name))
+        with duck.job() as con:
+            cur = con.execute(f"SELECT {', '.join(sel)} FROM {frames.lake_sql(lt)} ORDER BY __row_id LIMIT {n}")
+            names = [d[0] for d in cur.description]
+            rows = sorted(cur.fetchall(), key=lambda r: r[0])
+        return {"join_frame_id": frame_id, "n_rows": fr["n_rows"], "columns": names[1:],
+                "rows": [[v if v is None or isinstance(v, (int, float, str, bool)) else str(v) for v in r[1:]] for r in rows],
+                "row_ids": [r[0] for r in rows], "masked_columns": sorted(masked), "masks": masked}
+
+    return await _run(work)

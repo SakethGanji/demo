@@ -1,0 +1,35 @@
+POST edit 202 {"async":true,"job_id":"jb_c3097be6863e","job":{"id":"jb_c3097be6863e","kind":"edit","status":"queued","created_at":"2026-11-22T01:07:42.868627Z"},"status":"queued","poll":"/api/jobs/jb_c3097be6863e",
+  +0.0s ('queued', 0, None, None) None
+  +10.4s ('leased', 1, None, None) workerd-522c65@vm:4771
+  +11.5s ('leased', 1, 'verifying', 0.01) workerd-522c65@vm:4771
+  +13.3s ('leased', 1, 'compiling', 0.08) workerd-522c65@vm:4771
+  +26.5s ('leased', 1, 'writing', 0.12) workerd-522c65@vm:4771
+  +27.3s ('leased', 1, 'writing', 0.2032) workerd-522c65@vm:4771
+  +28.3s ('leased', 1, 'writing', 0.297) workerd-522c65@vm:4771
+  +29.4s ('leased', 1, 'writing', 0.3623) workerd-522c65@vm:4771
++29.4s KILL -9 workerd-522c65@vm:4771 attempt 1 at {'pct': 0.3623, 'phase': 'writing', 'at': '2026-11-22T01:08:12.118943Z'}
+  +53.6s ('queued', 1, 'writing', 0.3623) None
+  +53.8s ('leased', 2, None, None) workerd-a3089e@vm:5299
+  +54.6s ('leased', 2, 'verifying', 0.01) workerd-a3089e@vm:5299
+  +56.2s ('leased', 2, 'compiling', 0.08) workerd-a3089e@vm:5299
+  +70.8s ('leased', 2, 'writing', 0.12) workerd-a3089e@vm:5299
+  +71.8s ('leased', 2, 'writing', 0.2032) workerd-a3089e@vm:5299
+  +72.9s ('leased', 2, 'writing', 0.307) workerd-a3089e@vm:5299
+  +73.7s ('leased', 2, 'writing', 0.3734) workerd-a3089e@vm:5299
+  +75.0s ('leased', 2, 'writing', 0.4491) workerd-a3089e@vm:5299
+  +76.1s ('leased', 2, 'writing', 0.479) workerd-a3089e@vm:5299
+  +76.9s ('leased', 2, 'writing', 0.5512) workerd-a3089e@vm:5299
+  +78.2s ('leased', 2, 'writing', 0.5971) workerd-a3089e@vm:5299
+  +79.0s ('leased', 2, 'writing', 0.6391) workerd-a3089e@vm:5299
+  +80.0s ('leased', 2, 'writing', 0.696) workerd-a3089e@vm:5299
+  +81.1s ('leased', 2, 'writing', 0.7) workerd-a3089e@vm:5299
+  +91.0s ('leased', 2, 'carrying', 0.72) workerd-a3089e@vm:5299
+  +95.5s ('leased', 2, 'committing', 0.82) workerd-a3089e@vm:5299
+  +95.8s ('leased', 2, 'finishing', 0.9) workerd-a3089e@vm:5299
+  +102.4s ('succeeded', 2, 'done', 1.0) workerd-a3089e@vm:5299
++102.4s job succeeded attempts 2 result {"status_code": 201, "id": "ds_7e2be5fb", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_28ac7134 as v4: replaced 'branch' \u2192 'Branch' in 'channel' (exact): 3333337 cell(s)", "created_at": "2026-11-22T01:09:18+00:00", "size_bytes": 1318 error None
+versions of the root 3 → 4
+versions with this job_id [('ds_7e2be5fb', 4, 'edit', 'jb_c3097be6863e', '2026-11-22T01:09:18+00:00')]
+version_no duplicates []
+job row [('succeeded', 2, 'workerd-a3089e@vm:5299', None, '{"status_code": 201, "id": "ds_7e2be5fb", "name": "apps 10m", "filename": "apps10m.parquet", "source": "upload", "sample": false, "note": "Edited ds_28ac7134 as v4: replaced \'branch\' \\u2192 \'Branch\' i')]
+audit dataset_version_created for new versions [(1,)]

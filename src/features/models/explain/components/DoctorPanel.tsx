@@ -160,6 +160,7 @@ export function DoctorPanel({ run, links, compact }: { run: Run; links: DoctorLi
           <ActBtn a={p.prescription} act={act} busy={busy} primary testId="doctor-rx" /><small style={{ whiteSpace: 'normal' }}>{p.prescription.why}</small></div>}
       </div>
       {p && <p className="helper" style={{ fontSize: 13 }} data-testid="doctor-reason"><b>Why:</b> {p.reason}</p>}
+      {(d.pii_features?.length ?? 0) > 0 && <p className="helper data-warn" style={{ fontSize: 12.5 }} data-testid="doctor-pii">🔒 <b>{d.pii_features!.length} feature{d.pii_features!.length === 1 ? '' : 's'} carry a PII or protected tag</b>: {d.pii_features!.map((f) => `${f.feature} (${f.tag}${f.source === 'suggested' ? ', suggested' : ''})`).join(', ')}. Their values are masked on this page; a model that reads PII needs a reason on its card, and a protected column is normally left out (fair lending).</p>}
       {p && <div className="card"><div className="card-body stack" style={{ gap: 8 }}>
         {p.id === 'leakage' ? <LeakDetail c={p} /> : p.id === 'cost_tradeoff' ? <CostDetail c={p} /> : p.id === 'ceiling' ? <CeilingDetail c={p} /> : <Evidence ev={p.evidence} />}
         {p.formula && <div className="vela-formula math"><MathText text={p.formula} /></div>}

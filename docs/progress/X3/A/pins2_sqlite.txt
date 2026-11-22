@@ -1,0 +1,9 @@
+HTTP 409 request {'detail': {'message': "Can't delete: a version is in use. Each line below says how to clear it.", 'blockers': ['x3-deleted-pin v1 (pending) was built from run run_5f6c038d on ds_aa4b98d3: reject it (Registry → the version → Review) or retire it (Registry → the version → Retire…, POST /api/registry/versions/mv_2817ef0f/retire; four eyes).', 'run run_cae8dedb is running on ds_aa4b98d3: wait for it or cancel it (POST /api/runs/run_cae8dedb/cancel).']}}
+HTTP  {'message': "Can't delete: a version is in use. Each line below says how to clear it.", 'blockers': ['run run_5f6c038d (jx ⋈ pin_e1 · y, succeeded) was trained on ds_aa4b98d3 (table cust through join frame jf_c135abab46): deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send "irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).']}
+HTTP 200 ('state', None)
+HTTP 200 {'join': {'id': 'jn_55294fd058', 'name': 'pin_e1', 'spec_version': 1, 'spec_sha256': 'b788c964e617155ebf5f14b32d6954db8b7bb8781aeec00106c27db743afeb40'}}
+HTTP 200 ('verify', True, [('apps', True), ('cust', True)], 'cache', True)
+HTTP 200 get join ok
+HTTP 200 ('run verify ok', True, True, {'kind': 'join_frame', 'join_frame_id': 'jf_c135abab46'})
+HTTP 201 {}
+HTTP 202 {}

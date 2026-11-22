@@ -3,6 +3,7 @@ import { DEFAULT_PREFS, usePrefs } from '@/shared/lib/prefs'
 import { PluckString } from '@/shared/primitives/PluckString'
 import { SettingRow } from './components/SettingRow'
 import { LlmCard } from './components/LlmCard'
+import { TeamsSection } from './components/TeamsSection'
 import { useApi } from '@/shared/api/mode'
 
 export function SettingsPage() {
@@ -33,6 +34,8 @@ export function SettingsPage() {
         </div>
         {mode === 'live' && <LlmCard />}
       </div>
+      {/* U2 (C §2.1): Settings › Teams: the teams you are in, members and roles, policy, legal holds */}
+      <div style={{ marginTop: 'var(--space-16)' }} id="teams"><TeamsSection /></div>
     </div>
   )
 }

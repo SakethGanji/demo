@@ -719,12 +719,42 @@ export type VersionResult = {
   distill?: { teacher: string; students: string[]; served?: string; seconds: number; method: string; teacher_score_test: number | null; scores: Record<string, { score_val: number | null; score_test: number | null }> } | null
   serving?: Serving
   serving_benchmark?: ServingBenchmark
-  hashes: { model_sha256: string; data_sha256: string; splits_sha256: string; data_file: string }
+  hashes: { model_sha256: string; data_sha256: string; splits_sha256: string; data_file: string; inputs?: { table: string; dv: string; sha256: string }[]; join?: { id: string; spec_sha256: string } | null }
   path: string
+  /** P15: the input record (C §4.6) frozen at registration and the serving parity result. */
+  inputs?: InputRecord
+  parity?: Parity
   mlflow?: { name: string; version: number; source: string; run_id: string; stage: string; experiment_id: string }
   /** F9: the served model's range on the holdout. */
   quantile?: QuantileReport | null
 }
+
+/** P15 (C §4.6): which table versions and which join fed a model. Counts and hashes only. */
+export type InputRecord = {
+  format?: string; recorded?: boolean; error?: string; recorded_at?: string
+  frame?: { kind: 'join_frame' | 'table'; id: string; sha256: string | null; frame_sha256?: string; rows: number | null; table?: string | null }
+  dataset?: { root: string; name: string; team: string | null; project: string | null }
+  version?: { dv: string; v: number; created_by: string; created_at?: string; reason: string | null
+    contract: { id?: string; version?: number; status?: string; result?: unknown; [k: string]: unknown } | null
+    certification: { level: string; by: string; at: string; expires_at?: string } | null }
+  tables?: { name: string; role: string; dv: string; sha256: string; rows: number | null; source_file?: string | null; uploaded_by?: string | null; uploaded_at?: string | null; change?: string; from_dv?: string; dataset?: { root: string; name: string; team: string | null } }[]
+  join?: { id: string; name: string; spec_version: number | null; spec?: unknown; spec_sha256: string; spec_frozen: boolean; coverage: Record<string, number | string | null> | null } | null
+  split?: { id: string | null; key: string | null; sha256: string | null; target: string | null; strategy: string | null }
+  features?: number; pii_features?: string[]; excluded_protected?: string[]
+}
+export type ParityCheck = { recorded: string | null; now: string | null; ok: boolean }
+export type Parity = {
+  status: 'ok' | 'mismatch' | 'not_applicable' | 'not_checked'; summary?: string; reason?: string; method?: string; join_frame_id?: string; spec_sha256?: string
+  cache?: ParityCheck; inputs?: { table: string; version_id: string; pinned: string; now: string; ok: boolean }[]
+  training?: { rows: number; sha256: string }; serving?: { rows?: number; sha256: string }
+  rows?: { training: number; serving: number; ids_unmatched: number }; columns_compared?: number; column_set_equal?: boolean; types_equal?: boolean
+  mismatched_cells?: Record<string, number>; byte_equal?: boolean; checked_at?: string; seconds?: number
+  predictions?: { status?: string; ok?: boolean; rows?: number; ids_equal?: boolean; max_abs_diff?: number; labels_equal?: boolean; [k: string]: unknown }
+}
+/** P15: a batch through a saved join: per table file, then the frame. */
+export type BatchJoin = { join_id: string; join_name: string; spec_sha256: string; spec_frozen: boolean; grain: string; grain_rows: number; frame_rows: number; frame_sha256: string
+  rows_equal_grain: boolean; seconds?: number; method?: string
+  tables: Record<string, { file: string; rows: number; sha256: string; role?: string; cast_failures: Record<string, number>; extra_columns: string[] }> }
 
 export type ModelVersion = {
   id: string; model_name: string; version: number; run_id: string; status: 'building' | 'ready' | 'failed'; stage: Stage; approval: Approval
@@ -862,6 +892,8 @@ export type BatchJob = {
       flag_rule?: string; expected_share?: number; n_flagged?: number; prediction_symbol?: string; items?: number; seg_segments?: { value: string; n: number; model: string; mean_prediction: number; adverse_share?: number }[]; surv_groups?: Record<string, number>; surv_mean_survival?: Record<string, number>; surv_unit?: string | null; ml_labels?: { label: string; n: number; share: number; mean_p: number }[]; ml_mean_labels?: number; ml_empty?: number; ml_multi?: number; seg_global_rows?: number; reasons_rows?: number; forecast_rows?: number; known_covariates_source?: string
       /** F10: reason codes for the adverse decisions. */
       reasons?: BatchReasons
+      /** P15: a join model's batch */
+      join?: BatchJoin
     }
     drift: DriftReport; preview: Record<string, unknown>[]; columns: string[]; output_file: string
   } | null
@@ -874,7 +906,9 @@ export type ModelCard = {
   summary: Record<string, unknown> & { stage: Stage; approval: Approval; model_sha256: string; best_model: string; source_run: string; eval_metric: string; problem_type: ProblemType; label: string; positive_class: string | null; registered_by: string; registered_at: string; mlflow: VersionResult['mlflow'] | null }
   data: Record<string, unknown> & { rows: number; columns: number; features: number; train_rows: number; holdout_rows: number; sha256: string; splits_sha256: string; name: string; source: string; filename: string; split: string; dropped_missing_label: number; dropped_columns: string[]; warnings: string[]
     label_balance: { class: string; train: number; train_share: number; holdout: number; holdout_share: number }[] | { mean: number; std: number; min: number; median: number; max: number } | null
-    feature_table: { name: string; type: string; missing_share: number; unique: number }[]; sql?: SqlLineage | null }
+    feature_table: { name: string; type: string; missing_share: number; unique: number }[]; sql?: SqlLineage | null
+    /** P15 */
+    inputs?: InputRecord; parity?: Parity }
   training: { call: string; notes: string[]; fit_seconds: number; n_models: number; presets: unknown; time_limit: number | null; registration: Record<string, unknown>; refit: VersionResult['refit'] }
   validation: { holdout_ci: HoldoutCI | null; source_holdout_ci: HoldoutCI | null; threshold: ThresholdRecord | null; version_threshold: number | null; confusion_matrix: number[][] | null; classes: string[] | null; validation_score: number | null }
   importance: { features: FeatureImportanceCI[]; method: string }
@@ -1298,6 +1332,8 @@ export type Doctor = {
   inputs: { latency_budget_ms: number | null; measured_errors: string[]; vela_errors: string[] }
   /** D3: what's missing from the data (ranked gaps, each a data request), how to improve (ranked levers), the errors. */
   missing_info?: MissingInfo; improve?: Lever[]; errors_view?: ErrorsView | null
+  /** P20 (C §4.3): the run's features that carry a PII tag or are protected. */
+  pii_features?: { feature: string; tag: string; source: string }[]; masked_columns?: string[]
 }
 /** D3 · a measured gain in the run's quick-model metric (an oracle is a simulation and an upper bound). */
 export type Gain = { delta: number; ci: [number, number] | null; metric: string | null; source: string; simulated?: boolean }

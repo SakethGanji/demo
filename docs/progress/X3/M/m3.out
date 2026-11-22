@@ -1,0 +1,15 @@
+base: rows 300 model_equal True unique_ids True parts 1 roles ['base'] verify True
+after delta 3: rows 312 model_equal True unique_ids True parts 5 roles ['append', 'base'] verify True
+  edit after delta 5: HTTP 201 None
+after delta 5: rows 317 model_equal True unique_ids True parts 1 roles ['base'] verify True
+after delta 6: rows 320 model_equal True unique_ids True parts 2 roles ['append', 'base'] verify True
+after delta 7: rows 323 model_equal True unique_ids True parts 3 roles ['append', 'base'] verify True
+after delta 11: rows 335 model_equal True unique_ids True parts 7 roles ['append', 'base'] verify True
+  edit after delta 12: HTTP 201 None
+after delta 12: rows 337 model_equal True unique_ids True parts 1 roles ['base'] verify True
+after delta 13: rows 340 model_equal True unique_ids True parts 2 roles ['append', 'base'] verify True
+after delta 15: rows 346 model_equal True unique_ids True parts 4 roles ['append', 'base'] verify True
+after delta 19: rows 358 model_equal True unique_ids True parts 8 roles ['append', 'base'] verify True
+after 20 appends: rows 358 model_equal True unique_ids True parts 8 roles ['append', 'base'] verify True
+rewrite delta 201 {'mode': 'rewrite', 'updated': 1, 'deleted': 1}
+after the rewrite (compaction expected when > 16 parts): rows 357 model_equal True unique_ids True parts 1 roles ['base'] verify True

@@ -1,0 +1,12 @@
+HTTP 201 ds_289dfca4
+HTTP 201 HTTP 201 join jn_26e52b1cfa frame jf_c5a39c5115 (cache 2d605ebe79d6)
+HTTP 200 usage [] ['jf_c5a39c5115'] []
+HTTP 201 request dsr_7d24cec8
+HTTP 200 approved
+HTTP 410 Dataset 'ds_289dfca4' was deleted (2026-11-22T01:20:52+00:00, Ben); its lineage is kept.
+HTTP 409 {'code': 'version_deleted', 'message': "ds_289dfca4 was deleted: the join can't read its table 'cust'."}
+HTTP 200 ('verify', True, [('apps', True), ('cust', True)], 'cache', True)
+HTTP 200 ('get join', 'pin_e9')
+HTTP 409 {'code': 'version_deleted', 'message': "ds_289dfca4 was deleted: the join can't read its table 'cust'."}
+HTTP 409 {'code': 'version_deleted', 'message': "ds_289dfca4 was deleted: the join can't read its table 'cust'."}
+HTTP 200 [('jf_49448eb3a9', 'a666303fbea4'), ('jf_f234328f3f', '9bc5044eb761'), ('jf_82cd9f850a', 'd24e04aac808'), ('jf_41bb232800', 'eeb3a765c105'), ('jf_0cbeede6f2', 'fd15b4d95e24'), ('jf_9e90866d5b', 'b8e6d0f5486c'), ('jf_c135abab46', '7d13ab3398af'), ('jf_c5a39c5115', '2d605ebe79d6')]

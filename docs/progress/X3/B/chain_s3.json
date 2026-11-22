@@ -1,0 +1,312 @@
+{
+ "check1": {
+  "blocks": [],
+  "tables": [
+   [
+    "applications",
+    "new",
+    3000
+   ],
+   [
+    "bureau",
+    "new",
+    2410
+   ],
+   [
+    "payments",
+    "new",
+    14564
+   ]
+  ]
+ },
+ "v1": {
+  "data_sha256": "ae69ab6acd5635b70454e75a889552c0b166fe6efc67140e4b10481f8da1b9d6",
+  "tables": {
+   "applications": [
+    "new",
+    3000,
+    "235d5b909c131a734dc83225b8c195f1f874977096bace1df3de387ace3e3d48",
+    [
+     [
+      "app_id"
+     ]
+    ]
+   ],
+   "bureau": [
+    "new",
+    2410,
+    "e23d69b0e6f1fa9a73a0b4b99cbe9cca11c389cbe7c0292287b5bf4fc997186b",
+    []
+   ],
+   "payments": [
+    "new",
+    14564,
+    "02cb50777e19cca282d35ce87f22c0988d30798b662abcd681b7c64369c32366",
+    [
+     [
+      "payment_id"
+     ]
+    ]
+   ]
+  },
+  "relations": [
+   [
+    "pay_app",
+    0
+   ]
+  ]
+ },
+ "v2": {
+  "data_sha256": "0fc942d65a090c19e2463f211bc1507122d4e45cf06b75b96b3c6ed1ae710627",
+  "tables": {
+   "applications": [
+    "carried",
+    3000,
+    "235d5b909c131a734dc83225b8c195f1f874977096bace1df3de387ace3e3d48",
+    [
+     [
+      "app_id"
+     ]
+    ]
+   ],
+   "bureau": [
+    "carried",
+    2410,
+    "e23d69b0e6f1fa9a73a0b4b99cbe9cca11c389cbe7c0292287b5bf4fc997186b",
+    [
+     [
+      "customer_id"
+     ]
+    ]
+   ],
+   "payments": [
+    "carried",
+    14564,
+    "02cb50777e19cca282d35ce87f22c0988d30798b662abcd681b7c64369c32366",
+    [
+     [
+      "payment_id"
+     ]
+    ]
+   ]
+  },
+  "relations": [
+   [
+    "pay_app",
+    0
+   ]
+  ]
+ },
+ "delta3": {
+  "applications": {
+   "mode": "rewrite",
+   "change": "rewritten",
+   "inserted": 30,
+   "updated": 50,
+   "deleted": 20,
+   "missing": 0
+  }
+ },
+ "v3": {
+  "data_sha256": "02330211133cc491d691a41267f21e641a8cd74df810b4130c825a6dca8e62b5",
+  "tables": {
+   "applications": [
+    "rewritten",
+    3010,
+    "6579998becfcc9fe6b40c4ef91709e116ba8347fb5488b99dd53958d08e4eca9",
+    [
+     [
+      "app_id"
+     ]
+    ]
+   ],
+   "bureau": [
+    "carried",
+    2410,
+    "e23d69b0e6f1fa9a73a0b4b99cbe9cca11c389cbe7c0292287b5bf4fc997186b",
+    [
+     [
+      "customer_id"
+     ]
+    ]
+   ],
+   "payments": [
+    "carried",
+    14564,
+    "02cb50777e19cca282d35ce87f22c0988d30798b662abcd681b7c64369c32366",
+    [
+     [
+      "payment_id"
+     ]
+    ]
+   ]
+  },
+  "relations": [
+   [
+    "pay_app",
+    96
+   ]
+  ]
+ },
+ "delta4": {
+  "bureau": {
+   "mode": "rewrite",
+   "change": "rewritten",
+   "inserted": 0,
+   "updated": 40,
+   "deleted": 0,
+   "missing": 0
+  }
+ },
+ "v4": {
+  "data_sha256": "1b4bd22f92698dd06acb7beb3f46ac0186fdcb82d81188a5b59e666fb5441e68",
+  "tables": {
+   "applications": [
+    "carried",
+    3010,
+    "6579998becfcc9fe6b40c4ef91709e116ba8347fb5488b99dd53958d08e4eca9",
+    [
+     [
+      "app_id"
+     ]
+    ]
+   ],
+   "bureau": [
+    "rewritten",
+    2410,
+    "faa2517173683621adb7344c0f82e06a8bbdba7b3f0dc14eb437aab6eaa02c59",
+    [
+     [
+      "customer_id"
+     ]
+    ]
+   ],
+   "payments": [
+    "carried",
+    14564,
+    "02cb50777e19cca282d35ce87f22c0988d30798b662abcd681b7c64369c32366",
+    [
+     [
+      "payment_id"
+     ]
+    ]
+   ]
+  },
+  "relations": [
+   [
+    "pay_app",
+    96
+   ]
+  ]
+ },
+ "v5": {
+  "data_sha256": "6246142e9d55c1f30b7fc9ef5b51a38a141d832e679d3e7c7b65136f3fde3685",
+  "tables": {
+   "applications": [
+    "carried",
+    3010,
+    "6579998becfcc9fe6b40c4ef91709e116ba8347fb5488b99dd53958d08e4eca9",
+    [
+     [
+      "app_id"
+     ]
+    ]
+   ],
+   "bureau": [
+    "carried",
+    2410,
+    "faa2517173683621adb7344c0f82e06a8bbdba7b3f0dc14eb437aab6eaa02c59",
+    [
+     [
+      "customer_id"
+     ]
+    ]
+   ],
+   "payments": [
+    "carried",
+    14564,
+    "02cb50777e19cca282d35ce87f22c0988d30798b662abcd681b7c64369c32366",
+    [
+     [
+      "payment_id"
+     ]
+    ]
+   ]
+  },
+  "relations": [
+   [
+    "app_bureau",
+    155
+   ],
+   [
+    "pay_app",
+    96
+   ]
+  ]
+ },
+ "join": {
+  "spec_sha256": "9b723b12789456e123496c48fb1233c0a24a5cc57626499435dbcffb819b868b",
+  "coverage": [
+   [
+    "bureau",
+    2855,
+    3010,
+    155
+   ],
+   [
+    "payments",
+    2736,
+    3010,
+    274
+   ]
+  ]
+ },
+ "frame": {
+  "n_rows": 3010,
+  "frame_sha256": "5a97a3123cf301638e3d32a296f97027b5c9dfd73aed3fa0c971b9a15fc15f10",
+  "inputs": [
+   [
+    "grain",
+    "applications",
+    "6579998becfcc9fe6b40c4ef91709e116ba8347fb5488b99dd53958d08e4eca9"
+   ],
+   [
+    "join:0",
+    "bureau",
+    "faa2517173683621adb7344c0f82e06a8bbdba7b3f0dc14eb437aab6eaa02c59"
+   ],
+   [
+    "join:1",
+    "payments",
+    "02cb50777e19cca282d35ce87f22c0988d30798b662abcd681b7c64369c32366"
+   ]
+  ]
+ },
+ "frame_verify": true,
+ "run": {
+  "status": "succeeded",
+  "data_sha256": "298c316353f5c53a5f27a38a4529285fbeb5b11ac485c308decccbf0f6824dc0",
+  "rows_used": 2408,
+  "read": "frame",
+  "split_sha256": "58a4590867d93796bfbf8470bc7e4a6efab65e3da445d417f0058fd7a5992ad6"
+ },
+ "run_verify": {
+  "ok": true,
+  "data": true,
+  "split": true
+ },
+ "dataset_verify": true,
+ "_ids": {
+  "root": "ds_a533310a",
+  "v": [
+   "ds_a533310a",
+   "ds_3433e955",
+   "ds_a94d8433",
+   "ds_8e2db4a8",
+   "ds_9200ac89"
+  ],
+  "join": "jn_6d8ac780b1",
+  "frame": "jf_5c0996f367",
+  "run": "run_b8437ad7"
+ }
+}

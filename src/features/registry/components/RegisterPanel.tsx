@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api } from '@/shared/api/client'
-import type { LatencyModel, LatencyProfile, ModelVersion, Run } from '@/shared/api/types'
+import { ApiError, api } from '@/shared/api/client'
+import type { LatencyModel, LatencyProfile, ModelVersion, Parity, Run } from '@/shared/api/types'
+import { ParityDetail } from './InputsSection'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { XYPlot, niceTicks, padDomain } from '@/shared/components/XYPlot'
 import { fmtScore, metricInfo } from '@/shared/lib/metrics'
@@ -35,6 +36,7 @@ export function RegisterPanel({ runs, initialRun, initialServe = null, initialDi
   const [lpErr, setLpErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [parityErr, setParityErr] = useState<{ message: string; parity: Parity | null } | null>(null)
 
   useEffect(() => { if (run) setName(sanitize(`${run.dataset_id}.${run.label}`)) }, [run?.id]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -73,7 +75,7 @@ export function RegisterPanel({ runs, initialRun, initialServe = null, initialDi
 
   const submit = async () => {
     if (!run) return
-    setBusy(true); setErr('')
+    setBusy(true); setErr(''); setParityErr(null)
     try {
       const v = await api.registry.register(run.id, {
         created_by: actor, model_name: name || undefined, description: desc, refit_full: refit,
@@ -83,7 +85,12 @@ export function RegisterPanel({ runs, initialRun, initialServe = null, initialDi
         distill, distill_time_limit: distillT,
       })
       onRegistered(v)
-    } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    } catch (e) {
+      // P15: a join model whose frame, rebuilt from the pinned inputs, differs from the training frame is refused (409)
+      const d = e instanceof ApiError ? e.detail as { code?: string; message?: string; parity?: Parity } | undefined : undefined
+      if (d && typeof d === 'object' && d.code === 'parity_mismatch') setParityErr({ message: d.message ?? (e as Error).message, parity: d.parity ?? null })
+      else setErr((e as Error).message)
+    } finally { setBusy(false) }
   }
 
   const pts = lp?.models ?? []
@@ -178,6 +185,11 @@ export function RegisterPanel({ runs, initialRun, initialServe = null, initialDi
             {!actor.trim() && <span className="helper" style={{ fontSize: 12, color: 'var(--status-warning)' }}>▲ type your name in “acting as” first: it goes in the audit log</span>}
           </div>
           {err && <p role="alert" className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
+          {parityErr && <div role="alert" className="data-warn" data-testid="register-parity-mismatch" style={{ borderColor: 'var(--status-danger)' }}>
+            <b style={{ color: 'var(--status-danger)' }}>✕ Serving parity failed: the frame rebuilt from the pinned inputs does not match what the model was trained on.</b>
+            <p className="helper" style={{ margin: '4px 0' }}>{parityErr.message} Nothing was registered (audited as register_refused). Restore the changed file or input, or train again on the current data.</p>
+            {parityErr.parity && <ParityDetail p={parityErr.parity} />}
+          </div>}
         </div>
 
         <PlotFrame title="Latency · Score Frontier" right={<span className="seg" role="tablist" aria-label="latency axis">

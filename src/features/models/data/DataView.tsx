@@ -9,6 +9,10 @@ import { NotesStrip } from '../components/NotesStrip'
 import { ProjectTree } from '../components/ProjectTree'
 import { EditVersion } from './EditVersion'
 import { StagedUpload } from './StagedUpload'
+import { TablesCard } from './TablesCard'
+import { JoinBuilder } from './JoinBuilder'
+import { Governance } from './Governance'
+import { shares as sharesApi, type Share } from '@/shared/api/governance'
 import { readActor, saveActor, useTeam } from '@/shared/lib/team'
 import './data.css'
 
@@ -44,6 +48,9 @@ export function DataView({ go }: { go: (r: string) => void }) {
   const [made, setMade] = useState('')
   const ops = [...new Set((list.data ?? []).flatMap((d) => d.ops))].sort()
   const rows = (list.data ?? []).filter((d) => scope === 'all' || !team || (d.team_id ?? 'tm_default') === team.id)
+  // P21: what other teams share with the current team (live), to mark those rows in the catalog
+  const incoming = useFetch(() => (team ? sharesApi.list({ team: team.id, status: 'active' }) : Promise.resolve([] as Share[])), [team?.id])
+  const sharedIn = (root: string) => (incoming.data ?? []).find((x) => x.object_id === root && x.grantee_team === team?.id)
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-view">
       <div className="card">
@@ -81,12 +88,12 @@ export function DataView({ go }: { go: (r: string) => void }) {
           <div className="table-wrap data-list"><table className="table" data-testid="data-table">
             <thead><tr><th>dataset</th><th>team · project</th><th className="r">versions</th><th className="r">default · rows × cols</th><th>owner</th><th className="r">runs</th><th className="data-when">last change</th></tr></thead>
             <tbody>
-              {rows.map((d) => <DsListRow key={d.root_id} d={d} on={sel != null && (sel === d.root_id || sel === d.default_version_id)} pick={() => setParam('dataset', d.root_id)} />)}
+              {rows.map((d) => <DsListRow key={d.root_id} d={d} share={sharedIn(d.root_id)} on={sel != null && (sel === d.root_id || sel === d.default_version_id)} pick={() => setParam('dataset', d.root_id)} />)}
               {!rows.length && <tr><td colSpan={7} className="helper" style={{ padding: 16 }}>No dataset{scope === 'team' && team ? ` of ${team.name}` : ''} matches. Upload one.</td></tr>}
             </tbody>
           </table></div>)}
       </div>
-      {sel ? <DatasetPage key={sel} id={sel} go={go} team={team} onChanged={list.reload} />
+      {sel ? <DatasetPage key={sel} id={sel} go={go} team={team} ownerTeam={(list.data ?? []).find((d) => d.root_id === sel || d.default_version_id === sel)?.team_id ?? null} onChanged={list.reload} />
         : <p className="helper">Pick a dataset to see its versions, who made each one and how, what changed, and which runs and models used it.</p>}
     </div>
   )
@@ -112,11 +119,11 @@ export function NewProject({ team, onMade }: { team: MyTeam | null; onMade: (id:
 
 const f_state = (d: DsRow) => `${d.versions_in_state!.length} version${d.versions_in_state!.length === 1 ? '' : 's'} ${d.state === 'active' ? 'in that state' : ''}`.trim()
 
-function DsListRow({ d, on, pick }: { d: DsRow; on: boolean; pick: () => void }) {
+function DsListRow({ d, on, pick, share }: { d: DsRow; on: boolean; pick: () => void; share?: Share }) {
   return (
     <tr className={on ? 'sel' : ''} onClick={pick} style={{ cursor: 'pointer' }} data-testid={`data-row-${d.root_id}`}>
       <td className="data-ds-cell"><b>{d.name}</b>{d.tags.map((t) => <span key={t} className="pt-tag"> #{t}</span>)}<div className="mono muted" style={{ fontSize: 11 }}>{d.root_id}{d.versions_in_state?.length ? ` · ${f_state(d)}` : ''}</div>{d.description && <div className="helper ellip">{d.description}</div>}</td>
-      <td className="muted ellip-cell" title={d.team?.name}>{d.team?.name ?? 'Default team'}<div style={{ fontSize: 11 }}>{d.project ?? '—'}</div></td>
+      <td className="muted ellip-cell" title={d.team?.name}>{d.team?.name ?? 'Default team'}{(share || d.access === 'shared') && <span className="pt-chip up-pii" style={{ marginLeft: 4 }} title={share ? `shared by ${share.requested_by}, decided by ${share.decided_by}: scope ${share.scope}, PII ${share.pii}` : 'another team shared it with yours'} data-testid={`data-shared-${d.root_id}`}>shared with you{share ? ` · ${share.scope} · PII ${share.pii}` : ''}</span>}<div style={{ fontSize: 11 }}>{d.project ?? '—'}</div></td>
       <td className="r mono" title={`${d.n_live} live of ${d.n_versions}`}>{d.n_live}{d.n_versions !== d.n_live ? <span className="muted"> / {d.n_versions}</span> : ''}</td>
       <td className="r mono" title={`${d.default_version_id} · ${d.default_how}`}>{d.default_how === 'set' ? '★ ' : ''}{d.rows.toLocaleString()} × {d.n_cols ?? '—'}</td>
       <td className="ellip-cell">{d.owner || <span className="muted">{d.created_by ?? '—'}</span>}</td>
@@ -127,7 +134,7 @@ function DsListRow({ d, on, pick }: { d: DsRow; on: boolean; pick: () => void })
 }
 
 /** One dataset: its card, versions (history), diff, use, lineage, integrity, export, archive and delete. */
-function DatasetPage({ id, go, team, onChanged }: { id: string; go: (r: string) => void; team: MyTeam | null; onChanged: () => void }) {
+function DatasetPage({ id, go, team, ownerTeam, onChanged }: { id: string; go: (r: string) => void; team: MyTeam | null; ownerTeam: string | null; onChanged: () => void }) {
   const h = useFetch(() => data.history(id), [id])
   const [by, setByState] = useState(readActor)
   const setBy = (s: string) => { setByState(s); saveActor(s) }
@@ -135,6 +142,7 @@ function DatasetPage({ id, go, team, onChanged }: { id: string; go: (r: string) 
   const [pair, setPair] = useState<[string, string] | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)  // DL3: the version open in the editor
+  const [table, setTable] = useState<string | null>(null)  // U2 (P12): the table the diff, Edit and training use (null = primary)
   const reload = () => { h.reload(); onChanged() }
   const fail = (e: unknown) => {
     const t = (e as Error).message
@@ -156,6 +164,7 @@ function DatasetPage({ id, go, team, onChanged }: { id: string; go: (r: string) 
   const d = h.data
   const vOf = (vid: string | null) => d.versions.find((v) => v.id === vid)
   const def = vOf(d.default_version_id)
+  const focusV = vOf(focus) ?? def
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="data-page" data-root={d.root_id}>
       <div className="card">
@@ -184,15 +193,21 @@ function DatasetPage({ id, go, team, onChanged }: { id: string; go: (r: string) 
         onAdopt={(v, reason) => act(data.adoptDiskFile(v.id, by, reason), (r) => `The file on disk is now a new version (${r.id}) of v${v.v}, with its own hash. v${v.v} stays flagged until its file is restored.`)}
         onRestoreSplits={(v) => act(data.restoreSplits(v.id, by, 'split file changed outside the app; restored as drawn'), (r) => `Restored ${r.restored.join(', ') || 'nothing'} as drawn; verify: ${r.verify.results.map((x) => `v${x.v} ${x.status}`).join(' · ')}.`)} />
 
-      {editing && vOf(editing) && <EditVersion key={editing} d={d} v={vOf(editing)!} by={by} onClose={() => setEditing(null)} onErr={fail}
+      {focusV && focusV.state !== 'deleted' && <TablesCard key={focusV.id} root={d.root_id} vid={focusV.id} v={focusV.v} table={table} setTable={setTable} team={team} ownerTeam={ownerTeam}
+        target={focusV.target} by={by} go={go} onVersion={(vid, text) => { setMsg({ ok: true, text }); setPair([focusV.id, vid]); setFocus(vid); reload() }} />}
+
+      {editing && vOf(editing) && <EditVersion key={`${editing}:${table ?? ''}`} d={d} v={vOf(editing)!} table={table} by={by} onClose={() => setEditing(null)} onErr={fail}
         onCreated={(vid, text) => { setMsg({ ok: true, text }); setEditing(null); setPair([editing, vid]); setFocus(vid); reload() }} />}
 
-      {pair && pair.every((x) => vOf(x)?.state !== 'deleted') && <DiffCard key={pair.join('→')} a={pair[0]} b={pair[1]} name={(x) => { const v = vOf(x); return v ? `v${v.v}` : x }} />}
+      {pair && pair.every((x) => vOf(x)?.state !== 'deleted') && <DiffCard key={`${pair.join('→')}:${table ?? ''}`} a={pair[0]} b={pair[1]} table={table} name={(x) => { const v = vOf(x); return v ? `v${v.v}` : x }} />}
+
+      {focusV && focusV.state !== 'deleted' && <JoinBuilder key={`j:${focusV.id}`} root={d.root_id} vid={focusV.id} v={focusV.v} team={team} ownerTeam={ownerTeam} target={focusV.target} by={by} go={go} />}
 
       <div className="grid two">
         <Usage id={focus ?? d.default_version_id ?? d.root_id} v={vOf(focus)?.v} go={go} />
         <CardEditor d={d} by={by} onSaved={() => { setMsg({ ok: true, text: 'Card saved (audited).' }); reload() }} onErr={fail} />
       </div>
+      {focusV && focusV.state !== 'deleted' && <Governance d={d} vid={focusV.id} v={focusV.v} table={table} by={by} onChanged={(text) => { setMsg({ ok: true, text }); reload() }} />}
       <NotesStrip kind="dataset" id={d.root_id} />
       <div className="card card-body"><h3 className="card-title" style={{ marginBottom: 8 }}>Lineage</h3><ProjectTree kind="dataset" id={d.root_id} go={go} compact /></div>
       <div className="grid two">
@@ -208,7 +223,7 @@ function NextVersion({ d, by, team, onDone }: { d: DsHistory; by: string; team: 
   const [open, setOpen] = useState(false)
   const parent = d.versions.find((v) => v.id === d.default_version_id)
   if (!parent) return <div className="card-body helper data-upload">No active version to build on: every version is archived or deleted{d.state === 'archived' ? ' (unarchive the dataset below to add one)' : ''}.</div>
-  return open ? <div className="data-upload"><StagedUpload by={by} team={team} parent={{ id: parent.id, v: parent.v, name: d.name, nextV: Math.max(...d.versions.map((v) => v.v)) + 1 }} onCancel={() => setOpen(false)} onDone={(r, text) => { setOpen(false); onDone(r.version_id, text) }} /></div>
+  return open ? <div className="data-upload"><StagedUpload by={by} team={team} parent={{ id: parent.id, v: parent.v, name: d.name, root: d.root_id, nextV: Math.max(...d.versions.map((v) => v.v)) + 1 }} onCancel={() => setOpen(false)} onDone={(r, text) => { setOpen(false); onDone(r.version_id, text) }} /></div>
     : <div className="card-body row data-upload" style={{ gap: 8 }}>
       <button className="btn primary" disabled={!by} onClick={() => setOpen(true)} data-testid="data-upload-version" title={by ? `Check a file as the next version, with v${parent.v} as its parent (nothing is written yet)` : 'Type your name in “acting as” first'}>Upload a new version…</button>
       <span className="helper">parent: v{parent.v} (the default). You choose how its rows match; to change cells, use Edit on a version.</span></div>
@@ -294,19 +309,20 @@ const integrity = (v: DsVersion) => v.verified_ok == null || v.state === 'delete
   : v.verified_ok ? <span className="data-ok" title={`file matches the stored hash · checked ${when(v.verified_at)}`}> ✓</span>
     : <span className="data-bad" title={`file does NOT match the stored hash · checked ${when(v.verified_at)}`} data-testid={`data-mismatch-${v.v}`}> ✕ mismatch</span>
 
-function DiffCard({ a, b, name }: { a: string; b: string; name: (id: string) => string }) {
-  const { data: df, err } = useFetch<DsDiff | null>(a === b ? () => Promise.resolve(null) : () => data.diff(a, b), [a, b])
+function DiffCard({ a, b, name, table }: { a: string; b: string; name: (id: string) => string; table: string | null }) {
+  const { data: df, err } = useFetch<DsDiff | null>(a === b ? () => Promise.resolve(null) : () => data.diff(a, b, table), [a, b, table])
   const [all, setAll] = useState(false)
   if (a === b) return <div className="card card-body helper">Pick two different versions in A and B to diff them.</div>
   if (err && !df) return <ErrorCard err={err} />
-  if (!df) return <Loading>Diffing {name(a)} → {name(b)}…</Loading>
+  if (!df) return <Loading>Diffing {name(a)} → {name(b)}{table ? ` (table ${table})` : ''}…</Loading>
   const s = df.schema, r = df.rows
   // new, gone and retyped columns and any PSI ≥ 0.01 first, then the largest PSIs, 10 in all (the rest on demand)
   const key = (c: DsDiff['columns'][number]) => c.in !== 'both' || c.kind.includes('→') || (c.psi ?? 0) >= 0.01
   const cols = all ? df.columns : [...df.columns.filter(key), ...df.columns.filter((c) => !key(c))].slice(0, Math.max(10, df.columns.filter(key).length))
   return (
     <div className="card" data-testid="data-diff">
-      <div className="card-head"><div className="left"><h3 className="card-title">Diff {name(a)} → {name(b)}</h3><span className="helper" style={{ fontSize: 12 }}>rows matched by {r.matched_by}</span></div></div>
+      <div className="card-head"><div className="left"><h3 className="card-title">Diff {name(a)} → {name(b)}{table ? <span className="mono" data-testid="diff-table"> · {table}</span> : null}</h3><span className="helper" style={{ fontSize: 12 }}>rows matched by {r.matched_by}</span></div>
+        {df.tables && df.tables.length > 1 && <span className="helper diff-tables" data-testid="diff-tables">{df.tables.map((t) => <span key={t.table} className={`pt-chip ${t.status === 'unchanged' ? '' : 'data-type'}`} title={`${t.a_sha256?.slice(0, 10) ?? '—'} → ${t.b_sha256?.slice(0, 10) ?? '—'} · rows ${t.rows.map((x) => x?.toLocaleString() ?? '—').join(' → ')}`}>{t.table} {t.status}</span>)}</span>}</div>
       <div className="card navy explain-hero data-hero">
         <div><span className="micro-label">rows</span><b>{r.a.toLocaleString()} → {r.b.toLocaleString()}</b></div>
         <div><span className="micro-label">changed</span><b data-testid="diff-changed">{r.changed.toLocaleString()}</b></div>
@@ -354,7 +370,9 @@ function Usage({ id, v, go }: { id: string; v?: number; go: (r: string) => void 
         {err && !u ? <span className="helper">{err}</span> : !u ? <span className="helper">…</span> : <>
           {u.champions.filter((c) => c.status === 'approved').map((c) => <div key={c.id}><span className="champ-badge">★ champion</span> of {c.project_id} · run <span className="mono">{c.run_id}</span></div>)}
           {u.versions.map((x) => <div key={x.id}>◆ <button className="linkish" onClick={() => go(`registry?version=${x.id}`)}>{x.model_name} v{x.version}</button> <span className="pt-chip">{x.stage}</span> <span className={`pt-chip appr-${x.approval}`}>{x.approval}</span>{x.retired && <span className="pt-chip" title={`retired ${when(x.retired_at)}`}>retired</span>} <span className="muted mono">{x.dataset_id}</span></div>)}
-          {u.runs.map((r) => <div key={r.id}>● <button className="linkish" onClick={() => go(`models?run=${r.id}`)}>{r.name}</button> <span className="mono muted">{r.id} · {r.dataset_id}</span> <span className="mono">{r.status !== 'succeeded' ? r.status : r.primary_metric ? `${r.primary_metric} ${fmtScore(r.primary_score, 4)}` : ''}</span></div>)}
+          {u.runs.map((r) => <div key={r.id} data-testid={`usage-run-${r.id}`}>● <button className="linkish" onClick={() => go(`models?run=${r.id}`)}>{r.name}</button> <span className="mono muted">{r.id} · {r.dataset_id}</span> <span className="mono">{r.status !== 'succeeded' ? r.status : r.primary_metric ? `${r.primary_metric} ${fmtScore(r.primary_score, 4)}` : ''}</span>
+            {r.via_join && <span className="pt-chip" style={{ marginLeft: 4 }} title={`P14: read through join frame ${r.via_join.join_frame_id} (${r.via_join.relation})`} data-testid="usage-via-join">via join {r.via_join.join_frame_id} · {r.via_join.tables.join(', ')}{r.via_join.relation === 'merged_from' ? ' (another dataset)' : ''}</span>}</div>)}
+          {(u.join_frames ?? []).map((f) => <div key={f.id} data-testid="usage-frame">⋈ join frame <span className="mono">{f.id}</span> <span className="pt-chip">{f.relation.replace('_', ' ')}: {f.tables.join(', ')}</span> <span className="helper">its runs are listed above; deleting this version is refused while one of them needs it</span></div>)}
           {!u.runs.length && <span className="helper">No run has trained on it.</span>}
           {u.blocks_archive.length > 0 ? <p className="helper" style={{ fontSize: 12 }}>Can't be archived or deleted while: {u.blocks_archive.join(' ')}</p>
             : u.blocks_archive_or_delete.length > 0 && <p className="helper" style={{ fontSize: 12 }}>Can be archived. Can't be deleted yet: {u.blocks_archive_or_delete.join(' ')}</p>}
