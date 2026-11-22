@@ -169,5 +169,5 @@
 ## Labeling plan (LBL-PLAN, 2026-11-22)
 
 **Plan:** docs/plans/labeling.md (plan only, no code). Label layers attached to a dataset root, keyed by `(layer, table, __row_id, column)`, append-only; carry over across versions by `__row_id` with HMAC row-hash staleness; runs pin a frozen snapshot (overlay at read, like joins) or materialise it into a version; holdout never overlaid in training. Sources: human, LLM (calibrated on gold, off by default, PII-governed), model, rule, import, cleanlab. F13/F14 migrate into layers (L09).
-**Phases:** L01–L10, UL1, UL2, XL1 (13 sessions ≈ 26 h); §13 of the plan. Not started: waiting on the user's answers to §14 (defaults apply if none).
+**Phases:** L01a–L10, UL1, UL2, XL1 (16 sessions ≈ 32–37 h); §13 of the plan. §15 "How it grows" (plug-in registries, staged scale path, versioned contracts, first slice); §12.1 independent red-team folded in. Not started: waiting on the user's answers to §14 (defaults apply if none).
 **Note → all lanes:** new tables are `label_*` and actions `label.*` (the existing `annotations` table and `annotate` action are lineage tags/notes, unrelated).
