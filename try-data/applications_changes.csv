@@ -1,0 +1,36 @@
+app_id,customer_id,applicant_name,ssn,income,amount,term_months,purpose,applied_on,note,defaulted,_op
+A00091,C00890,Person 91,122-19-2135,28924.0,4217.0,60.0,education,2025-01-19,"Masters tuition, part-time work",,U
+A00075,C00004,Person 75,731-35-4022,93195.0,36414.0,12.0,small business,2025-01-16,"Opening a bakery, no prior business",yes,U
+A01264,C00604,Person 1264,713-49-7311,130123.0,16566.0,24.0,home improvement,2025-09-21,"Kitchen renovation, has quotes",no,U
+A00330,C01090,Person 330,198-75-8740,110397.0,21932.0,36.0,small business,2025-03-10,"Opening a bakery, no prior business",no,U
+A01349,C00568,Person 1349,711-65-5423,64457.0,2110.0,12.0,debt consolidation,2025-10-09,"Combining three credit cards, missed a payment last year",no,U
+A00774,C00120,Person 774,252-44-4892,160692.0,28025.0,60.0,debt consolidation,2025-06-11,"Combining three credit cards, missed a payment last year",yes,U
+A01038,C00435,Person 1038,333-29-9693,42780.0,1180.0,36.0,medical,2025-08-05,Hospital bill after surgery,no,U
+A01285,C00762,Person 1285,985-24-8343,140448.0,2845.0,60.0,small business,2025-09-25,"Opening a bakery, no prior business",no,U
+A01165,C00137,Person 1165,355-40-6706,155416.0,29844.0,36.0,small business,2025-08-31,"Opening a bakery, no prior business",,U
+A00335,C00791,Person 335,579-65-1450,68600.0,23501.0,12.0,small business,2025-03-11,"Opening a bakery, no prior business",no,U
+A00685,C00863,Person 685,412-86-1776,39108.0,29662.0,24.0,small business,2025-05-23,"Opening a bakery, no prior business",yes,U
+A00181,C00045,Person 181,360-79-4591,129677.0,10472.0,60.0,small business,2025-02-07,"Opening a bakery, no prior business",,U
+A01220,C00509,Person 1220,595-50-8333,107096.0,2389.0,36.0,education,2025-09-12,"Masters tuition, part-time work",yes,U
+A00101,C00433,Person 101,624-75-9569,163583.0,19211.0,24.0,car,2025-01-22,Needs a car to commute to new job,no,U
+A00692,C00348,Person 692,296-40-3985,39672.0,3525.0,12.0,education,2025-05-25,"Masters tuition, part-time work",no,U
+A01126,C00195,Person 1126,386-89-9082,43442.0,16006.0,60.0,home improvement,2025-08-23,"Kitchen renovation, has quotes",yes,U
+A00169,C01060,Person 169,568-63-2803,83265.0,31622.0,60.0,education,2025-02-05,"Masters tuition, part-time work",no,U
+A00926,C00074,Person 926,326-53-2508,146296.0,26973.0,24.0,debt consolidation,2025-07-12,"Combining three credit cards, missed a payment last year",yes,U
+A01295,C00464,Person 1295,209-96-3712,74315.0,15960.0,36.0,medical,2025-09-27,Hospital bill after surgery,no,U
+A00414,C00561,Person 414,428-76-9833,52534.0,37275.0,12.0,education,2025-03-28,"Masters tuition, part-time work",yes,U
+A00719,,,,,,,,,,,D
+A01436,,,,,,,,,,,D
+A01276,,,,,,,,,,,D
+A00069,,,,,,,,,,,D
+A00272,,,,,,,,,,,D
+A90000,C01150,Person 851,167-73-2198,150477.0,8859.0,60.0,home improvement,2025-06-27,"Kitchen renovation, has quotes",no,I
+A90001,C00121,Person 816,263-89-8119,81733.0,14485.0,36.0,debt consolidation,2025-06-20,"Combining three credit cards, missed a payment last year",no,I
+A90002,C00456,Person 919,744-56-7748,71392.0,6517.0,12.0,car,2025-07-11,Needs a car to commute to new job,no,I
+A90003,C00324,Person 1042,802-31-3680,154241.0,6402.0,24.0,medical,2025-08-06,Hospital bill after surgery,yes,I
+A90004,C00150,Person 581,863-85-8300,18807.0,24244.0,36.0,medical,2025-05-02,Hospital bill after surgery,yes,I
+A90005,C00627,Person 859,461-67-8107,72493.0,9763.0,36.0,education,2025-06-28,"Masters tuition, part-time work",,I
+A90006,C01095,Person 456,735-55-7526,67643.0,24335.0,36.0,home improvement,2025-04-06,"Kitchen renovation, has quotes",no,I
+A90007,C00158,Person 1209,280-27-4786,142590.0,1114.0,12.0,home improvement,2025-09-09,"Kitchen renovation, has quotes",no,I
+A90008,C00874,Person 688,726-60-7314,37487.0,38614.0,36.0,medical,2025-05-24,Hospital bill after surgery,yes,I
+A90009,C00053,Person 1457,831-88-1373,79174.0,24740.0,60.0,home improvement,2025-10-31,"Kitchen renovation, has quotes",,I
