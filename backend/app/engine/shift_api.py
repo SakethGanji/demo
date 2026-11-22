@@ -15,8 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import signal
-import subprocess
+import shutil
 import threading
 from pathlib import Path
 from typing import Any, Literal
@@ -30,15 +29,14 @@ from pydantic import BaseModel, Field
 from .. import frames
 from ..splits import holdout_mask
 from . import shift as sh
-from .jobs import alive, dev_reload, kill_group, spawn, watch_arg
+from ..jobs import queue as Q
 from .store import now
 from ..http import run_or_404
 
 router = APIRouter(prefix="/api")
 
 _LOCK = threading.Lock()
-_PROCS: dict[str, tuple[str, subprocess.Popen]] = {}  # job dir → (run id, process)
-_CANCELLED: set[str] = set()
+_DB = None  # bound at API start (main.py): active() asks the queue
 MIN_ROWS = 20
 
 
@@ -218,17 +216,20 @@ def _public(st: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in st.items() if k not in ("traceback",)}
 
 
+def _ref(rec: dict[str, Any], key: str) -> str:
+    return f"{rec['id']}/{key}"
+
+
 def _state(rec: dict[str, Any], key: str, store: Any) -> dict[str, Any] | None:
+    """F-JOBS: a queued/running check whose `shift` job is no longer active (it failed or was lost) is marked failed."""
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
     st = sh.read_state(d)
-    if st and st.get("status") in ("queued", "running"):
-        with _LOCK:
-            item = _PROCS.get(str(d))
-        p = item[1] if item else None
-        if (p is None or p.poll() is not None) and not alive(st.get("pid"), "app.engine.shift"):
-            if p is not None and p.poll() is not None:
-                return sh.read_state(d)
-            st.update(status="failed", error="The shift check's process stopped (the API restarted).", finished_at=now())
+    if st and st.get("status") in ("queued", "running") and not Q.active_for(store.db, "shift", _ref(rec, key), "shift"):
+        st = sh.read_state(d) or st  # the handler may have just closed it
+        if st.get("status") in ("queued", "running"):
+            j = Q.latest_for(store.db, "shift", _ref(rec, key), "shift") or {}
+            st.update(status="failed", finished_at=now(), stage=None,
+                      error=f"The shift check's job ended without finishing it ({j.get('error') or j.get('status') or 'no job'}).")
             store.merge_result(rec["id"], shift=sh.summary(st))
             sh.write_state(d, st)
     return st
@@ -357,17 +358,11 @@ def start(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str
     run_dir = Path(rec["config"]["run_dir"])
     d = sh.job_dir(run_dir, p["key"])
     store = request.app.state.runs
-    with _LOCK:
-        for jd, (rid, proc) in _PROCS.items():
-            if proc.poll() is None:
-                ost = sh.read_state(Path(jd))
-                if ost and ost.get("status") not in ("queued", "running"):
-                    try:
-                        proc.wait(30)
-                        continue
-                    except subprocess.TimeoutExpired:
-                        pass
-                raise HTTPException(409, f"A shift check is already running (run {rid}); wait for it or cancel it.")
+    with _LOCK:  # F-JOBS: one at a time across the workbench, as before, now by the queue (any API process agrees)
+        busy = Q.active_of_kind(store.db, "shift")
+        if busy:
+            rid = busy[0]["ref_id"].split("/", 1)[0]
+            raise HTTPException(409, f"A shift check is already running (run {rid}); wait for it or cancel it.")
         d.mkdir(parents=True, exist_ok=True)
         (d / "request.json").write_text(json.dumps(p, indent=1))
         sets = {s: {"name": p[s]["name"], "rows": p[s]["rows_n"], "what": p[s]["what"],
@@ -375,25 +370,47 @@ def start(request: Request, rec: dict[str, Any], body: ShiftRequest) -> dict[str
         sh.write_state(d, {"schema": sh.SCHEMA, "key": p["key"], "source": p["source"], "status": "queued",
                            "created_at": now(), "request": p["request"], "sets": sets, "features": p["features"],
                            "kinds": p["kinds"], "excluded": p["excluded"], "extra": p["extra"], "stage": "queued"})
-        proc = spawn("app.engine.shift", [str(d), watch_arg()], d / "shift.log")
-        _PROCS[str(d)] = (rec["id"], proc)
-        _CANCELLED.discard(str(d))
+        from ..catalog import governance as G
 
-    def wait():
-        code = proc.wait()
-        kill_group(proc.pid, signal.SIGKILL)
-        st = sh.read_state(d) or {}
-        with _LOCK:
-            cancelled = str(d) in _CANCELLED
-            _CANCELLED.discard(str(d))
-        if st.get("status") in ("queued", "running"):
-            st.update(status="cancelled" if cancelled else "failed", finished_at=now(), stage=None,
-                      error="Cancelled." if cancelled else f"The shift check's process exited with code {code}.")
-            store.merge_result(rec["id"], shift=sh.summary(st))
-            sh.write_state(d, st)
-
-    threading.Thread(target=wait, name=f"shift-{rec['id']}-{p['key']}", daemon=True).start()
+        Q.enqueue(store.db, "shift", {"run_id": rec["id"], "key": p["key"]}, resource="train",
+                  by=G.current_actor() or "system", team_id=rec.get("team_id"), ref_kind="shift", ref_id=_ref(rec, p["key"]))
     return get_shift(rec["id"], p["key"], request)
+
+
+def run_job(ctx) -> dict[str, Any]:
+    """Worker side: `python -m app.engine.shift <job_dir> <worker pid>`. A re-leased job runs the check again from the
+    start; the process rewrites the job directory's state and results (no appends), so there is no double effect."""
+    from .workerd import Cancelled
+
+    store = ctx.state.runs
+    rec = store.get(ctx.payload["run_id"])
+    d = sh.job_dir(Path(rec["config"]["run_dir"]), ctx.payload["key"])
+    shutil.rmtree(d / "fits", ignore_errors=True)  # a killed attempt's partial fits
+    ctx.progress(0.02, "fitting")
+    code = ctx.run_process("app.engine.shift", [str(d), ctx.watch_pid()], d / "shift.log")
+    if ctx.stop_reason in ("shutdown", "lost"):
+        raise Cancelled(ctx.stop_reason)
+    st = sh.read_state(d) or {}
+    if st.get("status") in ("queued", "running"):
+        st.update(status="cancelled" if ctx.cancelled else "failed", finished_at=now(), stage=None,
+                  error="Cancelled." if ctx.cancelled else f"The shift check's process exited with code {code}.")
+        store.merge_result(rec["id"], shift=sh.summary(st))
+        sh.write_state(d, st)
+    return {"run_id": rec["id"], "key": ctx.payload["key"], "status": st.get("status"), "code": code}
+
+
+def on_dead(state, job: dict[str, Any]) -> None:
+    pl = job.get("payload") or {}
+    rec = state.runs.get(pl.get("run_id") or "")
+    if not rec:
+        return
+    d = sh.job_dir(Path(rec["config"]["run_dir"]), pl["key"])
+    st = sh.read_state(d) or {}
+    if st.get("status") in ("queued", "running"):
+        st.update(status="failed", finished_at=now(), stage=None,
+                  error=f"The worker running this shift check stopped every time it was tried ({job.get('error')}).")
+        state.runs.merge_result(rec["id"], shift=sh.summary(st))
+        sh.write_state(d, st)
 
 
 @router.post("/runs/{run_id}/shift", status_code=202, dependencies=[require("run.train", path("run_id", "run"))])
@@ -407,18 +424,15 @@ def start_shift(run_id: str, body: ShiftRequest, request: Request) -> dict[str, 
 def cancel_shift(run_id: str, key: str, request: Request) -> dict[str, Any]:
     rec = run_or_404(request, run_id)
     d = sh.job_dir(Path(rec["config"]["run_dir"]), key)
-    with _LOCK:
-        item = _PROCS.get(str(d))
-        if item is None or item[1].poll() is not None:
-            st = sh.read_state(d)
-            if st and alive(st.get("pid"), "app.engine.shift"):
-                _CANCELLED.add(str(d))
-                kill_group(st["pid"])
-            else:
-                raise HTTPException(400, "No shift check is running here.")
-        else:
-            _CANCELLED.add(str(d))
-            kill_group(item[1].pid)
+    db = request.app.state.db
+    j = Q.active_for(db, "shift", _ref(rec, key), "shift")
+    if not j or not Q.cancel(db, j["id"], "Cancelled."):
+        raise HTTPException(400, "No shift check is running here.")
+    if j["status"] == "queued":  # never started: close it here (a leased one is closed by its holder)
+        st = sh.read_state(d) or {}
+        st.update(status="cancelled", finished_at=now(), stage=None, error="Cancelled before it started.")
+        request.app.state.runs.merge_result(rec["id"], shift=sh.summary(st))
+        sh.write_state(d, st)
     return {"run_id": run_id, "key": key, "cancelled": True}
 
 
@@ -516,15 +530,13 @@ def get_batch_shift(bid: str, request: Request) -> dict[str, Any]:
 
 
 def shutdown() -> None:
-    if dev_reload():
-        return
-    with _LOCK:
-        procs = [p for _, p in _PROCS.values()]
-    for p in procs:
-        if p.poll() is None:
-            kill_group(p.pid)
+    """F-JOBS: nothing to stop here: the shift job's worker gives it back (or keeps it) when the API stops."""
 
 
 def active() -> list[str]:
-    with _LOCK:
-        return [rid for rid, p in _PROCS.values() if p.poll() is None]
+    return [j["ref_id"].split("/", 1)[0] for j in Q.active_of_kind(_DB, "shift")] if _DB is not None else []
+
+
+def bind(db) -> None:
+    global _DB
+    _DB = db

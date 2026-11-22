@@ -17,6 +17,12 @@ is killed. Handlers by kind (`HANDLERS`), each `fn(ctx) -> result`:
 | heavy | duck | engine/pool.py `run_job` | a registry build / batch score function, in this process |
 | agent | api | agent/loop.py `run_job` | a Vela agent turn; only the API process holds `api` slots |
 | profile | duck | lake/stats.py `run_job` | P08's table statistics for one table (`table_stats`) |
+| edit | duck | jobs/writes.py `run_edit` | F-JOBS: an edit commit above the row threshold (202 from POST …/edit) |
+| doctor_apply | duck | jobs/writes.py `run_doctor_apply` | F-JOBS: a Data Doctor apply above the row threshold |
+| doctor_labels | light | data_doctor.py `run_labels_job` | F-JOBS: the Data Doctor's label-quality model |
+| annotations | light | engine/annotations_api.py `run_job` | F-JOBS: `python -m app.engine.annotations` (p̂) |
+| shift | train | engine/shift_api.py `run_job` | F-JOBS: `python -m app.engine.shift <job_dir>` |
+| autopilot | api | autopilot/engine.py `run_job` | F-JOBS: an Autopilot (API processes only: it uses the heavy pool) |
 
 The API process always runs an **embedded** worker (`Worker(..., embedded=True)`) with `api` slots for agent turns,
 the janitor and the queue view. With `ENSEMBLE_WORKERD=embedded` (the default, so `make dev` needs nothing else) it
@@ -59,6 +65,14 @@ HANDLERS: dict[str, str] = {
     "agent": "app.agent.loop:run_job",
     "profile": "app.lake.stats:run_job",
     "migrate": "app.lake.migrate:run_job",  # P10
+    # F-JOBS: the long writes above jobs.progress.threshold_rows() (the routes answer 202 + the job id)
+    "edit": "app.jobs.writes:run_edit",
+    "doctor_apply": "app.jobs.writes:run_doctor_apply",
+    # F-JOBS: work that ran on in-process threads
+    "doctor_labels": "app.data_doctor:run_labels_job",
+    "annotations": "app.engine.annotations_api:run_job",
+    "shift": "app.engine.shift_api:run_job",
+    "autopilot": "app.autopilot.engine:run_job",
 }
 # Called by the janitor when a job ran out of attempts (its holder died every time): close what the job drives.
 DEAD_HOOKS: dict[str, str] = {
@@ -68,9 +82,16 @@ DEAD_HOOKS: dict[str, str] = {
     "featurelab": "app.featurelab_api:on_dead",
     "review": "app.vela.review:on_dead",
     "heavy": "app.engine.pool:on_dead",
+    "annotations": "app.engine.annotations_api:on_dead",
+    "shift": "app.engine.shift_api:on_dead",
+    "autopilot": "app.autopilot.engine:on_dead",
 }
 POLL_S = 1.0
 CHECK_S = 2.0
+
+
+def _key(job: dict[str, Any]) -> str:
+    return f"{job['id']}#{job.get('attempts')}"
 
 
 def _resolve(spec: str) -> Callable[..., Any]:
@@ -145,6 +166,12 @@ class JobContext:
         for p in procs:
             kill_group(p.pid)
 
+    def progress(self, pct: float, phase: str | None = None) -> None:
+        """F-JOBS: report progress (0–1) on the job row; also reachable as jobs.progress.mark() deeper down."""
+        from ..jobs import progress as JP
+
+        JP.mark(pct, phase)
+
     def run_async(self, coro_fn: Callable[[], Any]) -> Any:
         """Run a coroutine: on the API's own event loop when embedded (in-process ASGI calls), else in a new loop."""
         if self.embedded and self.worker.loop is not None:
@@ -199,12 +226,14 @@ class Worker:
         self._stop.set()
         with self._lock:
             held = dict(self.held)
-        for jid, ctx in held.items():
+        for ctx in held.values():
+            if ctx.stop_reason:  # lost or cancelled already: not ours to give back
+                continue
             ctx.stop_reason = "shutdown"
             if kill:
                 ctx.kill()
             if requeue:
-                Q.requeue(self.db, jid, f"worker {self.id} stopped")
+                Q.requeue(self.db, ctx.job["id"], f"worker {self.id} stopped", self.id, ctx.attempt)
         try:
             Q.unregister_worker(self.db, self.id)
         except Exception:  # noqa: BLE001
@@ -217,8 +246,8 @@ class Worker:
 
     def info(self) -> dict[str, Any]:
         with self._lock:
-            return {"id": self.id, "slots": self.slots, "held": [{"id": j, "kind": c.job["kind"], "ref_id": c.job.get("ref_id")}
-                                                               for j, c in self.held.items()]}
+            return {"id": self.id, "slots": self.slots, "held": [{"id": c.job["id"], "attempt": c.attempt, "kind": c.job["kind"],
+                                                                "ref_id": c.job.get("ref_id")} for c in self.held.values()]}
 
     # -- loops
 
@@ -246,8 +275,8 @@ class Worker:
 
     def _launch(self, job: dict[str, Any]) -> JobContext:
         ctx = JobContext(self, job)
-        with self._lock:
-            self.held[job["id"]] = ctx
+        with self._lock:  # F-JOBS: keyed by (id, attempt): a lost attempt still winding down keeps its own entry
+            self.held[_key(job)] = ctx
         t = threading.Thread(target=self._execute, args=(ctx,), name=f"job-{job['kind']}-{job['id']}", daemon=True)
         t.start()
         return ctx
@@ -264,24 +293,36 @@ class Worker:
             spec = HANDLERS.get(job["kind"])
             if not spec:
                 raise RuntimeError(f"no handler for job kind {job['kind']!r}")
-            result = _resolve(spec)(ctx)
+            from ..jobs import progress as JP
+
+            with JP.bind(self.db, job["id"], self.id, ctx.attempt):
+                result = _resolve(spec)(ctx)
             if ctx.stop_reason == "shutdown":
                 return  # requeued by stop()
-            if ctx.cancelled:
+            if ctx.stop_reason == "lost":
+                log.warning("job %s attempt %s: finished after losing its lease; the result is not recorded", job["id"], ctx.attempt)
+            elif ctx.cancelled:
                 Q.finish(self.db, job["id"], None, "cancelled", result=result, error="Cancelled.")
             else:
-                Q.finish(self.db, job["id"], self.id, "succeeded", result=result)
+                Q.finish(self.db, job["id"], self.id, "succeeded", result=result, attempt=ctx.attempt)
         except Cancelled:
             if ctx.stop_reason == "cancelled":
                 Q.finish(self.db, job["id"], None, "cancelled", error="Cancelled.")
         except Exception as e:  # noqa: BLE001
             if ctx.stop_reason == "shutdown":
                 return
-            log.exception("job %s (%s) failed", job["id"], job["kind"])
-            Q.finish(self.db, job["id"], self.id, "failed", error=f"{type(e).__name__}: {e}")
+            refused = getattr(e, "job_refusal", None)  # F-JOBS: a 4xx the synchronous route would have answered
+            if refused:
+                log.info("job %s (%s) refused: %s", job["id"], job["kind"], refused)
+                Q.finish(self.db, job["id"], self.id, "failed", result={"refused": refused}, error=str(refused.get("message"))[:2000],
+                         attempt=ctx.attempt)
+            else:
+                log.exception("job %s (%s) failed", job["id"], job["kind"])
+                Q.finish(self.db, job["id"], self.id, "failed", error=f"{type(e).__name__}: {e}", attempt=ctx.attempt)
         finally:
             with self._lock:
-                self.held.pop(job["id"], None)
+                if self.held.get(_key(job)) is ctx:
+                    self.held.pop(_key(job), None)
 
     def _beat_loop(self) -> None:
         last_extend = 0.0
@@ -291,11 +332,12 @@ class Worker:
             extend = now - last_extend >= Q.HEARTBEAT_S
             with self._lock:
                 held = dict(self.held)
-            for jid, ctx in held.items():
+            for ctx in held.values():
+                jid = ctx.job["id"]
                 if ctx.stop_reason:
                     continue
                 try:
-                    st = Q.heartbeat(self.db, jid, self.id, extend=extend)
+                    st = Q.heartbeat(self.db, jid, self.id, extend=extend, attempt=ctx.attempt)
                 except Exception:  # noqa: BLE001
                     log.exception("heartbeat failed")
                     continue

@@ -175,22 +175,50 @@ def run_job(ctx) -> dict[str, Any]:
     ds_dir = store.dir(dataset_id)
     req = SimpleNamespace(app=SimpleNamespace(state=ctx.state))  # what _version reads from a request
 
+    from .jobs import progress as JP
+    from .jobs import writes as JW
+
     def work(job, progress):
+        JP.mark(0.01, "reading")
         p = _prepare(store, dataset_id, rec, body)
+        n_c = len(p["cands"]) if p["cands"] else p["max_c"]
+
+        def prog(journal):  # F-JOBS: the search is the first 60 % of the job's progress, the write the rest
+            progress(journal)
+            JP.mark(0.05 + 0.55 * min(1.0, len(journal) / max(1, n_c)), "searching")
+
+        JP.mark(0.05, "searching")
         res = fl.search(p["df"], p["target"], p["hold"], roles=p["roles"], drops=p["drops"],
                         entity=p["entity"], candidates=p["cands"], max_candidates=p["max_c"], time_limit=p["limit"],
-                        progress=progress)
+                        progress=prog)
         if p["sample"]:
             res["sample"] = p["sample"]  # F-X1 C2: the search ran on this recorded sample
         out: dict[str, Any] = {"result": res, "journal": res["journal"], "target": p["target"]}
         if pl["apply"] and res["kept"]:
-            out["version"] = (_version_sql(req, rec, res, pl["by"]) if p["sample"] else
-                              _version(req, rec, p["df"], p["sp"], res, pl["by"]))
+            if p["sample"]:  # F-JOBS: the SQL write reads the version itself; free the search frame before it
+                import gc
+
+                p["df"] = None
+                gc.collect()
+            with JP.band(0.6, 1.0):  # the SQL write commits with this queue job's id (doctor_sql.write_chain)
+                out["version"] = (_version_sql(req, rec, res, pl["by"]) if p["sample"] else
+                                  _version(req, rec, p["df"], p["sp"], res, pl["by"]))
         return out
 
+    done = JW._finished_version(ctx.state.db, ctx.job["id"], dataset_id)
+    if done:  # F-JOBS: an earlier attempt of this job wrote and finished its version: do not search again
+        prev = fl.read_job(ds_dir, pl["job_id"]) or {}
+        if prev.get("status") != "succeeded":
+            from .datasets import now as _now
+
+            prev.update(status="succeeded", phase="done", finished_at=_now(),
+                        version={**(prev.get("version") or {}), "id": done, "resumed": True})
+            fl.write_job(ds_dir, prev)
+        return {"job_id": pl["job_id"], "status": "succeeded", "version": done, "resumed": True}
     job = fl.execute(ds_dir, pl["job_id"], work)
     if job["status"] == "failed":
         raise RuntimeError(job.get("error") or "Feature Lab failed")
+    JP.mark(1.0, "done")
     return {"job_id": job["id"], "status": job["status"], "version": (job.get("version") or {}).get("id")}
 
 

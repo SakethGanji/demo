@@ -1152,6 +1152,7 @@ class DatasetStore:
         from .lake import derive as LD
         from .lake import duck
         from .lake.store import open_store
+        from .jobs import progress as JP
         from .lake.writer import LakeError, VersionWriter
 
         parent = self.db.get_dataset(parent_id)
@@ -1165,6 +1166,7 @@ class DatasetStore:
             if len(st_reason) < 10:
                 raise DatasetError("Changing the target needs its own reason (set_target.reason, at least 10 characters): "
                                    "models trained on the old target can't be compared with ones trained on the new.")
+        JP.mark(0.01, "verifying")
         self.verify_for_edit(parent_id, parent)
         lake = open_store(self.settings)
         try:
@@ -1185,10 +1187,15 @@ class DatasetStore:
                     "note": "nothing was written: send the same operations without preview to create the version"}
         try:
             pr.reserve(self.db, _n_added(ops))  # F-X1 M1: add_rows ids, taken atomically on the root counter
+            # F-JOBS: job_id (a queued edit) makes the commit idempotent: a re-leased job returns its own version
             with VersionWriter(self.db, lake, op="edit", by=by, parent_id=parent_id, reason=reason, name=parent["name"],
-                               primary_table=pr.table, dedupe=True) as w:
+                               primary_table=pr.table, dedupe=True, job_id=JP.job_id(),
+                               duck_kw={"mem_mb": config.doctor_write_mb()}) as w:  # the Doctor / Feature Lab write cap
+                JP.mark(0.08, "compiling")
                 comp, summary = self._edit_compile(w.con, pr, parent, ops, st_col, st_reason, acknowledge, by, parent_id)
-                w.write(pr.table, f"SELECT * FROM {comp.view}")
+                with JP.track(w.con, 0.12, 0.7, "writing"):
+                    w.write(pr.table, f"SELECT * FROM {comp.view}")
+                JP.mark(0.72, "carrying")
                 names = [n for n, _ in comp.cols]
                 LD.carry_rest(w, pr, self.db, pr.table, names)
                 rows = w.con.execute(f"SELECT __row_id FROM {comp.view} ORDER BY __row_id").fetchnumpy()["__row_id"].astype("int64")
@@ -1204,6 +1211,7 @@ class DatasetStore:
                                           target_in_child=new_t == parent["target"])
                 if split_rec:
                     w.extra_ops.append(LD.no_floats({"op": "split_carried", "table": pr.table, **split_rec}))
+                JP.mark(0.82, "committing")
                 out = w.commit(make_default=False, target=new_t,
                                note=f"Edited {parent_id} as v{n_ver}: " + "; ".join(summary["ops_summary"][:4])
                                     + ("…" if len(summary["ops_summary"]) > 4 else ""))
@@ -1211,7 +1219,8 @@ class DatasetStore:
             raise DatasetError(e.message) from e
         vid = out["version_id"]
         root = pr.root
-        if out.get("deduped"):
+        rerun = out.get("deduped") == "job"  # F-JOBS: committed by an earlier attempt of this job: finish it, once
+        if out.get("deduped") and not rerun:
             with self.db.connect() as con:
                 audit(con, by, "dataset_version_deduplicated", comment=reason,
                       details={"dataset_id": vid, "root_id": root, "parent": parent_id, "op": "edit", "data_sha256": out["data_sha256"],
@@ -1225,6 +1234,7 @@ class DatasetStore:
         lineage = {"kind": "edit", "matched_by": "edit (rows keep their __row_id)", **summary, "parent": parent_id, "root": root,
                    "op": "edit", "rows_before": len(pr.ids), "rows_after": int(len(rows)), "changes": changes, "by": by,
                    **({"reason": reason} if reason else {})}
+        JP.mark(0.9, "finishing")
         LD.lineage_summary(self, vid, lineage)  # P09: no row maps (the rows carry __row_id)
         (self.dir(vid) / "edit_ops.json").write_text(json.dumps({"parent": parent_id, "by": by, "reason": reason, "ops": ops,
                                                                  **({"set_target": set_target} if set_target else {})}, default=str))
@@ -1239,7 +1249,9 @@ class DatasetStore:
             add_edge(con, ("dataset", parent_id), ("dataset", vid), "derived_from", actor=by, update_meta=True,
                      meta={"op": "edit", "storage": "parquet", "rows_before": len(pr.ids), "rows_after": int(len(rows)),
                            "ops_summary": summary["ops_summary"][:20], "n_changes": len(changes), **({"reason": reason} if reason else {})})
-            if st_col is not None:
+            if st_col is not None and not (rerun and con.execute(
+                    "SELECT 1 FROM audit_log WHERE action = 'dataset_target_changed' AND json_extract(details, '$.dataset_id') = ?",
+                    (vid,)).fetchone()):
                 audit(con, by, "dataset_target_changed", comment=st_reason[:500],
                       details={"dataset_id": vid, "root_id": root, "parent": parent_id, "from": parent["target"], "to": st_col,
                                "edit_reason": reason})

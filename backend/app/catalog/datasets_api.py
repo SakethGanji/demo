@@ -751,6 +751,17 @@ async def edit(dataset_id: str, request: Request, body: dict[str, Any]):
         raise HTTPException(400, "make_default is auto, yes or no.")
     _live(request, dataset_id)
     store = request.app.state.datasets
+    if not preview:  # F-JOBS: above the row threshold the commit is a queued `edit` job: 202 + its id (jobs/writes.py)
+        from ..jobs import progress as JP
+        from ..jobs import writes as JW
+
+        n = JW.rows_of(request.app.state.db, dataset_id)
+        if n > JP.threshold_rows():
+            before = await _thread(D.current_default, request.app, dataset_id)
+            job = await _thread(JW.enqueue, request.app.state.db, "edit", dataset_id,
+                                {"ops": body.get("ops"), "reason": reason, "set_target": body.get("set_target"),
+                                 "acknowledge": body.get("acknowledge"), "make_default": make_default, "before": before}, who)
+            return SafeJSONResponse(JW.accepted(job, n, "edit"), status_code=202)
     from ..lake import mask as M
     from ..lake.values import ValueRefused
 

@@ -842,6 +842,7 @@ P01_COLS: dict[str, list[tuple[str, str]]] = {
     "runs": [("team_id", "TEXT"), ("created_by", "TEXT")],
     "audit_log": [(c, "TEXT") for c in ("team_id", "project_id", "object_kind", "object_id", "principal_id", "auth", "request_id",
                                         "decision", "prev_hash", "row_hash")],
+    "jobs": [("progress", "TEXT")],  # F-JOBS: {pct, phase, at} JSON text, written by the holder
 }
 P01_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_projects_team ON projects (team_id)",

@@ -45,7 +45,7 @@
 | P18 | G | done (note: U1 must send team_id on New project) | session_018upNdRkZyzaZ19U6LU2cj7 | cbaffa2 |
 | P10b | S | started (MinIO + read cache) | session_018upNdRLNhdMckTGcyQS5SA | |
 | P23 | O | done (both engines pass the chain; migrate_pg copy verified; SKIP LOCKED; TEXT timestamps/JSON, global advisory lock) | session_018upNdQtu1bjzLTGxWxh2gv | 6a94fcc |
-| F-JOBS | O | started (10M writes as jobs, threads to queue, missing.py fix) | session_018upNdMmZAHQ2H5ofowVFXx | |
+| F-JOBS | O | done: edit / Doctor apply / Feature Lab 10M writes are jobs (202 + progress, idempotent by job_id, ≤ 2.2 GB); profile, labels, annotations, shift, Autopilot on the queue; P22 attempt-scoped lease fix; missing.py fixed | session_018upNdMmZAHQ2H5ofowVFXx | see report |
 | X2 | ⟂ | started (migration check, read-only) | session_018upNdNbAs6Mvojf6VJc3XR | |
 
 ## Open notes carried forward
@@ -75,3 +75,5 @@
   - no `rowid`, no `json_set`, no output alias inside an ORDER BY expression;
   - no catch-and-continue after a failed statement inside one `with db.connect()` (it aborts a Postgres transaction).
 - **P23 → follow-up:** the long 10M writes as jobs with progress (edit commit, Doctor apply, Feature Lab SQL write) were not built in P23. With grants on (`ENSEMBLE_DB_APP_ROLE`), split restore and admin reset need the owner role (they DROP TRIGGER).
+- **F-JOBS → all lanes:** above `ENSEMBLE_JOB_ROWS` (200,000) `POST …/edit` and `…/data-doctor/apply` answer 202 `{job_id, poll}`; poll `GET /api/jobs/{id}` (`progress {pct, phase}`, `result` = the old body, `result.refused` = the old 4xx). UI helper: `src/shared/api/jobs.ts` `settle()`. Leases are now (worker, attempt): pass `attempt` to `Q.heartbeat/finish/requeue/set_progress` if you call them directly.
+- **F-JOBS → X5/ops:** `autopilot.audit.audit` peaks at 5.6 GB on 12k rows in the API's heavy-pool child (two OOM kills under a 14.3 GB cgroup); an API with a busy heavy pool ignores SIGTERM. Both pre-existing.

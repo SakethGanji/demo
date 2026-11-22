@@ -302,6 +302,7 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
     from .catalog import governance as G
     from .catalog.schema import add_edge, audit
     from .datasets import DatasetError, guard_one_class_counts, now
+    from .jobs import progress as JP
     from .lake import derive as LD
     from .lake.store import open_store
     from .lake.writer import LakeError, VersionWriter
@@ -313,6 +314,7 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
     if not by:
         raise DatasetError(f"Say who is making this {kind} version: send by (or the X-Ensemble-Actor header).")
     reason = (G.current_reason() or "").strip()[:500]
+    JP.mark(0.01, "verifying")
     store.verify_for_edit(dataset_id, parent)
     lake = open_store(store.settings)
     pr = LD.ParentRows(store.db, lake, store, dataset_id)
@@ -321,7 +323,9 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
     target = parent["target"]
     ids = np.asarray(pr.ids, dtype="int64")
     with VersionWriter(store.db, lake, op=op, by=by, parent_id=dataset_id, reason=reason, name=name,
-                       primary_table=pr.table, dedupe=True, duck_kw={"mem_mb": config.doctor_write_mb()}) as w:
+                       primary_table=pr.table, dedupe=True, duck_kw={"mem_mb": config.doctor_write_mb()},
+                       job_id=JP.job_id()) as w:  # F-JOBS: a queued apply commits its version once
+        JP.mark(0.05, "compiling")
         try:
             ch, effects = build(w.con, pr.p.sql, ids, target)
         except ValueRefused:
@@ -343,7 +347,9 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
         if n1 == n0 and cols_0 == ch.cols and not int(ch.one(  # F-X1 M4: a no-op apply writes nothing
                 f"SELECT count(*) FROM (SELECT * FROM {ch.cur} EXCEPT ALL SELECT * FROM _d0)")):
             return {"noop": True, "effects": effects, "rows_before": int(n0), "rows_after": int(n1), "columns_after": names}
-        w.write(pr.table, f"SELECT * FROM {ch.cur} ORDER BY __row_id")
+        with JP.track(w.con, 0.3, 0.75, "writing"):
+            w.write(pr.table, f"SELECT * FROM {ch.cur} ORDER BY __row_id")
+        JP.mark(0.76, "carrying")
         LD.carry_rest(w, pr, store.db, pr.table, names)
         rows = np.sort(w.con.execute(f"SELECT __row_id FROM {ch.cur}").fetchnumpy()["__row_id"].astype("int64"))
         extra = {"kind": kind, "fixes": effects, "applied_at": now(), "by": by, "columns_before": cols0,
@@ -356,13 +362,14 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
         if split_rec:
             w.extra_ops.append(LD.no_floats({"op": "split_carried", "table": pr.table, **split_rec}))
         w.warnings = LD.no_floats([one_class] if one_class else [])
+        JP.mark(0.85, "committing")
         try:
             out = w.commit(make_default=False, target=target if target in names else None, note=note)
         except LakeError as e:
             raise DatasetError(e.message) from e
     vid = out["version_id"]
     base = {"effects": effects, "rows_before": int(n0), "rows_after": int(n1), "columns_after": names}
-    if out.get("deduped"):
+    if out.get("deduped") and out["deduped"] != "job":  # F-JOBS: "job" = this job's own commit (a re-run): finish it
         with store.db.connect() as con:
             audit(con, by, "dataset_version_deduplicated", comment=reason,
                   details={"dataset_id": vid, "root_id": pr.root, "parent": dataset_id, "op": op, "data_sha256": out["data_sha256"],
@@ -372,6 +379,7 @@ def write_chain(store: Any, dataset_id: str, build: Any, *, op: str, kind: str, 
         return {**base, "rec": rec}
     lineage = {"matched_by": f"{op} (rows keep their __row_id)", **extra, "parent": dataset_id, "root": pr.root, "op": op,
                "rows_before": int(n0), "rows_after": int(n1), "changes": effects, "by": by, **({"reason": reason} if reason else {})}
+    JP.mark(0.9, "finishing")
     LD.lineage_summary(store, vid, lineage)
     rec = store.finish_lake_version(vid, target=target if target in names else None, by=by)
     profile = rec["profile"]

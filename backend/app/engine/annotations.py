@@ -613,6 +613,10 @@ def headline(st: dict[str, Any] | None) -> dict[str, Any] | None:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     run_dir = Path(sys.argv[1])
+    if len(sys.argv) > 2:  # F-JOBS: the worker that holds the job (its death ends this process)
+        from .jobs import watch_parent
+
+        watch_parent(int(sys.argv[2]), anchor=True)
     st = read_state(run_dir) or {}
     try:
         meta = compute_probs(run_dir)

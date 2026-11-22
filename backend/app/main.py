@@ -168,7 +168,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         loop = asyncio.get_running_loop()
         verify_task = asyncio.ensure_future(_verify_timer(app)) if config.verify_every_hours() else None
         app.state.runner.on_success = lambda rid: loop.call_soon_threadsafe(lambda: asyncio.ensure_future(warm_doctor(app, rid)))
-        for mod in (learning_curve_api, active_learning_api, review_mod):
+        for mod in (learning_curve_api, active_learning_api, review_mod, annotations_api, shift_api):  # F-JOBS: +2
             mod.bind(db)
         # P22: the API's own worker: agent turns (`api`), the janitor, the success/heavy pollers, and with
         # ENSEMBLE_WORKERD=embedded (default) train/duck/light slots too; `python -m app.engine.workerd` adds more.
