@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '@/shared/api/client'
-import type { BatchJob, BatchListItem, ModelVersion, PsiFeature, ShiftCheck } from '@/shared/api/types'
+import { ApiError, api } from '@/shared/api/client'
+import type { BatchJob, BatchJoin, BatchListItem, ModelVersion, PsiFeature, ShiftCheck } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { XYPlot, niceTicks } from '@/shared/components/XYPlot'
 import { useWidth } from '@/shared/hooks/useWidth'
@@ -26,7 +26,31 @@ const BATCH_WHAT: Record<string, string> = {
   multilabel: 'a CSV with the model’s input columns: every row gets its label set, n_labels and p̂ per label',
 }
 
+/** P15: the 400s of a join batch, in plain words (the API's message follows with the file, table and columns). */
+const BATCH_CODES: Record<string, string> = {
+  batch_column_missing: 'A file lacks a column its table had at training.',
+  batch_table_missing: 'The model joins more tables than the files sent: one file per table is needed.',
+  batch_table_unknown: 'A file does not match any table of the model’s join (files are matched by name: <table>.csv).',
+  batch_table_twice: 'Two files were sent for the same table.',
+  batch_grain_violated: 'A joined table repeats a key, so a grain row would repeat: the batch does not keep one row per grain row.',
+  batch_empty: 'The grain table’s file has no rows.',
+  ambiguous_tables: 'The model’s join reads two tables with the same name: the files cannot be told apart by name.',
+  join_gone: 'The model’s saved join no longer exists.',
+}
+const stem = (n: string) => n.replace(/\.[^.]+$/, '').toLowerCase()
+const ext = (n: string) => (n.match(/\.[^.]+$/)?.[0] ?? '.csv').toLowerCase()
+
+/** The input tables of a join model (the frozen input record, else the version's hashes); [] for a one-table model. */
+export function joinTables(v: ModelVersion): { name: string; role: string }[] {
+  const r = v.result
+  const rec = r?.inputs
+  if (rec?.frame?.kind === 'join_frame' && rec.tables?.length) return rec.tables.map((t) => ({ name: t.name, role: t.role }))
+  if (r?.hashes?.join && r.hashes.inputs?.length) return r.hashes.inputs.map((t, i) => ({ name: t.table, role: i === 0 ? 'grain' : `join:${i - 1}` }))
+  return []
+}
+
 export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelVersion; actor: string; onScored?: () => void; kind?: string }) {
+  const tables = joinTables(v)
   const [list, setList] = useState<BatchListItem[]>([])
   const [sel, setSel] = useState<string | null>(null)
   const [job, setJob] = useState<BatchJob | null>(null)
@@ -51,12 +75,43 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
     return () => { alive = false; clearTimeout(t) }
   }, [sel]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [jfiles, setJfiles] = useState<File[]>([])  // P15: a join model's files (one per table, or one workbook)
   const submit = async () => {
-    if (!file) return
+    const send: File | File[] | null = tables.length ? (jfiles.length ? jfiles : null) : file
+    if (!send) return
     setBusy(true); setErr('')
-    try { const b = await api.registry.scoreBatch(v.id, file, actor, dataDate || undefined); setJob(b); setSel(b.id); refresh() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
+    try { const b = await api.registry.scoreBatch(v.id, send, actor, dataDate || undefined); setJob(b); setSel(b.id); refresh() } catch (e) {
+      const d = e instanceof ApiError ? e.detail as { code?: string; message?: string; columns?: string[]; table?: string; file?: string } | undefined : undefined
+      setErr(d && typeof d === 'object' && d.code ? `${BATCH_CODES[d.code] ?? ''} ${d.message ?? ''} (${d.code})`.trim() : (e as Error).message)
+    } finally { setBusy(false) }
   }
   const r = job?.result
+  if (tables.length) return (
+    <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="batch">
+      <div className="card">
+        <div className="card-head"><div className="left"><h3 className="card-title">Batch Scoring · through the saved join</h3>
+          <span className="helper" style={{ fontSize: 12 }}>one file per input table, named after the table ({tables.map((t) => `${t.name}.csv`).join(', ')}), or one workbook with a sheet per table: the model's join is applied to them exactly as at training (frames.materialise), then the frame is scored</span></div></div>
+        <JoinFiles tables={tables} files={jfiles} setFiles={setJfiles} />
+        <div className="card-body batch-up">
+          <label className="row" style={{ gap: 4 }} title="F18: the date of the data in this batch (its last day). Monitoring orders batches by it.">
+            <span className="helper">data date</span><input className="input sm mono" style={{ width: 110 }} placeholder="YYYY-MM-DD" value={dataDate} onChange={(e) => setDataDate(e.target.value)} data-testid="batch-date" /></label>
+          <button className="btn primary" data-testid="batch-submit" disabled={!jfiles.length || busy || !actor.trim() || v.status !== 'ready'} onClick={submit}>Score {jfiles.length} file{jfiles.length === 1 ? '' : 's'} →</button>
+          {!actor.trim() && <span className="helper" style={{ fontSize: 12, color: 'var(--status-warning)' }}>▲ type your name in “acting as” first</span>}
+        </div>
+        {err && <div className="card-body data-warn" role="alert" data-testid="batch-err" style={{ color: 'var(--status-danger)' }}>✕ {err}</div>}
+        {job && (job.status === 'queued' || job.status === 'running') && (
+          <div className="card-body batch-prog" data-testid="batch-progress">
+            <div className="bp-track"><i style={{ width: `${job.progress * 100}%` }} /><b style={{ left: `${job.progress * 100}%` }} /></div>
+            <span className="mono">{(job.progress * 100).toFixed(0)}% · {job.stage}</span><ResonanceWave width={50} height={12} />
+          </div>
+        )}
+        {list.length > 0 && <BatchList list={list} sel={sel} setSel={setSel} kind={kind} />}
+        {job?.status === 'failed' && <div className="card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {job.error}</div>}
+      </div>
+      {job?.status === 'succeeded' && r?.summary.join && <JoinSummary j={r.summary.join} />}
+      {job?.status === 'succeeded' && r && <BatchResult job={job} />}
+    </div>
+  )
   return (
     <div className="stack" style={{ gap: 'var(--space-16)' }} data-testid="batch">
       <div className="card">
@@ -79,23 +134,83 @@ export function BatchDrift({ v, actor, onScored, kind = 'tabular' }: { v: ModelV
             <span className="mono">{(job.progress * 100).toFixed(0)}% · {job.stage}</span><ResonanceWave width={50} height={12} />
           </div>
         )}
-        {list.length > 0 && (
-          <div className="table-wrap" style={{ borderTop: '1px solid var(--border-default)' }}>
-            <table className="table compact" data-testid="batch-list">
-              <thead><tr><th>batch</th><th>file</th><th>data date</th><th>by</th><th>when</th><th className="r">rows</th><th className="r">max PSI</th><th className="r nocase">PSI({kind === 'anomaly' ? 's' : kind === 'forecast' ? 'ŷ' : 'p̂'})</th><th>status</th></tr></thead>
-              <tbody>{list.map((b) => (
-                <tr key={b.id} className={b.id === sel ? 'sel' : ''} onClick={() => setSel(b.id)} style={{ cursor: 'pointer' }}>
-                  <td className="mono">{b.id}</td><td className="mono">{b.filename}</td><td className="mono">{b.data_date ?? '—'}</td><td>{b.created_by}</td><td className="mono">{when(b.created_at)}</td>
-                  <td className="r mono">{b.n_rows?.toLocaleString() ?? '—'}</td><td className="r mono">{psiFmt(b.max_psi)}</td><td className="r mono">{psiFmt(b.prediction_psi)}</td>
-                  <td><StatusPill status={b.status === 'succeeded' ? 'success' : b.status === 'failed' ? 'danger' : 'info'}>{b.status}</StatusPill></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
-        )}
+        {list.length > 0 && <BatchList list={list} sel={sel} setSel={setSel} kind={kind} />}
         {job?.status === 'failed' && <div className="card-body" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {job.error}</div>}
       </div>
       {job?.status === 'succeeded' && r && <BatchResult job={job} />}
+    </div>
+  )
+}
+
+function BatchList({ list, sel, setSel, kind }: { list: BatchListItem[]; sel: string | null; setSel: (id: string) => void; kind: string }) {
+  return (
+    <div className="table-wrap" style={{ borderTop: '1px solid var(--border-default)' }}>
+      <table className="table compact" data-testid="batch-list">
+        <thead><tr><th>batch</th><th>file</th><th>data date</th><th>by</th><th>when</th><th className="r">rows</th><th className="r">max PSI</th><th className="r nocase">PSI({kind === 'anomaly' ? 's' : kind === 'forecast' ? 'ŷ' : 'p̂'})</th><th>status</th></tr></thead>
+        <tbody>{list.map((b) => (
+          <tr key={b.id} className={b.id === sel ? 'sel' : ''} onClick={() => setSel(b.id)} style={{ cursor: 'pointer' }}>
+            <td className="mono">{b.id}</td><td className="mono">{b.filename}</td><td className="mono">{b.data_date ?? '—'}</td><td>{b.created_by}</td><td className="mono">{when(b.created_at)}</td>
+            <td className="r mono">{b.n_rows?.toLocaleString() ?? '—'}</td><td className="r mono">{psiFmt(b.max_psi)}</td><td className="r mono">{psiFmt(b.prediction_psi)}</td>
+            <td><StatusPill status={b.status === 'succeeded' ? 'success' : b.status === 'failed' ? 'danger' : 'info'}>{b.status}</StatusPill></td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  )
+}
+
+/** P15: which file goes to which table of the model's join, before anything is sent. A file is matched by its name's
+ *  stem (applications.csv → applications); a per-table Browse renames the file to its table. One .xlsx carries every
+ *  table as a sheet. */
+function JoinFiles({ tables, files, setFiles }: { tables: { name: string; role: string }[]; files: File[]; setFiles: (f: File[]) => void }) {
+  const all = useRef<HTMLInputElement>(null)
+  const one = useRef<HTMLInputElement>(null)
+  const [target, setTarget] = useState('')
+  const names = new Set(tables.map((t) => t.name.toLowerCase()))
+  const book = files.length === 1 && /\.xlsx?$/i.test(files[0].name) ? files[0] : null
+  const of = (t: string) => files.find((f) => stem(f.name) === t.toLowerCase())
+  const unknown = book ? [] : files.filter((f) => !names.has(stem(f.name)))
+  const put = (t: string, f: File) => setFiles([...files.filter((x) => stem(x.name) !== t.toLowerCase() && !/\.xlsx?$/i.test(x.name)), new File([f], `${t}${ext(f.name)}`, { type: f.type })])
+  return (
+    <div className="card-body stack" style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <input ref={all} type="file" multiple accept=".csv,text/csv,.xlsx,.parquet" data-testid="batch-files" style={{ display: 'none' }} onChange={(e) => { setFiles([...(e.target.files ?? [])]); e.target.value = '' }} />
+        <input ref={one} type="file" accept=".csv,text/csv,.parquet" data-testid="batch-file-table" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; if (f && target) put(target, f); e.target.value = '' }} />
+        <button className="btn sm" onClick={() => all.current?.click()} data-testid="batch-files-pick">Choose files…</button>
+        {files.length > 0 && <button className="btn sm ghost" onClick={() => setFiles([])}>Clear</button>}
+        <span className="helper">{book ? `workbook ${book.name}: its sheets are matched to the tables by name` : `${files.length} file${files.length === 1 ? '' : 's'} chosen`}</span>
+      </div>
+      <table className="table compact" data-testid="batch-table-map">
+        <thead><tr><th>table</th><th>role</th><th>file</th><th /></tr></thead>
+        <tbody>{tables.map((t) => { const f = book ?? of(t.name); return (
+          <tr key={t.name} data-testid={`batch-map-${t.name}`}>
+            <td className="mono">{t.name}</td><td className="muted">{t.role === 'grain' ? 'grain (one row per scored row)' : t.role}</td>
+            <td className="mono">{f ? <>{book ? `${f.name} › ${t.name}` : f.name} <span className="muted">{(f.size / 1024).toFixed(1)} KB</span></> : <span style={{ color: 'var(--status-warning)' }}>▲ no file yet</span>}</td>
+            <td>{!book && <button className="chip-btn" onClick={() => { setTarget(t.name); setTimeout(() => one.current?.click(), 0) }} data-testid={`batch-pick-${t.name}`}>Browse…</button>}</td>
+          </tr>) })}
+          {unknown.map((f) => <tr key={f.name}><td colSpan={2} style={{ color: 'var(--status-danger)' }}>✕ matches no table</td><td className="mono">{f.name}</td><td /></tr>)}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** P15: what the saved join did to the batch files: rows per file, cast failures, grain rows = frame rows. */
+function JoinSummary({ j }: { j: BatchJoin }) {
+  return (
+    <div className="card" data-testid="batch-join">
+      <div className="card-head"><div className="left"><h3 className="card-title">Join {j.join_name}</h3>
+        <span className="helper" style={{ fontSize: 12 }}>spec <span className="mono">{j.spec_sha256.slice(0, 12)}</span>{j.spec_frozen ? ' (the spec the model was trained with)' : ' · ⚠ the spec changed since training'}</span></div>
+        <StatusPill status={j.rows_equal_grain ? 'success' : 'danger'}>{j.rows_equal_grain ? 'rows = grain rows' : 'rows ≠ grain rows'}</StatusPill></div>
+      <div className="card-body mono helper" data-testid="batch-join-rows">frame rows n_f = {j.frame_rows.toLocaleString()} · grain rows n_g = {j.grain_rows.toLocaleString()} ({j.grain}) · n_f {j.frame_rows === j.grain_rows ? '=' : '≠'} n_g · frame sha {j.frame_sha256.slice(0, 12)}…</div>
+      <div className="table-wrap"><table className="table compact">
+        <thead><tr><th>table</th><th>file</th><th className="r">rows</th><th>sha256</th><th>cast failures</th><th>extra columns</th></tr></thead>
+        <tbody>{Object.entries(j.tables).map(([t, x]) => (
+          <tr key={t}><td className="mono">{t}{t === j.grain ? <span className="pt-chip" style={{ marginLeft: 4 }}>grain</span> : null}</td><td className="mono">{x.file}</td><td className="r mono">{x.rows.toLocaleString()}</td>
+            <td className="mono">{x.sha256.slice(0, 12)}…</td>
+            <td className="mono">{Object.keys(x.cast_failures).length ? Object.entries(x.cast_failures).map(([c, n]) => `${c} ${n}`).join(', ') : <span className="muted">none</span>}</td>
+            <td className="mono muted">{x.extra_columns.join(', ') || '—'}</td></tr>))}</tbody>
+      </table></div>
     </div>
   )
 }

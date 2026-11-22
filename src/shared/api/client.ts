@@ -48,7 +48,20 @@ export const api = {
   health: () => request<Health>('/health', { timeoutMs: 3_000 }),
   status: () => request<ApiStatus>('/status', { timeoutMs: 5_000 }),
   datasets: {
-    list: () => request<{ datasets: DatasetSummary[] }>('/datasets').then((r) => r.datasets),
+    /** U2 (P08 note): keyset pages of 50 (`?limit=50&after=`), never the whole list in one response (1.15 s at 20k
+     *  versions). `list()` follows the pages up to `max` rows; `page()` is one page for a picker with "more". */
+    page: (after?: string | null, limit = 50) =>
+      request<{ datasets: DatasetSummary[]; next_after: string | null; total: number }>(`/datasets?limit=${limit}${after ? `&after=${encodeURIComponent(after)}` : ''}`),
+    list: async (max = 500) => {
+      const out: DatasetSummary[] = []
+      let after: string | null = null
+      do {
+        const r: { datasets: DatasetSummary[]; next_after: string | null } = await api.datasets.page(after)
+        out.push(...r.datasets)
+        after = r.next_after
+      } while (after && out.length < max)
+      return out
+    },
     get: (id: string) => request<DatasetDetail>(`/datasets/${encodeURIComponent(id)}`),
     upload: (file: File, target?: string) => {
       const form = new FormData()
@@ -320,10 +333,14 @@ export const api = {
     /** F15: the batch's shift check (adversarial AUC next to PSI); status 'none' until started. */
     batchShift: (bid: string) => request<ShiftCheck | { batch_id: string; status: 'none'; run_id?: string; key?: string }>(`/registry/batches/${encodeURIComponent(bid)}/shift`),
     startBatchShift: (bid: string) => request<ShiftCheck>(`/registry/batches/${encodeURIComponent(bid)}/shift`, { method: 'POST', body: '{}', headers: { 'Content-Type': 'application/json' }, timeoutMs: 120_000 }),
+    /** P15: the input record, parity, contracts and join spec as a zip (no rows). */
+    inputsZipUrl: (vid: string) => `${BASE}/registry/versions/${encodeURIComponent(vid)}/inputs.zip`,
     batchUrl: (bid: string) => `${BASE}/registry/batches/${encodeURIComponent(bid)}/download`,
-    scoreBatch: (id: string, file: File, createdBy: string, dataDate?: string) => {
+    /** P15: a join model takes one file per input table, sent as repeated `files` parts (matched by file stem). */
+    scoreBatch: (id: string, file: File | File[], createdBy: string, dataDate?: string) => {
       const form = new FormData()
-      form.append('file', file)
+      if (Array.isArray(file)) for (const f of file) form.append('files', f, f.name)
+      else form.append('file', file)
       form.append('created_by', createdBy)
       if (dataDate) form.append('data_date', dataDate)
       return request<BatchJob>(`/registry/versions/${encodeURIComponent(id)}/batches`, { method: 'POST', body: form, timeoutMs: 120_000 })

@@ -25,12 +25,14 @@ function Tree({ t, go, compact }: { t: LineageTree; go: (r: string) => void; com
     const node = new Map(t.nodes.map((n) => [`${n.kind}:${n.id}`, n]))
     const out = new Map<string, LEdge[]>()
     const branchedRuns = new Set<string>()
+    const frameRuns = new Set<string>()
     for (const e of t.edges) {
       const k = `${e.src.kind}:${e.src.id}`
       out.set(k, [...(out.get(k) ?? []), e])
       if (e.relation === 'branched_from') branchedRuns.add(e.dst.id)
+      if (e.relation === 'trained_on' && e.src.kind === 'join_frame') frameRuns.add(e.dst.id)
     }
-    return { node, out, branchedRuns, reviews: new Map(t.reviews.map((r) => [r.id, r])) }
+    return { node, out, branchedRuns, frameRuns, reviews: new Map(t.reviews.map((r) => [r.id, r])) }
   }, [t])
   const root = ix.node.get(`${t.root.kind}:${t.root.id}`)
   // a user project can hold several uploads: every dataset with no parent in the tree is a root
@@ -55,12 +57,14 @@ function Tree({ t, go, compact }: { t: LineageTree; go: (r: string) => void; com
   )
 }
 
-type Ctx = { ix: { node: Map<string, LNode>; out: Map<string, LEdge[]>; branchedRuns: Set<string>; reviews: Map<string, LReview> }; go: (r: string) => void; focus: string }
+type Ctx = { ix: { node: Map<string, LNode>; out: Map<string, LEdge[]>; branchedRuns: Set<string>; frameRuns: Set<string>; reviews: Map<string, LReview> }; go: (r: string) => void; focus: string }
 
 function DatasetNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
   const outs = ctx.ix.out.get(`dataset:${n.id}`) ?? []
   const versions = outs.filter((e) => e.relation === 'derived_from')
-  const runs = outs.filter((e) => e.relation === 'trained_on' && !ctx.ix.branchedRuns.has(e.dst.id))
+  // a run on a join hangs off its frame (below), not also off the grain's version
+  const runs = outs.filter((e) => e.relation === 'trained_on' && !ctx.ix.branchedRuns.has(e.dst.id) && !ctx.ix.frameRuns.has(e.dst.id))
+  const frames = outs.filter((e) => e.relation === 'joined_from' || e.relation === 'merged_from')
   return (
     <li data-testid={`pt-dataset-${n.id}`} className={ctx.focus === `dataset:${n.id}` ? 'pt-focus' : ''}>
       <div className="pt-row"><span className="pt-ico">▤</span><b>{n.name}</b> <span className="mono muted">{n.id}</span>
@@ -69,10 +73,27 @@ function DatasetNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
         {n.state && <span className={`pt-chip ${n.state === 'deleted' ? 'appr-rejected' : ''}`} title={n.state === 'deleted' ? 'files removed; this record, its lineage and the audit are kept' : 'hidden from Build and the pickers'}>{n.state}</span>}
         <Tags n={n} />
         {!edge && <button className="chip-btn" onClick={() => ctx.go(`build?view=data&dataset=${n.id}`)} data-testid={`pt-data-${n.id}`} title="Versions, diff, what used each one, card, export">Data →</button>}</div>
-      {(versions.length > 0 || runs.length > 0) && <ul>
+      {(versions.length > 0 || runs.length > 0 || frames.length > 0) && <ul>
         {runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} trained={e} /> : null })}
+        {frames.map((e) => { const f = ctx.ix.node.get(`join_frame:${e.dst.id}`); return f ? <FrameNode key={f.id} n={f} ctx={ctx} edge={e} /> : null })}
         {versions.map((e) => { const d = ctx.ix.node.get(`dataset:${e.dst.id}`); return d ? <DatasetNode key={d.id} n={d} ctx={ctx} edge={e} /> : null })}
       </ul>}
+    </li>
+  )
+}
+
+/** P14 (C §2.8): a join frame under each input version it read (joined_from; merged_from for another dataset's table),
+ *  naming the tables it took from that version; the runs trained on the frame hang off it. */
+function FrameNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge: LEdge }) {
+  const runs = (ctx.ix.out.get(`join_frame:${n.id}`) ?? []).filter((e) => e.relation === 'trained_on')
+  const tables = (edge.meta.tables as { table: string; role: string; table_sha256: string }[] | undefined) ?? []
+  return (
+    <li data-testid={`pt-frame-${n.id}`} className={ctx.focus === `join_frame:${n.id}` ? 'pt-focus' : ''}>
+      <div className="pt-row"><span className="pt-ico" title="join frame">⋈</span><b>{n.join_name ?? n.join_id}</b> <span className="muted">v{n.spec_version}</span> <span className="mono muted">{n.id}</span>
+        <span className={`pt-chip ${edge.relation === 'merged_from' ? 'op' : ''}`} title={edge.relation === 'merged_from' ? 'this version is an input from another dataset' : "this version's tables are inputs"}>{edge.relation.replace('_', ' ')}: {tables.map((t) => `${t.table} (${t.role})`).join(', ')}</span>
+        <span className="pt-chip">{(n.n_rows ?? 0).toLocaleString()} rows · grain {n.grain_table}</span>
+        {n.frame_sha256 && <span className="pt-chip mono" title={`frame identity ${n.frame_sha256}; cache file ${n.cache_blob}`}>frame {n.frame_sha256.slice(0, 8)}</span>}</div>
+      {runs.length > 0 && <ul>{runs.map((e) => { const r = ctx.ix.node.get(`run:${e.dst.id}`); return r ? <RunNode key={r.id} n={r} ctx={ctx} trained={e} /> : null })}</ul>}
     </li>
   )
 }

@@ -3,6 +3,7 @@ import { data, type DsEditOp, type DsEditPreview, type DsGrid, type DsHistory, t
 import { useFetch } from '@/shared/hooks/useFetch'
 import { pctText, settle, type JobProgress } from '@/shared/api/jobs'
 import { ErrorCard, Loading } from '@/shared/components/Status'
+import { useCan, why } from './Governance'
 
 /** DL3: edit a version as typed operations. Cell edits, row deletes and column actions pile up as pending operations;
  *  Preview (writes nothing) shows what the new version would be; "Create vN" (reason required) commits it as a NEW
@@ -12,12 +13,15 @@ type ColAction = 'rename_column' | 'drop_column' | 'cast_column' | 'fill_missing
 const PAGE = 25
 const show = (v: unknown) => (v == null ? '' : typeof v === 'number' ? (Number.isInteger(v) ? String(v) : v.toPrecision(6).replace(/\.?0+$/, '')) : String(v))
 
-export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
-  d: DsHistory; v: DsVersion; by: string; onClose: () => void; onCreated: (vid: string, text: string) => void; onErr: (e: unknown) => void
+export function EditVersion({ d, v, by, table, onClose, onCreated, onErr }: {
+  d: DsHistory; v: DsVersion; by: string; table?: string | null; onClose: () => void; onCreated: (vid: string, text: string) => void; onErr: (e: unknown) => void
 }) {
   const [q, setQ] = useState('')
   const [page, setPage] = useState(0)
-  const grid = useFetch<DsGrid>(() => data.grid(v.id, { offset: page * PAGE, limit: PAGE, q }), [v.id, page, q])
+  // P20/U2: an unmasked read needs a reason (audited); refused → still masked, with unmasked_refused
+  const [unmask, setUnmask] = useState<{ open: boolean; reason: string; on: boolean }>({ open: false, reason: '', on: false })
+  const canUnmask = useCan('data.read_unmasked', 'dataset', v.id, by)
+  const grid = useFetch<DsGrid>(() => data.grid(v.id, { offset: page * PAGE, limit: PAGE, q, table, unmasked: unmask.on, reason: unmask.reason }), [v.id, page, q, table, unmask.on])
   const [cells, setCells] = useState<Record<string, { row: number; column: string; value: string; old: unknown }>>({})
   const [deleted, setDeleted] = useState<Set<number>>(new Set())
   const [ops, setOps] = useState<{ op: DsEditOp; label: string }[]>([])
@@ -39,8 +43,9 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
   const allOps = useMemo<DsEditOp[]>(() => {
     const out: DsEditOp[] = []
     const ce = Object.values(cells)
-    if (ce.length) out.push({ op: 'set_cells', cells: ce.map((c) => ({ row: c.row, column: c.column, value: c.value })) })
-    if (deleted.size) out.push({ op: 'delete_rows', rows: [...deleted].sort((a, b) => a - b) })
+    // U2 (P07 note): rows are named by __row_id (the grid's _row_id), not by position
+    if (ce.length) out.push({ op: 'set_cells', cells: ce.map((c) => ({ row_id: c.row, column: c.column, value: c.value })) })
+    if (deleted.size) out.push({ op: 'delete_rows', row_ids: [...deleted].sort((a, b) => a - b) })
     return [...out, ...ops.map((o) => o.op)]
   }, [cells, deleted, ops])
   const pending = [
@@ -85,12 +90,12 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
 
   const preview = async () => {
     setBusy(true)
-    try { setPv(await data.editPreview(v.id, allOps, by)) } catch (e) { onErr(e) } finally { setBusy(false) }
+    try { setPv(await data.editPreview(v.id, allOps, by, table)) } catch (e) { onErr(e) } finally { setBusy(false) }
   }
   const create = async () => {
     setBusy(true); setProg(null)
     try {
-      const r = await settle(data.edit(v.id, allOps, by, reason.trim()), (p) => setProg(p))
+      const r = await settle(data.edit(v.id, allOps, by, reason.trim(), 'auto', table), (p) => setProg(p))
       if (!r.created) onCreated(r.duplicate_of ?? r.id, `Nothing new: the result has the same bytes as ${r.duplicate_of}, so no version was made.`)
       else onCreated(r.id, `v${pv?.v} (${r.id}) created from v${v.v}: ${(r.edit?.ops_summary ?? []).join('; ')}. `
         + (r.default?.is_default ? 'It is now the default.' : `Not the default (${r.default?.why}): review it, then make it the default.`))
@@ -102,7 +107,7 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
   return (
     <div className="card" data-testid="data-editor">
       <div className="card-head">
-        <div className="left"><h3 className="card-title">Edit v{v.v}</h3>
+        <div className="left"><h3 className="card-title">Edit v{v.v}{table ? <span className="mono"> · {table}</span> : null}</h3>
           <span className="helper" style={{ fontSize: 12 }}>changes are saved as a new version (v{d.versions.length + 1}); v{v.v} is never modified</span></div>
         <button className="btn sm ghost" onClick={onClose} data-testid="edit-close">Close</button>
       </div>
@@ -113,21 +118,33 @@ export function EditVersion({ d, v, by, onClose, onCreated, onErr }: {
         <button className="btn sm ghost" disabled={!g || (page + 1) * PAGE >= g.matching} onClick={() => setPage(page + 1)} aria-label="next page" data-testid="edit-next">›</button>
         <span className="edit-sep" />
         <button className="btn sm ghost" onClick={() => setNewRow(Object.fromEntries(cols.map((c) => [c.name, ''])))} data-testid="edit-add-row">+ Row</button>
+        {(g?.masked_columns?.length || unmask.on) ? <>
+          <span className="edit-sep" />
+          {unmask.on ? <span className="unmask-bar" data-testid="unmasked-on">{g?.unmasked ? <>🔓 <b>unmasked</b> <span className="helper">“{unmask.reason}” · this read is audited</span></> : null}
+            <button className="btn sm ghost" onClick={() => setUnmask({ open: false, reason: '', on: false })} data-testid="unmask-off">Mask again</button></span>
+            : unmask.open ? <span className="unmask-bar"><input className="input" style={{ width: 200 }} placeholder="why you need the clear values (audited)" value={unmask.reason} onChange={(e) => setUnmask({ ...unmask, reason: e.target.value })} data-testid="unmask-reason" />
+              <button className="btn sm" disabled={unmask.reason.trim().length < 2} onClick={() => { setUnmask({ ...unmask, on: true }); setPage(0) }} data-testid="unmask-go">Show</button>
+              <button className="btn sm ghost" onClick={() => setUnmask({ open: false, reason: '', on: false })}>✕</button></span>
+              : <button className="btn sm" disabled={!by || canUnmask?.allow === false} title={why(canUnmask, 'Show the clear values of the masked columns: give a reason; the read is audited')} onClick={() => setUnmask({ ...unmask, open: true })} data-testid="unmask">Unmask (reason)…</button>}
+          {!unmask.on && <span className="helper" data-testid="masked-note">🔒 {g!.masked_columns!.length} masked: {g!.masked_columns!.join(', ')}</span>}
+          {!unmask.on && canUnmask?.allow === false && <span className="helper" data-testid="unmask-why">· {why(canUnmask)}</span>}
+        </> : null}
       </div>
+      {g?.unmasked_refused && <div className="card-body data-warn" role="alert" data-testid="unmasked-refused">✕ <b>Unmasked read refused</b>: {g.unmasked_refused.message} (needs {g.unmasked_refused.needed}{g.unmasked_refused.role ? `, you are ${g.unmasked_refused.role}` : ''}). The rows below are still masked; the request was recorded.</div>}
       {grid.err && !g ? <ErrorCard inline err={grid.err} /> : !g ? <Loading inline>Reading rows…</Loading> : (
         <div className="table-wrap edit-grid-wrap"><table className="table edit-grid" data-testid="edit-grid">
-          <thead><tr><th className="r">_row</th>{g.columns.map((c) => <th key={c.name}>{c.name} <span className="muted" style={{ fontWeight: 400 }}>{c.kind}</span></th>)}<th /></tr></thead>
+          <thead><tr><th className="r">_row</th>{g.columns.map((c) => <th key={c.name} title={c.masked ? `PII: masked (${c.mask}); edits to it still go to the stored value` : undefined} data-testid={c.masked ? `masked-col-${c.name}` : undefined}>{c.masked ? '🔒 ' : ''}{c.name} <span className="muted" style={{ fontWeight: 400 }}>{c.masked ? `masked · ${c.mask}` : c.kind}</span></th>)}<th /></tr></thead>
           <tbody>
             {newRow && <tr className="edit-newrow">
               <td className="r mono">new</td>
               {g.columns.map((c) => <td key={c.name}><input className="input edit-cell-input" value={newRow[c.name] ?? ''} onChange={(e) => setNewRow({ ...newRow, [c.name]: e.target.value })} aria-label={`new ${c.name}`} /></td>)}
               <td className="nowrap"><button className="btn sm" onClick={addRow} data-testid="edit-add-row-ok">Add</button> <button className="btn sm ghost" onClick={() => setNewRow(null)}>✕</button></td></tr>}
             {g.rows.map((r) => {
-              const row = r._row as number
+              const row = (r._row_id ?? r._row) as number  // __row_id: what an edit names (P07)
               const gone = deleted.has(row)
               return (
                 <tr key={row} className={gone ? 'edit-deleted' : ''} data-testid={`edit-row-${row}`}>
-                  <td className="r mono muted">{row}</td>
+                  <td className="r mono muted" title={`__row_id ${row}`}>{String(r._row ?? row)}</td>
                   {g.columns.map((c) => {
                     const k = `${row}|${c.name}`
                     const p = cells[k]
