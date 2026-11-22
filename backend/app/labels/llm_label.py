@@ -152,7 +152,8 @@ def create_prompt(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any
         sch = C.schema(con, layer_id, body.get("schema_version"))
         if not sch:
             raise HTTPException(409, {"code": "no_schema", "message": "The layer has no schema version."})
-        col = body.get("column")
+        col = body.get("column") or next((c.get("column") for c in (sch["spec_obj"].get("columns") or [])
+                                          if c.get("type", "class") == "class" and c.get("role", "target") == "target"), None)
         classes = C.classes_of(sch["spec_obj"], col) if col else None
         if not classes:
             raise HTTPException(400, f"column: a class column of schema v{sch['version']}.")
@@ -185,8 +186,20 @@ def get_prompt(con: Any, pid: str) -> dict[str, Any]:
         raise HTTPException(404, f"No prompt '{pid}'.")
     p["spec"] = C.loads(p["context_json"], {})
     cal = C.one(con, "SELECT * FROM label_calibrations WHERE prompt_id = ? ORDER BY created_at DESC LIMIT 1", (pid,))
-    p["calibration"] = ({**C.loads(cal["record"], {}), "id": cal["id"], "passed": bool(cal["passed"])} if cal else None)
+    p["calibration"] = _cal_out(cal)
+    p["context"] = p["spec"].get("context")
     return p
+
+
+def _cal_out(cal: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not cal:
+        return None
+    rec = C.loads(cal["record"], {}) if "record" in cal else dict(cal)
+    cert = rec.get("certify") or {}
+    return {**rec, "id": cal.get("id"), "passed": bool(cal.get("passed", rec.get("passed"))), "tau": rec.get("tau_star"),
+            "coverage_at_tau": cert.get("coverage"), "accuracy_at_tau": cert.get("acc"),
+            "wilson": [cert.get("acc_lo"), None] if cert else None,
+            "per_class": {k: {"n": v["n"], "accuracy": v.get("recall")} for k, v in (rec.get("per_class") or {}).items()}}
 
 
 def list_prompts(layer_id: str) -> list[dict[str, Any]]:
@@ -712,9 +725,68 @@ def get_run(rid: str) -> dict[str, Any]:
         if not r:
             raise HTTPException(404, f"No LLM run '{rid}'.")
     r["selector"] = {k: v for k, v in (C.loads(r["selector"], {}) or {}).items() if k != "row_ids"}
-    r["columns_sent"] = C.loads(r["columns_sent"], {})
+    plan = C.loads(r["columns_sent"], {}) or {}
+    r["columns"] = plan
+    r["columns_sent"] = (plan.get("sent") or []) + (plan.get("masked") or []) + (plan.get("free_text") or [])
+    r["columns_excluded"] = [e["column"] for e in plan.get("excluded") or []]
     r["result"] = C.loads(r.get("result"), None)
+    res = r["result"] or {}
+    r["calibration"] = _cal_out(res.get("calibration")) if res.get("calibration") else None
+    r["accepted"] = res.get("auto_accepted")
     return r
+
+
+def list_runs(layer_id: str) -> list[dict[str, Any]]:
+    d = _ensure()
+    with d.connect() as con:
+        ids = [x["id"] for x in C.rows(con, "SELECT r.id FROM label_llm_runs r JOIN label_prompts p ON p.id = r.prompt_id WHERE p.layer_id = ?"
+                                            " ORDER BY r.created_at DESC LIMIT 200", (layer_id,))]
+    return [get_run(i) for i in ids]
+
+
+def policy_view(layer_id: str) -> dict[str, Any]:
+    d = _ensure()
+    with d.connect() as con:
+        lay = C.layer(con, layer_id)
+        pol = (C.team_policy(con, lay.get("team_id")).get("llm_labeling") or {})
+        reqs = C.rows(con, "SELECT id, status, payload, requested_by, decided_by FROM approval_requests WHERE action = 'label.llm_unmasked'"
+                           " AND object_id = ? ORDER BY requested_at DESC", (layer_id,))
+    off = (os.environ.get("ENSEMBLE_LABEL_LLM") or "").strip().lower() == "off"
+    allowed = [x for x in (pol.get("destinations") or []) if x in destinations_allowed()]
+    reason = ("switched off (ENSEMBLE_LABEL_LLM=off)" if off else None) or (None if pol.get("enabled") else
+              "off for this team (team policy llm_labeling.enabled is false; the default)") or (None if allowed else "no destination is allowed")
+    return {"enabled": bool(pol.get("enabled")) and not off and bool(allowed), "destinations": allowed, "destination": allowed[0] if allowed else None,
+            "admin_allowlist": destinations_allowed(), "max_usd_month": pol.get("max_usd_month"), "allow_unmasked": bool(pol.get("allow_unmasked")),
+            "reason": reason, "unmasked_requests": [{"id": q["id"], "status": q["status"], "columns": (C.loads(q["payload"], {}) or {}).get("columns"),
+                                                      "requested_by": q["requested_by"], "decided_by": q["decided_by"]} for q in reqs]}
+
+
+def cancel_run(rid: str, by: str, db_q: Any) -> dict[str, Any]:
+    from ..jobs import queue as Q
+
+    r = get_run(rid)
+    if r["status"] in ("queued", "running") and r.get("job_id"):
+        Q.cancel(db_q, r["job_id"], "Cancelled.")
+        with _ensure().connect() as con:
+            con.execute("UPDATE label_llm_runs SET status = 'cancelled', finished_at = ? WHERE id = ? AND status IN ('queued','running')", (C.now(), rid))
+            C.audit(con, by, "label_llm_run_cancelled", {"llm_run_id": rid}, object_kind="label_llm_run", object_id=rid)
+    return get_run(rid)
+
+
+def accept_view(rid: str) -> dict[str, Any]:
+    """What a snapshot will apply from this run: only with a passed calibration bound to the run's (prompt, k, mode)
+    (review M9). Nothing is written: acceptance happens in the snapshot policy `accept.llm.min_confidence = τ*`."""
+    from fastapi import HTTPException
+
+    r = get_run(rid)
+    if r["purpose"] != "label":
+        raise HTTPException(400, "Only label runs are accepted.")
+    used = (r["result"] or {}).get("calibration_used") or {}
+    if not used.get("passed"):
+        raise HTTPException(409, {"code": "not_calibrated", "message": "No passed calibration for this prompt, k and mode: the LLM "
+                                  "pre-labels and people confirm (send-to-task)."})
+    return {"llm_run_id": rid, "accepted": (r["result"] or {}).get("auto_accepted"), "tau_star": used.get("tau_star"),
+            "snapshot_policy": {"accept": {"llm": {"min_confidence": str(used.get("tau_star"))}}, "exclude_simulated": r["destination"] != "fake"}}
 
 
 def preview(prompt_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:

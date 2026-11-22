@@ -66,6 +66,12 @@ async def get_task(task_id: str) -> dict[str, Any]:
             t = T.public_task(T.get_task(con, task_id))
             t["members"] = T.members(con, task_id)
             t["counts"] = {r["status"]: r["n"] for r in C.rows(con, "SELECT status, COUNT(*) AS n FROM label_assignments WHERE task_id = ? GROUP BY status", (task_id,))}
+            c = t["counts"]
+            t["progress"] = {"total": sum(c.values()), "open": c.get("open", 0), "leased": c.get("leased", 0), "done": c.get("done", 0),
+                             "skipped": c.get("skipped", 0), "disputed": len(T.disputed_rows(con, T.get_task(con, task_id))),
+                             "gold": C.one(con, "SELECT COUNT(*) AS n FROM label_assignments WHERE task_id = ? AND is_gold = 1", (task_id,))["n"]}
+            sch = C.schema(con, t["layer_id"], t["schema_version"])
+            t["classes"] = (C.classes_of(sch["spec_obj"], t["columns"][0]) if sch and t["columns"] else None) or []
             return t
     return await run_in_threadpool(go)
 
@@ -133,7 +139,10 @@ async def review(task_id: str, request: Request, kind: str = "disputed") -> dict
 
 @router.post("/label-tasks/{task_id}/adjudicate", dependencies=[MEMBERSHIP])
 async def adjudicate(task_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
-    return await run_in_threadpool(T.adjudicate, task_id, C.caller(request), list(_b(body).get("items") or []))
+    b = _b(body)
+    items = list(b.get("items") or ([{k: b.get(k) for k in ("row_id", "column", "value", "comment")} | {"comment": b.get("note") or b.get("comment")}]
+                                    if b.get("row_id") is not None else []))
+    return await run_in_threadpool(T.adjudicate, task_id, C.caller(request), items)
 
 
 @router.get("/label-tasks/{task_id}/quality", dependencies=[MEMBERSHIP])
@@ -195,7 +204,8 @@ async def list_proposals(layer_id: str) -> dict[str, Any]:
 @router.post("/label-proposals/{proposal_id}/decide", dependencies=[require("label.proposal_decide", path("proposal_id", "label_proposal"))])
 async def decide(proposal_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
     b = _b(body)
-    return await run_in_threadpool(W.decide, proposal_id, bool(b.get("approve")), str(b.get("comment") or ""), C.caller(request), request.app)
+    approve = bool(b.get("approve")) or str(b.get("decision") or "").lower() == "approve"
+    return await run_in_threadpool(W.decide, proposal_id, approve, str(b.get("comment") or ""), C.caller(request), request.app)
 
 
 # -- migration (L09) -------------------------------------------------------------------------------------------------------------

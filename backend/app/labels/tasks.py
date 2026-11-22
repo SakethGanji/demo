@@ -39,6 +39,13 @@ def public_task(t: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_task(layer_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
+    if isinstance(body.get("schema"), dict) and body["schema"].get("spec"):  # the UI may send the ontology with the task
+        from .. import labels as L
+
+        try:
+            L.add_schema(C.db(), layer_id, body["schema"]["spec"], by, guidelines=body["schema"].get("guidelines") or "")
+        except L.LabelError as e:
+            raise HTTPException(e.status, e.payload()) from e
     with C.db().connect() as con:
         lay = C.layer(con, layer_id)
         sch = C.schema(con, layer_id, body.get("schema_version"))
@@ -136,7 +143,9 @@ def set_gold(task_id: str, body: dict[str, Any], by: str) -> dict[str, Any]:
     """{pool, column?, items:[{row_id, value}]} or {pool, column?, from_version: v, n, seed, exclude_pools?}: the second
     copies the current cell values of n random rows (a demo / audit convenience). Pools are disjoint per row and column
     (the primary key): a row in `few_shot` can never be in `calibration` or `qa`."""
-    pool = body.get("pool", "qa")
+    first = (body.get("items") or [{}])[0] if isinstance(body.get("items"), list) else {}
+    pool = body.get("pool") or first.get("pool") or "qa"
+    body.setdefault("column", first.get("column"))
     if pool not in ("qa", "few_shot", "calibration"):
         raise HTTPException(400, "pool is qa, few_shot or calibration.")
     with C.db().connect() as con:
@@ -178,7 +187,8 @@ def gold_summary(task_id: str) -> dict[str, Any]:
     with C.db().connect() as con:
         get_task(con, task_id)
         counts = {r["pool"]: r["n"] for r in C.rows(con, "SELECT pool, COUNT(*) AS n FROM label_gold WHERE task_id = ? GROUP BY pool", (task_id,))}
-    return {"task_id": task_id, "pools": counts}
+        gold = C.rows(con, "SELECT row_id, column_name, value, pool, set_by, set_at FROM label_gold WHERE task_id = ? ORDER BY pool, row_id", (task_id,))
+    return {"task_id": task_id, "pools": counts, "gold": gold}
 
 
 def gold_rows(con: Any, task_id: str, pool: str, column: str | None = None) -> list[dict[str, Any]]:
@@ -513,8 +523,9 @@ def answer(task_id: str, pid: str, items: list[dict[str, Any]]) -> dict[str, Any
                     C.audit(con, pid, "label_annotator_paused", {"task_id": task_id, "principal_id": pid, **acc},
                             object_kind="label_task", object_id=task_id)
                 paused = {"paused": True, "reason": why, **acc}
-    return {"task_id": task_id, "written": len(res), "events": res, "skipped": skipped,
-            "gold": {"graded": len(gold_graded), "correct": sum(g["correct"] for g in gold_graded)}, "paused": paused}
+    return {"task_id": task_id, "written": len(res), "accepted": len(res), "events": res, "skipped": skipped,
+            "gold": {"graded": len(gold_graded), "n": len(gold_graded), "correct": sum(g["correct"] for g in gold_graded)},
+            "paused": bool(paused), "paused_reason": paused["reason"] if paused else None, "pause": paused}
 
 
 def gold_accuracy(con: Any, t: dict[str, Any], pid: str) -> dict[str, Any]:
@@ -697,7 +708,15 @@ def quality(task_id: str) -> dict[str, Any]:
         done = C.one(con, "SELECT COUNT(*) AS n FROM label_assignments WHERE task_id = ? AND status = 'done'", (task_id,))["n"]
         n_disp = len(disputed_rows(con, t))
         n_adj = sum(1 for d in vs.values() if d["adjudicated"])
+    for a in per.values():  # flat aliases for the UI (LB-C labels.ts Quality)
+        g = a["gold"]
+        a.update(per_hour=a["items_per_hour"], gold_n=g["n"], gold_correct=g["correct"], gold_accuracy=g["accuracy"] if g["n"] else None,
+                 gold_ci=[g["wilson_lo"], g["wilson_hi"]] if g["n"] else None,
+                 kappa=next((p["kappa"] for p in pairs if a["principal_id"] in (p["a"], p["b"])), None),
+                 paused_reason=next((m.get("paused_reason") for m in mems if m["principal_id"] == a["principal_id"] and m["role"] == "annotator"), None))
     return {"task_id": task_id, "annotators": list(per.values()), "cohen_kappa": pairs, "fleiss_kappa": fk,
+            "pairwise": [{"a": p["a"], "b": p["b"], "kappa": p["kappa"], "n": p["n_shared"]} for p in pairs],
+            "kappa": pairs[0]["kappa"] if len(pairs) == 1 else fk, "n_items": len(vs),
             "fleiss_rows": len(full), "anchoring": anch, "backlog": backlog, "done": done, "disputed": n_disp,
             "adjudicated": n_adj, "classes": classes}
 

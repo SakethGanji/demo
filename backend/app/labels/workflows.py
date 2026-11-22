@@ -175,9 +175,7 @@ def decide(proposal_id: str, approve: bool, comment: str, by: str, app: Any) -> 
     C.append(p["layer_id"], evs, p["proposed_by"])
     cols = sorted({c["column"] for c in cells})
     try:
-        from ..frames import _store
-
-        snap = L.create_snapshot(C.db(), _store(), p["layer_id"], {"columns": cols, "accept": {"edit": True}}, by)
+        snap = L.create_snapshot(app.state.db, app.state.lake, p["layer_id"], {"columns": cols, "accept": {"edit": True}}, by)
         mat = L.materialise(app, snap["id"], p["base_version_id"], by, columns=cols, reason=f"proposal {proposal_id}: {p['reason']}"[:300])
     except L.LabelError as e:
         with C.db().connect() as con:
@@ -248,7 +246,7 @@ def migrate_run(app: Any, run_id: str, by: str, dry_run: bool = False) -> dict[s
     if ids is None:
         return {**out, "status": "unmapped", "message": "The run's version has no __row_id map; skipped, never guessed."}
     classes = [str(c) for c in (rec.get("result") or {}).get("classes") or []]
-    simulated_names = set(an.SAMPLE_ANNOTATORS) if an.read_truth(run_dir) is not None else set()
+    simulated_names = {a["name"] for a in an.SAMPLE_ANNOTATORS} if an.read_truth(run_dir) is not None else set()
     csv_bytes = (an.ann_dir(run_dir) / "annotations.csv").read_bytes() if (an.ann_dir(run_dir) / "annotations.csv").exists() else b""
     fsha = hashlib.sha256(csv_bytes).hexdigest()
     evs: list[dict[str, Any]] = []
@@ -260,7 +258,8 @@ def migrate_run(app: Any, run_id: str, by: str, dry_run: bool = False) -> dict[s
             unmapped += 1
             continue
         name = str(r["annotator"])
-        sim = name in simulated_names or name.startswith("simulated")
+        src = str(r.get("source") or "")
+        sim = (src == "sample" and name in simulated_names) or name.startswith("simulated")
         evs.append({"id": _eid(run_id, "annotations.csv", pos, name, r.get("at")), "row_id": int(ids[pos]), "column": label,
                     "kind": "label", "value": str(r["label"]), "source": "migration", "actor": f"legacy:{name}",
                     "seen_version_id": rec["dataset_id"],

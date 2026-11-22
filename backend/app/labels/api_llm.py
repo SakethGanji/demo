@@ -69,3 +69,38 @@ async def request_unmasked(layer_id: str, request: Request, body: Any = Body(Non
 async def decide_unmasked(request_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
     b = _b(body)
     return await run_in_threadpool(LL.decide_unmasked, request_id, bool(b.get("approve")), str(b.get("comment") or ""), C.caller(request))
+
+
+@router.get("/label-layers/{layer_id}/llm-policy", dependencies=[require("label.read", path("layer_id", "label_layer"))])
+async def llm_policy(layer_id: str) -> dict[str, Any]:
+    return await run_in_threadpool(LL.policy_view, layer_id)
+
+
+@router.get("/label-layers/{layer_id}/llm-runs", dependencies=[require("label.read", path("layer_id", "label_layer"))])
+async def llm_runs(layer_id: str) -> dict[str, Any]:
+    return {"runs": await run_in_threadpool(LL.list_runs, layer_id)}
+
+
+@router.post("/label-llm-runs/{run_id}/cancel", dependencies=[require("label.llm_run", path("run_id", "label_llm_run"))])
+async def cancel_run(run_id: str, request: Request) -> dict[str, Any]:
+    return await run_in_threadpool(LL.cancel_run, run_id, C.caller(request), request.app.state.db)
+
+
+@router.post("/label-llm-runs/{run_id}/accept", dependencies=[require("label.llm_run", path("run_id", "label_llm_run"))])
+async def accept_run(run_id: str) -> dict[str, Any]:
+    return await run_in_threadpool(LL.accept_view, run_id)
+
+
+@router.post("/label-llm-runs/{run_id}/send-to-task", dependencies=[require("label.task_manage", path("run_id", "label_llm_run"))])
+async def send_to_task(run_id: str, request: Request, body: Any = Body(None)) -> dict[str, Any]:
+    """The run's pre-labels below τ (default: everything not auto-accepted) become a `llm_low_conf` fill of the task:
+    people confirm (Enter) or change them."""
+    from . import tasks as T
+
+    b = _b(body)
+    r = await run_in_threadpool(LL.get_run, run_id)
+    sel = {"strategy": "llm_low_conf", "n": int(b.get("n") or 500), "version_id": (r["selector"] or {}).get("version_id")}
+    if b.get("tau") is not None:
+        sel["below"] = b["tau"]
+    out = await run_in_threadpool(T.fill, b.get("task_id"), sel, C.caller(request))
+    return {**out, "added": out.get("rows")}

@@ -375,7 +375,13 @@ def answer(run_id: str, body: Answers, request: Request) -> dict[str, Any]:
             long = pd.concat([long, pd.DataFrame(add)], ignore_index=True).drop_duplicates(["row", "annotator"], keep="last")
         an.write_long(run_dir, long)
         an.write_adjudications(run_dir, adj)
-    return {"answered": len(body.answers), "votes": len(add), "adjudicated": len(adj), "reviewer": body.reviewer}
+    from ..labels import workflows as LW  # L09 adapter: a migrated run's answers also become label events
+
+    dual = LW.dual_write(request.app, rec, [{"row": a.row, "label": a.label, "annotator": body.reviewer,
+                                             "kind": "adjudicate" if a.action == "adjudicate" else "label"}
+                                            for a in body.answers if a.action != "clear"], body.reviewer)
+    return {"answered": len(body.answers), "votes": len(add), "adjudicated": len(adj), "reviewer": body.reviewer,
+            **({"label_events": dual} if dual else {})}
 
 
 @router.post("/runs/{run_id}/annotations/simulate-adjudication", dependencies=[require("run.train", path("run_id", "run"))])
