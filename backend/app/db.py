@@ -165,6 +165,22 @@ class Database:
         _pg_migrated.add(self.url)
 
     @contextmanager
+    def admin_connect(self) -> Iterator[sqlite3.Connection]:
+        """LB-PG: schema-level startup work (the backfills, which create the audit triggers and may UPDATE append-only
+        tables) runs as the owner role on Postgres when ENSEMBLE_DB_OWNER_URL is set; the app role has no such rights."""
+        if self.dialect == "postgres":
+            from . import db_pg
+            from .catalog import pg_schema
+
+            owner = pg_schema.owner_url()
+            if owner:
+                with db_pg.direct(owner) as pcon:
+                    yield pcon  # type: ignore[misc]
+                return
+        with self.connect() as con:
+            yield con
+
+    @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         if self.dialect == "postgres":
             from . import db_pg

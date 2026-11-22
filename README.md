@@ -113,6 +113,10 @@ team), every typed name counts as a platform admin and owner, and every permissi
 checks, legal holds (they still block), acknowledgements and the audit log stay on. The status bar says
 "▲ POC mode" while it is on. Never set it on a shared deployment.
 
+**On a local Postgres.** `make dev-pg` (POC: `ENSEMBLE_POC_MODE=1 make dev-pg`) creates a cluster once in `~/.ensemble/pg`, starts it on 127.0.0.1:55432 and runs `make dev` against it.
+The database password is generated into `~/.ensemble/pg/password` and never committed. `make dev-pg-stop` stops Postgres.
+In another shell, `eval "$(scripts/dev_pg.sh env)"` sets `ENSEMBLE_DB_URL` for scripts and workers (needs Postgres 16 installed).
+
 Open http://localhost:5190. On a fresh workbench Home lists the six samples; pick one and the first model trains in
 about a minute. `npm run build` type-checks and builds the UI. `node scripts/walkthrough.cjs` drives three fresh bank
 CSVs (`scripts/fresh_data.py`) through the browser with a screenshot at every stop. The demo is scripted in

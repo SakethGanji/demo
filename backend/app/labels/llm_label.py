@@ -59,6 +59,8 @@ _ddl_done = False
 def _ensure() -> Any:
     global _ddl_done
     d = C.db()
+    if not _ddl_done and getattr(d, "dialect", "sqlite") == "postgres":  # LB-PG: made at migrate (labels.schema.pg_ddl)
+        _ddl_done = True
     if not _ddl_done:
         with d.connect() as con:
             con.execute(DDL)

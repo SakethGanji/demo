@@ -1,0 +1,55 @@
+PASS 0 team created | tm_27885691
+PASS 0 add olu owner | 201
+PASS 0 add bob maintainer | 201
+PASS 0 add rev maintainer | 201
+PASS 0 add wen member | 201
+PASS 0 upload v1 in team risk | (201, 'tm_27885691')
+PASS 1 layer (ana, owner) | (201, None, '')
+PASS 1 bob (maintainer) appends 40 labels | (201, 40)
+PASS 1 status as bob: ok = 40 | {'ok': 40, 'absorbed': 0, 'stale': 0, 'base_changed': 0, 'conflict': 0, 'orphaned': 0, 'disputed': 0, 'prelabel_only': 0, 'schema_dropped': 0, 'live': 40, 'unlabelled': 260}
+PASS 2 outsider eve GET layer → 403 | (403, 'forbidden')
+PASS 2 outsider eve GET status → 403 | (403, 'forbidden')
+PASS 2 outsider eve GET events → 403 | (403, 'forbidden')
+PASS 2 outsider eve POST events → 403 | (403, 'forbidden')
+PASS 2 outsider eve POST snapshot → 403 | (403, 'forbidden')
+PASS 2 outsider eve POST tasks → 403 | (403, 'forbidden')
+PASS 2 outsider eve GET dataset rows → 403 | (403, 'forbidden')
+PASS 2 outsider eve GET layers of dataset → 403 | (403, 'forbidden')
+PASS 2 no actor header → 401/403 | 401
+PASS 3 task t1 | (201, '')
+PASS 3 vik (no team role) added as annotator → guest | (201, {'task_id': 'lt_5f0fbe928b483793', 'principal_id': 'pr_bb8df28701cc', 'role': 'annotator', 'guest': True})
+PASS 3 fill 10 | (200, {'task_id': 'lt_5f0fbe928b483793', 'fill_id': 'lf_5b6e8fca0b6bc7a2', 'strategy': 'random', 'rows': 10, 'items': 10, 'gold_items': 0, 'excluded_holdout': 0})
+PASS 3 guest vik next → items with row context | (200, 5, ['assignment_id', 'row_id', 'column', 'context', 'leased_until', 'prelabel'])
+PASS 3 guest vik answers | (200, '')
+PASS 3 guest vik GET layer → 403 | (403, 'forbidden')
+PASS 3 guest vik GET status → 403 | (403, 'forbidden')
+PASS 3 guest vik GET events → 403 | (403, 'forbidden')
+PASS 3 guest vik POST events → 403 | (403, 'forbidden')
+PASS 3 guest vik GET dataset rows → 403 | (403, 'forbidden')
+PASS 3 guest vik GET task quality → 403 | (403, 'forbidden')
+PASS 3 guest vik POST next on another task → 403 | (403, 'forbidden')
+PASS 3 guest vik POST snapshot → 403 | (403, 'forbidden')
+PASS 3 reviewer rev reads quality | 200
+PASS 4 bob proposes | (201, '')
+PASS 4 bob decides own proposal → refused (four eyes) | (409, 'four_eyes')
+PASS 4 wen (member, not maintainer) decides → 403 | (403, 'forbidden')
+PASS 4 rev (maintainer, ≠ proposer) approves → applied + new version | (200, 'applied', 'ds_22cd8b0b')
+PASS 5 snapshot by wen (member; label.snapshot = member) | (201, {'applied': 46, 'by_method': {'single': 46}, 'by_source': {'edit': 1, 'human': 45}, 'by_status': {'applied': 46}, 'disputed': 0, 'prelabel_only': 0, 'rows': 46})
+PASS 5 snapshot verify ok | 
+PASS 5 run pinned to snapshot | (201, '')
+PASS 5 run succeeded | ('succeeded', None)
+PASS 5 label-runs verify ok incl. labels_fitted | ('ok', 42, 'ok')
+PASS 5 outsider run verify → 403 | 403
+PASS 6 outsider materialise → 403 | 403
+PASS 6 materialise (bob) | (201, 37)
+PASS 7 LLM fake under enforce → clean 4xx (fake_refused), not 5xx | (201, 409, 'fake_refused')
+PASS 8 purge request (ana) | (201, '')
+PASS 8 requester decides own purge → refused (four eyes) | (409, 'four_eyes')
+PASS 8 maintainer bob decides → 403 (owner only) | (403, 'forbidden')
+PASS 8 owner olu decides → executed, labels redacted | (200, {'layers': ['ll_ac6dbe4dfd5fd5a1'], 'events_redacted': 47, 'snapshots_purged': ['lsn_0035c6ebfe3c7e58', 'lsn_66720a86d59d52cb'], 'overlay_blobs': 1, 'llm_cache_deleted': 0})
+PASS 8 no event on y keeps a value | (47, 0)
+PASS 8 run verify → purged | 
+PASS 8 snapshot verify → purged | 
+PASS 9 audit verify tm_27885691 | {'ok': True, 'rows': 71}
+PASS 9 audit verify tm_default | {'ok': True, 'rows': 51}
+DONE 54 / 54

@@ -1,0 +1,120 @@
+PASS 1 stage 3-table upload | (201, 'up_b3acbdeb43a9')
+PASS 1 plan primary + relations | (200, '')
+PASS 1 check | (200, 'multi', ['applications', 'payments', 'bureau'])
+PASS 1 commit v1 | (201, 'ds_7842280d', '')
+PASS 1 v1 primary table applications | {'primary_table': None, 'tables': None, 'target': 'default'}
+PASS 1 create layer on applications.default | (201, 'applications')
+PASS 1 append 50 human labels | (201, 50, 1)
+PASS 1 status v1 ok=50 | {'ok': 50, 'absorbed': 0, 'stale': 0, 'base_changed': 0, 'conflict': 0, 'orphaned': 0, 'disputed': 0, 'prelabel_only': 0, 'schema_dropped': 0, 'live': 50, 'unlabelled': 350}
+PASS 2 edit v2 | (201, 'ds_4464daa7', '')
+PASS 2 orphaned = deleted rows 10,12,14 | {'ok': 45, 'absorbed': 0, 'stale': 2, 'base_changed': 0, 'conflict': 0, 'orphaned': 3, 'disputed': 0, 'prelabel_only': 0, 'schema_dropped': 0, 'live': 45, 'unlabelled': 350}
+PASS 2 stale = context-edited rows 2,4 (income/purpose) | {2: 'stale', 4: 'stale'}
+PASS 2 row 6 (age, not a context column) stays ok | ok
+FAIL 2 row 8 (base target edited) → conflict/base_changed (not ok) | ok
+FAIL 2 ok count = 50-3-2-1 = 44 | 45
+PASS 2 re-label stale row 2 → ok | (201, 'ok', {'ok': 46, 'absorbed': 0, 'stale': 1, 'base_changed': 0, 'conflict': 0, 'orphaned': 3, 'disputed': 0, 'prelabel_only': 0, 'schema_dropped': 0, 'live': 46, 'unlabelled': 350})
+PASS 3 create task | (201, '')
+PASS 3 member vik annotator | (201, '')
+PASS 3 member wen annotator | (201, '')
+PASS 3 member rev reviewer | (201, '')
+PASS 3 gold qa 10 | (200, {'task_id': 'lt_38c6261e2b4bfbdd', 'pool': 'qa', 'column': 'default', 'added': 10, 'refused_other_pool': 0, 'pools': {'qa': 10}})
+PASS 3 fill random 20 | (200, {'task_id': 'lt_38c6261e2b4bfbdd', 'fill_id': 'lf_f65cc3a5aca9c39c', 'strategy': 'random', 'rows': 20, 'items': 40, 'gold_items': 10, 'excluded_holdout': 0})
+PASS 3 fill gold | (200, {'task_id': 'lt_38c6261e2b4bfbdd', 'fill_id': 'lf_748db4b22822d98b', 'strategy': 'gold', 'rows': 10, 'items': 20, 'gold_items': 0, 'excluded_holdout': 0})
+PASS 3 wen next | (200, 30, '')
+PASS 3 wen answers 30 | (200, {'paused': False, 'gold': {'graded': 10, 'n': 10, 'correct': 10}})
+PASS 3 vik next | (200, 30, '')
+PASS 3 vik answers 30 | (200, {'paused': True, 'gold': {'graded': 10, 'n': 10, 'correct': 0}})
+PASS 3 vik auto-paused on gold → next 409 annotator_paused | (409, {'detail': {'code': 'annotator_paused', 'message': "Gold accuracy 0% over 10 gold items is below the task's 80%: paused until a reviewer resumes you.", 'paused_at': '2026-11-22T17:12:26+00:00'}})
+PASS 3 reviewer sees disputed | (200, 17)
+PASS 3 reviewer adjudicates | (200, {'task_id': 'lt_38c6261e2b4bfbdd', 'adjudicated': 17, 'events': [{'id': 'le_0e56a27d180fbfd5', 'seq': 112, 'row_id': 71, 'column': 'default', 'kind': 'adjudicate', 'value': 'bad', 'source': 'human'}, {'id': 'le_4375ee59713f0931', 'seq': 113, 'row_id': 100, 'column': 'default', 'kind': 'adjudic
+PASS 3 disputed empty after adjudication | 0
+PASS 3 annotator cannot read quality (403) | 403
+PASS 4 team policy: LLM on, fake | (200, 'tm_default')
+PASS 4 SQL preview join+agg | (200, 20, ['__row_id', 'income', 'age', 'purpose', 'n_pay', 'late_share', 'score'], '0e216db04c4f')
+PASS 4 LLM preview (fake) renders + answers | (200, ['columns', 'rows', 'truncated', 'tables', 'query_sha256', 'template_columns', 'prompts', 'answers', 'spent_usd', 'system', 'destination'])
+PASS 4 save prompt version | (201, 'lp_88890a82f1077ac0', 1, '0e216db04c4f', '')
+PASS 4 calibration pool 200 | (200, {'task_id': 'lt_38c6261e2b4bfbdd', 'pool': 'calibration', 'column': 'default', 'added': 200, 'refused_other_pool': 0, 'pools': {'calibration': 200, 'qa': 10}})
+PASS 4 calibrate 202 | (202, '')
+PASS 4 calibration finished | ('succeeded', {'accuracy': 0.82, 'certify': {'acc': 1.0, 'acc_lo': 0.9568, 'coverage': 0.8018867924528302, 'n': 85, 'tau': 0.8}, 'n': 200, 'passed': True, 'target': 0.95, 'tau_star': 0.8, 'id': None, 'tau': 0.8, 'coverage_at_tau': 0.8018867924528302, 'accuracy_at_tau': 1.0, 'wilson': [0.9568, None],
+PASS 4 budget: tiny max_usd → 409 over_budget | (409, 'over_budget')
+PASS 4 run 100 rows with budget | (202, 100, {'rows': 100, 'k': 1, 'tokens_system': 166, 'tokens_user_avg': 53, 'est_usd': 0.081609, 'per_request_usd': 0.0008098585714285713}, '')
+PASS 4 LLM run finished within budget | ('succeeded', '0.078054', 100, None)
+PASS 4 accept | (200, {'llm_run_id': 'lr_1456388887529d49', 'accepted': 82, 'tau_star': 0.8, 'snapshot_policy': {'accept': {'llm': {'min_confidence': '0.8'}}, 'exclude_simulated': False}})
+PASS 4 LLM events carry prompt_version + query_sha256 | (100, {'_ctx': ['age', 'income', 'purpose'], 'auto_accept': True, 'calibration_id': 'lcal_131231e7615578db', 'destination': 'fake', 'few_shot_sha': '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945', 'injection': False, 'llm_run_id': 'lr_1456388887529d49', 'model': 'claude-sonnet-5-5
+PASS 4 bad SQL → 400 with message | (400, {'detail': {'code': 'sql_error', 'message': 'Binder Error: Referenced column "nope" not found in FROM clause!'}})
+PASS 4 file read refused: SELECT * FROM read_csv('/etc/passwd') | (400, {'detail': {'code': 'sql_function', 'message': 'The query calls read_csv: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source.'}})
+PASS 4 file read refused: SELECT * FROM '/etc/passwd' | (400, {'detail': {'code': 'sql_function', 'message': "A file path cannot be read as a table; query the database's tables."}})
+PASS 4 file read refused: SELECT __row_id FROM read_parquet('x.par | (400, {'detail': {'code': 'sql_function', 'message': 'The query calls read_parquet: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source.'}})
+PASS 4 prompt with file read refused at save | (400, {'detail': {'code': 'sql_function', 'message': 'The query calls read_csv: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source.'}})
+PASS 5 snapshot incl. simulated | (201, {'applied': 64, 'by_method': {'adjudicated': 17, 'consensus': 13, 'prelabel_llm': 100, 'single': 47}, 'by_source': {'human': 77, 'llm': 100}, 'by_status': {'applied': 64, 'disputed': 13, 'prelabel_only': 100}, 'disputed': 13, 'prelabel_only': 100, 'rows': 177})
+PASS 5 snapshot verify | {'snapshot_id': 'lsn_ab74f366f5b33e9d', 'blob_ok': True, 'manifest_ok': True, 'snapshot_sha_ok': True, 'values_ok': True, 'ok': True, 'status': 'ok'}
+PASS 5 run pinned to snapshot | (201, '')
+PASS 5 run succeeded | ('succeeded', None)
+PASS 5 label-runs verify ok incl. labels_fitted | {'status': 'ok', 'rows_applied': 47, 'lf': 'ok'}
+holdout-predictions keys ['run_id', 'model', 'n_rows', 'rows', 'y_true', 'y_pred', 'classes', 'probabilities'] [{'__row_id': 4, 'y_true': 'bad'}]
+PASS 5 snapshot has applied labels on holdout rows that differ from base (test is non-vacuous) | 13
+PASS 5 holdout unchanged: holdout rows whose snapshot label differs keep base y_true | {'holdout_rows': 79, 'snapshot_rows_in_holdout_with_different_label': 13}
+PASS 5 overlay rows_applied ≤ snapshot rows outside holdout | {'rows_applied': 47, 'snap_rows_not_holdout': 50, 'snap_rows_in_holdout': 14}
+PASS 5 register | (202, '')
+PASS 5 registry hashes carry label_snapshot / overlay / labels_fitted | {"id": "mv_005c810a", "model_name": "lbx.default", "version": 1, "run_id": "run_b8993976", "status": "ready", "stage": "None", "approval": "pending", "created_at": "2026-11-22T17:12:45+00:00", "create
+PASS 6 materialise → v3 | (201, 'ds_25bcc03b', 31, {'applied': 31, 'holdout_skipped': 14, 'orphaned': 3, 'stale': 0, 'base_changed': 0, 'conflict': 0, 'absorbed': 16})
+FAIL 6 status on v3 shows absorbed = rows_changed | ({'ok': 12, 'absorbed': 48, 'stale': 1, 'base_changed': 0, 'conflict': 0, 'orphaned': 3, 'disputed': 13, 'prelabel_only': 0, 'schema_dropped': 0, 'live': 60, 'unlabelled': 323}, 31)
+PASS 6 materialise skips holdout cells | {'applied': 31, 'holdout_skipped': 14, 'orphaned': 3, 'stale': 0, 'base_changed': 0, 'conflict': 0, 'absorbed': 16}
+PASS 7 bob proposes 2 cells | (201, {'id': 'lpr_52bdf20100467b51', 'status': 'pending', 'n_cells': 2, 'events': ['le_67ad6378bb8d4f4c', 'le_13dec5b7f0c5a624']})
+PASS 7 rev (different person) approves → new version | (200, {'status': 'applied', 'version_id': 'ds_7a9fd505', 'snapshot_id': 'lsn_8392998022239869'})
+FAIL 7 new version has the proposed values | (None, ['dataset_id', 'table', 'total', 'after', 'limit'])
+FAIL 7 after a failed approve the proposal is not left half-applied | applied
+PASS 7 (POC mode) proposer self-approve → allowed in POC (four-eyes off), noted | (200, 'applied')
+PASS 8 purge request | (201, 'pur_595321b7c2')
+PASS 8 purge executed, labels redacted | (200, {'layers': ['ll_93dc431226f01983'], 'events_redacted': 234, 'snapshots_purged': ['lsn_ab74f366f5b33e9d', 'lsn_8392998022239869', 'lsn_897ff65136d62cef'], 'overlay_blobs': 1, 'llm_cache_deleted': 305})
+PASS 8 no event on 'default' keeps a value | (234, 0, [])
+PASS 8 run verify says purged | purged
+PASS 8 snapshot verify says purged | purged
+   bad POST /datasets/ds_7842280d/label-layers {"name": "x", "table": "nope", "spec": {"columns": [{"column": "default", "role" → 400
+   bad POST /datasets/ds_7842280d/label-layers [1, 2] → 422
+   bad POST /datasets/ds_7842280d/label-layers {"name": null, "spec": "notadict"} → 400
+   bad POST /label-layers/ll_93dc431226f01983/schemas {"spec": {"columns": "x"}} → 400
+   bad POST /label-layers/ll_93dc431226f01983/events {"events": [{"row_id": "abc", "column": "default", "value": "bad"}]} → 400
+   bad POST /label-layers/ll_93dc431226f01983/events {"events": [{"row_id": 1000000000000000000000000000000, "column": "default", "va → 400
+   bad POST /label-layers/ll_93dc431226f01983/events {"events": [{"row_id": 1, "column": "default", "value": {"a": 1}}]} → 400
+   bad POST /label-layers/ll_93dc431226f01983/events {"events": "x"} → 400
+   bad POST /label-layers/ll_93dc431226f01983/events {"events": [{"row_id": 1, "column": "default", "value": "bad"}, {"row_id": 1, "c → 400
+   bad POST /label-layers/ll_93dc431226f01983/events {"row_id": 1, "column": "nope", "value": "bad"} → 400
+   bad GET /label-layers/ll_93dc431226f01983/events?after_seq=-5&limit=-1  → 200
+   bad GET /label-layers/ll_93dc431226f01983/status?version_id=ds_nope  → 404
+   bad GET /label-layers/ll_93dc431226f01983/rows/99999999999999999999  → 200
+   bad GET /label-layers/ll_doesnotexist  → 404
+   bad POST /label-layers/ll_93dc431226f01983/snapshots {"policy": "x"} → 400
+   bad POST /label-layers/ll_93dc431226f01983/snapshots {"policy": {"columns": ["nope"], "stale": 5}} → 400
+   bad POST /label-snapshots/lsn_nope/materialise {"version_id": "ds_4464daa7"} → 404
+   bad POST /label-snapshots/lsn_ab74f366f5b33e9d/materialise {"version_id": "ds_nope"} → 410
+   bad GET /label-runs/run_nope/verify  → 404
+   bad POST /label-layers/ll_93dc431226f01983/tasks {"columns": ["nope"]} → 400
+   bad POST /label-layers/ll_93dc431226f01983/tasks {"columns": ["default"], "votes_per_row": "x"} → 400
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/fill {"strategy": "random", "n": "lots", "version_id": "ds_4464daa7"} → 400
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/fill {"strategy": "manual", "row_ids": ["a"], "version_id": "ds_4464daa7"} → 400
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/answers {"items": [{"assignment_id": null, "value": 1}]} → 403
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/answers {"items": "x"} → 400
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/adjudicate {"items": [{"row_id": "x", "value": "bad"}]} → 403
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/gold {"pool": "qa", "items": [{"row_id": "x", "value": "bad"}]} → 400
+   bad POST /label-tasks/lt_38c6261e2b4bfbdd/next?n=abc  → 422
+   bad POST /label-layers/ll_93dc431226f01983/prompts {"version_id": "ds_4464daa7", "query": "SELECT a.__row_id, a.income, a.age, a.pu → 410
+   bad POST /label-layers/ll_93dc431226f01983/prompts {"version_id": "ds_4464daa7", "query": "DELETE FROM applications", "prompt_templ → 400
+   bad POST /label-layers/ll_93dc431226f01983/sql/preview {"query": "SELECT a.__row_id, a.income, a.age, a.purpose, coalesce(p.n_pay,0) AS → 404
+   bad POST /label-layers/ll_93dc431226f01983/sql/preview {"version_id": "ds_4464daa7", "query": "SELECT 1 AS x"} → 410
+   bad POST /label-layers/ll_93dc431226f01983/sql/preview {"version_id": "ds_4464daa7", "query": "SELECT a.__row_id, a.income, a.age, a.pu → 400
+   bad POST /label-layers/ll_93dc431226f01983/sql/preview {"version_id": "ds_4464daa7", "query": "ATTACH 'x.db' AS y"} → 400
+   bad POST /label-layers/ll_93dc431226f01983/sql/preview {"version_id": "ds_4464daa7", "query": "SELECT __row_id FROM applications; SELEC → 400
+   bad POST /label-layers/ll_93dc431226f01983/llm/preview {"version_id": "ds_4464daa7", "query": "SELECT a.__row_id, a.income, a.age, a.pu → 410
+   bad POST /label-prompts/lp_88890a82f1077ac0/runs {"version_id": "ds_4464daa7", "max_usd": "abc"} → 410
+   bad POST /label-prompts/lp_88890a82f1077ac0/runs {"version_id": "ds_4464daa7", "max_usd": 1, "k": "z"} → 400
+   bad POST /label-prompts/lp_88890a82f1077ac0/runs {"version_id": "ds_4464daa7", "max_usd": 1, "mode": "batch"} → 400
+   bad POST /label-prompts/lp_88890a82f1077ac0/runs {"version_id": "ds_4464daa7", "max_usd": 1, "selector": {"strategy": "nope"}} → 410
+   bad POST /label-llm-runs/lr_nope/accept  → 404
+   bad POST /label-llm-runs/lr_1456388887529d49/send-to-task {"task_id": "lt_nope"} → 404
+   bad POST /label-layers/ll_93dc431226f01983/proposals {"version_id": "ds_4464daa7", "reason": "xyz", "cells": [{"row_id": "a", "column → 400
+   bad POST /label-layers/ll_93dc431226f01983/proposals {"version_id": "ds_4464daa7", "reason": "xyz", "cells": "x"} → 400
+   bad POST /label-proposals/lpr_nope/decide {"approve": true} → 404
+   bad POST /label-layers/ll_93dc431226f01983/rules {"x": 1} → 400
+PASS 9 46 bad inputs: no 5xx | []
+DONE 67 / 72

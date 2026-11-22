@@ -277,4 +277,13 @@ def pg_ddl() -> list[str]:
 
     out = [translate(s, False) for s in split_script(DDL)]
     out += [translate(f"ALTER TABLE run_inputs ADD COLUMN IF NOT EXISTS {c} {t}", False) for c, t in RUN_INPUT_COLS]
+    # LB-PG: LB-B's workflow tables and the LLM calibrations are made here too (as the owner, at migrate). On SQLite they
+    # are made lazily on first use; on Postgres the app role has no CREATE on the schema, and no grants on a late table.
+    from . import lbb_schema
+    from .llm_label import DDL as CALIB_DDL
+
+    out += [translate(s, False) for s in lbb_schema.DDL]
+    for t, cols in lbb_schema.EXTRA_COLUMNS.items():
+        out += [translate(f"ALTER TABLE {t} ADD COLUMN IF NOT EXISTS {c} {decl}", False) for c, decl in cols]
+    out.append(translate(CALIB_DDL, False))
     return out + PG_DDL

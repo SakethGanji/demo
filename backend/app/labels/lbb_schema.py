@@ -92,6 +92,9 @@ def ensure(db: Any) -> None:
     with _lock:
         if _done:
             return
+        if getattr(db, "dialect", "sqlite") == "postgres":  # LB-PG: made by catalog/pg_schema.migrate (labels.schema.pg_ddl)
+            _done = True
+            return
         with db.connect() as con:
             for s in DDL:
                 con.execute(s)

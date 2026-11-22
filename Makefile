@@ -6,7 +6,7 @@ PY := $(VENV)/bin/python
 API_PORT ?= 8000
 UI_PORT ?= 5190
 
-.PHONY: setup lock dev api ui smoke realdata reset test test-full test-backend test-backend-full test-ui e2e clean-data
+.PHONY: setup lock dev dev-pg dev-pg-stop api ui smoke realdata reset test test-full test-backend test-backend-full test-ui e2e clean-data
 
 ## Create the Python venv, install the pinned backend deps and the npm packages.
 setup:
@@ -33,6 +33,16 @@ dev:
 	(cd backend && ENSEMBLE_DEV_RELOAD=1 .venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --reload-dir ensemble_models --port $(API_PORT)) & \
 	ENSEMBLE_API_URL=http://127.0.0.1:$(API_PORT) npx vite --port $(UI_PORT) & \
 	wait
+
+## LB-PG: `make dev` on a local Postgres (scripts/dev_pg.sh). Initdbs once into ~/.ensemble/pg (ENSEMBLE_PG_DIR; backend/data/pg
+## as root), starts it on 127.0.0.1:55432 (ENSEMBLE_PG_PORT), creates the db `ensemble` and the roles ens_owner / ens_app (a
+## password generated into <dir>/password, never committed), exports ENSEMBLE_DB_URL / _OWNER_URL / _APP_ROLE and runs
+## `make dev`. Postgres keeps running after Ctrl+C; make dev-pg-stop stops it.
+dev-pg:
+	scripts/dev_pg.sh dev
+
+dev-pg-stop:
+	scripts/dev_pg.sh stop
 
 api:
 	cd backend && ENSEMBLE_DEV_RELOAD=1 .venv/bin/python -m uvicorn app.main:app --reload --reload-dir app --reload-dir ensemble_models --port $(API_PORT)

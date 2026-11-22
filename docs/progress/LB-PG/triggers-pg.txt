@@ -1,0 +1,25 @@
+label triggers: ['audit_ro_d', 'audit_ro_u', 'le_ro_d', 'le_ro_u', 'ri_label_ro_u', 'ri_ro_d', 'ri_ro_u']
+label tables: 17
+events live/purged sample: ('le_7065f2fe65d77c0d',) ('le_23d97fa5948f0768',) pinned run: ('run_4d475d90',)
+app   UPDATE label_events SET value = '"x"' WHERE id = 'le_7065f2fe65d77c0d'                          → IntegrityConstraintViolation: label events are append-only (only a purge may redact)
+app   UPDATE label_events SET actor = 'mallory' WHERE id = 'le_23d97fa5948f0768'                      → InsufficientPrivilege: permission denied for table label_events
+app   DELETE FROM label_events WHERE id = 'le_7065f2fe65d77c0d'                                       → InsufficientPrivilege: permission denied for table label_events
+app   UPDATE label_events SET purged_at = 'now', purge_id = 'p', value = NULL, provenance = '{}', row → InsufficientPrivilege: permission denied for table label_events
+app   UPDATE label_events SET purged_at = 'now', purge_id = 'p', value = NULL, provenance = '{}', row → ForeignKeyViolation: insert or update on table "label_events" violates foreign key constraint "label_events_purge_id_fkey"
+app   UPDATE run_inputs SET label_snapshot_id = 'x' WHERE run_id = 'run_4d475d90'                     → InsufficientPrivilege: permission denied for table run_inputs
+app   UPDATE run_inputs SET labels_fitted_sha256 = 'x' WHERE run_id = 'run_4d475d90'                  → InsufficientPrivilege: permission denied for table run_inputs
+app   UPDATE audit_log SET actor = 'x'                                                                → InsufficientPrivilege: permission denied for table audit_log
+app   DELETE FROM audit_log                                                                           → InsufficientPrivilege: permission denied for table audit_log
+app   CREATE TABLE zz (a int)                                                                         → InsufficientPrivilege: permission denied for schema public
+app   DROP TRIGGER le_ro_u ON label_events                                                            → InsufficientPrivilege: must be owner of relation label_events
+owner UPDATE label_events SET value = '"x"' WHERE id = 'le_7065f2fe65d77c0d'                          → IntegrityConstraintViolation: label events are append-only (only a purge may redact)
+owner UPDATE label_events SET actor = 'mallory' WHERE id = 'le_23d97fa5948f0768'                      → IntegrityConstraintViolation: label events are append-only (only a purge may redact)
+owner DELETE FROM label_events WHERE id = 'le_7065f2fe65d77c0d'                                       → IntegrityConstraintViolation: label events are append-only
+owner UPDATE label_events SET purged_at = 'now', purge_id = 'p', value = NULL, provenance = '{}', row → IntegrityConstraintViolation: label events are append-only (only a purge may redact)
+owner UPDATE label_events SET purged_at = 'now', purge_id = 'p', value = NULL, provenance = '{}', row → ForeignKeyViolation: insert or update on table "label_events" violates foreign key constraint "label_events_purge_id_fkey"
+owner UPDATE run_inputs SET label_snapshot_id = 'x' WHERE run_id = 'run_4d475d90'                     → IntegrityConstraintViolation: run inputs are immutable
+owner UPDATE run_inputs SET labels_fitted_sha256 = 'x' WHERE run_id = 'run_4d475d90'                  → IntegrityConstraintViolation: run inputs are immutable
+owner UPDATE audit_log SET actor = 'x'                                                                → IntegrityConstraintViolation: audit is append-only
+owner DELETE FROM audit_log                                                                           → IntegrityConstraintViolation: audit is append-only
+owner CREATE TABLE zz (a int)                                                                         → OK rows=-1
+owner DROP TRIGGER le_ro_u ON label_events                                                            → OK rows=-1
