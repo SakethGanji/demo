@@ -52,6 +52,8 @@ v4. Nobody can label a dataset without first training a run on it. **There is no
   to happen must not be trained as "no default"). All in the plan. We build it **natively** rather than embedding
   Label Studio (§11).
 
+- **It is built to grow** (§15): sources, task types, consensus methods and queue strategies are registered plug-ins with fixed contracts; the event key already covers spans, pairs and lists; a staged path (Postgres partitioning, lake event segments, incremental snapshots, sharded queues) takes it from the POC to millions of labels without changing stored data.
+
 Cost: **13 sessions (~26 h)**: 10 backend, 2 UI, 1 independent check.
 
 ---
@@ -127,14 +129,30 @@ CREATE TABLE label_schemas (                             -- the ontology, versio
   created_at TEXT NOT NULL, created_by TEXT NOT NULL, UNIQUE (layer_id, version));
 
 -- ═════ the event log (append-only) ═════════════════════════════════════════════════════════════════════════════
+-- ═════ extension registries (§15.1): adding a source / task type / method / strategy is an INSERT, never DDL ════════
+CREATE TABLE label_source_types (name TEXT PRIMARY KEY, machine INTEGER NOT NULL CHECK (machine IN (0,1)),
+  precedence INTEGER NOT NULL, may_grade_holdout INTEGER NOT NULL DEFAULT 0 CHECK (may_grade_holdout IN (0,1)),
+  module TEXT NOT NULL, since_fmt INTEGER NOT NULL DEFAULT 1);
+  -- seeded: human(0,10,1) import(0,20,1) migration(0,30,1) edit(0,40,1) rule(1,50,0) llm(1,60,0) model(1,70,0)
+  --         cleanlab(1,80,0); later: feedback(0,25,1) …
+CREATE TABLE label_task_types (name TEXT PRIMARY KEY, item_shape TEXT NOT NULL
+  CHECK (item_shape IN ('cell','row_span','pair','list')), value_kind TEXT NOT NULL, module TEXT NOT NULL);
+  -- seeded: class, multi_label, number, text, cell_correction (cell); later span (row_span), pairwise (pair), ranking (list)
+CREATE TABLE label_consensus_methods (name TEXT PRIMARY KEY, task_types TEXT NOT NULL, module TEXT NOT NULL);
+  -- seeded: majority, crowdlab, single; later dawid_skene, span_iou, bradley_terry …
+CREATE TABLE label_queue_strategies (name TEXT PRIMARY KEY, module TEXT NOT NULL, needs_run INTEGER NOT NULL DEFAULT 0);
+  -- seeded: random, active, cleanlab, disputed, stale, gold, llm_low_conf, rule_conflict, proposal, manual
+
 CREATE TABLE label_events (
-  id TEXT PRIMARY KEY,                                   -- le_ (deterministic for imports/migration: idempotent)
+  fmt INTEGER NOT NULL DEFAULT 1,                        -- event format version (§15.3)
+  id TEXT NOT NULL,                                      -- le_ (deterministic for imports/migration: idempotent)
   layer_id TEXT NOT NULL REFERENCES label_layers(id), seq BIGINT NOT NULL,
   row_id BIGINT NOT NULL, column_name TEXT NOT NULL,
+  item_key TEXT NOT NULL DEFAULT '',                     -- '' for cell items; 'pair:<row_id>' | 'list:<list_id>' later (§15.1)
   kind TEXT NOT NULL CHECK (kind IN ('label','confirm','reject','adjudicate','retract','propose','flag')),
   value TEXT,                                            -- canonical text (§4.1); NULL with is_null=1 = "should be empty"
   is_null INTEGER NOT NULL DEFAULT 0 CHECK (is_null IN (0,1)),
-  source TEXT NOT NULL CHECK (source IN ('human','llm','model','rule','import','cleanlab','edit','migration')),
+  source TEXT NOT NULL REFERENCES label_source_types(name),
   actor TEXT NOT NULL,                                   -- principal id; jobs: the job's by_principal; machine id in provenance
   task_id TEXT, assignment_id TEXT, refers_to TEXT,      -- confirm/reject/retract/adjudicate point at an event or proposal
   schema_version INTEGER NOT NULL,
@@ -146,8 +164,8 @@ CREATE TABLE label_events (
                                                          --  rule_id, file_sha256, run_id, ms_spent, blind, simulated}
   created_at TEXT NOT NULL,
   purged_at TEXT, purge_id TEXT,
-  UNIQUE (layer_id, seq));
-CREATE INDEX ix_le_row ON label_events (layer_id, row_id, column_name, seq);
+  PRIMARY KEY (layer_id, seq), UNIQUE (layer_id, id));      -- partition-ready on Postgres (§15.2: hash by layer_id)
+CREATE INDEX ix_le_row ON label_events (layer_id, row_id, column_name, item_key, seq);
 CREATE INDEX ix_le_task ON label_events (task_id, actor);
 CREATE INDEX ix_le_source ON label_events (layer_id, source, seq);
 
@@ -157,7 +175,7 @@ CREATE TRIGGER le_ro_u BEFORE UPDATE ON label_events
   WHEN NOT (OLD.purged_at IS NULL AND NEW.purged_at IS NOT NULL AND NEW.purge_id IS NOT NULL
             AND NEW.value IS NULL AND NEW.provenance = '{}' AND NEW.row_hash_ctx IS NULL AND NEW.row_hash_all IS NULL
             AND NEW.base_value_hash IS NULL
-            AND NEW.id = OLD.id AND NEW.layer_id = OLD.layer_id AND NEW.seq = OLD.seq AND NEW.row_id = OLD.row_id
+            AND NEW.id = OLD.id AND NEW.fmt = OLD.fmt AND NEW.item_key = OLD.item_key AND NEW.layer_id = OLD.layer_id AND NEW.seq = OLD.seq AND NEW.row_id = OLD.row_id
             AND NEW.column_name = OLD.column_name AND NEW.kind = OLD.kind AND NEW.source = OLD.source
             AND NEW.actor = OLD.actor AND NEW.created_at = OLD.created_at)
   BEGIN SELECT RAISE(ABORT, 'label events are append-only (only a purge may redact)'); END;
@@ -165,6 +183,8 @@ CREATE TRIGGER le_ro_u BEFORE UPDATE ON label_events
 -- ═════ tasks, membership, queue, gold ══════════════════════════════════════════════════════════════════════════
 CREATE TABLE label_tasks (
   id TEXT PRIMARY KEY, layer_id TEXT NOT NULL REFERENCES label_layers(id), name TEXT NOT NULL,
+  task_type TEXT NOT NULL REFERENCES label_task_types(name),
+  consensus TEXT NOT NULL DEFAULT 'majority' REFERENCES label_consensus_methods(name),
   schema_version INTEGER NOT NULL, columns_json TEXT NOT NULL,     -- the columns labelled/corrected in this task
   context_json TEXT NOT NULL,                                      -- columns shown (masked per viewer); the row-hash context
   votes_per_row INTEGER NOT NULL DEFAULT 1, gold_share TEXT NOT NULL DEFAULT '0.05',
@@ -182,12 +202,13 @@ CREATE TABLE label_task_members (task_id TEXT NOT NULL REFERENCES label_tasks(id
 CREATE TABLE label_assignments (
   id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES label_tasks(id), row_id BIGINT NOT NULL,
   version_id TEXT NOT NULL,                                        -- the version rows are served from
-  reason TEXT NOT NULL CHECK (reason IN ('random','active','cleanlab','disputed','stale','gold','llm_low_conf','rule_conflict','proposal','manual')),
+  item_key TEXT NOT NULL DEFAULT '',
+  reason TEXT NOT NULL REFERENCES label_queue_strategies(name),
   priority TEXT NOT NULL DEFAULT '0', is_gold INTEGER NOT NULL DEFAULT 0, is_blind INTEGER NOT NULL DEFAULT 0,
   assignee TEXT, status TEXT NOT NULL CHECK (status IN ('open','leased','done','skipped','expired','cancelled')),
   leased_until TEXT, done_at TEXT, created_at TEXT NOT NULL, fill_id TEXT NOT NULL);
 CREATE INDEX ix_la_next ON label_assignments (task_id, status, priority DESC, row_id);
-CREATE UNIQUE INDEX ux_la_once ON label_assignments (task_id, row_id, assignee) WHERE assignee IS NOT NULL;
+CREATE UNIQUE INDEX ux_la_once ON label_assignments (task_id, row_id, item_key, assignee) WHERE assignee IS NOT NULL;
 CREATE TABLE label_gold (task_id TEXT NOT NULL REFERENCES label_tasks(id), row_id BIGINT NOT NULL, column_name TEXT NOT NULL,
   value TEXT, pool TEXT NOT NULL CHECK (pool IN ('qa','few_shot','calibration')),  -- disjoint pools (§5.10)
   set_by TEXT NOT NULL, set_at TEXT NOT NULL, PRIMARY KEY (task_id, row_id, column_name));
@@ -922,7 +943,7 @@ push, push to motion-components only, the tracker's commit trailer. Every phase 
 
 | # | Lane | Goal | Files touched | Manual API verification chain | Done when | Depends on |
 |---|---|---|---|---|---|---|
-| **L01** | D | Schema + store: §3.1 DDL (+ PG §3.2), blobs/blob_refs CHECK rebuild, `run_inputs` columns + trigger, `labels/store.py` (append with seq, canonical values, schema validation), layers/schemas/events routes, `label.*` actions in policy | `catalog/schema.py`, `catalog/pg_schema.py`, `authz/policy.py`, `labels/__init__.py`, `labels/store.py`, `labels/values.py`, `labels/api.py` (layers, schemas, events, row history), `main.py` (router) | restart API twice (idempotent); `$A POST /datasets/{root}/label-layers {table:"data",name:"category"}` → 201 default; `POST …/schemas` (4 classes); `$A POST …/events` 3 events → seqs 1–3; class "Bogus" → 400; NaN → 400; `GET …/rows/{rid}` history; `sqlite3 "UPDATE label_events SET value='x'"` → abort; DELETE → abort; 10k events in 20 batches < 5 s; repeat on PG; `/authz/coverage` 100 % | events append-only, seq prefix, schema validated | — |
+| **L01** | D | Schema + store: §3.1 DDL (+ PG §3.2), blobs/blob_refs CHECK rebuild, `run_inputs` columns + trigger, `labels/store.py` (append with seq, canonical values, schema validation), layers/schemas/events routes, `label.*` actions in policy | `catalog/schema.py`, `catalog/pg_schema.py`, `authz/policy.py`, `labels/__init__.py`, `labels/store.py`, `labels/values.py`, `labels/registry.py` + `labels/plugins/{sources,tasks,consensus,strategies}/` (protocols + slice plug-ins, §15), `labels/api.py` (layers, schemas, events, row history), `main.py` (router) | restart API twice (idempotent); `$A POST /datasets/{root}/label-layers {table:"data",name:"category"}` → 201 default; `POST …/schemas` (4 classes); `$A POST …/events` 3 events → seqs 1–3; class "Bogus" → 400; NaN → 400; `GET …/rows/{rid}` history; `sqlite3 "UPDATE label_events SET value='x'"` → abort; DELETE → abort; 10k events in 20 batches < 5 s; source `bogus` → 400 listing registered sources; INSERT a `test_src` registry row + module → its events accepted; repeat on PG; `/authz/coverage` 100 % | events append-only, seq prefix, schema validated | — |
 | **L02** | D | Row hashes + carry-over + status: `labels/rowhash.py` (HMAC canonical), `labels/rows.py` (read rows by id via DuckDB semi-join, masked), staleness (§5.2), `GET …/status?version_id=` | `labels/rowhash.py`, `labels/rows.py`, `labels/store.py`, `labels/api.py` | seed 1M (`app.lake.seed`) v1; label 50 rows on v1; `POST /datasets/v1/edit` set_cells on a context column of 5 labelled rows → v2; delete 3 labelled rows → v3; upload-as-version with 1 000 appended rows → v4; `GET status?version_id=v4` → live 42, stale 5, orphaned 3, unlabelled +1000; cell correction then change that cell → conflict 1; 10M seed + 100k labels: status < 15 s, RSS < 1.5 GB | carry-over and staleness proven across edit, delete, append | L01 |
 | **L03** | D | Resolution + snapshots: `labels/resolve.py` (votes, adjudication, majority/weights, CROWDLAB via the annotations core, machine precedence, schema maps), `labels/snapshot.py` (job, blob, manifest, hashes, verify, diff) | `labels/resolve.py`, `labels/snapshot.py`, `labels/api.py`, `engine/annotations.py` (extract the CROWDLAB core into a pure function, no behaviour change), `jobs/queue.py` (kind) | 3 annotators on 30 rows (2 agree, 1 split 1-1-1, 1 adjudicated) → `POST …/snapshots {policy majority}` → 202 → counts applied 28, disputed 1, adjudicated 1; `GET …/verify` ok; rebuild with the same policy + through_seq → same `snapshot_sha256`; flip a blob byte → verify mismatch; policy `crowdlab` with `reference_run` = an F14 sample run → labels equal to `GET /runs/{r}/annotations` consensus on the same rows; schema v2 renames a class → old votes mapped; 0.6M events snapshot < 90 s | snapshots are frozen, hash-stable, CROWDLAB-equal to F14 | L02 |
 | **L04** | D2 | Overlay in training: `frames.Labelled`, overlay in `lake/frame.py` before sampling, worker pins + hash, holdout policy (original/corrected + both metrics), re-verify, compare labels, card Labels section, registry parity with overlay | `frames.py`, `lake/frame.py`, `engine/worker.py`, `engine/api.py` (`RunCreate.labels`), `engine/serving.py` (dual holdout metrics), `catalog/compare.py`, `catalog/dsets.py` (verify), `registry/build.py`, `registry/card.py`, `labels/overlay.py` | `POST /runs {dataset_id, label, labels:{snapshot_id}}` → succeeded; `run_inputs` has snapshot/overlay sha; repeat run → same `overlay_sha256`; holdout rows' labels in the frame = base (diff by `__row_id`); `labels.holdout:"corrected"` with LLM rows on holdout → 409 `holdout_machine_labels`, with human-only → metrics.original + metrics.corrected; compare base-run vs overlay-run → "training labels differ"; tamper overlay blob → verify 409; register → parity ok, card Labels; 10M + 100k overlay: Δ frame time < 10 s; kind `forecast` → 400 `labels_unsupported_kind` | training reads labels reproducibly; holdout rule holds | L03 |
@@ -955,3 +976,130 @@ L05 → L06 → L08 → UL2 → XL1 (9 sessions ≈ 18 h); L07 runs beside L04�
    model risk may turn it off per team (`allow_corrected_holdout:false`).
 5. **Review required for edits on certified datasets?** Default: `edits_require_review = false` for every team
    (today's behaviour); recommended on for teams with certified data.
+
+---
+
+## 15. How it grows
+
+The POC is a foundation: the event log, its key, the hashes, the snapshot format and the overlay pin are the stable
+core. Everything that varies (where labels come from, what shape an item has, how votes combine, which rows to ask
+about) is a **registered plug-in** behind a contract, chosen by name from a registry table, so a new kind is an
+`INSERT` plus a Python module, never a DDL change or a rewrite of stored data.
+
+### 15.1 Extension points and their contracts (`backend/app/labels/plugins/`)
+
+Registries: `label_source_types`, `label_task_types`, `label_consensus_methods`, `label_queue_strategies` (§3.1).
+At startup `labels/registry.py` imports each row's `module` and checks it implements the protocol; an unknown name in
+a body → 400 listing the registered ones. Contracts are `typing.Protocol`s; every method is pure except the source's
+`run`, which appends through `store.append` only.
+
+**Label source** (`plugins/sources/<name>.py`):
+
+```python
+class LabelSource(Protocol):
+    name: str; machine: bool                                      # matches label_source_types
+    def validate_config(self, layer, cfg: dict) -> dict           # 400 on error; returns canonical cfg (hashed into provenance)
+    def plan(self, layer, cfg, selector) -> Plan                  # rows, est cost/time; no side effects
+    def run(self, ctx: JobCtx, plan: Plan) -> Iterator[EventIn]   # yields events; the job appends in 500-event txns
+    def provenance(self, cfg) -> dict                             # stored on every event (model, prompt_sha, rule_id, file_sha …)
+```
+
+Rules for every source: events carry `source=name`, `actor` = the job's principal, server-computed row hashes, and a
+`confidence` in [0,1] or NULL; machine sources (`machine=1`) are pre-labels unless a snapshot policy accepts them;
+`may_grade_holdout=0` sources can never be used for corrected-holdout evaluation (§5.7 reads the registry, not a
+hard-coded list). Existing: human (the task API), import, migration, edit (proposals), rule, llm, model (pre-labels
+from a run's predictions), cleanlab. **Production feedback** (`feedback`) plugs in when batches become rows of a root
+(§5.12 bridge): `plan` maps batch rows → `__row_id`, `run` yields outcome events with `provenance.as_of`.
+
+**Task type** (`plugins/tasks/<name>.py`):
+
+```python
+class TaskType(Protocol):
+    name: str; item_shape: Literal['cell','row_span','pair','list']
+    def value_schema(self, spec_column) -> dict                   # JSON schema for one answer (also the LLM output schema)
+    def canonical(self, value, spec_column) -> str | None         # canonical text (§4.1); raises ValueError → 400
+    def items(self, task, row_ids) -> list[ItemKey]               # '' for cells; 'pair:<id>' / 'list:<id>' for others
+    def context_rows(self, item: ItemKey, row_id) -> list[int]    # rows hashed for staleness (a pair hashes both rows)
+    def to_column(self, resolved) -> Any | None                   # value written by the overlay, or None (not overlayable)
+    def ui(self) -> str                                           # the front-end widget name
+```
+
+| Task type | item_shape | value (canonical) | overlayable | consensus |
+|---|---|---|---|---|
+| class, multi_label, number, text, cell_correction | cell | §4.1 | yes (target / feature column) | majority, crowdlab, single |
+| span (NER / evidence in free text) | row_span | JSON list of `{start,end,label}` sorted, char offsets over NFC text | no (feeds text features / evaluation) | `span_iou` (token-level majority, IoU ≥ 0.5 agreement) |
+| pairwise ("which is riskier, A or B") | pair (`item_key='pair:<other>'`, row_id = the smaller id) | `"a"` \| `"b"` \| `"tie"` | no (feeds a ranking model) | `bradley_terry` scores per row |
+| ranking (order a list) | list (`item_key='list:<list_id>'`, list rows in `label_items`, added with the type) | JSON array of row ids | no | Borda / Kemeny |
+
+The key `(layer, table, row_id, column, item_key)` already covers all shapes; `item_key=''` everywhere in the POC.
+Staleness for pair/list hashes every row in `context_rows` (one hash over the concatenation in id order).
+
+**Consensus method** (`plugins/consensus/<name>.py`):
+
+```python
+class Consensus(Protocol):
+    name: str; task_types: set[str]
+    def resolve(self, votes: pd.DataFrame, policy: dict, aux: Aux) -> pd.DataFrame
+        # votes: one row per effective vote (row_id, column, item_key, actor, source, value, weight, confidence)
+        # returns: row_id, column, item_key, value, status ∈ {applied, disputed}, method, agreement, quality (decimal strings)
+```
+
+Determinism rule: same input frame + policy + library versions → same output; outputs are decimal strings rounded to
+6 dp; the snapshot freezes the result anyway (D6). Adjudication, schema maps and machine-source precedence run
+**outside** the method (§5.3 steps 1, 4, 5), so every method gets them for free. Next candidates: `dawid_skene`
+(trigger: ≥ 5 annotators per task with ≥ 200 shared items), `span_iou`, `bradley_terry`.
+
+**Queue strategy** (`plugins/strategies/<name>.py`):
+
+```python
+class Strategy(Protocol):
+    name: str; needs_run: bool
+    def pick(self, task, version_id, n: int, ctx: PickCtx) -> list[Pick]   # Pick = (row_id, item_key, priority: str, is_gold)
+```
+
+Rules: never pick holdout rows unless the strategy is `gold`/`manual`; deterministic for a given seed and inputs
+(seed recorded in `fill_id`'s audit); ≤ 100k picks per call (larger fills are jobs). New candidates: `stratified_by`,
+`drift` (rows from shifted segments, from `shift.py`), `fairness` (under-represented groups — protected columns are used
+for picking only, never shown).
+
+### 15.2 Staged path from POC to large deployment
+
+| | **Stage 0: POC** (now) | **Stage 1: pilot** | **Stage 2: large** |
+|---|---|---|---|
+| Size | ≤ 5 teams, ≤ 1M events/layer, ≤ 5M events total, ≤ 20 concurrent annotators, LLM ≤ 10k rows/job | ≤ 30 teams, ≤ 50M events, ≤ 200 annotators, LLM ≤ 200k rows/job | 100+ teams, 10⁹ events, 1 000+ annotators, LLM 1M+ rows/month |
+| Trigger to move on | any of: > 5M events, a layer > 2M events, > 50 concurrent annotators, p95 `next` > 400 ms, snapshot build > 5 min | any of: > 50M events, a layer > 20M events, > 200 annotators, snapshot > 15 min, PG `label_events` > 50 GB | — |
+| Event store | one `label_events` table (SQLite dev / PG) | PG **declarative hash partitioning by `layer_id`** (32 partitions; the PK `(layer_id, seq)` already includes the key) | partitions + **cold segments**: events with `seq ≤` the last approved snapshot's `through_seq` and older than 90 days are compacted into Parquet **event segments** in the lake (blob kind `label_event_segment`, sorted by `(row_id, column, item_key, seq)`, manifest with `seq` range and sha), deleted from PG after a verify; reads = segments ∪ hot tail via DuckDB |
+| Snapshots | full rebuild from events → Parquet blob in the lake (already from L03) | **incremental**: resolve only keys with events in `(prev.through_seq, through_seq]`, merge with the previous snapshot blob (anti-join + union); full rebuild weekly as a check (hashes must match) | incremental + segment-aware; snapshot diff stored |
+| Staleness | recompute hashes per run (§5.2) | `label_rowhash_cache` blob per `(table_sha256, ctx_cols_sha256)` (Parquet: `__row_id`, hash) built once per version and reused by every run/status call | same, built at version commit for tables with a layer (a job) |
+| Queue | `label_assignments`, SKIP LOCKED | list-partitioned by `task_id` hash; prefetch 25 per annotator; janitor per partition | per-task lease service in `workerd` (in-memory ring per task, durable in PG every 5 s), sharded by task across workers; PG remains the record |
+| LLM | online, 8 in flight; Batches API ≥ 2 000 rows | Batches by default; resource `llm` added to `jobs/queue.RESOURCES` with per-team fair share and per-destination rate limits | chunks of 10k requests per batch, many in flight; spend ledger per team per day; cache in Parquet segments |
+| What stays the same | event contract and key, canonical values, hashes (§4), snapshot format `ensemble.labelsnap/1`, overlay pin and `overlay_sha256`, APIs, authz actions, purge/hold semantics | ← | ← |
+
+Purge at stage 2 also rewrites affected event segments (new segment without the values, old blob purged), the same way
+P24 purges table parts. Legal holds pin segments by ref.
+
+### 15.3 Versioned contracts
+
+| Contract | Version carrier | Compatibility rule |
+|---|---|---|
+| Event row | `label_events.fmt` (1) | additive columns only; readers accept every `fmt ≤ current`; a breaking change = new fmt + an upgrader in the snapshot reader, never a rewrite of stored rows |
+| Snapshot | manifest `format` `ensemble.labelsnap/1` | new fields additive; `/2` only if hash definitions change, and `/1` stays readable for pinned runs forever |
+| Label schema / ontology | `label_schemas.version`, `spec_sha256` on every event (via `schema_version`) | change classes by kind: **add** class/column → old labels valid; **rename / merge** → `class_map` old→new, mapped at snapshot; **split** (one class → two) → old labels of that class get status `needs_relabel` and fill a `stale` queue automatically; **remove** → `schema_dropped`; **type change** → new column version, old labels `schema_dropped`. The snapshot records the map chain it applied. |
+| Guidelines | `guidelines_sha256` per schema version; the task pins the version; events record `schema_version` | a guideline-only change creates a new schema version with the same spec (labels stay valid); the quality screen splits agreement by guideline version so a change's effect is visible |
+| Prompt | `label_prompts.version`, `prompt_sha256` on every LLM event's provenance | any byte change = new version; calibration is per version; snapshot policies name prompt ids, so old LLM labels are accepted only under the prompt they were calibrated with |
+| Plug-ins | registry row + `since_fmt` | a plug-in's canonical form is frozen once events exist; a changed canonicalisation = a new plug-in name |
+
+### 15.4 The minimal first slice (nothing thrown away)
+
+Build **L01–L04 plus the human core of L07** first, with the full contracts but few plug-ins:
+
+- **Contracts in place from day one:** registries (§3.1), `item_key`, PK `(layer_id, seq)`, `fmt`, canonical values,
+  HMAC row hashes, snapshot blob + manifest in the lake, overlay pin in `run_inputs`, `label.*` actions.
+- **Plug-ins in the slice:** sources `human`, `import`, `migration`; task types `class`, `cell_correction`; consensus
+  `majority` (+ adjudication), `single`; strategies `random`, `manual`, `disputed`, `stale`, `gold`.
+- **Deferred, each a plug-in or a stage change:** LLM (L08), rules, cleanlab/active strategies, CROWDLAB, outcomes
+  (L10), span/pairwise/ranking, partitioning, segments, incremental snapshots.
+
+Why this is safe: every deferred item writes the same events, reads the same snapshots and pins the same overlay; none
+needs a column, a hash or a format that the slice lacks. The slice is checked by XL1-lite: the L01–L04 chains plus
+"add a dummy source plug-in by INSERT + module, append and snapshot without a restart of the schema".
