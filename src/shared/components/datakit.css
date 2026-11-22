@@ -148,3 +148,4 @@
 .mask-bar [data-testid="unmasked-on"] { color: var(--text-primary); }
 .mask-bar .mono { background: var(--bg-subtle); border-radius: var(--radius-badge); padding: 0 4px; margin-right: 2px; }
 .mask-refused { border: 1px solid color-mix(in srgb, var(--status-warning) 28%, transparent); border-left: 3px solid var(--status-warning); }
+.field.grow { min-width: 160px; } .field.grow > .input, .field.grow > .select { width: 100%; }
