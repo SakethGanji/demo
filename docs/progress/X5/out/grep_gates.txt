@@ -1,0 +1,16 @@
+== gate1 (literal, must print nothing)
+backend/app/catalog/artifacts.py:299:    rel = "read_parquet([" + ",".join(lit(u) for u in uris) + "], union_by_name=true)"
+backend/app/catalog/artifacts.py:327:                krel = "read_parquet([" + ",".join(lit(u) for u in kuris) + "], union_by_name=true)"
+backend/app/catalog/contracts.py:216:            rels[n] = f"(SELECT * FROM read_parquet('{str(tmp / out['typed']).replace(chr(39), chr(39) * 2)}'))"
+backend/app/catalog/purge.py:221:            rel = "read_parquet([" + ",".join(lit(store.uri(p.key)) for p in base.parts) + "], union_by_name=true)"
+backend/app/engine/api.py:1158:    df = pd.read_csv(path, dtype={"bin": str})
+backend/app/registry/scoring.py:1100:            con.execute(f"COPY (SELECT __row_id, {sel} FROM read_parquet('{src}') ORDER BY __row_id) TO '{dst}' (FORMAT parquet)")
+backend/app/registry/scoring.py:1101:            bad = con.execute(f"SELECT {fails} FROM read_parquet('{src}')").fetchone() if cols else ()
+backend/app/registry/build.py:1021:    at = pq.read_table(str(path))
+backend/app/registry/build.py:1082:                da = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{a}')").fetchall()}
+backend/app/registry/build.py:1083:                dbb = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM read_parquet('{b}')").fetchall()}
+backend/app/registry/build.py:1087:                    f"SELECT (SELECT count(*) FROM read_parquet('{a}')), (SELECT count(*) FROM read_parquet('{b}')),"
+backend/app/registry/build.py:1089:                    f" FROM read_parquet('{a}') t FULL OUTER JOIN read_parquet('{b}') s ON t.__row_id = s.__row_id").fetchone()
+backend/app/sqlsource/core.py:348:        # F-X4b: no file / network reads from inside a query (read_csv('/etc/…'), FROM 'file.csv', httpfs)
+== gate2 (outside lake/migrate.py)
+backend/app/catalog/pg_schema.py:4:  lake.migrate.LEGACY_DDL (split_files) and ix_datasets_list, each statement through db_pg.translate (INTEGER → BIGINT,

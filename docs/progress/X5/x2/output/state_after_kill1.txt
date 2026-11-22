@@ -1,0 +1,9 @@
+storage: {'csv': 21, 'parquet': 17}
+lake_migrations: {('migrated', 'renamed'): 14, ('skipped', None): 1, ('migrated', 'pending'): 1}
+    {'version_id': 'ds_281da07c', 'status': 'skipped', 'reason': 'split_conflict', 'folder_state': None, 'attempts': 1}
+    {'version_id': 'ds_fd96a8d1', 'status': 'migrated', 'reason': None, 'folder_state': 'pending', 'attempts': 1}
+folders: .migrated 14 | data.csv files 35 | in .migrated 14
+blobs: {'live/legacy_csv': 15, 'live/legacy_json': 45, 'live/manifest': 17, 'live/source': 1, 'live/split': 17, 'live/table': 19}
+blob_refs: 128 | splits: 17 | run_inputs: 8
+jobs(migrate): [{'id': 'jb_8b4321b88e8d', 'status': 'leased', 'attempts': 1, 'error': None}]
+audit: {'dataset_migrated': 15, 'dataset_migration_skipped': 1, 'lake_migration_started': 1}

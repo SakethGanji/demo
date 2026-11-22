@@ -1,0 +1,8 @@
+during_job: {"QE": "{\"detail\":\"ds_1039d9e0 was made before row maps (a SQL refresh or a monitoring window): its rows have no ids to edit by until it is migrated into the lake (POST /api/admin/lake/migrate), which matches them to its parent's rows. Edit it after that, or edit its parent.\"}", "AE": "ds_634c7f7b", "rL1c": "run_f7c559e2", "LE": "ds_bdfe226d", "rA3c": "run_d12a0ced", "rL1c_status": "succeeded", "rL1c_error": "", "rA3c_status": "succeeded", "rA3c_error": ""}
+rL1c run_f7c559e2: verify ok=True data=True split={"recorded": "0d646dcb865f073eee2d35eb2bf562300f0cf6debc3af6715460c913d16c94ee", "now": "0d646dcb865f073eee2d35eb2bf562300f0cf6debc3af6715460c913d16c94ee", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_de54252e4853", "recorded": "0f5e3905970
+   run_inputs: [('ds_281da07c', 'spl_de54252e4853', None, '0d646dcb865f073eee2d35eb2bf562300f0cf6debc3af6715460c913d16c94ee', 'engine_v1')]
+   pins: ['legacy_csv', 'legacy_json', 'split']
+rA3c run_d12a0ced: verify ok=True data=True split={"recorded": "26242fff1549f176a4b3d9729637462fde53687948caed3d7fcc676cfbae6342", "now": "26242fff1549f176a4b3d9729637462fde53687948caed3d7fcc676cfbae6342", "ok": true, "basis": "the DL4 split JSON, from its legacy_json blob (P10)", "parquet": {"split_id": "spl_46f08cf97b0e", "recorded": "d112571abc9
+   run_inputs: [('ds_622c0c0c', 'spl_46f08cf97b0e', None, '26242fff1549f176a4b3d9729637462fde53687948caed3d7fcc676cfbae6342', 'engine_v1')]
+   pins: ['legacy_csv', 'legacy_json', 'split']
+lake_migrations A3: []

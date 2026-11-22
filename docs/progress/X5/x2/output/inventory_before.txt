@@ -1,0 +1,88 @@
+account-attrition      root=account-attrition      v=1 st=None sto=csv op=sample rows=12000 name='Account attrition, time to close (sample)'
+     files: .generator, attrition_truth.json, data.csv, splits.json, splits/random-stratified__churned-da15e886.json
+account-churn          root=account-churn          v=1 st=None sto=csv op=sample rows=10000 name='Account churn (sample)'
+     files: .generator, data.csv, signal.json, splits.json, splits/random-stratified__churned-da15e886.json
+card-transactions      root=card-transactions      v=1 st=None sto=csv op=sample rows=6000 name='Card transactions (sample)'
+     files: .generator, anomaly_truth.json, data.csv, splits.json, splits/random-stratified__merchant-category-0fc06b01.json
+complaint-topics       root=complaint-topics       v=1 st=None sto=csv op=sample rows=6000 name='Complaint topics (sample)'
+     files: .generator, data.csv, multilabel_truth.json, splits.json, splits/random-stratified__topics-b729ffe0.json
+credit-default         root=credit-default         v=1 st=None sto=csv op=sample rows=12000 name='Credit default (sample)'
+     files: .generator, data.csv, signal.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+credit-rejects         root=credit-rejects         v=1 st=None sto=csv op=sample rows=24000 name='Applications with declines (sample)'
+     files: .generator, data.csv, reject_truth.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+ds_281da07c            root=ds_281da07c            v=1 st=None sto=csv op=upload rows=600 name='loans'
+     files: data.csv, splits.json, splits/random-stratified__y-95cb0bfd.json
+ds_fd96a8d1            root=ds_281da07c            v=2 st=None sto=csv op=edit rows=582 name='loans'
+     files: data.csv, edit_ops.json, lineage.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits/random-stratified__y-95cb0bfd.json']
+ds_14c1bf3b            root=ds_281da07c            v=3 st=None sto=csv op=upload_version rows=610 name='loans'
+     files: data.csv, lineage.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits/random-stratified__y-95cb0bfd.json']
+ds_d2046b69            root=ds_281da07c            v=4 st=None sto=csv op=data_doctor rows=578 name='loans · fixed v1'
+     files: data.csv, lineage.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits/random-stratified__y-95cb0bfd.json']
+ds_652418f5            root=ds_281da07c            v=5 st=None sto=csv op=clean_labels rows=600 name='loans · fixed v2'
+     files: data.csv, lineage.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+ds_e950e720            root=ds_281da07c            v=6 st=None sto=csv op=edit rows=608 name='loans'
+     files: data.csv, edit_ops.json, lineage.json, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_34f3bd4c            root=ds_34f3bd4c            v=1 st=None sto=csv op=upload rows=400 name='churn'
+     files: data.csv, splits.json, splits/random-stratified__churn-bafb5b68.json
+     split_files: ['splits/random-stratified__churn-bafb5b68.json']
+ds_525b7653            root=ds_34f3bd4c            v=2 st=archived sto=csv op=edit rows=399 name='churn'
+     files: data.csv, edit_ops.json, lineage.json, schema.json, splits.json, splits/random-stratified__churn-bafb5b68.json
+     split_files: ['splits.json', 'splits/random-stratified__churn-bafb5b68.json']
+ds_525c8e18            root=ds_525c8e18            v=1 st=None sto=csv op=upload rows=800 name='accounts'
+     files: data.csv, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_5262b7ad            root=ds_525c8e18            v=2 st=None sto=csv op=edit rows=793 name='accounts'
+     files: data.csv, edit_ops.json, lineage.json, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_622c0c0c            root=ds_525c8e18            v=3 st=None sto=csv op=edit rows=763 name='accounts'
+     files: data.csv, edit_ops.json, lineage.json, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_e2a02b05            root=ds_525c8e18            v=4 st=None sto=csv op=data_doctor rows=791 name='accounts · fixed v1'
+     files: data.csv, lineage.json, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_f308ffe2            root=ds_525c8e18            v=5 st=None sto=csv op=clean_labels rows=800 name='accounts · fixed v2'
+     files: data.csv, lineage.json, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_89089070            root=ds_525c8e18            v=6 st=None sto=parquet op=upload_version rows=750 name='accounts'
+     files: lineage.json, splits/random-stratified__y-95cb0bfd.json
+ds_73d34e26            root=ds_73d34e26            v=1 st=None sto=csv op=upload rows=1500 name='fl'
+     files: data.csv, splits.json, splits/random-stratified__y-95cb0bfd.json
+ds_a4b7f0d8            root=ds_a4b7f0d8            v=1 st=None sto=csv op=upload rows=300000 name='big'
+     files: coerced.json, data.csv, splits.json, splits/random-stratified__y-95cb0bfd.json
+ds_c9a1ec9c            root=ds_c9a1ec9c            v=1 st=None sto=csv op=upload rows=2000 name='fl2'
+     files: data.csv, featurelab/fl_9a78bdc0.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+ds_4414e1c6            root=ds_c9a1ec9c            v=2 st=None sto=csv op=feature_lab rows=2000 name='fl2 · features v1'
+     files: data.csv, lineage.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+ds_df1d3a93            root=ds_df1d3a93            v=1 st=None sto=csv op=upload rows=3000 name='bank-sql'
+     files: data.csv, lineage.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+ds_1039d9e0            root=ds_df1d3a93            v=2 st=None sto=csv op=sql rows=3000 name='bank-sql · v2'
+     files: data.csv, lineage.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+ds_32fabcc7            root=ds_df1d3a93            v=3 st=None sto=csv op=sql rows=3000 name='bank-sql · v3'
+     files: data.csv, lineage.json, schema.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+     split_files: ['splits.json', 'splits/random-stratified__defaulted-883cb8a7.json']
+ds_e7548d86            root=ds_e7548d86            v=1 st=None sto=csv op=upload rows=300 name='scratch'
+     files: data.csv, schema.json, splits.json, splits/random-stratified__y-95cb0bfd.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+ds_8beacdde            root=ds_e7548d86            v=2 st=deleted sto=csv op=edit rows=297 name='scratch'
+     files: TOMBSTONE.json, holdout_sample.csv, lineage.json
+     split_files: ['splits.json', 'splits/random-stratified__y-95cb0bfd.json']
+fair-lending           root=fair-lending           v=1 st=None sto=csv op=sample rows=20000 name='Loan applications with surname and zip (sample)'
+     files: .generator, bisg_truth.json, data.csv, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+loan-amount            root=loan-amount            v=1 st=None sto=csv op=sample rows=8000 name='Loan amount (sample)'
+     files: .generator, data.csv, signal.json, splits.json, splits/random-stratified__loan-amount-usd-6e44df50.json
+loan-losses            root=loan-losses            v=1 st=None sto=csv op=sample rows=20000 name='Loan losses (sample)'
+     files: .generator, data.csv, el_truth.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+loan-stream            root=loan-stream            v=1 st=None sto=csv op=sample rows=9000 name='Loan stream (sample)'
+     files: .generator, data.csv, splits.json, splits/random-stratified__defaulted-883cb8a7.json, stream_truth.json
+personal-loans         root=personal-loans         v=1 st=None sto=csv op=sample rows=10000 name='Personal loans (sample)'
+     files: .generator, data.csv, slice_truth.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+segmented-loans        root=segmented-loans        v=1 st=None sto=csv op=sample rows=30000 name='Loans by customer type (sample)'
+     files: .generator, data.csv, segments_truth.json, splits.json, splits/random-stratified__defaulted-883cb8a7.json
+support-tickets        root=support-tickets        v=1 st=None sto=csv op=sample rows=20000 name='Support tickets (sample)'
+     files: .generator, data.csv, label_noise.json, splits.json, splits/random-stratified__category-5ccbf9c9.json
+transaction-volume     root=transaction-volume     v=1 st=None sto=csv op=sample rows=4548 name='Transaction volume (sample)'
+     files: .generator, data.csv, forecast_spec.json, splits.json, splits/random-stratified__segment-6a80eba8.json

@@ -1,0 +1,14 @@
+# mode audit
+
+# 1. the actions X4 found unaudited: upload discard, run cancel (agent session and SQL preview rows: agent.txt, sql.txt)
+## 1a Ana DELETE /uploads/{up} → HTTP 200 | pii 0
+    {"id": null, "status": "discarded"}
+## 1b Ana POST /runs (60 s) → HTTP 410 | pii 0
+    {"id": null}
+Traceback (most recent call last):
+  File "/home/user/demo/docs/progress/F-X4b/audit.py", line 17, in <module>
+    rr = show("1b Ana POST /runs (60 s)", post("Ana", "/runs", {"dataset_id": v1, "label": "y", "time_limit": 60, "by": "Ana", "project_id": pd,
+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                                                                  "drop_columns": ["app_id", "applicant_name", "email"]}), ["id"])["id"]
+                                                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+KeyError: 'id'

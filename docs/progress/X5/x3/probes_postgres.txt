@@ -1,0 +1,168 @@
+dataset ds_d328b206
+
+## m17: POST …/edit with the actor header and no body `by`
+m17 header only: POST /datasets/ds_d328b206/edit {"ops": [{"op": "set_cells", "cells": [{"row_id": 1, "column": "x", "value": 9.99}]}], "reason": "x5 m17"} [actor Ana] → 400 {"detail": "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."}
+m17 body by: POST /datasets/ds_d328b206/edit {"ops": [{"op": "set_cells", "cells": [{"row_id": 1, "column": "x", "value": 9.99}]}], "reason": "x5 m17", "by": "Ana"} [actor Ana] → 201 {"id": "ds_f9611d48", "name": "x5p", "filename": "x5p.parquet", "source": "upload", "sample": false, "note": "Edited ds_d328b206 as v2: set 1 cell(s) in 1 row(s)", "created_at": "2026-11-22T03:28:05+00:00", "size_bytes": 2780, "rows": 300, "n_cols": 4, "kind":
+m17 preview header only: POST /datasets/ds_d328b206/edit {"ops": [{"op": "set_cells", "cells": [{"row_id": 1, "column": "x", "value": 9.99}]}], "reason": "x5 m17", "preview": true} [actor Ana] → 400 {"detail": "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."}
+compare: PUT key header only: PUT /datasets/ds_d328b206/tables/x5p/key {"columns": ["id"], "reason": "x5"} [actor Ana] → 201 {"id": "ds_8857275b", "root_id": "ds_d328b206", "version_no": 3, "storage": "parquet", "manifest_sha256": "b130ec793d096d0a8d9736d9f3333dea9bffbf5248bb9ba7dc350a5a06261706", "data_sha256": "2aba9bbfa8096580cab679e76d63bf5482235cfc35825a399003369ca578a86a", "n_
+
+## m11: 16 concurrent edits (add_rows) on one version, at a barrier
+round 0: {(201, ''): 7, (400, 'Other versions of this dataset kept being committed; try again.'): 9}
+round 1: {(400, 'Other versions of this dataset kept being committed; try again.'): 11, (201, ''): 5}
+round 2: {(400, 'Other versions of this dataset kept being committed; try again.'): 11, (201, ''): 5}
+
+## open note: non-text `by` on shares / certifications / contracts
+grantee team 201 tm_313da6d0
+contract frozen 201 {"id": "dc_9b62ef3fcf", "root_id": "ds_d328b206", "version": 1, "spec": {"frozen_from": "ds_d328b206", "relations": [], 
+certification 201 cert_961d577918 {"id": "cert_961d577918", "root_id": "ds_d328b206", "version_id": "ds_d328b206", "level": "certified", "status": "pending", "contract_id": "dc_9b62ef3fcf", "con
+share 201 sh_f53628b9cc {"id": "sh_f53628b9cc", "object_kind": "dataset", "object_id": "ds_d328b206", "owner_team": "tm_default", "grantee_team": "tm_313da6d0", "scope": "all", "pinned
+  POST /shares by=123                      actor=Ben  → 500 "Internal Server Error"
+  POST /shares by=123                      actor=None → 500 "Internal Server Error"
+  POST /shares by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  POST /shares by=1.5                      actor=None → 500 "Internal Server Error"
+  POST /shares by=true                     actor=Ben  → 500 "Internal Server Error"
+  POST /shares by=true                     actor=None → 500 "Internal Server Error"
+  POST /shares by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  POST /shares by=["x"]                    actor=None → 500 "Internal Server Error"
+  POST /shares by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  POST /shares by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  POST /shares by=null                     actor=Ben  → 400 {"code": "reason_required", "message": "Say why the other team needs this (reason, 3 characters at least)."}
+  POST /shares by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares by=""                       actor=Ben  → 400 {"code": "reason_required", "message": "Say why the other team needs this (reason, 3 characters at least)."}
+  POST /shares by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /shares by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /shares by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  POST /shares by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+  POST /shares/sh_f53628b9cc/decide by=123                      actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=123                      actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=1.5                      actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=true                     actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=true                     actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=["x"]                    actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/decide by=null                     actor=Ben  → 200 {"id": "sh_f53628b9cc", "object_kind": "dataset", "object_id": "ds_d328b206", "owner_team": "tm_default", "grantee_team": "tm_313da6d0", "scope": "all
+  POST /shares/sh_f53628b9cc/decide by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/decide by=""                       actor=Ben  → 409 {"code": "not_pending", "message": "This share is rejected."}
+  POST /shares/sh_f53628b9cc/decide by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/decide by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/decide by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/decide by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /shares/sh_f53628b9cc/decide by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /shares/sh_f53628b9cc/decide by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  POST /shares/sh_f53628b9cc/decide by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+  POST /shares/sh_f53628b9cc/revoke by=123                      actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=123                      actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=1.5                      actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=true                     actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=true                     actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=["x"]                    actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  POST /shares/sh_f53628b9cc/revoke by=null                     actor=Ben  → 400 {"code": "reason_required", "message": "Say why the share is revoked (reason)."}
+  POST /shares/sh_f53628b9cc/revoke by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/revoke by=""                       actor=Ben  → 400 {"code": "reason_required", "message": "Say why the share is revoked (reason)."}
+  POST /shares/sh_f53628b9cc/revoke by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/revoke by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/revoke by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /shares/sh_f53628b9cc/revoke by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /shares/sh_f53628b9cc/revoke by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /shares/sh_f53628b9cc/revoke by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  POST /shares/sh_f53628b9cc/revoke by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+  POST /datasets/ds_d328b206/certifications by=123                      actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=123                      actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=1.5                      actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=true                     actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=true                     actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=["x"]                    actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/certifications by=null                     actor=Ben  → 400 {"code": "reason_required", "message": "Say why this version should be certified (reason)."}
+  POST /datasets/ds_d328b206/certifications by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/certifications by=""                       actor=Ben  → 400 {"code": "reason_required", "message": "Say why this version should be certified (reason)."}
+  POST /datasets/ds_d328b206/certifications by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/certifications by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/certifications by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/certifications by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /datasets/ds_d328b206/certifications by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /datasets/ds_d328b206/certifications by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  POST /datasets/ds_d328b206/certifications by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+  POST /certifications/cert_961d577918/decide by=123                      actor=Ben  → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=123                      actor=None → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=1.5                      actor=None → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=true                     actor=Ben  → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=true                     actor=None → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=["x"]                    actor=None → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  POST /certifications/cert_961d577918/decide by=null                     actor=Ben  → 200 {"id": "cert_961d577918", "root_id": "ds_d328b206", "version_id": "ds_d328b206", "level": "certified", "status": "rejected", "contract_id": "dc_9b62ef
+  POST /certifications/cert_961d577918/decide by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /certifications/cert_961d577918/decide by=""                       actor=Ben  → 409 {"code": "not_pending", "message": "This certification is rejected."}
+  POST /certifications/cert_961d577918/decide by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /certifications/cert_961d577918/decide by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /certifications/cert_961d577918/decide by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /certifications/cert_961d577918/decide by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /certifications/cert_961d577918/decide by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /certifications/cert_961d577918/decide by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  POST /certifications/cert_961d577918/decide by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+  PUT /datasets/ds_d328b206/contract by=123                      actor=Ben  → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=123                      actor=None → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=1.5                      actor=None → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=true                     actor=Ben  → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=true                     actor=None → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=["x"]                    actor=None → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  PUT /datasets/ds_d328b206/contract by=null                     actor=Ben  → 200 {"id": "dc_c25cb1269b", "root_id": "ds_d328b206", "version": 2, "spec": {"frozen_from": "ds_d328b206", "relations": [], "severity_default": "warn", "t
+  PUT /datasets/ds_d328b206/contract by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  PUT /datasets/ds_d328b206/contract by=""                       actor=Ben  → 200 {"id": "dc_8b8ef32fe2", "root_id": "ds_d328b206", "version": 3, "spec": {"frozen_from": "ds_d328b206", "relations": [], "severity_default": "warn", "t
+  PUT /datasets/ds_d328b206/contract by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  PUT /datasets/ds_d328b206/contract by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  PUT /datasets/ds_d328b206/contract by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  PUT /datasets/ds_d328b206/contract by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  PUT /datasets/ds_d328b206/contract by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  PUT /datasets/ds_d328b206/contract by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  PUT /datasets/ds_d328b206/contract by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=123                      actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=123                      actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=1.5                      actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=1.5                      actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=true                     actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=true                     actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=["x"]                    actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=["x"]                    actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by={"a": 1}                 actor=Ben  → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by={"a": 1}                 actor=None → 500 "Internal Server Error"
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=null                     actor=Ben  → 201 {"id": "dc_77942ea367", "root_id": "ds_d328b206", "version": 4, "spec": {"frozen_from": "ds_d328b206", "relations": [], "severity_default": "warn", "t
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=null                     actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=""                       actor=Ben  → 201 {"id": "dc_083660a937", "root_id": "ds_d328b206", "version": 5, "spec": {"frozen_from": "ds_d328b206", "relations": [], "severity_default": "warn", "t
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by=""                       actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by="   "                    actor=Ben  → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by="   "                    actor=None → 400 "'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by="!!!"                    actor=Ben  → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by="!!!"                    actor=None → 400 "'by' needs at least one letter or digit (names are compared on letters and digits only)."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by="xxxxxxxxxxxxxxxxxxxxxxx actor=Ben  → 400 "'by' is longer than 80 characters."
+  POST /datasets/ds_d328b206/contract/from-version/ds_d328b206 by="xxxxxxxxxxxxxxxxxxxxxxx actor=None → 400 "'by' is longer than 80 characters."
+by-probe 5xx: 70
+
+## m10: POST /runs on a table whose part was rewritten with fewer rows
+part 7a496141b4ecc56a rows 400 → 390
+m10 run: POST /runs {"dataset_id": "ds_b5d86589", "label": "target", "time_limit": 10} [actor Ana] → 500 "Internal Server Error"
+m10 run (problem_type binary): POST /runs {"dataset_id": "ds_b5d86589", "label": "target", "time_limit": 10, "problem_type": "binary"} [actor Ana] → 500 "Internal Server Error"
+m10 verify: GET /datasets/ds_b5d86589/verify  [actor Ana] → 200 {"id": "ds_b5d86589", "root_id": "ds_b5d86589", "storage": "parquet", "ok": false, "status": "MISMATCH", "manifest_sha256": "92b302dd4267daf114c7aeb2c6f96e8c833d2d8ed03e116796b5564b7b435b2c", "manifest": "ok", "files": [{"table": "x5m10", "part": 0, "key": "bl
+part rewritten with 410 rows
+m10 run (more rows): POST /runs {"dataset_id": "ds_b5d86589", "label": "target", "time_limit": 10} [actor Ana] → 409 {"detail": "ds_b5d86589's last integrity check (2026-11-22T03:28:16) was a MISMATCH: data.csv or a split file (which rows are held out) no longer has the sha256 stored when it was made. Verify says which, and how to restore it (Data \u2192 the version \u2192 V
+part restored with 400 rows (same content, bytes may differ)

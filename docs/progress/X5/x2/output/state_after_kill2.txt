@@ -1,0 +1,10 @@
+storage: {'csv': 10, 'parquet': 28}
+lake_migrations: {('migrated', 'renamed'): 26, ('skipped', None): 3}
+    {'version_id': 'ds_281da07c', 'status': 'skipped', 'reason': 'split_conflict', 'folder_state': None, 'attempts': 2}
+    {'version_id': 'ds_652418f5', 'status': 'skipped', 'reason': 'data_conflict', 'folder_state': None, 'attempts': 1}
+    {'version_id': 'ds_34f3bd4c', 'status': 'skipped', 'reason': 'data_changed', 'folder_state': None, 'attempts': 1}
+folders: .migrated 26 | data.csv files 35 | in .migrated 26
+blobs: {'live/legacy_csv': 24, 'live/legacy_json': 74, 'live/manifest': 28, 'live/source': 1, 'live/split': 25, 'live/table': 28, 'pending/legacy_csv': 1, 'pending/legacy_json': 3, 'pending/manifest': 1, 'pending/split': 1, 'pending/table': 1}
+blob_refs: 218 | splits: 28 | run_inputs: 9
+jobs(migrate): [{'id': 'jb_8b4321b88e8d', 'status': 'leased', 'attempts': 2, 'error': 'worker api-ac4ebb@vm:511 is gone (its process is not running on vm) (attempt 1 of 3, noticed 2026-11-22T04:21:00.209793Z)'}]
+audit: {'dataset_migrated': 26, 'dataset_migration_skipped': 3, 'lake_migration_started': 1}

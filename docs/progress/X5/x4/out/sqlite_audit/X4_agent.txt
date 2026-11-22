@@ -1,0 +1,16 @@
+# mode audit
+
+# 1. Fay (Fraud member, no role in Credit Risk, no share) reads Credit Risk rows directly
+## 1a Fay GET /datasets/v1/rows → HTTP 200 | would-deny data.preview | pii 0
+    {"dataset_id": "ds_edf1261c", "table": "loans", "total": 600, "after": null, "limit": 3, "q": "", "rows": [{"app_id": "A00000", "applicant_name": "•••", "ssn": "•••", "email": "•••", "dob": "1950", "i
+## 1b Fay POST /registry/versions/{mv}/predict → HTTP 422 | would-deny model.use | pii 0
+    {"detail": [{"type": "missing", "loc": ["body", "row"], "msg": "Field required", "input": {"rows": [{"income": 1}], "by": "Fay"}}]}
+
+# 2. Fay starts an agent conversation with user=Ben (an owner of Credit Risk)
+## 2a Fay POST /agent/sessions {user: Ben, 'why was it declined? mv'} → HTTP 409 | pii 0
+    {"id": null, "user": null, "status": null}
+Traceback (most recent call last):
+  File "/home/user/demo/docs/progress/X4/agent.py", line 39, in <module>
+    sid = j["id"]
+          ~^^^^^^
+KeyError: 'id'

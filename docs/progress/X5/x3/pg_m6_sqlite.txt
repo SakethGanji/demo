@@ -1,0 +1,11 @@
+save join 201
+POST joins version_id 5 → 400 {'detail': {'code': 'bad_id', 'message': 'version_id is a dataset version id (text).'}}
+POST joins version_id {'a': 1} → 400 {'detail': {'code': 'bad_id', 'message': 'version_id is a dataset version id (text).'}}
+validate version_id 5 → 400 {'detail': {'code': 'bad_id', 'message': 'version_id is a dataset version id (text).'}}
+validate version_id 1.5 → 400 {'detail': {'code': 'bad_id', 'message': 'version_id is a dataset version id (text).'}}
+validate version_id 'ds_nope' → 404 {'detail': {'code': 'not_found', 'message': 'ds_nope is not a version of ds_784c78c8.'}}
+GET /datasets/ds_%00 → 400 {"detail":{"code":"bad_id","message":"The path holds a NUL byte."}}
+GET /datasets/ds_3bd6820e%00 → 400 {"detail":{"code":"bad_id","message":"The path holds a NUL byte."}}
+GET /datasets/ds_%00/versions → 400 {"detail":{"code":"bad_id","message":"The path holds a NUL byte."}}
+GET /datasets/ds_3bd6820e/diff/ds_%00 → 400 {"detail":{"code":"bad_id","message":"The path holds a NUL byte."}}
+PUT /datasets/ds_3bd6820e/tables/customers%00/key → 400 {"detail":{"code":"bad_id","message":"The path holds a NUL byte."}}

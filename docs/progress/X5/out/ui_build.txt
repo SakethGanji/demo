@@ -1,0 +1,23 @@
+
+> ensemble-ui@0.1.0 build
+> tsc --noEmit && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 231 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                          0.77 kB │ gzip:   0.44 kB
+dist/assets/ensemble-wordmark-on-shell-DPeN6rQz.svg     58.55 kB │ gzip:  17.50 kB
+dist/assets/index-DU8tsisT.css                         129.66 kB │ gzip:  22.60 kB
+dist/assets/index-TJynheyQ.js                        1,603.98 kB │ gzip: 441.36 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 4.07s
+
+real	0m27.577s
+user	0m27.892s
+sys	0m1.067s

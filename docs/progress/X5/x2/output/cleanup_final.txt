@@ -1,0 +1,18 @@
+verify-all True 38
+verify-all True 38
+HTTP 200
+0
+0
+storage: {'parquet': 38}
+lake_migrations: {('migrated', 'renamed'): 36}
+    {'version_id': 'ds_281da07c', 'status': 'migrated', 'reason': None, 'folder_state': 'renamed', 'attempts': 5}
+    {'version_id': 'ds_652418f5', 'status': 'migrated', 'reason': None, 'folder_state': 'renamed', 'attempts': 4}
+    {'version_id': 'ds_34f3bd4c', 'status': 'migrated', 'reason': None, 'folder_state': 'renamed', 'attempts': 4}
+    {'version_id': 'ds_5262b7ad', 'status': 'migrated', 'reason': None, 'folder_state': 'renamed', 'attempts': 3}
+    {'version_id': 'ds_622c0c0c', 'status': 'migrated', 'reason': None, 'folder_state': 'renamed', 'attempts': 3}
+    {'version_id': 'ds_e7548d86', 'status': 'migrated', 'reason': None, 'folder_state': 'renamed', 'attempts': 3}
+folders: .migrated 0 | data.csv files 0 | in .migrated 0
+blobs: {'live/frozen_holdout': 1, 'live/legacy_csv': 32, 'live/legacy_json': 100, 'live/manifest': 38, 'live/source': 1, 'live/split': 33, 'live/table': 36, 'pending/manifest': 1}
+blob_refs: 309 | splits: 38 | run_inputs: 14
+jobs(migrate): [{'id': 'jb_8b4321b88e8d', 'status': 'succeeded', 'attempts': 3, 'error': None}, {'id': 'jb_dafae8250689', 'status': 'succeeded', 'attempts': 1, 'error': None}, {'id': 'jb_d1107127443b', 'status': 'succeeded', 'attempts': 1, 'error': None}]
+audit: {'dataset_migrated': 36, 'dataset_migration_skipped': 6, 'lake_migration_cleanup': 2, 'lake_migration_finished': 3, 'lake_migration_started': 3}

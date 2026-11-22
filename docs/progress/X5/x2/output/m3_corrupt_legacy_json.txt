@@ -1,0 +1,6 @@
+verify-all True 40
+verify-all True 40
+corrupting legacy_json:lineage.json of loans v2: blobs/3a/3aac9e7f96d419fb0cb7e42bf9c2ada42826629a31ca59aff7603410320048a3.json
+file /var/tmp/x5/x2/build/c1_nolock_done/lake/blobs/3a/3aac9e7f96d419fb0cb7e42bf9c2ada42826629a31ca59aff7603410320048a3.json
+allowed True
+  ds_fd96a8d1.migrated False 1 of its legacy blobs do not re-hash (legacy_json:lineage.json)

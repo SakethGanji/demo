@@ -1,0 +1,901 @@
+# 5985 5xx/hang records → 325 families → 180 signatures
+
+## GET /api/agent/sessions/{sid} | 1 responses | OSError | File "/home/user/demo/backend/app/agent/loop.py", line 374, in get
+   families: ['path:sid']
+   replay: 500 exc: OSError: [Errno 36] File name too long: '/var/tmp/x5/sweep/sa2/data/agent/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+   url: http://localhost:8643/api/agent/sessions/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: null
+
+## GET /api/autopilot/{aid} | 1 responses | OSError | File "/home/user/demo/backend/app/autopilot/engine.py", line 83, in get
+   families: ['path:aid']
+   replay: 500 exc: OSError: [Errno 36] File name too long: '/var/tmp/x5/sweep/sa2/data/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+   url: http://localhost:8643/api/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: null
+
+## GET /api/autopilot/{aid}/inbox | 1 responses | OSError | File "/home/user/demo/backend/app/autopilot/engine.py", line 83, in get
+   families: ['path:aid']
+   replay: 500 exc: OSError: [Errno 36] File name too long: '/var/tmp/x5/sweep/sa2/data/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+   url: http://localhost:8643/api/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: null
+
+## GET /api/datasets/{dataset_id}/export | 15 responses | FileNotFoundError | File "/home/user/demo/backend/app/frames.py", line 611, in data_identity
+   families: ['path:dataset_id']
+   replay: 500 exc: FileNotFoundError: [Errno 2] No such file or directory: '/var/tmp/x5/sweep/sa2/data/datasets/nonexistent_zzz/data.csv'
+   url: http://localhost:8643/api/datasets/nonexistent_zzz/export?by=Ada  body: null
+
+## GET /api/datasets/{dataset_id}/export | 57 responses | UnicodeEncodeError | File "/home/user/demo/backend/app/catalog/datasets_api.py", line 639, in _export_parquet
+   families: ['valid', 'query:by', 'query:unmasked', 'query:reason']
+   replay: 500 exc: UnicodeEncodeError: 'latin-1' codec can't encode character '\U0001f600' in position 28: ordinal not in range(256)
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/export?by=Ada  body: null
+
+## GET /api/datasets/{dataset_id}/feature-lab/{job_id} | 1 responses | OSError | File "/home/user/demo/backend/app/featurelab.py", line 533, in read_job
+   families: ['path:job_id']
+   replay: 500 exc: OSError: [Errno 36] File name too long: '/var/tmp/x5/sweep/sa2/data/datasets/ds_3f0c27f8/featurelab/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/feature-lab/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: null
+
+## GET /api/datasets/{dataset_id}/pii | 20 responses | app.lake.pages.PageError | File "/home/user/demo/backend/app/lake/pages.py", line 146, in _parquet_meta
+   families: ['query:table', 'query:all']
+   replay: 500 exc: app.lake.pages.PageError: ds_3f0c27f8 has no table 'abc'.
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/pii?table=abc  body: null
+
+## GET /api/runs/{run_id}/review/{review_id} | 1 responses | OSError | File "/home/user/demo/backend/app/vela/review.py", line 108, in load
+   families: ['path:review_id']
+   replay: 500 exc: OSError: [Errno 36] File name too long: '/var/tmp/x5/sweep/sa2/data/runs/run_d52658fb/reviews/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+   url: http://localhost:8643/api/runs/run_d52658fb/review/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: null
+
+## GET /api/teams/{team}/audit | 2 responses | OverflowError | File "/home/user/demo/backend/app/authz/api.py", line 111, in team_audit
+   families: ['query:cursor']
+   replay: 500 exc: OverflowError: Python int too large to convert to SQLite INTEGER
+   url: http://localhost:8643/api/teams/tm_d7422be1/audit?cursor=18446744073709551616  body: null
+
+## PATCH /api/annotations/{kind}/{node_id}/notes/{note_id} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/annotations/dataset/ds_3f0c27f8/notes/1  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/annotations/{kind}/{node_id}/notes/{note_id} | 1 responses | OverflowError | File "/home/user/demo/backend/app/catalog/store.py", line 224, in note
+   families: ['path:note_id']
+   replay: 500 exc: OverflowError: Python int too large to convert to SQLite INTEGER
+   url: http://localhost:8643/api/annotations/dataset/ds_3f0c27f8/notes/18446744073709551616  body: {"by": "Ada", "reason": "x5 sweep garbage probe"}
+
+## PATCH /api/datasets/{dataset_id} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/datasets/{dataset_id}/card | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/card  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/principals/{principal} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/principals/Ana  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/projects/{project_id} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/projects/prj_e2296e55  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/teams/{team} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/teams/tm_d7422be1  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/teams/{team}/members/{principal} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/teams/tm_d7422be1/members/Ana  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PATCH /api/uploads/{up} | 3 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'mp:binary', 'mp:latin1 csv']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/uploads/up_9fc915a76bf2  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/admin/lake/blobs/{sha256}/restore | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/admin/lake/blobs/ad0ba2704a06330a14ebc6979273be94946afba4c4e107fe4111ce95295045a6/restore  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/admin/lake/blobs/{sha256}/restore | 16 responses | AttributeError | File "/home/user/demo/backend/app/lake/api.py", line 96, in _admin
+   families: ['body:by', 'raw:application/json:\'{"by":"Ada","by":1}\'', 'rawval:NaN/inf', 'rawval:by']
+   replay: 500 exc: AttributeError: 'int' object has no attribute 'strip'
+   url: http://localhost:8643/api/admin/lake/blobs/ad0ba2704a06330a14ebc6979273be94946afba4c4e107fe4111ce95295045a6/restore  body: {"by": 1, "reason": "x5 sweep garbage probe"}
+
+## POST /api/agent/sessions | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/agent/sessions  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/agent/sessions | 127 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/agent/sessions  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/agent/sessions/{sid}/confirm | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/agent/sessions/as_6c481c39516e980f/confirm  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/agent/sessions/{sid}/confirm | 132 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/agent/sessions/as_6c481c39516e980f/confirm  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/agent/sessions/{sid}/messages | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/agent/sessions/as_6c481c39516e980f/messages  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/agent/sessions/{sid}/messages | 106 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/agent/sessions/as_6c481c39516e980f/messages  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/annotations/{kind}/{node_id} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/annotations/dataset/ds_3f0c27f8  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/anomaly/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/anomaly/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/anomaly/runs | 197 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/anomaly/runs  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/anomaly/runs/{run_id}/labels | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/anomaly/runs/run_5759b245/labels  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/anomaly/runs/{run_id}/labels | 127 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/anomaly/runs/run_5759b245/labels  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/anomaly/runs/{run_id}/score | 3 responses | (no log exception) | 
+   families: ['mp:binary', 'mp:parquet garbage', 'mp:ragged csv']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/anomaly/runs/run_5759b245/score  body: null
+
+## POST /api/anomaly/runs/{run_id}/supervised | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/anomaly/runs/run_5759b245/supervised  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/anomaly/runs/{run_id}/supervised | 43 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/anomaly/runs/run_5759b245/supervised  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"presets\": NaN}"
+
+## POST /api/authz/check | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/authz/check  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/authz/check | 5 responses | TypeError | File "/home/user/demo/backend/app/authz/api.py", line 43, in authz_check
+   families: ['body:action']
+   replay: 500 exc: TypeError: unhashable type: 'list'
+   url: http://localhost:8643/api/authz/check  body: {"actor": "Ana", "action": [], "object_id": "ds_3f0c27f8"}
+
+## POST /api/autopilot | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/autopilot  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/autopilot | 152 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/autopilot  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/autopilot/{aid}/inbox/answer | 3 responses | (no log exception) | 
+   families: ['path:aid', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 405 exc: 
+   url: http://localhost:8643/api/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: {"by": "Ada", "reason": "x5 sweep garbage probe"}
+
+## POST /api/autopilot/{aid}/inbox/answer | 147 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/autopilot/ap_x/inbox/answer  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/autopilot/{aid}/inbox/bulk | 2 responses | (no log exception) | 
+   families: ['path:aid', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 405 exc: 
+   url: http://localhost:8643/api/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: {"by": "Ada", "reason": "x5 sweep garbage probe"}
+
+## POST /api/autopilot/{aid}/inbox/bulk | 15 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/autopilot/ap_x/inbox/bulk  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"min_confidence\": NaN}"
+
+## POST /api/autopilot/{aid}/resume | 1 responses | (no log exception) | 
+   families: ['path:aid']
+   replay: 405 exc: 
+   url: http://localhost:8643/api/autopilot/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  body: null
+
+## POST /api/compare | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/compare  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/data/verify-all | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/data/verify-all  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/adopt-disk-file | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/adopt-disk-file  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/certifications | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/certifications  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/certifications | 16 responses | AttributeError | File "/home/user/demo/backend/app/catalog/certify.py", line 254, in _by
+   families: ['raw:application/json:\'{"by":"Ada","by":1}\'', 'body:by', 'rawval:NaN/inf', 'rawval:by']
+   replay: 500 exc: AttributeError: 'int' object has no attribute 'strip'
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/certifications  body: "{\"by\":\"Ada\",\"by\":1}"
+
+## POST /api/datasets/{dataset_id}/contract/from-version/{version_id} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/contract/from-version/ds_3f0c27f8  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/contract/from-version/{version_id} | 16 responses | AttributeError | File "/home/user/demo/backend/app/catalog/contracts.py", line 498, in _by
+   families: ['raw:application/json:\'{"by":"Ada","by":1}\'', 'body:by', 'rawval:NaN/inf', 'rawval:by']
+   replay: 500 exc: AttributeError: 'int' object has no attribute 'strip'
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/contract/from-version/ds_3f0c27f8  body: "{\"by\":\"Ada\",\"by\":1}"
+
+## POST /api/datasets/{dataset_id}/data-doctor/apply | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/data-doctor/apply  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/decision-time | 3 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'body:run_ids', 'body:object_id']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/decision-time  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/default | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/default  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/edit | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/edit  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/feature-lab | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/feature-lab  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/intake | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/intake  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/rows/preview | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/rows/preview  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/rows/preview | 6 responses | OverflowError | File "/home/user/demo/backend/app/lake/pages.py", line 143, in _parquet_meta
+   families: ['body:table', 'rawval:table']
+   replay: 500 exc: OverflowError: Python int too large to convert to SQLite INTEGER
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/rows/preview  body: {"filter": "income > 1", "by": "Ada", "table": 18446744073709551616}
+
+## POST /api/datasets/{dataset_id}/splits | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/splits  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{dataset_id}/splits | 15 responses | TypeError | File "/home/user/demo/backend/app/splits.py", line 95, in split_key
+   families: ['body:target', 'rawval:NaN/inf', 'rawval:target']
+   replay: 500 exc: TypeError: expected string or bytes-like object, got 'int'
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/splits  body: {"by": "Ada", "reason": "x5 sweep garbage probe", "target": 1}
+
+## POST /api/datasets/{dataset_id}/verify | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/verify  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{root_id}/joins | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_da7d71eb/joins  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{root_id}/joins/{join_id}/validate | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_da7d71eb/joins/jn_08ef3f2081/validate  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/datasets/{root_id}/versions/{version_id}/frames | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_da7d71eb/versions/ds_30f30dea/frames  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/expected-loss/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/expected-loss/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/expected-loss/runs | 157 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/expected-loss/runs  body: "{\"x\": 1e400}"
+
+## POST /api/expected-loss/runs/{run_id}/stress | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/expected-loss/runs/run_d52658fb/stress  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/expected-loss/runs/{run_id}/stress | 122 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/expected-loss/runs/run_d52658fb/stress  body: "{\"x\": 1e400}"
+
+## POST /api/forecast/preview | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/forecast/preview  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/forecast/preview | 102 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/forecast/preview  body: "{\"x\": 1e400}"
+
+## POST /api/forecast/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/forecast/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/forecast/runs | 182 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/forecast/runs  body: "{\"x\": 1e400}"
+
+## POST /api/gym/validate | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/gym/validate  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/legal-holds | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/legal-holds  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/multilabel/runs | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/multilabel/runs  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/multilabel/runs | 142 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/multilabel/runs  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/projects | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/projects  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/projects/{project_id}/champion | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/projects/prj_e2296e55/champion  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/projects/{project_id}/datasets | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/projects/prj_e2296e55/datasets  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/batches/{bid}/shift | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/batches/batch_547515ea/shift  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/batches/{bid}/shift | 58 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/batches/batch_547515ea/shift  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"source\": NaN}"
+
+## POST /api/registry/versions/{vid}/changes | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/changes  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/changes | 5 responses | TypeError | File "/home/user/demo/backend/app/registry/changes_api.py", line 223, in start_change
+   families: ['body:kind']
+   replay: 500 exc: TypeError: unhashable type: 'list'
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/changes  body: {"by": "Ada", "reason": "x5 sweep garbage probe", "kind": []}
+
+## POST /api/registry/versions/{vid}/changes/{cid}/request | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/changes/ch_x/request  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/monitoring/retrain | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/monitoring/retrain  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/registry/versions/{vid}/monitoring/retrain | 192 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/monitoring/retrain  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/registry/versions/{vid}/monitoring/stream | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/monitoring/stream  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/monitoring/stream | 162 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/monitoring/stream  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/registry/versions/{vid}/predict | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/predict  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/predict | 202 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/predict  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/registry/versions/{vid}/reasons/stability | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/reasons/stability  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/reasons/stability | 15 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/reasons/stability  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"rows\": NaN}"
+
+## POST /api/registry/versions/{vid}/recourse | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/recourse  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/registry/versions/{vid}/recourse | 122 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/recourse  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/registry/versions/{vid}/recourse/check | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/recourse/check  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/recourse/check | 5 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/recourse/check  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"rows\": NaN}"
+
+## POST /api/registry/versions/{vid}/review | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/review  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/registry/versions/{vid}/review | 147 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/review  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/registry/versions/{vid}/score | 4 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'mp:binary', 'mp:latin1 csv']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/score  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/registry/versions/{vid}/score | 27 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/score  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/registry/versions/{vid}/transition | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/transition  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/registry/versions/{vid}/transition | 157 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/transition  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/reject-inference/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/reject-inference/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/reject-inference/runs | 142 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/reject-inference/runs  body: "{\"x\": 1e400}"
+
+## POST /api/retention/dry-run | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/retention/dry-run  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs | 231 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/active-learning | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/active-learning  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/active-learning | 53 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/active-learning  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"pool\": NaN}"
+
+## POST /api/runs/{run_id}/active-learning/answer | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/active-learning/answer  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/active-learning/answer | 147 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/runs/run_d52658fb/active-learning/answer  body: "{\"x\": 1e400}"
+
+## POST /api/runs/{run_id}/annotations/answer | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/annotations/answer  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## POST /api/runs/{run_id}/annotations/answer | 132 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/annotations/answer  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/annotations/sample | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/annotations/sample  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/annotations/sample | 15 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: -inf
+   url: http://localhost:8643/api/runs/run_d52658fb/annotations/sample  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"n_rows\": -Infinity}"
+
+## POST /api/runs/{run_id}/annotations/simulate-adjudication | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/annotations/simulate-adjudication  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/annotations/simulate-adjudication | 5 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/annotations/simulate-adjudication  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"n\": NaN}"
+
+## POST /api/runs/{run_id}/ensemble | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/ensemble  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/ensemble | 122 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/ensemble  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/experiments | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/experiments  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/fairness | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/fairness  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/fairness | 142 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/fairness  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/learning-curve | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/learning-curve  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/learning-curve | 21 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/learning-curve  body: "{\"by\": \"Ada\", \"fractions\": NaN}"
+
+## POST /api/runs/{run_id}/metric-twin | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/metric-twin  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/metric-twin | 20 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/metric-twin  body: "{\"by\": \"Ada\", \"eval_metric\": NaN}"
+
+## POST /api/runs/{run_id}/predict | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/predict  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/predict | 12 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/predict  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/register | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/register  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/register | 247 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/register  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/review | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/review  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/review | 4 responses | OverflowError | File "/home/user/demo/backend/app/vela/api.py", line 589, in start_review
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: OverflowError: cannot convert float infinity to integer
+   url: http://localhost:8643/api/runs/run_d52658fb/review  body: "{\"by\": \"Ada\", \"max_experiments\": -Infinity}"
+
+## POST /api/runs/{run_id}/scorecard/score | 3 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'mp:binary', 'mp:latin1 csv']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/scorecard/score  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/scorecard/score | 15 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/scorecard/score  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"rows\": NaN}"
+
+## POST /api/runs/{run_id}/shift | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/shift  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/shift | 58 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/shift  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"source\": NaN}"
+
+## POST /api/runs/{run_id}/slices | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/slices  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/slices | 40 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/runs/run_d52658fb/slices  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"min_support\": Infinity}"
+
+## POST /api/runs/{run_id}/slices/{sid}/shap | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/slices/0/shap  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/slices/{sid}/shap | 10 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/slices/0/shap  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"rows\": NaN}"
+
+## POST /api/runs/{run_id}/split-twin | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/split-twin  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/split-twin | 137 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/split-twin  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## POST /api/runs/{run_id}/threshold | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/runs/run_d52658fb/threshold  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/runs/{run_id}/threshold | 10 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/runs/run_d52658fb/threshold  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"metric\": NaN}"
+
+## POST /api/segmented/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/segmented/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/segmented/runs | 141 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/segmented/runs  body: "{\"x\": 1e400}"
+
+## POST /api/shares | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/shares  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/shares | 16 responses | AttributeError | File "/home/user/demo/backend/app/catalog/shares.py", line 386, in _by
+   families: ['raw:application/json:\'{"by":"Ada","by":1}\'', 'body:by', 'rawval:NaN/inf', 'rawval:by']
+   replay: 500 exc: AttributeError: 'int' object has no attribute 'strip'
+   url: http://localhost:8643/api/shares  body: "{\"by\":\"Ada\",\"by\":1}"
+
+## POST /api/sql/datasets | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/sql/datasets  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/sql/datasets | 35 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/sql/datasets  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"url\": NaN}"
+
+## POST /api/sql/datasets/{dataset_id}/refresh | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/sql/datasets/ds_3f0c27f8/refresh  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/sql/datasets/{dataset_id}/refresh | 10 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/sql/datasets/ds_3f0c27f8/refresh  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"password\": Infinity}"
+
+## POST /api/sql/preview | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/sql/preview  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/sql/preview | 20 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/sql/preview  body: "{\"sql\": \"select 1\", \"url\": Infinity}"
+
+## POST /api/sql/tables | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/sql/tables  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/sql/tables | 10 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: -inf
+   url: http://localhost:8643/api/sql/tables  body: "{\"by\": \"Ada\", \"reason\": \"x5 sweep garbage probe\", \"url\": -Infinity}"
+
+## POST /api/survival/runs | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/survival/runs  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/survival/runs | 137 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": 1e400}\'', 'raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: inf
+   url: http://localhost:8643/api/survival/runs  body: "{\"x\": 1e400}"
+
+## POST /api/teams | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/teams  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/teams/{team}/members | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/teams/tm_d7422be1/members  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/uploads | 1 responses | (no log exception) | 
+   families: ['raw:multipart/form-data;:\'{"by":"Ada"}\'']
+   replay: 400 exc: 
+   url: http://localhost:8643/api/uploads?by=Ada  body: "{\"by\":\"Ada\"}"
+
+## POST /api/uploads/{up}/commit | 3 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'mp:binary', 'mp:latin1 csv']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/uploads/up_9fc915a76bf2/commit  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/vela/ask | 3 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', 'body:autopilot_id']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/vela/ask  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## POST /api/vela/ask | 257 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/vela/ask  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## PUT /api/datasets/{dataset_id}/contract | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/contract  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/datasets/{dataset_id}/contract | 16 responses | AttributeError | File "/home/user/demo/backend/app/catalog/contracts.py", line 498, in _by
+   families: ['raw:application/json:\'{"by":"Ada","by":1}\'', 'body:by', 'rawval:NaN/inf', 'rawval:by']
+   replay: 500 exc: AttributeError: 'int' object has no attribute 'strip'
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/contract  body: "{\"by\":\"Ada\",\"by\":1}"
+
+## PUT /api/datasets/{dataset_id}/pii | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'body:table']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/pii  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/datasets/{dataset_id}/pii | 1 responses | OverflowError | File "/home/user/demo/backend/app/lake/pages.py", line 143, in _parquet_meta
+   families: ['rawval:table']
+   replay: 500 exc: OverflowError: Python int too large to convert to SQLite INTEGER
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/pii  body: "{\"confirm\": \"suggested\", \"by\": \"Ana\", \"table\": 123456789012345678901234567890}"
+
+## PUT /api/datasets/{dataset_id}/pii | 19 responses | app.lake.pages.PageError | File "/home/user/demo/backend/app/lake/pages.py", line 146, in _parquet_meta
+   families: ['body:table', 'rawval:NaN/inf']
+   replay: 500 exc: app.lake.pages.PageError: ds_3f0c27f8 has no table 1.
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/pii  body: {"confirm": "suggested", "by": "Ana", "table": 1}
+
+## PUT /api/datasets/{dataset_id}/relations/{name} | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/relations/apps_cust  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/datasets/{dataset_id}/tables/{table}/key | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/datasets/ds_3f0c27f8/tables/loans/key  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/llm/settings | 1 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/llm/settings  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/registry/models/{name}/monitoring | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/models/pd-x5/monitoring  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## PUT /api/registry/models/{name}/monitoring | 172 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/models/pd-x5/monitoring  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## PUT /api/registry/versions/{vid}/card | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/card  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/registry/versions/{vid}/card | 111 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/card  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## PUT /api/registry/versions/{vid}/reasons | 2 responses | (no log exception) | 
+   families: ['raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'', "raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['"]
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/reasons  body: "{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"a\":{\"
+
+## PUT /api/registry/versions/{vid}/reasons | 172 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/reasons  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"
+
+## PUT /api/registry/versions/{vid}/recourse | 2 responses | (no log exception) | 
+   families: ["raw:application/json:'[[[[[[[[[[[[[[[[[[[[[[[[[[[[[['", 'raw:application/json:\'{"a":{"a":{"a":{"a":{"a":{"a":\'']
+   replay: 422 exc: 
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/recourse  body: "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[
+
+## PUT /api/registry/versions/{vid}/recourse | 132 responses | ValueError | File "/home/user/demo/backend/app/main.py", line 232, in acting_as
+   families: ['raw:application/json:\'{"x": NaN, "y": Infinity, "z":\'', 'raw:application/json:\'{"x": 1e400}\'', 'rawval:NaN/inf']
+   replay: 500 exc: ValueError: Out of range float values are not JSON compliant: nan
+   url: http://localhost:8643/api/registry/versions/mv_9c7f8ea7/recourse  body: "{\"x\": NaN, \"y\": Infinity, \"z\": -Infinity}"

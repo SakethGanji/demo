@@ -1,0 +1,3 @@
+_row_id,b: {"detail":{"code":"reserved_column","message":"These column names are reserved for the row id: _row_id. Rename them (names starting with '__', and '_row_id' / '_row', which the API uses for the row id, are reserved) and upload again."}} 400
+_ROW,b: {"detail":{"code":"reserved_column","message":"These column names are reserved for the row id: _ROW. Rename them (names starting with '__', and '_row_id' / '_row', which the API uses for the row id, are reserved) and upload again."}} 400
+__row_id,b: {"detail":{"code":"reserved_column","message":"These column names are reserved for the row id: __row_id. Rename them (names starting with '__', and '_row_id' / '_row', which the API uses for the row id, are reserved) and upload again."}} 400

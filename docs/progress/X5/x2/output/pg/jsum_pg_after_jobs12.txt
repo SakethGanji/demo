@@ -1,0 +1,16 @@
+compare      27/27 identical
+dataset      37/37 identical
+diff         14/15 identical (diff: row results)
+     differs: diff_ds_e7548d86_ds_8beacdde: 500→410 "Internal Server Error" → [null, {}]
+explain      14/14 identical
+featurelab   37/37 identical
+history      0/37 identical
+holdout      14/14 identical
+lineage      0/37 identical
+run          14/14 identical
+splits       8/37 identical
+verify_post  33/37 identical
+     differs: verify_post_ds_1039d9e0
+     differs: verify_post_ds_8beacdde
+     differs: verify_post_ds_df1d3a93
+     differs: verify_post_ds_e7548d86

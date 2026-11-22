@@ -1,0 +1,6 @@
+1. app: routes 317 | must 317 | covered 317 | uncovered 0
+   per method (routes, declared): {'GET': [156, 156], 'POST': [137, 137], 'PATCH': [8, 8], 'DELETE': [7, 7], 'PUT': [9, 9]} | public(): 27
+   rule: every route (every method, GETs included) carries require(action, object) or public(reason)
+2. mode audit, STRICT_COVERAGE=1: refused to start: ENSEMBLE_AUTHZ_STRICT_COVERAGE=1 refuses to start: 1 route(s) carry neither require() nor public(): GET /api/x/undeclared/{dataset_id}
+2. mode enforce, STRICT_COVERAGE=0: refused to start: ENSEMBLE_AUTHZ=enforce refuses to start: 1 route(s) carry neither require() nor public(): GET /api/x/undeclared/{dataset_id}
+3. audit mode, not strict: starts, and the gate check lists it: uncovered 1 ['GET /api/x/undeclared/{dataset_id}']

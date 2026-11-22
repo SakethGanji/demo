@@ -1,0 +1,14 @@
+storage: {'csv': 6, 'parquet': 32}
+lake_migrations: {('migrated', 'renamed'): 30, ('skipped', None): 6}
+    {'version_id': 'ds_281da07c', 'status': 'skipped', 'reason': 'split_conflict', 'folder_state': None, 'attempts': 4}
+    {'version_id': 'ds_652418f5', 'status': 'skipped', 'reason': 'data_conflict', 'folder_state': None, 'attempts': 3}
+    {'version_id': 'ds_34f3bd4c', 'status': 'skipped', 'reason': 'data_changed', 'folder_state': None, 'attempts': 3}
+    {'version_id': 'ds_5262b7ad', 'status': 'skipped', 'reason': 'split_changed', 'folder_state': None, 'attempts': 2}
+    {'version_id': 'ds_622c0c0c', 'status': 'skipped', 'reason': 'split_conflict', 'folder_state': None, 'attempts': 2}
+    {'version_id': 'ds_e7548d86', 'status': 'skipped', 'reason': 'split_changed', 'folder_state': None, 'attempts': 2}
+folders: .migrated 30 | data.csv files 35 | in .migrated 29
+blobs: {'live/frozen_holdout': 1, 'live/legacy_csv': 26, 'live/legacy_json': 85, 'live/manifest': 32, 'live/source': 1, 'live/split': 28, 'live/table': 30, 'pending/manifest': 1}
+blob_refs: 253 | splits: 32 | run_inputs: 11
+jobs(migrate): [{'id': 'jb_8b4321b88e8d', 'status': 'succeeded', 'attempts': 3, 'error': None}, {'id': 'jb_dafae8250689', 'status': 'succeeded', 'attempts': 1, 'error': None}]
+audit: {'dataset_migrated': 30, 'dataset_migration_skipped': 6, 'lake_migration_finished': 2, 'lake_migration_started': 2}
+fingerprint: {'datasets': {'n': 38, 'sha': '78fdc297733aef6b'}, 'version_tables': {'n': 33, 'sha': '79c1ae5b5b7d4b7c'}, 'table_files': {'n': 33, 'sha': '89a5b6137b1e15d4'}, 'blobs': {'n': 204, 'sha': '4abd83d75af6aef2'}, 'blob_refs': {'n': 253, 'sha': 'e01b758196424863'}, 'splits': {'n': 32, 'sha': '98ad5d997a7ecc7b'}, 'run_inputs': {'n': 11, 'sha': 'a2851c2ad92bd88a'}, 'dataset_root_tables': {'n': 24, 'sha': '582e75d38e879387'}, 'lineage_edges': {'n': 31, 'sha': '6fa9a6f1ce9188a4'}, 'lake_migrations': {'n': 36, 'sha': '446427f5400c3b0a'}}

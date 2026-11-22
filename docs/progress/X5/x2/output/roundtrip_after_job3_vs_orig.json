@@ -1,0 +1,1890 @@
+{
+ "versions": [
+  {
+   "version": "support-tickets",
+   "status": "migrated",
+   "reason": null,
+   "rows": 20000,
+   "cols": 7,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "ticket_id": "object",
+    "subject": "object",
+    "body": "object",
+    "channel": "object",
+    "priority": "object",
+    "customer_tier": "object",
+    "category": "object"
+   }
+  },
+  {
+   "version": "account-churn",
+   "status": "migrated",
+   "reason": null,
+   "rows": 10000,
+   "cols": 11,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    804,
+    804
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "account_id": "object",
+    "plan": "object",
+    "region": "object",
+    "contract": "object",
+    "seats": "int64",
+    "mrr_usd": "float64",
+    "tenure_months": "int64",
+    "tickets_90d": "int64",
+    "last_login_days": "int64",
+    "nps": "float64",
+    "churned": "object"
+   }
+  },
+  {
+   "version": "credit-default",
+   "status": "migrated",
+   "reason": null,
+   "rows": 12000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    1059,
+    1059
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "loan-amount",
+   "status": "migrated",
+   "reason": null,
+   "rows": 8000,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    40,
+    40
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "income_usd": "float64",
+    "credit_score": "int64",
+    "existing_debt_usd": "float64",
+    "term_months": "int64",
+    "purpose": "object",
+    "home_ownership": "object",
+    "region": "object",
+    "open_accounts": "int64",
+    "loan_amount_usd": "float64"
+   }
+  },
+  {
+   "version": "transaction-volume",
+   "status": "migrated",
+   "reason": null,
+   "rows": 4548,
+   "cols": 6,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    168,
+    168
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "item_id": "object",
+    "timestamp": "object",
+    "volume": "float64",
+    "holiday": "int64",
+    "payday": "int64",
+    "segment": "object"
+   }
+  },
+  {
+   "version": "card-transactions",
+   "status": "migrated",
+   "reason": null,
+   "rows": 6000,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "txn_id": "object",
+    "card_id": "object",
+    "timestamp": "object",
+    "amount_usd": "float64",
+    "avg_amount_90d": "float64",
+    "merchant_category": "object",
+    "channel": "object",
+    "card_present": "int64",
+    "foreign": "int64",
+    "hour": "int64",
+    "distance_from_home_km": "float64",
+    "txns_last_24h": "int64",
+    "account_age_days": "int64"
+   }
+  },
+  {
+   "version": "personal-loans",
+   "status": "migrated",
+   "reason": null,
+   "rows": 10000,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "age": "int64",
+    "income_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "channel": "object",
+    "region": "object",
+    "employment": "object",
+    "term_months": "int64",
+    "loan_amount_usd": "float64",
+    "prior_defaults": "int64",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "loan-stream",
+   "status": "migrated",
+   "reason": null,
+   "rows": 9000,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "income_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "channel": "object",
+    "employment": "object",
+    "term_months": "int64",
+    "loan_amount_usd": "float64",
+    "prior_defaults": "int64",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "loan-losses",
+   "status": "migrated",
+   "reason": null,
+   "rows": 20000,
+   "cols": 15,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    35204,
+    35204
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "loan_id": "object",
+    "application_date": "object",
+    "product": "object",
+    "region": "object",
+    "income": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "credit_limit": "float64",
+    "current_balance": "float64",
+    "collateral_value": "float64",
+    "term_months": "int64",
+    "defaulted": "int64",
+    "lgd": "float64",
+    "ead": "float64"
+   }
+  },
+  {
+   "version": "fair-lending",
+   "status": "migrated",
+   "reason": null,
+   "rows": 20000,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "surname": "object",
+    "zip": "int64",
+    "income": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "loan_amount": "float64",
+    "employment_years": "float64",
+    "home_ownership": "object",
+    "race_ethnicity_true": "object",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "segmented-loans",
+   "status": "migrated",
+   "reason": null,
+   "rows": 30000,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "customer_type": "object",
+    "income": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "months_employed": "int64",
+    "num_accounts": "int64",
+    "loan_amount": "float64",
+    "recent_inquiries": "int64",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "account-attrition",
+   "status": "migrated",
+   "reason": null,
+   "rows": 12000,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "account_id": "object",
+    "open_date": "object",
+    "product": "object",
+    "region": "object",
+    "age": "int64",
+    "num_products": "int64",
+    "digital_logins_30d": "int64",
+    "complaints_12m": "int64",
+    "rate_vs_market_pp": "float64",
+    "has_salary_mandate": "int64",
+    "avg_balance_gbp": "float64",
+    "churned": "int64",
+    "duration_months": "int64"
+   }
+  },
+  {
+   "version": "credit-rejects",
+   "status": "migrated",
+   "reason": null,
+   "rows": 24000,
+   "cols": 14,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    10169,
+    10169
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "channel": "object",
+    "home_ownership": "object",
+    "credit_score": "int64",
+    "income": "float64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "months_employed": "int64",
+    "recent_inquiries": "int64",
+    "num_delinquencies": "int64",
+    "loan_amount": "float64",
+    "decision": "object",
+    "defaulted": "float64"
+   }
+  },
+  {
+   "version": "complaint-topics",
+   "status": "migrated",
+   "reason": null,
+   "rows": 6000,
+   "cols": 8,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    5,
+    5
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "complaint_id": "object",
+    "received_date": "object",
+    "product": "object",
+    "channel": "object",
+    "customer_tenure_years": "float64",
+    "amount_disputed": "float64",
+    "narrative": "object",
+    "topics": "object"
+   }
+  },
+  {
+   "version": "ds_281da07c",
+   "status": "migrated",
+   "reason": null,
+   "rows": 600,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    496,
+    496
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_fd96a8d1",
+   "status": "migrated",
+   "reason": null,
+   "rows": 582,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    478,
+    478
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [-2..599]",
+   "ids_sorted": false,
+   "neg_ids": 2,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "float64",
+    "acct_no": "float64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "float64",
+    "y": "float64"
+   }
+  },
+  {
+   "version": "ds_14c1bf3b",
+   "status": "migrated",
+   "reason": null,
+   "rows": 610,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    504,
+    504
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [-25..599]",
+   "ids_sorted": false,
+   "neg_ids": 25,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_d2046b69",
+   "status": "migrated",
+   "reason": null,
+   "rows": 578,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    474,
+    474
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [-2..599]",
+   "ids_sorted": false,
+   "neg_ids": 2,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "float64",
+    "acct_no": "float64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "float64",
+    "y": "float64",
+    "n_late_was_missing": "int64"
+   }
+  },
+  {
+   "version": "ds_34f3bd4c",
+   "status": "migrated",
+   "reason": null,
+   "rows": 400,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "cust": "object",
+    "tenure": "int64",
+    "spend": "float64",
+    "plan": "object",
+    "churn": "int64"
+   }
+  },
+  {
+   "version": "ds_df1d3a93",
+   "status": "migrated",
+   "reason": null,
+   "rows": 3000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    269,
+    269
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "ds_1039d9e0",
+   "status": "migrated",
+   "reason": null,
+   "rows": 3000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    269,
+    269
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "ds_a4b7f0d8",
+   "status": "migrated",
+   "reason": null,
+   "rows": 300000,
+   "cols": 4,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    7143,
+    7143
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "id": "int64",
+    "code": "float64",
+    "v": "float64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_652418f5",
+   "status": "migrated",
+   "reason": null,
+   "rows": 600,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    496,
+    496
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_73d34e26",
+   "status": "migrated",
+   "reason": null,
+   "rows": 1500,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "rid": "object",
+    "a": "float64",
+    "b": "float64",
+    "noise": "float64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_c9a1ec9c",
+   "status": "migrated",
+   "reason": null,
+   "rows": 2000,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "rid": "object",
+    "a": "float64",
+    "b": "float64",
+    "c": "float64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_4414e1c6",
+   "status": "migrated",
+   "reason": null,
+   "rows": 2000,
+   "cols": 6,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "rid": "object",
+    "a": "float64",
+    "b": "float64",
+    "c": "float64",
+    "y": "int64",
+    "a_per_b": "float64"
+   }
+  },
+  {
+   "version": "ds_525c8e18",
+   "status": "migrated",
+   "reason": null,
+   "rows": 800,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    861,
+    861
+   ],
+   "na_cells": [
+    606,
+    606
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_5262b7ad",
+   "status": "migrated",
+   "reason": null,
+   "rows": 793,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    855,
+    855
+   ],
+   "na_cells": [
+    601,
+    601
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 1,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_622c0c0c",
+   "status": "migrated",
+   "reason": null,
+   "rows": 763,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    822,
+    822
+   ],
+   "na_cells": [
+    573,
+    573
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 1,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_e950e720",
+   "status": "migrated",
+   "reason": null,
+   "rows": 608,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    503,
+    503
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [-25..599]",
+   "ids_sorted": false,
+   "neg_ids": 25,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_e2a02b05",
+   "status": "migrated",
+   "reason": null,
+   "rows": 791,
+   "cols": 11,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    853,
+    853
+   ],
+   "na_cells": [
+    599,
+    599
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [-1..799]",
+   "ids_sorted": false,
+   "neg_ids": 1,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64",
+    "balance_was_missing": "int64"
+   }
+  },
+  {
+   "version": "ds_f308ffe2",
+   "status": "migrated",
+   "reason": null,
+   "rows": 800,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    861,
+    861
+   ],
+   "na_cells": [
+    606,
+    606
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_32fabcc7",
+   "status": "migrated",
+   "reason": null,
+   "rows": 3000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    269,
+    269
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "ds_e7548d86",
+   "status": "migrated",
+   "reason": null,
+   "rows": 300,
+   "cols": 4,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "k": "object",
+    "x1": "float64",
+    "x2": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_525b7653",
+   "status": "migrated",
+   "reason": null,
+   "rows": 399,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [0..399]",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "cust": "object",
+    "tenure": "int64",
+    "spend": "float64",
+    "plan": "object",
+    "churn": "int64"
+   }
+  }
+ ],
+ "runs": [
+  {
+   "run": "run_356ac901",
+   "version": "ds_281da07c",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_27b874ed47b9",
+    "run_id": "run_356ac901",
+    "role": "train",
+    "version_id": "ds_281da07c",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353",
+    "split_id": "spl_d6d3fb0fdea1",
+    "split_sha256": null,
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:06:16+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_b8ac2e57",
+   "version": "ds_fd96a8d1",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_30149bd4028c",
+    "run_id": "run_b8ac2e57",
+    "role": "train",
+    "version_id": "ds_fd96a8d1",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_a760790b1547",
+    "split_sha256": null,
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:06:45+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_df480700",
+   "version": "ds_34f3bd4c",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_0205c444ed8e",
+    "run_id": "run_df480700",
+    "role": "train",
+    "version_id": "ds_34f3bd4c",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+    "split_id": "spl_0382efebbba4",
+    "split_sha256": null,
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:07:18+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_4204cb9b",
+   "version": "ds_525c8e18",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_3454014141b3",
+    "run_id": "run_4204cb9b",
+    "role": "train",
+    "version_id": "ds_525c8e18",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a",
+    "split_id": "spl_7cc3e2d8f8ce",
+    "split_sha256": null,
+    "split_legacy_sha256": "06beabf613b44d0367af20d07a8cdf63890a20dbe54280b9d3777009dda2fe26",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:09:35+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_e53b2acc",
+   "version": "ds_5262b7ad",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_554144fd87e3",
+    "run_id": "run_e53b2acc",
+    "role": "train",
+    "version_id": "ds_5262b7ad",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2",
+    "split_id": "spl_68a8164f3b2e",
+    "split_sha256": null,
+    "split_legacy_sha256": "ecc9185a8891b1773255ce95a3efa9cfa7454d4ac631aae1d89a46dc9b927072",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:10:08+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_be6ae6e8",
+   "version": "ds_e950e720",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_0e283c175b7c",
+    "run_id": "run_be6ae6e8",
+    "role": "train",
+    "version_id": "ds_e950e720",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771",
+    "split_id": "spl_ff537a2e96b9",
+    "split_sha256": null,
+    "split_legacy_sha256": "5b5b157f63462d6cba94f5dbfbf4b47b77b88b6d488d78e8f56c648c58f1730b",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:10:43+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_7e2d775c",
+   "version": "ds_8beacdde",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_b5b3899df6fd",
+    "run_id": "run_7e2d775c",
+    "role": "train",
+    "version_id": "ds_8beacdde",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728",
+    "split_id": "spl_dbad569ec4e5",
+    "split_sha256": null,
+    "split_legacy_sha256": "de1753a93a819ea7f12892099c1c0be2c6068670467e152f2ab968aaef52af5c",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-22T04:11:14+00:00"
+   },
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_b5f2841f",
+   "version": "ds_5262b7ad",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_8518708eb1bd",
+    "run_id": "run_b5f2841f",
+    "role": "train",
+    "version_id": "ds_5262b7ad",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2",
+    "match": 1,
+    "legacy_csv_sha256": "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2",
+    "split_id": "spl_68a8164f3b2e",
+    "split_sha256": null,
+    "split_legacy_sha256": "ecc9185a8891b1773255ce95a3efa9cfa7454d4ac631aae1d89a46dc9b927072",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 793,
+    "rows_used": 635,
+    "frame_mb": null,
+    "columns_dropped": "[\"acct\", \"zip\"]",
+    "created_at": "2026-11-22T04:12:29+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_515f15dd",
+   "version": "ds_32fabcc7",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_1fb2f5a766a3",
+    "run_id": "run_515f15dd",
+    "role": "train",
+    "version_id": "ds_32fabcc7",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd",
+    "match": 1,
+    "legacy_csv_sha256": "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd",
+    "split_id": "spl_bfd270a15cd4",
+    "split_sha256": null,
+    "split_legacy_sha256": "005c1b03bbc032c9d8373793100a67841377ad2ff210870f9bd5be7b844ef9f3",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 3000,
+    "rows_used": 2400,
+    "frame_mb": null,
+    "columns_dropped": "[\"applicant_id\"]",
+    "created_at": "2026-11-22T04:13:03+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_d31c1acc",
+   "version": "ds_89089070",
+   "status": null,
+   "run_inputs": {
+    "id": "ri_8947f65a2cf6",
+    "run_id": "run_d31c1acc",
+    "role": "train",
+    "version_id": "ds_89089070",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": "882ad67726c3a048f40d9148898da1763564b82051d89022516748b17d882621",
+    "read_sha256": "882ad67726c3a048f40d9148898da1763564b82051d89022516748b17d882621",
+    "match": 1,
+    "legacy_csv_sha256": null,
+    "split_id": "spl_e6ce8571a109",
+    "split_sha256": "bf02b7c9c11292a9758e8468e0bda8c55d52fc31e5e1357ce27bf53932065057",
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 750,
+    "rows_used": 603,
+    "frame_mb": 0,
+    "columns_dropped": "[\"acct\", \"zip\"]",
+    "created_at": "2026-11-22T04:13:47+00:00"
+   },
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_0e05b67c",
+   "version": "ds_d2046b69",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_a5dfb2187d2d",
+    "run_id": "run_0e05b67c",
+    "role": "train",
+    "version_id": "ds_d2046b69",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "ee8937c0f2ddf761f72580a2a2b38289264194c0b7c190350795cb24b9b9085c",
+    "match": 1,
+    "legacy_csv_sha256": "ee8937c0f2ddf761f72580a2a2b38289264194c0b7c190350795cb24b9b9085c",
+    "split_id": "spl_3dbdb71b7630",
+    "split_sha256": null,
+    "split_legacy_sha256": "ebe584ba1024e5927f4a3506693722be95747f80e783b0d8f3f433f4937f5c76",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 578,
+    "rows_used": 461,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-22T04:14:26+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_29fca109",
+   "version": "ds_fd96a8d1",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_f67bf6980e7f",
+    "run_id": "run_29fca109",
+    "role": "train",
+    "version_id": "ds_fd96a8d1",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "match": 1,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_a760790b1547",
+    "split_sha256": null,
+    "split_legacy_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 582,
+    "rows_used": 465,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-22T04:15:08+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_1b8725be",
+   "version": "ds_fd96a8d1",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_22f537e6b720",
+    "run_id": "run_1b8725be",
+    "role": "train",
+    "version_id": "ds_fd96a8d1",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "match": 1,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_a760790b1547",
+    "split_sha256": null,
+    "split_legacy_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 582,
+    "rows_used": 465,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-22T04:15:45+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_ed6ac697",
+   "version": "ds_fd96a8d1",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_673de05d0abb",
+    "run_id": "run_ed6ac697",
+    "role": "train",
+    "version_id": "ds_fd96a8d1",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "match": 1,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_a760790b1547",
+    "split_sha256": null,
+    "split_legacy_sha256": "83cfa48e8d1b8dc364ecd19524605d08dfb4b0b6bec65f3c6302ad10ac9a5c47",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 582,
+    "rows_used": 465,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-22T04:16:27+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_c9a1ec9c",
+    "now": "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "d431424faaf13bcb65daebe0f4513e2d679ea73e510d34e6946df7af39502964",
+    "v": 1
+   }
+  ],
+  "root_id": "ds_c9a1ec9c"
+ },
+ "status": 200
+}

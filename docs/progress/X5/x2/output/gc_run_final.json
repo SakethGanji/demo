@@ -1,0 +1,2 @@
+{"dry_run":false,"plan_id":"gcp_df7386df7b","deleted":0,"bytes":0,"skipped":0,"failed":0,"stale_tmp_removed":0,"aborted_multipart":null,"deleted_versions_refs_dropped":1,"store":"file:///var/tmp/x5/x2/build/data/lake","deleted_blobs":[],"skipped_blobs":[],"failed_blobs":[],"stale_tmp":[],"orphans_reported_only":0,"integrity":[]}
+HTTP 200

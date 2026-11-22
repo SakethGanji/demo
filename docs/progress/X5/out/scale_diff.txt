@@ -1,0 +1,4 @@
+  [diff first] 4.8 s | peak single process 1.77 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 2.23 GB
+  -> 200 {"matched": null, "changed": null, "added": null, "removed": null, "changed_by_column": null, "cached": false}
+  [diff repeat] 0.3 s | peak single process 0.94 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 1.40 GB
+  -> 200 {"matched": null, "changed": null, "added": null, "removed": null, "changed_by_column": null, "cached": true}

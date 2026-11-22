@@ -1,0 +1,6 @@
+
+## 7. Ana · Build (Smart Intake) on the newest version: masked statistics → Unmask (reason)
+GET /api/datasets/ds_bc2e220f/intake → 200 masked_columns="masked_columns":["applicant_name","dob","ssn"] unmasked="unmasked":false
+GET /api/datasets/ds_bc2e220f/intake → 200 masked_columns="masked_columns":["applicant_name","dob","ssn"] unmasked="unmasked":false
+GET /api/datasets/ds_bc2e220f/intake?unmasked=1&reason=checking+the+intake+roles&by=Ana → 200 masked_columns="masked_columns":[] unmasked="unmasked":true}
+console errors: 0

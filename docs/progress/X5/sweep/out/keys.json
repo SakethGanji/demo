@@ -1,0 +1,1833 @@
+{
+"GET /api/admin/lake/selfcheck": [],
+"GET /api/admin/lake/status": [],
+"POST /api/admin/lake/cache/verify": [],
+"POST /api/admin/lake/blobs/{sha256}/restore": [
+"by",
+"confirm",
+"reason"
+],
+"POST /api/admin/lake/sync-s3": [
+"by"
+],
+"GET /api/datasets/{dataset_id}/manifest": [
+"data",
+"data_sha256",
+"files",
+"key",
+"manifest_sha256",
+"sha256",
+"storage",
+"tables"
+],
+"GET /api/datasets/{dataset_id}/verify": [
+"ok",
+"problems",
+"root_id",
+"storage"
+],
+"POST /api/admin/lake/gc": [
+"by",
+"confirm",
+"plan_id"
+],
+"GET /api/admin/lake/gc/armed": [],
+"POST /api/admin/lake/migrate": [
+"by",
+"id",
+"only"
+],
+"GET /api/admin/lake/migrate": [
+"job",
+"job_id",
+"progress"
+],
+"POST /api/admin/lake/migrate/cleanup": [
+"by"
+],
+"GET /api/admin/lake/verify-all": [],
+"GET /api/admin/lake/runs/{run_id}/verify": [],
+"POST /api/admin/lake/seed": [
+"by"
+],
+"GET /api/health": [],
+"GET /api/datasets": [
+"created_at",
+"id",
+"next_after",
+"rows",
+"state",
+"total"
+],
+"GET /api/datasets/diff": [],
+"GET /api/datasets/{dataset_id}": [],
+"POST /api/datasets": [
+"id"
+],
+"PATCH /api/datasets/{dataset_id}": [
+"target"
+],
+"GET /api/datasets/{dataset_id}/splits": [
+"key",
+"profile",
+"splits",
+"target"
+],
+"GET /api/datasets/{dataset_id}/split-options": [
+"target"
+],
+"GET /api/datasets/{dataset_id}/intake": [],
+"POST /api/datasets/{dataset_id}/intake": [
+"by",
+"reason",
+"roles",
+"unmasked"
+],
+"GET /api/datasets/{dataset_id}/rows": [
+"column",
+"n",
+"rows"
+],
+"POST /api/datasets/{dataset_id}/splits": [
+"strategy",
+"target"
+],
+"POST /api/admin/reset-requests": [
+"by"
+],
+"POST /api/admin/reset-requests/{rid}/decide": [
+"approve",
+"by",
+"comment",
+"requested_by",
+"status"
+],
+"GET /api/admin/reset-requests": [],
+"POST /api/admin/reset": [
+"by",
+"confirm",
+"reason",
+"request_id"
+],
+"POST /api/runs/import": [
+"columns",
+"eval_metric",
+"features",
+"is_timeseries",
+"label",
+"name",
+"path",
+"problem_type",
+"profile",
+"version"
+],
+"GET /api/models": [],
+"POST /api/runs": [],
+"GET /api/runs": [
+"id",
+"status"
+],
+"GET /api/runs/{run_id}": [],
+"POST /api/runs/{run_id}/split-twin": [
+"config",
+"import",
+"kind",
+"name",
+"parent_run_id",
+"source",
+"split_spec",
+"strategy"
+],
+"GET /api/runs/{run_id}/split-comparison": [
+"best_model",
+"config",
+"created_at",
+"cutoff",
+"data",
+"dataset_id",
+"excluded_rows",
+"holdout_rows",
+"id",
+"import",
+"key",
+"kind",
+"label",
+"name",
+"optimism",
+"params",
+"result",
+"run_id",
+"same_config",
+"score",
+"split",
+"status",
+"strategy",
+"this_run",
+"train_rows",
+"tuning_cutoff",
+"tuning_rows"
+],
+"POST /api/runs/{run_id}/cancel": [
+"status"
+],
+"DELETE /api/runs/{run_id}": [
+"approval",
+"dataset_id",
+"id",
+"model_name",
+"name",
+"project_id",
+"retired_at",
+"status",
+"version",
+"version_id"
+],
+"GET /api/runs/{run_id}/events": [
+"seq",
+"status",
+"type"
+],
+"POST /api/runs/{run_id}/predict": [
+"config",
+"predictor_path"
+],
+"GET /api/runs/{run_id}/monotone": [
+"config",
+"import",
+"kind",
+"monotone",
+"predictor_path",
+"problem_type",
+"result"
+],
+"GET /api/runs/{run_id}/scorecard": [
+"SCORECARD"
+],
+"GET /api/runs/{run_id}/scorecard.csv": [
+"config",
+"feature",
+"masked_columns",
+"run_dir"
+],
+"POST /api/runs/{run_id}/scorecard/score": [
+"config"
+],
+"GET /api/runs/{run_id}/ladder": [
+"config",
+"error",
+"import",
+"kind",
+"ladder",
+"problem_type",
+"result"
+],
+"GET /api/runs/{run_id}/oof": [
+"config",
+"predictor_path"
+],
+"GET /api/runs/{run_id}/feature-importance": [
+"config",
+"eval_metric",
+"feature_importance",
+"feature_importance_meta",
+"name",
+"num_shuffle_sets",
+"result"
+],
+"GET /api/runs/{run_id}/holdout-predictions": [
+"best_model",
+"config",
+"label",
+"result",
+"row",
+"run_dir",
+"y_pred",
+"y_true"
+],
+"POST /api/runs/{run_id}/ensemble": [
+"leaderboard",
+"model",
+"result"
+],
+"GET /api/runs/{run_id}/threshold": [
+"best_model",
+"positive_class",
+"threshold"
+],
+"GET /api/runs/{run_id}/cost": [
+"best_model",
+"config",
+"cost",
+"eval_metric",
+"name",
+"positive_class",
+"result",
+"threshold"
+],
+"POST /api/runs/{run_id}/metric-twin": [
+"calibrate_threshold",
+"config",
+"cost",
+"eval_metric",
+"import",
+"kind",
+"name",
+"parent_run_id",
+"source"
+],
+"GET /api/runs/{run_id}/cost-comparison": [
+"_ids",
+"accuracy",
+"bayes",
+"best_model",
+"config",
+"cost",
+"created_at",
+"curve",
+"dataset_id",
+"delta",
+"delta_validation",
+"deployed",
+"eval_metric",
+"holdout",
+"id",
+"import",
+"key",
+"kind",
+"label",
+"metric",
+"metrics",
+"name",
+"per_1000",
+"positive_class",
+"problem_type",
+"result",
+"roc_auc",
+"row",
+"run_dir",
+"source",
+"split",
+"status",
+"t",
+"this_run",
+"threshold",
+"trained_on_cost",
+"validation"
+],
+"POST /api/runs/{run_id}/threshold": [
+"config",
+"drop_columns",
+"fit_threshold",
+"holdout",
+"label",
+"predictor_path",
+"result",
+"run_dir",
+"splits_path",
+"threshold"
+],
+"GET /api/runs/{run_id}/explain": [
+"best_model",
+"centre",
+"centre_level",
+"columns",
+"config",
+"dataset_id",
+"eval_metric",
+"features",
+"label",
+"name",
+"positive_class",
+"problem_type",
+"profile",
+"quantile",
+"result",
+"text_columns",
+"threshold"
+],
+"GET /api/runs/{run_id}/fairness": [],
+"POST /api/runs/{run_id}/fairness": [
+"binning",
+"by_group",
+"fairness_reports",
+"gaps",
+"result",
+"threshold"
+],
+"GET /api/runs/{run_id}/shap": [
+"config"
+],
+"GET /api/status": [
+"config",
+"eval_metric",
+"greater_is_better",
+"id",
+"name",
+"phase",
+"presets",
+"started_at",
+"status",
+"time_limit",
+"val_score_natural"
+],
+"GET /api/data/search": [],
+"GET /api/datasets/{dataset_id}/history": [],
+"GET /api/datasets/{dataset_id}/pii": [],
+"PUT /api/datasets/{dataset_id}/pii": [
+"by",
+"columns",
+"confirm",
+"table"
+],
+"POST /api/datasets/{dataset_id}/versions": [
+"blocks",
+"check",
+"columns",
+"contract",
+"deduped",
+"default",
+"id",
+"is_default",
+"match",
+"matched_by",
+"message",
+"method",
+"methods",
+"next_version",
+"rec",
+"root_id",
+"state",
+"target",
+"ver",
+"version_id",
+"warnings",
+"why"
+],
+"GET /api/datasets/{a}/diff/{b}": [],
+"GET /api/datasets/{dataset_id}/usage": [],
+"POST /api/datasets/{dataset_id}/default": [
+"by",
+"reason",
+"version_id"
+],
+"PATCH /api/datasets/{dataset_id}/card": [
+"by",
+"name"
+],
+"POST /api/datasets/{dataset_id}/archive": [
+"archived",
+"by",
+"only_version",
+"reason"
+],
+"POST /api/datasets/{dataset_id}/delete": [
+"by",
+"freeze_holdout",
+"irreproducible",
+"only_version"
+],
+"POST /api/dataset-requests/{rid}/decide": [
+"approve",
+"by",
+"comment",
+"withdraw"
+],
+"POST /api/datasets/{dataset_id}/verify": [
+"all",
+"by"
+],
+"POST /api/data/verify-all": [
+"by"
+],
+"GET /api/datasets/{dataset_id}/export": [
+"name",
+"root_id",
+"sha256_file",
+"v"
+],
+"GET /api/datasets/{dataset_id}/grid": [
+"count",
+"how",
+"next_after",
+"rows",
+"timed_out"
+],
+"GET /api/datasets/{dataset_id}/rows/count": [],
+"POST /api/datasets/{dataset_id}/rows/preview": [
+"by",
+"count",
+"filter",
+"limit",
+"next_after",
+"q",
+"reason",
+"rows",
+"table",
+"timed_out",
+"unmasked"
+],
+"GET /api/datasets/{dataset_id}/stats": [],
+"POST /api/datasets/{dataset_id}/edit": [
+"table"
+],
+"POST /api/datasets/{dataset_id}/adopt-disk-file": [
+"by",
+"id",
+"root_id",
+"sha256",
+"upload"
+],
+"POST /api/datasets/{dataset_id}/restore-splits": [
+"by",
+"root_id",
+"status"
+],
+"POST /api/datasets/match": [],
+"POST /api/uploads": [
+"by",
+"parent_version_id",
+"project_id",
+"root_id"
+],
+"GET /api/uploads/{up}": [],
+"PATCH /api/uploads/{up}": [],
+"POST /api/uploads/{up}/check": [],
+"POST /api/uploads/{up}/commit": [
+"acknowledge",
+"check",
+"check_sha256",
+"deduped",
+"kind",
+"make_default",
+"match",
+"plan",
+"profile",
+"profile_target",
+"reason",
+"target",
+"version_id"
+],
+"DELETE /api/uploads/{up}": [
+"committed_version_id",
+"status"
+],
+"GET /api/datasets/{root_id}/versions/{version_id}": [],
+"PUT /api/datasets/{dataset_id}/tables/{table}/key": [
+"columns",
+"deduped",
+"keys",
+"kind",
+"name",
+"reason",
+"root_id",
+"tables",
+"version_id"
+],
+"GET /api/datasets/{dataset_id}/relations": [],
+"PUT /api/datasets/{dataset_id}/relations/{name}": [
+"deduped",
+"name",
+"reason",
+"relations",
+"version_id"
+],
+"DELETE /api/datasets/{dataset_id}/relations/{name}": [
+"deduped",
+"version_id"
+],
+"GET /api/projects": [
+"id",
+"team_id"
+],
+"GET /api/projects/{project_id}": [
+"team_id"
+],
+"POST /api/projects": [
+"by",
+"id",
+"name",
+"state",
+"team_id"
+],
+"PATCH /api/projects/{project_id}": [],
+"POST /api/projects/{project_id}/datasets": [
+"by",
+"dataset_id",
+"parent_id",
+"project_id",
+"root_id"
+],
+"GET /api/lineage/{kind}/{node_id}": [],
+"GET /api/runs/{run_id}/children": [],
+"POST /api/compare": [
+"B",
+"a",
+"b"
+],
+"GET /api/annotations/{kind}/{node_id}": [],
+"POST /api/annotations/{kind}/{node_id}": [
+"by",
+"note",
+"tag"
+],
+"DELETE /api/annotations/{kind}/{node_id}/tags/{tag:path}": [],
+"PATCH /api/annotations/{kind}/{node_id}/notes/{note_id}": [
+"by",
+"value"
+],
+"DELETE /api/annotations/{kind}/{node_id}/notes/{note_id}": [
+"value"
+],
+"POST /api/projects/{project_id}/champion": [
+"by",
+"comment",
+"id",
+"model_name",
+"override_reason",
+"requested_by",
+"run_id",
+"version",
+"version_id"
+],
+"POST /api/champions/{request_id}/decide": [
+"approve",
+"by",
+"change_by",
+"comment",
+"options",
+"override_reason",
+"project_id",
+"requested_by",
+"run_id",
+"status",
+"version_id"
+],
+"GET /api/retention/plan": [],
+"POST /api/retention/dry-run": [
+"by",
+"periods",
+"team"
+],
+"POST /api/retention/run": [
+"by",
+"case_ref",
+"confirm",
+"items",
+"plan_id",
+"run_1a2b3c4d",
+"run_ids",
+"team",
+"team_id",
+"tier"
+],
+"GET /api/me": [
+"id",
+"kind",
+"state"
+],
+"GET /api/teams": [
+"my_role"
+],
+"POST /api/teams": [
+"by",
+"id",
+"members",
+"slug"
+],
+"GET /api/teams/{team}": [
+"id",
+"members",
+"projects"
+],
+"PATCH /api/teams/{team}": [
+"by",
+"description",
+"id",
+"name",
+"policy"
+],
+"GET /api/teams/{team}/members": [
+"id"
+],
+"POST /api/teams/{team}/members": [
+"by",
+"disabled_at",
+"display_name",
+"id",
+"kind",
+"name",
+"role",
+"state"
+],
+"PATCH /api/teams/{team}/members/{principal}": [
+"by",
+"display_name",
+"id",
+"role"
+],
+"DELETE /api/teams/{team}/members/{principal}": [
+"display_name",
+"id"
+],
+"GET /api/principals": [
+"n_teams"
+],
+"GET /api/principals/{principal}": [
+"id"
+],
+"PATCH /api/principals/{principal}": [
+"by",
+"display_name",
+"email",
+"id",
+"identity_key"
+],
+"GET /api/datasets/{dataset_id}/contract": [
+"active"
+],
+"PUT /api/datasets/{dataset_id}/contract": [
+"reason",
+"spec"
+],
+"POST /api/datasets/{dataset_id}/contract/from-version/{version_id}": [
+"reason"
+],
+"POST /api/datasets/{dataset_id}/contract/check": [],
+"POST /api/datasets/{dataset_id}/certifications": [],
+"GET /api/datasets/{dataset_id}/certifications": [
+"root",
+"status"
+],
+"GET /api/certifications/{cid}": [],
+"POST /api/certifications/{cid}/decide": [
+"approve",
+"comment",
+"level"
+],
+"POST /api/shares": [],
+"GET /api/shares": [
+"grantee_team",
+"id",
+"owner_team",
+"root",
+"status"
+],
+"GET /api/shares/{sid}": [],
+"POST /api/shares/{sid}/decide": [
+"approve",
+"comment",
+"grant_unmasked"
+],
+"POST /api/shares/{sid}/revoke": [
+"reason"
+],
+"GET /api/jobs": [
+"id"
+],
+"GET /api/jobs/{job_id}": [],
+"GET /api/workers": [],
+"POST /api/datasets/{root_id}/joins": [
+"name",
+"spec"
+],
+"GET /api/datasets/{root_id}/joins": [],
+"GET /api/datasets/{root_id}/joins/{join_id}": [],
+"POST /api/datasets/{root_id}/joins/{join_id}/validate": [
+"default_version_id",
+"spec"
+],
+"POST /api/datasets/{root_id}/versions/{version_id}/frames": [
+"cached",
+"join_id",
+"root_id"
+],
+"GET /api/datasets/{root_id}/versions/{version_id}/frames": [],
+"GET /api/datasets/{root_id}/frames/{frame_id}": [
+"cache_blob",
+"inputs_deleted",
+"ok",
+"runs",
+"state",
+"verify",
+"version_id"
+],
+"GET /api/datasets/{root_id}/frames/{frame_id}/rows": [
+"__row_id",
+"aggs",
+"column",
+"fn",
+"inputs",
+"join_id",
+"joins",
+"n_rows",
+"name",
+"prefix",
+"spec",
+"table",
+"type",
+"version_id"
+],
+"POST /api/legal-holds": [],
+"GET /api/legal-holds": [
+"active"
+],
+"POST /api/legal-holds/{hid}/release": [
+"reason"
+],
+"POST /api/datasets/{dataset_id}/purge": [],
+"GET /api/purges": [],
+"GET /api/purges/{pid}": [],
+"POST /api/purges/{pid}/decide": [],
+"POST /api/purges/{pid}/resume": [],
+"POST /api/purges/{pid}/sweep": [],
+"GET /api/runs/{run_id}/learning-curve": [],
+"POST /api/runs/{run_id}/learning-curve": [
+"config",
+"data",
+"eval_metric",
+"holdout",
+"import",
+"kind",
+"metrics",
+"name",
+"ref_id",
+"result",
+"run_dir",
+"status",
+"team_id",
+"train_rows"
+],
+"POST /api/runs/{run_id}/learning-curve/cancel": [
+"config",
+"id",
+"run_dir",
+"status"
+],
+"GET /api/runs/{run_id}/active-learning": [
+"config",
+"queue",
+"row",
+"run_dir"
+],
+"POST /api/runs/{run_id}/active-learning": [
+"conditions",
+"config",
+"data",
+"dropped_missing_label_train",
+"id",
+"import",
+"kind",
+"label",
+"missing_in_slice",
+"problem_type",
+"ref_id",
+"result",
+"run_dir",
+"slice",
+"status",
+"train_in_slice",
+"train_rows"
+],
+"POST /api/runs/{run_id}/active-learning/answer": [
+"answers",
+"arms",
+"classes",
+"config",
+"id",
+"queue",
+"run_dir",
+"suggested"
+],
+"POST /api/runs/{run_id}/active-learning/simulate": [
+"answers",
+"arms",
+"config",
+"id",
+"label",
+"pool",
+"queue",
+"row",
+"run_dir",
+"source",
+"suggested"
+],
+"POST /api/runs/{run_id}/active-learning/submit": [
+"config",
+"id",
+"run_dir",
+"status"
+],
+"POST /api/runs/{run_id}/active-learning/cancel": [
+"config",
+"id",
+"run_dir",
+"status"
+],
+"GET /api/runs/{run_id}/annotations": [
+"annotators",
+"config",
+"error",
+"fleiss",
+"label",
+"load",
+"pairwise",
+"params",
+"probs_meta",
+"run_dir",
+"source",
+"status",
+"summary",
+"versions"
+],
+"POST /api/runs/{run_id}/annotations/sample": [
+"config",
+"dataset_id",
+"row"
+],
+"POST /api/runs/{run_id}/annotations/upload": [
+"annotator",
+"config",
+"holdout_rows",
+"label",
+"row",
+"run_dir"
+],
+"POST /api/runs/{run_id}/annotations/answer": [
+"annotator",
+"config",
+"row",
+"run_dir"
+],
+"POST /api/runs/{run_id}/annotations/simulate-adjudication": [
+"adjudicated",
+"config",
+"cq",
+"detail",
+"in_queue",
+"rows",
+"run_dir",
+"status",
+"truth"
+],
+"POST /api/runs/{run_id}/annotations/version": [
+"adjudicated",
+"by",
+"classes",
+"config",
+"cq",
+"dataset_id",
+"detail",
+"final",
+"id",
+"label",
+"n_ann",
+"n_annotators",
+"name",
+"params",
+"root_row",
+"row",
+"rows",
+"run_dir",
+"split",
+"splits_path",
+"status",
+"strategy",
+"summary",
+"version",
+"versions"
+],
+"GET /api/runs/{run_id}/shift": [
+"config",
+"created_at",
+"dataset_id",
+"date_columns",
+"drift",
+"filename",
+"id",
+"label",
+"max_psi",
+"n_rows",
+"result",
+"run_dir",
+"run_id",
+"shift",
+"stage",
+"status",
+"summary"
+],
+"GET /api/runs/{run_id}/shift/{key}": [],
+"GET /api/runs/{run_id}/shift/{key}/rows": [
+"config",
+"run_dir",
+"set",
+"w"
+],
+"POST /api/runs/{run_id}/shift": [],
+"POST /api/runs/{run_id}/shift/{key}/cancel": [
+"config",
+"id",
+"run_dir",
+"status"
+],
+"POST /api/runs/{run_id}/shift/{key}/weights-version": [
+"clip_quantile",
+"config",
+"csv",
+"csv_path",
+"dataset_id",
+"ess",
+"ess_share",
+"id",
+"label",
+"name",
+"new",
+"params",
+"predictor_kwargs",
+"reference",
+"result",
+"row",
+"rows",
+"run_dir",
+"sample_weight",
+"sets",
+"split",
+"splits_path",
+"status",
+"strategy",
+"version",
+"versions",
+"w",
+"weights"
+],
+"POST /api/registry/batches/{bid}/shift": [
+"run_id",
+"status",
+"version_id"
+],
+"GET /api/registry/batches/{bid}/shift": [
+"id",
+"run_id",
+"version_id"
+],
+"POST /api/runs/{run_id}/slices": [],
+"GET /api/runs/{run_id}/slices": [],
+"GET /api/runs/{run_id}/slices/{sid}/rows": [
+"config",
+"features",
+"loss",
+"request",
+"result",
+"row",
+"rows",
+"run_dir",
+"y_pred",
+"y_true"
+],
+"POST /api/runs/{run_id}/slices/{sid}/shap": [
+"background_size",
+"base_value",
+"cached",
+"columns",
+"config",
+"contributions",
+"diff",
+"feature",
+"fx",
+"method",
+"model",
+"nsamples",
+"output",
+"phi",
+"row",
+"rows",
+"run_dir",
+"target",
+"y_true"
+],
+"GET /api/runs/{run_id}/slices/{sid}/pool": [
+"column",
+"conditions",
+"config",
+"label",
+"splits_path"
+],
+"GET /api/forecast/options": [
+"hp",
+"info",
+"label"
+],
+"GET /api/forecast/mapping/{dataset_id}": [],
+"POST /api/forecast/preview": [],
+"POST /api/forecast/runs": [],
+"GET /api/forecast/runs/{run_id}/chart": [
+"config",
+"run_dir",
+"status"
+],
+"GET /api/forecast/runs/{run_id}/forecast.csv": [
+"config",
+"run_dir"
+],
+"POST /api/forecast/runs/{run_id}/predict": [
+"config",
+"predictor_path",
+"status"
+],
+"GET /api/forecast/runs/{run_id}/predictions/{pid}.csv": [
+"config",
+"run_dir"
+],
+"POST /api/anomaly/runs": [],
+"GET /api/anomaly/mapping/{dataset_id}": [
+"amount_column",
+"category_column",
+"columns",
+"entity_column",
+"name",
+"profile",
+"relative_columns",
+"time_column",
+"type",
+"velocity_columns",
+"velocity_in_forest",
+"windows_hours"
+],
+"GET /api/anomaly/runs/{run_id}/top": [
+"anomaly",
+"at",
+"by",
+"config",
+"contamination",
+"dataset_id",
+"flagged",
+"label",
+"planted",
+"result",
+"review",
+"row",
+"rows",
+"run_dir",
+"s",
+"truth"
+],
+"GET /api/anomaly/runs/{run_id}/labels": [
+"dataset_id"
+],
+"POST /api/anomaly/runs/{run_id}/labels": [
+"config",
+"dataset_id",
+"label",
+"row",
+"run_dir",
+"s"
+],
+"POST /api/anomaly/runs/{run_id}/supervised": [],
+"GET /api/anomaly/runs/{run_id}/supervised": [
+"best_model",
+"comparison",
+"comparison_error",
+"config",
+"dataset_id",
+"error",
+"holdout",
+"label",
+"predictor_path",
+"result",
+"run_dir",
+"run_id",
+"scores",
+"status"
+],
+"GET /api/anomaly/runs/{run_id}/scores": [
+"config",
+"run_dir",
+"s",
+"scatter"
+],
+"GET /api/anomaly/runs/{run_id}/scores.csv": [
+"config",
+"run_dir"
+],
+"POST /api/anomaly/runs/{run_id}/score": [
+"config",
+"predictor_path"
+],
+"GET /api/anomaly/runs/{run_id}/batches/{bid}.csv": [
+"config",
+"run_dir"
+],
+"POST /api/runs/{run_id}/register": [
+"a",
+"b",
+"config",
+"dataset_id",
+"join",
+"kind",
+"label",
+"monotone",
+"parent",
+"path",
+"problem_type",
+"result",
+"root",
+"status",
+"summary"
+],
+"GET /api/runs/{run_id}/latency": [
+"config",
+"latency_profile",
+"models",
+"result",
+"status"
+],
+"GET /api/registry": [
+"model_name",
+"name",
+"stage",
+"version"
+],
+"GET /api/registry/summary": [
+"stage"
+],
+"GET /api/registry/versions": [],
+"GET /api/registry/versions/{vid}": [],
+"GET /api/registry/audit": [],
+"GET /api/registry/versions/{vid}/mlflow": [
+"mlflow",
+"name",
+"result",
+"version"
+],
+"POST /api/registry/versions/{vid}/transition": [
+"approval",
+"created_by",
+"id",
+"model_name",
+"path",
+"project_id",
+"retired_at",
+"retired_by",
+"run_id",
+"stage",
+"status",
+"version"
+],
+"POST /api/registry/versions/{vid}/review": [
+"approval",
+"by",
+"change_by",
+"config",
+"created_by",
+"options",
+"run_id",
+"stage",
+"version"
+],
+"POST /api/registry/versions/{vid}/retire": [
+"by",
+"model_name",
+"version"
+],
+"POST /api/registry/version-requests/{rid}/decide": [
+"approve",
+"by",
+"comment"
+],
+"GET /api/registry/versions/{vid}/retire": [],
+"GET /api/registry/versions/{vid}/card": [
+"model_name",
+"run_id",
+"version"
+],
+"GET /api/registry/versions/{vid}/inputs.zip": [
+"model_name",
+"run_id",
+"version"
+],
+"PUT /api/registry/versions/{vid}/card": [
+"card"
+],
+"GET /api/registry/versions/{vid}/monotone": [
+"config",
+"import",
+"kind",
+"model",
+"path",
+"run_id"
+],
+"POST /api/registry/versions/{vid}/predict": [
+"classes",
+"config",
+"explained_prediction",
+"features",
+"frame_row",
+"join",
+"kind",
+"model_name",
+"path",
+"prediction",
+"predictions",
+"probabilities",
+"quantiles",
+"run_id",
+"version",
+"warnings"
+],
+"POST /api/registry/versions/{vid}/score": [
+"config",
+"inproc",
+"join",
+"kind",
+"model_name",
+"path",
+"reasons",
+"run_id",
+"version"
+],
+"GET /api/registry/serving": [],
+"POST /api/registry/versions/{vid}/benchmark": [
+"config",
+"kind",
+"path",
+"run_id"
+],
+"POST /api/registry/versions/{vid}/batches": [
+"config",
+"join",
+"run_id"
+],
+"GET /api/registry/versions/{vid}/batches": [
+"counts",
+"drift",
+"max_psi",
+"prediction",
+"psi",
+"result",
+"summary"
+],
+"GET /api/registry/batches/{bid}": [
+"run_id",
+"version_id"
+],
+"GET /api/registry/batches/{bid}/download": [
+"filename",
+"run_id",
+"status",
+"version_id"
+],
+"GET /api/registry/versions/{vid}/reasons": [
+"config",
+"model_name",
+"path",
+"run_id",
+"updated_at",
+"updated_by"
+],
+"PUT /api/registry/versions/{vid}/reasons": [
+"adverse_class",
+"classes",
+"config",
+"constraints",
+"feature",
+"features",
+"mapping",
+"model_name",
+"monotone",
+"reference",
+"result",
+"run_id",
+"top_k",
+"version"
+],
+"POST /api/registry/versions/{vid}/reasons/stability": [
+"config",
+"path",
+"run_id"
+],
+"GET /api/registry/versions/{vid}/recourse": [
+"config",
+"model_name",
+"path",
+"run_id",
+"updated_at",
+"updated_by"
+],
+"PUT /api/registry/versions/{vid}/recourse": [
+"actions",
+"features",
+"model_name",
+"result",
+"run_id",
+"version"
+],
+"POST /api/registry/versions/{vid}/recourse": [
+"config",
+"path",
+"run_id"
+],
+"POST /api/registry/versions/{vid}/recourse/check": [
+"config",
+"path",
+"run_id"
+],
+"PUT /api/registry/models/{name}/monitoring": [
+"challenger_version_id",
+"id",
+"label",
+"model_name",
+"problem_type",
+"result",
+"run_id",
+"stage",
+"status",
+"thresholds",
+"updated_at",
+"updated_by"
+],
+"POST /api/registry/batches/{bid}/labels": [
+"status"
+],
+"GET /api/registry/versions/{vid}/monitoring": [],
+"GET /api/registry/versions/{vid}/monitoring/retrain": [],
+"POST /api/registry/versions/{vid}/monitoring/retrain": [
+"batch_id",
+"batches",
+"blocked",
+"body",
+"end",
+"id",
+"model_name",
+"name",
+"ready",
+"rows",
+"run_id",
+"split_note",
+"start",
+"status",
+"time_limit",
+"why",
+"window"
+],
+"GET /api/monitoring/stream": [
+"date_column",
+"id_column",
+"stream"
+],
+"POST /api/registry/versions/{vid}/monitoring/stream": [
+"dataset_id",
+"end",
+"filename",
+"id",
+"label",
+"labels",
+"labels_arrive",
+"lag_days",
+"n_joined",
+"result",
+"run_id",
+"status"
+],
+"GET /api/registry/versions/{vid}/changes": [
+"cost",
+"created_at",
+"eligible",
+"model_name",
+"source",
+"stage",
+"version"
+],
+"POST /api/registry/versions/{vid}/changes": [
+"actor",
+"batch_id",
+"batches",
+"ci",
+"column",
+"cost",
+"created_at",
+"data_date",
+"delta",
+"drifted",
+"drop_columns",
+"eligible",
+"feature",
+"features",
+"filename",
+"id",
+"kind",
+"labels",
+"model_name",
+"n",
+"n_joined",
+"name",
+"newest",
+"older",
+"patch",
+"positive",
+"psi",
+"result",
+"review_id",
+"run",
+"run_id",
+"t0",
+"title",
+"verdict",
+"version",
+"why"
+],
+"POST /api/registry/versions/{vid}/changes/{cid}/request": [
+"a",
+"actor",
+"b",
+"batch",
+"by",
+"calibration",
+"ci",
+"cost",
+"current",
+"decision_threshold",
+"delta",
+"filename",
+"id",
+"kind",
+"metric",
+"model_name",
+"options",
+"platt",
+"proposal",
+"proposed",
+"request",
+"result",
+"run",
+"run_id",
+"serve_model",
+"status",
+"t0",
+"title",
+"verdict",
+"version",
+"version_id"
+],
+"GET /api/registry/versions/{vid}/credit-report": [
+"label",
+"model",
+"run_id",
+"title"
+],
+"POST /api/registry/versions/{vid}/credit-report/tape": [
+"cohorts",
+"default",
+"loans",
+"model_name",
+"open"
+],
+"DELETE /api/registry/versions/{vid}/credit-report/tape": [
+"model_name"
+],
+"GET /api/expected-loss/detect": [],
+"POST /api/expected-loss/runs": [],
+"GET /api/expected-loss/runs/{run_id}": [
+"config",
+"custom_scenarios",
+"dataset_id",
+"error",
+"expected_loss",
+"name",
+"result",
+"split",
+"status"
+],
+"POST /api/expected-loss/runs/{run_id}/stress": [
+"status"
+],
+"GET /api/runs/{run_id}/fair-lending": [
+"headline",
+"ready",
+"status"
+],
+"GET /api/segmented/detect": [],
+"POST /api/segmented/runs": [],
+"GET /api/segmented/runs/{run_id}": [
+"config",
+"created_at",
+"dataset_id",
+"error",
+"kind",
+"name",
+"result",
+"segmented",
+"split",
+"status"
+],
+"GET /api/survival/detect": [],
+"POST /api/survival/runs": [],
+"GET /api/survival/runs/{run_id}": [
+"config",
+"created_at",
+"dataset_id",
+"error",
+"kind",
+"name",
+"result",
+"split",
+"status",
+"survival"
+],
+"GET /api/multilabel/detect": [],
+"POST /api/multilabel/runs": [],
+"GET /api/multilabel/runs/{run_id}": [
+"config",
+"created_at",
+"dataset_id",
+"error",
+"kind",
+"multilabel",
+"name",
+"result",
+"split",
+"status"
+],
+"GET /api/sql/demo": [],
+"POST /api/sql/tables": [
+"redacted"
+],
+"POST /api/sql/preview": [
+"dialect",
+"frame",
+"limit",
+"query",
+"redacted",
+"seconds",
+"src",
+"truncated"
+],
+"POST /api/sql/datasets": [
+"name",
+"query"
+],
+"POST /api/sql/datasets/{dataset_id}/refresh": [
+"base_name",
+"data_sha",
+"frame",
+"limit",
+"lineage",
+"name",
+"needs_password",
+"profile",
+"query",
+"root",
+"source",
+"target",
+"target_source",
+"url",
+"version"
+],
+"GET /api/sql/datasets/{dataset_id}/versions": [
+"created_at",
+"id",
+"lineage",
+"name",
+"profile",
+"query",
+"root",
+"rows",
+"source",
+"url"
+],
+"GET /api/reject-inference/detect": [],
+"POST /api/reject-inference/runs": [],
+"GET /api/reject-inference/runs/{run_id}": [
+"config",
+"created_at",
+"dataset_id",
+"error",
+"kind",
+"name",
+"reject_inference",
+"result",
+"split",
+"status"
+],
+"GET /api/gym/schema": [],
+"POST /api/gym/validate": [],
+"GET /api/runs/{run_id}/gym": [
+"config",
+"name",
+"parent_run_id",
+"patch",
+"status"
+],
+"GET /api/runs/{run_id}/export.py": [
+"config",
+"dataset_id",
+"pseudolabel",
+"status"
+],
+"GET /api/runs/{run_id}/vela": [
+"errors",
+"findings",
+"id",
+"key",
+"name",
+"result",
+"text",
+"texts",
+"vela_wording"
+],
+"POST /api/runs/{run_id}/vela/wording": [
+"best_model",
+"eval_metric",
+"findings",
+"key",
+"name",
+"problem_type",
+"result"
+],
+"GET /api/runs/{run_id}/doctor": [],
+"POST /api/runs/{run_id}/experiments": [],
+"GET /api/runs/{run_id}/experiments": [],
+"POST /api/runs/{run_id}/review": [
+"by",
+"config",
+"import",
+"kind",
+"max_experiments",
+"max_minutes",
+"offline",
+"status"
+],
+"GET /api/runs/{run_id}/review": [],
+"GET /api/runs/{run_id}/review/{review_id}": [],
+"POST /api/autopilot": [
+"default_op",
+"id",
+"target"
+],
+"GET /api/autopilot": [
+"id"
+],
+"GET /api/autopilot/{aid}": [],
+"GET /api/autopilot/{aid}/inbox": [
+"inbox",
+"items",
+"kind",
+"status"
+],
+"POST /api/autopilot/{aid}/inbox/answer": [
+"answer",
+"answer_label",
+"answered_by",
+"class_shares",
+"facts",
+"id",
+"items",
+"suggested"
+],
+"POST /api/autopilot/{aid}/inbox/bulk": [
+"answer",
+"answered_by",
+"confidence",
+"items",
+"kind"
+],
+"POST /api/autopilot/{aid}/resume": [
+"applied",
+"inbox",
+"status",
+"submitted"
+],
+"POST /api/autopilot/{aid}/cancel": [],
+"POST /api/vela/ask": [
+"answer",
+"attempts",
+"autopilot",
+"best_run_id",
+"brief",
+"cached",
+"computed_text",
+"dataset_versions",
+"decider",
+"facts_sha256",
+"findings",
+"inbox",
+"key",
+"latency",
+"log",
+"model",
+"original_seconds",
+"p95_ms",
+"prompt_sha256",
+"reason",
+"run",
+"seconds",
+"source",
+"status",
+"steps",
+"text",
+"title",
+"vela_findings",
+"verdict"
+],
+"GET /api/llm": [],
+"PUT /api/llm/settings": [],
+"POST /api/llm/cache/clear": [],
+"GET /api/agent/tools": [],
+"GET /api/agent/status": [],
+"GET /api/agent/sessions": [],
+"POST /api/agent/sessions": [
+"decider"
+],
+"GET /api/agent/sessions/{sid}": [
+"rev"
+],
+"POST /api/agent/sessions/{sid}/messages": [],
+"POST /api/agent/sessions/{sid}/confirm": [
+"args",
+"id",
+"timeline",
+"tool",
+"type"
+],
+"POST /api/agent/sessions/{sid}/stop": [],
+"GET /api/datasets/{dataset_id}/data-doctor": [],
+"POST /api/datasets/{dataset_id}/data-doctor/apply": [
+"acknowledge",
+"by",
+"deduplicated",
+"rows",
+"transforms"
+],
+"GET /api/datasets/{dataset_id}/decision-time": [],
+"POST /api/datasets/{dataset_id}/decision-time": [
+"by",
+"fairness_only",
+"known",
+"target"
+],
+"GET /api/datasets/{dataset_id}/feature-lab": [
+"args",
+"text"
+],
+"GET /api/datasets/{dataset_id}/feature-lab/{job_id}": [],
+"POST /api/datasets/{dataset_id}/feature-lab": [
+"apply",
+"by",
+"id",
+"target"
+],
+"GET /api/authz/coverage": [
+"must",
+"routes"
+],
+"POST /api/authz/check": [
+"action",
+"by",
+"object_id",
+"object_kind",
+"principal"
+],
+"GET /api/teams/{team}/audit": [
+"id"
+],
+"GET /api/teams/{team}/audit/verify": [],
+"POST /api/admin/audit/checkpoint": []
+}

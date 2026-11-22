@@ -1,0 +1,90 @@
+# mode audit | ENSEMBLE_SQL_ALLOW_LOOPBACK=0 (as the API was started)
+
+# 1. files under the data dir and path tricks
+## 1a sqlite:///mlflow/mlflow.db → HTTP 400 | code sql_error | No database file at /var/tmp/x5/x4/w_sqlite_audit/import/mlflow/mlflow.db. | rows -
+## 1b sqlite:///ensemble.sqlite3 → HTTP 400 | code sql_error | No database file at /var/tmp/x5/x4/w_sqlite_audit/import/ensemble.sqlite3. | rows -
+## 1c abs <data>/ensemble.sqlite3 → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1d abs <data>/mlflow/mlflow.db → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1e <import>/../data/ensemble.sqlite3 (dot-dot) → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1f relative ../data/ensemble.sqlite3 → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1g <data>//./ensemble.sqlite3 → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1h duckdb:/// abs <data>/ensemble.sqlite3 → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1i sqlite file: URI with ?mode=ro → HTTP 400 | code sql_path_refused | File URLs take no options. | rows -
+## 1j symlink in import dir → platform DB → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1k symlinked dir in import dir → data dir / mlflow.db → HTTP 400 | code sql_platform_db | That is one of the workbench's own databases, not a data source. | rows -
+## 1l /etc/hosts → HTTP 400 | code sql_path_refused | Database files are read only from the import directories (ENSEMBLE_SQL_IMPORT_DIRS: /var/tmp/x5/x4/w_sqlite_audit/import); /etc/hosts is out | rows -
+## 1m duckdb sqlite_scan(<platform db>) → HTTP 400 | code sql_error | The database refused the query: An error occurred while trying to automatically install the required extension 'sqlite_scanner: | rows -
+## 1n duckdb read_csv_auto('/etc/passwd') → HTTP 400 | code sql_function | The query calls read_csv_auto: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 1o duckdb FROM '<platform db>' (replacement scan) → HTTP 400 | code sql_function | A file path cannot be read as a table; query the database's tables. | rows -
+## 1p duckdb glob('/etc/*') → HTTP 400 | code sql_function | The query calls glob: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 1q sqlite ATTACH inside a WITH → HTTP 400 | code sql_error | One statement only: remove the ';' between statements. | rows -
+## 1r legit: duckdb file in the import dir → HTTP 200 | code None |  | rows [{'a': 1}]
+## 1s legit: bundled demo → HTTP 200 | code None |  | rows [{'n': 12000}]
+
+# 2. the platform Postgres server under every alias (127.0.0.1:5433, trust)
+## 2a the platform URL itself (no password) → HTTP 400 | code sql_pg_no_credentials | Give the password for this source (the URL's password, or `password`): the server never connects with its own identity. | rows -
+## 2b postgres:x@127.0.0.1:5433/x5x4 → HTTP 400 | code sql_host_refused | 127.0.0.1 resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback  | rows -
+## 2b postgres:x@localhost:5433/x5x4 → HTTP 400 | code sql_host_refused | localhost resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback  | rows -
+## 2b postgres:x@127.0.0.2:5433/x5x4 → HTTP 400 | code sql_host_refused | 127.0.0.2 resolves to 127.0.0.2: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback  | rows -
+## 2b postgres:x@127.1:5433/x5x4 → HTTP 400 | code sql_host_refused | 127.1 resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for  | rows -
+## 2b postgres:x@2130706433:5433/x5x4 → HTTP 400 | code sql_host_refused | 2130706433 resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback | rows -
+## 2b postgres:x@0x7f000001:5433/x5x4 → HTTP 400 | code sql_host_refused | 0x7f000001 resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback | rows -
+## 2b postgres:x@0.0.0.0:5433/x5x4 → HTTP 400 | code sql_host_refused | 0.0.0.0 resolves to 0.0.0.0: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for  | rows -
+## 2b postgres:x@0:5433/x5x4 → HTTP 400 | code sql_host_refused | 0 resolves to 0.0.0.0: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for local  | rows -
+## 2b postgres:x@[::1]:5433/x5x4 → HTTP 400 | code sql_host_refused | ::1 resolves to ::1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for local de | rows -
+## 2b postgres:x@[::ffff:127.0.0.1]:5433/x5x4 → HTTP 400 | code sql_host_refused | ::ffff:127.0.0.1 resolves to ::ffff:127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 al | rows -
+## 2b postgres:x@[::]:5433/x5x4 → HTTP 400 | code sql_host_refused | :: resolves to ::: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for local deve | rows -
+## 2b postgres:x@192.0.2.2:5433/x5x4 → HTTP 400 | code sql_error | Could not connect: connection failed: connection to server at "192.0.2.2", port 5433 failed: Connection refused | rows -
+## 2b postgres:x@vm:5433/x5x4 → HTTP 400 | code sql_host_refused | vm resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback for loc | rows -
+## 2b postgres:x@localhost.:5433/x5x4 → HTTP 400 | code sql_host_unresolved | Could not resolve host 'localhost.'. | rows -
+## 2c another DB on the platform server (x5main) → HTTP 400 | code sql_host_refused | 127.0.0.1 resolves to 127.0.0.1: local, link-local and unspecified addresses are not allowed (ENSEMBLE_SQL_ALLOW_LOOPBACK=1 allows loopback  | rows -
+## 2d socket via ?host= → HTTP 400 | code sql_pg_option | Connection options host, port are not allowed: give host, port, user, password and database in the URL (sslmode may be set). | rows -
+## 2e multi-host authority → HTTP 500 | code None |  | rows -
+## 2f options= in query → HTTP 400 | code sql_pg_option | Connection options options are not allowed: give host, port, user, password and database in the URL (sslmode may be set). | rows -
+## 2g no password (PGPASSWORD / .pgpass in the API env) → HTTP 400 | code sql_pg_no_credentials | Give the password for this source (the URL's password, or `password`): the server never connects with its own identity. | rows -
+## 2h empty password → HTTP 400 | code sql_pg_no_credentials | Give the password for this source (the URL's password, or `password`): the server never connects with its own identity. | rows -
+## 2i wrong password → HTTP 400 | code sql_error | Could not connect: connection failed: connection to server at "192.0.2.2", port 8629 failed: FATAL:  password authentication failed for user | rows -
+## 2j sslmode=disable (allowed option) → HTTP 400 | code sql_error | Could not connect: connection failed: connection to server at "192.0.2.2", port 8629 failed: FATAL:  password authentication failed for user | rows -
+
+# 3. statement guard on the allowed external DB (extuser holds pg_read_server_files)
+## 3a pg_read_file → HTTP 400 | code sql_function | The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3b quoted → HTTP 400 | code sql_function | The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3c schema-qualified binary → HTTP 400 | code sql_function | The query calls pg_read_binary_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3d lo_import → HTTP 400 | code sql_function | The query calls lo_import: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3e query_to_xml → HTTP 400 | code sql_function | The query calls query_to_xml: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3f COPY FROM PROGRAM → HTTP 400 | code sql_error | Only SELECT queries (or WITH … SELECT) can load data; the source is read-only. | rows -
+## 3g two statements → HTTP 400 | code sql_error | One statement only: remove the ';' between statements. | rows -
+## 3h U& ident → HTTP 400 | code sql_function | Unicode-escaped identifiers or strings (U&"…") are not allowed in a SQL source query. | rows -
+## 3i comment-split call → HTTP 400 | code sql_function | The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3j newline-split call → HTTP 400 | code sql_function | The query calls pg_read_file: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3k pg_ls_dir via LATERAL → HTTP 400 | code sql_function | The query calls pg_ls_dir: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3l current_setting → HTTP 400 | code sql_function | The query calls current_setting: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3m pg_settings view (no call) → HTTP 200 | code None |  | rows []
+## 3n pg_authid / pg_shadow (no call) → HTTP 400 | code sql_error | The database refused the query: permission denied for view pg_shadow | rows -
+## 3o pg_stat_activity (other sessions' queries) → HTTP 200 | code None |  | rows [{'usename': 'pgadm', 'q': '<insufficient privilege>'}, {'usename': None, 'q': '<insufficient privilege>'}, {'usename': 'extuser', 'q': 'SELECT usename, left(query, 60) AS q FROM pg_stat_activity'}, {'usename': None, 'q'
+## 3p xpath/ts_stat (SQL in string) → HTTP 400 | code sql_function | The query calls ts_stat: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+## 3q write via CTE → HTTP 400 | code sql_write_keyword | The query contains DELETE: only read-only SELECTs are allowed. | rows -
+## 3r SELECT INTO → HTTP 400 | code sql_write_keyword | The query contains INTO: only read-only SELECTs are allowed. | rows -
+## 3s nextval side effect → HTTP 400 | code sql_error | The database refused the query: cannot execute nextval() in a read-only transaction | rows -
+## 3t pg_sleep (DoS) → HTTP 400 | code sql_function | The query calls pg_sleep: server-side file, large-object, settings and cross-database functions are not allowed in a SQL source. | rows -
+
+# 4. project and right
+## 4a no project_id → HTTP 400 | code project_required | Say which project this import is for: project_id (query or body). data.import is checked on it. | rows -
+## 4b Vic (CR viewer) into CR's project → HTTP 200 | code None |  | rows [{'id': 1}, {'id': 2}]
+## 4c Fay into CR's project → HTTP 200 | code None |  | rows [{'id': 1}, {'id': 2}]
+## 4d Fay POST /sql/tables (no project) → HTTP 400 | pii 0
+    {"detail": {"code": "project_required", "message": "Say which project this import is for: project_id (query or body). data.import is checked on it."}}
+
+# 5. legitimate
+## 5a Fay /sql/tables?project_id=fp (external) → HTTP 200 | pii 0
+    {"tables": [{"name": "applicants", "kind": "table", "columns": [{"name": "id", "type": "integer"}, {"name": "income", "type": "integer"}, {"name": "segment", "type": "text"}], "rows": null}]}
+## 5b Fay preview external → HTTP 200 | code None |  | rows [{'id': 1, 'income': 30037, 'segment': 'sme'}, {'id': 2, 'income': 30074, 'segment': 'corporate'}, {'id': 3, 'income': 30111, 'segment': 'retail'}]
+## 5c Fay preview with password field → HTTP 200 | code None |  | rows [{'n': 500}]
+## 5d Fay POST /sql/datasets {project fp} → HTTP 201 | pii 0
+    {"id": "ds_accd4db5", "name": "ext applicants", "rows": 500, "project_id": null, "team_id": null}
+## 5e relative path → import dir → HTTP 200 | code None |  | rows [{'a': 1, 'b': 'x'}, {'a': 2, 'b': 'y'}]
+
+# 6. audit rows (Fraud chain)
+  counts: {('sql_previewed', None): 7, ('dataset_loaded', None): 1, ('sql_tables_listed', None): 1, ('sql_refused', 'sql_function'): 15, ('sql_refused', 'sql_error'): 13, ('sql_refused', 'sql_write_keyword'): 2, ('sql_refused', 'sql_pg_no_credentials'): 3, ('sql_refused', 'sql_pg_option'): 2, ('sql_refused', 'sql_host_refused'): 13, ('sql_refused', 'sql_host_unresolved'): 1, ('sql_refused', 'sql_path_refused'): 2, ('sql_refused', 'sql_platform_db'): 8}
+  any password in audit rows: False
+  verify fraud: True

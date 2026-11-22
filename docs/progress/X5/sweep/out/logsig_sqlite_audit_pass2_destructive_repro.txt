@@ -1,0 +1,43 @@
+   126 | ValueError: Out of range float values are not JSON compliant: inf | inner app/main.py", line 232, in acting_as | outer app/authz/middleware.py", line 38, in __call__
+    69 | AttributeError: 'int'…'strip' | inner app/lake/api.py", line 96, in _admin | outer app/authz/middleware.py", line 38, in __call__
+    37 | AttributeError: 'int'…'strip' | inner app/catalog/shares.py", line 386, in _by | outer app/authz/middleware.py", line 38, in __call__
+    27 | RecursionError: maximum recursion depth exceeded | inner app/main.py", line 232, in acting_as | outer app/authz/middleware.py", line 38, in __call__
+    20 | AttributeError: 'int'…'strip' | inner app/catalog/certify.py", line 254, in _by | outer app/authz/middleware.py", line 38, in __call__
+    10 | AttributeError: 'int'…'strip' | inner app/catalog/contracts.py", line 498, in _by | outer app/authz/middleware.py", line 38, in __call__
+    10 | SystemExit: set ENSEMBLE_S3_BUCKET (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix) | inner app/lake/sync_s3.py", line 126, in s3_destination | outer app/lake/api.py", line 177, in sync_s3
+    10 | RuntimeError: Attempted to exit cancel scope in a different task than it was entered in | inner - | outer -
+     8 | app.lake.pages.PageError: ds_3f0c27f8 has no table 'abc'. | inner app/lake/pages.py", line 146, in _parquet_meta | outer app/authz/middleware.py", line 38, in __call__
+     7 | OSError: [Errno 36] File name too long: '…' | inner app/autopilot/engine.py", line 83, in get | outer app/authz/middleware.py", line 38, in __call__
+     5 | UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd1 in position N: invalid continuation byte | inner app/main.py", line 232, in acting_as | outer app/authz/middleware.py", line 38, in __call__
+     5 | OverflowError: Python int too large to convert to SQLite INTEGER | inner app/lake/pages.py", line 143, in _parquet_meta | outer app/authz/middleware.py", line 38, in __call__
+     5 | TypeError: expected string or bytes-like object, got 'int' | inner app/splits.py", line 95, in split_key | outer app/authz/middleware.py", line 38, in __call__
+     5 | UnicodeEncodeError: 'latin-1' codec can'…'\UNfN' in position 28: ordinal not in range(N) | inner app/catalog/datasets_api.py", line 639, in _export_parquet | outer app/authz/middleware.py", line 38, in __call__
+     5 | sqlite3.IntegrityError: FOREIGN KEY constraint failed | inner app/lake/writer.py", line 634, in _try_commit | outer app/authz/middleware.py", line 38, in __call__
+     4 | FileNotFoundError: [Errno 2] No such file or directory: '…' | inner app/frames.py", line 611, in data_identity | outer app/catalog/datasets_api.py", line 481, in export
+     4 | OverflowError: Python int too large to convert to SQLite INTEGER | inner app/catalog/store.py", line 224, in note | outer app/authz/middleware.py", line 38, in __call__
+     4 | asyncio.exceptions.CancelledError: Cancelled via cancel scope 7ff40b8c8f50 by <Task pending name='Task-N' coro=<<async_generator_athrow | inner app/catalog/teams_api.py", line 100, in see_actor | outer app/catalog/teams_api.py", line 100, in see_actor
+     4 | RuntimeError: athrow(): asynchronous generator is already running | inner app/authz/middleware.py", line 38, in __call__ | outer app/authz/middleware.py", line 38, in __call__
+     3 | app.datasets.DatasetError: This looks like a binary file, not a CSV. Upload a .csv or .tsv text file. | inner app/engine/pool.py", line 265, in run | outer app/authz/middleware.py", line 38, in __call__
+     3 | OSError: [Errno 36] File name too long: '…' | inner app/agent/loop.py", line 374, in get | outer app/authz/middleware.py", line 38, in __call__
+     3 | OverflowError: Python int too large to convert to SQLite INTEGER | inner app/lake/writer.py", line 206, in __init__ | outer app/authz/middleware.py", line 38, in __call__
+     3 | sqlite3.ProgrammingError: Error binding parameter 1: type 'list' is not supported | inner app/lake/writer.py", line 206, in __init__ | outer app/authz/middleware.py", line 38, in __call__
+     2 | TypeError: unhashable type: 'list' | inner app/lake/pages.py", line 176, in source | outer app/authz/middleware.py", line 38, in __call__
+     2 | TypeError: unhashable type: 'list' | inner app/registry/changes_api.py", line 223, in start_change | outer app/authz/middleware.py", line 38, in __call__
+     2 | OSError: [Errno 36] File name too long: '…' | inner app/vela/review.py", line 108, in load | outer app/authz/middleware.py", line 38, in __call__
+     2 | OSError: [Errno 36] File name too long: '…' | inner app/featurelab.py", line 533, in read_job | outer app/authz/middleware.py", line 38, in __call__
+     2 | TypeError: unhashable type: 'list' | inner app/authz/api.py", line 43, in authz_check | outer app/authz/middleware.py", line 38, in __call__
+     2 | OverflowError: Python int too large to convert to SQLite INTEGER | inner app/authz/api.py", line 111, in team_audit | outer app/authz/middleware.py", line 38, in __call__
+     1 | OSError: [Errno 36] File name too long: '…' | inner app/frames.py", line 611, in data_identity | outer app/authz/middleware.py", line 38, in __call__
+     1 | app.frames.FrameError: Bad dataset id 'é😀'. | inner app/frames.py", line 168, in path_of | outer app/authz/middleware.py", line 38, in __call__
+     1 | OverflowError: Python int too large to convert to SQLite INTEGER | inner app/engine/store.py", line 196, in events | outer app/authz/middleware.py", line 38, in __call__
+     1 | OverflowError: Python int too large to convert to C long | inner app/engine/serving.py", line 80, in predict | outer app/engine/heavy.py", line 27, in predict_rows
+     1 | OverflowError: Python int too large to convert to C long | inner app/engine/pool.py", line 265, in run | outer app/authz/middleware.py", line 38, in __call__
+     1 | python_multipart.exceptions.MultipartParseError: Expected boundary character 45, got N at index 2 | inner app/catalog/datasets_api.py", line 1079, in feed | outer app/authz/middleware.py", line 38, in __call__
+     1 | app.datasets.DatasetError: This looks like a binary file, not a CSV. Upload a .csv or .tsv text file. | inner app/datasets.py", line 72, in decode_upload | outer app/anomaly/core.py", line 447, in score_batch
+     1 | app.datasets.DatasetError: Could not read input.csv as Parquet. | inner app/frames.py", line 736, in read_upload | outer app/anomaly/core.py", line 447, in score_batch
+     1 | pandas.errors.ParserError: Error tokenizing data. C error: EOF inside string starting at row 1 | inner app/frames.py", line 699, in parse_text | outer app/frames.py", line 699, in parse_text
+     1 | app.datasets.DatasetError: Could not read input.csv as CSV. | inner app/frames.py", line 706, in parse_text | outer app/anomaly/core.py", line 447, in score_batch
+     1 | OverflowError: cannot convert float infinity to integer | inner app/vela/api.py", line 589, in start_review | outer app/authz/middleware.py", line 38, in __call__
+     1 | FileExistsError: [Errno 17] File exists: '…' | inner app/lake/store.py", line 156, in tmp_dir | outer app/authz/middleware.py", line 38, in __call__
+     1 | asyncio.exceptions.CancelledError | inner - | outer -
+     1 | asyncio.exceptions.CancelledError | inner app/catalog/teams_api.py", line 100, in see_actor | outer app/authz/middleware.py", line 38, in __call__

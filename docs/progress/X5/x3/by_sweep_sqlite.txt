@@ -1,0 +1,33 @@
+POST /api/admin/lake/seed 123 500 Internal Server Error
+POST /api/admin/lake/seed ["x"] 500 Internal Server Error
+POST /api/admin/lake/seed {"a": 1} 500 Internal Server Error
+POST /api/admin/lake/seed true 500 Internal Server Error
+PUT /api/datasets/{dataset_id}/contract 123 500 Internal Server Error
+PUT /api/datasets/{dataset_id}/contract ["x"] 500 Internal Server Error
+PUT /api/datasets/{dataset_id}/contract {"a": 1} 500 Internal Server Error
+PUT /api/datasets/{dataset_id}/contract true 500 Internal Server Error
+POST /api/datasets/{dataset_id}/contract/from-version/{version_id} 123 500 Internal Server Error
+POST /api/datasets/{dataset_id}/contract/from-version/{version_id} ["x"] 500 Internal Server Error
+POST /api/datasets/{dataset_id}/contract/from-version/{version_id} {"a": 1} 500 Internal Server Error
+POST /api/datasets/{dataset_id}/contract/from-version/{version_id} true 500 Internal Server Error
+POST /api/datasets/{dataset_id}/certifications 123 500 Internal Server Error
+POST /api/datasets/{dataset_id}/certifications ["x"] 500 Internal Server Error
+POST /api/datasets/{dataset_id}/certifications {"a": 1} 500 Internal Server Error
+POST /api/datasets/{dataset_id}/certifications true 500 Internal Server Error
+POST /api/certifications/{cid}/decide 123 500 Internal Server Error
+POST /api/certifications/{cid}/decide ["x"] 500 Internal Server Error
+POST /api/certifications/{cid}/decide {"a": 1} 500 Internal Server Error
+POST /api/certifications/{cid}/decide true 500 Internal Server Error
+POST /api/shares 123 500 Internal Server Error
+POST /api/shares ["x"] 500 Internal Server Error
+POST /api/shares {"a": 1} 500 Internal Server Error
+POST /api/shares true 500 Internal Server Error
+POST /api/shares/{sid}/decide 123 500 Internal Server Error
+POST /api/shares/{sid}/decide ["x"] 500 Internal Server Error
+POST /api/shares/{sid}/decide {"a": 1} 500 Internal Server Error
+POST /api/shares/{sid}/decide true 500 Internal Server Error
+POST /api/shares/{sid}/revoke 123 500 Internal Server Error
+POST /api/shares/{sid}/revoke ["x"] 500 Internal Server Error
+POST /api/shares/{sid}/revoke {"a": 1} 500 Internal Server Error
+POST /api/shares/{sid}/revoke true 500 Internal Server Error
+584 calls; 32 5xx; routes with a 5xx: [('POST', '/api/admin/lake/seed'), ('POST', '/api/certifications/{cid}/decide'), ('POST', '/api/datasets/{dataset_id}/certifications'), ('POST', '/api/datasets/{dataset_id}/contract/from-version/{version_id}'), ('POST', '/api/shares'), ('POST', '/api/shares/{sid}/decide'), ('POST', '/api/shares/{sid}/revoke'), ('PUT', '/api/datasets/{dataset_id}/contract')]

@@ -1,0 +1,15 @@
+start 2026-11-22T03:43:37Z
+X4/setup 03:43:49
+X4/sweep 03:44:58
+X4/agent 03:45:50
+F-X4b/agent 03:45:52
+X4/decide 03:46:26
+X4/governance 03:46:28
+F-X4c/setup2 03:47:57
+F-X4c/purge 03:49:12
+X5/m4 03:49:43
+X4/teams 03:50:32
+X5/c4 03:50:33
+X4/audit 03:50:34
+F-X4b/audit 03:50:35
+end 2026-11-22T03:50:42Z

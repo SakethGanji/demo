@@ -1,0 +1,22 @@
+compare      27/27 identical
+dataset      37/37 identical
+diff         12/15 identical (diff: row results)
+     differs: diff_ds_281da07c_ds_652418f5: 200→200 [false, {"a": 600, "added": 0, "b": 600, "changed": 3, "changed_by_column": {"income": 1, "y": 2}, "changed_examples": [{"cells": [{"a": 1, "b": 0, "column": "y → [false, {"a": 600, "added": 0, "b": 600, "changed": 2, "changed_by_column": {"y": 2}, "changed_examples": [{"cells": [{"a": 1, "b": 0, "column": "y"}], "row_a":
+     differs: diff_ds_34f3bd4c_ds_525b7653: 200→200 [false, {"a": 400, "added": 0, "b": 399, "changed": 1, "changed_by_column": {"spend": 1}, "changed_examples": [{"cells": [{"a": 85.53, "b": 84.53, "column": "sp → [false, {"a": 400, "added": 0, "b": 399, "changed": 0, "changed_by_column": {}, "changed_examples": [], "compared_columns": 5, "matched": 399, "removed": 1, "un
+     differs: diff_ds_e7548d86_ds_8beacdde: 500→410 "Internal Server Error" → [null, {}]
+explain      14/14 identical
+featurelab   37/37 identical
+history      0/37 identical
+holdout      14/14 identical
+lineage      0/37 identical
+run          14/14 identical
+splits       2/37 identical
+verify_post  29/37 identical
+     differs: verify_post_ds_1039d9e0
+     differs: verify_post_ds_34f3bd4c
+     differs: verify_post_ds_5262b7ad
+     differs: verify_post_ds_622c0c0c
+     differs: verify_post_ds_652418f5
+     differs: verify_post_ds_8beacdde
+     differs: verify_post_ds_df1d3a93
+     differs: verify_post_ds_e7548d86

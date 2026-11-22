@@ -1,0 +1,6 @@
+m4 commit by=7: POST /uploads/{u}/commit → 400 {"detail":{"code":"bad_by","message":"'by' is a name (text)."}}
+m4 commit by=['x']: POST /uploads/{u}/commit → 400 {"detail":{"code":"bad_by","message":"'by' is a name (text)."}}
+m4 commit by={'a': 1}: POST /uploads/{u}/commit → 400 {"detail":{"code":"bad_by","message":"'by' is a name (text)."}}
+m4 commit by=True: POST /uploads/{u}/commit → 400 {"detail":{"code":"bad_by","message":"'by' is a name (text)."}}
+m10 more rows (200+10), no verify first: POST /runs → 500 Internal Server Error
+m10 fewer rows (200-10): POST /runs → 500 Internal Server Error

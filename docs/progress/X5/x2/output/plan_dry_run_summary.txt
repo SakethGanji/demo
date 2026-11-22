@@ -1,0 +1,23 @@
+{'dry_run': True, 'by_action': {'migrate': 29, 'skip': 6, 'tombstone': 1}, 'already_migrated': 0, 'note': 'dry run: nothing was written. POST /api/admin/lake/migrate?dry_run=0 runs it as a job.'}
+  ds_281da07c    L1   skip      split_conflict: A split file of ds_281da07c contradicts the evidence kept of it: splits/random-stratified__y-95cb0bfd.json: run run_356ac901's holdout_predictions.csv names 1 row(s) the file does not hold out (5). It is not migrated, so
+  ds_fd96a8d1    L2   migrate   hashes match: 
+  ds_14c1bf3b    L3   migrate   hashes match: 
+  ds_d2046b69    LD   migrate   hashes match: 
+  ds_652418f5    LR   skip      data_conflict: The stored hash of ds_652418f5 contradicts its audit trail: audit row #27 (dataset_version_created) recorded 2aceec23f519… when it was made, the database holds 07b945de4979… now. The database was changed outside the app;
+  ds_e950e720    L7   migrate   hashes match: 
+  ds_34f3bd4c    C1   skip      data_changed: data.csv of ds_34f3bd4c differs from the hash stored when it was made (b3688d99101e… then, 4a88e42badb7… now): it is not migrated. Restore the file (POST …/verify names it), or adopt it as a new version (POST …/adopt-dis
+  ds_525b7653    C2   migrate   hashes match: 
+  ds_df1d3a93    Q1   migrate   hashes match: 
+  ds_1039d9e0    Q2   migrate   hashes match: 
+  ds_32fabcc7    Q3   migrate   hashes match: 
+  ds_73d34e26    F1   migrate   hashes match: 
+  ds_a4b7f0d8    B1   migrate   hashes match: 
+  ds_c9a1ec9c    F2   migrate   hashes match: 
+  ds_4414e1c6    LF   migrate   hashes match: 
+  ds_525c8e18    A1   migrate   hashes match: 
+  ds_5262b7ad    A2   skip      split_changed: A split file of ds_5262b7ad changed outside the app: splits/random-stratified__y-95cb0bfd.json differs from the hash runs recorded (ecc9185a8891…). It is not migrated; restore it first (POST …/restore-splits).
+  ds_622c0c0c    A3   skip      split_conflict: A split file of ds_622c0c0c contradicts the evidence kept of it: splits/random-stratified__y-95cb0bfd.json: the copy recorded when it was drawn hashes to 1b6174d564af…, not the recorded 736ab4122cad… (split_files was cha
+  ds_e2a02b05    AD   migrate   hashes match: 
+  ds_f308ffe2    AR   migrate   hashes match: 
+  ds_e7548d86    T1   skip      split_changed: A split file of ds_e7548d86 changed outside the app: splits/random-stratified__y-95cb0bfd.json differs from the hash recorded when it was drawn (05cab3e9a74f… then, b8ebc43e5e86… now). It is not migrated; restore it firs
+  ds_8beacdde    T2   tombstone deleted: a manifest with no tables: 

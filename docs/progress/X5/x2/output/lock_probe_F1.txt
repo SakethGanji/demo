@@ -1,0 +1,8 @@
+POST /runs → 409 {"detail":{"code":"version_migrating","message":"version_migrating: ds_73d34e26 is being migrated into the lake right now (job -): drawing a split is refused until that is done. Try again in a moment.
+POST /datasets/{id}/splits (new strategy) → 400 {"detail":"Unknown split strategy 'random'. Use one of: random-stratified, group, time, time-group."}
+POST /datasets/{id}/splits → 500 Internal Server Error
+POST /datasets/{id}/data-doctor/apply → ReadError [Errno 104] Connection reset by peer
+POST /datasets/{id}/feature-lab → 202 {"id":"fl_4fee9e16","status":"running","phase":"queued","started_at":"2026-11-22T04:32:04+00:00","request":{"candidates":[{"op":"ratio","a":"a","b":"b"}],"time_limit":10,"max_candidates":1,"by":"Ana",
+lock removed
+data-doctor/apply (fresh conn) → 500 Internal Server Error
+data-doctor/apply (fresh conn) → 500 Internal Server Error

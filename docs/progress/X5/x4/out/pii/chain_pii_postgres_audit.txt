@@ -1,0 +1,151 @@
+# DB: postgrespostgresql://postgres@127.0.0.1:5433/x5x4_pa
+# authz mode: audit
+0  members: {'tm_db8e4a7e': [('Ada', 'owner'), ('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Vic', 'viewer')], 'tm_e3ae4875': [('Ada', 'owner'), ('Cole', 'owner')]}
+## 1a Ana commit loans v1 → HTTP 201 | pii 0
+    {"version_id": "ds_6db6a79d"}
+## 1b Ana GET /datasets/v1/pii → HTTP 200 | pii 0
+    tags: [('applicant_name', 'pii_direct', 'redact'), ('dob', 'pii_quasi', 'year_only'), ('email', 'pii_direct', 'redact'), ('ssn', 'pii_direct', 'redact')]
+
+# 2. anomaly top rows
+## 2a Ana POST /anomaly/runs {v1, features income, age, ssn, segment} → HTTP 201 | pii 0
+    {"id": "run_a39c8da9", "status": "queued"}
+    run: succeeded
+## 2b Vic GET /anomaly/runs/{id}/top?limit=3 → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked": false}
+    rows[0].values: {'app_id': 'A00000', 'email': '•••', 'dob': '1950', 'income': 30000, 'age': 20, 'ssn': '•••', 'segment': 'retail'} | reasons: [('income', 30000.0, 41081.5), ('ssn', '•••', None), ('age', 20.0, 44.5)]
+## 2c Vic …/top?unmasked=1&reason=QA → HTTP 200 | would-deny data.read_unmasked | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked": false, "unmasked_refused": {"action": "data.read_unmasked", "needed": "maintainer", "role": "viewer", "message": "data.read_unmasked needs maintainer in tm_db8e4a7e; you are viewer: the PII columns stay masked (audit mode records this as would-deny)."}, "code": null, "action": null}
+## 2d Ana …/top?unmasked=1 (no reason) → HTTP 400 | pii 0
+    {"detail": {"code": "reason_required", "message": "An unmasked read needs a reason (2–500 characters, e.g. QA or a ticket): send reason=… (it is kept in the audit log with the columns you saw)."}}
+## 2e Ana …/top?unmasked=1&reason=QA → HTTP 200 | pii 12
+    {"masked_columns": [], "unmasked": true}
+    rows[0].values: {'app_id': 'A00000', 'email': 'user0000@example.com', 'dob': '1950-01-01', 'income': 30000, 'age': 20, 'ssn': 123456789, 'segment': 'retail'}
+
+# 3. a trained run (label y; features ssn, income, age, segment)
+## 3a Ana POST /runs {v1, label y} → HTTP 201 | pii 0
+    {"id": "run_1eb078c8", "status": "queued"}
+    run: succeeded
+## 3b Ana POST /runs/{id}/shift {holdout} → HTTP 202 | pii 0
+    {"key": "holdout", "status": "queued"}
+    shift: succeeded None
+## 3c Vic GET /runs/{id}/shift/{key} → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"]}
+    ssn: {'psi': 0.1350869068126753, 'mean_expected': None, 'mean_actual': None, 'std_expected': None} | income: {'mean_expected': 40782.802083333336, 'mean_actual': 42276.291666666664}
+## 3d Ana …/shift/{key}?unmasked=1&reason=QA → HTTP 200 | pii 0
+    {"masked_columns": [], "unmasked": true}
+    ssn: {'mean_expected': 531261846.2604167, 'mean_actual': 496455324.125}
+## 3e Vic GET …/shift/{key}/rows?limit=2 → HTTP 200 | pii 0
+    {"rows": [{"set": "reference", "origin": 0, "row": 0, "p_new_oof": 0.1607698649168014, "w": 0.7737877570135273}, {"set": "reference", "origin": 0, "row": 2, "p_new_oof": 0.161330372095108, "w": 0.7770044341375165}], "masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked": false}
+## 3f Vic …/shift/{key}/rows?unmasked=1&reason=QA → HTTP 200 | would-deny data.read_unmasked | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked": false, "unmasked_refused": {"action": "data.read_unmasked", "needed": "maintainer", "role": "viewer", "message": "data.read_unmasked needs maintainer in tm_db8e4a7e; you are viewer: the PII columns stay masked (audit mode reco
+## 3g Ana POST /runs/{id}/active-learning → HTTP 202 | pii 0
+    {"status": "queued"}
+    active learning: awaiting_labels None | items 4
+## 3h Vic GET /runs/{id}/active-learning → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked": false}
+    queue[0]: {'row': 583, 'features': {'ssn': '•••', 'income': 51571, 'age': 53, 'segment': 'sme'}, 'text': None, 'suggested': '0'}
+## 3i Ana …/active-learning?unmasked=1&reason=labelling → HTTP 200 | pii 4
+    {"masked_columns": [], "unmasked": true}
+    queue[0].features: {'ssn': 459505452, 'income': 51571, 'age': 53, 'segment': 'sme'}
+## 3j Vic …/active-learning?unmasked=1&reason=QA → HTTP 200 | would-deny data.read_unmasked | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked_refused": {"action": "data.read_unmasked", "needed": "maintainer", "role": "viewer", "message": "data.read_unmasked needs maintainer in tm_db8e4a7e; you are viewer: the PII columns stay masked (audit mode records this as would-d
+## 3k Ana POST /runs/{id}/annotations/upload (60 rows × 3 annotators) → HTTP 200 | pii 0
+    {"status": "computing", "n_raw": 180}
+    annotations: ready None
+## 3l Vic GET /runs/{id}/annotations?limit=2 → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"], "unmasked": false, "show_columns": ["ssn", "income", "age", "segment"]}
+    queue.items[0].fields: {'ssn': '•••', 'income': '31258', 'age': '54', 'segment': 'sme'}
+## 3m Ana …/annotations?unmasked=1&reason=adjudication → HTTP 200 | pii 2
+    {"masked_columns": [], "unmasked": true}
+    queue.items[0].fields: {'ssn': '774272663', 'income': '31258', 'age': '54', 'segment': 'sme'}
+
+# 4. Feature Lab, split options
+## 4a Ana POST /datasets/v1/feature-lab {target tier, entity ssn, bin ssn, log income; apply false} → HTTP 202 | pii 0
+    {"job_id": null, "id": "fl_c08dceaa", "status": "running"}
+    job: succeeded None
+## 4b Vic GET /datasets/v1/feature-lab/{job} → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"]}
+    journal: [('ssn_bin4', None, 'kept'), ('log_income', None, 'rejected')] | result.kept: [('ssn_bin4', ['•••', '•••', '•••'])]
+## 4c Ana …/feature-lab/{job}?unmasked=1&reason=QA → HTTP 200 | pii 0
+    {"masked_columns": [], "unmasked": true}
+    result.kept: [('ssn_bin4', [319850896.25, 518630273.0, 719371043.5])]
+## 4d Vic GET /datasets/v1/split-options → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "ssn"]}
+    date_columns: [{'column': 'dob', 'from': '1950', 'to': '1999', 'distinct': 600, 'parsed_share': 1.0}] | warnings: ["'dob' is a date: a random split trains on rows from after the holdout's dates, so its score does not show how the model does on the future. Use an out-of-time split."]
+## 4e Ana …/split-options?unmasked=1&reason=QA → HTTP 200 | pii 2
+    {"unmasked": true}
+    date_columns: [{'column': 'dob', 'from': '1950-01-01', 'to': '1999-12-20', 'distinct': 600, 'parsed_share': 1.0}]
+
+# 5. q in dataset_read audit rows
+## 5a Vic GET /datasets/v1/rows?q=Person0007 → HTTP 200 | pii 0
+    {"searched_columns": [], "masked_columns": ["applicant_name", "dob", "email", "ssn"]}
+## 5b Vic GET /datasets/v1/grid?q=user0042 → HTTP 200 | pii 0
+    {"q": "user0042"}
+    dataset_read q: [('Vic', 'grid', {'hash': '27da5fa64cf7', 'len': 8, 'redacted': True}), ('Vic', 'rows_page', {'hash': 'abb2a245bdf9', 'len': 10, 'redacted': True})]
+    raw search text in any audit row: 0
+
+# 6. cross-team joins (Collections joins Credit Risk's loans v1)
+## 6a Cole commit recoveries → HTTP 201 | pii 0
+    {"version_id": "ds_5a847088"}
+## 6b Cole POST /datasets/{rec}/joins {loans v1: income, segment} (no share) → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_6db6a79d belongs to team tm_db8e4a7e and no live share to tm_e3ae4875 covers it: ask tm_db8e4a7e to share it (POST /shares) before joining it.", "version_id": "ds_6db6a79d", "owner_team": "tm_db8e4a7e", "team": "tm_e3ae4875", "inputs": [{"version_id": "ds_6db6a79d", "owner_team": "tm_db8e4a7e"}]}}
+## 6c Ben POST /shares {loans → collections, scope all, pii masked} → HTTP 201 | pii 0
+    {"id": "sh_84874e3fa2", "status": "pending"}
+## 6d Bo decides → HTTP 200 | pii 0
+    {"status": "active", "pii": "masked"}
+## 6e Cole POST joins {income, segment} (masked share) → HTTP 201 | pii 0
+    {"id": "jn_d4082f3767", "validation": {"version_id": "ds_5a847088", "grain": "recoveries", "grain_rows": 300, "inputs": [{"role": "grain", "version_id": "ds_5a847088", "root_id": "ds_5a847088", "table": "recoveries", "table_sha256": "b02e507b9c06962401ee9a284e4f9cb49c5d6733a8150c23f51b4d38eedd068a",
+    shared_inputs: [{'join': 0, 'version_id': 'ds_6db6a79d', 'table': 'loans', 'share_id': 'sh_84874e3fa2', 'pii': 'masked', 'owner_team': 'tm_db8e4a7e', 'scope': 'all', 'pii_columns': []}]
+## 6f Cole POST joins {ssn, income} → HTTP 409 | pii 0
+    {"detail": {"code": "pii_masked_share", "message": "joins[0] reads PII-tagged column(s) ssn of ds_6db6a79d (loans), which is shared to this team masked (sh_84874e3fa2): leave them out of `on` / `columns` / `aggs` (list the columns you need), or ask the owner for a share with pii unmasked.", "join": 0, "columns": ["ssn"], "share_id": "sh_84874e3fa2", "version_id": "ds_6db6a79d"}}
+## 6g Cole POST joins (every column) → HTTP 409 | pii 0
+    {"detail": {"code": "pii_masked_share", "message": "joins[0] reads PII-tagged column(s) applicant_name, dob, email, ssn of ds_6db6a79d (loans), which is shared to this team masked (sh_84874e3fa2): leave them out of `on` / `columns` / `aggs` (list the
+## 6h Cole POST joins on email → HTTP 409 | pii 0
+    {"detail": {"code": "pii_masked_share", "message": "joins[0] reads PII-tagged column(s) email of ds_6db6a79d (loans), which is shared to this team masked (sh_84874e3fa2): leave them out of `on` / `columns` / `aggs` (list the columns you need), or ask
+## 6i Cole POST /datasets/{rec}/versions/{rec}/frames {rec_loans} → HTTP 201 | pii 0
+    {"id": "jf_823a4c5e02", "n_rows": 300, "cached": false, "inputs": [{"role": "grain", "version_id": "ds_5a847088", "root_id": "ds_5a847088", "table": "recoveries", "table_sha256": "b02e507b9c06962401ee9a284e4f9cb49c5d6733a8150c23f51b4d38eedd068a", "n_rows": 300, "verified": true}, {"role": "join:0", "version_id": "ds_6db6a79d", "root_id": "ds_6db6a79d", "table": "loans", "table_sha256": "b58256b3dbf64f6c93390a7acfe0c85ce79f5f1ad9bc90efa2d59c6b7d83b325", "n_rows": 600, "verified": true, "share_id": "sh_84874e3fa2", "share_pii": "masked"}]}
+## 6j Cole POST /runs {join rec_loans, label paid_back} → HTTP 201 | pii 0
+    {"id": "run_e751b836", "status": "queued"}
+    join run: succeeded
+## 6k Ben POST /shares/{s}/revoke → HTTP 200 | pii 0
+    {"status": "revoked", "runs_kept": [{"id": "run_e751b836", "status": "succeeded", "dataset_id": "ds_5a847088", "project_id": "prj_cd27412a", "via_join": true}]}
+## 6l Cole POST frames {rec_loans} after revoke (the cached frame too) → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_6db6a79d belongs to team tm_db8e4a7e and no live share to tm_e3ae4875 covers it: ask tm_db8e4a7e to share it (POST /shares) before joining it.", "version_id": "ds_6db6a79d", "owner_team": "tm_db8e4a7e", "team": "tm_e3ae4875", "inputs": [{"versio
+## 6m Cole POST /runs {join rec_loans} after revoke → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_6db6a79d belongs to team tm_db8e4a7e and no live share to tm_e3ae4875 covers it: ask tm_db8e4a7e to share it (POST /shares) before joining it.", "version_id": "ds_6db6a79d", "owner_team": "tm_db8
+## 6n Cole POST joins/{id}/validate after revoke → HTTP 403 | pii 0
+    {"detail": {"code": "input_not_shared", "message": "ds_6db6a79d belongs to team tm_db8e4a7e and no live share to tm_e3ae4875 covers it: ask tm_db8e4a7e to share it (POST /shares) before joining it.", 
+## 6o Cole GET /datasets/{rec}/frames/{f}?verify=1 (existing frame) → HTTP 200 | pii 0
+    verify: True | runs: [{'run_id': 'run_e751b836'}]
+## 6p Ada GET /admin/lake/runs/{join run}/verify → HTTP 200 | pii 0
+    ok: True | data: True | split: True
+    Cole GET /runs/{join run}: succeeded
+## 6q Ben POST /shares {loans → collections, pii unmasked} → HTTP 201 | pii 0
+    {"id": "sh_97121fce75"}
+## 6r Bo decides with grant_unmasked → HTTP 200 | pii 0
+    {"status": "active", "pii": "unmasked"}
+## 6s Cole POST joins {ssn, income} (unmasked share) → HTTP 201 | pii 0
+    {"id": "jn_d067ea116e"}
+    shared_inputs: [{'join': 0, 'version_id': 'ds_6db6a79d', 'table': 'loans', 'share_id': 'sh_97121fce75', 'pii': 'unmasked', 'owner_team': 'tm_db8e4a7e', 'scope': 'all', 'pii_columns': ['ssn']}]
+## 6t Cole POST frames {rec_loans} (share live again) → HTTP 200 | pii 0
+    {"id": "jf_823a4c5e02", "cached": true}
+    join_input_refused (collections): [('system', 'input_not_shared', ['ds_6db6a79d']), ('Cole', 'input_not_shared', ['ds_6db6a79d']), ('Cole', 'input_not_shared', ['ds_6db6a79d']), ('Cole', 'pii_masked_share', [['email']]), ('Cole', 'pii_masked_share', [['applicant_name', 'dob', 'email', 'ssn']]), ('Cole', 'pii_masked_share', [['ssn']]), ('Cole', 'input_not_shared', ['ds_6db6a79d'])]
+
+# 7. Smart Intake evidence of a tagged money column
+## 7a Vic GET /datasets/v1/intake (income untagged) → HTTP 200 | pii 0
+    income evidence: ['name reads like a money amount', 'non-negative, median 41,081.50']
+## 7b Vic GET /datasets/v1/intake (income tagged sensitive) → HTTP 200 | pii 0
+    {"masked_columns": ["applicant_name", "dob", "email", "income", "ssn"]}
+    income evidence: ['name reads like a money amount', 'non-negative, median •••']
+## 7c Ana …/intake?unmasked=1&reason=QA&by=Ana → HTTP 200 | pii 2
+    {"unmasked": true}
+    income evidence: ['name reads like a money amount', 'non-negative, median 41,081.50']
+
+# 8. audit
+    dataset_rows_read (credit-risk): [('Ana', 'intake', 'QA', ['applicant_name', 'dob', 'email', 'income', 'ssn']), ('Ana', 'split_options', 'QA', ['applicant_name', 'dob', 'email', 'ssn']), ('Ana', 'feature_lab', 'QA', ['applicant_name', 'dob', 'email', 'ssn']), ('Ana', 'annotations_queue', 'adjudication', ['applicant_name', 'dob', 'email', 'ssn']), ('Ana', 'active_learning_queue', 'labelling', ['applicant_name', 'dob', 'email', 'ssn']), ('Ana', 'shift_check', 'QA', ['applicant_name', 'dob', 'email', 'ssn']), ('Ana', 'anomaly_top', 'QA', ['applicant_name', 'dob', 'email', 'ssn'])]
+    authz_would_deny / denied data.read_unmasked: [('Vic', '/runs/run_1eb078c8/active-learning'), ('Vic', '/runs/run_1eb078c8/shift/holdout/rows'), ('Vic', '/anomaly/runs/run_a39c8da9/top')]
+## 8 GET /teams/tm_db8e4a7e/audit/verify → HTTP 200 | pii 0
+    {"ok": true, "rows": 36, "checked": null}
+## 8 GET /teams/tm_e3ae4875/audit/verify → HTTP 200 | pii 0
+    {"ok": true, "rows": 21, "checked": null}
+tracebacks: 0 | HTTP 500: 0

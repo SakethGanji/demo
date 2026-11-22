@@ -1,0 +1,16 @@
+## R14 (Postgres) NUL escape in an audited name field poisons GET /datasets/{id}/history for every dataset
+before: GET /datasets/credit-default/history 200
+{"detail":"'by' needs at least one letter or digit (names are compared on letters and digits only)."} <- POST /projects {name:p, by:"\\u0000"} 400
+
+after: GET /datasets/credit-default/history 500
+after: GET /datasets/credit-book/history 500
+## R15 (Postgres) NUL byte in a query/body string
+GET /runs?status=%00 500
+GET /projects?team=%00 500
+POST /teams {name:"\\u0000"} 500
+GET /datasets/credit-default/rows/count?table=%00 500
+## S1 POST /admin/lake/sync-s3 with no S3 bucket configured
+Internal Server Error <- POST /admin/lake/sync-s3 (Ada, no body) 500
+
+after: GET /health 000
+process exited

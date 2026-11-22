@@ -1,0 +1,65 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_89089070",
+    "now": "34c248ce0e2ae9e06d0e3f3103de8686c263b38b5a31f03c8c87d0a552e9cd47",
+    "ok": true,
+    "splits": [
+     {
+      "checks": [
+       {
+        "check": "blob",
+        "detail": "blob bf95f5e2a163\u2026 re-hashed: matches its key",
+        "n": 1,
+        "ok": true
+       },
+       {
+        "check": "split_sha256",
+        "detail": "split_sha256 bf02b7c9c112\u2026 over 750 rows",
+        "n": 2,
+        "ok": true
+       },
+       {
+        "check": "audit",
+        "detail": "audit #65 (2026-11-22T04:13:44, Ana) records the same split_sha256 and blob; chain link: chain link ok",
+        "n": 3,
+        "ok": true
+       },
+       {
+        "check": "runs",
+        "detail": "the same hash as 1 earlier run(s): run_d31c1acc",
+        "n": 4,
+        "ok": true,
+        "runs": [
+         "run_d31c1acc"
+        ],
+        "runs_differ": []
+       },
+       {
+        "applies": false,
+        "check": "carry",
+        "detail": "not a carried split",
+        "n": 5,
+        "ok": true
+       }
+      ],
+      "failed": [],
+      "file": "random-stratified__y-95cb0bfd (spl_e6ce8571a109)",
+      "now": null,
+      "status": "ok",
+      "stored": null
+     }
+    ],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "34c248ce0e2ae9e06d0e3f3103de8686c263b38b5a31f03c8c87d0a552e9cd47",
+    "v": 6
+   }
+  ],
+  "root_id": "ds_525c8e18"
+ },
+ "status": 200
+}

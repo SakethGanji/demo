@@ -1,0 +1,6 @@
+autopilot.audit.audit alone (scale/audit_alone.py) on the demo credit-default (12,000 rows x 16; 8 numeric, 7 category features),
+all 12,000 rows passed as OOF rows with synthetic probabilities (rng seed 0), last 2,400 as holdout.
+try 1 (other X5 lanes running): OOM-killed by the cgroup at anon-rss 7.67 GB (dmesg 3604.5)
+try 2: OOM-killed at anon-rss 7.69 GB (dmesg 3624.6)
+try 3 (10 GB free): OOM-killed at anon-rss 10.02 GB (dmesg 3656.5)
+-> the peak grows with the memory available; F-JOBS measured 5.6 GB with a real run's OOF. Still open.

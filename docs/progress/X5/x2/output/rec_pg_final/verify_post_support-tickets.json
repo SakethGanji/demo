@@ -1,0 +1,66 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "support-tickets",
+    "now": "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "95be9dbef8569dec07254e96d22079c8867c27af7d7bf0aa091064865f94d696",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/ad/ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a.csv",
+      "csv_reproducible": true,
+      "now": "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__category-5ccbf9c9.json",
+        "recorded": null,
+        "sha256": "0323caeb3049cfc7431aea56902202338c40a2c17379d05b19787d1099abf2a6",
+        "split_id": "spl_8a2aa3ef9841",
+        "split_sha256": "657e458b3564df3618107f00745730be5277f27596eff9d356980b9281238bc4"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "c8421ca77ef3b65e0774a32e26df61c6cd76cf1c13ba2ea70fe19f3df078f891",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a"
+     },
+     "manifest_sha256": "48e900960007b591ae1129462550882cad7b0368a8a017058f1430e892cb5ad7",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_8a2aa3ef9841",
+       "split_key": "random-stratified__category-5ccbf9c9",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "ad6fa566b66c384b098567f68101365362dc0409a0928300c5579f8d7836032a",
+    "v": 1
+   }
+  ],
+  "root_id": "support-tickets"
+ },
+ "status": 200
+}

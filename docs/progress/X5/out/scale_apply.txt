@@ -1,0 +1,15 @@
+   202 {'async': True, 'job_id': 'jb_aa719c2ca99c', 'job': {'id': 'jb_aa719c2ca99c', 'kind': 'doctor_apply', 'status': 'queued', 'created_at': '2026-11-22T03:30:19.402720Z'}, 'status': 'queued', 'poll': '/ap
+       0.0s queued (None, 0)
+       2.1s leased ('writing', 0.3)
+       4.1s leased ('writing', 0.41)
+       6.1s leased ('writing', 0.52)
+       8.1s leased ('writing', 0.62)
+      10.2s leased ('writing', 0.68)
+      12.2s leased ('writing', 0.74)
+      14.2s leased ('writing', 0.75)
+      22.3s leased ('carrying', 0.76)
+      26.4s leased ('finishing', 0.9)
+      34.6s succeeded ('done', 1.0)
+  job succeeded error 
+  [data-doctor apply drop_columns (job)] 34.8 s | peak single process 2.38 GB (.venv/bin/python -m uvicorn app.main:app --port 8601) | peak tree sum 2.84 GB
+  -> 202 {"how": "sql", "rows_before": 10000000, "rows_after": 10000000, "columns_removed": ["note"], "created": true, "refused": null}

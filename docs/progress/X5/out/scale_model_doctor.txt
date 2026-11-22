@@ -1,0 +1,8 @@
+GET /api/runs/{run}/doctor on a 10M-row run (run_b26bb90e, trained on a 480,807-row sample; frame_budget_mb 300)
+Pass 1 (automatic warm_doctor after each fit, API 13003): heavy-pool child pid 13891 OOM-killed at anon-rss 8.00 GB
+  (after run_b26bb90e), pid 9773 OOM-killed at 10.46 GB (after run_682b2999, the join run). dmesg lines 1456 / 1711.
+  A later GET /runs/run_b26bb90e/doctor never returned (>10 min, no log line); pool child defunct.
+Pass 2 (fresh API pid 5725, same data dir, one GET /runs/run_b26bb90e/doctor): pool child 5978 OOM-killed at
+  anon-rss 7.37 GB (dmesg 3014.9); the request hung > 10 min (client stopped at 04:19).
+Cause (by reading): vela/doctor.py:147 and vela/missing.py:456 call frames.read(frames.resolve(cfg)) -- the whole table,
+  not the run's recorded sample -- inside the API's heavy pool; runner.poll_finished -> warm_doctor fires it after every fit.

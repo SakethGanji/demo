@@ -1,0 +1,24 @@
+GC dry run (final): {'dry_run': True, 'armed': True, 'at': '2026-11-22T04:25:02+00:00', 'grace': {'pending_hours': 24.0, 'live_days': 7.0, 'orphan_hours': 24.0}, 'blobs': {'live': 241, 'pending': 1}, 'blob_refs': 309, 'candidates': 0, 'candidate_bytes': 0, 'resume_purging': 0, 'held': 0, 'deleted_versions_with_refs': 1, 'unreferenced_in_grace': 1, 'orphans': 0, 'orphans_in_grace': 0, 'stale_tmp': 0, 'integrity': 0, 'plan_id': 'gcp_df7386df7b', 'by': 'Ada'}
+HTTP 400
+{"detail":"Send {\"plan_id\": …, \"confirm\": \"gc\"}: this deletes blobs. POST ?dry_run=1 first."}
+HTTP 400
+
++60 d after the GC run (refs dropped): candidates [('manifest', 'pending', '75273215c551')] orphans 0 integrity 0 stale_tmp 1
+  source             1    1  [('upload', 1)]
+  split             33   33  [('run', 14), ('split', 38)]
+  table             36   36  [('version', 39)]
+runs and their pins (role list):
+  run_356ac901 present  legacy_csv,split,legacy_json
+  run_b8ac2e57 present  legacy_csv,split,legacy_json
+  run_df480700 present  legacy_csv,split,legacy_json
+  run_4204cb9b present  legacy_csv,split,legacy_json
+  run_e53b2acc present  legacy_csv,split,legacy_json
+  run_be6ae6e8 present  legacy_csv,split,legacy_json
+  run_7e2d775c present  split,legacy_json
+  run_b5f2841f present  legacy_csv,split,legacy_json
+  run_515f15dd present  legacy_csv,split,legacy_json
+  run_d31c1acc present  split
+  run_0e05b67c present  legacy_csv,split,legacy_json
+  run_29fca109 present  legacy_csv,split,legacy_json
+  run_1b8725be evicted  legacy_csv,split,legacy_json
+  run_ed6ac697 present  legacy_csv,split,legacy_json

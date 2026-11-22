@@ -1,0 +1,26 @@
+# authz mode: audit
+members: {'tm_19f0a22a': [('Ada', 'owner'), ('Ben', 'owner'), ('Bo', 'owner'), ('Ana', 'maintainer'), ('Mo', 'member'), ('Rita', 'risk_reviewer'), ('Vic', 'viewer')], 'tm_425e7b24': [('Ada', 'owner'), ('Cole', 'owner'), ('Carl', 'member')], 'tm_40af94ab': [('Ada', 'owner'), ('Fox', 'owner'), ('Fay', 'member')]}
+## v1 commit → HTTP 201 | pii 0
+    {"version_id": "ds_60b81ef6"}
+## pii confirm → HTTP 200 | pii 0
+    {"changed": [{"column": "applicant_name", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source": "suggested"}}, {"column": "dob", "tag": "pii_quasi", "mask": "year_only", "was": {"tag": "pii_quasi", "mask": "year_only", "source": "suggested"}}, {"column": "email", "tag": "pii_direct", "mask": "redact", "was": {"tag": "pii_direct", "mask": "redact", "source"
+tags: [('applicant_name', 'pii_direct', 'redact'), ('dob', 'pii_quasi', 'year_only'), ('email', 'pii_direct', 'redact'), ('ssn', 'pii_direct', 'redact')]
+## contract → HTTP 201 | pii 0
+    {"id": "dc_16cb28a9f2", "version": 1}
+## cert request → HTTP 201 | pii 0
+    {"id": "cert_459420c4df", "status": "pending"}
+## cert decide Ben → HTTP 200 | pii 0
+    {"status": "active", "expires_at": "2027-11-22T03:51:00+00:00"}
+## share → collections (certified, masked) → HTTP 201 | pii 0
+    {"id": "sh_a7fefc76a3"}
+## share decide Bo → HTTP 200 | pii 0
+    {"status": "active"}
+## run → HTTP 201 | pii 0
+    {"id": "run_4b11dec5"}
+run: succeeded
+## register → HTTP 202 | pii 0
+    {"id": "mv_63be5edf", "status": "building"}
+version: ready
+batch: batch_39df4d90 succeeded
+anomaly: succeeded
+state: {'mode': 'audit', 'cr': 'tm_19f0a22a', 'co': 'tm_425e7b24', 'fr': 'tm_40af94ab', 'pd': 'prj_4ffcffab', 'rp': 'prj_edbb6b91', 'fp': 'prj_65626418', 'v1': 'ds_60b81ef6', 'root': 'ds_60b81ef6', 'cert': 'cert_459420c4df', 'share_co': 'sh_a7fefc76a3', 'run': 'run_4b11dec5', 'mv': 'mv_63be5edf', 'batch': 'batch_39df4d90', 'anomaly': 'run_975cacf7'}

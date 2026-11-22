@@ -1,0 +1,27 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_14c1bf3b",
+    "now": "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04",
+    "ok": true,
+    "splits": [
+     {
+      "file": "splits/random-stratified__y-95cb0bfd.json",
+      "now": "258cbc6c5fb2d256ac6afc070558f32da0579e2b0398b825cea48de8337dba28",
+      "status": "ok",
+      "stored": "258cbc6c5fb2d256ac6afc070558f32da0579e2b0398b825cea48de8337dba28"
+     }
+    ],
+    "splits_sha256": "b857d024cb9ce938cbda5bac7cd006e22f89945b3962a36769d39083598d9f1c",
+    "status": "ok",
+    "stored": "09dc8bba3f0d12a64e80e0cc53cc3caeb1124f399ee1645b82c5b79753bf1b04",
+    "v": 3
+   }
+  ],
+  "root_id": "ds_281da07c"
+ },
+ "status": 200
+}

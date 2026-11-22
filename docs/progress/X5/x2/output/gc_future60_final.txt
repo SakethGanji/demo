@@ -1,0 +1,49 @@
+{
+ "at": "2027-01-21T04:25:02+00:00",
+ "blobs": {
+  "live": 241,
+  "pending": 1
+ },
+ "blob_refs": 309,
+ "candidates": [
+  {
+   "sha256": "75273215c5514e4ebcb4871293a9c99a9008b8cc56fe87603a912f3c0afd4698",
+   "kind": "manifest",
+   "state": "pending",
+   "bytes": 3536
+  }
+ ],
+ "unreferenced_in_grace": 0,
+ "orphans": [],
+ "integrity": [],
+ "stale_tmp": [
+  {
+   "dir": "tmp/migrate-540c5385",
+   "bytes": 84731,
+   "newest": "2026-11-22T04:21:03+00:00"
+  }
+ ]
+}
+by kind: blobs / with a ref / refs by owner kind
+  frozen_holdout     1    1  [('version', 1)]
+  legacy_csv        32   32  [('run', 12), ('version', 35)]
+  legacy_json      100  100  [('run', 13), ('split', 36), ('version', 82)]
+  manifest          39   38  [('version', 38)]
+  source             1    1  [('upload', 1)]
+  split             33   33  [('run', 14), ('split', 38)]
+  table             36   36  [('version', 39)]
+runs and their pins (role list):
+  run_356ac901 present  legacy_csv,split,legacy_json
+  run_b8ac2e57 present  legacy_csv,split,legacy_json
+  run_df480700 present  legacy_csv,split,legacy_json
+  run_4204cb9b present  legacy_csv,split,legacy_json
+  run_e53b2acc present  legacy_csv,split,legacy_json
+  run_be6ae6e8 present  legacy_csv,split,legacy_json
+  run_7e2d775c present  split,legacy_json
+  run_b5f2841f present  legacy_csv,split,legacy_json
+  run_515f15dd present  legacy_csv,split,legacy_json
+  run_d31c1acc present  split
+  run_0e05b67c present  legacy_csv,split,legacy_json
+  run_29fca109 present  legacy_csv,split,legacy_json
+  run_1b8725be evicted  legacy_csv,split,legacy_json
+  run_ed6ac697 present  legacy_csv,split,legacy_json

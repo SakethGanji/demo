@@ -1,0 +1,12 @@
+## wide 1000
+upload 201 up_e4fd62df1e01
+check W=1000: 200 in 3.1s, peak RSS 0.55 GB; n_cols=1000 blocks=[]
+## wide 2000
+upload 201 up_c3424a2f7bb5
+check W=2000: 200 in 6.7s, peak RSS 0.60 GB; n_cols=2000 blocks=[]
+## wide 2001
+upload 201 up_69ec477722cf
+check W=2001: 400 in 0.0s, peak RSS 0.47 GB; {"code": "too_many_columns", "message": "This file has 2,001 columns; the limit is 2,000 (ENSEMBLE_MAX_COLUMNS). Split it into narrower files."}
+## wide 5000
+upload 201 up_49030adfc430
+check W=5000: 400 in 0.2s, peak RSS 0.47 GB; {"code": "too_many_columns", "message": "This file has 5,000 columns; the limit is 2,000 (ENSEMBLE_MAX_COLUMNS). Split it into narrower files."}

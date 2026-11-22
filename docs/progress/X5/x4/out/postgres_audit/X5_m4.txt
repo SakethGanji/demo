@@ -1,0 +1,52 @@
+# mode audit
+
+# 1. after the purge of loans.ssn (v1 is the purged/deleted version; new_v the kept one)
+## 1x GET /datasets/{v1} → HTTP 410 | pii 0
+    {"id": null, "status": null, "deleted_at": null, "purged": null}
+## 1a Ana GET /datasets/{v1}/export (zip) → HTTP 409 | {"detail":{"code":"blob_missing","sha256":"b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069","message":"A file of this data (b91a7d23b594…) is missing from the lake. GET /api/datasets/{version}/verify nam
+## 1b Ana GET /datasets/{v1}/export?format=csv → HTTP 409 | {"detail":{"code":"blob_missing","sha256":"b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069","message":"A file of this data (b91a7d23b594…) is missing from the lake. GET /api/datasets/{version}/verify nam
+## 1c Ana GET /datasets/{v1}/export?unmasked=1&reason → HTTP 409 | {"detail":{"code":"blob_missing","sha256":"b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069","message":"A file of this data (b91a7d23b594…) is missing from the lake. GET /api/datasets/{version}/verify nam
+## 1a Ada GET /datasets/{v1}/export (zip) → HTTP 409 | {"detail":{"code":"blob_missing","sha256":"b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069","message":"A file of this data (b91a7d23b594…) is missing from the lake. GET /api/datasets/{version}/verify nam
+## 1b Ada GET /datasets/{v1}/export?format=csv → HTTP 409 | {"detail":{"code":"blob_missing","sha256":"b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069","message":"A file of this data (b91a7d23b594…) is missing from the lake. GET /api/datasets/{version}/verify nam
+## 1c Ada GET /datasets/{v1}/export?unmasked=1&reason → HTTP 409 | {"detail":{"code":"blob_missing","sha256":"b91a7d23b594472c949f31e87bbde233a9b69beaab97dc98e059e92f06703069","message":"A file of this data (b91a7d23b594…) is missing from the lake. GET /api/datasets/{version}/verify nam
+## 1d Ana GET /runs/{run (used ssn)}/explain → HTTP 500 | Internal Server Error
+## 1e Ana GET /runs/{run (used ssn)}/shap?row=0 → HTTP 409 | {"detail":{"code":"purged_model","message":"The model of run run_6d322c77 was purged (trained with purged column(s) ssn; purge pur_63566d03ba): retrain on the new version.","purge_id":"pur_63566d03ba"}}
+## 1f Ana GET /runs/{run (used ssn)}/shap?row=<holdout row> → HTTP 409 | {"detail":{"code":"purged_model","message":"The model of run run_6d322c77 was purged (trained with purged column(s) ssn; purge pur_63566d03ba): retrain on the new version.","purge_id":"pur_63566d03ba"}}
+## 1g Ana GET /runs/{run (used ssn)}/holdout-predictions → HTTP 200 | {"run_id":"run_6d322c77","model":"WeightedEnsemble_L2","n_rows":120,"rows":[1,8,31,46,53,55,70,76,83,85,108,133,134,140,146,147,149,154,162,163,166,170,173,174,178,179,181,184,187,188,189,194,207,211,214,215,218,219,220,
+## 1d Ana GET /runs/{run2 (ssn dropped)}/explain → HTTP 500 | Internal Server Error
+## 1e Ana GET /runs/{run2 (ssn dropped)}/shap?row=0 → HTTP 400 | {"detail":"Row 0 is not in this run's holdout."}
+## 1f Ana GET /runs/{run2 (ssn dropped)}/shap?row=<holdout row> → HTTP 500 | Internal Server Error
+## 1g Ana GET /runs/{run2 (ssn dropped)}/holdout-predictions → HTTP 200 | {"run_id":"run_420502e8","model":"WeightedEnsemble_L2","n_rows":120,"rows":[1,8,31,46,53,55,70,76,83,85,108,133,134,140,146,147,149,154,162,163,166,170,173,174,178,179,181,184,187,188,189,194,207,211,214,215,218,219,220,
+
+# 2. a plain delete (request + four-eyes decide) of a version with a run on it
+## 2a commit small → HTTP 201 | pii 0
+    {"version_id": "ds_25c59a13"}
+## 2b run on small → HTTP 201 | pii 0
+    {"id": "run_6b4bdd11"}
+    run: succeeded
+## 2b' a second run on small (never read before the delete: no explain / SHAP cache) → HTTP 201 | pii 0
+    {"id": "run_5c355c51"}
+    run2: succeeded
+## 2c before: Ana GET /runs/{rs}/explain → HTTP 200 | {"run_id":"run_6b4bdd11","model":"WeightedEnsemble_L2","problem_type":"binary","eval_metric":{"name":"accuracy","greater_is_better":true,"optimum":1.0,"scores_note":"score_* are AutoGluon's higher-is-better scores; *_nat
+## 2d before: Ana GET /runs/{rs}/shap?row=0 → HTTP 200 | {"run_id":"run_6b4bdd11","row":0,"model":"WeightedEnsemble_L2","problem_type":"binary","target":"1","output":"probability","quantile_level":null,"base_value":0.6085716345906258,"fx":0.9421439170837402,"sum_phi":0.3335722
+## 2e before: Ana GET /datasets/{vs}/export?format=csv → HTTP 200 | <text/csv; charset=utf-8 7528 bytes>
+## 2f Ana POST /datasets/{vs}/delete → HTTP 409 | pii 0
+    {"detail": {"message": "Can't delete: a version is in use. Each line below says how to clear it.", "blockers": ["run run_5c355c51 (small · y, succeeded) was trained on ds_25c59a13: deleting the data makes it irreproducible. Delete the run, or retire the model built from it, or send \"irreproducible\": {\"reason\": \"…\"} with the delete to accept that (four eyes, audited).", "run run_6b4bdd11 (sma
+## 2f' Ana POST /datasets/{vs}/delete {irreproducible: {reason}} → HTTP 201 | pii 0
+    {"id": "dsr_63bbfd35", "status": "pending", "runs_made_irreproducible": ["run_5c355c51", "run_6b4bdd11"]}
+## 2g Ben decides → HTTP 200 | pii 0
+    {"status": "approved"}
+## 2h GET /datasets/{vs} → HTTP 410 | pii 0
+    {"id": null, "status": null, "deleted_at": null}
+## 2i Ana GET /datasets/{vs}/export (zip) → HTTP 410 | {"detail":"ds_25c59a13 was deleted: only its tombstone and lineage are kept."}
+## 2j Ana GET /datasets/{vs}/export?format=csv → HTTP 410 | {"detail":"ds_25c59a13 was deleted: only its tombstone and lineage are kept."}
+## 2i Ada GET /datasets/{vs}/export (zip) → HTTP 410 | {"detail":"ds_25c59a13 was deleted: only its tombstone and lineage are kept."}
+## 2j Ada GET /datasets/{vs}/export?format=csv → HTTP 410 | {"detail":"ds_25c59a13 was deleted: only its tombstone and lineage are kept."}
+## 2k Ana GET /runs/{rs}/explain (run on the deleted version) → HTTP 200 | {"run_id":"run_6b4bdd11","model":"WeightedEnsemble_L2","problem_type":"binary","eval_metric":{"name":"accuracy","greater_is_better":true,"optimum":1.0,"scores_note":"score_* are AutoGluon's higher-is-better scores; *_nat
+## 2l Ana GET /runs/{rs}/shap?row=0 → HTTP 200 | {"run_id":"run_6b4bdd11","row":0,"model":"WeightedEnsemble_L2","problem_type":"binary","target":"1","output":"probability","quantile_level":null,"base_value":0.6085716345906258,"fx":0.9421439170837402,"sum_phi":0.3335722
+## 2m Ana GET /runs/{rs}/shap?row=3 → HTTP 400 | {"detail":"Row 3 is not in this run's holdout."}
+## 2n Ana GET /datasets/{vs}/rows → HTTP 410 | {"detail":"Dataset 'ds_25c59a13' was deleted (2026-11-22T03:50:28+00:00, Ben); its lineage is kept."}
+    run2 holdout-predictions → HTTP 200; first holdout row 0
+## 2o Ana GET /runs/{rs2}/explain (uncached, deleted data) → HTTP 200 | {"run_id":"run_5c355c51","model":"WeightedEnsemble_L2","problem_type":"binary","eval_metric":{"name":"accuracy","greater_is_better":true,"optimum":1.0,"scores_note":"score_* are AutoGluon's higher-is-better scores; *_nat
+## 2p Ana GET /runs/{rs2}/shap?row=0 (uncached) → HTTP 500 | Internal Server Error
+## 2q Ana GET /runs/{rs}/shap?row=0 (uncached row on the warmed run) → HTTP 200 | {"run_id":"run_6b4bdd11","row":0,"model":"WeightedEnsemble_L2","problem_type":"binary","target":"1","output":"probability","quantile_level":null,"base_value":0.6085716345906258,"fx":0.9421439170837402,"sum_phi":0.3335722

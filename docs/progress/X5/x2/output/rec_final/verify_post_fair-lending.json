@@ -1,0 +1,66 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "fair-lending",
+    "now": "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "b71183aa63210244e0d4b9ef8cf89bdde9dde1dbda9271d1c3a1e3819560ec90",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/c0/c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3.csv",
+      "csv_reproducible": true,
+      "now": "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__defaulted-883cb8a7.json",
+        "recorded": null,
+        "sha256": "ae8e06abebd467c6cdfc33ed5d4eee5cacfe44638e4294d1bfa6cc82dc4e5cdb",
+        "split_id": "spl_ad03796c00d8",
+        "split_sha256": "05e175c03215a1a1eb5e2dd8ba0a4f4b3144b9814107b2e81a1eebbe21469cb5"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "fd62686c2b012744aeafbd0285bf1f97d3a3cff241dbca236ae353bc1aac09ac",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3"
+     },
+     "manifest_sha256": "053a7fa6ee0f2c80e316fb542d6cca342a4bd426c01cde2955666a0c5ffb1d88",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_ad03796c00d8",
+       "split_key": "random-stratified__defaulted-883cb8a7",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "c012677d569acff741d1c11c1ae35a8b70a0ce9f05fe76450564a93ca728a3b3",
+    "v": 1
+   }
+  ],
+  "root_id": "fair-lending"
+ },
+ "status": 200
+}

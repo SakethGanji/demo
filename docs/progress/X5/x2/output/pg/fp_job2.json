@@ -1,0 +1,42 @@
+{
+ "datasets": {
+  "n": 38,
+  "sha": "27f8b49270173c52"
+ },
+ "version_tables": {
+  "n": 33,
+  "sha": "79c1ae5b5b7d4b7c"
+ },
+ "table_files": {
+  "n": 33,
+  "sha": "89a5b6137b1e15d4"
+ },
+ "blobs": {
+  "n": 203,
+  "sha": "31ac0226b6f8f3c8"
+ },
+ "blob_refs": {
+  "n": 253,
+  "sha": "448ae4cf2972f57d"
+ },
+ "splits": {
+  "n": 32,
+  "sha": "98ad5d997a7ecc7b"
+ },
+ "run_inputs": {
+  "n": 11,
+  "sha": "57ac0b2c79cd36c5"
+ },
+ "dataset_root_tables": {
+  "n": 24,
+  "sha": "582e75d38e879387"
+ },
+ "lineage_edges": {
+  "n": 31,
+  "sha": "6fa9a6f1ce9188a4"
+ },
+ "lake_migrations": {
+  "n": 36,
+  "sha": "8c01647528be58ae"
+ }
+}

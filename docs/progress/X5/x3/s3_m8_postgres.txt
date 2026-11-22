@@ -1,0 +1,11 @@
+1. POST joins (bytes good) → 201 jn_8daa80a442
+2. stacked version 856fb490-52a6-47df-b727-d85838690609 (y flipped) on apps part 18bc6c2c288a; cache copy removed
+3. new build while stacked: POST /datasets/{R}/versions/{V}/frames → 409 {"detail":{"code":"blob_integrity","message":"the object store returned bytes for 18bc6c2c288ac266368a0c7dcaff1d7be6442f7a89da65c047f6b0a6af6cebca.parquet whose sha256 is 8ff72d12883cfe907bbc95f8ddedc3ea21d15f47ceec0df84052e9c46a8ae426; the
+4. stacked version removed
+5. build, bytes good: POST /datasets/{R}/versions/{V}/frames → 201 {"id":"jf_8484dab46f","join_id":"jn_8daa80a442","version_id":"ds_7140899d","grain_table":"apps","frame_sha256":"7395d192ebd0cbac8ca8b8a53c530900875140caa5bfa404d735d69e96b5ff52","n_rows":3000,"cache_blob":"2c5245bb0616df4f9b4fbbdc512985a762
+   frame y = the bucket's original bytes: True
+6. stacked again d1a8d3d3-7666-45b1-a90d-efee1ec76f38
+7. cached path while stacked: POST /datasets/{R}/versions/{V}/frames → 409 {"detail":{"code":"blob_integrity","message":"the object store returned bytes for 18bc6c2c288ac266368a0c7dcaff1d7be6442f7a89da65c047f6b0a6af6cebca.parquet whose sha256 is 8ff72d12883cfe907bbc95f8ddedc3ea21d15f47ceec0df84052e9c46a8ae426; the
+8. frame verify while stacked → 200 {'ok': False, 'derived': {'ok': None, 'summary': 'not checked: the cache or an input does not verify'}, 'inputs_deleted': None} [('apps', False), ('daily', True)]
+9. unstacked
+10. frame verify after → True derived {'ok': True, 'rows': {'cache': 3000, 'rebuilt': 3000, 'ids_unmatched': 0}, 'columns_equal': True, 'types_equal': True, '

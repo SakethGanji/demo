@@ -1,0 +1,63 @@
+POST /api/uploads?filename=dla4.csv&by=fx1 -> 201 (0.0s) {"upload_id": "up_238e6fbf0163", "status": "staged", "team_id": "tm_default", "project_id": null, "files": [{"n": 0, "filename": "dla4.csv", "bytes": 81827, "sha256": "1bbc7daf4058512be75a2b90480968a3be2588ab6539955b9b0bf901c191b90e"}], "parent_version_id": null, "root_id": null, "plan": {}, "check_sha256": null, "committed_version_id": null, "created_by": "fx1", "created_at": "2026-11-22T04:19:32
+POST /api/uploads/up_238e6fbf0163/check -> 200 (0.1s) 
+check types [('acct', 'VARCHAR'), ('zip', 'VARCHAR'), ('x1', 'DOUBLE'), ('amt', 'BIGINT'), ('y', 'BIGINT')]
+POST /api/uploads/up_238e6fbf0163/commit -> 201 (0.3s) 
+## item 1: extreme values into an int column / add_column / fill_missing / replace_values
+  status counts {400: 47, 200: 7}
+## item 2: upload-as-version of a file whose key is a plain id (acct): no silent guess, rows keep identity
+POST /api/uploads/up_dd79393a9a69/check -> 200 (0.2s) 
+  check match candidates null
+POST /api/uploads/up_dd79393a9a69/commit -> 400 (0.0s) {"detail": {"code": "match_required", "message": "Say how this file's rows are matched to the parent's: match = {method: key, columns: [...]}, {method: declared}, {method: row_hash} or {method: none}. Nothing is guessed. The candidates and what each method would do are below (and in the check).", "c
+POST /api/uploads/up_dd79393a9a69/commit -> 201 (0.6s) 
+  commit with key acct -> 201 ds_58801d8e
+GET /api/datasets/ds_42cfcdbe/diff/ds_58801d8e -> 200 (0.3s) 
+  diff {'matched': 3000, 'changed': 15, 'added': 0, 'removed': 0, 'matched_by': '__row_id (the same rows of one dataset)'} changed_by_column {'x1': 15}
+## item 3: split tamper: see X5/x1/m26.txt, m2_forge_restore.txt; here: compare wording over a partial holdout overlap
+POST /api/runs -> 201 (0.2s) 
+GET /api/datasets/ds_42cfcdbe/rows?limit=3000 -> 200 (0.0s) 
+POST /api/datasets/ds_42cfcdbe/edit -> 201 (0.6s) {"id": "ds_99751969", "name": "dla4", "filename": "dla4.parquet", "source": "upload", "sample": false, "note": "Edited ds_42cfcdbe as v3: 333 row(s) by id", "created_at": "2026-11-22T04:19:41+00:00", 
+POST /api/runs -> 201 (0.4s) 
+  runs succeeded succeeded
+GET /api/compare?a=run_5fb619b0&b=run_d14bd898 -> 405 (0.0s) 
+  compare paired wording: []
+## item 4: ZIP stays text through explain, Model Doctor, slices, scoring, export
+GET /api/runs/run_5fb619b0/explain?rows=0,1,2 -> 200 (0.1s) 
+  explain 200 ['"zip"', '"zip": "100\\u2022\\u2022\\u2022"', '"zip": "902\\u2022\\u2022\\u2022"', '"zip": "902\\u2022\\u2022\\u2022"']
+GET /api/runs/run_5fb619b0/doctor -> 200 (0.0s) 
+  doctor 200 zip mentions ['zip"', 'zip"', 'zip"']
+GET /api/runs/run_5fb619b0/slices -> 200 (0.0s) 
+  slices 200 ['"zip", "how": "5 values", "type": "category", "conditions": [{"column": "zip", "op":', '"zip", "op": "in", "values": ["021\\u2022\\u2022\\u2022"]', '"zip", "op": "in", "values": ["100\\u2022\\u2022\\u2022"]']
+POST /api/runs/run_5fb619b0/register -> 202 (0.0s) {"id": "mv_0063a28b", "model_name": "dla4", "version": 1, "run_id": "run_5fb619b0", "status": "building", "stage": "None", "approval": "pending", "created_at": "2026-11-22T04:20:40+00:00", "created_by
+  model ready None
+POST /api/registry/versions/mv_0063a28b/score -> 200 (1.3s) 
+  score 200 []
+Traceback (most recent call last):
+  File "/home/user/demo/docs/progress/X5/dla4.py", line 86, in <module>
+    z = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(req).read()))
+                                   ~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/usr/local/lib/python3.13/urllib/request.py", line 189, in urlopen
+    return opener.open(url, data, timeout)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/urllib/request.py", line 495, in open
+    response = meth(req, response)
+  File "/usr/local/lib/python3.13/urllib/request.py", line 604, in http_response
+    response = self.parent.error(
+        'http', request, response, code, msg, hdrs)
+  File "/usr/local/lib/python3.13/urllib/request.py", line 533, in error
+    return self._call_chain(*args)
+           ~~~~~~~~~~~~~~~~^^^^^^^
+  File "/usr/local/lib/python3.13/urllib/request.py", line 466, in _call_chain
+    result = func(*args)
+  File "/usr/local/lib/python3.13/urllib/request.py", line 613, in http_error_default
+    raise HTTPError(req.full_url, code, msg, hdrs, fp)
+urllib.error.HTTPError: HTTP Error 400: Bad Request
+## compare (POST /api/compare)
+['paired', 'paired on 535 of 600 rows (holdouts differ)', 'paired \\u0394 needs \\u2265 50 %', 'paired on 535 of 600 rows (holdouts differ)']
+{'paired': True, 'overlap': {'n_common': 535, 'n_a': 600, 'n_b': 535, 'share': 0.8917, 'same_holdout': False, 'text': 'paired on 535 of 600 rows (holdouts differ)', 'rule': 'overlap = rows in both holdouts / the larger holdout (by __row_id); a paired Δ needs ≥ 50 %'}, 'n_paired': None, 'pairing': None}
+## export zip (by in query)
+200
+['data.csv', 'schema.json', 'manifest.json', 'export.json']
+['acct,zip,x1,amt,y', 'A00000,021•••,0.8466,2556,0', 'A00001,021•••,1.0224,4445,0']
+{"format": "ensemble.export_schema/1", "version_id": "ds_42cfcdbe", "read_mode": "engine_v1", "tables": [{"name": "dla4", "file": "data.csv", "rows": 3000, "table_sha256": "dae3394df22e8c3bd424f0b77971a1587324673feeec07dabe918082fc9aaf58", "columns": [{"name": "acct", "kind": "text", "type": "VARCHAR", "nullable": false, "reason": "text"}, {"name": "zip", "kind": "text", "type": "VARCHAR", "nullab
+## export without by but with X-Ensemble-Actor
+{"detail":"'by' is required: say who you are (there is no sign-in; the name goes in the audit log)."} 400

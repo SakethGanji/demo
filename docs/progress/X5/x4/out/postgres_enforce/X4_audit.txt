@@ -1,0 +1,47 @@
+# mode enforce
+
+# 1. actions in the chains
+  tm_05d73c59: 283 rows: {'agent:batch_score': 2, 'authz_denied': 195, 'batch_scored': 4, 'certification_approved': 1, 'certification_requested': 1, 'contract_set': 1, 'dataset_created': 2, 'dataset_default_set': 3, 'dataset_delete_refused': 2, 'dataset_exported': 11, 'dataset_read': 11, 'dataset_rows_read': 9, 'dataset_version_created': 1, 'legal_hold_placed': 1, 'legal_hold_released': 1, 'pii_tags_set': 1, 'pii_tags_suggested': 1, 'project_created': 1, 'purge_approved': 3, 'purge_bytes_deleted': 1, 'purge_derived_scrubbed': 1, 'purge_executed': 1, 'purge_refused': 1, 'purge_requested': 1, 'purge_sweep': 2, 'registered': 2, 'retire_requested': 1, 'run_delete_refused': 1, 'share_approved': 2, 'share_requested': 2, 'share_revoked': 1, 'split_created': 3, 'team_created': 1, 'team_member_added': 6, 'upload_committed': 2, 'upload_discarded': 1, 'upload_staged': 3}
+  tm_cbb534b9: 20 rows: {'blob_deleted': 3, 'project_created': 1, 'purge_approved': 3, 'purge_bytes_deleted': 1, 'purge_derived_scrubbed': 1, 'purge_executed': 1, 'purge_requested': 1, 'purge_sweep': 2, 'run_cancelled': 2, 'share_received': 1, 'share_revoked': 1, 'team_created': 1, 'team_member_added': 2}
+  tm_3736b988: 101 rows: {'dataset_created': 2, 'dataset_default_set': 2, 'dataset_loaded': 1, 'join_frame_materialised': 1, 'join_input_refused': 3, 'join_saved': 1, 'project_created': 1, 'purge_approved': 3, 'purge_bytes_deleted': 1, 'purge_derived_scrubbed': 1, 'purge_executed': 1, 'purge_requested': 1, 'purge_sweep': 2, 'run_cancelled': 1, 'share_received': 1, 'split_created': 2, 'sql_previewed': 7, 'sql_refused': 64, 'sql_tables_listed': 1, 'team_created': 1, 'team_member_added': 2, 'upload_committed': 1, 'upload_staged': 1}
+  tm_default: 103 rows: {'agent:intake_suggestions': 1, 'agent_session_refused': 8, 'agent_session_started': 3, 'agent_step_confirmed': 2, 'authz_denied': 34, 'dataset_created': 15, 'dataset_default_set': 15, 'principal_created': 10, 'split_created': 15}
+    'agent_session_started': ['agent_session_started']
+    'fairness': MISSING
+    'pii_tags_set': ['pii_tags_set']
+    'pii_tags_confirmed': MISSING
+    'team_member_role_changed': MISSING
+    'team_member_removed': MISSING
+    'legal_hold_placed': ['legal_hold_placed']
+    'legal_hold_released': ['legal_hold_released']
+    'purge_requested': ['purge_requested']
+    'purge_executed': ['purge_executed']
+    'share_approved': ['share_approved']
+    'share_revoked': ['share_revoked']
+    'certification_approved': ['certification_approved']
+    'batch_scored': ['batch_scored']
+    'approved': ['certification_approved', 'purge_approved', 'share_approved']
+    'dataset_rows_read': ['dataset_rows_read']
+    'upload_discarded': ['upload_discarded']
+    'sql_preview': ['sql_previewed']
+    'run_cancelled': ['run_cancelled']
+    'dataset_exported': ['dataset_exported']
+  agent rows (auth agent): [('Vela agent on behalf of Ana', 'agent:batch_score'), ('Vela agent on behalf of Ana', 'batch_scored'), ('Vela agent on behalf of Fay', 'agent:batch_score'), ('Fay', 'authz_denied'), ('Vela agent on behalf of Ana', 'agent:intake_suggestions')]
+  rows naming Fay's fairness GET / agent session ids: ['agent:batch_score', 'agent:batch_score', 'authz_denied', 'authz_denied', 'agent_step_confirmed', 'agent_session_refused']
+
+# 3. admin reset under a legal hold (ENSEMBLE_DEMO_MODE=1)
+## 3a Ada POST /legal-holds {team credit-risk} → HTTP 201 | pii 0
+    {"id": "lh_d546d70663", "active": true}
+## 3b Ada POST /admin/reset-requests → HTTP 201 | pii 0
+    {"id": "arq_8982fa38", "status": "pending"}
+## 3c Adam approves → HTTP 200 | pii 0
+    {"status": "approved"}
+## 3d Ada POST /admin/reset {request_id} → HTTP 409 | pii 0
+    {"deleted": null, "four_eyes": null}
+## 3e GET /legal-holds?team=cr → HTTP 200 | pii 0
+    {"holds": [{"id": "lh_d546d70663", "scope_kind": "team", "scope_id": "tm_05d73c59", "case_ref": "CASE-RESET", "reason": "regulator inquiry", "placed_by": "Ada", "placed_at": "2026-11-22T03:36:05+00:00", "released_by": null, "released_at": null, "active": true, "team_id": "tm_05d73c59", "label": "Cre
+## 3f GET /datasets/{v1} → HTTP 410 | pii 0
+    {"detail": "Dataset 'ds_978e6ccb' was deleted (2026-11-22T03:35:22+00:00, Cole); its lineage is kept."}
+## 3g GET /runs/{run} → HTTP 200 | pii 0
+    {"id": "run_e7b15939", "name": "loans · y", "dataset_id": "ds_978e6ccb", "label": "y", "status": "succeeded", "created_at": "2026-11-22T03:28:51+00:00
+## 3h verify credit-risk chain → HTTP 200 | pii 0
+    {"ok": true, "rows": 284}

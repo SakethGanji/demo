@@ -1,0 +1,24 @@
+## mode audit (head 5c1732c)
+## forecast transaction-volume ['item_id', 'timestamp', 'volume', 'holiday', 'payday', 'segment']
+  mapping item_id timestamp volume
+  tag transaction-volume.item_id pii_quasi/hash → 200 masked None
+  run run_e60d2725 failed
+Traceback (most recent call last):
+  File "/var/tmp/x5/head/backend/../docs/progress/U3/mask_check.py", line 62, in <module>
+    print(f"  forecast.csv masked: {m.status_code} X-Ensemble-Masked-Columns={m.headers.get('x-ensemble-masked-columns')} first item {m.text.splitlines()[1].split(',')[0]!r}")
+                                                                                                                                      ~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+api 5xx: 0 tracebacks: 1
+[1]+  Terminated              env ENSEMBLE_DATA_DIR=/var/tmp/x5/mask/$m ENSEMBLE_ADMINS=Ada,Adam ENSEMBLE_DEMO_MODE=1 ENSEMBLE_AUTHZ=$m $EXTRA nohup .venv/bin/python -m uvicorn app.main:app --port 8652 > /var/tmp/x5/mask/api_$m.log 2>&1
+## mode enforce (head 5c1732c)
+## forecast transaction-volume ['item_id', 'timestamp', 'volume', 'holiday', 'payday', 'segment']
+  mapping item_id timestamp volume
+  tag transaction-volume.item_id pii_quasi/hash → 200 masked None
+  run run_ebdfa2d1 failed
+Traceback (most recent call last):
+  File "/var/tmp/x5/head/backend/../docs/progress/U3/mask_check.py", line 62, in <module>
+    print(f"  forecast.csv masked: {m.status_code} X-Ensemble-Masked-Columns={m.headers.get('x-ensemble-masked-columns')} first item {m.text.splitlines()[1].split(',')[0]!r}")
+                                                                                                                                      ~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+api 5xx: 0 tracebacks: 1
+[1]+  Terminated              env ENSEMBLE_DATA_DIR=/var/tmp/x5/mask/$m ENSEMBLE_ADMINS=Ada,Adam ENSEMBLE_DEMO_MODE=1 ENSEMBLE_AUTHZ=$m $EXTRA nohup .venv/bin/python -m uvicorn app.main:app --port 8652 > /var/tmp/x5/mask/api_$m.log 2>&1
