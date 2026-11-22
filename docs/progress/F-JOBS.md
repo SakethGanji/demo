@@ -215,6 +215,26 @@ after:                            P (1866, 2) row 7 [1. 0.] rows sum to 1: True
 This is the exact error recorded in `doctor_gaps.errors`. The full gaps path needs a group-split gapped run, and I did
 not train one. The fix is in the function that path calls.
 
+### 9. After merging P12 / P13 / P21 / F-X2 (the pull before the push)
+
+`datasets.py` conflicted in `edit_version`. The resolution keeps P12's primary-table rule and this phase's job id,
+1 GB cap and progress marks.
+
+P12 left a note: `POST …/edit {table}` sets `frames.use_table(table)`, a context variable that does not reach a queued
+job. The job payload now carries `table`, and `run_edit` re-enters `frames.use_table`.
+
+Re-checked on the merged code:
+
+```
+fresh API (embedded worker, ENSEMBLE_JOB_ROWS=1000): upload loans.csv + bureau.csv → multi [loans new, bureau new], primary loans → ds_ad82a4ea
+POST /datasets/ds_ad82a4ea/edit {table: bureau, replace_values inquiries 0→10} → 202 → succeeded, result.table bureau,
+  "replaced 0 → 10 in 'inquiries' (exact): 301 cell(s)"
+  ds_a43d7d0e: primary loans, job_id jb_80e33561f533, tables [loans carried 4d60a0421a28 (same sha), bureau rewritten c1c2492dfc8d]
+Doctor apply job (SQL path) → 201 body in result, ds_a0d4583f · Feature Lab job → succeeded (kept 0 of 3: no write)
+10M edit job (main data dir, external worker) → 202 → succeeded in 45.6 s, ds_07d5a5ac, worker VmHWM 2.06 GB
+npm run build → built
+```
+
 ## Files touched
 
 **New:**
@@ -226,7 +246,7 @@ not train one. The fix is in the function that path calls.
 **Changed:**
 - `backend/app/jobs/queue.py`, `backend/app/engine/workerd.py` (P22's; the attempt fix);
 - `backend/app/catalog/schema.py` (one `P01_COLS` line);
-- `backend/app/catalog/datasets_api.py` (**the edit route: one 11-line hunk**; nothing in upload/commit);
+- `backend/app/catalog/datasets_api.py` (**the edit route `_edit`: one 12-line hunk**, `table` passed on to the job; nothing in upload/commit);
 - `backend/app/datasets.py` (`edit_version` only; not `read_uploads`);
 - `backend/app/doctor_sql.py`, `backend/app/data_doctor.py`, `backend/app/data_doctor_api.py`, `backend/app/featurelab_api.py`;
 - `backend/app/engine/annotations_api.py`, `backend/app/engine/annotations.py` (`main` watches the worker pid);

@@ -1,0 +1,34 @@
+{
+ "body": {
+  "ok": false,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "ds_347be6ec",
+    "now": "8fc8328bbfef24758cbb239a0246e7166512f2b46cf89f677463ce05754c9b08",
+    "ok": false,
+    "remedy": "splits/random-stratified__y-95cb0bfd.json (which rows are held out, and the folds) changed outside the app. Restore the split as it was drawn (POST /api/datasets/ds_347be6ec/restore-splits with by and reason: written back from the copy recorded when it was drawn, hash-checked).",
+    "splits": [
+     {
+      "file": "splits.json",
+      "now": "ffa48eaf8017a7f0147600b2b1ca2948356f6bc95112cf9c3eef19b0a32ceb86",
+      "status": "ok",
+      "stored": "ffa48eaf8017a7f0147600b2b1ca2948356f6bc95112cf9c3eef19b0a32ceb86"
+     },
+     {
+      "file": "splits/random-stratified__y-95cb0bfd.json",
+      "now": "49569937c193dc511411976895653da0e21c69a3ef20628113ada7a5b01a97fc",
+      "status": "MISMATCH",
+      "stored": "c4d3ca62e229a9c38bd74f3ed8625be9c678841141a518071ef65510d48f2205"
+     }
+    ],
+    "splits_sha256": "a5db299f04b48557cb4a5becd2e8c25d02f633a601b9fe7fbb4f1cf51b78db1f",
+    "status": "SPLIT MISMATCH",
+    "stored": "8fc8328bbfef24758cbb239a0246e7166512f2b46cf89f677463ce05754c9b08",
+    "v": 1
+   }
+  ],
+  "root_id": "ds_347be6ec"
+ },
+ "status": 200
+}

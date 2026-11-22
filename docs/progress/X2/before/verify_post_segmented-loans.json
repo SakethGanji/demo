@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "segmented-loans",
+    "now": "8d4fbcc458a0be1e6688e2689585fb95d9fc88e7fc3b086517d7583f641ca033",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "8d4fbcc458a0be1e6688e2689585fb95d9fc88e7fc3b086517d7583f641ca033",
+    "v": 1
+   }
+  ],
+  "root_id": "segmented-loans"
+ },
+ "status": 200
+}

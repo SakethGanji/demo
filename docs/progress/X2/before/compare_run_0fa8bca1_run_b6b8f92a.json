@@ -1,0 +1,82 @@
+{
+ "body": {
+  "B": 1000,
+  "a": {
+   "dataset_id": "ds_3d74a646",
+   "eval_metric": "accuracy",
+   "holdout_rows": 120,
+   "holdout_score": 0.6333333333333333,
+   "id": "run_0fa8bca1",
+   "kind": "run",
+   "label": "loans v1",
+   "predictor_state": "present",
+   "problem_type": "binary",
+   "root_id": "ds_3d74a646",
+   "run_id": "run_0fa8bca1",
+   "target": "y"
+  },
+  "auc": {
+   "a": 0.6934116112198304,
+   "b": null,
+   "delta": null,
+   "note": "alongside, no CI"
+  },
+  "b": {
+   "dataset_id": "ds_fc73795a",
+   "eval_metric": "accuracy",
+   "holdout_rows": 117,
+   "holdout_score": 0.6837606837606838,
+   "id": "run_b6b8f92a",
+   "kind": "run",
+   "label": "loans v2",
+   "predictor_state": "present",
+   "problem_type": "binary",
+   "root_id": "ds_3d74a646",
+   "run_id": "run_b6b8f92a",
+   "target": "y"
+  },
+  "ci": [
+   0.017173913043478362,
+   0.12173913043478257
+  ],
+  "delta": 0.060869565217391286,
+  "excludes_zero": true,
+  "label": "paired on 115 of 120 rows (holdouts differ)",
+  "labels_same": false,
+  "level": 0.95,
+  "method": "paired bootstrap, B = 1000, percentile 95 % CI, rows resampled together",
+  "metric": "accuracy",
+  "metric_key": "accuracy",
+  "overlap": {
+   "n_a": 120,
+   "n_b": 115,
+   "n_common": 115,
+   "rule": "overlap = rows in both holdouts / the larger holdout (by __row_id); a paired \u0394 needs \u2265 50 %",
+   "same_holdout": false,
+   "share": 0.9583,
+   "text": "paired on 115 of 120 rows (holdouts differ)"
+  },
+  "paired": true,
+  "partial": true,
+  "roots": {
+   "a": {
+    "how": "is the root",
+    "root": "ds_3d74a646"
+   },
+   "b": {
+    "how": "root_rows",
+    "root": "ds_3d74a646"
+   }
+  },
+  "rows": 115,
+  "rows_a": 120,
+  "rows_b": 115,
+  "same_rows": false,
+  "score_a": 0.6347826086956522,
+  "score_b": 0.6956521739130435,
+  "sign": "\u0394 = b \u2212 a, better is positive",
+  "verdict": "b better",
+  "warning": "Some shared rows have different labels in the two versions (relabelled): each side is scored on its own labels."
+ },
+ "status": 200
+}

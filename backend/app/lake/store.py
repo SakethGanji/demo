@@ -7,12 +7,14 @@ Keys are relative to the store root and never change once visible:
     exports/<version_id>/<table>…  re-creatable export cache, not a blob
 
 `BlobStore` is the interface. `LocalBlobStore` implements it on a local directory (dev and the single-host POC).
-P10b adds `S3BlobStore` (MinIO) behind the same interface. Its contract, which the local store mirrors:
+P10b: `S3BlobStore` (s3store.py, S3 / MinIO) implements it too; `open_store` picks one by ENSEMBLE_BLOB_STORE.
+The contract, which the local store mirrors:
 - `put_file` is write-once and idempotent: S3 `PutObject` with `If-None-Match: *` and `x-amz-checksum-sha256`
   (S3 refuses bytes whose hash differs); an existing key is a no-op;
 - `uri` is what DuckDB/pyarrow read (a local path, or `s3://bucket/prefix/key` with a DuckDB secret);
 - `local_copy` goes through a sha-keyed read cache (no invalidation needed: keys are hashes);
-- `delete` is used only by GC / purge (P24), and on S3 also removes every object version.
+- `delete` is used only by GC / purge (P24), through `delete_blob` (audited); on S3 it removes every object
+  version and, under Object Lock, needs `bypass_governance=True`.
 Nothing outside this module builds a path from a key.
 """
 
@@ -22,10 +24,11 @@ import os
 import re
 import shutil
 import stat
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import BinaryIO, Iterator, Protocol, runtime_checkable
+from typing import Any, BinaryIO, Iterator, Protocol, runtime_checkable
 
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 EXT_RE = re.compile(r"^[a-z0-9]{1,10}$")
@@ -63,7 +66,7 @@ class BlobStore(Protocol):
     def open(self, key: str) -> BinaryIO: ...                          # streaming read
     def uri(self, key: str) -> str: ...                                # what DuckDB / pyarrow read
     def local_copy(self, key: str) -> Path: ...                        # a local file (cache on S3)
-    def delete(self, key: str) -> None: ...                            # GC / purge only (P24)
+    def delete(self, key: str, *, bypass_governance: bool = False) -> Any: ...  # GC / purge only (P24): delete_blob
     def list(self, prefix: str) -> Iterator[tuple[str, int, datetime]]: ...  # (key, bytes, modified) for GC and verify-all
     def tmp_dir(self, writer_id: str | None = None) -> Path: ...       # local scratch for one writer
 
@@ -124,11 +127,16 @@ class LocalBlobStore:
     def local_copy(self, key: str) -> Path:
         return self._p(key)
 
-    def delete(self, key: str) -> None:
+    def cache_path(self, key: str) -> Path:
+        return self._p(key)
+
+    def delete(self, key: str, *, bypass_governance: bool = False) -> dict:
         p = self._p(key)
         if p.exists():
             os.chmod(p, stat.S_IRUSR | stat.S_IWUSR)
             p.unlink()
+            return {"key": key, "versions_removed": 1}
+        return {"key": key, "versions_removed": 0}
 
     def list(self, prefix: str) -> Iterator[tuple[str, int, datetime]]:
         base = self._p(prefix.rstrip("/")) if prefix else self.path
@@ -154,11 +162,61 @@ class LocalBlobStore:
             shutil.rmtree(d, ignore_errors=True)
 
 
+_stores: dict[tuple, BlobStore] = {}
+_stores_lock = threading.Lock()
+
+
 def open_store(settings) -> BlobStore:
-    """The deployment's store (config.lake_store_kind()). Only 'local' exists until P10b."""
+    """The deployment's store (config.lake_store_kind()): 'local' or 's3'. One instance per configuration and process
+    (the S3 client, its stats and the read cache's counters are shared)."""
     from .. import config
 
     kind = config.lake_store_kind()
     if kind == "local":
-        return LocalBlobStore(settings.lake_dir)
-    raise StoreError(f"ENSEMBLE_LAKE_STORE={kind!r} is not available yet (S3/MinIO arrives in P10b); use 'local'.")
+        k: tuple = ("local", str(settings.lake_dir))
+    elif kind == "s3":
+        cfg = config.s3_config()
+        if not cfg["bucket"]:
+            raise StoreError("ENSEMBLE_BLOB_STORE=s3 needs a bucket: ENSEMBLE_S3_BUCKET, or ENSEMBLE_BLOB_STORE=s3://bucket/prefix.")
+        k = ("s3", str(settings.lake_dir), str(config.cache_dir(settings)), tuple(sorted((a, str(b)) for a, b in cfg.items())))
+    else:
+        raise StoreError(f"ENSEMBLE_BLOB_STORE={kind!r} is not a store; use 'local' or 's3'.")
+    with _stores_lock:
+        st = _stores.get(k)
+        if st is None:
+            if kind == "local":
+                st = LocalBlobStore(settings.lake_dir)
+            else:
+                from .s3store import S3BlobStore
+
+                st = S3BlobStore(cfg, scratch_dir=settings.lake_dir, cache_dir=config.cache_dir(settings))
+            _stores[k] = st
+        return st
+
+
+def store_info(store: BlobStore) -> dict:
+    info = getattr(store, "info", None)
+    return info() if callable(info) else {"kind": "local", "root": store.root}
+
+
+def delete_blob(db, store: BlobStore, sha256: str, *, by: str, reason: str, bypass_governance: bool = False) -> dict:
+    """P10b: the one audited way to remove a blob's bytes (GC and purge, P24). Under S3 Object Lock (governance)
+    `bypass_governance=True` is needed and needs the bypass permission. Writes audit `blob_deleted` (or
+    `blob_delete_refused`). The `blobs` row is the caller's (P24 decides its state)."""
+    from ..catalog import schema as S
+
+    with db.connect() as con:
+        r = con.execute("SELECT key, kind, bytes FROM blobs WHERE sha256 = ?", (sha256,)).fetchone()
+    if not r:
+        raise StoreError(f"no blob {sha256}")
+    details = {"sha256": sha256, "key": r[0], "kind": r[1], "bytes": r[2], "store": store.root,
+               "bypass_governance": bool(bypass_governance), "reason": reason}
+    try:
+        out = store.delete(r[0], bypass_governance=bypass_governance)
+    except StoreError as e:
+        with db.connect() as con:
+            S.audit(con, by, "blob_delete_refused", {**details, "error": str(e)}, comment=reason, object_kind="blob", object_id=sha256)
+        raise
+    with db.connect() as con:
+        S.audit(con, by, "blob_deleted", {**details, **out}, comment=reason, object_kind="blob", object_id=sha256)
+    return {**details, **out}

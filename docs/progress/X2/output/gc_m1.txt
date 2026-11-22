@@ -1,0 +1,87 @@
+== +0 days
+{
+ "at": "2026-11-21T23:11:55+00:00",
+ "blobs": {
+  "live": 218,
+  "pending": 1
+ },
+ "blob_refs": 267,
+ "candidates": [],
+ "unreferenced_in_grace": 1,
+ "orphans": [],
+ "integrity": [],
+ "stale_tmp": []
+}
+by kind: blobs / with a ref / refs by owner kind
+  frozen_holdout     1    1  [('version', 1)]
+  legacy_csv        29   29  [('run', 9), ('version', 32)]
+  legacy_json       90   90  [('run', 9), ('split', 32), ('version', 73)]
+  manifest          35   34  [('version', 34)]
+  source             1    1  [('upload', 1)]
+  split             31   31  [('run', 10), ('split', 33)]
+  table             32   32  [('version', 33)]
+runs and their pins (role list):
+  run_0fa8bca1 present  legacy_csv,split,legacy_json
+  run_b6b8f92a present  legacy_csv,split,legacy_json
+  run_fb82662f present  None
+  run_885a993d present  legacy_csv,split,legacy_json
+  run_9b5ed3ed present  None
+  run_f7c91b76 present  legacy_csv,split,legacy_json
+  run_011a72eb present  None
+  run_8de7d13a present  None
+  run_e949e018 present  legacy_csv,split,legacy_json
+  run_70a3a67a present  split
+  run_1fc27a1a present  legacy_csv,split,legacy_json
+  run_8e0aad0d present  legacy_csv,split,legacy_json
+  run_17eaa284 evicted  legacy_csv,split,legacy_json
+  run_52a4e16c present  legacy_csv,split,legacy_json
+== +60 days
+{
+ "at": "2027-01-20T23:11:55+00:00",
+ "blobs": {
+  "live": 218,
+  "pending": 1
+ },
+ "blob_refs": 267,
+ "candidates": [
+  {
+   "sha256": "53efb4d319b184249bbef9b37dd577ee919fa4936a8b64db653b55afa8ffe4fc",
+   "kind": "manifest",
+   "state": "pending",
+   "bytes": 3507
+  }
+ ],
+ "unreferenced_in_grace": 0,
+ "orphans": [],
+ "integrity": [],
+ "stale_tmp": [
+  {
+   "dir": "tmp/migrate-9ae9e98b",
+   "bytes": 84702,
+   "newest": "2026-11-21T23:08:30+00:00"
+  }
+ ]
+}
+by kind: blobs / with a ref / refs by owner kind
+  frozen_holdout     1    1  [('version', 1)]
+  legacy_csv        29   29  [('run', 9), ('version', 32)]
+  legacy_json       90   90  [('run', 9), ('split', 32), ('version', 73)]
+  manifest          35   34  [('version', 34)]
+  source             1    1  [('upload', 1)]
+  split             31   31  [('run', 10), ('split', 33)]
+  table             32   32  [('version', 33)]
+runs and their pins (role list):
+  run_0fa8bca1 present  legacy_csv,split,legacy_json
+  run_b6b8f92a present  legacy_csv,split,legacy_json
+  run_fb82662f present  None
+  run_885a993d present  legacy_csv,split,legacy_json
+  run_9b5ed3ed present  None
+  run_f7c91b76 present  legacy_csv,split,legacy_json
+  run_011a72eb present  None
+  run_8de7d13a present  None
+  run_e949e018 present  legacy_csv,split,legacy_json
+  run_70a3a67a present  split
+  run_1fc27a1a present  legacy_csv,split,legacy_json
+  run_8e0aad0d present  legacy_csv,split,legacy_json
+  run_17eaa284 evicted  legacy_csv,split,legacy_json
+  run_52a4e16c present  legacy_csv,split,legacy_json

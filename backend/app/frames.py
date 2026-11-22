@@ -43,6 +43,31 @@ from . import frame_io as FIO
 MODES = ("engine_v1", "native")
 PRIMARY_TABLE = "data"  # the one table of every CSV-era version
 
+#: P12: the table a request works on in a multi-table version (`POST /runs {table}`, `?table=` on diff / edit). Unset,
+#: `Table(v)` / `table(v)` name the version's primary table, as before. Set with `use_table(name)` for one request: the
+#: profile, the split, the run's input ref and every `table(v)` / `read_version(v)` below it then name that table.
+import contextvars  # noqa: E402
+from contextlib import contextmanager  # noqa: E402
+
+CURRENT_TABLE: contextvars.ContextVar[str | None] = contextvars.ContextVar("ensemble_table", default=None)
+
+
+def current_table() -> str | None:
+    return CURRENT_TABLE.get()
+
+
+@contextmanager
+def use_table(name: str | None):
+    """`with use_table("bureau"):` every primary-table read of a version below it reads `bureau` (None: no change)."""
+    if not name:
+        yield
+        return
+    tok = CURRENT_TABLE.set(str(name))
+    try:
+        yield
+    finally:
+        CURRENT_TABLE.reset(tok)
+
 
 # --------------------------------------------------------------------------- refs
 
@@ -111,7 +136,12 @@ def path_of(ref: InputRef) -> Path:
         return Path(ref.path)
     if isinstance(ref, Table):
         if ref.table != PRIMARY_TABLE:
-            raise FrameError(f"{ref.version_id} has one table ('{PRIMARY_TABLE}'), not '{ref.table}'.")
+            if storage(ref.version_id) != "parquet":
+                raise FrameError(f"{ref.version_id} has one table ('{PRIMARY_TABLE}'), not '{ref.table}'.")
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", ref.version_id + ref.table) or ".." in ref.version_id + ref.table:
+                raise FrameError(f"Bad dataset id or table {ref.version_id!r} / {ref.table!r}.")
+            # P12: a named table of a multi-table version: a path that never exists (runs read input_ref, not this)
+            return _settings().datasets_dir / ref.version_id / "tables" / f"{ref.table}.csv"
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", ref.version_id) or ".." in ref.version_id:
             raise FrameError(f"Bad dataset id {ref.version_id!r}.")
         return _settings().datasets_dir / ref.version_id / "data.csv"
@@ -138,9 +168,9 @@ def _db():
 
 
 def _store():
-    from .lake.store import LocalBlobStore
+    from .lake.store import open_store  # P10b: local or S3 (ENSEMBLE_BLOB_STORE)
 
-    return LocalBlobStore(_settings().lake_dir)
+    return open_store(_settings())
 
 
 def storage(version_id: str) -> str | None:
@@ -166,6 +196,8 @@ def lake_table(ref: Table) -> LakeTable:
         if not v or v["storage"] != "parquet":
             raise FrameError(f"{ref.version_id} is not a Parquet version.")
         name = ref.table
+        if name == PRIMARY_TABLE and current_table():  # P12: the request's table (use_table)
+            name = current_table()
         if name == PRIMARY_TABLE and not con.execute("SELECT 1 FROM version_tables WHERE version_id = ? AND table_name = ?",
                                                     (ref.version_id, name)).fetchone():
             name = v["primary_table"]
@@ -178,8 +210,11 @@ def lake_table(ref: Table) -> LakeTable:
             " JOIN blobs b ON b.sha256 = f.blob_sha256 WHERE f.version_id = ? AND f.table_name = ? ORDER BY f.part",
             (ref.version_id, name))]
     st = _store()
-    for p in parts:
-        p["path"] = st.uri(p["key"])
+    for p in parts:  # P10b: a local file (on S3, the sha-verified read cache); a missing blob keeps FileNotFoundError
+        try:
+            p["path"] = str(st.local_copy(p["key"]))
+        except FileNotFoundError:
+            p["path"] = str(st.cache_path(p["key"]))
     return LakeTable(ref.version_id, name, t["table_sha256"], int(t["n_rows"]), json.loads(t["schema_json"]), parts)
 
 
@@ -263,7 +298,9 @@ def _v1_column(arr: Any, name: str) -> Any:
     if pa.types.is_boolean(t):
         if arr.null_count == 0:
             return pd.Series(arr.to_numpy(zero_copy_only=False).astype(bool), name=name)
-        return pd.Series(arr.to_pandas(), name=name).astype(object)
+        v = arr.to_numpy(zero_copy_only=False).astype(object)
+        v[pd.isna(v)] = np.nan  # F-X2 m1: a missing cell is NaN, as pandas reads it from CSV (not None)
+        return pd.Series(v, name=name, dtype=object)
     if pa.types.is_date(t) or pa.types.is_timestamp(t):
         if pa.types.is_date(t):
             arr = pc.strftime(pc.cast(arr, pa.timestamp("s")), format="%Y-%m-%d")
@@ -302,7 +339,9 @@ def _read_parquet(ref: Table, columns: Any, rows: range | None, mode: str, hash_
             pieces.append(pq.read_table(src, columns=["__row_id", *want]))
         except FileNotFoundError as e:
             raise FrameError(f"A file of {ref.version_id} ({p['sha256'][:12]}…) is missing from the lake.") from e
-    at = pa.concat_tables(pieces) if len(pieces) > 1 else pieces[0]
+    # P13: parts written at different times may differ in Parquet nullability (DuckDB writes REQUIRED for a column it
+    # knows has no nulls): an append part next to its base must still concatenate
+    at = pa.concat_tables(pieces, promote_options="default") if len(pieces) > 1 else pieces[0]
     if rows is not None:
         at = at.slice(rows.start, max(0, len(rows)))
     idx = pd.Index(at.column("__row_id").to_numpy(zero_copy_only=False), name=None)
@@ -316,8 +355,9 @@ def _read_parquet(ref: Table, columns: Any, rows: range | None, mode: str, hash_
     return df
 
 
-def table(version_id: str, table: str = PRIMARY_TABLE) -> Table:
-    return Table(version_id, table)
+def table(version_id: str, table: str | None = None) -> Table:
+    """The ref of a version's table: `table`, else the request's table (`use_table`), else the primary table."""
+    return Table(version_id, table or current_table() or PRIMARY_TABLE)
 
 
 def version_file(version_id: str) -> Path:
@@ -367,7 +407,7 @@ def resolve(cfg: dict[str, Any]) -> InputRef:
 
 def input_ref_for(dataset_id: str) -> dict[str, Any]:
     """The `input_ref` a new run config carries (`csv_path` is kept beside it for old readers)."""
-    return to_json(Table(dataset_id))
+    return to_json(table(dataset_id))  # P12: the request's table (POST /runs {table}), else the primary
 
 
 # --------------------------------------------------------------------------- reads

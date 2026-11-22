@@ -56,7 +56,7 @@ def authz_check(request: Request, body: dict[str, Any]) -> dict[str, Any]:
     with request.app.state.db.connect() as con:
         if kind:
             if kind not in ("dataset", "run", "project", "team", "model_version", "model", "batch", "champion", "upload",
-                            "dataset_request", "version_request", "autopilot", "principal"):
+                            "dataset_request", "version_request", "autopilot", "principal", "share", "certification"):
                 raise HTTPException(400, f"Unknown object_kind '{kind}'.")
             sc = resolve(request.app, con, kind, oid)
             if not sc.found:

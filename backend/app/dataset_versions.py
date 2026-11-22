@@ -684,3 +684,228 @@ class Matcher:
         return {"warnings": w, "columns_added": added, "columns_removed": removed, "type_changes": type_changes,
                 "rows_before": self.n_parent, "rows_after": self.n_new, "row_drop_threshold": _dec(row_drop, 2),
                 "blocking": False, "renamed_maybe": renamed}
+
+
+# --------------------------------------------------------------------------- P13: deltas (§5.6)
+
+#: the `_op` values understood without a mapping (case and spaces ignored); `ops` in the plan adds or overrides
+DELTA_OPS = {"I": "insert", "INS": "insert", "INSERT": "insert", "A": "insert", "ADD": "insert",
+             "U": "update", "UPD": "update", "UPDATE": "update",
+             "D": "delete", "DEL": "delete", "DELETE": "delete",
+             "M": "upsert", "MERGE": "upsert", "UPSERT": "upsert"}
+DELTA_KINDS = ("insert", "update", "delete", "upsert")
+DELTA_OP_COLUMN = "_op"
+
+
+def parse_op_map(v: Any) -> dict[str, str]:
+    """`ops: {"<value in the file>": "insert" | "update" | "delete" | "upsert"}` (values compared upper-cased, trimmed).
+    Raises ValueError on a bad shape."""
+    if v is None:
+        return {}
+    if not isinstance(v, dict) or not v:
+        raise ValueError("ops is {\"<value of the op column>\": \"insert\" | \"update\" | \"delete\" | \"upsert\"}.")
+    out: dict[str, str] = {}
+    for k, kind in v.items():
+        kind = str(kind).strip().lower()
+        if kind not in DELTA_KINDS or not str(k).strip():
+            raise ValueError(f"ops maps a value of the op column to one of {', '.join(DELTA_KINDS)} (got {k!r}: {kind!r}).")
+        out[str(k).strip().upper()] = kind
+    return out
+
+
+class Delta:
+    """A delta file applied to its parent table by key (§5.6), in one DuckDB connection. `parent_sql` is the parent
+    table (`__row_id` first), `delta_sql` the typed delta with `__fr` (its row number). Each delta row is an insert,
+    update, delete or upsert (the `op_column`, else every row is an upsert). Classified once into the temp table
+    `<tag>` (`__op`, `__pid` = the parent row the key matches); the version's table is then
+        kept = parent ANTI (every matched key)  ∪  updated (matched upserts, the parent's __row_id kept)
+               ∪  inserted (unmatched upserts, new ids in file order)
+    An insert of an existing key is applied as an update and an update of a missing key as an insert, each with a
+    warning; a delete of a missing key is counted as `missing` (a warning). Nothing here writes."""
+
+    def __init__(self, con: Any, parent_sql: str, delta_sql: str, key: list[str], *, op_column: str | None = None,
+                 op_map: dict[str, str] | None = None, tag: str = "_dl", holdout_ids: Any = None) -> None:
+        self.con, self.t, self.key = con, tag, list(key)
+        self.op_column = op_column or DELTA_OP_COLUMN
+        self.op_map = {**DELTA_OPS, **(op_map or {})}
+        con.execute(f"CREATE OR REPLACE TEMP VIEW {tag}_p AS SELECT * FROM ({parent_sql})")
+        con.execute(f"CREATE OR REPLACE TEMP VIEW {tag}_n AS SELECT * FROM ({delta_sql})")
+        self.ptypes = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM {tag}_p").fetchall() if r[0] != "__row_id"}
+        self.ntypes = {r[0]: r[1] for r in con.execute(f"DESCRIBE SELECT * FROM {tag}_n").fetchall() if r[0] != "__fr"}
+        self.has_op = self.op_column in self.ntypes
+        self.data_cols = [c for c in self.ntypes if c != self.op_column]
+        self.missing_cols = [c for c in self.ptypes if c not in self.ntypes]
+        self.new_cols = [c for c in self.data_cols if c not in self.ptypes]
+        self.holdout_ids = np.asarray(holdout_ids if holdout_ids is not None else [], dtype=np.int64)
+        self.counts: dict[str, Any] | None = None
+
+    # -- refusals (400s): the caller raises them --------------------------------------------------------------------
+
+    def problems(self) -> dict[str, Any] | None:
+        t = self.t
+        miss_n = [c for c in self.key if c not in self.ntypes]
+        miss_p = [c for c in self.key if c not in self.ptypes]
+        if miss_p or miss_n:
+            return {"code": "delta_key_missing", "columns": self.key,
+                    "message": f"The key {', '.join(self.key)} must be in the parent table and the delta: "
+                               + (f"the parent has no {', '.join(miss_p)}" if miss_p else "")
+                               + ("; " if miss_p and miss_n else "")
+                               + (f"the delta has no {', '.join(miss_n)}" if miss_n else "") + "."}
+        pairs = {c: _pair(c, self.ptypes[c], self.ntypes[c]) for c in self.key}
+        bad = [c for c, p in pairs.items() if p is None]
+        if bad:
+            return {"code": "delta_key_types", "columns": bad,
+                    "message": f"Key column(s) {', '.join(bad)} of the delta cannot be compared with the parent's "
+                               f"({', '.join(f'{self.ntypes[c]} vs {self.ptypes[c]}' for c in bad)})."}
+        self._pairs = pairs
+        ks = ", ".join(_qi(c) for c in self.key)
+        nulls = " OR ".join(f"{_qi(c)} IS NULL" for c in self.key)
+        n, nd, nn = self.con.execute(f"SELECT count(*), count(DISTINCT ({ks})), count(*) FILTER (WHERE {nulls})"
+                                     f" FROM {t}_p").fetchone()
+        if nd != n or nn:
+            return {"code": "key_invalid", "columns": self.key,
+                    "message": f"{', '.join(self.key)} is not a key of the parent table ({n - nd:,} repeated value(s), "
+                               f"{nn:,} missing): a delta is applied by a unique key. Declare another key."}
+        nn = self.con.execute(f"SELECT count(*) FROM {t}_n WHERE {nulls}").fetchone()[0]
+        if nn:
+            return {"code": "delta_key_null", "columns": self.key,
+                    "message": f"{nn:,} row(s) of the delta have no {', '.join(self.key)}: every delta row names its key."}
+        dups = self.con.execute(f"SELECT {ks}, count(*) AS n FROM {t}_n GROUP BY ALL HAVING count(*) > 1"
+                                f" ORDER BY min(__fr) LIMIT 10").fetchall()
+        if dups:
+            n_dup = self.con.execute(f"SELECT count(*) FROM (SELECT 1 FROM {t}_n GROUP BY {ks} HAVING count(*) > 1)").fetchone()[0]
+            keys = [[_cell_py(v) for v in r[:-1]] for r in dups]
+            return {"code": "delta_duplicate_keys", "columns": self.key, "n_duplicate_keys": int(n_dup),
+                    "keys": [{"value": k, "rows": int(r[-1])} for k, r in zip(keys, dups)],
+                    "message": f"{n_dup:,} key(s) appear more than once in the delta (the first {len(keys)} are listed): "
+                               "a delta names each key once. Keep one row per key and upload again."}
+        if self.has_op:
+            vals = self.con.execute(f"SELECT DISTINCT upper(trim(CAST({_qi(self.op_column)} AS VARCHAR))) FROM {t}_n").fetchall()
+            unknown = sorted(str(v[0]) if v[0] is not None else "(missing)" for v in vals if v[0] not in self.op_map)
+            if unknown:
+                return {"code": "delta_op_unknown", "values": unknown[:10],
+                        "message": f"Column {self.op_column} has value(s) {', '.join(unknown[:10])} that are not an operation: "
+                                   "use I / U / D (insert / update / delete) or upsert, or map them with "
+                                   "tables.<t>.ops {\"<value>\": \"insert\" | \"update\" | \"delete\" | \"upsert\"}."}
+        return None
+
+    # -- classify + count ---------------------------------------------------------------------------------------------
+
+    def classify(self) -> dict[str, Any]:
+        t = self.t
+        if not hasattr(self, "_pairs"):
+            self._pairs = {c: _pair(c, self.ptypes[c], self.ntypes[c]) for c in self.key}
+        pk = ", ".join(f"{self._pairs[c][0]} AS __k{i}" for i, c in enumerate(self.key))
+        nk = ", ".join(f"{self._pairs[c][1]} AS __k{i}" for i, c in enumerate(self.key))
+        on = " AND ".join(f"n.__k{i} = p.__k{i}" for i in range(len(self.key)))
+        if self.has_op:
+            cases = " ".join(f"WHEN '{k.replace(chr(39), chr(39) * 2)}' THEN '{v}'" for k, v in self.op_map.items())
+            op = f"CASE upper(trim(CAST(n.{_qi(self.op_column)} AS VARCHAR))) {cases} END"
+        else:
+            op = "'upsert'"
+        self.con.execute(f"CREATE OR REPLACE TEMP TABLE {t} AS SELECT n.*, {op} AS __op, p.__row_id AS __pid"
+                         f" FROM (SELECT *, {nk} FROM {t}_n) n LEFT JOIN (SELECT __row_id, {pk} FROM {t}_p) p ON {on}")
+        r = self.con.execute(
+            f"SELECT count(*),"
+            f" count(*) FILTER (WHERE __op = 'insert'), count(*) FILTER (WHERE __op = 'update'),"
+            f" count(*) FILTER (WHERE __op = 'delete'), count(*) FILTER (WHERE __op = 'upsert'),"
+            f" count(*) FILTER (WHERE __op <> 'delete' AND __pid IS NULL),"
+            f" count(*) FILTER (WHERE __op <> 'delete' AND __pid IS NOT NULL),"
+            f" count(*) FILTER (WHERE __op = 'delete' AND __pid IS NOT NULL),"
+            f" count(*) FILTER (WHERE __op = 'delete' AND __pid IS NULL),"
+            f" count(*) FILTER (WHERE __op = 'update' AND __pid IS NULL),"
+            f" count(*) FILTER (WHERE __op = 'insert' AND __pid IS NOT NULL)"
+            f" FROM {t}").fetchone()
+        n_parent = int(self.con.execute(f"SELECT count(*) FROM {t}_p").fetchone()[0])
+        shared = [c for c in self.data_cols if c in self.ptypes]
+        same = [f"{p}" for p in (self._same(c) for c in shared) if p]
+        unchanged = 0
+        if r[6]:
+            cond = " AND ".join(same) if same and len(same) == len(shared) else "FALSE"
+            unchanged = int(self.con.execute(
+                f"SELECT count(*) FROM {t} n JOIN {t}_p p ON p.__row_id = n.__pid WHERE n.__op <> 'delete' AND {cond}").fetchone()[0])
+        deleted_ids = np.asarray([x[0] for x in self.con.execute(
+            f"SELECT __pid FROM {t} WHERE __op = 'delete' AND __pid IS NOT NULL").fetchall()], dtype=np.int64)
+        c = {"key": self.key, "op_column": self.op_column if self.has_op else None,
+             "rows": int(r[0]), "ops": {"insert": int(r[1]), "update": int(r[2]), "delete": int(r[3]), "upsert": int(r[4])},
+             "inserted": int(r[5]), "updated": int(r[6]), "updated_unchanged": unchanged, "deleted": int(r[7]),
+             "missing": int(r[8]), "update_of_missing_key": int(r[9]), "insert_of_existing_key": int(r[10]),
+             "parent_rows": n_parent, "rows_after": n_parent - int(r[7]) + int(r[5]),
+             "columns_missing": self.missing_cols, "columns_new": self.new_cols,
+             "holdout_rows_deleted": int(np.isin(deleted_ids, self.holdout_ids).sum()) if len(self.holdout_ids) else 0}
+        self.counts = c
+        return c
+
+    def _same(self, c: str) -> str | None:
+        p = _pair(c, self.ptypes[c], self.ntypes[c])
+        if not p:
+            return None
+        return f"p.{p[0]} IS NOT DISTINCT FROM n.{p[1]}"
+
+    def warnings(self) -> list[dict[str, Any]]:
+        c = self.counts or self.classify()
+        w = []
+        if c["missing"]:
+            w.append({"code": "delta_delete_missing", "n": c["missing"],
+                      "message": f"{c['missing']:,} delete(s) name a key that is not in the parent: nothing to delete for them."})
+        if c["update_of_missing_key"]:
+            w.append({"code": "delta_update_missing", "n": c["update_of_missing_key"],
+                      "message": f"{c['update_of_missing_key']:,} update(s) name a key that is not in the parent: they are "
+                                 "added as new rows (counted in inserted)."})
+        if c["insert_of_existing_key"]:
+            w.append({"code": "delta_insert_existing", "n": c["insert_of_existing_key"],
+                      "message": f"{c['insert_of_existing_key']:,} insert(s) name a key the parent already has: they replace "
+                                 "that row (counted in updated; the row keeps its id)."})
+        if self.missing_cols:
+            w.append({"code": "delta_columns_missing", "columns": self.missing_cols,
+                      "message": f"The delta has no {', '.join(self.missing_cols)}: updated rows keep the parent's values, "
+                                 "inserted rows get missing values."})
+        if c["holdout_rows_deleted"]:
+            w.append({"code": "delta_holdout_deleted", "n": c["holdout_rows_deleted"],
+                      "message": f"{c['holdout_rows_deleted']:,} deleted row(s) were in the holdout."})
+        return w
+
+    def mode(self, allow_new_columns: bool = False) -> str:
+        """'carry' (nothing changes), 'append' (insert-only: one append part), or 'rewrite'."""
+        c = self.counts or self.classify()
+        new = bool(self.new_cols) and allow_new_columns
+        if not new and not c["deleted"] and c["updated"] == c["updated_unchanged"]:
+            return "append" if c["inserted"] else "carry"
+        return "rewrite"
+
+    # -- the SQL the writer copies --------------------------------------------------------------------------------------
+
+    def _ins_cols(self, allow_new_columns: bool) -> list[str]:
+        cols = [f"CAST(n.{_qi(c)} AS {ty}) AS {_qi(c)}" if c in self.ntypes else f"CAST(NULL AS {ty}) AS {_qi(c)}"
+                for c, ty in self.ptypes.items()]
+        if allow_new_columns:
+            cols += [f"n.{_qi(c)}" for c in self.new_cols]
+        return cols
+
+    def insert_sql(self, start: int, allow_new_columns: bool = False) -> str:
+        """The inserted rows (`__row_id` = start + k in file order), cast to the parent's types."""
+        return (f"SELECT ({int(start)} + row_number() OVER (ORDER BY n.__fr) - 1)::BIGINT AS __row_id, "
+                f"{', '.join(self._ins_cols(allow_new_columns))} FROM {self.t} n WHERE n.__op <> 'delete' AND n.__pid IS NULL")
+
+    def result_sql(self, start: int, allow_new_columns: bool = False) -> str:
+        """The whole table after the delta: kept ∪ updated (parent ids) ∪ inserted (new ids)."""
+        t = self.t
+        newc = self.new_cols if allow_new_columns else []
+        kept = [f"p.{_qi(c)}" for c in self.ptypes] + [f"CAST(NULL AS {self.ntypes[c]}) AS {_qi(c)}" for c in newc]
+        upd = [f"CAST(n.{_qi(c)} AS {ty}) AS {_qi(c)}" if c in self.ntypes else f"p.{_qi(c)}" for c, ty in self.ptypes.items()] \
+            + [f"n.{_qi(c)}" for c in newc]
+        return (f"SELECT p.__row_id, {', '.join(kept)} FROM {t}_p p"
+                f" ANTI JOIN (SELECT __pid FROM {t} WHERE __pid IS NOT NULL) x ON p.__row_id = x.__pid"
+                f" UNION ALL SELECT n.__pid AS __row_id, {', '.join(upd)} FROM {t} n JOIN {t}_p p ON p.__row_id = n.__pid"
+                f" WHERE n.__op <> 'delete'"
+                f" UNION ALL {self.insert_sql(start, allow_new_columns)}")
+
+
+def _cell_py(v: Any) -> Any:
+    """A key value as JSON-safe Python (dates as ISO text)."""
+    if v is None or isinstance(v, (str, int, bool)):
+        return v
+    if isinstance(v, float):
+        return v if np.isfinite(v) else None
+    iso = getattr(v, "isoformat", None)
+    return iso() if iso else str(v)

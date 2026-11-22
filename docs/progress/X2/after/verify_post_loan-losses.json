@@ -1,0 +1,66 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "loan-losses",
+    "now": "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "2f47c6071cc166201e96147619ebfd64794f5a25a47f24fe58b6a6cf61789c47",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/bb/bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b.csv",
+      "csv_reproducible": true,
+      "now": "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__defaulted-883cb8a7.json",
+        "recorded": null,
+        "sha256": "aa0e89cffa7814bafb62d5b85e57972a35ccd8eb5a71f715b3e662783919c893",
+        "split_id": "spl_abb45548bdd0",
+        "split_sha256": "deb3030dbe920f91fbf12bdf11c520a43060a06c5ee83350aa19ddae494c6a80"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "65ce9e8ccf99a0d6fd0beb505a953f8776d87b210bbb30f9ecb154a706cc2735",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b"
+     },
+     "manifest_sha256": "cc6c456819e0d605dc3980b94ac2081c8bedd084095551bb3f3f4b20bfb527c9",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_abb45548bdd0",
+       "split_key": "random-stratified__defaulted-883cb8a7",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "bb20c92121a1b9329c240458e1784441a5559e034097d2b602636be04fa4d93b",
+    "v": 1
+   }
+  ],
+  "root_id": "loan-losses"
+ },
+ "status": 200
+}

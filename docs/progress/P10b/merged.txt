@@ -1,0 +1,7 @@
+## after merging P23 (head f9b56b2 + the multipart HEAD-first change), S3 mode, cache deleted first
+  GET …/rows ['A0000000', 'A0000001']
+  diff v1 v3 {'matched': 199798, 'changed': 301, 'added': 150, 'removed': 202}
+  GET …/verify v3 True ok
+  verify-all True checked 23 failed []
+  gc dry run: candidates 0 orphans 0 integrity 0
+  API log: tracebacks 0

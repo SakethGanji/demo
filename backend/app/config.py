@@ -100,9 +100,61 @@ def _env_num(name: str, default: float, lo: float | None = None) -> float:
 
 # == P02: the lake (docs/plans/data-platform-final.md §3, §5.2, §5.10; B §5.1) ========================================
 
-#: 'local' (LocalBlobStore under Settings.lake_dir) is the only store until P10b adds 's3' (MinIO).
+#: P10b: 'local' (LocalBlobStore under Settings.lake_dir; dev) or 's3' (S3BlobStore on S3 / MinIO; the shared
+#: deployment's default, §11 item 1). ENSEMBLE_BLOB_STORE (P02's ENSEMBLE_LAKE_STORE is still read). `s3://bucket/prefix`
+#: is accepted too and means 's3' with that bucket and prefix.
 def lake_store_kind() -> str:
-    return (os.environ.get("ENSEMBLE_LAKE_STORE") or "local").strip().lower()
+    v = (os.environ.get("ENSEMBLE_BLOB_STORE") or os.environ.get("ENSEMBLE_LAKE_STORE") or "local").strip()
+    return "s3" if v.lower().startswith("s3") else v.lower()
+
+
+def s3_config() -> dict:
+    """P10b: the S3BlobStore settings. Credentials are NOT settings: boto3's default chain reads them (AWS_ACCESS_KEY_ID /
+    AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN, AWS_PROFILE, an instance role or IRSA). Nothing here is a secret.
+
+    ENSEMBLE_S3_ENDPOINT    http://minio:9000 for MinIO; empty for AWS
+    ENSEMBLE_S3_BUCKET      the bucket (or ENSEMBLE_BLOB_STORE=s3://bucket/prefix)
+    ENSEMBLE_S3_PREFIX      a key prefix inside the bucket ('' by default)
+    ENSEMBLE_S3_REGION      us-east-1 by default
+    ENSEMBLE_S3_URL_STYLE   path (MinIO) | virtual
+    ENSEMBLE_S3_READ        cache (DuckDB reads the verified local cache; the default) | httpfs (DuckDB reads s3://)
+    ENSEMBLE_S3_LOCK_DAYS   Object Lock GOVERNANCE retention per blob when the bucket has Object Lock (30; 0 = none).
+                            NEEDS MODEL-RISK APPROVAL: retention is bank policy. Purge (P24) bypasses governance.
+    ENSEMBLE_S3_CONDITIONAL auto | on | off (off = HEAD then PUT, for a server without If-None-Match)
+    ENSEMBLE_S3_MULTIPART_MB a blob above this goes up as a multipart upload (4,096)
+    ENSEMBLE_S3_CREATE_BUCKET 1 = create a missing bucket (with Object Lock); dev only
+    ENSEMBLE_CACHE_DIR      the read cache (data_dir/cache by default)
+    ENSEMBLE_CACHE_MAX_GB   its cap (20), LRU
+    ENSEMBLE_CACHE_VERIFY   stat (default) | always | fill
+    ENSEMBLE_CACHE_PIN_S    an entry used this recently is never evicted (300)
+    """
+    url = (os.environ.get("ENSEMBLE_BLOB_STORE") or os.environ.get("ENSEMBLE_LAKE_STORE") or "").strip()
+    bucket, prefix = os.environ.get("ENSEMBLE_S3_BUCKET", ""), os.environ.get("ENSEMBLE_S3_PREFIX", "")
+    if url.lower().startswith("s3://"):
+        b, _, p = url[5:].partition("/")
+        bucket, prefix = b or bucket, p or prefix
+    read = (os.environ.get("ENSEMBLE_S3_READ") or "cache").strip().lower()
+    return {"endpoint": os.environ.get("ENSEMBLE_S3_ENDPOINT") or None, "bucket": bucket, "prefix": prefix.strip("/"),
+            "region": os.environ.get("ENSEMBLE_S3_REGION") or "us-east-1",
+            "url_style": (os.environ.get("ENSEMBLE_S3_URL_STYLE") or "path").strip().lower(),
+            "read": read if read in ("cache", "httpfs") else "cache",
+            "lock_days": _env_num("ENSEMBLE_S3_LOCK_DAYS", 30.0, 0),
+            "conditional": (os.environ.get("ENSEMBLE_S3_CONDITIONAL") or "auto").strip().lower(),
+            "multipart_mb": int(_env_num("ENSEMBLE_S3_MULTIPART_MB", 4096, 5)),
+            "create_bucket": os.environ.get("ENSEMBLE_S3_CREATE_BUCKET", "") in ("1", "true", "yes"),
+            "cache_max_gb": _env_num("ENSEMBLE_CACHE_MAX_GB", 20.0, 0.001),
+            "cache_verify": (os.environ.get("ENSEMBLE_CACHE_VERIFY") or "stat").strip().lower(),
+            "cache_pin_s": _env_num("ENSEMBLE_CACHE_PIN_S", 300.0, 0)}
+
+
+def cache_dir(settings: "Settings") -> Path:
+    v = os.environ.get("ENSEMBLE_CACHE_DIR")
+    return Path(v).resolve() if v else settings.data_dir / "cache"
+
+
+def duck_extension_dir() -> str | None:
+    """P10b: where DuckDB finds its extensions (httpfs) offline. Bundle them there in the image; nothing is downloaded."""
+    return os.environ.get("ENSEMBLE_DUCK_EXTENSION_DIR") or None
 
 
 #: DuckDB limits (B §5.1). Interactive = one process-wide connection shared by API requests; job = one per job.

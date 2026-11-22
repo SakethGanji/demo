@@ -41,6 +41,10 @@ LIST_LB_COLS = ("model", "family", "rank", "score_val", "score_test", "score_val
 
 class RunCreate(BaseModel):
     dataset_id: str
+    project_id: str | None = Field(None, description="P21: the project the run goes into (default: the dataset's). A version "
+                                                     "shared by another team trains into one of the caller's own projects.")
+    table: str | None = Field(None, description="P12: the table of a multi-table version to train on (default: its "
+                                               "primary table). Joins of several tables are P14.")
     label: str | None = Field(None, description="Label column; defaults to the dataset's target.")
     name: str | None = None
     problem_type: ProblemType = "auto"
@@ -174,10 +178,34 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
         pass
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
     store = app.state.runs
-    store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
+    with _csv_hold(app, dataset_id, cfg, run_dir):
+        store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
     store.emit(run_id, "run_queued", **queued)
     app.state.runner.submit(run_id)
     return store
+
+
+def _csv_hold(app: Any, dataset_id: str, cfg: dict[str, Any], run_dir: Path) -> Any:
+    """F-X2 C1: a run whose split was drawn from its version's CSV-era files (cfg.split without a split_id) is recorded
+    only while that version is not being migrated, and is still CSV-era (409 otherwise: start it again)."""
+    import contextlib
+
+    sp = cfg.get("split")
+    if not (isinstance(sp, dict) and cfg.get("splits_path") and not sp.get("split_id")):
+        return contextlib.nullcontext()
+    from ..lake.migrate import MigrateError, csv_write_hold
+
+    @contextlib.contextmanager
+    def hold():
+        try:
+            with csv_write_hold(app.state.db, dataset_id, "creating a run"):
+                yield
+        except MigrateError as e:
+            import shutil
+
+            shutil.rmtree(run_dir, ignore_errors=True)  # the run is not recorded: its folder goes too
+            raise HTTPException(409, e.payload) from e
+    return hold()
 
 
 def _parquet_input(app: Any, cfg: dict[str, Any], ref: Any) -> None:
@@ -350,17 +378,48 @@ def engine_info() -> dict[str, Any]:
     return {"name": "AutoGluon", "version": v("autogluon.tabular"), "timeseries": v("autogluon.timeseries")}
 
 
-@router.post("/runs", status_code=201, dependencies=[require("run.train", body("dataset_id", "dataset"))])
+@router.post("/runs", status_code=201, dependencies=[require("run.train", body("project_id", "project"), body("dataset_id", "dataset"),
+                                                         also=[("data.preview", body("dataset_id", "dataset"))])])
 async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
+    from ..catalog import shares
     from ..gym.api import check_run_body
 
+    try:  # P21, the project rule: a shared version trains into the caller's own project (decided like a require())
+        body.project_id = await run_in_threadpool(shares.train_project, request, body.dataset_id, body.project_id, body.by)
+    except shares.ShareError as e:
+        raise e.http() from e
     await check_run_body(request, body.model_dump())
     return await run_in_threadpool(_create_run, body, request)
 
 
 def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
-    app = request.app
+    if not body.table:
+        return _create_run_on(body, request)
+    # P12: a run on one table of a multi-table version: the profile, split, input ref and checks below name that table
     ds = dataset_or_404(request, body.dataset_id)
+    with request.app.state.db.connect() as con:
+        names = [r[0] for r in con.execute("SELECT table_name FROM version_tables WHERE version_id = ? ORDER BY ordinal",
+                                           (body.dataset_id,))]
+    if body.table not in names:
+        raise HTTPException(400, {"code": "table_unknown", "message": f"{body.dataset_id} has no table {body.table!r}"
+                                  + (f" (its tables: {', '.join(names)})." if names else " (it is a CSV-era version with one table).")})
+    if body.table == (ds.get("primary_table") or names[0]):
+        with frames.use_table(body.table):
+            return _create_run_on(body, request)
+    if not body.label:
+        raise HTTPException(400, f"Say which column of table {body.table!r} to predict (label): the dataset's target "
+                                 f"belongs to its primary table.")
+    try:
+        prof = request.app.state.datasets.table_profile(body.dataset_id, body.table, body.label)
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+    with frames.use_table(body.table):
+        return _create_run_on(body, request, ds={**ds, "profile": prof, "target": prof.get("target")})
+
+
+def _create_run_on(body: RunCreate, request: Request, ds: dict[str, Any] | None = None) -> dict[str, Any]:
+    app = request.app
+    ds = ds or dataset_or_404(request, body.dataset_id)
     from ..catalog import dsets as DS
     from ..catalog import governance as G
 
@@ -457,7 +516,8 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
     except ValueError as e:  # P09: DatasetConflict (the split's file is missing or unreadable): a 409, not a 500
         if type(e).__name__ != "DatasetConflict":
             raise
-        raise HTTPException(409, {"code": "split_integrity", "message": "split_integrity: " + str(e)}) from e
+        code = getattr(e, "code", None) or "split_integrity"  # F-X2: version_migrating while its migration holds it
+        raise HTTPException(409, {"code": code, "message": f"{code}: {e}"}) from e
     _min_rows_check(app, body.dataset_id, label, split, task, body.problem_type)  # DL3 (m5)
     if body.drop_columns is None and (split.get("params") or {}).get("group_column"):
         # The entity id is what the split keeps apart; as a feature it can only memorise customers.

@@ -151,11 +151,23 @@ def _parquet_meta(version_id: str, table: str | None) -> Source | None:
     st = frames._store()
     start, out = 0, []
     for p in parts:
-        out.append({"path": str(st.uri(p["key"])), "n_rows": int(p["n_rows"]), "start": start})
+        out.append({"path": str(st.uri(p["key"])), "key": p["key"], "n_rows": int(p["n_rows"]), "start": start})
         start += int(p["n_rows"])
     rel = "read_parquet([" + ",".join(_lit(p["path"]) for p in out) + "])"
     return Source(version_id, name, "parquet", t["table_sha256"], int(t["n_rows"]),
                   [(c["name"], c["type"]) for c in json.loads(t["schema_json"])], rel, out)
+
+
+def _ensure_cached(src: Source) -> None:
+    """P10b: on S3 with the read cache, a memoised Source's part paths are cache files that may since have been evicted,
+    deleted or altered. `local_copy` re-checks each one (stat against the fill record) and refills it, verified; the
+    path does not change (it is the sha)."""
+    st = frames._store()
+    if src.storage != "parquet" or getattr(st, "read_mode", None) != "cache":
+        return
+    for p in src.parts or []:
+        if p.get("key"):
+            st.local_copy(p["key"])
 
 
 def source(version_id: str, table: str | None = None) -> Source:
@@ -164,7 +176,9 @@ def source(version_id: str, table: str | None = None) -> Source:
         hit = _meta.get(k)
         if hit is not None:
             _meta.move_to_end(k)
-            return hit
+    if hit is not None:
+        _ensure_cached(hit)
+        return hit
     src = _parquet_meta(version_id, table)
     if src is not None:
         with _meta_lock:

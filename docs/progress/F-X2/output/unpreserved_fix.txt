@@ -1,0 +1,2 @@
+files preserved (a live blob or the same bytes in the fresh folder): 150
+files that cleanup deletes with no other copy: 0

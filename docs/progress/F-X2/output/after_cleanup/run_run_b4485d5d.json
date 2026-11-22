@@ -1,0 +1,1581 @@
+{
+ "body": {
+  "active_learning": null,
+  "annotations": null,
+  "anomaly": null,
+  "backtests": null,
+  "best_model": "WeightedEnsemble_L2",
+  "classes": [
+   0,
+   1
+  ],
+  "config": {
+   "by": "Ana",
+   "calibrate_threshold": null,
+   "column_types": {},
+   "conformal": null,
+   "csv_path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/datasets/ds_d2926b37/data.csv",
+   "custom_text_models": true,
+   "data_gate": {
+    "checked_at_fit": "the worker hashes the bytes it reads at fit start and refuses the fit if they differ",
+    "integrity": "not verified",
+    "notes": []
+   },
+   "data_sha256": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+   "data_sha256_expected": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+   "data_version_label": "v1 (ds_d2926b37)",
+   "dataset_id": "ds_d2926b37",
+   "db_path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/ensemble.sqlite3",
+   "decision_time": null,
+   "distill": null,
+   "drop_columns": [
+    "cust"
+   ],
+   "eval_metric": null,
+   "feature_importance": true,
+   "fit_kwargs": {},
+   "id_columns_dropped": [
+    "cust"
+   ],
+   "keep_id_columns": false,
+   "label": "churn",
+   "parent_run_id": null,
+   "patch": null,
+   "predictor_kwargs": {},
+   "predictor_path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/runs/run_b4485d5d/predictor",
+   "presets": "medium_quality",
+   "problem_type": null,
+   "pseudolabel": null,
+   "quantile_levels": null,
+   "run_dir": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/runs/run_b4485d5d",
+   "run_id": "run_b4485d5d",
+   "scorecard": {
+    "C": 1.0,
+    "base_odds": 50.0,
+    "base_score": 600.0,
+    "fine_bins": 20,
+    "max_bins": 6,
+    "min_bin_share": 0.05,
+    "min_iv": 0.02,
+    "monotone_bins": "auto",
+    "pdo": 20.0
+   },
+   "source": null,
+   "split": {
+    "drawn_for_this_run": false,
+    "holdout_rows": 80,
+    "holdout_share": 0.2,
+    "key": "random-stratified__churn-bafb5b68",
+    "n_folds": 5,
+    "path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/datasets/ds_d2926b37/splits/random-stratified__churn-bafb5b68.json",
+    "seed": 42,
+    "sha256": "00154167e245838d8b82d945764f56acd185425861efe4f05a8ca6fc00cb3de5",
+    "strategy": "random-stratified",
+    "stratified": true,
+    "target": "churn"
+   },
+   "split_spec": null,
+   "splits_path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/datasets/ds_d2926b37/splits/random-stratified__churn-bafb5b68.json",
+   "task": "binary",
+   "text_columns": [],
+   "time_limit": 20.0,
+   "use_decision_time": true
+  },
+  "created_at": "2026-11-21T23:29:22+00:00",
+  "custom_ensembles": null,
+  "data": {
+   "data_sha256": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+   "dropped_columns": [
+    "cust"
+   ],
+   "dropped_missing_label": 0,
+   "dropped_missing_label_holdout": 0,
+   "dropped_missing_label_train": 0,
+   "features": [
+    "tenure",
+    "spend",
+    "plan"
+   ],
+   "holdout_rows": 80,
+   "label": "churn",
+   "rows": 400,
+   "split": {
+    "drawn_for_this_run": false,
+    "holdout_rows": 80,
+    "holdout_share": 0.2,
+    "key": "random-stratified__churn-bafb5b68",
+    "n_folds": 5,
+    "seed": 42,
+    "sha256": "00154167e245838d8b82d945764f56acd185425861efe4f05a8ca6fc00cb3de5",
+    "strategy": "random-stratified",
+    "stratified": true,
+    "target": "churn"
+   },
+   "train_rows": 320
+  },
+  "data_integrity": {
+   "basis": "the bytes this fit read",
+   "data_sha256": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+   "dataset_id": "ds_d2926b37",
+   "expected": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+   "match": true,
+   "version": "v1 (ds_d2926b37)"
+  },
+  "data_sha256": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+  "dataset_id": "ds_d2926b37",
+  "doctor": {
+   "computed_at": "2026-11-21T23:29:45+00:00",
+   "headline": "Leakage (major): 'tenure' (75%, alone AUC 0.502), 'plan' (25%, alone AUC 0.552) carry the most of the model's importance and nobody has said they are known when the decision is made. Open timing questions: a strong real signal and a column recorded after the outcome look the same here; only the timing settles it (a one-column run without each measures how much the score leans on it). 78 holdout rows (98%) are not new to the model: 0 identical and 78 identical but for one column to a training row. Removing the near-duplicates before the split gives the honest score.",
+   "latency_budget_ms": null,
+   "missing": [
+    "shift",
+    "data_limited",
+    "weak_slice"
+   ],
+   "no_evidence": [],
+   "open_critical": [
+    {
+     "column": "tenure",
+     "question": "Is 'tenure' known at the moment the decision is made? The Doctor flags it (concentrated, 75% of the importance; leakage major); if it is recorded after the outcome the score is a leak.",
+     "severity": "major"
+    },
+    {
+     "column": "plan",
+     "question": "Is 'plan' known at the moment the decision is made? The Doctor flags it (concentrated, 25% of the importance; leakage major); if it is recorded after the outcome the score is a leak.",
+     "severity": "major"
+    }
+   ],
+   "primary": {
+    "id": "leakage",
+    "prescription": {
+     "kind": "experiment",
+     "title": "Retrain Without tenure (Ablation)"
+    },
+    "reason": "'tenure' (75%, alone AUC 0.502), 'plan' (25%, alone AUC 0.552) carry the most of the model's importance and nobody has said they are known when the decision is made. Open timing questions: a strong real signal and a column recorded after the outcome look the same here; only the timing settles it (a one-column run without each measures how much the score leans on it). 78 holdout rows (98%) are not new to the model: 0 identical and 78 identical but for one column to a training row. Removing the near-duplicates before the split gives the honest score.",
+    "severity": "major",
+    "title": "Leakage"
+   },
+   "schema": "doctor/1",
+   "secondary": [
+    {
+     "id": "label_noise",
+     "prescription": {
+      "kind": "inbox",
+      "title": "Review Flagged Labels"
+     },
+     "reason": "Among the 16 most confident holdout predictions (max p\u0302 \u2265 0.841) the error is 0.188 [0.066, 0.430]; the model expects 0.105 there. cleanlab flags 13.8% of holdout labels. Even where the model is most sure it disagrees with the label this often, and it has learnt to expect it: an error floor, the signature of noisy labels (or of an outcome that is random given these features: reviewing the flagged labels tells the two apart).",
+     "severity": "major",
+     "title": "Label noise"
+    },
+    {
+     "id": "underfit",
+     "prescription": null,
+     "reason": "The holdout predictions are constant (1 distinct).",
+     "severity": "major",
+     "title": "Underfitting (the model is too simple)"
+    },
+    {
+     "id": "weak_class",
+     "prescription": {
+      "kind": "gym_patch",
+      "title": "Calibrate for balanced accuracy"
+     },
+     "reason": "Holdout recall on '1' is 0.000 against a macro mean of 0.500 (n = 18); 18 of them were predicted '0'.",
+     "severity": "minor",
+     "title": "Weak class"
+    }
+   ]
+  },
+  "elapsed_seconds": 16.857060194015503,
+  "ensemble": {
+   "best": true,
+   "model": "WeightedEnsemble_L2",
+   "stack_level": 2,
+   "weights": {
+    "LightGBMXT": 1.0
+   }
+  },
+  "ensembles": [
+   {
+    "best": true,
+    "model": "WeightedEnsemble_L2",
+    "stack_level": 2,
+    "weights": {
+     "LightGBMXT": 1.0
+    }
+   }
+  ],
+  "error": null,
+  "eval_metric": {
+   "greater_is_better": true,
+   "name": "accuracy",
+   "optimum": 1.0,
+   "scores_note": "score_* are AutoGluon's higher-is-better scores; *_natural are in the metric's own units"
+  },
+  "expected_loss": null,
+  "feature_importance": [
+   {
+    "ci_high": 0.04355172139687919,
+    "ci_level": 0.95,
+    "ci_low": -0.018551721396879127,
+    "feature": "tenure",
+    "importance": 0.01250000000000003,
+    "n": 3,
+    "p99_high": 0.08412638617143761,
+    "p99_low": -0.059126386171437555,
+    "p_value": 0.1127016653792581,
+    "stddev": 0.012500000000000013,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.02209438637395621,
+    "ci_level": 0.95,
+    "ci_low": -0.01376105304062283,
+    "feature": "plan",
+    "importance": 0.004166666666666689,
+    "n": 3,
+    "p99_high": 0.04552018000382644,
+    "p99_low": -0.037186846670493066,
+    "p_value": 0.2113248654051871,
+    "stddev": 0.00721687836487036,
+    "t_crit": 4.302652729749462
+   },
+   {
+    "ci_high": 0.013761053040622712,
+    "ci_level": 0.95,
+    "ci_low": -0.022094386373956016,
+    "feature": "spend",
+    "importance": -0.004166666666666652,
+    "n": 3,
+    "p99_high": 0.03718684667049274,
+    "p99_low": -0.045520180003826044,
+    "p_value": 0.7886751345948129,
+    "stddev": 0.007216878364870297,
+    "t_crit": 4.302652729749462
+   }
+  ],
+  "features": [
+   "tenure",
+   "spend",
+   "plan"
+  ],
+  "finished_at": "2026-11-21T23:29:41+00:00",
+  "fit_seconds": 9.3029043674469,
+  "forecast": null,
+  "holdout": {
+   "classes": [
+    0,
+    1
+   ],
+   "confusion_matrix": [
+    [
+     62,
+     0
+    ],
+    [
+     18,
+     0
+    ]
+   ],
+   "eval_metric": "accuracy",
+   "metrics": {
+    "accuracy": 0.775,
+    "balanced_accuracy": 0.5,
+    "f1": 0.0,
+    "mcc": 0.0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "roc_auc": 0.47939068100358423
+   },
+   "model": "WeightedEnsemble_L2",
+   "n_rows": 80,
+   "scores": {
+    "accuracy": 0.775,
+    "balanced_accuracy": 0.5,
+    "f1": 0.0,
+    "mcc": 0.0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "roc_auc": 0.47939068100358423
+   }
+  },
+  "id": "run_b4485d5d",
+  "imported": null,
+  "kind": "tabular",
+  "label": "churn",
+  "leaderboard": [
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": [
+      "text_as_category",
+      "text_ngram",
+      "text_special",
+      "datetime_as_int",
+      "image_path",
+      "stack"
+     ],
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "SCORECARD",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 1,
+    "fit_time": 0.013363361358642578,
+    "fit_time_marginal": 0.013363361358642578,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "C": 1.0,
+     "base_odds": 50.0,
+     "base_score": 600.0,
+     "enforce_sign": true,
+     "fine_bins": 20,
+     "max_bins": 6,
+     "max_iter": 1000,
+     "min_bin_share": 0.05,
+     "min_iv": 0.02,
+     "monotone_bins": "auto",
+     "pdo": 20.0
+    },
+    "hyperparameters_fit": {},
+    "memory_size": 5025,
+    "memory_size_min": 5025,
+    "memory_size_min_w_ancestors": 5025,
+    "memory_size_w_ancestors": 5025,
+    "model": "Scorecard",
+    "model_type": "ScorecardModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.0012722015380859375,
+    "pred_time_test_marginal": 0.0012722015380859375,
+    "pred_time_val": 0.0008890628814697266,
+    "pred_time_val_marginal": 0.0008890628814697266,
+    "rank": 1,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.765625,
+    "score_val_natural": 0.765625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "GBM",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 12,
+    "fit_time": 0.449298620223999,
+    "fit_time_marginal": 0.449298620223999,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "feature_fraction": 0.9,
+     "learning_rate": 0.03,
+     "min_data_in_leaf": 3,
+     "num_leaves": 128,
+     "seed": 0
+    },
+    "hyperparameters_fit": {
+     "num_boost_round": 1
+    },
+    "memory_size": 12211,
+    "memory_size_min": 12211,
+    "memory_size_min_w_ancestors": 12211,
+    "memory_size_w_ancestors": 12211,
+    "model": "LightGBMLarge",
+    "model_type": "LGBModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.0018095970153808594,
+    "pred_time_test_marginal": 0.0018095970153808594,
+    "pred_time_val": 0.0017559528350830078,
+    "pred_time_val_marginal": 0.0017559528350830078,
+    "rank": 2,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.765625,
+    "score_val_natural": 0.765625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "CAT",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 6,
+    "fit_time": 0.33484721183776855,
+    "fit_time_marginal": 0.33484721183776855,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "allow_writing_files": false,
+     "eval_metric": "Accuracy",
+     "iterations": 10000,
+     "learning_rate": 0.05,
+     "random_seed": 0
+    },
+    "hyperparameters_fit": {
+     "iterations": 1
+    },
+    "memory_size": 42198,
+    "memory_size_min": 42198,
+    "memory_size_min_w_ancestors": 42198,
+    "memory_size_w_ancestors": 42198,
+    "model": "CatBoost",
+    "model_type": "CatBoostModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.003488779067993164,
+    "pred_time_test_marginal": 0.003488779067993164,
+    "pred_time_val": 0.0017323493957519531,
+    "pred_time_val_marginal": 0.0017323493957519531,
+    "rank": 3,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.765625,
+    "score_val_natural": 0.765625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [
+     "WeightedEnsemble_L2"
+    ],
+    "family": "GBM",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 2,
+    "fit_time": 0.23154783248901367,
+    "fit_time_marginal": 0.23154783248901367,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "extra_trees": true,
+     "learning_rate": 0.05,
+     "seed": 0
+    },
+    "hyperparameters_fit": {
+     "num_boost_round": 284
+    },
+    "memory_size": 229995,
+    "memory_size_min": 229995,
+    "memory_size_min_w_ancestors": 229995,
+    "memory_size_w_ancestors": 229995,
+    "model": "LightGBMXT",
+    "model_type": "LGBModel",
+    "num_ancestors": 0,
+    "num_descendants": 1,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.0039017200469970703,
+    "pred_time_test_marginal": 0.0039017200469970703,
+    "pred_time_val": 0.0017652511596679688,
+    "pred_time_val_marginal": 0.0017652511596679688,
+    "rank": 4,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.78125,
+    "score_val_natural": 0.78125,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "drop_unique": false,
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": null,
+     "valid_special_types": null
+    },
+    "ancestors": [
+     "LightGBMXT"
+    ],
+    "can_infer": true,
+    "child_ag_args_fit": {
+     "drop_unique": false,
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": null,
+     "valid_special_types": null
+    },
+    "child_hyperparameters": {
+     "ensemble_size": 25,
+     "subsample_size": 1000000
+    },
+    "child_hyperparameters_fit": {
+     "ensemble_size": 1
+    },
+    "child_model_type": "GreedyWeightedEnsembleModel",
+    "compile_time": null,
+    "descendants": [],
+    "family": "ENS_WEIGHTED",
+    "features": [
+     "LightGBMXT"
+    ],
+    "fit_order": 13,
+    "fit_time": 0.29343080520629883,
+    "fit_time_marginal": 0.061882972717285156,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bin": "auto",
+     "custom_splits": null,
+     "max_base_models": 0,
+     "max_base_models_per_type": "auto",
+     "model_random_seed": 0,
+     "n_bins": null,
+     "save_bag_folds": true,
+     "stratify": "auto",
+     "use_orig_features": false,
+     "valid_stacker": true,
+     "vary_seed_across_folds": false
+    },
+    "hyperparameters_fit": {},
+    "memory_size": 4426,
+    "memory_size_min": 4426,
+    "memory_size_min_w_ancestors": 229995,
+    "memory_size_w_ancestors": 234421,
+    "model": "WeightedEnsemble_L2",
+    "model_type": "WeightedEnsembleModel",
+    "num_ancestors": 1,
+    "num_descendants": 0,
+    "num_features": 1,
+    "num_models": 1,
+    "num_models_w_ancestors": 2,
+    "pred_time_test": 0.005012989044189453,
+    "pred_time_test_marginal": 0.0011112689971923828,
+    "pred_time_val": 0.002566099166870117,
+    "pred_time_val_marginal": 0.0008008480072021484,
+    "rank": 5,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.78125,
+    "score_val_natural": 0.78125,
+    "stack_level": 2,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": {
+     "LightGBMXT": 1.0
+    }
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "XGB",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 10,
+    "fit_time": 0.12768173217773438,
+    "fit_time_marginal": 0.12768173217773438,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "booster": "gbtree",
+     "learning_rate": 0.1,
+     "n_estimators": 10000,
+     "n_jobs": -1,
+     "objective": "binary:logistic",
+     "proc.max_category_levels": 100,
+     "seed": 0
+    },
+    "hyperparameters_fit": {
+     "n_estimators": 1
+    },
+    "memory_size": 461164,
+    "memory_size_min": 461164,
+    "memory_size_min_w_ancestors": 461164,
+    "memory_size_w_ancestors": 461164,
+    "model": "XGBoost",
+    "model_type": "XGBoostModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.007283449172973633,
+    "pred_time_test_marginal": 0.007283449172973633,
+    "pred_time_val": 0.0034627914428710938,
+    "pred_time_val_marginal": 0.0034627914428710938,
+    "rank": 6,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.765625,
+    "score_val_natural": 0.765625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": [
+      "text_ngram",
+      "text_as_category"
+     ],
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "NN_TORCH",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 11,
+    "fit_time": 1.2456204891204834,
+    "fit_time_marginal": 1.2456204891204834,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "activation": "relu",
+     "dropout_prob": 0.1,
+     "embed_exponent": 0.56,
+     "embedding_size_factor": 1.0,
+     "epochs_wo_improve": null,
+     "hidden_size": 128,
+     "learning_rate": 0.0003,
+     "loss_function": "auto",
+     "max_batch_size": 512,
+     "max_embedding_dim": 100,
+     "num_epochs": 1000,
+     "num_layers": 4,
+     "optimizer": "adam",
+     "proc.embed_min_categories": 4,
+     "proc.impute_strategy": "median",
+     "proc.max_category_levels": 100,
+     "proc.skew_threshold": 0.99,
+     "seed_value": 0,
+     "use_batchnorm": false,
+     "use_ngram_features": false,
+     "weight_decay": 1e-06,
+     "y_range": null,
+     "y_range_extend": 0.05
+    },
+    "hyperparameters_fit": {
+     "batch_size": 32,
+     "num_epochs": 21
+    },
+    "memory_size": 219618,
+    "memory_size_min": 219618,
+    "memory_size_min_w_ancestors": 219618,
+    "memory_size_w_ancestors": 219618,
+    "model": "NeuralNetTorch",
+    "model_type": "TabularNeuralNetTorchModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.007979393005371094,
+    "pred_time_test_marginal": 0.007979393005371094,
+    "pred_time_val": 0.006399631500244141,
+    "pred_time_val_marginal": 0.006399631500244141,
+    "rank": 7,
+    "score_test": 0.775,
+    "score_test_natural": 0.775,
+    "score_val": 0.765625,
+    "score_val_natural": 0.765625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": [
+      "text_ngram",
+      "text_as_category"
+     ],
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "FASTAI",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 9,
+    "fit_time": 1.5136125087738037,
+    "fit_time_marginal": 1.5136125087738037,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bs": "auto",
+     "early.stopping.min_delta": 0.0001,
+     "early.stopping.patience": 20,
+     "emb_drop": 0.1,
+     "epochs": "auto",
+     "layers": null,
+     "lr": 0.01,
+     "ps": 0.1,
+     "random_seed": 0,
+     "smoothing": 0.0
+    },
+    "hyperparameters_fit": {
+     "best_epoch": 7,
+     "epochs": 30
+    },
+    "memory_size": 136489,
+    "memory_size_min": 136489,
+    "memory_size_min_w_ancestors": 136489,
+    "memory_size_w_ancestors": 136489,
+    "model": "NeuralNetFastAI",
+    "model_type": "NNFastAiTabularModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.015249252319335938,
+    "pred_time_test_marginal": 0.015249252319335938,
+    "pred_time_val": 0.008394718170166016,
+    "pred_time_val_marginal": 0.008394718170166016,
+    "rank": 8,
+    "score_test": 0.75,
+    "score_test_natural": 0.75,
+    "score_val": 0.765625,
+    "score_val_natural": 0.765625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "RF",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 5,
+    "fit_time": 0.5441017150878906,
+    "fit_time_marginal": 0.5441017150878906,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bootstrap": true,
+     "criterion": "entropy",
+     "max_leaf_nodes": 15000,
+     "n_estimators": 300,
+     "n_jobs": -1,
+     "random_state": 0
+    },
+    "hyperparameters_fit": {
+     "n_estimators": 300
+    },
+    "memory_size": 3097185,
+    "memory_size_min": 3097185,
+    "memory_size_min_w_ancestors": 3097185,
+    "memory_size_w_ancestors": 3097185,
+    "model": "RandomForestEntr",
+    "model_type": "RFModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.08478903770446777,
+    "pred_time_test_marginal": 0.08478903770446777,
+    "pred_time_val": 0.06891369819641113,
+    "pred_time_val_marginal": 0.06891369819641113,
+    "rank": 9,
+    "score_test": 0.7375,
+    "score_test_natural": 0.7375,
+    "score_val": 0.671875,
+    "score_val_natural": 0.671875,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "XT",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 8,
+    "fit_time": 0.530219554901123,
+    "fit_time_marginal": 0.530219554901123,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bootstrap": true,
+     "criterion": "entropy",
+     "max_leaf_nodes": 15000,
+     "n_estimators": 300,
+     "n_jobs": -1,
+     "random_state": 0
+    },
+    "hyperparameters_fit": {
+     "n_estimators": 300
+    },
+    "memory_size": 5054560,
+    "memory_size_min": 5054560,
+    "memory_size_min_w_ancestors": 5054560,
+    "memory_size_w_ancestors": 5054560,
+    "model": "ExtraTreesEntr",
+    "model_type": "XTModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.08969616889953613,
+    "pred_time_test_marginal": 0.08969616889953613,
+    "pred_time_val": 0.0670473575592041,
+    "pred_time_val_marginal": 0.0670473575592041,
+    "rank": 10,
+    "score_test": 0.725,
+    "score_test_natural": 0.725,
+    "score_val": 0.6875,
+    "score_val_natural": 0.6875,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "XT",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 7,
+    "fit_time": 0.48884034156799316,
+    "fit_time_marginal": 0.48884034156799316,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bootstrap": true,
+     "criterion": "gini",
+     "max_leaf_nodes": 15000,
+     "n_estimators": 300,
+     "n_jobs": -1,
+     "random_state": 0
+    },
+    "hyperparameters_fit": {
+     "n_estimators": 300
+    },
+    "memory_size": 5049915,
+    "memory_size_min": 5049915,
+    "memory_size_min_w_ancestors": 5049915,
+    "memory_size_w_ancestors": 5049915,
+    "model": "ExtraTreesGini",
+    "model_type": "XTModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.09659004211425781,
+    "pred_time_test_marginal": 0.09659004211425781,
+    "pred_time_val": 0.06656908988952637,
+    "pred_time_val_marginal": 0.06656908988952637,
+    "rank": 11,
+    "score_test": 0.725,
+    "score_test_natural": 0.725,
+    "score_val": 0.71875,
+    "score_val_natural": 0.71875,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "GBM",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 3,
+    "fit_time": 0.22915887832641602,
+    "fit_time_marginal": 0.22915887832641602,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "learning_rate": 0.05,
+     "seed": 0
+    },
+    "hyperparameters_fit": {
+     "num_boost_round": 45
+    },
+    "memory_size": 59581,
+    "memory_size_min": 59581,
+    "memory_size_min_w_ancestors": 59581,
+    "memory_size_w_ancestors": 59581,
+    "model": "LightGBM",
+    "model_type": "LGBModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.0027773380279541016,
+    "pred_time_test_marginal": 0.0027773380279541016,
+    "pred_time_val": 0.0015769004821777344,
+    "pred_time_val_marginal": 0.0015769004821777344,
+    "rank": 12,
+    "score_test": 0.7125,
+    "score_test_natural": 0.7125,
+    "score_val": 0.78125,
+    "score_val_natural": 0.78125,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   },
+   {
+    "ag_args_fit": {
+     "get_features_kwargs": null,
+     "get_features_kwargs_extra": null,
+     "ignored_type_group_raw": null,
+     "ignored_type_group_special": null,
+     "max_gpu_memory_usage_ratio": 1.0,
+     "max_memory_usage_ratio": 1.0,
+     "max_time_limit": null,
+     "max_time_limit_ratio": 1.0,
+     "min_time_limit": 0,
+     "predict_1_batch_size": null,
+     "temperature_scalar": null,
+     "valid_raw_types": [
+      "bool",
+      "int",
+      "float",
+      "category"
+     ],
+     "valid_special_types": null
+    },
+    "ancestors": [],
+    "can_infer": true,
+    "child_ag_args_fit": null,
+    "child_hyperparameters": null,
+    "child_hyperparameters_fit": null,
+    "child_model_type": null,
+    "compile_time": null,
+    "descendants": [],
+    "family": "RF",
+    "features": [
+     "tenure",
+     "spend",
+     "plan"
+    ],
+    "fit_order": 4,
+    "fit_time": 0.530292272567749,
+    "fit_time_marginal": 0.530292272567749,
+    "fold_scores": null,
+    "fold_scores_natural": null,
+    "hyperparameters": {
+     "bootstrap": true,
+     "criterion": "gini",
+     "max_leaf_nodes": 15000,
+     "n_estimators": 300,
+     "n_jobs": -1,
+     "random_state": 0
+    },
+    "hyperparameters_fit": {
+     "n_estimators": 300
+    },
+    "memory_size": 3172706,
+    "memory_size_min": 3172706,
+    "memory_size_min_w_ancestors": 3172706,
+    "memory_size_w_ancestors": 3172706,
+    "model": "RandomForestGini",
+    "model_type": "RFModel",
+    "num_ancestors": 0,
+    "num_descendants": 0,
+    "num_features": 3,
+    "num_models": 1,
+    "num_models_w_ancestors": 1,
+    "pred_time_test": 0.09673881530761719,
+    "pred_time_test_marginal": 0.09673881530761719,
+    "pred_time_val": 0.07743072509765625,
+    "pred_time_val_marginal": 0.07743072509765625,
+    "rank": 13,
+    "score_test": 0.7125,
+    "score_test_natural": 0.7125,
+    "score_val": 0.65625,
+    "score_val_natural": 0.65625,
+    "stack_level": 1,
+    "stopping_metric": "accuracy",
+    "val_score_std": null,
+    "weights": null
+   }
+  ],
+  "learning_curve": null,
+  "mlflow": {
+   "artifact_uri": "file:///tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/mlflow/artifacts/ensemble_ds_d2926b37/8e3342bdf2af4500906a86226aa38dd5/artifacts",
+   "experiment_id": "3",
+   "logged": true,
+   "n_metrics": 12,
+   "n_params": 23,
+   "run_id": "8e3342bdf2af4500906a86226aa38dd5"
+  },
+  "monotone": null,
+  "multilabel": null,
+  "n_events": 171,
+  "name": "churn v1",
+  "oof": {
+   "available": false,
+   "models": [],
+   "note": "No bagging in this run (num_bag_folds = 0): no out-of-fold predictions."
+  },
+  "positive_class": 1,
+  "predictor_path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/runs/run_b4485d5d/predictor",
+  "predictor_state": "present",
+  "problem_type": "binary",
+  "quantile": null,
+  "quantile_levels": null,
+  "reject_inference": null,
+  "resolved": {
+   "fit_kwargs": {
+    "hyperparameters": {
+     "CAT": {},
+     "FASTAI": {},
+     "GBM": [
+      {
+       "ag_args": {
+        "name_suffix": "XT"
+       },
+       "extra_trees": true
+      },
+      {},
+      {
+       "ag_args": {
+        "hyperparameter_tune_kwargs": null,
+        "name_suffix": "Large",
+        "priority": 0
+       },
+       "feature_fraction": 0.9,
+       "learning_rate": 0.03,
+       "min_data_in_leaf": 3,
+       "num_leaves": 128
+      }
+     ],
+     "NN_TORCH": {},
+     "RF": [
+      {
+       "ag_args": {
+        "name_suffix": "Gini",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "gini"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "Entr",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "entropy"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "MSE",
+        "problem_types": [
+         "regression",
+         "quantile"
+        ]
+       },
+       "criterion": "squared_error"
+      }
+     ],
+     "SCORECARD": {
+      "C": 1.0,
+      "base_odds": 50.0,
+      "base_score": 600.0,
+      "fine_bins": 20,
+      "max_bins": 6,
+      "min_bin_share": 0.05,
+      "min_iv": 0.02,
+      "monotone_bins": "auto",
+      "pdo": 20.0
+     },
+     "XGB": {},
+     "XT": [
+      {
+       "ag_args": {
+        "name_suffix": "Gini",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "gini"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "Entr",
+        "problem_types": [
+         "binary",
+         "multiclass"
+        ]
+       },
+       "criterion": "entropy"
+      },
+      {
+       "ag_args": {
+        "name_suffix": "MSE",
+        "problem_types": [
+         "regression",
+         "quantile"
+        ]
+       },
+       "criterion": "squared_error"
+      }
+     ]
+    },
+    "presets": "medium_quality",
+    "time_limit": 20.0
+   },
+   "notes": [
+    "added SCORECARD (ensemble_models.scorecard) as the interpretable benchmark: binning (\u2264 6 bins, \u2265 5% of rows each, monotone event rate) \u2192 weight of evidence \u2192 logistic regression \u2192 points (PDO 20, 600 at odds 50:1); bins are fitted on each fold's training rows only"
+   ],
+   "path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/runs/run_b4485d5d/predictor",
+   "predictor_kwargs": {
+    "eval_metric": null,
+    "label": "churn",
+    "problem_type": null
+   }
+  },
+  "scorecard": {
+   "auc": 0.48073476552963257,
+   "available": true,
+   "delta_auc": {
+    "B": 1000,
+    "ci": [
+     -0.20159928664310853,
+     0.17699345991564785
+    ],
+    "delta": -0.0013440845260483392,
+    "level": 0.95,
+    "method": "paired percentile bootstrap over holdout rows",
+    "p_le_0": 0.506,
+    "se": 0.09783537822747873,
+    "seed": 0
+   },
+   "error": null,
+   "model": "Scorecard",
+   "n_features": 2,
+   "reason": null,
+   "served_auc": 0.47939068100358423
+  },
+  "segmented": null,
+  "shift": null,
+  "slices": null,
+  "split": {
+   "drawn_for_this_run": false,
+   "holdout_rows": 80,
+   "holdout_share": 0.2,
+   "key": "random-stratified__churn-bafb5b68",
+   "n_folds": 5,
+   "path": "/tmp/claude-0/-home-user-demo/409bdf12-89e3-5e11-ad85-b1d5b611b364/scratchpad/build/data/datasets/ds_d2926b37/splits/random-stratified__churn-bafb5b68.json",
+   "seed": 42,
+   "sha256": "00154167e245838d8b82d945764f56acd185425861efe4f05a8ca6fc00cb3de5",
+   "strategy": "random-stratified",
+   "stratified": true,
+   "target": "churn"
+  },
+  "splits_integrity": null,
+  "splits_sha256": null,
+  "started_at": "2026-11-21T23:29:23+00:00",
+  "status": "succeeded",
+  "survival": null,
+  "text_models": null,
+  "threshold": {
+   "default": 0.5,
+   "holdout_at_default": {
+    "accuracy": 0.775,
+    "balanced_accuracy": 0.5,
+    "f1": 0.0,
+    "fn": 18,
+    "fp": 0,
+    "fpr": 0.0,
+    "mcc": 0.0,
+    "n": 80,
+    "precision": 0.0,
+    "predicted_positive_rate": 0.0,
+    "recall": 0.0,
+    "specificity": 1.0,
+    "threshold": 0.5,
+    "tn": 62,
+    "tp": 0
+   },
+   "holdout_at_threshold": {
+    "accuracy": 0.775,
+    "balanced_accuracy": 0.5,
+    "f1": 0.0,
+    "fn": 18,
+    "fp": 0,
+    "fpr": 0.0,
+    "mcc": 0.0,
+    "n": 80,
+    "precision": 0.0,
+    "predicted_positive_rate": 0.0,
+    "recall": 0.0,
+    "specificity": 1.0,
+    "threshold": 0.5,
+    "tn": 62,
+    "tp": 0
+   },
+   "metric": null,
+   "positive_class": 1,
+   "rule": "predict positive when p > t",
+   "seconds": null,
+   "set_at": "2026-11-21T23:29:36Z",
+   "source": "default",
+   "value": 0.5
+  }
+ },
+ "status": 200
+}

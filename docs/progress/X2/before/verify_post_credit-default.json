@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "credit-default",
+    "now": "f9844b67ff1a2ee0285d378795ad3a3d5a4181c414920d5de447cd7a9a302d7f",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "f9844b67ff1a2ee0285d378795ad3a3d5a4181c414920d5de447cd7a9a302d7f",
+    "v": 1
+   }
+  ],
+  "root_id": "credit-default"
+ },
+ "status": 200
+}

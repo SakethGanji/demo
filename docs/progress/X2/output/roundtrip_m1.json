@@ -1,0 +1,1753 @@
+{
+ "versions": [
+  {
+   "version": "support-tickets",
+   "status": "migrated",
+   "reason": null,
+   "rows": 20000,
+   "cols": 7,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "ticket_id": "object",
+    "subject": "object",
+    "body": "object",
+    "channel": "object",
+    "priority": "object",
+    "customer_tier": "object",
+    "category": "object"
+   }
+  },
+  {
+   "version": "account-churn",
+   "status": "migrated",
+   "reason": null,
+   "rows": 10000,
+   "cols": 11,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    804,
+    804
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "account_id": "object",
+    "plan": "object",
+    "region": "object",
+    "contract": "object",
+    "seats": "int64",
+    "mrr_usd": "float64",
+    "tenure_months": "int64",
+    "tickets_90d": "int64",
+    "last_login_days": "int64",
+    "nps": "float64",
+    "churned": "object"
+   }
+  },
+  {
+   "version": "credit-default",
+   "status": "migrated",
+   "reason": null,
+   "rows": 12000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    1059,
+    1059
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "loan-amount",
+   "status": "migrated",
+   "reason": null,
+   "rows": 8000,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    40,
+    40
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "income_usd": "float64",
+    "credit_score": "int64",
+    "existing_debt_usd": "float64",
+    "term_months": "int64",
+    "purpose": "object",
+    "home_ownership": "object",
+    "region": "object",
+    "open_accounts": "int64",
+    "loan_amount_usd": "float64"
+   }
+  },
+  {
+   "version": "transaction-volume",
+   "status": "migrated",
+   "reason": null,
+   "rows": 4548,
+   "cols": 6,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    168,
+    168
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "item_id": "object",
+    "timestamp": "object",
+    "volume": "float64",
+    "holiday": "int64",
+    "payday": "int64",
+    "segment": "object"
+   }
+  },
+  {
+   "version": "card-transactions",
+   "status": "migrated",
+   "reason": null,
+   "rows": 6000,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "txn_id": "object",
+    "card_id": "object",
+    "timestamp": "object",
+    "amount_usd": "float64",
+    "avg_amount_90d": "float64",
+    "merchant_category": "object",
+    "channel": "object",
+    "card_present": "int64",
+    "foreign": "int64",
+    "hour": "int64",
+    "distance_from_home_km": "float64",
+    "txns_last_24h": "int64",
+    "account_age_days": "int64"
+   }
+  },
+  {
+   "version": "personal-loans",
+   "status": "migrated",
+   "reason": null,
+   "rows": 10000,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "age": "int64",
+    "income_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "channel": "object",
+    "region": "object",
+    "employment": "object",
+    "term_months": "int64",
+    "loan_amount_usd": "float64",
+    "prior_defaults": "int64",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "loan-stream",
+   "status": "migrated",
+   "reason": null,
+   "rows": 9000,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "income_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "channel": "object",
+    "employment": "object",
+    "term_months": "int64",
+    "loan_amount_usd": "float64",
+    "prior_defaults": "int64",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "loan-losses",
+   "status": "migrated",
+   "reason": null,
+   "rows": 20000,
+   "cols": 15,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    35204,
+    35204
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "loan_id": "object",
+    "application_date": "object",
+    "product": "object",
+    "region": "object",
+    "income": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "credit_limit": "float64",
+    "current_balance": "float64",
+    "collateral_value": "float64",
+    "term_months": "int64",
+    "defaulted": "int64",
+    "lgd": "float64",
+    "ead": "float64"
+   }
+  },
+  {
+   "version": "fair-lending",
+   "status": "migrated",
+   "reason": null,
+   "rows": 20000,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "surname": "object",
+    "zip": "int64",
+    "income": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "loan_amount": "float64",
+    "employment_years": "float64",
+    "home_ownership": "object",
+    "race_ethnicity_true": "object",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "segmented-loans",
+   "status": "migrated",
+   "reason": null,
+   "rows": 30000,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "customer_type": "object",
+    "income": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "months_employed": "int64",
+    "num_accounts": "int64",
+    "loan_amount": "float64",
+    "recent_inquiries": "int64",
+    "defaulted": "int64"
+   }
+  },
+  {
+   "version": "account-attrition",
+   "status": "migrated",
+   "reason": null,
+   "rows": 12000,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "account_id": "object",
+    "open_date": "object",
+    "product": "object",
+    "region": "object",
+    "age": "int64",
+    "num_products": "int64",
+    "digital_logins_30d": "int64",
+    "complaints_12m": "int64",
+    "rate_vs_market_pp": "float64",
+    "has_salary_mandate": "int64",
+    "avg_balance_gbp": "float64",
+    "churned": "int64",
+    "duration_months": "int64"
+   }
+  },
+  {
+   "version": "credit-rejects",
+   "status": "migrated",
+   "reason": null,
+   "rows": 24000,
+   "cols": 14,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    10169,
+    10169
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "application_id": "object",
+    "application_date": "object",
+    "channel": "object",
+    "home_ownership": "object",
+    "credit_score": "int64",
+    "income": "float64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "months_employed": "int64",
+    "recent_inquiries": "int64",
+    "num_delinquencies": "int64",
+    "loan_amount": "float64",
+    "decision": "object",
+    "defaulted": "float64"
+   }
+  },
+  {
+   "version": "complaint-topics",
+   "status": "migrated",
+   "reason": null,
+   "rows": 6000,
+   "cols": 8,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    5,
+    5
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "complaint_id": "object",
+    "received_date": "object",
+    "product": "object",
+    "channel": "object",
+    "customer_tenure_years": "float64",
+    "amount_disputed": "float64",
+    "narrative": "object",
+    "topics": "object"
+   }
+  },
+  {
+   "version": "ds_3d74a646",
+   "status": "migrated",
+   "reason": null,
+   "rows": 600,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": false,
+   "na_kinds_diff": [
+    "flag"
+   ],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    496,
+    496
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_fc73795a",
+   "status": "migrated",
+   "reason": null,
+   "rows": 582,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": false,
+   "na_kinds_diff": [
+    "flag"
+   ],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    478,
+    478
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 2,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "float64",
+    "acct_no": "float64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "float64",
+    "y": "float64"
+   }
+  },
+  {
+   "version": "ds_24ed3af0",
+   "status": "migrated",
+   "reason": null,
+   "rows": 610,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": false,
+   "na_kinds_diff": [
+    "flag"
+   ],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    504,
+    504
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 25,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_e8d86cad",
+   "status": "migrated",
+   "reason": null,
+   "rows": 578,
+   "cols": 13,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": false,
+   "na_kinds_diff": [
+    "flag"
+   ],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    474,
+    474
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 2,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "float64",
+    "acct_no": "float64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "float64",
+    "y": "float64",
+    "n_late_was_missing": "int64"
+   }
+  },
+  {
+   "version": "ds_2e281f4a",
+   "status": "skipped",
+   "reason": "data_changed",
+   "rows": 400,
+   "cols": 5
+  },
+  {
+   "version": "ds_3dff21e6",
+   "status": "migrated",
+   "reason": null,
+   "rows": 3000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    269,
+    269
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "ds_0e8fe4bb",
+   "status": "migrated",
+   "reason": null,
+   "rows": 3000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    269,
+    269
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [3000..5999]",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "ds_56717055",
+   "status": "migrated",
+   "reason": null,
+   "rows": 300000,
+   "cols": 4,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    7143,
+    7143
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "id": "int64",
+    "code": "float64",
+    "v": "float64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_7fc484d9",
+   "status": "migrated",
+   "reason": null,
+   "rows": 600,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": false,
+   "na_kinds_diff": [
+    "flag"
+   ],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    496,
+    496
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_94690ce4",
+   "status": "migrated",
+   "reason": null,
+   "rows": 1500,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "rid": "object",
+    "a": "float64",
+    "b": "float64",
+    "noise": "float64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_5a8a85ca",
+   "status": "migrated",
+   "reason": null,
+   "rows": 2000,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "rid": "object",
+    "a": "float64",
+    "b": "float64",
+    "c": "float64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_3265bdf9",
+   "status": "migrated",
+   "reason": null,
+   "rows": 2000,
+   "cols": 6,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "rid": "object",
+    "a": "float64",
+    "b": "float64",
+    "c": "float64",
+    "y": "int64",
+    "a_per_b": "float64"
+   }
+  },
+  {
+   "version": "ds_29f1d44b",
+   "status": "migrated",
+   "reason": null,
+   "rows": 800,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    861,
+    861
+   ],
+   "na_cells": [
+    606,
+    606
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "0..n-1",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_7d4b685c",
+   "status": "skipped",
+   "reason": "split_changed",
+   "rows": 793,
+   "cols": 10
+  },
+  {
+   "version": "ds_28492196",
+   "status": "migrated",
+   "reason": null,
+   "rows": 763,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    822,
+    822
+   ],
+   "na_cells": [
+    573,
+    573
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 1,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_30561b7e",
+   "status": "migrated",
+   "reason": null,
+   "rows": 608,
+   "cols": 12,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    503,
+    503
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 25,
+   "dtypes": {
+    "loan_id": "object",
+    "zip": "int64",
+    "acct_no": "int64",
+    "income": "float64",
+    "rate": "float64",
+    "n_late": "float64",
+    "name": "object",
+    "note": "object",
+    "flag": "object",
+    "opened": "object",
+    "age": "int64",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_20f9ae63",
+   "status": "migrated",
+   "reason": null,
+   "rows": 791,
+   "cols": 11,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    853,
+    853
+   ],
+   "na_cells": [
+    599,
+    599
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": false,
+   "neg_ids": 1,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64",
+    "balance_was_missing": "int64"
+   }
+  },
+  {
+   "version": "ds_ac20c6c3",
+   "status": "migrated",
+   "reason": null,
+   "rows": 800,
+   "cols": 10,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    861,
+    861
+   ],
+   "na_cells": [
+    606,
+    606
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "acct": "object",
+    "zip": "object",
+    "balance": "float64",
+    "tenure": "float64",
+    "active": "object",
+    "region": "object",
+    "since": "object",
+    "owner": "object",
+    "memo": "object",
+    "y": "int64"
+   }
+  },
+  {
+   "version": "ds_a46339a6",
+   "status": "migrated",
+   "reason": null,
+   "rows": 3000,
+   "cols": 16,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    269,
+    269
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "other [6000..8999]",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "applicant_id": "object",
+    "customer_id": "object",
+    "application_date": "object",
+    "age": "int64",
+    "employment": "object",
+    "income_usd": "float64",
+    "home_ownership": "object",
+    "loan_purpose": "object",
+    "region": "object",
+    "loan_amount_usd": "float64",
+    "credit_score": "int64",
+    "debt_to_income": "float64",
+    "utilization": "float64",
+    "delinquencies_2y": "int64",
+    "months_employed": "float64",
+    "defaulted": "object"
+   }
+  },
+  {
+   "version": "ds_347be6ec",
+   "status": "skipped",
+   "reason": "split_changed",
+   "rows": 300,
+   "cols": 4
+  },
+  {
+   "version": "ds_fef260b8",
+   "status": "migrated",
+   "reason": null,
+   "rows": 399,
+   "cols": 5,
+   "legacy_equal": true,
+   "dtypes_equal": true,
+   "na_kinds_equal": true,
+   "na_kinds_diff": [],
+   "leading_zero_cells": [
+    0,
+    0
+   ],
+   "na_cells": [
+    0,
+    0
+   ],
+   "empty_str_cells": [
+    0,
+    0
+   ],
+   "text_equal": true,
+   "table_values_equal": true,
+   "ids": "root_rows",
+   "ids_sorted": true,
+   "neg_ids": 0,
+   "dtypes": {
+    "cust": "object",
+    "tenure": "int64",
+    "spend": "float64",
+    "plan": "object",
+    "churn": "int64"
+   }
+  }
+ ],
+ "runs": [
+  {
+   "run": "run_0fa8bca1",
+   "version": "ds_3d74a646",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_15107aecf8c0",
+    "run_id": "run_0fa8bca1",
+    "role": "train",
+    "version_id": "ds_3d74a646",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "042176c8e7348aada7a97909743fad4199ccdabed702b4637ee871dea96bc353",
+    "split_id": "spl_cdf8bac6a1fa",
+    "split_sha256": null,
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-21T22:54:11+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": false,
+   "parquet_holdout_eq_pred_rows": false,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": false,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_b6b8f92a",
+   "version": "ds_fc73795a",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_655d60e942fe",
+    "run_id": "run_b6b8f92a",
+    "role": "train",
+    "version_id": "ds_fc73795a",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_f1e1c1598d22",
+    "split_sha256": null,
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-21T22:54:50+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_fb82662f",
+   "version": "ds_2e281f4a",
+   "status": "skipped",
+   "run_inputs": null,
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_885a993d",
+   "version": "ds_29f1d44b",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_602fa9917ee5",
+    "run_id": "run_885a993d",
+    "role": "train",
+    "version_id": "ds_29f1d44b",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "2f3697d331ffb6b8e919a0395b60820438602c48b79163c830ecf5543c993b1a",
+    "split_id": "spl_70cfa315b9e8",
+    "split_sha256": null,
+    "split_legacy_sha256": "47e5df80a38be49a5a7d438002374956555c32cd2e88ff35a24c80672ae6241d",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-21T22:57:07+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_9b5ed3ed",
+   "version": "ds_7d4b685c",
+   "status": "skipped",
+   "run_inputs": null,
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_f7c91b76",
+   "version": "ds_30561b7e",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_fde1a9e3686e",
+    "run_id": "run_f7c91b76",
+    "role": "train",
+    "version_id": "ds_30561b7e",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "c81a4bd1bb0183c204b1c08901b96e3d40c6ab86dc939b2494b31e6cec7cb771",
+    "split_id": "spl_812e8ace1b6d",
+    "split_sha256": null,
+    "split_legacy_sha256": "836779b1aaea4fc8afc2e0416242db49f0beb9e83bfd9dd5f24fca49cbd30b0f",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-21T22:58:03+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_011a72eb",
+   "version": "ds_15143c8e",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_a0c35c2cc480",
+    "run_id": "run_011a72eb",
+    "role": "train",
+    "version_id": "ds_15143c8e",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": null,
+    "match": null,
+    "legacy_csv_sha256": "777abcaf07c124d20350ba77fc04a6a2d79390ed0e3b3b7ee7c19798a2bfd728",
+    "split_id": null,
+    "split_sha256": null,
+    "split_legacy_sha256": "d57d549899a19c50758b633822bbd8dee4e41144cdf80ca203067af6040853e6",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": null,
+    "rows_used": null,
+    "frame_mb": null,
+    "columns_dropped": null,
+    "created_at": "2026-11-21T22:58:31+00:00"
+   },
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_8de7d13a",
+   "version": "ds_7d4b685c",
+   "status": "skipped",
+   "run_inputs": {
+    "id": "ri_7b54394d8799",
+    "run_id": "run_8de7d13a",
+    "role": "train",
+    "version_id": "ds_7d4b685c",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2",
+    "match": 1,
+    "legacy_csv_sha256": "9f535d88e2f8018564bf77c201fb1ddadc3198ebe559a017bee9cbd165c692b2",
+    "split_id": null,
+    "split_sha256": null,
+    "split_legacy_sha256": "0e05514ba3af12c655be997ce8f7f597b56ce4b843dd9cb31eed847e7924588f",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 793,
+    "rows_used": 635,
+    "frame_mb": null,
+    "columns_dropped": "[\"acct\", \"zip\"]",
+    "created_at": "2026-11-21T22:59:55+00:00"
+   },
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_e949e018",
+   "version": "ds_a46339a6",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_114052bfedaf",
+    "run_id": "run_e949e018",
+    "role": "train",
+    "version_id": "ds_a46339a6",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd",
+    "match": 1,
+    "legacy_csv_sha256": "348a8f6ee24ae9dbaa81ad6ab500ef39f865f1c7ae86f9734f978eb7b84579cd",
+    "split_id": "spl_4eaea4298da5",
+    "split_sha256": null,
+    "split_legacy_sha256": "a27441babd1eeebbabc0de7818bea42d48574a99894e3eb82eb36ad9eedb12de",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 3000,
+    "rows_used": 2400,
+    "frame_mb": null,
+    "columns_dropped": "[\"applicant_id\"]",
+    "created_at": "2026-11-21T23:00:26+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_70a3a67a",
+   "version": "ds_5d4f8ded",
+   "status": null,
+   "run_inputs": {
+    "id": "ri_9018f28a1596",
+    "run_id": "run_70a3a67a",
+    "role": "train",
+    "version_id": "ds_5d4f8ded",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": "882ad67726c3a048f40d9148898da1763564b82051d89022516748b17d882621",
+    "read_sha256": "882ad67726c3a048f40d9148898da1763564b82051d89022516748b17d882621",
+    "match": 1,
+    "legacy_csv_sha256": null,
+    "split_id": "spl_754834cb5397",
+    "split_sha256": "bf02b7c9c11292a9758e8468e0bda8c55d52fc31e5e1357ce27bf53932065057",
+    "split_legacy_sha256": null,
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 750,
+    "rows_used": 603,
+    "frame_mb": 0,
+    "columns_dropped": "[\"acct\", \"zip\"]",
+    "created_at": "2026-11-21T23:01:07+00:00"
+   },
+   "note": "not a CSV-era run on a migrated version"
+  },
+  {
+   "run": "run_1fc27a1a",
+   "version": "ds_e8d86cad",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_05b2f901a4a0",
+    "run_id": "run_1fc27a1a",
+    "role": "train",
+    "version_id": "ds_e8d86cad",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "ee8937c0f2ddf761f72580a2a2b38289264194c0b7c190350795cb24b9b9085c",
+    "match": 1,
+    "legacy_csv_sha256": "ee8937c0f2ddf761f72580a2a2b38289264194c0b7c190350795cb24b9b9085c",
+    "split_id": "spl_9624e2a25454",
+    "split_sha256": null,
+    "split_legacy_sha256": "138caf58b7b5fceae8b9374eda38d4421ca4d70d4531ea225b0803abf984c9e0",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 578,
+    "rows_used": 461,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-21T23:01:43+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_8e0aad0d",
+   "version": "ds_fc73795a",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_f671f5cedde5",
+    "run_id": "run_8e0aad0d",
+    "role": "train",
+    "version_id": "ds_fc73795a",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "match": 1,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_f1e1c1598d22",
+    "split_sha256": null,
+    "split_legacy_sha256": "a3eb5a5e9d3aa1d13e1070ccb36a4ca59614cda2965c0ca7241691994094864e",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 582,
+    "rows_used": 465,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-21T23:02:25+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_17eaa284",
+   "version": "ds_fc73795a",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_078564d8f661",
+    "run_id": "run_17eaa284",
+    "role": "train",
+    "version_id": "ds_fc73795a",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "match": 1,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_f1e1c1598d22",
+    "split_sha256": null,
+    "split_legacy_sha256": "a3eb5a5e9d3aa1d13e1070ccb36a4ca59614cda2965c0ca7241691994094864e",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 582,
+    "rows_used": 465,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-21T23:02:56+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  },
+  {
+   "run": "run_52a4e16c",
+   "version": "ds_fc73795a",
+   "status": "migrated",
+   "run_inputs": {
+    "id": "ri_fbbd56992701",
+    "run_id": "run_52a4e16c",
+    "role": "train",
+    "version_id": "ds_fc73795a",
+    "table_name": "data",
+    "join_frame_id": null,
+    "table_sha256": null,
+    "read_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "match": 1,
+    "legacy_csv_sha256": "1f75c1415081fa3f9e7481cbc83430eab371956794ba2b18523cfafb8b91167e",
+    "split_id": "spl_f1e1c1598d22",
+    "split_sha256": null,
+    "split_legacy_sha256": "a3eb5a5e9d3aa1d13e1070ccb36a4ca59614cda2965c0ca7241691994094864e",
+    "read_mode": "engine_v1",
+    "sample_spec": null,
+    "sample_sha256": null,
+    "rows_total": 582,
+    "rows_used": 465,
+    "frame_mb": null,
+    "columns_dropped": "[\"loan_id\", \"acct_no\"]",
+    "created_at": "2026-11-21T23:03:23+00:00"
+   },
+   "parquet_fold_eq_before": true,
+   "parquet_fold_eq_original": true,
+   "parquet_holdout_eq_pred_rows": true,
+   "view_fold_eq_before": true,
+   "view_fold_eq_original": true,
+   "pred_rows_eq_original_holdout": true
+  }
+ ]
+}

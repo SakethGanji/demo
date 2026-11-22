@@ -121,52 +121,61 @@ def _refusal(e: Exception, scrub: Any = None) -> JobRefused | None:
 
 def run_edit(ctx) -> dict[str, Any]:
     """Worker side of a queued edit: edit_version with this job's id, then the default settled once."""
-    from ..catalog import dsets as D
-    from ..catalog import governance as G
-    from ..lake import mask as M
-    from ..main import _detail
+    from .. import frames
 
     pl, st = ctx.payload, ctx.state
     db, store, jid = st.db, st.datasets, ctx.job["id"]
     dataset_id = pl["dataset_id"]
     app = SimpleNamespace(state=st)
-    with _acting(pl):
-        m = M.masked_view(dataset_id)
-        sent = M.tagged_values(m, pl.get("ops")) if m is not None else {}
+    # P12: an edit of one table of a multi-table version (the route's context variable does not reach a queued job)
+    with _acting(pl), frames.use_table(pl.get("table")):
+        out = _run_edit(pl, db, store, jid, dataset_id, app)
+    if pl.get("table") and isinstance(out, dict):
+        out["table"] = pl["table"]
+    return out
 
-        def scrub(detail: Any) -> Any:
-            return M.scrub_error(detail, m, sent) if sent else detail
 
-        done = _finished_version(db, jid, dataset_id)
-        if done:  # an earlier attempt finished everything but closing the job
-            rec = db.get_dataset(done) or {}
-            lin = (rec.get("profile") or {}).get("lineage") or {}
-            JP.mark(1.0, "done")
-            return {"status_code": 201, **_detail(rec), "created": True, "resumed": True,
-                    "edit": {k: lin.get(k) for k in ("ops_summary", "checks", "target", "matched", "changed", "added", "removed")},
-                    "default": _default_after(app, done, pl, [], rerun=True)}
-        try:
-            out = store.edit_version(dataset_id, pl.get("ops"), by=pl["by"], reason=pl["reason"], set_target=pl.get("set_target"),
-                                     acknowledge=pl.get("acknowledge"))
-        except Exception as e:  # noqa: BLE001
-            r = _refusal(e, scrub)
-            if r is None:
-                raise
-            if r.job_refusal["status"] == 409:
-                G.refused(db, pl["by"], "dataset_edit", 409, r.job_refusal["detail"], {"dataset_id": dataset_id})
-            raise r from None
-        if not out.get("created"):
-            JP.mark(1.0, "done")
-            return json.loads(json.dumps({"status_code": 200, **_detail(out), "created": False, "duplicate_of": out["id"],
-                                          "edit": out.get("edit"),
-                                          "note": "the result has the same bytes as this existing version: nothing new was made"},
-                                         default=str))
-        warnings = out["edit"]["checks"]["warnings"]
-        dflt = _default_after(app, out["id"], pl, warnings, rerun=False)
-        edit_out = dict(out["edit"])
+def _run_edit(pl: dict[str, Any], db: Any, store: Any, jid: str, dataset_id: str, app: Any) -> dict[str, Any]:
+    from ..catalog import governance as G
+    from ..lake import mask as M
+    from ..main import _detail
+
+    m = M.masked_view(dataset_id)
+    sent = M.tagged_values(m, pl.get("ops")) if m is not None else {}
+
+    def scrub(detail: Any) -> Any:
+        return M.scrub_error(detail, m, sent) if sent else detail
+
+    done = _finished_version(db, jid, dataset_id)
+    if done:  # an earlier attempt finished everything but closing the job
+        rec = db.get_dataset(done) or {}
+        lin = (rec.get("profile") or {}).get("lineage") or {}
         JP.mark(1.0, "done")
-        return json.loads(json.dumps({"status_code": 201, **_detail(db.get_dataset(out["id"]) or out), "created": True,
-                                      "edit": m.scrub(edit_out) if m is not None else edit_out, "default": dflt}, default=str))
+        return {"status_code": 201, **_detail(rec), "created": True, "resumed": True,
+                "edit": {k: lin.get(k) for k in ("ops_summary", "checks", "target", "matched", "changed", "added", "removed")},
+                "default": _default_after(app, done, pl, [], rerun=True)}
+    try:
+        out = store.edit_version(dataset_id, pl.get("ops"), by=pl["by"], reason=pl["reason"], set_target=pl.get("set_target"),
+                                 acknowledge=pl.get("acknowledge"))
+    except Exception as e:  # noqa: BLE001
+        r = _refusal(e, scrub)
+        if r is None:
+            raise
+        if r.job_refusal["status"] == 409:
+            G.refused(db, pl["by"], "dataset_edit", 409, r.job_refusal["detail"], {"dataset_id": dataset_id})
+        raise r from None
+    if not out.get("created"):
+        JP.mark(1.0, "done")
+        return json.loads(json.dumps({"status_code": 200, **_detail(out), "created": False, "duplicate_of": out["id"],
+                                      "edit": out.get("edit"),
+                                      "note": "the result has the same bytes as this existing version: nothing new was made"},
+                                     default=str))
+    warnings = out["edit"]["checks"]["warnings"]
+    dflt = _default_after(app, out["id"], pl, warnings, rerun=False)
+    edit_out = dict(out["edit"])
+    JP.mark(1.0, "done")
+    return json.loads(json.dumps({"status_code": 201, **_detail(db.get_dataset(out["id"]) or out), "created": True,
+                                  "edit": m.scrub(edit_out) if m is not None else edit_out, "default": dflt}, default=str))
 
 
 def _default_after(app: Any, vid: str, pl: dict[str, Any], warnings: list[dict[str, Any]], rerun: bool) -> dict[str, Any]:

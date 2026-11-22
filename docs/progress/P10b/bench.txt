@@ -1,0 +1,9 @@
+{"mb": 16, "mode": "single", "put_mb_s": 198.6, "get_mb_s": 941.3, "cache_fill_mb_s": 396.6, "cache_hit_ms": 0.057, "put_existing_ms": 9.5}
+{"mb": 16, "mode": "multipart", "put_mb_s": 156.9, "get_mb_s": 1046.5, "cache_fill_mb_s": 387.3, "cache_hit_ms": 0.035, "put_existing_ms": 5.1}
+{"mb": 64, "mode": "single", "put_mb_s": 248.7, "get_mb_s": 1063.0, "cache_fill_mb_s": 260.0, "cache_hit_ms": 0.037, "put_existing_ms": 14.9}
+{"mb": 64, "mode": "multipart", "put_mb_s": 179.4, "get_mb_s": 1295.3, "cache_fill_mb_s": 302.7, "cache_hit_ms": 0.035, "put_existing_ms": 5.8}
+{"mb": 256, "mode": "single", "put_mb_s": 272.3, "get_mb_s": 1314.9, "cache_fill_mb_s": 644.0, "cache_hit_ms": 0.053, "put_existing_ms": 46.2}
+{"mb": 256, "mode": "multipart", "put_mb_s": 196.3, "get_mb_s": 1185.9, "cache_fill_mb_s": 679.5, "cache_hit_ms": 0.036, "put_existing_ms": 5.2}
+{"cache": {"hits": 600, "misses": 6, "fills": 6, "fill_bytes": 704643072, "fill_seconds": 1.375, "evictions": 0, "evicted_bytes": 0, "rehash_on_hit": 0, "tamper_refetch": 0, "fill_integrity_errors": 0, "fill_mb_s": 512.3}}
+{"lru": {"cap_mb": 50, "entries": 3, "bytes": 50331648, "evictions": 2, "cached": [0, 3, 4]}}
+multipart race: keys 6 distinct 1 errors [] | versions 1 | stats {'puts': 1, 'put_existing': 5, 'put_raced': 0} | uploads left 0

@@ -1,0 +1,28 @@
+{
+ "body": {
+  "ok": false,
+  "results": [
+   {
+    "data_ok": false,
+    "id": "ds_d2926b37",
+    "now": "4a88e42badb77334a7a7533d6adb6f2a1b0bb477e28e8e9fb9be4ef146c9508f",
+    "ok": false,
+    "remedy": "The file was changed outside the app and is not trusted. Create a new version from it (POST /api/datasets/ds_d2926b37/adopt-disk-file with by and reason), and restore v1's file from an export or backup.",
+    "splits": [
+     {
+      "file": "splits/random-stratified__churn-bafb5b68.json",
+      "now": "dce239d05b39486ae787669efd834d0ab7a385379fd64a862045149de27f4e01",
+      "status": "ok",
+      "stored": "dce239d05b39486ae787669efd834d0ab7a385379fd64a862045149de27f4e01"
+     }
+    ],
+    "splits_sha256": "a3ed87f7f1f3f2f4ca8aaeac84c48fd4fca9829cb01fc2c8405680676fe00d8a",
+    "status": "MISMATCH",
+    "stored": "b3688d99101edfe54dc6729cd0a3cda84828f767fffa456c1ef39fb8d3475f93",
+    "v": 1
+   }
+  ],
+  "root_id": "ds_d2926b37"
+ },
+ "status": 200
+}

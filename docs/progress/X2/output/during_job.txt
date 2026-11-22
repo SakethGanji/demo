@@ -1,0 +1,9 @@
+[  0.0s] migrate job 202
+[  0.2s] edit SQL refresh v2 (not migrated yet) 500 Internal Server Error
+[  0.6s] edit accounts v3 (not migrated yet, has a row map) 201 {"id":"ds_32e028aa","name":"accounts","filename":"data.parquet","source":"upload","sample":false,"note":"Edited ds_28492196 as v7: 2 row(s) by id","created_at":"2026-11-21T23:17:44+00:00","size_bytes"
+[  2.8s] POST /runs ds_3d74a646 y → 201 {"id":"run_feab2003","name":"x2 concurrent y","dataset_id":"ds_3d74a646","label":"y","status":"queued","created_at":"2026-11-21T23:17:47+00:00","started_at":null,"finished_at":null,"error":null,"confi
+[ 27.0s] edit loans v1 (migrated, job still running) 201 {"id":"ds_b3bbb83e","name":"loans","filename":"data.parquet","source":"upload","sample":false,"note":"Edited ds_3d74a646 as v7: set 1 cell(s) in 1 row(s)","crea
+[ 55.5s] POST /runs ds_28492196 active → 201 {"id":"run_a3703b79","name":"x2 concurrent active","dataset_id":"ds_28492196","label":"active","status":"queued","created_at":"2026-11-21T23:18:39+00:00","started_at":null,"finished_at":null,"error":n
+[ 86.0s] job finished {'job_id': 'jb_95bbd7a9211d', 'by': 'Ada', 'started_at': '2026-11-21T23:17:44+00:00', 'total': 36, 'done': 36, 'migrated': 36, 'skipped': 0, 'failed': 0, 'current': None, 'status': 'finished', 'finished_at': '2026-11-21T23:19:09+00:00'}
+[ 86.0s] rL1c succeeded 
+[ 86.1s] rA3c succeeded 

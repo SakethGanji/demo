@@ -1,0 +1,66 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "card-transactions",
+    "now": "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "f10f2a8bd5c9dd8c1cf250401f01bb1c004921acba310e6dd415b8adc8820981",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/1a/1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10.csv",
+      "csv_reproducible": true,
+      "now": "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__merchant-category-0fc06b01.json",
+        "recorded": null,
+        "sha256": "8bc58da4c1ff1630cc6c289364f4898c2e4acad84952508c59f9a2264678bd4a",
+        "split_id": "spl_29e223f31a6c",
+        "split_sha256": "9805718c97f8e55d607469dc8db1db048c110013aba4b3cf92611babcb28bed7"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "9258d9a2ceb79e15819c391169c5b45955cd4463d15009af12897cce4d8cad03",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10"
+     },
+     "manifest_sha256": "8c57035ea76c104641e3962edd13672f2a4777f89a66fef7a909dd52afeef094",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_29e223f31a6c",
+       "split_key": "random-stratified__merchant-category-0fc06b01",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "1afff122dfddc617dd8a7ec86b43524917cc0b869df3be1144e3e50e98f42d10",
+    "v": 1
+   }
+  ],
+  "root_id": "card-transactions"
+ },
+ "status": 200
+}

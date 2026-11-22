@@ -1,0 +1,66 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "personal-loans",
+    "now": "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "storage": {
+     "data_ok": true,
+     "data_sha256": "d87131a9c7f57a99cf257e8031dc4099e2a520c2d572cce0d76a0bcd9668d13c",
+     "files": [
+      {
+       "part": 0,
+       "status": "ok",
+       "table": "data"
+      }
+     ],
+     "kind": "parquet",
+     "legacy": {
+      "blob": "blobs/4f/4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909.csv",
+      "csv_reproducible": true,
+      "now": "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909",
+      "read": "pd.read_csv",
+      "root_rows_source": "root",
+      "splits": [
+       {
+        "file": "splits/random-stratified__defaulted-883cb8a7.json",
+        "recorded": null,
+        "sha256": "156f7f7579a46987c9cc680aac3a13fc4ac17b76048124e161b2eb4c72910f77",
+        "split_id": "spl_5d092919ba0c",
+        "split_sha256": "d61dff86b153f6c7f9d82bdc4400debeb0e4125afd0e586de22f5909d813d3f2"
+       },
+       {
+        "file": "splits.json",
+        "recorded": null,
+        "sha256": "607ec882b4218df98d8bd667058baf2a5cede887b094d4a87f7f2f607358c010",
+        "split_id": null,
+        "split_sha256": null
+       }
+      ],
+      "stored": "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909"
+     },
+     "manifest_sha256": "80a191f548c744e8f682834c13a1bc6892558f668a62147daa18e32551cc35b7",
+     "problems": [],
+     "splits": [
+      {
+       "failed": [],
+       "id": "spl_5d092919ba0c",
+       "split_key": "random-stratified__defaulted-883cb8a7",
+       "status": "ok"
+      }
+     ]
+    },
+    "stored": "4fedb219d11737b6923bea446b5809baa6abf1d73da22734a363b0eedea01909",
+    "v": 1
+   }
+  ],
+  "root_id": "personal-loans"
+ },
+ "status": 200
+}

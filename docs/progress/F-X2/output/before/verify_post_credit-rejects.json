@@ -1,0 +1,20 @@
+{
+ "body": {
+  "ok": true,
+  "results": [
+   {
+    "data_ok": true,
+    "id": "credit-rejects",
+    "now": "59d61b5af3f48fa7cfc365be893eced7344974469e0d17e976788eb41fd59ca0",
+    "ok": true,
+    "splits": [],
+    "splits_sha256": null,
+    "status": "ok",
+    "stored": "59d61b5af3f48fa7cfc365be893eced7344974469e0d17e976788eb41fd59ca0",
+    "v": 1
+   }
+  ],
+  "root_id": "credit-rejects"
+ },
+ "status": 200
+}

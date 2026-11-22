@@ -14,6 +14,13 @@ scikit-learn==1.9.1
 # pyarrow is pinned at 24.0.0, the version the lock already resolved through autogluon (the plan's benchmarks use it).
 duckdb==2.0.1
 pyarrow==24.0.0
+# P12 (R15, §11 item 5): Excel workbooks, one table per sheet. python-calamine reads them (a Rust wheel, typed cells);
+# openpyxl is the fallback when calamine is refused or cannot open a file (and what pandas.read_excel uses).
+python-calamine==0.9.1
+openpyxl==3.1.5
+# P10b: the S3 / MinIO blob store (lake/s3store.py). Already in the lock through autogluon; pinned here because the app
+# imports it directly. Credentials come from the AWS default chain, never from config files.
+boto3==1.44.5
 # P23: the Postgres metadata DB (ENSEMBLE_DB_URL=postgresql://…; SQLite stays the default for local dev)
 psycopg[binary]==3.3.9
 psycopg-pool==3.3.3

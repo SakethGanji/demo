@@ -1,0 +1,23 @@
+{
+ "body": {
+  "detail": "Run run_17eaa284's predictor was evicted by retention on 2026-11-21: re-fit from config (GET /api/runs/run_17eaa284/gym gives the body; POST /api/runs trains it again). Its scores, holdout predictions, leaderboard and journal are kept, so compare and the review still work.",
+  "evicted": {
+   "at": "2026-11-21T23:03:51+00:00",
+   "by": "Ada",
+   "bytes_freed": 20163693,
+   "kept": [
+    "config.json",
+    "result (database)",
+    "holdout_predictions.csv",
+    "leaderboard (result)",
+    "reviews/ (journal)",
+    "hashes"
+   ],
+   "predictor_path": "/tmp/claude-0/-home-user-demo/fb54c9b4-0cb1-5dc0-b2e7-3dd161ad39af/scratchpad/build/data/runs/run_17eaa284/predictor"
+  },
+  "predictor_state": "evicted",
+  "refit": "/api/runs/run_17eaa284/gym",
+  "run_id": "run_17eaa284"
+ },
+ "status": 410
+}

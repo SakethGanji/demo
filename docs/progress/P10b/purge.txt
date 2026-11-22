@@ -1,0 +1,6 @@
+put blobs/a9/a9661d5c3c7140845c4982308db10edf1c2cf5c7e1a3791c47530f2050994bbd.json | retention {'Mode': 'GOVERNANCE', 'RetainUntilDate': datetime.datetime(2026, 12, 21, 23, 8, 22, tzinfo=tzlocal())}
+without bypass: ObjectLocked blobs/a9/a9661d5c3c7140845c4982308db10edf1c2cf5c7e1a3791c47530f2050994bbd.json: 1 version(s) are under retention (governance: purge needs bypass_governance): [{
+still there: True
+with bypass: {'key': 'blobs/a9/a9661d5c3c7140845c4982308db10edf1c2cf5c7e1a3791c47530f2050994bbd.json', 'versions_removed': 1, 'bypass_governance': True} | still there: False
+audit 161 Ada blob_delete_refused | P10b demo: purge without the bypass | bypass 0 | row_hash 1b621b47ac79…
+audit 162 Ada blob_deleted | P10b demo: purge with the governance bypass | bypass 1 | row_hash 8679a9d4b24a…

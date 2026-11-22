@@ -34,16 +34,22 @@ _RESOLVE = {
 def with_team(request: Request, data: Any, which: str) -> Any:
     """Add the owning team to each row of a list response (rows whose owner is unknown are in tm_default: everything
     made before teams); in enforce mode keep only the caller's visible teams."""
-    from .deps import mode, principal, visible_teams
+    from ..catalog import shares
+    from .deps import mode, own_teams, principal, visible_teams
 
     spec = LISTS[which]
     if not isinstance(data, dict):
         return data
     app = request.app
-    enforce = mode() == "enforce"
+    m = mode()
+    enforce = m == "enforce"
     with app.state.db.connect() as con:
         refs = {r[0]: {"id": r[0], "slug": r[1], "name": r[2]} for r in con.execute("SELECT id, slug, name FROM teams")}
-        vis = visible_teams(con, principal(request)) if enforce else None
+        p = principal(request) if m != "off" else None
+        vis = visible_teams(con, p) if enforce else None
+        # P21: a row of a team that shares to the caller is shown only when a share covers that object (its scope)
+        own = own_teams(con, p) if m != "off" and p is not None else None
+        sharing = shares.sharing_teams(con, own) - own if own else set()
         for key, kind, field in spec:
             rows = [r for r in data.get(key) or [] if isinstance(r, dict)]
             ids = list({str(r.get(field)) for r in rows if r.get(field)})
@@ -55,9 +61,14 @@ def with_team(request: Request, data: Any, which: str) -> Any:
                 tid = owner.get(str(r.get(field))) or r.get("team_id") or DEFAULT_TEAM
                 r["team_id"] = tid
                 r["team"] = refs.get(tid)
+                if own is not None and tid not in own:
+                    kind_id = ("dataset", r.get("id")) if which in ("datasets", "search") else (kind, r.get(field))
+                    r["access"] = "shared" if tid in sharing and kind_id[1] and \
+                        shares.row_visible(con, own, kind_id[0], str(kind_id[1])) else "none"
             if vis is not None and isinstance(data.get(key), list):
                 before = len(data[key])
-                data[key] = [r for r in data[key] if not isinstance(r, dict) or r.get("team_id") in vis]
+                data[key] = [r for r in data[key] if not isinstance(r, dict) or r.get("team_id") in vis
+                             and r.get("access", "own") != "none"]
                 if isinstance(data.get("total"), int):
                     data["total"] -= before - len(data[key])
     if which == "registry":  # a model's team is that of its newest version (versions are listed newest first)
