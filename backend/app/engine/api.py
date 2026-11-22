@@ -42,7 +42,9 @@ LIST_LB_COLS = ("model", "family", "rank", "score_val", "score_test", "score_val
 class RunCreate(BaseModel):
     dataset_id: str
     table: str | None = Field(None, description="P12: the table of a multi-table version to train on (default: its "
-                                               "primary table). Joins of several tables are P14.")
+                                               "primary table).")
+    join_id: str | None = Field(None, description="P14: train on a saved join (POST /datasets/{root}/joins) applied to "
+                                                 "dataset_id: the run reads its join frame; the label is a grain column.")
     label: str | None = Field(None, description="Label column; defaults to the dataset's target.")
     name: str | None = None
     problem_type: ProblemType = "auto"
@@ -155,6 +157,8 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
     ref = frames.from_json(cfg.get("input_ref")) if cfg.get("input_ref") else None
     if isinstance(ref, frames.Table) and frames.is_parquet(ref) and "data_sha256_expected" not in cfg:
         _parquet_input(app, cfg, ref)
+    elif isinstance(ref, frames.JoinFrame) and "data_sha256_expected" not in cfg:
+        _join_input(app, cfg, ref)  # P14
     try:
         if cfg.get("csv_path") and not frames.is_parquet(dataset_id) and \
                 str(frames.path_of(frames.table(dataset_id))) == str(cfg["csv_path"]) and "data_sha256_expected" not in cfg:
@@ -177,6 +181,10 @@ def queue_run(app: Any, run_id: str, run_dir: Path, name: str, dataset_id: str, 
     (run_dir / "config.json").write_text(json.dumps(cfg, indent=1))
     store = app.state.runs
     store.create({"id": run_id, "name": name, "dataset_id": dataset_id, "label": label, "created_at": now(), "config": cfg})
+    if cfg.get("join"):  # P14: join_input rows, the cache pin, the join_frame -trained_on-> run edge
+        from ..catalog import joins as J
+
+        J.record_run(app.state.db, run_id, cfg, cfg.get("by") or "system")
     store.emit(run_id, "run_queued", **queued)
     app.state.runner.submit(run_id)
     return store
@@ -361,6 +369,8 @@ async def create_run(body: RunCreate, request: Request) -> dict[str, Any]:
 
 
 def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
+    if body.join_id:
+        return _create_join_run(body, request)
     if not body.table:
         return _create_run_on(body, request)
     # P12: a run on one table of a multi-table version: the profile, split, input ref and checks below name that table
@@ -383,6 +393,97 @@ def _create_run(body: RunCreate, request: Request) -> dict[str, Any]:
         raise HTTPException(400, str(e)) from e
     with frames.use_table(body.table):
         return _create_run_on(body, request, ds={**ds, "profile": prof, "target": prof.get("target")})
+
+
+def _create_join_run(body: RunCreate, request: Request) -> dict[str, Any]:
+    """P14 (§5.8): a run on a saved join applied to `dataset_id`. The frame is materialised (or found cached), profiled,
+    and read by the run (`input_ref {kind: join_frame}`); the split is the grain table's (the frame has exactly the
+    grain's rows and __row_ids), so the label is a grain column."""
+    from ..catalog import governance as G
+    from ..catalog import joins as J
+
+    app = request.app
+    ds = dataset_or_404(request, body.dataset_id)
+    who = (body.by or "").strip()[:80] or G.current_actor() or "unknown"
+    try:
+        j = J.get(app.state.db, body.join_id)
+        J.version_of_root(app.state.db, j["root_id"], body.dataset_id)
+        fr = J.frame(app.state.db, app.state.lake, body.join_id, body.dataset_id, who)
+    except J.JoinError as e:
+        raise HTTPException(e.status, e.payload) from e
+    grain = fr["grain_table"]
+    if body.table and body.table != grain:
+        raise HTTPException(400, {"code": "table_not_grain", "message": f"A run on join {j['name']!r} trains on its grain "
+                                  f"table {grain!r}; leave table out (or send {grain!r})."})
+    with app.state.db.connect() as con:
+        r = con.execute("SELECT schema_json FROM version_tables WHERE version_id = ? AND table_name = ?",
+                        (body.dataset_id, grain)).fetchone()
+    gcols = [c["name"] for c in json.loads(r[0])] if r else []
+    label = body.label or (ds.get("target") if grain == ds.get("primary_table") else None)
+    if not label:
+        raise HTTPException(400, f"Say which column of the grain table {grain!r} to predict (label).")
+    if label not in gcols:
+        raise HTTPException(400, {"code": "label_not_in_grain", "message": f"The label {label!r} is not a column of the grain "
+                                  f"table {grain!r}: the split (holdout) is drawn on the grain, so the label lives there."})
+    try:
+        prof = J.profile(app, fr, label)
+    except DatasetError as e:
+        raise HTTPException(400, str(e)) from e
+    b2 = body.model_copy(update={"table": grain, "label": label,
+                                 "name": body.name or f"{display_name(ds)} ⋈ {j['name']} · {label}"})
+    with frames.use_table(grain), frames.use_join(fr["id"]):
+        return _create_run_on(b2, request, ds={**ds, "profile": prof, "target": prof.get("target")})
+
+
+def _join_input(app: Any, cfg: dict[str, Any], ref: Any) -> None:
+    """P14: the expected hashes of a run on a join frame: its cache file's sha256 (what the worker's data gate compares
+    with the bytes it reads, recorded as read_sha256), every pinned input re-hashed now, and the grain's split gate."""
+    from ..catalog import dsets as DS
+    from ..catalog import joins as J
+    from ..catalog.schema import audit
+
+    fr = J.get_frame(app.state.db, ref.join_frame_id)
+    j = J.get(app.state.db, fr["join_id"])
+    lt = frames.lake_table(ref)
+    cfg["dataset_id"] = cfg.get("dataset_id") or fr["version_id"]
+    grain = frames.Table(cfg["dataset_id"], fr["grain_table"])
+    ins = J.check_inputs(app.state.db, fr)
+    cfg["data_sha256_expected"] = lt.table_sha256
+    cfg["input_table"] = {"version_id": cfg["dataset_id"], "table": fr["grain_table"], "table_sha256": lt.table_sha256,
+                          "n_rows": lt.n_rows, "parts": 1, "read_mode": "engine_v1", "join_frame_id": fr["id"]}
+    cfg["join"] = {"join_id": j["id"], "name": j["name"], "spec_version": j["spec_version"], "spec_sha256": j["spec_sha256"],
+                   "join_frame_id": fr["id"], "frame_sha256": fr["frame_sha256"], "cache_blob": fr["cache_blob"],
+                   "grain_table": fr["grain_table"], "n_rows": fr["n_rows"],
+                   "inputs": [{**{k: x[k] for k in ("version_id", "table", "table_sha256", "n_rows")},
+                               "now": next((c["now"] for c in ins if c["version_id"] == x["version_id"] and c["table"] == x["table"]), None)}
+                              for x in fr["inputs"]]}
+    if (cfg.get("split") or {}).get("split_id"):
+        _split_gate(app, cfg, grain)
+    elif cfg.get("splits_path"):
+        st = app.state.datasets
+        rel = st.split_rel(grain.version_id, cfg["splits_path"])
+        cfg["splits_file"] = rel
+        cfg["splits_sha256_expected"] = st.split_hashes(grain.version_id).get(rel)
+    if not cfg.get("data_version_label"):
+        with app.state.db.connect() as con:
+            v = next((r["v"] for r in DS.tree_rows(con, DS.root_of(con, grain.version_id)) if r["id"] == grain.version_id), None)
+        cfg["data_version_label"] = (f"v{v} ({grain.version_id})" if v else grain.version_id) + f" ⋈ {j['name']}"
+    read, exp, _bad = frames.hash_table(ref)
+    bad = [x for x in ins if not x["ok"]]
+    if read == exp and not bad:
+        return
+    what = ([f"the frame's cache file ({exp[:12]}… recorded, {str(read)[:12]}… now)"] if read != exp else []) + \
+        [f"table {x['table']} of {x['version_id']} ({x['pinned'][:12]}… pinned, {str(x['now'])[:12]}… now)" for x in bad]
+    with app.state.db.connect() as con:
+        audit(con, "system:run-queue hash", "dataset_integrity_failed",
+              details={"dataset_id": grain.version_id, "join_frame_id": fr["id"], "what": what, "at": "run queued"})
+        if not (cfg.get("data_integrity_override") or {}).get("by"):
+            audit(con, cfg.get("by") or "unknown", "training_refused", comment="join frame inputs differ",
+                  details={"dataset_id": grain.version_id, "join_frame_id": fr["id"], "what": what, "status": 409})
+    if (cfg.get("data_integrity_override") or {}).get("by"):
+        return
+    raise HTTPException(409, {"code": "data_integrity", "message": "The join frame no longer reads what it was made from: "
+                              + "; ".join(what) + ". The run was refused.", "join_frame_id": fr["id"]})
 
 
 def _create_run_on(body: RunCreate, request: Request, ds: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -98,13 +98,39 @@ def usage(con, ids: list[str]) -> dict[str, Any]:
     DL2 (B1): driven by lineage_edges with LEFT JOINs, so a deleted run row can't hide the version or champion built
     from it (a run whose row is gone shows as status 'deleted')."""
     if not ids:
-        return {"runs": [], "versions": [], "champions": []}
+        return {"runs": [], "versions": [], "champions": [], "join_frames": []}
     q = ",".join("?" * len(ids))
     runs = [dict(r) for r in con.execute(
         "SELECT e.dst_id AS id, e.src_id AS dataset_id, r.name, COALESCE(r.status, 'deleted') AS status, r.label,"
         " COALESCE(r.created_at, e.created_at) AS created_at, r.source, r.primary_metric, r.primary_score, r.predictor_state"
         f" FROM lineage_edges e LEFT JOIN runs r ON r.id = e.dst_id WHERE e.relation = 'trained_on' AND e.src_kind = 'dataset'"
         f" AND e.src_id IN ({q}) ORDER BY created_at DESC", ids)]
+    # P14: a run on a join reads every input version through its join frame (dataset -joined_from/merged_from-> join_frame
+    # -trained_on-> run): those runs use the input versions too, so they show here and block like any other run
+    jfs = [dict(r) for r in con.execute(
+        "SELECT e.dst_id AS id, e.src_id AS dataset_id, e.relation, e.meta FROM lineage_edges e WHERE e.src_kind = 'dataset'"
+        f" AND e.dst_kind = 'join_frame' AND e.relation IN ('joined_from', 'merged_from') AND e.src_id IN ({q})", ids)]
+    for f in jfs:
+        f["tables"] = [t.get("table") for t in (_j(f.pop("meta")) or {}).get("tables") or []]
+    if jfs:
+        fq = ",".join("?" * len(jfs))
+        seen = {r["id"] for r in runs}
+        via = {}
+        for f in jfs:
+            via.setdefault(f["id"], f)
+        for r in con.execute(
+                "SELECT e.dst_id AS id, e.src_id AS join_frame_id, r.name, COALESCE(r.status, 'deleted') AS status, r.label,"
+                " COALESCE(r.created_at, e.created_at) AS created_at, r.source, r.primary_metric, r.primary_score, r.predictor_state"
+                " FROM lineage_edges e LEFT JOIN runs r ON r.id = e.dst_id WHERE e.relation = 'trained_on'"
+                f" AND e.src_kind = 'join_frame' AND e.dst_kind = 'run' AND e.src_id IN ({fq})", [f["id"] for f in jfs]):
+            r = dict(r)
+            if r["id"] in seen:
+                continue
+            seen.add(r["id"])
+            f = via[r["join_frame_id"]]
+            runs.append({**r, "dataset_id": f["dataset_id"], "via_join": {"join_frame_id": f["id"], "tables": f["tables"],
+                                                                         "relation": f["relation"]}})
+        runs.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
     rids = [r["id"] for r in runs]
     vers, champs = [], []
     if rids:
@@ -130,7 +156,7 @@ def usage(con, ids: list[str]) -> dict[str, Any]:
     for c in champs:
         c["run_id"] = c.get("run_id") or run_of.get(c["version_id"])
         c["dataset_id"] = ds_of.get(c["run_id"])
-    return {"runs": runs, "versions": vers, "champions": champs}
+    return {"runs": runs, "versions": vers, "champions": champs, "join_frames": jfs}
 
 
 def _days_since(ts: str | None) -> float | None:
@@ -505,7 +531,9 @@ def _guard(con, root: str, targets: list[dict[str, Any]], whole: bool, what: str
     if what == "delete" and not ack:  # DL4 (m-h): a succeeded run trained on it would lose the data it was trained on
         users = _run_users(con, ids)
         if users:
-            bad += [f"run {r['id']} ({r.get('name') or 'unnamed'}, succeeded) was trained on {r['dataset_id']}: deleting the data makes it "
+            bad += [f"run {r['id']} ({r.get('name') or 'unnamed'}, succeeded) was trained on {r['dataset_id']}"
+                    + (f" (table {', '.join(r['via_join']['tables'])} through join frame {r['via_join']['join_frame_id']})" if r.get("via_join") else "")
+                    + ": deleting the data makes it "
                     "irreproducible. Delete the run, or retire the model built from it, or send "
                     '"irreproducible": {"reason": "…"} with the delete to accept that (four eyes, audited).' for r in users[:20]]
             if len(users) > 20:
