@@ -1,0 +1,2 @@
+  [autopilot credit-default (12k rows), API tree] 161.1 s | peak single process 0.82 GB (/home/user/demo/backend/.venv/bin/python -m app.engine.worke) | peak tree sum 4.91 GB
+status finished | inbox items 0 | keys ['id', 'created_at', 'status', 'brief', 'steps', 'decisions', 'log', 'dataset_versions', 'facts', 'verdict', 'error', 'current', 'updated_at', 'truth_dataset', 'primary']

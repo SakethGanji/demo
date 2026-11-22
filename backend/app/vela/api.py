@@ -242,7 +242,10 @@ def _next_steps(request: Request, rec: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         from .. import frames
 
-        found = intake(frames.read(frames.table(rec["dataset_id"])))
+        from .rows import sample_table
+
+        # F-X5a (X5 K2): Smart Intake reads a big table as a splitmix64 sample of ENSEMBLE_DOCTOR_ROWS rows
+        found = intake(sample_table(frames.table(rec["dataset_id"])))
     except Exception:  # noqa: BLE001 — a deleted or unreadable dataset: no suggestions rather than no diagnosis
         found = None
     reg = request.app.state.registry

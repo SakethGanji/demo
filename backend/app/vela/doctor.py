@@ -46,7 +46,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .. import frames
+from .. import config
 from ..engine.store import now
 from ..stats import wilson
 
@@ -136,15 +136,17 @@ def _confidence(hp: pd.DataFrame, top: float = 0.2) -> dict[str, Any] | None:
     return out
 
 
-def _fit_gap(cfg: dict[str, Any], rec: dict[str, Any], hp: pd.DataFrame | None) -> dict[str, Any]:
+def _fit_gap(cfg: dict[str, Any], rec: dict[str, Any], hp: pd.DataFrame | None, b: Any = None) -> dict[str, Any]:
     """The run's metric on its training rows and on its holdout, both through `predictor.evaluate` (the same
-    threshold and sign), and the holdout's bootstrap SE (Vela's)."""
+    threshold and sign), and the holdout's bootstrap SE (Vela's). F-X5a: on a big table, on the bounded sample
+    (`vela.rows`), the SE scaled to the whole holdout."""
     from ..engine.pool import load_predictor
+    from . import rows as R
     from .findings import bootstrap_se
 
     p = load_predictor(cfg["predictor_path"])
-    sp = json.loads(Path(cfg["splits_path"]).read_text())
-    df = frames.read(frames.resolve(cfg))
+    b = b or R.load(cfg, hp)
+    sp, df, hp = b.sp, b.df, b.hp
     label = cfg["label"]
     fold = np.asarray(sp["fold"])
     drop = [c for c in (cfg.get("drop_columns") or []) if c in df.columns and c != label]
@@ -157,11 +159,15 @@ def _fit_gap(cfg: dict[str, Any], rec: dict[str, Any], hp: pd.DataFrame | None) 
     s_tr = float(p.evaluate(tr, silent=True, auxiliary_metrics=False)[name])
     s_ho = float(p.evaluate(ho, silent=True, auxiliary_metrics=False)[name])
     se = bootstrap_se(rec, hp) if hp is not None and len(hp) >= 30 else None
+    if se is not None:
+        se *= b.se_scale()
     gap = s_tr - s_ho  # internal sign: higher is better, so a positive gap means training looks better
     return {"metric": name, "greater_is_better": bool(p.eval_metric.greater_is_better), "train": s_tr, "holdout": s_ho,
             "gap": gap, "se": se, "z": (gap / se) if se else None, "n_train": int(len(tr)), "n_holdout": int(len(ho)),
             "method": "predictor.evaluate on the training rows (folds ≥ 0) and on the holdout; scores in AutoGluon's "
-                      "higher-is-better sign; SE = holdout bootstrap (B = 200)"}
+                      "higher-is-better sign; SE = holdout bootstrap (B = 200)"
+                      + (f"; {b.info['method']}" if b.sampled else ""),
+            **({"sample": b.info} if b.sampled else {})}
 
 
 def _slice_floors(cfg: dict[str, Any], hp: pd.DataFrame, problem_type: str) -> list[dict[str, Any]]:
@@ -209,17 +215,23 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
     """(Runs in a worker.) Everything the doctor measures itself. Each part fails alone."""
     from .findings import holdout_frame
 
+    from . import rows as R
+
     res = rec.get("result") or {}
     pt = res.get("problem_type")
     hp = holdout_frame(rec)
     out: dict[str, Any] = {"errors": []}
+    b = None
     try:
-        out["fit"] = _fit_gap(cfg, rec, hp)
+        b = R.load(cfg, hp)  # F-X5a (X5 K2): a big table → a bounded sample, never the whole table
+        if b.sampled:
+            out["sample"] = b.info
+        out["fit"] = _fit_gap(cfg, rec, hp, b)
     except Exception as e:  # noqa: BLE001
         out["errors"].append(f"fit gap: {type(e).__name__}: {e}"[:300])
     if hp is not None and pt in ("binary", "multiclass"):
         try:
-            out["confidence"] = _confidence(hp)
+            out["confidence"] = _confidence(b.hp if b is not None and b.sampled else R.bound_hp(hp, config.doctor_rows()))
         except Exception as e:  # noqa: BLE001
             out["errors"].append(f"confidence: {type(e).__name__}: {e}"[:300])
     if hp is not None:
@@ -231,10 +243,15 @@ def measure(cfg: dict[str, Any], rec: dict[str, Any]) -> dict[str, Any]:
 
 
 def twin_se(rec: dict[str, Any]) -> float | None:
+    from . import rows as R
     from .findings import bootstrap_se, holdout_frame
 
     hp = holdout_frame(rec)
-    return bootstrap_se(rec, hp) if hp is not None and len(hp) >= 30 else None
+    if hp is None or len(hp) < 30:
+        return None
+    hb = R.bound_hp(hp, config.doctor_rows())  # F-X5a: a bounded sample, the SE scaled to all rows
+    se = bootstrap_se(rec, hb)
+    return None if se is None else se * float(np.sqrt(len(hb) / len(hp)))
 
 
 def cache_key(rec: dict[str, Any]) -> str:

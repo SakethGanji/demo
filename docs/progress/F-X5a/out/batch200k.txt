@@ -1,0 +1,5 @@
+batch batch_9df5834d (200,000 rows, model mv_603ba63b): succeeded 200000 done None
+first: 07:26:25 queued | queued max_rss_gb=.20
+last: 07:56:24 running | reason codes 68,400 / 84,903 adverse row max_rss_gb=1.06
+peak (largest workerd process, incl. a concurrent build 07:27-07:40): 07:31:24 running | reason codes 10,300 / 84,903 adverse row max_rss_gb=2.48
+peak after 07:41 (batch alone): 07:42:13 running | reason codes 34,300 / 84,903 adverse row max_rss_gb=1.35

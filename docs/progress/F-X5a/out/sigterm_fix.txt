@@ -1,0 +1,4 @@
+pool children busy: cpu ticks 865 in 4 s; requests open: ['/api/runs/run_f82490e0/feature-importance?shuffles=50', '/api/runs/run_f82490e0/feature-importance?shuffles=49']
+SIGTERM sent
+API exited after 10.2 s
+requests: {"/api/runs/run_f82490e0/feature-importance?shuffles=50": ["RemoteDisconnected", "Remote end closed connection without response", 14.2], "/api/runs/run_f82490e0/feature-importance?shuffles=49": ["RemoteDisconnected", "Remote end closed connection without response", 14.2]}

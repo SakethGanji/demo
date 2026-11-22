@@ -114,6 +114,14 @@ def read_batch(path: str | Path, cfg: dict[str, Any] | None, columns: Any = None
 
 
 def _train_frame(cfg: dict[str, Any], features: list[str]) -> pd.DataFrame:
+    """The training rows' features: the reference of the batch's PSI, the column types the batch is coerced to and the
+    reason codes' background. F-X5a (X5: a 20k-row batch on a 10M-row model peaked at 9 GB in `loading` and 12 GB in the
+    reason codes' set-up, OOM-killed): above ENSEMBLE_DOCTOR_ROWS a splitmix64 sample of 200,000 training rows."""
+    from ..engine import serving
+
+    big = serving.bounded_train(cfg, features)
+    if big is not None:
+        return big
     df = frames.read(frames.resolve(cfg))
     splits = json.loads(Path(cfg["splits_path"]).read_text())
     is_h = holdout_mask(splits, len(df))
@@ -465,7 +473,11 @@ def score_flow_batch(db_path: str, batch_id: str, kind: str, version_path: str, 
         df = read_batch(csv_path, cfg)
         if len(df) == 0:
             raise ValueError("The file has no rows.")
-        train = frames.read(frames.resolve(cfg))
+        from ..engine import serving as _sv
+
+        train = _sv.bounded_train(cfg, frames.column_names(frames.resolve(cfg)))  # F-X5a: a sample above DOCTOR_ROWS
+        if train is None:
+            train = frames.read(frames.resolve(cfg))
         out_path = out_dir_p / "scored.csv"
         reg.update_batch(batch_id, n_rows=len(df), stage="scoring", progress=0.2)
         if kind == "survival":  # G6: risk score, risk group and Ŝ(τ) per row; PSI of the inputs and of the risk score

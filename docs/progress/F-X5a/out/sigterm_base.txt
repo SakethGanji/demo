@@ -1,0 +1,4 @@
+pool children busy: cpu ticks 899 in 4 s; requests open: ['/api/runs/run_f82490e0/feature-importance?shuffles=50', '/api/runs/run_f82490e0/feature-importance?shuffles=49']
+SIGTERM sent
+API exited after 43.4 s
+requests: {"/api/runs/run_f82490e0/feature-importance?shuffles=49": [200, 46.4], "/api/runs/run_f82490e0/feature-importance?shuffles=50": [200, 47.3]}

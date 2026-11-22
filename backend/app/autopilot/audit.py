@@ -14,8 +14,8 @@ model's own prediction for holdout rows (never trained on). Three kinds of issue
 - outlier  cleanlab `OutOfDistribution` on the embeddings (mean k-NN distance), the lowest 0.3 %. Suggestion: skip
            unless the label is also in doubt.
 
-Embeddings: TF-IDF (1–2-grams) → 64-d truncated SVD of the text columns, plus standardised numbers and one-hot
-categories; L2-normalised.
+Embeddings: TF-IDF (1–2-grams) → 64-d truncated SVD of the text columns, plus standardised numbers and one-hot (F-X5a: at most
+30 levels per column, ID-like columns left out) categories; L2-normalised.
 """
 
 from __future__ import annotations
@@ -28,6 +28,11 @@ import numpy as np
 import pandas as pd
 
 from .. import frames
+
+#: F-X5a: most frequent values one-hot encoded per category column in the embedding (the rest share one "other" level)
+CAT_LEVELS = 30
+#: F-X5a: sklearn working memory (MB) for the audit's pairwise-distance chunks
+AUDIT_WORKING_MB = 128
 
 
 def _embed(df: pd.DataFrame, text_cols: list[str], num_cols: list[str], cat_cols: list[str]) -> np.ndarray:
@@ -45,8 +50,22 @@ def _embed(df: pd.DataFrame, text_cols: list[str], num_cols: list[str], cat_cols
         N = (N - N.mean()) / N.std(ddof=0).replace(0, 1)
         parts.append(N.fillna(0).to_numpy() * (0.5 if text_cols else 1.0))
     if cat_cols:
-        parts.append(pd.get_dummies(df[cat_cols].astype(str), dtype=float).to_numpy() * (0.3 if text_cols else 0.7))
-    E = np.hstack(parts) if parts else np.zeros((len(df), 1))
+        # F-X5a (X5 J3): one-hot of every category column made a dense n × (distinct values) matrix: on credit-default
+        # (12k rows) applicant_id, customer_id and application_date alone gave ≈ 21k columns (2 GB), copied several times
+        # by the scaling, the k-NN and cleanlab's OutOfDistribution, so the audit was OOM-killed at ≥ 10 GB. ID-like
+        # columns (distinct values > half the rows) carry no similarity and are left out; the others keep their
+        # CAT_LEVELS most frequent values, the rest one "other" level. Width ≤ CAT_LEVELS + 1 per column.
+        cats = {}
+        for c in cat_cols:
+            v = df[c].astype(str)
+            vc = v.value_counts()
+            if len(vc) > max(CAT_LEVELS, 0.5 * len(v)):
+                continue
+            top = set(vc.index[:CAT_LEVELS])
+            cats[c] = v.where(v.isin(top), "\x00other")
+        if cats:
+            parts.append(pd.get_dummies(pd.DataFrame(cats), dtype=np.float32).to_numpy() * (0.3 if text_cols else 0.7))
+    E = np.hstack(parts).astype(np.float64) if parts else np.zeros((len(df), 1))
     return E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-12)
 
 
@@ -59,6 +78,18 @@ def _text_of(row: pd.Series, text_cols: list[str], other: list[str]) -> dict[str
 def audit(csv_path: str, label: str, feature_cols: list[str], text_cols: list[str], num_cols: list[str],
           cat_cols: list[str], classes: list[str], rows: list[int], proba: list[list[float]], holdout_rows: list[int],
           max_label_items: int = 400) -> dict[str, Any]:
+    """F-X5a (X5 J3): sklearn's pairwise distances (the cosine k-NN, cleanlab's OutOfDistribution) run in chunks of
+    AUDIT_WORKING_MB (sklearn's default is 1 GB per chunk: 2.5 GB on 12k rows); the same neighbours, bounded memory."""
+    import sklearn
+
+    with sklearn.config_context(working_memory=AUDIT_WORKING_MB):
+        return _audit(csv_path, label, feature_cols, text_cols, num_cols, cat_cols, classes, rows, proba, holdout_rows,
+                      max_label_items)
+
+
+def _audit(csv_path: str, label: str, feature_cols: list[str], text_cols: list[str], num_cols: list[str],
+           cat_cols: list[str], classes: list[str], rows: list[int], proba: list[list[float]], holdout_rows: list[int],
+           max_label_items: int = 400) -> dict[str, Any]:
     from cleanlab.filter import find_label_issues
     from cleanlab.outlier import OutOfDistribution
     from cleanlab.rank import get_label_quality_scores

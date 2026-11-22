@@ -35,7 +35,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .. import frames
+from .. import config, frames
 from ..db import Database
 from ..engine.jsonsafe import jsonable
 from ..engine.store import RunStore
@@ -157,25 +157,36 @@ def metrics_with_ci(hp: pd.DataFrame, problem_type: str, positive: Any, classes:
     yp = hp["y_pred"].astype(str).to_numpy() if problem_type != "regression" else hp["y_pred"].to_numpy(dtype=float)
     P = hp[[f"p_{c}" for c in classes]].to_numpy(dtype=float) if classes else None
     fns = _metric_fns(problem_type, pos, classes)
-    rng = np.random.default_rng(seed)
     n = len(hp)
-    idx = rng.integers(0, n, size=(B, n))
+    # F-X5a: the resample indices were one (B, n) array (500 × 2M rows = 8 GB at 10M). They are drawn per resample now
+    # (the same stream, so the same intervals); above ci_rows() each resample has m = ci_rows() rows and the interval
+    # around the point estimate is scaled by √(m / n) (m-out-of-n bootstrap), with B ≤ 200.
+    m = n if n <= config.ci_rows() else config.ci_rows()
+    if m < n:
+        B = min(B, 200)
+    scale = float(np.sqrt(m / n)) if n else 1.0
     out = {}
     for name, (formula, fn) in fns.items():
         try:
             point = float(fn(y, yp, P))
         except Exception:  # noqa: BLE001
             continue
+        rng = np.random.default_rng(seed)  # every metric sees the same resamples (as with the one array)
         boots = []
         for b in range(B):
-            i = idx[b]
+            i = rng.integers(0, n, size=m)
             try:
                 boots.append(float(fn(y[i], yp[i], P[i] if P is not None else None)))
             except Exception:  # noqa: BLE001 — a resample with one class
                 pass
+        if boots and m < n:
+            boots = [point + (v - point) * scale for v in boots]
         lo, hi = (float(np.percentile(boots, 2.5)), float(np.percentile(boots, 97.5))) if boots else (None, None)
         out[name] = {"value": point, "ci_low": lo, "ci_high": hi, "formula": formula, "B": len(boots)}
-    return {"metrics": out, "n": n, "B": B, "seed": seed, "method": "percentile bootstrap over holdout rows, 95%"}
+    return {"metrics": out, "n": n, "B": B, "seed": seed,
+            "method": "percentile bootstrap over holdout rows, 95%" if m == n else
+                      f"m-out-of-n percentile bootstrap, 95%: resamples of m = {m:,} of the {n:,} holdout rows, deviations "
+                      f"from the point estimate scaled by √(m/n) = {scale:.4f}", **({"m": m} if m < n else {})}
 
 
 # --------------------------------------------------------------------------- the build
@@ -242,7 +253,25 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                 step("parity", "failed", summary=parity["summary"][:500])
                 raise ParityError(parity)
             step("parity", "done", summary=parity["summary"], seconds=parity["seconds"])
-        holdout = serving.holdout_frame(frames.resolve(cfg), load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
+        # F-X5a (X5 K1): a run on a big Parquet table never has its table read here. Its holdout rows are located by
+        # __row_id (two columns read), a bounded splitmix64 sample of them is held in memory (latency, distillation,
+        # the monotone / quantile checks), and every holdout row is scored in batches below.
+        ref = frames.resolve(cfg)
+        rows = None
+        if serving.parquet_ref(ref) and frames.lake_table(ref).n_rows > config.doctor_rows():
+            step("holdout", "running")
+            t0 = time.time()
+            rows = serving.RunRows(cfg, ref)
+            hold_ids = rows.holdout_ids()
+            hold_cols = rows.columns(cfg["drop_columns"])
+            keep = serving.keep_at_most(hold_ids, config.build_holdout_rows(), rows.seed, 1)
+            holdout = rows.read(hold_ids[keep], hold_cols)
+            holdout = holdout[holdout[cfg["label"]].notna()]
+            step("holdout", "done", seconds=time.time() - t0, rows=int(len(hold_ids)), in_memory=int(len(holdout)),
+                 how=f"{len(hold_ids):,} holdout rows located by __row_id in a {rows.n_rows:,}-row table; "
+                     f"{len(holdout):,} held in memory (splitmix64 sample), every row scored in batches")
+        else:
+            holdout = serving.holdout_frame(ref, load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
         X = holdout.drop(columns=[cfg["label"]])
 
         step("clone", "running")
@@ -474,11 +503,25 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                    "batches": fastpath.batches(fastpath.predict_fn(final), X), "pipeline": prune_info,
                    "cpus": os.cpu_count(), "where": "the build's worker process, after load + persist + one warm-up call"}
         lat_ver["single_ms_p50"], lat_ver["single_ms_p95"], lat_ver["single_calls"] = served["ms_p50"], served["ms_p95"], served["calls"]
-        from ..engine.worker import holdout_prediction_frame
+        from ..engine.worker import holdout_prediction_frame, holdout_result
 
-        hp = holdout_prediction_frame(final, holdout, cfg["label"])
-        hp.to_csv(vdir / "holdout_predictions.csv", index=False)
-        if parity is not None:  # P15: the version's predictions on the serving frame = on the training frame
+        hold = None
+        if rows is None:
+            hp = holdout_prediction_frame(final, holdout, cfg["label"])
+            hp.to_csv(vdir / "holdout_predictions.csv", index=False)
+        else:  # F-X5a: every holdout row, in batches read by __row_id (P11's batched scoring), written batch by batch
+            from ..lake import frame as LF
+
+            res_h, scored = LF.score_holdout(final, rows.batches(hold_ids, hold_cols), cfg["label"],
+                                             vdir / "holdout_predictions.csv", holdout_prediction_frame)
+            hold = holdout_result(final, res_h["scores"], res_h["y_true"], res_h["y_pred"], cfg["label"],
+                                  scored={**scored, "of": int(len(hold_ids)), "in_memory": int(len(holdout))})
+            del res_h
+            hp = _read_hp(vdir / "holdout_predictions.csv", final.problem_type)
+        if parity is not None and rows is not None:  # P15 at scale: the serving frame's holdout rows, in batches
+            parity["predictions"] = prediction_parity_batched(final, hp, vdir / "parity" / "serving_frame.parquet",
+                                                              hold_ids, hold_cols, rows, cfg["label"])
+        elif parity is not None:  # P15: the version's predictions on the serving frame = on the training frame
             parity["predictions"] = prediction_parity(final, holdout, hp, vdir / "parity" / "serving_frame.parquet",
                                                       load_splits(Path(cfg["splits_path"])), cfg["label"], cfg["drop_columns"])
             if parity["predictions"]["status"] != "ok":
@@ -494,7 +537,8 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
                              list(final.class_labels) if final.class_labels is not None else None)
         from ..engine.worker import holdout_metrics
 
-        hold = holdout_metrics(final, holdout, cfg["label"])
+        if hold is None:
+            hold = holdout_metrics(final, holdout, cfg["label"])
         src_hp = Path(cfg["run_dir"]) / "holdout_predictions.csv"
         src_ci = metrics_with_ci(frames.read_artifact(src_hp), final.problem_type,
                                  final.positive_class if final.problem_type == "binary" else None,
@@ -600,6 +644,16 @@ def build_version(db_path: str, version_id: str, registry_dir: str) -> dict[str,
         return {"ok": False, "error": str(e)}
 
 
+def _head(cfg: dict[str, Any]) -> pd.DataFrame:
+    """F-X5a (X5 K1): the rows a build_other latency measurement scores (it uses ≤ 2,000 of them; anomaly scores all it
+    gets): the whole table up to doctor_rows(), else its first build_holdout_rows() rows, read without the rest."""
+    ref = frames.resolve(cfg)
+    n = frames.n_rows(ref)
+    if n <= config.doctor_rows():
+        return frames.read(ref)
+    return frames.read(ref, rows=range(0, config.build_holdout_rows()))
+
+
 def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, Any]:
     """A forecast (TimeSeriesPredictor) or anomaly (IsolationForest pipeline) run as a version: copy the model folder,
     measure its own scoring latency on the run's data, hash, register in MLflow. No refit or infer_limit (they are
@@ -663,7 +717,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "expected_loss":  # G3: the three predictors and meta.json, scored together
             from ..el import core as elc
 
-            df = frames.read(frames.resolve(cfg))
+            df = _head(cfg)
             elc.score_rows(str(dest), df.head(50).to_dict(orient="records"))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -686,7 +740,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "survival":  # G6: the design, Cox PH and the forest (joblib) and meta.json; the chosen one serves
             from ..survival import core as svc
 
-            df = frames.read(frames.resolve(cfg))
+            df = _head(cfg)
             svc.score_rows(str(dest), df.head(50))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -709,7 +763,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "multilabel":  # G8: one predictor per label and meta.json (labels, thresholds); scored together
             from ..multilabel import core as mlc
 
-            df = frames.read(frames.resolve(cfg))
+            df = _head(cfg)
             mlc.score_rows(str(dest), df.head(50))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -731,7 +785,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         elif kind == "segmented":  # G5: the global and segment predictors and meta.json, routed per row
             from ..segmented import core as sgc
 
-            df = frames.read(frames.resolve(cfg))
+            df = _head(cfg)
             sgc.score_rows(str(dest), df.head(50).to_dict(orient="records"))  # warm-up
             ts, single = [], []
             for _ in range(3):
@@ -756,7 +810,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
         else:
             from ..anomaly import core as an
 
-            df = frames.read(frames.resolve(cfg))
+            df = _head(cfg)
             an.score_frame(str(dest), df.head(50), explain_top=0)
             import joblib
 
@@ -1142,6 +1196,52 @@ def prediction_parity(final: Any, holdout: pd.DataFrame, hp: pd.DataFrame, rebui
     ok = ids_equal and labels_equal and diff <= 1e-9
     return {"status": "ok" if ok else "mismatch", "rows": int(len(h)), "ids_equal": ids_equal, "columns": pcols,
             "max_abs_diff": diff, "labels_equal": labels_equal}
+
+
+def _read_hp(path: Path, problem_type: str) -> pd.DataFrame:
+    """holdout_predictions.csv as written batch by batch (labels as text for classification, as the readers take it)."""
+    if problem_type in ("binary", "multiclass"):
+        return frames.read_artifact(path, dtype={"y_true": str, "y_pred": str})
+    return frames.read_artifact(path)
+
+
+def prediction_parity_batched(final: Any, hp: pd.DataFrame, rebuilt: Path, ids: np.ndarray, columns: list[str],
+                              rows: Any, label: str) -> dict[str, Any]:
+    """`prediction_parity` without a whole frame in memory (F-X5a): the rebuilt serving frame's holdout rows are read by
+    __row_id in batches, scored, and compared with the training frame's predictions (`hp`) row by row by __row_id."""
+    from ..engine import serving
+    from ..engine.worker import holdout_prediction_frame
+    from ..lake import frame as LF
+
+    pcols = [c for c in hp.columns if c.startswith("p_") or c in ("y_pred", "prediction")]
+    ref = hp.set_index(hp["row"].astype("int64"))
+    seen = 0
+    diff = 0.0
+    labels_equal = True
+    for b in serving.iter_file_rows(str(rebuilt), ids, columns, rows.plan, config.HOLDOUT_BATCH_ROWS):
+        b = LF.cast_column_types(rows.cfg, b)
+        b = b[b[label].notna()]
+        hp2 = holdout_prediction_frame(final, b, label)
+        hp2.index = hp2["row"].astype("int64")
+        common = hp2.index.intersection(ref.index)
+        seen += len(common)
+        if len(common) != len(hp2):
+            labels_equal = False
+        a_, b_ = ref.loc[common], hp2.loc[common]
+        for c in pcols:
+            if c not in b_:
+                labels_equal = False
+                continue
+            x, y = a_[c].to_numpy(), b_[c].to_numpy()
+            if x.dtype.kind in "fc" and y.dtype.kind in "fc":
+                diff = max(diff, float(np.nanmax(np.abs(x - y))) if len(x) else 0.0)
+            elif not (pd.Series(x).astype(str).to_numpy() == pd.Series(y).astype(str).to_numpy()).all():
+                labels_equal = False
+    ids_equal = seen == len(hp)
+    ok = ids_equal and labels_equal and diff <= 1e-9
+    return {"status": "ok" if ok else "mismatch", "rows": int(seen), "ids_equal": ids_equal, "columns": pcols,
+            "max_abs_diff": diff, "labels_equal": labels_equal,
+            "method": f"batches of {config.HOLDOUT_BATCH_ROWS:,} holdout rows of the rebuilt frame, read by __row_id"}
 
 
 def register_gate(db_path: str, run_id: str, cfg: dict[str, Any], registry_dir: str | Path, who: str) -> dict[str, Any]:

@@ -254,6 +254,7 @@ class Compiled:
         self.widened: dict[str, str] = {}         # column → type, when a fill widened an integer column
         self.n_added = 0
         self.next_row_id = 0
+        self.touched: set[str] = set()            # F-X5a: every column an op changed the values of (names as at that op)
 
 
 class _C:
@@ -911,6 +912,7 @@ def _compile(con: Any, base: str, ops: Any, target: str | None, next_row_id: int
                                  + (f"; '{col}' is now a number column (the {strat} is not a whole number)" if nt != t else ""))
 
         c.check_columns(touched, oi)
+        out.touched |= touched
         entry["examples"] = ex
         entry["examples_truncated"] = bool((entry.get("cells") or entry.get("rows") or 0) > len(ex)) if ex else False
         out.log.append(entry)

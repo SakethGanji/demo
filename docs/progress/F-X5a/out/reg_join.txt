@@ -1,0 +1,3 @@
+  -> 202 {"id": "mv_f29d4677", "status": "building", "detail": null, "code": null, "parity": null}
+  [register run_cc4a0a84 (parity)] 365.3 s | peak single process 3.19 GB (.venv/bin/python -m uvicorn app.main:app --port 8621) | peak tree sum 6.51 GB
+  model mv_f29d4677 ready None parity null
