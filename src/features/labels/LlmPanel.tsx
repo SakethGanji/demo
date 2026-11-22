@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react'
-import { labels, wilson, num, specCol, type Calibration, type Layer, type LlmCols, type LlmPolicy, type LlmPreview, type Prompt, type SqlResult } from '@/shared/api/labels'
+import { labels, wilson, num, specCol, type Calibration, type Layer, type LlmCols, type LlmPolicy, type LlmPreview, type Prompt } from '@/shared/api/labels'
 import { pii, teamsApi } from '@/shared/api/governance'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { Badge, CardHead, Callout, ConfirmButton, CopyId, CoverageBar, Field, Flash, Stats, Why } from '@/shared/components/DataKit'
 import { day, int, pct, plural } from '@/shared/lib/format'
 import { Busy, ReadErr, errText } from './parts'
+import { PromptEditor } from './PromptEditor'
 import { settle } from './LabelsTab'
 
-const DEFAULT_TEMPLATE = 'You label support tickets.\nClasses: {classes}\n\nGuidelines:\n{guidelines}\n\nTicket:\n{row}\n\nAnswer with one class, a confidence from 0 to 100 and a one-line reason.'
 const usd = (v: unknown) => { const n = num(v); return n == null ? '—' : `$${n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2)}` }
 const LIVE = /queued|running|leased|submitting/
-const REASON: Record<string, string> = { target: 'the labelled column itself', free_text: 'free text not yet reviewed for PII' }
-const reasonOf = (r: string) => REASON[r] ?? (r.startsWith('pii') ? `tagged ${r.slice(4).replace(/_/g, ' ')}: masked columns are not sent` : r)
 /** The runs started from this screen, per layer (there is no list route): kept in the browser. */
 const RUNS_KEY = (l: string) => `ensemble.labels.llmRuns.${l}`
 const loadRuns = (l: string): string[] => { try { return JSON.parse(localStorage.getItem(RUNS_KEY(l)) || '[]') } catch { return [] } }
@@ -31,11 +29,9 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const tags = useFetch(() => pii.get(vid, layer.table_name).catch(() => null), [vid, layer.table_name, tick])
   const can = useCan('label.llm_run', 'dataset', root, by)
   const canTeam = useCan('team.settings', 'team', layer.team_id ?? 'tm_default', by)
-  const canTag = useCan('data.tag_pii', 'dataset', root, by)
   const [runIds, setRunIds] = useState<string[]>(() => loadRuns(layer.id))
   const [sel, setSel] = useState<string | null>(null)
   const [edit, setEdit] = useState<{ template: string; context: string[]; model: string; mode: 'columns' | 'sql'; query: string } | null>(null)
-  const [sqlRes, setSqlRes] = useState<SqlResult | null>(null)
   const [destSel, setDestSel] = useState<string | null>(null)
   const [maxUsd, setMaxUsd] = useState(2)
   const [nRows, setNRows] = useState(50)
@@ -66,10 +62,8 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const plan: LlmCols = prev?.columns ?? (guard
     ? { sent: context.filter((c) => !masked.has(c) && !unreviewed.includes(c)), excluded: [...context.filter((c) => masked.has(c)).map((c) => ({ column: c, reason: 'pii' })), ...(target ? [{ column: target, reason: 'target' }] : [])] }
     : { sent: context, excluded: target ? [{ column: target, reason: 'target' }] : [] })
-  const piiSent = (plan.sent ?? []).filter((c) => masked.has(c))
+  const sentCols = (p?.spec as { context?: string[] } | undefined)?.context ?? plan.sent ?? []
   const sent = [...(plan.sent ?? []), ...(plan.masked ?? []).map((c) => `${c} (masked)`), ...(plan.free_text ?? []).map((c) => `${c} (redacted)`)]
-  const excluded = plan.excluded ?? []
-  const nPii = excluded.filter((x) => x.reason.startsWith('pii')).length
   const est = prev?.estimate?.est_usd != null ? (prev.estimate.est_usd / Math.max(1, prev.labels?.length ?? 20)) * nRows : dest === 'fake' ? 0 : null
   const addRun = (id: string) => { const ids = [id, ...runIds.filter((x) => x !== id)]; setRunIds(ids); saveRuns(layer.id, ids); setRunSel(id) }
   const allRuns = Array.from(new Set([...runIds, ...(listed.data ?? []).map((r) => r.id)]))
@@ -81,18 +75,6 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
   const turnOn = () => setPolicy({ ...policy, enabled: true, destinations: Array.from(new Set([...(policy.destinations ?? []), 'fake'])), max_usd_month: policy.max_usd_month || cap },
     `LLM labeling is on for this team: the fake destination, a monthly cap of $${policy.max_usd_month || cap} (team policy, audited).`)
   const monthCap = Number(policy.max_usd_month ?? 0)
-  const save = async () => {
-    if (!edit) return
-    setBusy('save')
-    try {
-      const body = edit.mode === 'sql' ? { name: p?.name ?? `${layer.name}-prompt`, column: target, template: edit.template, prompt_template: edit.template, query: edit.query, version_id: vid, context: sqlRes?.columns.filter((c) => c !== '__row_id') ?? [], model: edit.model }
-        : { name: p?.name ?? `${layer.name}-prompt`, column: target, template: edit.template, context: edit.context, model: edit.model }
-      const np = await labels.createPrompt(layer.id, body, by); setSel(np.id); setEdit(null); setPrev(null); setSqlRes(null); setTick((x) => x + 1); setMsg({ ok: true, text: `Prompt v${np.version} saved (sha ${np.prompt_sha256?.slice(0, 10) ?? '…'}).` }) }
-    catch (e) { setMsg({ ok: false, text: errText(e) }) } finally { setBusy('') }
-  }
-  const runQuery = () => edit && act('sql', () => labels.sqlPreview(layer.id, vid, edit.query, 50).then((r) => { setSqlRes(r); return r }), (r) => `Query ran on v${v}: ${plural(r.n ?? r.rows.length, 'row')}, columns ${r.columns.join(', ')}.`)
-  const review = () => act('tag', () => pii.set(vid, layer.table_name, unreviewed.map((c) => ({ column: c, tag: 'none', mask: 'none' })), by),
-    () => `${plural(unreviewed.length, 'column')} reviewed as holding no PII (tag none, audited): ${unreviewed.join(', ')}.`)
   const off = dest === 'off'
   const gate = !by || !can?.allow || off
   const gateWhy = off ? 'LLM labeling is off for this team' : why(can, '')
@@ -117,56 +99,22 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
           <label className="helper row" style={{ gap: 4 }}>monthly cap $<input className="input mono" type="number" min={1} style={{ width: 70 }} value={cap} onChange={(e) => setCap(Number(e.target.value) || 0)} /></label>
           <button className="btn sm" disabled={!by || !canTeam?.allow || cap <= 0} title={why(canTeam, 'Set max_usd_month in the team policy')} onClick={() => setPolicy({ ...policy, max_usd_month: cap }, `Monthly cap set to $${cap} (team policy, audited).`)} data-testid="lbl-llm-setcap">Set the cap</button></div></Callout>}
       <Flash msg={msg} testId="lbl-llm-msg" />
-      <div className="grid two">
-        <div className="card" data-testid="lbl-llm-prompt">
-          <CardHead title="Prompt" badge={p ? <span className="v-tag mono">v{p.version}</span> : <Badge status="none">none yet</Badge>} sub="versioned: every label records the prompt's sha"
-            actions={<span className="row" style={{ gap: 6 }}>
-              {prompts.length > 1 && <select className="select" value={p?.id} onChange={(e) => { setSel(e.target.value); setEdit(null); setPrev(null) }} aria-label="Prompt version" data-testid="lbl-llm-version">{prompts.map((x) => <option key={x.id} value={x.id}>v{x.version} · {x.created_by ?? ''} {day(x.created_at)}</option>)}</select>}
-              {!edit && <button className="btn sm" disabled={!by || !can?.allow} title={why(can, 'Edit as a new version')} onClick={() => setEdit({ template: p?.spec?.template || DEFAULT_TEMPLATE, context, model: p?.model ?? 'fake-oracle', mode: (p?.spec as { query?: string } | undefined)?.query ? 'sql' : 'columns', query: (p?.spec as { query?: string } | undefined)?.query ?? `SELECT __row_id, subject, channel, priority, customer_tier\nFROM ${layer.table_name}` })} data-testid="lbl-llm-edit">{p ? 'New version…' : 'Write prompt…'}</button>}
-            </span>} />
-          <div className="card-body stack" style={{ gap: 8 }}>
-            {ps.err && !ps.data ? <ReadErr err={ps.err} what="Prompts" /> : edit ? <>
-              <div className="seg" role="group" aria-label="Input">{(['columns', 'sql'] as const).map((m) => <button key={m} className={edit.mode === m ? 'on' : ''} aria-pressed={edit.mode === m} onClick={() => setEdit({ ...edit, mode: m })} data-testid={`lbl-llm-mode-${m}`}>{m === 'columns' ? 'Columns of the row' : 'SQL query'}</button>)}</div>
-              {edit.mode === 'sql' && <>
-                <Field label="Query" hint={`DuckDB over v${v}'s tables (read-only, one SELECT; needs __row_id); the template names its columns, e.g. {subject}`}>
-                  <textarea className="input mono lbl-guide-edit" rows={5} value={edit.query} onChange={(e) => { setEdit({ ...edit, query: e.target.value }); setSqlRes(null) }} data-testid="lbl-llm-query" /></Field>
-                <div className="row" style={{ gap: 6 }}><button className="btn sm" disabled={busy === 'sql' || !edit.query.trim()} onClick={runQuery} data-testid="lbl-llm-query-run">{busy === 'sql' ? 'Running…' : 'Run query'}</button>
-                  {sqlRes && <span className="muted">{plural(sqlRes.n ?? sqlRes.rows.length, 'row')}{sqlRes.truncated ? ' (first 50)' : ''} · <CopyId value={sqlRes.query_sha256} n={8} /></span>}</div>
-                {sqlRes && <div className="table-wrap lbl-sql" data-testid="lbl-llm-query-rows"><table className="table"><thead><tr>{sqlRes.columns.map((c) => <th key={c}>{c}</th>)}</tr></thead>
-                  <tbody>{sqlRes.rows.slice(0, 6).map((r, i) => <tr key={i}>{sqlRes.columns.map((c) => <td key={c} className="mono" title={String(r[c] ?? '')}>{String(r[c] ?? '—').slice(0, 40)}</td>)}</tr>)}</tbody></table></div>}
-              </>}
-              <Field label="Template" hint="{classes}, {guidelines}, {row} are filled in; the row holds only the columns sent"><textarea className="input mono lbl-guide-edit" rows={8} value={edit.template} onChange={(e) => setEdit({ ...edit, template: e.target.value })} data-testid="lbl-llm-template" /></Field>
-              <Field label="Model" hint="a full model id, never an alias (fake-oracle on the fake destination)"><input className="input mono" value={edit.model} onChange={(e) => setEdit({ ...edit, model: e.target.value })} /></Field>
-              {edit.mode === 'columns' && <Field label="Columns in the row"><div className="lbl-cols">{cols.filter((c) => c !== target).map((c) => <label key={c} className={`lbl-col ${edit.context.includes(c) ? 'on' : ''} ${masked.has(c) ? 'pii' : ''}`}>
-                <input type="checkbox" checked={edit.context.includes(c)} onChange={(e) => setEdit({ ...edit, context: e.target.checked ? [...edit.context, c] : edit.context.filter((x) => x !== c) })} />{masked.has(c) && '🔒 '}{c}</label>)}</div></Field>}
-              <div className="row" style={{ gap: 6 }}><button className="btn sm primary" disabled={busy === 'save' || (edit.mode === 'sql' && !sqlRes)} title={edit.mode === 'sql' && !sqlRes ? 'Run the query first' : undefined} onClick={save} data-testid="lbl-llm-save">Save as v{(p?.version ?? 0) + 1}</button><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button></div>
-            </> : p ? <>
-              {(p.spec as { query?: string } | undefined)?.query && <pre className="lbl-guidelines mono" data-testid="lbl-llm-saved-query">{(p.spec as { query?: string }).query}</pre>}
-              <pre className="lbl-guidelines mono">{p.spec?.template || '(the default template)'}</pre>
-              <span className="sub-line"><span className="mono">{p.model}</span> · effort {p.effort ?? 'low'} · column <span className="mono">{p.spec?.column}</span> · <CopyId value={p.prompt_sha256} n={8} />
+      <div className="card" data-testid="lbl-llm-prompt">
+        <CardHead title="Prompt" badge={p ? <span className="v-tag mono">v{p.version}</span> : <Badge status="none">none yet</Badge>} sub="a DuckDB query over the version's tables, and a template; versioned: every label records the prompt and query sha"
+          actions={<span className="row" style={{ gap: 6 }}>
+            {prompts.length > 1 && !edit && <select className="select" value={p?.id} onChange={(e) => { setSel(e.target.value); setPrev(null) }} aria-label="Prompt version" data-testid="lbl-llm-version">{prompts.map((x) => <option key={x.id} value={x.id}>v{x.version} · {x.created_by ?? ''} {day(x.created_at)}</option>)}</select>}
+            {!edit && <button className="btn sm" disabled={!by || !can?.allow} title={why(can, 'Edit as a new version')} onClick={() => setEdit({ template: '', context, model: p?.model ?? 'fake-oracle', mode: 'sql', query: '' })} data-testid="lbl-llm-edit">{p ? 'New version…' : 'Write prompt…'}</button>}
+          </span>} />
+        <div className="card-body stack" style={{ gap: 8 }}>
+          {ps.err && !ps.data ? <ReadErr err={ps.err} what="Prompts" /> : edit
+            ? <PromptEditor layer={layer} root={root} vid={vid} v={v} target={target} by={by} dest={dest} prev={p}
+                onSaved={(np) => { setSel(np.id); setEdit(null); setPrev(null); setTick((x) => x + 1); setMsg({ ok: true, text: `Prompt v${np.version} saved (sha ${np.prompt_sha256?.slice(0, 10) ?? '…'}).` }) }} onCancel={() => setEdit(null)} />
+            : p ? <>
+              {(p.spec as { query?: string } | undefined)?.query && <><span className="micro-label">query</span><pre className="lbl-guidelines mono" data-testid="lbl-llm-saved-query">{(p.spec as { query?: string }).query}</pre></>}
+              <span className="micro-label">template</span><pre className="lbl-guidelines mono">{p.spec?.template || '(the default template)'}</pre>
+              <span className="sub-line"><span className="mono">{p.model}</span> · column <span className="mono">{p.spec?.column}</span> · <CopyId value={p.prompt_sha256} n={8} />
                 {p.calibration && <> · <Badge status={p.calibration.passed ? 'pass' : 'warn'}>{p.calibration.passed ? `calibrated, τ* ${p.calibration.tau_star?.toFixed(2)}` : 'calibration not passed'}</Badge></>}</span>
-            </> : !ps.data ? <Busy>Reading prompts…</Busy> : <span className="muted">No prompt yet: write one, then preview it on up to 20 rows.</span>}
-          </div>
-        </div>
-        <div className="card" data-testid="lbl-llm-pii">
-          <CardHead title="What is sent" badge={guard ? <Badge status={nPii ? 'excluded' : 'clean'}>{nPii ? `${nPii} PII column${nPii > 1 ? 's' : ''} excluded` : 'no PII column'}</Badge>
-            : <Badge status={piiSent.length ? 'warn' : 'clean'}>{piiSent.length ? `${piiSent.length} PII column${piiSent.length > 1 ? 's' : ''} sent` : 'no PII column sent'}</Badge>}
-            sub={prev ? 'the column plan of the last preview' : guard ? 'PII guard on: PII-tagged columns are excluded' : 'every column of the input is sent (team decision: no PII guard)'} />
-          <div className="card-body stack" style={{ gap: 10 }}>
-            <div className="lbl-pii-row"><span className="micro-label">sent</span><span className="lbl-chips" data-testid="lbl-llm-sent">{sent.length ? sent.map((c) => <span key={c} className={`pt-chip ${masked.has(c) ? 'lbl-pii-sent' : ''}`} title={masked.has(c) ? 'tagged PII on this dataset; sent because the team has no PII guard' : undefined}>{masked.has(c) && '⚠ '}{c}{masked.has(c) && <span className="muted"> · PII</span>}</span>) : <span className="muted">nothing</span>}</span></div>
-            <div className="lbl-pii-row"><span className="micro-label">excluded</span><span className="lbl-chips" data-testid="lbl-llm-excluded">{excluded.length ? excluded.map((x) => <span key={x.column} className={`pt-chip ${x.reason.startsWith('pii') ? 'lbl-excl' : ''}`} title={reasonOf(x.reason)}>{x.reason.startsWith('pii') && '🔒 '}{x.column} <span className="muted">· {x.reason === 'target' ? 'the label' : x.reason.startsWith('pii') ? 'PII' : x.reason.replace('_', ' ')}</span></span>) : <span className="muted">none</span>}</span></div>
-            {!guard && piiSent.length > 0 && <Callout tone="warn" title={`${piiSent.join(', ')} ${piiSent.length === 1 ? 'is' : 'are'} tagged PII and will be sent`} testId="lbl-llm-pii-sent">
-              The team chose to send any column to the LLM (no PII guard). Each run's audit records the columns sent, the row count and the prompt version, never values. To exclude PII-tagged columns, a maintainer sets <span className="mono">llm_labeling.pii_guard: true</span> in the team policy, or leave them out of the input.</Callout>}
-            {nPii > 0 && <Callout tone="info" title="Why they are excluded">Columns tagged PII on this dataset are dropped from the row before the prompt is built; free text in the sent columns is scanned and card / account numbers become <span className="mono">[REDACTED:…]</span>. Sending one unmasked needs a request with a reason, approved by an owner other than you.</Callout>}
-            {unreviewed.length > 0 && <Callout tone="warn" title={`${plural(unreviewed.length, 'column')} without a reviewed PII tag`} testId="lbl-llm-unreviewed">
-              Nothing is sent until a steward has looked at every column in the row: {unreviewed.map((c) => <span key={c} className="pt-chip" style={{ marginRight: 4 }}>{c}</span>)}
-              <div className="row" style={{ gap: 6, marginTop: 6 }}>
-                <ConfirmButton className="btn sm" disabled={!by || !canTag?.allow || busy === 'tag'} title={why(canTag, 'Tag these columns "none" (no PII), as a steward; audited')} onConfirm={review} testId="lbl-llm-review-pii"
-                  confirm="They hold no PII" warning={unreviewed.join(', ')}>Review as no PII…</ConfirmButton>
-                <span className="muted" style={{ fontSize: 12 }}>or tag them on the dataset's Governance card</span></div></Callout>}
-            <div className="lbl-pii-row"><span className="micro-label">destination</span><span>{dests.length > 1 ? <select className="select" value={dest} onChange={(e) => setDestSel(e.target.value)} data-testid="lbl-llm-dest-pick">{dests.map((d) => <option key={d}>{d}</option>)}</select> : <Badge status={dest}>{dest}</Badge>} <span className="muted">{destWhy}</span></span></div>
-            {prev && <div className="lbl-pii-row"><span className="micro-label">preview</span><span className="muted">{plural(prev.labels?.length ?? 0, 'row')} · {usd(prev.spent_usd)} · {int(prev.pii_redactions ?? 0)} redactions</span></div>}
-          </div>
+            </> : !ps.data ? <Busy>Reading prompts…</Busy> : <span className="muted">No prompt yet: write a query and a template, test them on 5 rows, then save.</span>}
         </div>
       </div>
 
@@ -181,6 +129,10 @@ export function LlmPanel({ layer, root, vid, v, cols, by, onBack }: { layer: Lay
             <Stats items={[{ label: 'estimated cost', value: est == null ? 'preview first' : usd(est), sub: dest === 'fake' ? 'fake destination: $0' : prev ? `from the preview, × ${int(nRows)} rows` : 'a preview prices it', testId: 'lbl-llm-est' },
               { label: 'team monthly cap', value: monthCap ? usd(monthCap) : 'none', sub: 'team policy; runs reserve their cap' }]} />
           </div>
+          <div className="lbl-send" data-testid="lbl-llm-send"><span className="micro-label">will be sent</span>
+            <span><b className="mono">{sentCols.length}</b> column{sentCols.length === 1 ? '' : 's'} × <b className="mono">{int(nRows)}</b> rows → {dests.length > 1 ? <select className="select" value={dest} onChange={(e) => setDestSel(e.target.value)} data-testid="lbl-llm-dest-pick">{dests.map((d) => <option key={d}>{d}</option>)}</select> : <Badge status={dest}>{dest}</Badge>}</span>
+            <span className="lbl-chips" data-testid="lbl-llm-sent">{sentCols.map((c) => <span key={c} className="pt-chip mono">{c}</span>)}</span>
+            <span className="muted" style={{ fontSize: 12 }}>{destWhy} The run's audit records the columns, the row count, the query sha and the prompt version, never values.</span></div>
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
             <button className="btn sm" disabled={gate || !p || !!busy || !!sendWhy} title={gateWhy || sendWhy || (!p ? 'Write a prompt first' : 'Label up to 20 rows to see what it does (audited; counts toward the budget)')}
               onClick={() => act('prev', async () => { const r = await labels.preview(p!.id, 20, vid, by, dest); setPrev(r); return r }, (r) => `Preview: ${plural(r.labels?.length ?? 0, 'row')} labelled on ${dest}, ${usd(r.spent_usd)} spent.`)} data-testid="lbl-llm-preview">{busy === 'prev' ? 'Previewing…' : 'Preview on 20 rows'}</button>

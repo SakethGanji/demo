@@ -97,3 +97,20 @@
 .lbl-prog { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
 .lbl-pii-sent { border-color: var(--status-warning) !important; background: var(--status-warning-bg); }
 .lbl-sql { max-height: 220px; overflow: auto; } .lbl-sql td { font-size: 12px; }
+
+/* the SQL prompt editor */
+.lbl-sql-grid { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; }
+textarea.input.lbl-sql-edit { min-height: 150px; width: 100%; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; resize: vertical; background: #0F172A; color: #E2E8F0; border-color: #1E293B; caret-color: var(--accent-primary-shell); }
+textarea.input.lbl-sql-edit:focus { border-color: var(--accent-primary); }
+.lbl-sql-side { border: 1px solid var(--border-row); border-radius: var(--radius-control); background: var(--bg-subtle); padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; max-height: 300px; overflow: auto; font-size: 12px; }
+.lbl-sql-side summary { cursor: pointer; padding: 2px 0; }
+.lbl-sql-cols { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0 6px 12px; }
+.lbl-sql-cols .chip-btn, [data-testid="lbl-tmpl-chips"] .chip-btn { font-size: 11.5px; }
+[data-testid="lbl-tmpl-chips"] .chip-btn.on { border-color: var(--accent-primary); color: var(--accent-primary); background: var(--status-success-bg); }
+.lbl-test { display: flex; flex-direction: column; gap: 8px; }
+.lbl-test-row { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 12px; border-top: 1px solid var(--border-row); padding-top: 8px; }
+.lbl-test-row pre { max-height: 140px; font-size: 11.5px; }
+.lbl-answer { padding: 8px 10px; border: 1px solid var(--accent-primary); border-radius: var(--radius-control); background: var(--status-success-bg); font-size: 13px; }
+.lbl-send { display: grid; grid-template-columns: 96px 1fr; gap: 6px 8px; align-items: center; font-size: 13px; padding: 8px 10px; border: 1px solid var(--border-row); border-radius: var(--radius-control); background: var(--bg-subtle); }
+.lbl-send > .lbl-chips, .lbl-send > .muted { grid-column: 2; }
+@media (max-width: 1200px) { .lbl-sql-grid, .lbl-test-row { grid-template-columns: 1fr; } }
