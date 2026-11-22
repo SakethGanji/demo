@@ -1,2 +1,28 @@
 /* ---------- settings ---------- */
 .set-try { padding: var(--space-12) var(--space-16); margin: 0 0 var(--space-4); background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-control); cursor: pointer; display: flex; flex-direction: column; gap: var(--space-4); }
+
+/* U4: Settings › Teams and Data lifecycle */
+.avatar { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: var(--radius-full); background: var(--bg-wave-tint); border: 1px solid color-mix(in srgb, var(--accent-secondary) 30%, var(--border-default)); color: var(--accent-secondary); font-size: 11px; font-weight: 700; margin-right: 8px; vertical-align: middle; }
+.why-line { margin: 0; padding: 6px 16px; border-bottom: 1px solid var(--border-row); }
+.team-add { border-bottom: 1px solid var(--border-row); }
+.team-add .btn { height: 30px; }
+[data-testid="members-table"] td, [data-testid="teams-table"] td { height: 44px; }
+.hold-row { padding: 8px 10px; border: 1px solid var(--border-default); border-radius: var(--radius-control); display: flex; flex-direction: column; gap: 4px; }
+.hold-row.on { border-left: 3px solid var(--status-warning); background: color-mix(in srgb, var(--status-warning-bg) 70%, var(--bg-surface)); }
+.hold-row.off { opacity: .75; }
+.gov-form { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px 12px; background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.gov-form .btn { height: 30px; }
+.gov-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-primary); }
+.lc-section-title { display: flex; align-items: baseline; gap: 10px; margin: 0 0 8px; }
+.lc-steps-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.lc-banner { display: flex; gap: 24px; align-items: flex-end; justify-content: space-between; padding: 14px 16px; background: linear-gradient(90deg, var(--status-info-bg), var(--bg-surface)); border-radius: var(--radius-card); font-size: 12.5px; line-height: 18px; }
+.lc-banner-text { display: flex; flex-direction: column; gap: 8px; max-width: 820px; }
+.lc-banner-text b { color: var(--text-primary); }
+.lc-big { font-family: var(--font-mono); font-size: 14px; color: var(--text-primary); }
+.lc-appr { display: inline-block; margin-right: 10px; color: var(--text-muted); white-space: nowrap; }
+.lc-appr.ok { color: var(--status-success); font-weight: 600; }
+.lc-periods, .lc-items { border: 1px solid var(--border-default); border-radius: var(--radius-control); }
+.lc-periods td, .lc-items td { padding: 7px 10px !important; }
+.lc-confirm { background: var(--status-warning-bg) !important; border: 1px solid color-mix(in srgb, var(--status-warning) 28%, transparent); border-left: 3px solid var(--status-warning); padding: 8px 12px !important; font-size: 12.5px; color: var(--text-primary); cursor: pointer; }
+.lc-result { background: var(--status-success-bg) !important; border: 1px solid color-mix(in srgb, var(--status-success) 25%, transparent); border-left: 3px solid var(--status-success) !important; padding: 10px 12px !important; color: var(--text-primary); }
+[data-testid="settings-lifecycle"] .card-head .kit-steps, [data-testid="retention-card"] .kit-steps { font-size: 11.5px; }

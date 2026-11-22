@@ -4,13 +4,16 @@ import { useApi } from '@/shared/api/mode'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { ErrorCard, Loading } from '@/shared/components/Status'
 import { useTeam } from '@/shared/lib/team'
+import { Badge, CardHead, ConfirmButton, CopyId, Field, Flash, Why } from '@/shared/components/DataKit'
 
 /** U2 (C §2.1, §4.2; plan §6.4): Settings › Teams. The teams you are in, New team (greyed out by /authz/check team.create
  *  unless you are a platform admin or the policy allows self-service), and the selected team's members and roles, its
  *  policy and its legal holds (P24). Every greyed button says why, from the API's own decision. */
 
 const ROLES: Role[] = ['viewer', 'member', 'maintainer', 'owner', 'risk_reviewer']
-const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—')
+import { when, day } from '@/shared/lib/format'
+const ROLE_TONE: Record<string, string> = { owner: 'active', maintainer: 'confirmed', risk_reviewer: 'suggested', member: 'none', viewer: 'none' }
+const RoleBadge = ({ role }: { role: string }) => <Badge status={ROLE_TONE[role] ?? 'none'}>{role.replace(/_/g, ' ')}</Badge>
 const why = (d: AuthzDecision | null | undefined) => (!d ? 'checking your permission…' : d.allow ? '' : `${d.reason ?? 'not allowed'}${d.needed ? ` (needs ${d.needed}${d.role ? `; you are ${d.role}` : ''})` : ''}`)
 const errLine = (e: unknown) => { const r = refusal(e); return `${r.message}${r.code ? ` (${r.code})` : ''}` }
 
@@ -58,26 +61,24 @@ export function TeamsSection() {
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="settings-teams">
       <div className="card">
-        <div className="card-head">
-          <div className="left"><h2 className="card-title">Teams you are in</h2><span className="helper" style={{ fontSize: 12 }}>acting as {actor}</span></div>
-          {creating == null
+        <CardHead level={2} title="Teams you are in" sub={<>acting as <b>{actor}</b> · pick a team for its members, policy and legal holds</>}
+          actions={creating == null
             ? <button className="btn primary" disabled={!canCreate?.allow} onClick={() => { setMsg(null); setCreating('') }} title={canCreate?.allow ? 'A new team; you become its owner' : why(canCreate)} data-testid="team-new">New team</button>
             : <span className="row" style={{ gap: 6 }}>
               <input className="input" autoFocus maxLength={80} placeholder="team name" value={creating} onChange={(e) => setCreating(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && create()} style={{ width: 200 }} data-testid="team-new-name" />
               <button className="btn" disabled={!creating.trim()} onClick={create} data-testid="team-new-create">Create</button>
-              <button className="btn ghost" onClick={() => setCreating(null)}>Cancel</button></span>}
-        </div>
-        {canCreate && !canCreate.allow && <p className="helper" style={{ padding: '0 16px', margin: '6px 0' }} data-testid="team-new-why">New team: {why(canCreate)}.</p>}
-        {msg && <p className={`helper data-msg ${msg.ok ? 'ok' : 'bad'}`} role={msg.ok ? 'status' : 'alert'} style={{ padding: '6px 16px', margin: 0 }} data-testid="teams-msg">{msg.ok ? '✓' : '✕'} {msg.text}</p>}
+              <button className="btn ghost" onClick={() => setCreating(null)}>Cancel</button></span>} />
+        {canCreate && !canCreate.allow && <p className="why why-line" data-testid="team-new-why"><span aria-hidden>⊘</span> New team: {why(canCreate)}.</p>}
+        <Flash msg={msg} testId="teams-msg" />
         {list.err && !list.data ? <ErrorCard inline err={list.err} /> : !list.data ? <Loading inline>Reading your teams…</Loading> : (
           <div className="table-wrap"><table className="table" data-testid="teams-table">
             <thead><tr><th>team</th><th>your role</th><th className="r">members</th><th className="r">owners</th><th className="r">projects</th><th>created</th></tr></thead>
             <tbody>{mine.map((t) => (
               <tr key={t.id} className={selected?.id === t.id ? 'sel' : ''} onClick={() => setSel(t.id)} style={{ cursor: 'pointer' }} data-testid={`team-row-${t.id}`}>
-                <td><b>{t.name}</b> <span className="mono muted" style={{ fontSize: 11 }}>{t.slug} · {t.id}</span>{t.description && <div className="helper">{t.description}</div>}</td>
-                <td><span className="pt-chip">{t.my_role}</span></td>
+                <td title={`${t.slug} · ${t.id}`}><b>{t.name}</b>{t.description && <span className="sub-line">{t.description}</span>}</td>
+                <td>{t.my_role ? <RoleBadge role={t.my_role} /> : null}</td>
                 <td className="r mono">{t.n_members}</td><td className="r mono">{t.n_owners}</td><td className="r mono">{t.n_projects}</td>
-                <td className="muted" style={{ fontSize: 12 }}>{t.created_by} · {when(t.created_at)}</td>
+                <td className="muted" style={{ fontSize: 12 }} title={when(t.created_at)}>{t.created_by} · {day(t.created_at)}</td>
               </tr>))}
               {!mine.length && <tr><td colSpan={6} className="helper">You are in no team yet: an owner adds you, or an admin makes one.</td></tr>}
             </tbody>
@@ -100,28 +101,27 @@ function TeamDetail({ t, actor, onChanged }: { t: Team; actor: string; onChanged
   const no = !canManage?.allow
   return (<>
     <div className="card" data-testid="team-detail" data-team={t.id}>
-      <div className="card-head"><div className="left"><h2 className="card-title">Team › {t.name}</h2><span className="helper" style={{ fontSize: 12 }}>members and roles · every change is audited in the team's chain</span></div></div>
-      {msg && <p className={`helper data-msg ${msg.ok ? 'ok' : 'bad'}`} role={msg.ok ? 'status' : 'alert'} style={{ padding: '6px 16px', margin: 0 }} data-testid="members-msg">{msg.ok ? '✓' : '✕'} {msg.text}</p>}
-      <div className="card-body row" style={{ gap: 6, flexWrap: 'wrap' }}>
-        <span className="micro-label">add a member</span>
-        <input className="input" style={{ width: 180 }} placeholder="name" maxLength={80} value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} disabled={no} data-testid="member-add-name" />
-        <select className="select" value={add.role} onChange={(e) => setAdd({ ...add, role: e.target.value as Role })} disabled={no} data-testid="member-add-role">{ROLES.map((r) => <option key={r}>{r}</option>)}</select>
-        <button className="btn" disabled={no || !add.name.trim()} title={no ? why(canManage) : undefined}
+      <CardHead level={2} title={<>{t.name} <span className="muted" style={{ fontWeight: 400 }}>· members</span></>} badge={<CopyId value={t.id} />} sub="every change is audited in the team's chain" />
+      <Flash msg={msg} testId="members-msg" />
+      <div className="card-body form-row team-add">
+        <Field label="add a member"><input className="input" style={{ width: 200 }} placeholder="name" maxLength={80} value={add.name} onChange={(e) => setAdd({ ...add, name: e.target.value })} disabled={no} data-testid="member-add-name" /></Field>
+        <Field label="role"><select className="select" value={add.role} onChange={(e) => setAdd({ ...add, role: e.target.value as Role })} disabled={no} data-testid="member-add-role">{ROLES.map((r) => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}</select></Field>
+        <button className="btn" disabled={no || !add.name.trim()} title={no ? why(canManage) : !add.name.trim() ? 'Type a name first' : `Add to ${t.name}`}
           onClick={() => did(teamsApi.addMember(t.id, add.name.trim(), add.role, actor), `${add.name.trim()} added as ${add.role}.`)} data-testid="member-add">Add</button>
-        {no && canManage && <span className="helper">{why(canManage)}</span>}
+        {no && canManage && <Why>{why(canManage)}</Why>}
       </div>
       {err && !members ? <p className="helper up-err" style={{ padding: '0 16px' }}>✕ {err}</p> : !members ? <Loading inline>Reading the members…</Loading> : (
         <div className="table-wrap"><table className="table" data-testid="members-table">
-          <thead><tr><th>member</th><th>role</th><th>source</th><th>added</th><th /></tr></thead>
+          <thead><tr><th>member</th><th>role</th><th>from</th><th>added</th><th /></tr></thead>
           <tbody>{members.map((m) => (
             <tr key={m.principal_id} data-testid={`member-${m.identity_key}`}>
-              <td><b>{m.display_name}</b>{m.is_admin && <span className="pt-chip" style={{ marginLeft: 4 }} title="platform admin (ENSEMBLE_ADMINS)">admin</span>} <span className="mono muted" style={{ fontSize: 11 }}>{m.principal_id}</span></td>
+              <td title={m.principal_id}><span className="avatar" aria-hidden>{m.display_name.slice(0, 1).toUpperCase()}</span><b>{m.display_name}</b>{m.is_admin && <span className="pt-chip" style={{ marginLeft: 6 }} title="platform admin (ENSEMBLE_ADMINS)">admin</span>}</td>
               <td><select className="select" value={m.role} disabled={no || m.source !== 'manual'} title={no ? why(canManage) : m.source !== 'manual' ? 'from the identity provider: read-only' : 'change the role (the last owner cannot be demoted)'}
-                onChange={(e) => did(teamsApi.setRole(t.id, m.principal_id, e.target.value as Role, actor), `${m.display_name} is now ${e.target.value}.`)} data-testid={`member-role-${m.identity_key}`}>{ROLES.map((r) => <option key={r}>{r}</option>)}</select></td>
-              <td className="muted">{m.source}</td>
-              <td className="muted" style={{ fontSize: 12 }}>{m.added_by} · {when(m.added_at)}</td>
-              <td><button className="chip-btn" disabled={no} title={no ? why(canManage) : `remove ${m.display_name} from ${t.name}`}
-                onClick={() => did(teamsApi.remove(t.id, m.principal_id, actor), `${m.display_name} removed.`)} data-testid={`member-remove-${m.identity_key}`}>remove</button></td>
+                onChange={(e) => did(teamsApi.setRole(t.id, m.principal_id, e.target.value as Role, actor), `${m.display_name} is now ${e.target.value}.`)} data-testid={`member-role-${m.identity_key}`} aria-label={`role of ${m.display_name}`}>{ROLES.map((r) => <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>)}</select></td>
+              <td className="muted">{m.source === 'manual' ? 'added here' : m.source}</td>
+              <td className="muted" style={{ fontSize: 12 }} title={when(m.added_at)}>{m.added_by} · {day(m.added_at)}</td>
+              <td className="r"><ConfirmButton className="btn sm ghost danger-text" disabled={no} title={no ? why(canManage) : `remove ${m.display_name} from ${t.name}`} testId={`member-remove-${m.identity_key}`} confirm="Remove"
+                warning={`Remove ${m.display_name}?`} onConfirm={() => did(teamsApi.remove(t.id, m.principal_id, actor), `${m.display_name} removed.`)}>Remove…</ConfirmButton></td>
             </tr>))}</tbody>
         </table></div>)}
     </div>
@@ -147,16 +147,16 @@ function PolicyCard({ t, actor, can, onSaved }: { t: Team; actor: string; can: A
   const show = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v))
   return (
     <div className="card" data-testid="policy-card">
-      <div className="card-head"><div className="left"><h3 className="card-title">Policy</h3><span className="helper" style={{ fontSize: 12 }}>unset keys use the defaults (plan §6.4)</span></div>
-        {edit == null ? <button className="btn sm" disabled={!can?.allow} title={can?.allow ? 'Edit the policy JSON' : why(can)} onClick={() => { setMsg(null); setEdit(JSON.stringify(pol, null, 2)) }} data-testid="policy-edit">Edit</button>
-          : <span className="row" style={{ gap: 6 }}><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button><button className="btn sm" onClick={save} data-testid="policy-save">Save</button></span>}</div>
-      {msg && <p className={`helper data-msg ${msg.ok ? 'ok' : 'bad'}`} style={{ padding: '6px 16px', margin: 0 }}>{msg.ok ? '✓' : '✕'} {msg.text}</p>}
+      <CardHead title="Policy" sub="unset keys use the defaults"
+        actions={edit == null ? <button className="btn sm" disabled={!can?.allow} title={can?.allow ? 'Edit the policy JSON' : why(can)} onClick={() => { setMsg(null); setEdit(JSON.stringify(pol, null, 2)) }} data-testid="policy-edit">Edit</button>
+          : <span className="row" style={{ gap: 6 }}><button className="btn sm ghost" onClick={() => setEdit(null)}>Cancel</button><button className="btn sm primary" onClick={save} data-testid="policy-save">Save</button></span>} />
+      <Flash msg={msg} />
       <div className="card-body stack" style={{ gap: 4 }}>
         {edit != null ? <textarea className="input mono" rows={12} value={edit} onChange={(e) => setEdit(e.target.value)} data-testid="policy-json" style={{ fontSize: 12 }} />
           : Object.entries(POLICY_DEFAULTS).map(([k, d]) => (
             <div key={k} className="data-card-row" data-testid={`policy-${k}`}><span className="micro-label">{k.replace(/_/g, ' ')}</span>
               <span className="mono" style={{ fontSize: 12 }}>{k in pol ? show(pol[k]) : d === null ? <span className="muted">no period set: retention is manual (plan → dry run → run), nothing is a candidate</span> : <span className="muted">{show(d)} (default)</span>}</span></div>))}
-        {can && !can.allow && <span className="helper" style={{ fontSize: 12 }}>Editing: {why(can)}.</span>}
+        {can && !can.allow && <Why>Editing: {why(can)}.</Why>}
       </div>
     </div>
   )
@@ -193,33 +193,31 @@ function HoldsPanel({ t, actor }: { t: Team; actor: string }) {
   const rows = list.data?.holds ?? []
   return (
     <div className="card" data-testid="holds-panel">
-      <div className="card-head"><div className="left"><h3 className="card-title">Legal holds</h3>
-        {list.data && <span className="pt-chip" data-testid="holds-active">{list.data.n_active} active</span>}</div>
-        <label className="row helper" style={{ gap: 4 }}><input type="checkbox" checked={showReleased} onChange={(e) => setShowReleased(e.target.checked)} /> released too</label></div>
+      <CardHead title="Legal holds" badge={list.data ? <span data-testid="holds-active"><Badge status={list.data.n_active ? 'held' : 'none'}>{list.data.n_active} active</Badge></span> : undefined} sub="freeze every destructive path on what they cover"
+        actions={<label className="row helper" style={{ gap: 4 }}><input type="checkbox" checked={showReleased} onChange={(e) => setShowReleased(e.target.checked)} /> show released</label>} />
       {missing && <p className="helper data-warn" style={{ margin: '8px 16px' }} data-testid="holds-note">Legal holds arrive with P24: the API does not serve /legal-holds yet (restart it on a head with P24).</p>}
-      {msg && <p className={`helper data-msg ${msg.ok ? 'ok' : 'bad'}`} role={msg.ok ? 'status' : 'alert'} style={{ padding: '6px 16px', margin: 0 }} data-testid="holds-msg">{msg.ok ? '✓' : '✕'} {msg.text}</p>}
+      <Flash msg={msg} testId="holds-msg" />
       <div className="card-body stack" style={{ gap: 6 }}>
         {list.err && !list.data && !missing && <p className="helper up-err" data-testid="holds-err">✕ {list.err}</p>}
         {rows.map((h) => (
-          <div key={h.id} className={h.active ? 'data-warn' : 'muted'} data-testid={`hold-${h.id}`}>
-            <b>{h.case_ref}</b> holds {h.scope_kind} <span className="mono">{h.label ?? h.scope_id}</span>{!h.active && <span className="pt-chip" style={{ marginLeft: 4 }}>released</span>}
-            <div className="helper" style={{ fontSize: 12 }}>“{h.reason}” · placed by {h.placed_by} {when(h.placed_at)}{h.released_at ? ` · released by ${h.released_by} ${when(h.released_at)}` : ''}</div>
+          <div key={h.id} className={`hold-row ${h.active ? 'on' : 'off'}`} data-testid={`hold-${h.id}`}>
+            <div className="gov-line"><Badge status={h.active ? 'held' : 'released'}>{h.active ? 'held' : 'released'}</Badge><b>{h.case_ref}</b><span>holds {h.scope_kind}</span><span className="mono">{h.label ?? h.scope_id}</span></div>
+            <span className="sub-line">“{h.reason}” · placed by {h.placed_by} {day(h.placed_at)}{h.released_at ? ` · released by ${h.released_by} ${day(h.released_at)}` : ''}</span>
             {h.active && (rel?.id === h.id
               ? <span className="row" style={{ gap: 6, marginTop: 4 }}><input className="input" style={{ flex: 1 }} placeholder="why it is released (required)" value={rel.reason} onChange={(e) => setRel({ ...rel, reason: e.target.value })} data-testid="hold-release-reason" />
                 <button className="btn sm" disabled={rel.reason.trim().length < 5} onClick={release} data-testid="hold-release-ok">Release</button><button className="btn sm ghost" onClick={() => setRel(null)}>Cancel</button></span>
               : <button className="btn sm ghost" style={{ marginTop: 4 }} disabled={!canRelease?.allow} title={canRelease?.allow ? 'A second admin (not the one who placed it) releases a hold' : why(canRelease)} onClick={() => setRel({ id: h.id, reason: '' })} data-testid={`hold-release-${h.id}`}>Release…</button>)}
           </div>))}
         {list.data && !rows.length && <span className="helper">No {showReleased ? '' : 'active '}hold on {t.name}'s objects.</span>}
-        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-          <span className="micro-label">place a hold</span>
-          <select className="select" value={f.scope_kind} disabled={off} onChange={(e) => setF({ ...f, scope_kind: e.target.value as LegalHold['scope_kind'], scope_id: e.target.value === 'team' ? t.id : '' })} data-testid="hold-kind">{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
-          <input className="input mono" style={{ width: 150 }} placeholder={f.scope_kind === 'model' ? 'model name or mv_…' : `${f.scope_kind} id`} value={f.scope_id} disabled={off} onChange={(e) => setF({ ...f, scope_id: e.target.value })} data-testid="hold-scope" />
-          <input className="input" style={{ width: 140 }} placeholder="case ref" value={f.case_ref} disabled={off} onChange={(e) => setF({ ...f, case_ref: e.target.value })} data-testid="hold-case" />
-          <input className="input" style={{ flex: 1, minWidth: 160 }} placeholder="reason (required)" value={f.reason} disabled={off} onChange={(e) => setF({ ...f, reason: e.target.value })} data-testid="hold-reason" />
+        <div className="gov-form"><span className="micro-label sec-label">place a hold</span><div className="form-row">
+          <select aria-label="what it holds" className="select" value={f.scope_kind} disabled={off} onChange={(e) => setF({ ...f, scope_kind: e.target.value as LegalHold['scope_kind'], scope_id: e.target.value === 'team' ? t.id : '' })} data-testid="hold-kind">{KINDS.map((k) => <option key={k}>{k}</option>)}</select>
+          <input className="input mono" style={{ width: 150 }} aria-label="id" placeholder={f.scope_kind === 'model' ? 'model name or mv_…' : `${f.scope_kind} id`} value={f.scope_id} disabled={off} onChange={(e) => setF({ ...f, scope_id: e.target.value })} data-testid="hold-scope" />
+          <input className="input" style={{ width: 140 }} aria-label="case reference" placeholder="case ref" value={f.case_ref} disabled={off} onChange={(e) => setF({ ...f, case_ref: e.target.value })} data-testid="hold-case" />
+          <input className="input" style={{ flex: 1, minWidth: 160 }} aria-label="reason" placeholder="reason (required)" value={f.reason} disabled={off} onChange={(e) => setF({ ...f, reason: e.target.value })} data-testid="hold-reason" />
           <button className="btn sm" disabled={off || !f.scope_id.trim() || !f.case_ref.trim() || f.reason.trim().length < 5} title={!missing && canPlace && !canPlace.allow ? why(canPlace) : undefined} onClick={place} data-testid="hold-place">Place hold</button>
         </div>
-        {!missing && canPlace && !canPlace.allow && <span className="helper" style={{ fontSize: 12 }}>Placing: {why(canPlace)}.</span>}
-        <p className="helper" style={{ fontSize: 12, margin: 0 }}>A hold stops deletion, retention, GC and purge of everything it covers (a version also covers its runs and their models) and names the case in each refusal. Reads and new versions go on. It has no end date: a second admin releases it.</p>
+        {!missing && canPlace && !canPlace.allow && <Why>Placing: {why(canPlace)}.</Why>}</div>
+        <p className="helper" style={{ fontSize: 12, margin: 0, lineHeight: '17px' }}>A hold stops deletion, retention, GC and purge of everything it covers (a version also covers its runs and their models) and names the case in each refusal. Reads and new versions go on. It has no end date: a second admin releases it.</p>
       </div>
     </div>
   )
