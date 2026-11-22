@@ -441,6 +441,7 @@ def _proposal(request: Request, vid: str, months: int | None, include_reference:
         raise HTTPException(404, f"The run behind {_label(v)} is gone.")
     if (run.get("config") or {}).get("kind") in ("forecast", "anomaly", "expected_loss", "segmented", "survival", "reject_inference", "multilabel") or (run.get("config") or {}).get("import"):
         raise HTTPException(400, "The retrain proposal is for trained tabular versions.")
+    jn = (run.get("config") or {}).get("join")  # P15: a model on a join retrains on a new version of its tables
     cfg = get_config(request, v["model_name"])
     months = months or cfg.get("retrain_window_months") or 6
     sel, start, end = _window(request, vid, months)
@@ -479,12 +480,19 @@ def _proposal(request: Request, vid: str, months: int | None, include_reference:
             # A3 M6: unit changes are fixed at the feed first; they are not a reason for this retrain
             "suggested": st_["retrain"]["suggested"], "feed_fixes": st_["retrain"]["feed_fixes"],
             "not_for": [f"{x['text']}: a unit change, not a reason to retrain" for x in st_["retrain"]["feed_fixes"]],
-            "ready": n_rows >= 200,
-            "blocked": None if n_rows >= 200 else "Fewer than 200 labelled rows in the window: wait for labels or widen the window.",
+            "ready": n_rows >= 200 and not jn,
+            "blocked": _join_block(jn) if jn else None if n_rows >= 200 else "Fewer than 200 labelled rows in the window: wait for labels or widen the window.",
             "launch": {"method": "POST", "endpoint": f"/api/registry/versions/{vid}/monitoring/retrain",
                        "body": {"window_months": months, "include_reference": include_reference, "actor": "<you>"}},
             "note": "Nothing launches by itself: the run starts on POST (a click), and the new model goes through "
                     "registration, review and the stage change like any other."}
+
+
+def _join_block(jn: dict[str, Any]) -> str:
+    tables = ", ".join(x["table"] for x in jn.get("inputs") or [])
+    return (f"This model reads the join {jn.get('name') or jn['join_id']} ({tables}): a window of scored frames is not a "
+            "version of those tables. Commit the window's tables as a new version of the dataset and train on the same "
+            f"join (POST /runs {{dataset_id, join_id: {jn['join_id']}, label}}).")
 
 
 @router.get("/registry/versions/{vid}/monitoring/retrain")
