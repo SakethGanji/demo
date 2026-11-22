@@ -1,3 +1,4 @@
+import { usePoc } from '@/shared/hooks/usePoc'
 import { useState } from 'react'
 import { certifications, contracts, pii, refusal, shares, teamsApi, PII_MASKS, PII_TAGS, type Certification, type ContractResult, type PiiTag, type Share } from '@/shared/api/governance'
 import type { DsHistory } from '@/shared/api/catalog'
@@ -115,7 +116,8 @@ function CertPanel({ root, vid, v, d, by, onChanged }: { root: string; vid: stri
   const [msg, setMsg] = useState('')
   const run = (p: Promise<Certification>, text: (c: Certification) => string) => { setMsg(''); p.then((r) => { setTick((x) => x + 1); onChanged(text(r)) }).catch((e) => setMsg(errLine(e))) }
   const vOf = (id: string) => d.versions.find((x) => x.id === id)?.v
-  const me = by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+  const poc = usePoc()
+  const me = poc ? '' : by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
   return (
     <div className="card" data-testid="cert-panel">
       <CardHead title="Certifications" badge={c.data?.live.length ? <>{c.data.live.map((x) => <Badge key={x.id} status="certified">{x.level.replace(/_/g, ' ')} v{vOf(x.version_id)}</Badge>)}</> : <Badge status="none">none live</Badge>}
@@ -156,7 +158,8 @@ function SharePanel({ root, vid, by, onChanged }: { root: string; vid: string; b
   const [msg, setMsg] = useState('')
   const name = (t: string) => teams.data?.find((x) => x.id === t)?.name ?? t
   const run = (p: Promise<Share>, text: (r: Share) => string) => { setMsg(''); p.then((r) => { setTick((x) => x + 1); onChanged(text(r)) }).catch((e) => setMsg(errLine(e))) }
-  const me = by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+  const poc = usePoc()
+  const me = poc ? '' : by.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
   return (
     <div className="card" data-testid="share-panel">
       <CardHead title="Shares" badge={(s.data ?? []).some((x) => x.status === 'active') ? <Badge status="active">{(s.data ?? []).filter((x) => x.status === 'active').length} active</Badge> : undefined} sub="other teams that may read and train on this dataset" />

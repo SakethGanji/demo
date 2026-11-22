@@ -585,6 +585,9 @@ async def _decide_retire(request: Request, rid: str, approve: bool, who: str, co
     from ..authz.policy import four_eyes
 
     mine = four_eyes("model.retire_decide", req, who) is not None  # C §1.5 (P21): one check for every decide path
+    if not approve:  # withdrawing is the requester's, also in ENSEMBLE_POC_MODE
+        from ..authz.policy import is_requester
+        mine = is_requester("model.retire_decide", req, who)
     self_admin = mine and approve and G.is_admin(who) and G.allow_admin_self_approve()
     if mine and approve and not self_admin:
         raise HTTPException(403, f"Four eyes: {req['requested_by']} asked to retire this version, so someone else must approve, "

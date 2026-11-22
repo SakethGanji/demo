@@ -139,6 +139,10 @@ def decide(con: Any, p: Principal | None, action: str, scope: Scope) -> dict[str
     if p is None:
         return {**out, "allow": False, "reason": "no credentials (send X-Ensemble-Actor; sign-in comes with SSO)"}
     out["principal"] = p.display_name
+    from ..catalog.governance import poc_mode
+
+    if poc_mode():  # ENSEMBLE_POC_MODE=1: single-person testing, every identified principal may do everything
+        return {**out, "allow": True, "role": "owner", "reason": "POC mode (ENSEMBLE_POC_MODE=1): every check passes"}
     if rule.anyone:
         return {**out, "allow": True, "reason": "any identified principal"}
     if rule.self_ok and scope.object_kind == "principal" and scope.object_id in (p.id, p.display_name, p.identity_key):
@@ -220,11 +224,25 @@ def decide_check(p: Principal | str | None, action: str, req: dict[str, Any]) ->
     return None
 
 
+def is_requester(action: str, req: dict[str, Any], by: str | None = None) -> bool:
+    """True when `by` (or the request principal) is one of the people four eyes excludes. Unlike four_eyes() this is
+    not switched off by ENSEMBLE_POC_MODE: it decides who may *withdraw* a request, not who may decide it."""
+    from .context import current
+
+    ctx = current()
+    p = ctx.principal if ctx is not None and ctx.resolved else None
+    return any(decide_check(who, action, req) for who in (by, p))
+
+
 def four_eyes(action: str, req: dict[str, Any], by: str | None = None) -> str | None:
     """Every decide path calls this (C §1.5): the name recorded as the decider (`by`) AND the request's principal (when
     one was resolved) are each checked, so a typed `by` cannot launder a requester's own header, nor the reverse."""
     from .context import current
 
+    from ..catalog.governance import poc_mode
+
+    if poc_mode():  # ENSEMBLE_POC_MODE=1: single-person testing, no second person needed
+        return None
     ctx = current()
     p = ctx.principal if ctx is not None and ctx.resolved else None
     for who in (by, p):

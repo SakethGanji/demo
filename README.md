@@ -107,6 +107,12 @@ make reset       # delete every run, version, batch, autopilot, MLflow record an
                  # Local dev: ENSEMBLE_DEMO_MODE=1 ENSEMBLE_ADMINS=me make dev, then make reset BY=me
 ```
 
+**Testing on your own (POC mode).** `ENSEMBLE_POC_MODE=1 make dev` lets one person do everything: the four-eyes rules are
+off (you may approve your own certification, share, delete, retire, champion, review, hold release and purge, for every
+team), every typed name counts as a platform admin and owner, and every permission check passes. Masking, integrity
+checks, legal holds (they still block), acknowledgements and the audit log stay on. The status bar says
+"▲ POC mode" while it is on. Never set it on a shared deployment.
+
 Open http://localhost:5190. On a fresh workbench Home lists the six samples; pick one and the first model trains in
 about a minute. `npm run build` type-checks and builds the UI. `node scripts/walkthrough.cjs` drives three fresh bank
 CSVs (`scripts/fresh_data.py`) through the browser with a screenshot at every stop. The demo is scripted in

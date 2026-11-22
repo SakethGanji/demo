@@ -361,6 +361,8 @@ def decide(app, pid: str, b: dict[str, Any], by: str) -> dict[str, Any]:
             raise PurgeError(409, "not_pending", f"Purge {pid} is {r['status']}.")
         mine = four_eyes("data.purge_decide", r, by)
         if withdraw:
+            from ..authz.policy import is_requester
+            mine = "requester" if is_requester("data.purge_decide", r, by) else None
             if not mine:
                 raise PurgeError(403, "forbidden", f"Only {r['requested_by']} (who asked) withdraws this purge.")
             con.execute("UPDATE approval_requests SET status = 'withdrawn', decided_by = ?, decided_at = ?, comment = ? WHERE id = ?",
@@ -382,10 +384,10 @@ def decide(app, pid: str, b: dict[str, Any], by: str) -> dict[str, Any]:
     pr = principal_or_typed(app, by)
     with db.connect() as con:
         role = role_of(con, pr.id, team) if pr is not None else None
-    if role != "owner":
+    if role != "owner" and not G.poc_mode():
         raise PurgeError(403, "owner_required", f"A purge is approved for {team} by an owner of {team} (§11: owners of every affected "
                                                 f"team + four eyes); {by} is {role or 'not a member'}.", team=team, needed="owner")
-    if approve and any(a["by_key"] == G.identity_key(by) for a in p["approvals"].values()):
+    if approve and not G.poc_mode() and any(a["by_key"] == G.identity_key(by) for a in p["approvals"].values()):
         raise PurgeError(409, "four_eyes", f"{by} already approved for another team: each team's approval is a different person.")
     with db.connect() as con:
         if not approve:

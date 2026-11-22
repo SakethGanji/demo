@@ -1,3 +1,4 @@
+import { usePoc } from '@/shared/hooks/usePoc'
 import type { Params } from '@/features/training-gym/params'
 import { useEffect, useState } from 'react'
 import { useApi } from '@/shared/api/mode'
@@ -9,6 +10,12 @@ function ApiMode() {
   const title = mode === 'live' ? 'Connected to the ENSEMBLE API: datasets and runs are real.'
     : mode === 'mock' ? 'The API is not reachable, so the app runs on its built-in simulation. Click to check again.' : 'Checking the API…'
   return <button type="button" className={`api-mode ${mode}`} data-testid="api-mode" data-mode={mode} title={title} onClick={recheck}>{label}</button>
+}
+
+/** ENSEMBLE_POC_MODE=1: say so on every page, so nobody mistakes a single-person test setup for the real rules. */
+function PocMode() {
+  const on = usePoc()
+  return on ? <><span className="sb-poc" data-testid="sb-poc" title="ENSEMBLE_POC_MODE=1 on the API: four eyes off, everyone counts as admin and owner, every permission check passes. Masking, integrity checks, legal holds and the audit log stay on.">▲ POC mode · one-person approvals</span><span className="sb-sep" /></> : null
 }
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`
@@ -43,7 +50,7 @@ export function StatusBar({ params }: { params: Params }) {
   if (mode === 'live') return <footer className="statusbar"><ApiMode /><span className="sb-sep" /><LiveStatus /></footer>
   return (
     <footer className="statusbar">
-      <ApiMode /><span className="sb-sep" />
+      <ApiMode /><span className="sb-sep" /><PocMode />
       <span className="ok">● gym-default</span><span>6 / 6 nodes</span><span className="sb-sep" /><span className="muted-sb">simulated:</span>
       <span className="live"><i className="live-dot" style={{ width: 6, height: 6, borderRadius: 999, background: 'currentColor' }} />run_8a10 training · fold 3 of 5</span>
       <span>1 queued</span><span className="sb-sep" />

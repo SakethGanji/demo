@@ -1,3 +1,4 @@
+import { usePoc } from '@/shared/hooks/usePoc'
 import { useEffect, useState } from 'react'
 import { api } from '@/shared/api/client'
 import type { Latency, ModelVersion, Stage } from '@/shared/api/types'
@@ -165,7 +166,8 @@ export function ReviewCard({ v, actor, onChanged }: { v: ModelVersion; actor: st
   }
   const me = nameKey(actor)
   const author = v.options?.change_by
-  const self = !!me && (me === nameKey(v.created_by) || (!!author && me === nameKey(author)))
+  const poc = usePoc()
+  const self = !poc && !!me && (me === nameKey(v.created_by) || (!!author && me === nameKey(author)))
   const ready = v.status === 'ready'
   return (
     <div className="card" data-testid="review-card">
@@ -212,6 +214,7 @@ function RetireBox({ v, actor, comment, onChanged }: { v: ModelVersion; actor: s
   const load = () => api.registry.retireState(v.id).then((r) => setReqs(r.requests)).catch(() => setReqs([]))
   useEffect(() => { load() }, [v.id, v.retired_at]) // eslint-disable-line react-hooks/exhaustive-deps
   const pending = reqs.find((r) => r.status === 'pending')
+  const poc = usePoc()
   const run = async (p: Promise<RetireRequest & { version?: ModelVersion }>, ok: string) => {
     setMsg(null)
     try { const r = await p; setMsg({ ok: true, text: ok }); await load(); onChanged(r.version ?? await api.registry.version(v.id)) } catch (e) { setMsg({ ok: false, text: (e as Error).message }) }
@@ -223,7 +226,7 @@ function RetireBox({ v, actor, comment, onChanged }: { v: ModelVersion; actor: s
         {reqs.some((r) => r.status === 'approved' && r.comment.startsWith('SELF-APPROVED')) && <span style={{ display: 'block', marginTop: 4, color: 'var(--status-danger)', fontWeight: 700 }} data-testid="retire-self-approved">⚠ Self-approved by admin {v.retired_by}: no second person decided (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1).</span>}</span>
         : pending ? <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <span className="helper">Retirement asked by <b>{pending.requested_by}</b>: “{pending.reason}”</span>
-          {nameKey(actor) === nameKey(pending.requested_by)
+          {!poc && nameKey(actor) === nameKey(pending.requested_by)
             ? <button className="btn sm ghost" onClick={() => run(api.registry.decideRetire(pending.id, false, actor), 'Retirement request withdrawn.')} data-testid="retire-withdraw">Withdraw my request</button>
             : <>
               <button className="btn sm" disabled={!actor.trim()} onClick={() => run(api.registry.decideRetire(pending.id, true, actor, comment), 'Retired.')} data-testid="retire-approve">Approve retirement as {actor || '…'}</button>

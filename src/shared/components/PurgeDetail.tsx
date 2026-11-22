@@ -1,3 +1,4 @@
+import { usePoc } from '@/shared/hooks/usePoc'
 import { useEffect, useState } from 'react'
 import { purges, LIFECYCLE_CODES, type Purge, type RunVerify } from '@/shared/api/lifecycle'
 import { refusal, teamsApi, type Team } from '@/shared/api/governance'
@@ -97,8 +98,9 @@ export function PurgeDetail({ id, by, onChanged }: { id: string; by: string; onC
 
 function TeamDecide({ team, by, mine, approvedByMe, busy, onDecide }: { team: string; by: string; mine: boolean; approvedByMe: boolean; busy: boolean; onDecide: (approve: boolean) => void }) {
   const can = useCan('data.purge_decide', 'team', team, by)
-  const no = !by || mine || approvedByMe || !can?.allow
-  const reason = mine ? 'Four eyes: you asked for this purge, so someone else decides.' : approvedByMe ? 'You already approved for another team: each team is a different person.' : why(can, 'Approve for this team: when every team has approved, the purge executes')
+  const poc = usePoc()
+  const no = !by || (!poc && (mine || approvedByMe)) || !can?.allow
+  const reason = poc ? why(can, 'POC mode: you may approve your own request for every team') : mine ? 'Four eyes: you asked for this purge, so someone else decides.' : approvedByMe ? 'You already approved for another team: each team is a different person.' : why(can, 'Approve for this team: when every team has approved, the purge executes')
   return <span className="stack" style={{ gap: 4 }}>
     <span className="row" style={{ gap: 4 }}>
       <button className="btn sm primary" disabled={no || busy} title={reason} onClick={() => onDecide(true)} data-testid={`purge-approve-${team}`}>{busy ? '…' : 'Approve'}</button>

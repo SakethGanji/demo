@@ -159,7 +159,7 @@ export const data = {
 
 // P18: who am I and which teams (the sidebar's team switcher).
 export type MyTeam = TeamRef & { state: string; role: string }
-export type Me = { principal: { id: string; display_name: string } | null; teams: MyTeam[]; default_team: string | null; authz_mode: string; hint?: string }
+export type Me = { principal: { id: string; display_name: string } | null; teams: MyTeam[]; default_team: string | null; authz_mode: string; poc_mode?: boolean; hint?: string }
 export const teams = {
   me: () => request<Me>('/me'),
 }

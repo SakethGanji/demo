@@ -752,9 +752,11 @@ def decide_delete(app, rid: str, approve: bool, by: str, comment: str, admin_sel
     if req["status"] != "pending":
         raise DsError(409, f"This request is {req['status']}.")
     opts = _j(req.get("options")) or {}
-    from ..authz.policy import four_eyes  # C §1.5 (P21): every decide path goes through one check
+    from ..authz.policy import four_eyes, is_requester  # C §1.5 (P21): every decide path goes through one check
 
     mine = four_eyes("data.delete_decide", req, by) is not None
+    if withdraw or not approve:  # withdrawing is the requester's, also in ENSEMBLE_POC_MODE
+        mine = is_requester("data.delete_decide", req, by)
     if withdraw and not (mine or G.is_admin(by)):  # DL3 (m6): only the requester (identity key) or an admin withdraws
         raise DsError(403, f"Only {req['requested_by']} (who asked) or an admin may withdraw this request; {by} may reject it "
                            "as a reviewer instead (approve: false, with a comment).")

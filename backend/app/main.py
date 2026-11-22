@@ -545,6 +545,9 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
         from .authz.policy import four_eyes  # C §1.5 (P21): every decide path goes through one check
 
         mine = four_eyes("admin.reset", dict(r), who) is not None
+        if not approve:  # withdrawing is the requester's, also in ENSEMBLE_POC_MODE
+            from .authz.policy import is_requester
+            mine = is_requester("admin.reset", dict(r), who)
         if approve and mine:
             msg = f"Four eyes: {r['requested_by']} asked for this reset, so someone else must approve it (admins included)."
             G.refused(db, who, "admin_reset_decide", 403, msg, {"request_id": rid})

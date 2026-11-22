@@ -222,13 +222,13 @@ def me(request: Request, by: str | None = None) -> dict[str, Any]:
     mode = authz_mode()
     if not G.identity_key(name):
         return {"principal": None, "auth": None, "teams": [], "default_team": None, "authz_mode": mode,
-                "detail": "No name: send the X-Ensemble-Actor header (the UI's 'Acting as') or ?by=."}
+                "poc_mode": G.poc_mode(), "detail": "No name: send the X-Ensemble-Actor header (the UI's 'Acting as') or ?by=."}
     with request.app.state.db.connect() as con:
         p = ensure_principal(con, name)
         teams = _teams_of(con, p["id"])
     live = [t for t in teams if t["state"] == "active"]
     return {"principal": _principal_out(p), "auth": "typed" if p["kind"] == "person" else p["kind"], "teams": teams,
-            "default_team": live[0]["id"] if len(live) == 1 else None, "authz_mode": mode}
+            "default_team": live[0]["id"] if len(live) == 1 else None, "authz_mode": mode, "poc_mode": G.poc_mode()}
 
 
 @router.get("/teams", dependencies=[public("team directory: names and counts; members need team.read")])
@@ -398,7 +398,9 @@ def _member_gate(request: Request, t: Any, target: Any, before: str | None, afte
     The decision follows the mode exactly like require() (deps.check: would-deny in audit, 403 in enforce)."""
     from ..authz import deps
 
-    if deps.mode() == "off":
+    from . import governance as G
+
+    if deps.mode() == "off" or G.poc_mode():  # ENSEMBLE_POC_MODE=1: one person may set up their own roles
         return
     p = deps.principal(request, by or None)
     if p is not None and after is not None and (target["id"] == p.id or target.get("identity_key") == p.identity_key):

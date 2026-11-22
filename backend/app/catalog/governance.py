@@ -77,15 +77,23 @@ def admins() -> set[str]:
     return {identity_key(a) for a in os.environ.get("ENSEMBLE_ADMINS", "").split(",") if identity_key(a)}
 
 
+def poc_mode() -> bool:
+    """ENSEMBLE_POC_MODE=1: single-person testing. Every typed name counts as a platform admin, the second-person
+    (four-eyes) rules are off, self-approval / self-promotion / self-granting a role are allowed, and one owner may
+    approve a purge for every team. Integrity, masking, legal holds, audit and every other check stay on. Default off;
+    never set it on a shared deployment."""
+    return os.environ.get("ENSEMBLE_POC_MODE", "").strip().lower() in ("1", "true", "yes")
+
+
 def is_admin(name: str | None) -> bool:
     k = identity_key(name)
-    return bool(k) and k in admins()
+    return bool(k) and (poc_mode() or k in admins())
 
 
 def allow_admin_self_approve() -> bool:
     """DL3 (m1): may an admin approve their own retire / delete request? Default no: a second person decides, admins
     included (ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1 allows it; the audit then says "self-approved by admin")."""
-    return os.environ.get("ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE", "").strip().lower() in ("1", "true", "yes")
+    return poc_mode() or os.environ.get("ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE", "").strip().lower() in ("1", "true", "yes")
 
 
 SELF_APPROVED = "SELF-APPROVED BY ADMIN (no second person; ENSEMBLE_ALLOW_ADMIN_SELF_APPROVE=1)"
@@ -94,7 +102,7 @@ SELF_APPROVED = "SELF-APPROVED BY ADMIN (no second person; ENSEMBLE_ALLOW_ADMIN_
 def allow_self_promote() -> bool:
     """Policy: may the person who registered a version also move it to Production once someone else approved it?
     Default no (ENSEMBLE_ALLOW_SELF_PROMOTE=1 to allow; the audit records it as a self-promotion either way)."""
-    return os.environ.get("ENSEMBLE_ALLOW_SELF_PROMOTE", "").strip().lower() in ("1", "true", "yes")
+    return poc_mode() or os.environ.get("ENSEMBLE_ALLOW_SELF_PROMOTE", "").strip().lower() in ("1", "true", "yes")
 
 
 def open_critical(app: Any, run_id: str) -> list[str] | None:
