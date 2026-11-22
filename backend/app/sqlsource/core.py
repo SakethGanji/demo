@@ -31,6 +31,8 @@ import os
 import re
 import socket
 import sqlite3
+import threading
+import uuid
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -447,6 +449,8 @@ def lineage_record(res: dict[str, Any], df: pd.DataFrame, *, version: int, root:
 # -- the demo database -----------------------------------------------------------------------------------------------
 
 DEMO_VERSION = "1"
+#: U3: concurrent first calls (two GET /sql/demo at once) built the file through one shared tmp path → 500
+_DEMO_LOCK = threading.Lock()
 DEMO_QUERY = """SELECT a.*, o.defaulted
 FROM applications a
 JOIN outcomes o ON o.applicant_id = a.applicant_id
@@ -467,16 +471,26 @@ def ensure_demo_db(data_dir: Path, store: Any) -> Path:
     mark = path.with_suffix(".stamp")
     if path.exists() and mark.exists() and mark.read_text() == stamp:
         return path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.unlink(missing_ok=True)
-    cd = frames.read_version("credit-default")
-    with sqlite3.connect(tmp) as con:
-        cd.drop(columns=["defaulted"]).to_sql("applications", con, index=False)
-        cd[["applicant_id", "defaulted"]].to_sql("outcomes", con, index=False)
-        frames.read_version("loan-stream").to_sql("loans", con, index=False)
-        frames.read_version("account-churn").to_sql("accounts", con, index=False)
-        con.execute("CREATE INDEX ix_outcomes ON outcomes(applicant_id)")
-    tmp.replace(path)
-    mark.write_text(stamp)
+    # one builder per process (the lock; re-checked inside), and a private tmp file per call so builders in other
+    # processes never write into each other's file; os.replace makes the finished file appear at once
+    with _DEMO_LOCK:
+        if path.exists() and mark.exists() and mark.read_text() == stamp:
+            return path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            cd = frames.read_version("credit-default")
+            with sqlite3.connect(tmp) as con:
+                cd.drop(columns=["defaulted"]).to_sql("applications", con, index=False)
+                cd[["applicant_id", "defaulted"]].to_sql("outcomes", con, index=False)
+                frames.read_version("loan-stream").to_sql("loans", con, index=False)
+                frames.read_version("account-churn").to_sql("accounts", con, index=False)
+                con.execute("CREATE INDEX ix_outcomes ON outcomes(applicant_id)")
+            con.close()
+            os.replace(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        mtmp = mark.with_name(f".{mark.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}")
+        mtmp.write_text(stamp)
+        os.replace(mtmp, mark)
     return path
