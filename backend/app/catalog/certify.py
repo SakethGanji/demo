@@ -265,7 +265,7 @@ async def create(dataset_id: str, request: Request, b: dict[str, Any]) -> dict[s
         raise e.http() from e
 
 
-@router.get("/datasets/{dataset_id}/certifications", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
+@router.get("/datasets/{dataset_id}/certifications", dependencies=[require("data.read_meta", path("dataset_id", "dataset_root"))])
 async def list_for(dataset_id: str, request: Request) -> dict[str, Any]:
     """P21: the dataset's certifications (every version), newest first, with their effective status."""
     def go() -> dict[str, Any]:

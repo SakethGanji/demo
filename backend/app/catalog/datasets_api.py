@@ -65,7 +65,7 @@ def search(request: Request, q: str = "", project: str | None = None, tag: str |
     return with_team(request, {"datasets": out, "total": len(out)}, "search")
 
 
-@router.get("/datasets/{dataset_id}/history", dependencies=[require("data.read_meta", path("dataset_id", "dataset"))])
+@router.get("/datasets/{dataset_id}/history", dependencies=[require("data.read_meta", path("dataset_id", "dataset_root"))])
 async def history(dataset_id: str, request: Request) -> dict[str, Any]:
     """The dataset this id belongs to: card, default version, every version (who, when, op, changes, rows × cols, hash,
     integrity, use), pending requests and its audit trail. P20: values of PII-tagged columns in edit logs and audit
@@ -73,8 +73,36 @@ async def history(dataset_id: str, request: Request) -> dict[str, Any]:
     from ..lake import mask as M
 
     out = await _thread(D.history, request.app, dataset_id)
+    out = await _thread(_history_scope, request, out)
     m = await _thread(M.masked_view, dataset_id)
     return m.scrub(out) if m is not None else out
+
+
+def _history_scope(request: Request, out: dict[str, Any]) -> dict[str, Any]:
+    """F-X4a: a caller who reads this dataset only through a share (C §1.3 "shared scope only") sees the versions in
+    the share's scope, without the owner team's requests and audit trail (enforce mode, like the lists). Members and
+    admins: unchanged."""
+    from ..authz import deps
+    from . import shares as SH
+
+    if deps.mode() != "enforce" or not out.get("versions"):  # like the lists: narrowed in enforce mode
+        return out
+    p = deps.principal(request)
+    with request.app.state.db.connect() as con:
+        own = deps.own_teams(con, p)
+        if own is None:
+            return out
+        tid = next((v.get("team_id") for v in out["versions"] if v.get("team_id")), None)
+        if tid is None:
+            from ..authz.scope import resolve
+            tid = resolve(request.app, con, "dataset", out["versions"][0]["id"]).team_id
+        if tid in own:
+            return out
+        keep = [v for v in out["versions"] if SH.grant_for_version(con, own, v["id"])]
+    ids = {v["id"] for v in keep}
+    return {**out, "versions": keep, "requests": [], "audit": [], "retired_versions": [],
+            "default_version_id": out.get("default_version_id") if out.get("default_version_id") in ids else
+            (keep[0]["id"] if keep else None), "access": "shared"}
 
 
 # -- P20: PII tags ---------------------------------------------------------------------------------------------------

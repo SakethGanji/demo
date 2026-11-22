@@ -137,6 +137,14 @@ def grant(con: Any, principal_id: str, scope: Any, *, unmasked: bool = False) ->
         k, i = scope.object_kind, scope.object_id
         if k == "dataset" and i:
             return grant_for_version(con, teams, i, unmasked=unmasked)
+        if k == "dataset_root" and i:  # F-X4a: a root-level view: shared when any version of the root is in scope
+            root = con.execute("SELECT root_id FROM datasets WHERE id = ?", (i,)).fetchone()
+            for (vid,) in con.execute("SELECT id FROM datasets WHERE root_id = ? ORDER BY created_at DESC LIMIT 500",
+                                      (root[0] if root else i,)).fetchall():
+                g = grant_for_version(con, teams, vid, unmasked=unmasked)
+                if g:
+                    return g
+            return None
         if k == "share" and i and not unmasked:  # F-X4a: the grantee team reads its own share
             r = con.execute("SELECT grantee_team FROM shares WHERE id = ?", (i,)).fetchone()
             return get(con, i) if r and r[0] in teams else None

@@ -114,6 +114,17 @@ def _job(con: Any, i: str) -> Scope | None:
 
 
 RESOLVERS["job"] = _job
+
+
+def _dataset_root(con: Any, i: str) -> Scope | None:
+    """F-X4a: a root-level view of a dataset (history, the certifications list) named by any of its version ids: the
+    version's team; `shares.grant` lets a grantee in when a live share covers ANY version of the root (the handler then
+    narrows the answer to the versions in scope: C §1.3 "shared scope only")."""
+    s = _dataset(con, i)
+    return Scope(s.team_id, s.project_id, "dataset_root", i) if s else None
+
+
+RESOLVERS["dataset_root"] = _dataset_root
 RESOLVERS["shareable"] = _shareable
 RESOLVERS["share"] = _share
 #: the lineage / annotation node kinds (/annotations/{kind}/{id}, /lineage/{kind}/{id}) → resolver kinds
