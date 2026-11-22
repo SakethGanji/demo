@@ -65,7 +65,7 @@ PURGED = "purged"
 NAME_KEYS = ("feature", "column", "col", "name", "variable", "group", "group_column", "attribute", "by", "field", "protected")
 TIME_KEYS = re.compile(r"(^|_)(at|ts|time|date_utc|created|updated)$|_at$")
 TEXT_EXT = {".json", ".csv", ".txt", ".md", ".html", ".htm", ".jsonl", ".log", ".tsv", ".yaml", ".yml", ".xml"}
-SKIP_TABLES = {"audit_log", "audit_head"}
+SKIP_TABLES = {"audit_log", "audit_head", "label_events", "label_snapshots"}  # LB-A: labels/purge.py redacts those
 
 
 def _env_int(name: str, default: int) -> int:

@@ -177,7 +177,6 @@ TRIGGERS = {
     "le_ro_d": "CREATE TRIGGER IF NOT EXISTS le_ro_d BEFORE DELETE ON label_events BEGIN SELECT RAISE(ABORT, 'label events are append-only'); END",
     "le_ro_u": ("CREATE TRIGGER IF NOT EXISTS le_ro_u BEFORE UPDATE ON label_events WHEN NOT (" + _REDACT + " AND "
                 + _FROZEN.format(is_="IS") + ") BEGIN SELECT RAISE(ABORT, 'label events are append-only (only a purge may redact)'); END"),
-    "lsch_ro_u": "CREATE TRIGGER IF NOT EXISTS lsch_ro_u BEFORE UPDATE ON label_schemas BEGIN SELECT RAISE(ABORT, 'label schemas are insert-only'); END",
     "ri_label_ro_u": ("CREATE TRIGGER IF NOT EXISTS ri_label_ro_u BEFORE UPDATE OF label_snapshot_id, label_snapshot_sha256, overlay_sha256,"
                       " overlay_blob, overlay_spec ON run_inputs BEGIN SELECT RAISE(ABORT, 'run inputs are immutable'); END"),
 }
@@ -191,7 +190,6 @@ def pg_triggers() -> dict[str, tuple[str, str]]:
         "le_ro_d": ("label_events", _ro("le_ro_d", "DELETE", "label_events", "label events are append-only")),
         "le_ro_u": ("label_events", _ro("le_ro_u", "UPDATE", "label_events", "label events are append-only (only a purge may redact)",
                                         "NOT (" + _REDACT + " AND " + _FROZEN.format(is_="IS NOT DISTINCT FROM") + ")")),
-        "lsch_ro_u": ("label_schemas", _ro("lsch_ro_u", "UPDATE", "label_schemas", "label schemas are insert-only")),
         "ri_label_ro_u": ("run_inputs", _ro("ri_label_ro_u", "UPDATE OF label_snapshot_id, label_snapshot_sha256, overlay_sha256,"
                                             " overlay_blob, overlay_spec", "run_inputs", "run inputs are immutable")),
     }
@@ -260,6 +258,7 @@ def migrate(con: Any) -> None:
         if c not in have:
             con.execute(f"ALTER TABLE run_inputs ADD COLUMN {c} {typ}")
     seed(con)
+    con.execute("DROP TRIGGER IF EXISTS lsch_ro_u")  # an early LB-A build: it blocked the purge scrub of class names
     for q in TRIGGERS.values():
         con.execute(q)
     _step(con, "labels_l01a")

@@ -8,6 +8,7 @@ status ∈ applied · disputed · prelabel_only · schema_dropped."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -85,7 +86,18 @@ def resolve(db: Any, layer_id: str, policy: dict[str, Any] | None = None, *, thr
     for e in evs:
         groups.setdefault((e["row_id"], e["column_name"], e["item_key"]), []).append(e)
     out = []
-    for (rid, col, ik), es in sorted(groups.items()):
+    for (rid, col, ik), es_all in sorted(groups.items()):
+        # LBL-VERIFY C2: votes never cross epochs. An epoch = the events made on the same row content (row_hash_ctx, and
+        # the base value for a correction); the latest epoch decides alone, so a re-review on changed content is not
+        # outvoted by votes about the old content. Retractions apply in every epoch.
+        def _epoch(e: dict[str, Any]) -> str:
+            corr = (spec_cols.get(col) or {}).get("role") == "feature"
+            return f"{e['row_hash_ctx'] or ''}|{(e['base_value_hash'] or '') if corr else ''}"
+        deciding_kinds = ("label", "confirm", "adjudicate")
+        last = max((e for e in es_all if e["kind"] in deciding_kinds), key=lambda e: e["seq"], default=None)
+        ep = _epoch(last) if last is not None else None
+        es = [e for e in es_all if ep is None or _epoch(e) == ep or e["kind"] in ("retract", "reject")]
+        n_epochs = len({_epoch(e) for e in es_all if e["kind"] in deciding_kinds})
         votes: dict[tuple[str, str], dict[str, Any]] = {}
         adjud = None
         for e in es:
@@ -147,6 +159,7 @@ def resolve(db: Any, layer_id: str, policy: dict[str, Any] | None = None, *, thr
             "confidence": d.get("confidence"), "sources": ",".join(sorted({v["source"] for v in vs} | {d["source"]})),
             "row_hash_ctx": d["row_hash_ctx"], "row_hash_all": d["row_hash_all"], "ctx_cols_sha256": d["ctx_cols_sha256"],
             "ctx_cols": canon_json(prov.get("_ctx")) if prov.get("_ctx") is not None else None,
-            "base_value_hash": d["base_value_hash"], "seen_version_id": d["seen_version_id"], "last_seq": max(e["seq"] for e in es),
+            "base_value_hash": d["base_value_hash"], "seen_version_id": d["seen_version_id"], "last_seq": max(e["seq"] for e in es_all),
+            "epoch_hash": hashlib.sha256((ep or "").encode()).hexdigest(), "n_epochs": n_epochs,
         })
     return {"layer_id": layer_id, "through_seq": ts, "policy": pol, "rows": out}

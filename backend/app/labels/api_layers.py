@@ -5,8 +5,8 @@
     GET   /api/label-layers/{layer_id}                                 label.read
     PATCH /api/label-layers/{layer_id} {state?, name?, purpose?}       label.layer_manage
     POST  /api/label-layers/{layer_id}/schemas {spec, guidelines?, class_map?}   label.layer_manage → 201
-    POST  /api/label-layers/{layer_id}/events {events:[…≤500], version_id?}      label.task_manage (any source);
-          label.annotate holders (viewer/member) may append source 'human' only (task membership: LB-B's task routes)
+    POST  /api/label-layers/{layer_id}/events {events:[…≤500], version_id?}      label.task_manage (LBL-VERIFY M12: direct
+          events bypass queues, gold and blind; annotators label through LB-B's task routes, which call append_events)
     GET   /api/label-layers/{layer_id}/events?after_seq=&limit=&row_id=          label.read
     GET   /api/label-layers/{layer_id}/rows/{row_id}                   label.read: history + resolved + carry status
     GET   /api/label-layers/{layer_id}/status?version_id=&rows=1       label.read
@@ -62,41 +62,17 @@ async def add_schema(layer_id: str, request: Request, body: dict[str, Any] | Non
                       guidelines=str(b.get("guidelines") or ""), class_map=b.get("class_map"))
 
 
-def _may_manage(request: Request, layer_id: str) -> bool:
-    """label.task_manage on the layer's dataset (any source); else only 'human' events (label.annotate)."""
-    from ..authz import deps as D
-    from ..authz.context import current
-
-    if D.mode() != "enforce":
-        return True
-    ctx = current()
-    if ctx is None or ctx.principal is None:
-        return False
-    if ctx.principal.is_admin:
-        return True
-    from ..authz import policy as P
-    from ..authz.scope import resolve as scope_resolve
-
-    db = request.app.state.db
-    with db.connect() as con:
-        s = scope_resolve(request.app, con, "label_layer", layer_id)
-        role = P.role_of(con, ctx.principal.id, s.team_id) if s.team_id else None
-    return role is not None and P.RANK.get(role, -1) >= P.RANK["maintainer"]
-
 
 @router.post("/label-layers/{layer_id}/events", status_code=201,
-             dependencies=[require("label.annotate", path("layer_id", "label_layer"))])
+             dependencies=[require("label.task_manage", path("layer_id", "label_layer"))])
 async def append(layer_id: str, request: Request, body: dict[str, Any] | None = None) -> Any:
-    from fastapi.concurrency import run_in_threadpool
-
     b = obj(body)
-    manage = await run_in_threadpool(_may_manage, request, layer_id)
     evs = b.get("events")
     if evs is None and "row_id" in b:
         evs = [b]  # a single event as the body
     return await call(ST.append_events, request.app.state.db, layer_id, evs, who(request, b),
                       version_id=b.get("version_id"), source=b.get("source") or "human",
-                      allowed_sources=None if manage else {"human"}, ctx_columns=b.get("context_columns"))
+                      ctx_columns=b.get("context_columns"))
 
 
 @router.get("/label-layers/{layer_id}/events", dependencies=[require("label.read", path("layer_id", "label_layer"))])

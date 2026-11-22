@@ -29,6 +29,7 @@ class Rule:
     shared: bool = False
     anyone: bool = False
     self_ok: bool = False  # principal.manage: the principal itself
+    task_role: str | None = None  # LB-A (labeling review C3): a label_task member with this role may (guest annotators)
     note: str = ""
 
 
@@ -67,8 +68,9 @@ ACTIONS: dict[str, Rule] = {
     "annotate": R("member", rr=True, note="tags and notes on lineage nodes"),
     # labels (labeling plan §6.1; LB-A). Task-membership checks (annotate / review) are in the handlers.
     "label.read": R("viewer", rr=True, admin=True, shared=True, note="layers, status, snapshots, history; PII values masked"),
-    "label.annotate": R("viewer", note="plus task membership 'annotator' (handler); human events only"),
-    "label.review": R("viewer", note="plus task membership 'reviewer'; never on an item the reviewer voted on"),
+    "label.annotate": R("viewer", task_role="annotator", note="on a label_task: its annotators (guests too, no team role); "
+                                                               "on a layer: team viewers+ append human events only"),
+    "label.review": R("viewer", task_role="reviewer", note="on a label_task: its reviewers; never on an item the reviewer voted on"),
     "label.task_manage": R("maintainer", note="tasks, members, gold, fills; direct events of any source"),
     "label.layer_manage": R("maintainer", note="create / freeze / archive layers, schema versions"),
     "label.import": R("member", note="import a labels / outcomes file"),
@@ -168,6 +170,11 @@ def decide(con: Any, p: Principal | None, action: str, scope: Scope) -> dict[str
             return {**out, "allow": True, "reason": "the principal itself"}
     if p.is_admin and rule.admin:
         return {**out, "allow": True, "reason": "platform admin"}
+    if rule.task_role and scope.object_kind == "label_task" and scope.object_id:  # LB-A (review C3): guest annotators
+        m = con.execute("SELECT 1 FROM label_task_members WHERE task_id = ? AND principal_id = ? AND role = ? AND paused_at IS NULL",
+                        (scope.object_id, p.id, rule.task_role)).fetchone()
+        if m:
+            return {**out, "allow": True, "reason": f"{rule.task_role} of label task {scope.object_id}"}
     if action == "team.create":
         ok = bool(_policy(con, "tm_default").get("self_service_teams"))
         return {**out, "allow": ok, "reason": "self-service teams are on" if ok else "creating a team needs a platform admin "

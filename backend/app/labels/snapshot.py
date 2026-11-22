@@ -19,7 +19,7 @@ from .resolve import resolve
 from .store import _layer_full, current_schema
 from .values import LabelError, canon_json
 
-COLS = ("__row_id", "column", "value", "is_null", "status", "method", "n_votes", "n_annotators", "agreement", "quality",
+COLS = ("__row_id", "column", "item_key", "epoch_hash", "value", "is_null", "status", "method", "n_votes", "n_annotators", "agreement", "quality",
         "confidence", "sources", "row_hash_ctx", "row_hash_all", "ctx_cols_sha256", "ctx_cols", "base_value_hash",
         "seen_version_id", "last_seq")
 
@@ -67,6 +67,8 @@ def _table(rows: list[dict[str, Any]]):
             data[c].append(r.get("row_id") if c == "__row_id" else r.get(c))
     types = {"__row_id": pa.int64(), "is_null": pa.bool_(), "n_votes": pa.int32(), "n_annotators": pa.int32(),
              "last_seq": pa.int64()}
+    for r in rows:
+        r.setdefault("item_key", "")
     return pa.table({c: pa.array(data[c], type=types.get(c, pa.string())) for c in COLS})
 
 
