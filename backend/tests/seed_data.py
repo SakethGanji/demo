@@ -1,21 +1,31 @@
-"""Seeded generators for the demo datasets (plan §5).
+"""Seeded synthetic datasets for the tests (the app ships no sample data; tests upload their own).
 
-Both are synthetic by design and labelled as samples in the UI. Each generator returns the frame
-plus a sidecar dict that records the ground truth a later test can measure against.
+- tickets: text, six classes, overlapping vocabulary, a rare class, ~1.5 % duplicate rows, a few hundred wrong labels;
+- churn: tabular, two classes (~14 % "Yes"), numeric and categorical columns, a known logistic signal;
+- credit: tabular, two classes (~8 % default), customers with several applications, dated 2022–2024 with mild drift;
+- loan_amount: regression with a known linear signal and a few rows without a label.
 
-- Support tickets: text, six classes, ~20,000 rows. Vocabulary overlaps between classes, Security is
-  rare, ~1.5% of rows are exact duplicates of another row (apart from the ticket ID), and a few
-  hundred labels are deliberately wrong. The sidecar lists every flipped row.
-- Account churn: tabular, two classes, ~10,000 rows. Numeric and categorical columns, ~14% churn,
-  driven by a known logistic signal recorded in the sidecar.
+`upload_frame` posts a frame as a CSV; the `*_ds` fixtures in conftest upload each once per session.
 """
 
 from __future__ import annotations
 
-from typing import Any
+import io
 
+import httpx
 import numpy as np
 import pandas as pd
+
+
+def upload_frame(client: httpx.Client, df: pd.DataFrame, filename: str, target: str | None = None) -> dict:
+    """POST /api/datasets with the frame as a CSV; returns the dataset summary (with its id)."""
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    r = client.post("/api/datasets", files={"file": (filename, buf.getvalue().encode(), "text/csv")},
+                    data={"target": target} if target else None)
+    assert r.status_code == 201, r.text
+    return r.json()
+
 
 # ---------------------------------------------------------------------------
 # Support tickets
@@ -174,7 +184,7 @@ def _ticket_body(label: str, rng: np.random.Generator) -> str:
     return " ".join(parts[i] for i in order)
 
 
-def generate_tickets(n: int = 20_000, seed: int = 42, n_flips: int = 300, dup_share: float = 0.015) -> tuple[pd.DataFrame, dict[str, Any]]:
+def generate_tickets(n: int = 20_000, seed: int = 42, n_flips: int = 300, dup_share: float = 0.015) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
     n_dup = int(round(n * dup_share))
     n_base = n - n_dup
@@ -197,7 +207,6 @@ def generate_tickets(n: int = 20_000, seed: int = 42, n_flips: int = 300, dup_sh
 
     # Plant wrong labels on base rows (never on a row that gets duplicated, so every flip is unambiguous).
     flip_idx = rng.choice(n_base, size=n_flips, replace=False)
-    true_labels = base["category"].copy()
     for i in flip_idx:
         lbl = base.at[i, "category"]
         base.at[i, "category"] = CONFUSABLE[lbl][rng.integers(2)] if rng.random() < 0.75 else rng.choice([c for c in TICKET_CLASSES if c != lbl])
@@ -206,32 +215,12 @@ def generate_tickets(n: int = 20_000, seed: int = 42, n_flips: int = 300, dup_sh
     clean = np.setdiff1d(np.arange(n_base), flip_idx)
     dup_src = rng.choice(clean, size=n_dup, replace=False)
     df = pd.concat([base, base.iloc[dup_src]], ignore_index=True)
-    is_flipped = np.zeros(len(df), dtype=bool)
-    is_flipped[flip_idx] = True
-    truth = pd.concat([true_labels, true_labels.iloc[dup_src]], ignore_index=True)
 
     order = rng.permutation(len(df))
     df = df.iloc[order].reset_index(drop=True)
-    is_flipped = is_flipped[order]
-    truth = truth.iloc[order].reset_index(drop=True)
     df.insert(0, "ticket_id", [f"T-{100000 + i}" for i in range(len(df))])
 
-    flipped_rows = np.flatnonzero(is_flipped)
-    sidecar = {
-        "dataset": "support-tickets",
-        "seed": seed,
-        "rows": len(df),
-        "label_column": "category",
-        "classes": TICKET_CLASSES,
-        "rare_class": "Security",
-        "duplicate_rows": n_dup,
-        "n_flipped": int(len(flipped_rows)),
-        "flipped": [
-            {"row": int(r), "ticket_id": df.at[r, "ticket_id"], "true_label": truth.iat[r], "given_label": df.at[r, "category"]}
-            for r in flipped_rows
-        ],
-    }
-    return df, sidecar
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +238,7 @@ CHURN_COEFS = {
 }
 
 
-def generate_churn(n: int = 10_000, seed: int = 42) -> tuple[pd.DataFrame, dict[str, Any]]:
+def generate_churn(n: int = 10_000, seed: int = 42) -> pd.DataFrame:
     rng = np.random.default_rng(seed + 1)
     plan = rng.choice(["starter", "business", "enterprise"], size=n, p=[0.5, 0.35, 0.15])
     region = rng.choice(["na", "emea", "apac", "latam"], size=n, p=[0.42, 0.3, 0.18, 0.1]).astype(object)
@@ -286,18 +275,7 @@ def generate_churn(n: int = 10_000, seed: int = 42) -> tuple[pd.DataFrame, dict[
         "tenure_months": tenure, "tickets_90d": tickets, "last_login_days": last_login, "nps": nps_out,
         "churned": churned,
     })
-    sidecar = {
-        "dataset": "account-churn",
-        "seed": seed,
-        "rows": n,
-        "label_column": "churned",
-        "positive_class": "Yes",
-        "churn_rate": float((churned == "Yes").mean()),
-        "signal": "logit(p) = intercept + Σ coef · feature (nps missing → value before masking)",
-        "coefficients": CHURN_COEFS,
-        "noise_features": ["region", "seats", "mrr_usd"],
-    }
-    return df, sidecar
+    return df
 
 
 # ---------------------------------------------------------------------------
@@ -319,7 +297,7 @@ CREDIT_COEFS = {
 }
 
 
-# F6: the credit sample has customers (several applications each) and application dates with mild drift, so a
+# F6: the credit data has customers (several applications each) and application dates with mild drift, so a
 # random split is optimistic twice: the same customer is in training and holdout, and training sees the holdout's
 # period. Out-of-time and group splits show it.
 CREDIT_START, CREDIT_END = "2022-01-01", "2024-12-31"
@@ -331,7 +309,7 @@ CREDIT_DRIFT = {
 }
 
 
-def generate_credit(n: int = 12_000, seed: int = 42) -> tuple[pd.DataFrame, dict[str, Any]]:
+def generate_credit(n: int = 12_000, seed: int = 42) -> pd.DataFrame:
     """Loan applications and whether they defaulted within 12 months. ~8% default (imbalanced). F6: about 7,000
     customers with one to four applications each (`customer_id`), dated 2022–2024 (`application_date`), with mild
     temporal drift (CREDIT_DRIFT) and a customer effect shared by a customer's applications."""
@@ -414,26 +392,7 @@ def generate_credit(n: int = 12_000, seed: int = 42) -> tuple[pd.DataFrame, dict
         "debt_to_income": dti, "utilization": utilization, "delinquencies_2y": delinquencies,
         "months_employed": months_out, "defaulted": defaulted,
     })
-    yes = defaulted == "Yes"
-    by_year = {str(y): float(yes[np.asarray(pd.DatetimeIndex(dates).year) == y].mean()) for y in (2022, 2023, 2024)}
-    sidecar = {
-        "dataset": "credit-default",
-        "seed": seed,
-        "rows": n,
-        "label_column": "defaulted",
-        "positive_class": "Yes",
-        "default_rate": float(yes.mean()),
-        "default_rate_by_year": by_year,
-        "customers": int(pd.Series(c).nunique()),
-        "group_column": "customer_id",
-        "time_column": "application_date",
-        "drift": CREDIT_DRIFT,
-        "signal": "logit(p) = intercept + Σ coef(t) · feature + customer effect (values before masking); "
-                  "coef(t) drifts linearly in t = years since 2022-01-01 (drift)",
-        "coefficients": CREDIT_COEFS,
-        "noise_features": ["age", "region", "income_usd", "loan_amount_usd"],
-    }
-    return df, sidecar
+    return df
 
 
 LOAN_COEFS = {
@@ -449,7 +408,7 @@ LOAN_COEFS = {
 }
 
 
-def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int = 40) -> tuple[pd.DataFrame, dict[str, Any]]:
+def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int = 40) -> pd.DataFrame:
     """Approved loan amount (USD) from applicant features: a regression target with a known signal.
 
     A few rows have no recorded amount (the label is missing); the engine drops them before fitting."""
@@ -478,8 +437,7 @@ def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int =
     noise_sd = 0.12 * np.abs(mean) + 1_500
     amount = np.round(np.clip(mean + rng.normal(0, 1, size=n) * noise_sd, 1_000, None), -2)
     label = amount.astype(float)
-    missing_rows = np.sort(rng.choice(n, size=n_missing_labels, replace=False))
-    label[missing_rows] = np.nan
+    label[rng.choice(n, size=n_missing_labels, replace=False)] = np.nan
 
     df = pd.DataFrame({
         "application_id": [f"L-{700000 + i}" for i in range(n)],
@@ -487,81 +445,4 @@ def generate_loan_amount(n: int = 8_000, seed: int = 42, n_missing_labels: int =
         "purpose": purpose, "home_ownership": home, "region": region, "open_accounts": open_accounts,
         "loan_amount_usd": label,
     })
-    sidecar = {
-        "dataset": "loan-amount",
-        "seed": seed,
-        "rows": n,
-        "label_column": "loan_amount_usd",
-        "problem_type": "regression",
-        "signal": "E[amount] = intercept + Σ coef · feature; noise sd = 0.12·|mean| + 1500",
-        "coefficients": LOAN_COEFS,
-        "noise_features": ["region", "open_accounts"],
-        "missing_label_rows": [int(r) for r in missing_rows],
-    }
-    return df, sidecar
-
-
-from .samples_s8 import generate_card_transactions, generate_transaction_volume  # noqa: E402
-from .samples_f16 import generate_personal_loans  # noqa: E402
-from .samples_f18 import generate_loan_stream  # noqa: E402
-
-SAMPLES = {
-    "support-tickets": {
-        "name": "Support tickets (sample)",
-        "filename": "support_tickets_sample.csv",
-        "note": "Generated sample · text, 6 classes, planted label errors",
-        "generate": generate_tickets,
-        "sidecar": "label_noise.json",
-    },
-    "account-churn": {
-        "name": "Account churn (sample)",
-        "filename": "account_churn_sample.csv",
-        "note": "Generated sample · tabular, 2 classes, imbalanced",
-        "generate": generate_churn,
-        "sidecar": "signal.json",
-    },
-    "credit-default": {
-        "name": "Credit default (sample)",
-        "filename": "credit_default_sample.csv",
-        "note": "Generated sample · tabular, 2 classes, imbalanced (~8% default)",
-        "generate": generate_credit,
-        "sidecar": "signal.json",
-    },
-    "loan-amount": {
-        "name": "Loan amount (sample)",
-        "filename": "loan_amount_sample.csv",
-        "note": "Generated sample · regression, a few rows without a label",
-        "generate": generate_loan_amount,
-        "sidecar": "signal.json",
-    },
-    "transaction-volume": {
-        "name": "Transaction volume (sample)",
-        "filename": "transaction_volume_sample.csv",
-        "note": "Generated sample · daily volume for 6 branches/products, 2 years, holidays + paydays as known covariates",
-        "generate": generate_transaction_volume,
-        "sidecar": "forecast_spec.json",
-        "kind": "timeseries",
-    },
-    "card-transactions": {
-        "name": "Card transactions (sample)",
-        "filename": "card_transactions_sample.csv",
-        "note": "Generated sample · 6,000 unlabeled card transactions from 420 cards over 90 days, 1.5% planted anomalies (ground truth hidden)",
-        "generate": generate_card_transactions,
-        "sidecar": "anomaly_truth.json",
-        "kind": "transactions",
-    },
-    "personal-loans": {
-        "name": "Personal loans (sample)",
-        "filename": "personal_loans_sample.csv",
-        "note": "Generated sample · tabular, 2 classes, a planted weak slice (F16)",
-        "generate": generate_personal_loans,
-        "sidecar": "slice_truth.json",
-    },
-    "loan-stream": {
-        "name": "Loan stream (sample)",
-        "filename": "loan_stream_sample.csv",
-        "note": "Generated sample · 9,000 dated loan applications (2024) + a 12-month stream of new ones (2025) with drift from month 7 (F18)",
-        "generate": generate_loan_stream,
-        "sidecar": "stream_truth.json",
-    },
-}
+    return df

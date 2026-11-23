@@ -15,8 +15,20 @@ export const HeroCell = ({ label, sub, subClass, children }: { label: string; su
   <div className="eh-cell"><span className="micro-label">{label}</span><b className="mono">{children}</b>{sub != null && <small className={subClass}>{sub}</small>}</div>
 )
 
-/** Live-only page gate: `mock` while the API is offline, a loading card while connecting, else the page. */
-export function ApiOnly({ mock, children }: { mock: ReactNode; children: ReactNode }) {
+/** What every page shows while the API is unreachable: no data is ever faked. The health check keeps retrying. */
+export function ApiOffline({ inline }: { inline?: boolean }) {
+  const { recheck } = useApi()
+  return page(inline, (
+    <div className="card card-body stack" role="alert" data-testid="api-offline">
+      <b>▲ API offline</b>
+      <p className="helper">The ENSEMBLE API is not reachable. Start it with <span className="mono">make dev</span>; this page connects as soon as it answers.</p>
+      <div><button className="btn sm" onClick={recheck}>Check Again</button></div>
+    </div>
+  ))
+}
+
+/** Live-only gate: the offline notice while the API is unreachable, a loading card while connecting, else the children. */
+export function ApiOnly({ children, inline }: { children: ReactNode; inline?: boolean }) {
   const { mode } = useApi()
-  return mode === 'mock' ? <>{mock}</> : mode === 'checking' ? <Loading>Connecting…</Loading> : <>{children}</>
+  return mode === 'offline' ? <ApiOffline inline={inline} /> : mode === 'checking' ? <Loading inline={inline}>Connecting…</Loading> : <>{children}</>
 }

@@ -22,7 +22,6 @@ def ens(api_server):
 
 def test_client_end_to_end(ens):
     assert ens.health()["engine"]["name"] == "AutoGluon"
-    assert {d["id"] for d in ens.datasets.list()} >= {"credit-default", "loan-amount"}
     assert any(f["key"] == "GBM" for f in ens.models())
 
     rng = np.random.default_rng(1)
@@ -31,6 +30,7 @@ def test_client_end_to_end(ens):
     df["label"] = np.where(df["a"] + (df["b"] == "x") * 0.5 + rng.normal(scale=0.5, size=n) > 0.3, "pos", "neg")
     ds = ens.datasets.upload(df, name="client.csv", target="label")
     assert ds.target == "label" and [c["name"] for c in ds.columns] == ["a", "b", "label"]
+    assert ds.id in {d["id"] for d in ens.datasets.list()}
 
     check = ens.gym.validate(ds.id, time_limit=60, fit_kwargs={"hyperparameters": HP})
     assert check["ok"] and "hyperparameters=" in check["call"]
@@ -64,9 +64,9 @@ def test_client_end_to_end(ens):
     assert any(x.id == v.id for x in ens.registry.versions())
 
 
-def test_client_errors(ens):
+def test_client_errors(ens, churn_ds):
     with pytest.raises(ApiError) as e:
-        ens.runs.start("credit-default", fit_kwargs={"num_bag_fold": 2})
+        ens.runs.start(churn_ds["id"], fit_kwargs={"num_bag_fold": 2})
     assert e.value.status == 400 and "num_bag_folds" in str(e.value.detail)
     with pytest.raises(ApiError) as e:
         ens.runs.get("run_nope")

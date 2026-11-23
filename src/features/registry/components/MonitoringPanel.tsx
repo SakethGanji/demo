@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '@/shared/api/client'
-import type { ModelVersion, MonitoringPoint, MonitoringState, RetrainProposal, StreamSpec } from '@/shared/api/types'
+import type { ModelVersion, MonitoringPoint, MonitoringState, RetrainProposal } from '@/shared/api/types'
 import { PlotFrame } from '@/shared/components/PlotFrame'
 import { XYPlot, niceTicks, type XYSeries } from '@/shared/components/XYPlot'
 import { ParamChip } from '@/shared/primitives/ParamChip'
@@ -36,9 +36,7 @@ export function MonitoringPanel({ v, actor, versions, onSelect, onChanged }: { v
         {m.challenger && <div className="eh-cell"><span className="micro-label">challenger</span><b className="mono">{m.challenger.label.split(' ').pop()}</b><small className="math-s">{m.challenger.label} · {m.challenger.stage} · {m.challenger.batches} batches in the shadow</small></div>}
       </div>
 
-      {m.stream && <StreamCard v={v} m={m} actor={actor} onFed={reload} />}
-
-      {pts.length === 0 ? <div className="card card-body helper">No scored batch yet. Score a file in Batch &amp; Drift (with its data date) or feed the sample stream; each batch becomes one point here.</div> : <>
+      {pts.length === 0 ? <div className="card card-body helper">No scored batch yet. Score a file in Batch &amp; Drift (with its data date); each batch becomes one point here.</div> : <>
         <AlertsCard m={m} />
         <div className="grid psi-grid">
           <PsiOverTime m={m} />
@@ -53,59 +51,6 @@ export function MonitoringPanel({ v, actor, versions, onSelect, onChanged }: { v
       <ChallengerCard m={m} v={v} actor={actor} versions={versions} onSelect={onSelect} onSaved={reload} />
       <RetrainCard m={m} v={v} actor={actor} />
       <ThresholdsCard m={m} actor={actor} onSaved={reload} />
-    </div>
-  )
-}
-
-function StreamCard({ v, m, actor, onFed }: { v: ModelVersion; m: MonitoringState; actor: string; onFed: () => void }) {
-  const [spec, setSpec] = useState<StreamSpec | null>(null)
-  const [busy, setBusy] = useState('')
-  const [err, setErr] = useState('')
-  const stop = useRef(false)
-  useEffect(() => { api.registry.stream().then(setSpec).catch(() => {}) }, [])
-  const next = m.stream!.next_month
-  const waitDone = async (bid: string) => {
-    for (;;) { const b = await api.registry.batch(bid); if (b.status === 'succeeded' || b.status === 'failed') return b; await new Promise((r) => setTimeout(r, 700)) }
-  }
-  const feed = async (all: boolean) => {
-    if (!next) return
-    setErr(''); stop.current = false
-    try {
-      for (let k = next; k <= (all ? 12 : next); k++) {
-        if (stop.current) break
-        setBusy(`month ${k}`)
-        const r = await api.registry.feedStream(v.id, k, actor)
-        await waitDone(r.batch.id)
-        onFed()
-      }
-    } catch (e) { setErr((e as Error).message) } finally { setBusy('') }
-  }
-  const nm = spec?.months.find((x) => x.month === next)
-  return (
-    <div className="card" data-testid="mon-stream">
-      <div className="card-head"><div className="left"><h3 className="card-title">Sample Stream · 2025</h3><span className="helper" style={{ fontSize: 12 }}>{spec ? `${spec.months.length} months of ${spec.rows_per_month.toLocaleString()} new applications · ${spec.label_rule}` : ''}</span></div>
-        <div className="row" style={{ gap: 6 }}>
-          {busy ? <><ResonanceWave width={50} height={12} /><span className="mono helper">{busy}</span><button className="btn sm" onClick={() => { stop.current = true }}>Stop</button></> : <>
-            <button className="btn sm" disabled={!next || !actor.trim()} onClick={() => feed(false)} data-testid="mon-feed-one">{next ? `Feed ${nm?.label ?? `month ${next}`}` : 'All 12 months fed'}</button>
-            <button className="btn sm primary" disabled={!next || !actor.trim()} onClick={() => feed(true)} data-testid="mon-feed-all">Feed the rest</button></>}
-        </div>
-      </div>
-      <div className="card-body">
-        <div className="mon-months">{(spec?.months ?? []).map((x) => {
-          const fed = m.stream!.fed_months.includes(x.month)
-          const p = m.points.find((q) => q.period === x.label)
-          return <div key={x.month} className={`mon-month ${fed ? 'fed' : ''} ${x.month >= (spec?.drift_month ?? 99) ? 'drift' : ''}`} title={`${x.label}: scored ${fed ? 'yes' : 'not yet'}; labels arrive ${x.labels_arrive}`}>
-            <b className="mono">{x.label.slice(2)}</b>
-            <small>{p?.performance ? 'labelled' : fed ? `labels ${x.labels_arrive.slice(2, 7)}` : '—'}</small>
-            {p && p.alerts.length > 0 && <i className="mon-flag" style={{ background: p.alerts.some((q) => q.kind === 'performance') ? 'var(--status-danger)' : 'var(--status-warning)' }} />}
-          </div>
-        })}</div>
-        {spec && <p className="helper" style={{ fontSize: 12, marginTop: 8 }}>
-          Feeding month m scores its applications as a batch dated the month's last day (shadow-scored by the challenger when one is set), then attaches every earlier month's labels whose arrival date is on or before that day. Known from the sample's truth file: from month {spec.drift_month}, debt_to_income rises and credit_score falls (covariate drift), and online applications default more for the same x (a concept change the inputs do not show).
-        </p>}
-        {!actor.trim() && <span className="helper" style={{ fontSize: 12, color: 'var(--status-warning)' }}>▲ type your name in “acting as” first</span>}
-        {err && <span role="alert" className="helper" style={{ color: 'var(--status-danger)' }}>✕ {err}</span>}
-      </div>
     </div>
   )
 }

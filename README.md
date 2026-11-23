@@ -2,8 +2,8 @@
 
 > **Run it / hand it off:** see [RUNNING.md](RUNNING.md): branch `motion-components`, setup, POC mode, Postgres, test data in `try-data/`, and the hand-off notes for another machine.
 
-ENSEMBLE is an internal AutoML workbench for the bank, with **AutoGluon as the engine**. Anyone brings a table (a CSV
-upload or one of the samples), says what to predict, picks a goal and a time budget, and watches AutoGluon train and
+ENSEMBLE is an internal AutoML workbench for the bank, with **AutoGluon as the engine**. Anyone brings a table (a file
+upload or a SQL query), says what to predict, picks a goal and a time budget, and watches AutoGluon train and
 stack its models live: one string per model family, the stacked ensemble forming as ŷ(x) = Σₘ wₘ fₘ(x) with its real
 weights. The result is a leaderboard on a fixed holdout no model ever saw, an explanation of the model (ROC/PR,
 calibration, the decision threshold and its cost, permutation importance, Kernel SHAP for any row, the worst errors,
@@ -17,8 +17,7 @@ It gives technical users everything AutoGluon offers and never locks them in: th
 AutoGluon predictor (`TabularPredictor.load(path)` works); any run exports as a standalone Python script that
 reproduces its leaderboard; and a small Python client drives the same API from a notebook. It is one process to start
 (FastAPI, SQLite, a data folder, MLflow as a library), with no Redis, Celery, Docker or sign-in. Each fit runs in its own
-process and streams its progress as events. When the API is down the UI opens in **mock mode** on a scripted
-simulation, labelled SIMULATED, so a demo always opens.
+process and streams its progress as events. When the API is down the UI says so; it never shows made-up data.
 
 ## What it does, by use case
 
@@ -34,40 +33,16 @@ simulation, labelled SIMULATED, so a demo always opens.
 | **Out-of-time and group splits** | Four split strategies (F6): random (stratified), **group** (an entity column: holdout, tuning slice and the 5 bagging folds share no customer; the folds go to AutoGluon as `groups=`), **out-of-time** (a date column and a cut-off τ: holdout = rows on or after τ, `tuning_data` = the latest slice of the training period) and **out-of-time + group** (only customers new after τ in the holdout). New Model → Target draws the split as a timeline or a group diagram with its row counts, and warns when a random split is used on data with a date or ID column. Results → Random vs Out-Of-Time re-runs the same fit under another split and shows the scores side by side with bootstrap intervals: on credit-default, ROC AUC 0.772 random vs 0.714 out-of-time. |
 | **Learning curves · do I need more data?** | Explain → Learning Curve (F12): the run's exact fit call (presets, hyperparameters, the F7 cost metric, F8 monotone subclasses, the F11 scorecard, the F6 tuning slice and group folds, text models, threshold rule) refitted on nested subsamples of its training rows, 10 / 25 / 50 % × 3 seeds (the run itself is 100 %), in a worker process, every fit scored on the run's holdout. Subsamples are drawn inside the run's split: stratified by the label where the split is, whole entities inside each bagging fold for group splits. Score against n on a log₂ axis with t-intervals, a power law u(n) = A − b·(n/N)^(−c) with a bootstrap band, extrapolation to 2N and 4N with 95 % intervals, and a verdict: **data-limited** (the interval of the gain per doubling Δ₂ = b(1 − 2^(−c)) lies above ε), **saturated** (below ε) or **noisy** (contains ε); ε defaults to 2.5 % of the remaining gap to the metric's optimum. The verdict is a stable JSON shape (`learning_curve/1`) on the run payload for the Model Doctor. |
 | **Active-learning labelling queue** | Explain → Labelling Queue (F13), classification runs: hide a share of the training labels (default 90 %, stratified) or use the dataset's rows with an empty label. The run's exact fit call (F12's `prepare_fit` / `fit_predictor`) is refitted on the labelled set; each round picks b rows (default 200, 2 rounds) by uncertainty (margin, entropy or least-confident) among the β·b most uncertain, spread by weighted k-means or k-center on TF-IDF→SVD / one-hot embeddings. You label them in the Ground-Truth Inbox style (confirm / relabel / skip, with a reviewer name); each submitted round becomes a dataset version with lineage (the same split, holdout untouched) and a refit. Score against labels used; with hidden labels, a **simulated** active-vs-random comparison (the hidden labels as an oracle, 3 seeds, equal budgets) with the paired gap's 95 % t-interval and a verdict. Summary JSON `active_learning/1` on the run payload for the Model Doctor. |
-| **Ground-truth reliability · several annotators** | Explain → Annotators (F14), classification runs: load a long-format annotations file (row or an ID column, annotator, label; holdout rows left out) or, on support-tickets, five **simulated** annotators of different quality (one careless, one swapping Billing and Account). Cohen's κ for every pair and Fleiss' κ (variable raters per row) with bootstrap intervals; each annotator's quality, weight and most frequent disagreement with the consensus (a systematic bias shows without any truth); the **CROWDLAB** consensus label per row with its quality score (`cleanlab.multiannotator`), from the annotators and the run's out-of-fold p̂ (its own OOF when bagged, else a quick bagged fit of its call through F12's `prepare_fit` / `fit_predictor`), with the posterior p̃ and its weights on screen. A disagreement queue (lowest consensus quality first) to vote under a reviewer name or adjudicate; the final labels saved as a dataset version with lineage (holdout untouched). On the sample, against the hidden truth: the worst annotator is found, consensus 0.993 vs majority vote 0.903. Summary JSON `annotations/1` on the run payload for the Model Doctor. |
+| **Ground-truth reliability · several annotators** | Explain → Annotators (F14), classification runs: load a long-format annotations file (row or an ID column, annotator, label; holdout rows left out). Cohen's κ for every pair and Fleiss' κ (variable raters per row) with bootstrap intervals; each annotator's quality, weight and most frequent disagreement with the consensus (a systematic bias shows without any truth); the **CROWDLAB** consensus label per row with its quality score (`cleanlab.multiannotator`), from the annotators and the run's out-of-fold p̂ (its own OOF when bagged, else a quick bagged fit of its call through F12's `prepare_fit` / `fit_predictor`), with the posterior p̃ and its weights on screen. A disagreement queue (lowest consensus quality first) to vote under a reviewer name or adjudicate; the final labels saved as a dataset version with lineage (holdout untouched). Summary JSON `annotations/1` on the run payload for the Model Doctor. |
 | **Adversarial validation · has the data shifted?** | Explain → Shift (F15), tabular runs, and Registry → Batch & Drift: an AutoGluon classifier (`TabularPredictor(problem_type='binary', eval_metric='roc_auc')`, bagged LightGBM, k = 5, no stacking; `fit_kwargs` pass through) learns to tell reference rows R from new rows N, and every row is scored **out of fold** (`predict_proba_oof`), so the AUC is not optimistic. Three comparisons: the run's training rows vs its holdout; two periods on F6's date column (before / on or after a cut-off τ); the training rows vs a batch scored by a registered version (the AUC shown next to the batch's PSI). Reported: AUC with a 95 % DeLong interval, a label-permutation null (B = 2,000 shuffles of the origin labels against the fixed scores → p) and a refit null (the whole fit repeated R = 3 times on shuffled origins), a verdict (no shift / slight / moderate / strong), and the shifting columns ranked by AutoGluon's permutation importance on the out-of-fold rows (ΔAUC with a t-interval) beside each column's PSI. The label, identifiers, entity ids and dates are left out and listed with the reason (a date separates two periods by construction: put back on credit-default, AUC = 1.000). Actions: an out-of-time twin (F6), a Gym patch dropping a shifting column, and **importance weighting**: w(x) = ŝ/(1 − ŝ) · n_R/n_N, clipped at the 1st / 99th percentiles, saved as column `shift_weight` of a dataset version and passed as `sample_weight`, with its effective sample size (Σw)²/Σw². On credit-default: train vs holdout AUC 0.495, an unshifted batch 0.498, the same batch with debt_to_income × 2 0.766 with debt_to_income ranked first. Summary JSON `shift/1` on the run payload for the Model Doctor. |
 | **Weak slices · where is the model worse?** | Explain → Weak Slices (F16), tabular runs. The run's metric made per row (ℓᵢ: −log p̂(yᵢ) for probability metrics, 1[ŷᵢ ≠ yᵢ] at the run's threshold for label metrics, the row's cost for F7 cost runs, \|y − ŷ\| for regression, the mean pinball loss for F9 quantile runs) is searched over every feature value and every pair of values on the holdout (numbers in 5 quantile bins, categories up to 30 values + "(other)", missing as a value; text and ids left out). Each slice with n ≥ max(30, 2 % of the holdout) is tested against the rest with Welch's t (one-sided, "worse"), Benjamini–Hochberg over all slices tested (the count m is shown), the effect Δ = ℓ̄_S − ℓ̄_C with a 95 % interval, ranked by the interval's lower bound; a pair is listed only if it is worse than both of its one-feature parents, and a permutation null (ℓ shuffled, R = 5) shows what the procedure finds when there is nothing. Each slice links to its rows (worst first; a row opens its SHAP waterfall), Kernel SHAP inside vs outside (the existing worker), Fairness grouped by its column, and the F13 labelling queue **pre-filtered to the slice** (`slice_id`). On the `personal-loans` sample (planted: channel = broker ∧ age < 30 has P(default) = 0.5 whatever the features say) the planted slice is found at rank 2 of 882 tested (Jaccard 0.89 with its holdout rows). Summary JSON `slices/1` on the run payload for the Model Doctor. |
-| **Model Doctor · what limits this model?** | Explain → Model Doctor (F17), a card on Results and in the Vela sidecar, every tabular run; Autopilot's layer 1 decides with it. A fixed, documented decision procedure (`app/vela/doctor.py`, `doctor/1`) over every check the workbench has: Vela's leakage, val-vs-holdout optimism, imbalance and budget checks; the run's metric on its training rows vs its holdout (z = gap / SE_boot); the **error floor** (error of the 20 % most confident holdout predictions, Wilson interval) next to the error the model expects there and cleanlab's flagged share; F6's random vs out-of-time gap; F15's adversarial AUC; F12's learning-curve verdict (with F13's active-vs-random); F14's consensus changes; F16's weak slices read next to the slice's own base-rate loss; F3's served one-row p95 against a budget. Each check ends as finding (critical / major / minor, by a fixed threshold on its numbers), clear, no evidence, not run or n/a; the **primary factor** is the most severe finding, ties broken by a precedence list (leakage › shift › label noise › overfit › data-limited › underfit › latency › weak slice › budget › imbalance › weak class), the rest are ranked secondaries. Each finding carries its evidence numbers, formula, rule and a one-click prescription that reuses an existing action (Gym patch, F6 out-of-time twin, F13 queue pre-filtered to a slice, F15 weights or drop, F3 serve a faster model, the annotations / inbox review); expensive checks (learning curve, shift, slices, latency) are never started by the doctor: it offers them. On six crafted, seeded scenarios with a known answer (leaky feature, label noise, data-limited, shift, overfit, latency) the smoke gets 6 / 6 primaries right. |
-| **Monitoring over time · champion / challenger** | Registry → Monitoring (F18), tabular versions. Every scored batch carries `data_date` (the last day of its data; a form field, else the latest date in the run's time column, else today), so the batches of a version form time series: PSI per feature and of p̂ (unchanged S5 drift), the score distribution (mean, q₁₀ … q₉₀, flagged share), F15's adversarial AUC where a batch check was run, and **performance once labels arrive**: a later CSV keyed by an id column (`POST /registry/batches/{id}/labels`) is joined to the batch, giving AUC with DeLong's 95 % interval, log loss, Brier, the observed rate (Wilson) against mean p̂ with z = (Σy − Σp̂)/√Σp̂(1 − p̂), and the lag label date − data date; batches without labels have no performance point. Alerts per registered model (audited thresholds): any feature PSI > 0.25, PSI(p̂) > 0.25, adversarial AUC lower bound > 0.60, AUC upper bound < AUC₀ − 0.03, |z| > 3. **Champion / challenger**: a Staging version named in the model's monitoring config shadow-scores every batch of the Production version (score PSI, KS, Spearman ρ, same-decision share and κ); once labelled, the paired ΔAUC with DeLong's paired variance and a paired bootstrap of Δ log loss, per batch and pooled. Promotion stays the four-eyes review plus the transition. **Retrain proposal**: the champion's run body (`run_body`, F6 split strategy kept, a cut-off before the window re-drawn) on the most recent W labelled months, as a dataset whose lineage lists the batches and label files; it launches only on POST (a click) and its parent is the champion's run. The Model Doctor's shift check reads the monitoring state (a performance alert → critical, a drift alert → major) and prescribes the retrain proposal. **Sample `loan-stream`**: 9,000 labelled 2024 applications and a seeded 12-month 2025 stream (1,200 a month, labels 3 months later); from month 7 debt_to_income rises and credit_score falls (covariate) and online applications default more for the same x (concept). In the smoke run the PSI alert first fires on 2025-07 (PSI 0.409 on debt_to_income, none before), the adversarial AUC goes 0.500 → 0.637, and the concept change shows only in performance: 2025-07's observed rate 0.351 vs p̂ 0.250 (z = +9.0), visible on 2025-10-31 when its labels arrive. |
+| **Model Doctor · what limits this model?** | Explain → Model Doctor (F17), a card on Results and in the Vela sidecar, every tabular run; Autopilot's layer 1 decides with it. A fixed, documented decision procedure (`app/vela/doctor.py`, `doctor/1`) over every check the workbench has: Vela's leakage, val-vs-holdout optimism, imbalance and budget checks; the run's metric on its training rows vs its holdout (z = gap / SE_boot); the **error floor** (error of the 20 % most confident holdout predictions, Wilson interval) next to the error the model expects there and cleanlab's flagged share; F6's random vs out-of-time gap; F15's adversarial AUC; F12's learning-curve verdict (with F13's active-vs-random); F14's consensus changes; F16's weak slices read next to the slice's own base-rate loss; F3's served one-row p95 against a budget. Each check ends as finding (critical / major / minor, by a fixed threshold on its numbers), clear, no evidence, not run or n/a; the **primary factor** is the most severe finding, ties broken by a precedence list (leakage › shift › label noise › overfit › data-limited › underfit › latency › weak slice › budget › imbalance › weak class), the rest are ranked secondaries. Each finding carries its evidence numbers, formula, rule and a one-click prescription that reuses an existing action (Gym patch, F6 out-of-time twin, F13 queue pre-filtered to a slice, F15 weights or drop, F3 serve a faster model, the annotations / inbox review); expensive checks (learning curve, shift, slices, latency) are never started by the doctor: it offers them. |
+| **Monitoring over time · champion / challenger** | Registry → Monitoring (F18), tabular versions. Every scored batch carries `data_date` (the last day of its data; a form field, else the latest date in the run's time column, else today), so the batches of a version form time series: PSI per feature and of p̂ (unchanged S5 drift), the score distribution (mean, q₁₀ … q₉₀, flagged share), F15's adversarial AUC where a batch check was run, and **performance once labels arrive**: a later CSV keyed by an id column (`POST /registry/batches/{id}/labels`) is joined to the batch, giving AUC with DeLong's 95 % interval, log loss, Brier, the observed rate (Wilson) against mean p̂ with z = (Σy − Σp̂)/√Σp̂(1 − p̂), and the lag label date − data date; batches without labels have no performance point. Alerts per registered model (audited thresholds): any feature PSI > 0.25, PSI(p̂) > 0.25, adversarial AUC lower bound > 0.60, AUC upper bound < AUC₀ − 0.03, |z| > 3. **Champion / challenger**: a Staging version named in the model's monitoring config shadow-scores every batch of the Production version (score PSI, KS, Spearman ρ, same-decision share and κ); once labelled, the paired ΔAUC with DeLong's paired variance and a paired bootstrap of Δ log loss, per batch and pooled. Promotion stays the four-eyes review plus the transition. **Retrain proposal**: the champion's run body (`run_body`, F6 split strategy kept, a cut-off before the window re-drawn) on the most recent W labelled months, as a dataset whose lineage lists the batches and label files; it launches only on POST (a click) and its parent is the champion's run. The Model Doctor's shift check reads the monitoring state (a performance alert → critical, a drift alert → major) and prescribes the retrain proposal. |
 | **Explainability** | Performance, Threshold, Features & SHAP (permutation importance with 95% t-intervals, Kernel SHAP waterfall f(x) = φ₀ + Σ φᵢ), Errors, Fairness, Text: every number from the saved predictor and the fixed holdout. |
 | **Registry, model card, approvals** | MLflow-backed registry; register with `refit_full`, `infer_limit` (per row in batches, or **per one-row call with `infer_limit_batch_size = 1`**), **serve the fastest model**, **distillation** into a single student, or a model picked on the **score · latency frontier** (one-row p95 τ₉₅ **as served**: AutoGluon's feature pipeline pruned to what the model reads, models persisted; F3). The deployed copy's pipeline is pruned when its holdout predictions are unchanged, versions are persisted and **warmed on load** (on build and on promotion), and `POST /registry/versions/{id}/score` is the online path (support tickets: p95 4.4 ms one row, 6.9 ms over HTTP); an SR 11-7-style model card (JSON, Markdown, HTML); four-eyes review; stages None → Staging → Production → Archived; Try It with SHAP reasons; batch scoring with PSI drift for every kind of version; an append-only audit log with the model's SHA-256. |
 | **Vela, the AI companion, and Autopilot** | Findings computed from a run (overfitting gap, weak class or segment, imbalance, leakage, budget, drift), each with one patch that applies in the Gym; a question box. Autopilot chains real runs against requirements you set (F̄₁ ≥ 0.92, τ₉₅ ≤ 50 ms, a budget B): baseline → cleanlab inbox → a new dataset version → retrain → rebalance, calibrate, refit for latency, escalate → Met or Not Met. Claude (Anthropic SDK when `ANTHROPIC_API_KEY` is set, else the CLI) chooses steps when available; a fixed strategy otherwise, and the UI says which. Every answer shows its decider, latency, route and number guard; Settings → Language Model shows τ₉₅ per decider, the cache and the timeouts (F5). |
 
-### Round 2 at a glance (F1–F18)
-
-Each fix, where it shows up, the smoke section that checks it (`make smoke` runs every section), and its headline
-number on the seeded samples. The detail is in the rows above and in `docs/progress/F<n>.md`.
-
-| Fix | Where in the UI | Smoke | Headline (seeded samples) |
-| --- | --- | --- | --- |
-| F1 forecast intervals | New Forecast → results, Interval Calibration | `forecast` | 90 % interval covers 168/168 → 152/168 = 90.5 % after conformal scaling; MASE +1.2 % |
-| F2 anomaly velocity + supervised | Anomaly Detection → results, Review → supervised | `anomaly` | bursts found 2 → 13/18; P@90 0.71 → 0.80 |
-| F3 one-row latency | Register (frontier, budget, serve fastest / a model, distil), Gym → Deploy | `latency` | support-tickets one row τ₉₅ ≈ 4.4 ms (pruned TF-IDF model), 3 accuracy points below the ensemble |
-| F4 target confirmation | New Model → Target (Confirm The Target) | `targets` | API and browser holdouts identical (RMSE 2,434.33 both) |
-| F5 LLM layer | Vela, Settings → Language Model | `llm` | `/api/health` under 48 asks: 5,088 ms → < 80 ms; timeouts fall back within budget |
-| F6 out-of-time / group splits | New Model → How The Holdout Is Drawn, Results → Random vs Out-Of-Time, **Gym → Goal** | `splits` | credit-default ROC AUC 0.7720 random vs 0.7144 out-of-time; 0 shared customers |
-| F7 business cost | New Model → Goal, Results → Business Cost, Explain → Threshold, **Gym → Goal** | `cost` | FN = 10 × FP: 553.8 → 522.1 per 1,000 decisions (Δ +31.7 [−29.6, +90.9]; 478.3 before F11 added the scorecard to the zoo) |
-| F8 monotone constraints | Gym → Models (Advanced), Explain → Monotonicity, model card | `monotone` | debt_to_income ↑: 0/200 ICE curves violate (195/200 without) |
-| F9 quantile regression | New Model → Target ("a range"), Results, Try It, model card | `quantile` | loan-amount [q0.1, q0.9] holdout coverage ≈ 0.80 |
-| F10 reason codes | Registry → Reason Codes, Try It, batch columns, model card | `reasons` | 517 adverse rows, 515 with 4 codes (2 with 3), all agree with the SHAP signs |
-| F11 scorecard challenger | Explain → Scorecard, Gym → Models, model card | `scorecard` | ΔAUC (ensemble − scorecard) +0.0248 [+0.0058, +0.0414] |
-| F12 learning curves | Explain → Learning Curve | `learning` | 4 points + 2N / 4N extrapolation; both samples *noisy* with 3 seeds |
-| F13 active learning | Explain → Labelling Queue | `active` | active above random after 2 rounds, inside the noise (3 seeds) |
-| F14 annotators | Explain → Annotators | `annotators` | worst annotator found; consensus beats majority vote against the truth |
-| F15 shift check | Explain → Shift, Registry → Batch & Drift | `shift` | shifted batch AUC > 0.7 with debt_to_income first; unshifted ≈ 0.5 |
-| F16 weak slices | Explain → Weak Slices | `slices` | planted slice found at rank 2 (Jaccard 0.89) |
-| F17 Model Doctor | Explain → Model Doctor, Results, Vela, Autopilot, **model card** | `doctor` | 6 / 6 crafted scenarios diagnosed correctly |
-| F18 monitoring | Registry → Monitoring | `monitor` | drift alert first on 2025-07, never before; retrain proposal launches a run |
+### Navigation
 
 **F19 integration.** Explain's twelve-plus views are grouped (Evaluate · Explain · Diagnose · Labels) so the tab bar
 fits at 1366 px. The Gym's Goal step has the F6 split and the F7 cost (the same body keys as New Model). The model
@@ -99,10 +74,8 @@ it end to end". Every old route redirects. The Model Doctor also lists what else
 make setup       # Python venv (backend/.venv) with the pinned deps (AutoGluon tabular + timeseries, cleanlab, shap,
                  # fairlearn, MLflow), the Python client, and npm install
 make dev         # API on :8000 and the UI on http://localhost:5190; Ctrl+C stops both
-make smoke       # scripts/smoke.py: the UI's real calls end to end against the API (started if not running);
-                 # ✓ / ✗ per step, exit 1 on any failure. The default runs every section (F19); pick some with
-                 # SMOKE_ONLY=core,…,scorecard,learning,active,annotators,shift,slices,doctor,monitor,llm,reset
-make reset       # delete every run, version, batch, autopilot, MLflow record and upload; regenerate the samples
+make test        # fast tier: pytest (not slow), type check, production build
+make reset       # delete every run, version, batch, autopilot, MLflow record and upload
                  # DL3: governed. Needs the API (or this shell) started with ENSEMBLE_DEMO_MODE=1 and BY=<admin from
                  # ENSEMBLE_ADMINS>; while a model or champion is live, also REQUEST=<an approved four-eyes reset request>
                  # (POST /api/admin/reset-requests, someone else approves). The audit log is kept and records the reset.
@@ -119,20 +92,15 @@ checks, legal holds (they still block), acknowledgements and the audit log stay 
 The database password is generated into `~/.ensemble/pg/password` and never committed. `make dev-pg-stop` stops Postgres.
 In another shell, `eval "$(scripts/dev_pg.sh env)"` sets `ENSEMBLE_DB_URL` for scripts and workers (needs Postgres 16 installed).
 
-Open http://localhost:5190. On a fresh workbench Home lists the six samples; pick one and the first model trains in
-about a minute. `npm run build` type-checks and builds the UI. `node scripts/walkthrough.cjs` drives three fresh bank
-CSVs (`scripts/fresh_data.py`) through the browser with a screenshot at every stop. The demo is scripted in
-[`docs/demo-script.md`](docs/demo-script.md); the final walkthrough with screenshots of every page is
-[`docs/progress/S9-walkthrough.md`](docs/progress/S9-walkthrough.md).
-
-The older test suites remain (`make test`, `make test-full`: pytest and Playwright); since S7 the gate is `make smoke`.
+Open http://localhost:5190. A fresh workbench is empty: upload a file (or query a database) in Build, and the first
+model trains in about a minute. `try-data/` holds test files and a 15-minute walkthrough (`try-data/TRY.md`).
+`npm run build` type-checks and builds the UI.
 
 ## Architecture
 
 ```
  browser (React 18 + Vite, :5190) ──/api──▶ FastAPI (:8000) ─── SQLite (datasets, runs, events, registry, audit)
-   live mode: every page calls the API            │         └─ data folder: datasets/, runs/<id>/predictor/, registry/
-   mock mode: the scripted simulation             │
+   every page calls the API                       │         └─ data folder: datasets/, runs/<id>/predictor/, registry/
                                                   ├─ JobRunner: one `python -m app.engine.worker` process per fit
                                                   │    TabularPredictor / TimeSeriesPredictor / IsolationForest,
                                                   │    progress → events in SQLite → SSE with replay
@@ -187,6 +155,9 @@ run.predict([{"amount_gbp": 940, "merchant_type": "gift cards", "three_ds_passed
 registry, Vela and export.
 
 ## Known limits
+
+The figures below were measured during the build on seeded synthetic datasets that have since been removed from the
+app; the session reports in `docs/progress/` hold the detail.
 
 - **Forecast intervals are recalibrated, not re-modelled** (F1). AutoGluon's ensemble bands on the transaction-volume
   sample are still too wide (168/168 inside the nominal 90% interval; DirectTabular carries most of the weight); the
@@ -272,15 +243,6 @@ registry, Vela and export.
   comparison is labelled by an oracle (the sample's hidden labels), not by people; the sample's 300 planted label flips stay
   in the oracle. Pool = missing (really unlabelled rows) cannot be compared with random. Rows from a separate unlabelled file
   are not accepted: put them in the dataset with a blank label. One queue works at a time (409 otherwise).
-- **Annotators** (F14). On the support-tickets sample the annotators are simulated (each label drawn from the hidden truth
-  with a fixed error profile; errors are independent between annotators), so the consensus-vs-majority-vote gain (0.993 vs
-  0.903 on 1,500 rows × 3 labels) is what CROWDLAB does on such data, not a measurement of real people. Much of the gain
-  comes from the model: its weight w_M ≈ 1.58 is larger than any annotator's, and p̂ was trained on the dataset's own labels
-  (98.5 % right on these rows), so where the dataset's labels are themselves wrong the consensus leans on a model that
-  learnt them (out of fold, so not the row's own label). Majority-vote ties (116 of 1,500 with 3 labels) are broken at random;
-  cleanlab's own majority vote breaks them with the model (0.963). Only training rows count; annotations on holdout rows are
-  dropped. An annotator with fewer than 30 labels is shown but not ranked as the least reliable. F13's queue answers are
-  not imported automatically: upload them, or vote in the disagreement queue under a reviewer name.
 - **Shift checks** (F15). Adversarial validation sees covariate shift p(x) only: a change in p(y | x) with the same inputs (credit-default's drift is mostly that: the 2024 periods give AUC 0.525, "slight") is invisible to it, and the model's own score on recent labelled rows (F6's out-of-time split) is the check for that. The importance interval treats the shuffles × fold models as independent and is narrow; without a shift its lower end can lie above 0 for a noise model, so a column is marked as shifting only when the sets are separable. Identifiers that AutoGluon drops by itself (unique strings) would not have separated the sets anyway, but numeric sequence ids and dates would. The density-ratio weights are only as good as the classifier's calibration (bagged LightGBM, not recalibrated), and clipping trades bias for variance: on the × 2 batch the weights keep ESS 4,290 of 9,600 rows (44.7 %) and move the training mean of debt_to_income from 0.271 to 0.393 of the batch's 0.536, not all the way. The batch comparison's reference is every non-holdout labelled row (the drift reference), tuning rows included. One check runs at a time across the workbench (409 otherwise); a new check of the same pair replaces the old one.
 - **Weak slices** (F16). The search ranks slices by their loss, so regions that are hard by nature rank too: on personal-loans the top slice is credit_score < 640, where outcomes are closer to a coin flip and log loss is high for a calibrated model; the planted slice is rank 2. A slice is a box of at most two features cut at holdout quantiles, so a weak region whose edges fall inside a bin is found diluted (age < 31 for the planted age < 30), and three-way interactions are not searched. The per-row loss follows the decision: under a business cost with c_FN = 5 (threshold 0.18), the planted slice is predicted positive throughout and costs no more than the rest, so it is not listed. Welch's t on a 0/1 or skewed loss is a normal approximation; with the default minimum support (≥ 30 rows) it is adequate, smaller slices are not tested. The search is on the holdout the model is scored on, so the holdout is also used for discovery: confirm a slice on new data before acting on it. SHAP inside vs outside uses 6 + 6 sampled rows (Kernel SHAP is ~5 s a row).
 - **Monitoring** (F18). The alert rules are fixed thresholds checked per batch, with no correction for checking twelve batches (or for looking at many features): over a long stream a 0.25 PSI or |z| > 3 will fire by chance now and then, and the first alert is reported, not a sequential test. Performance needs the id column in the batch file and a label file per batch; there is no partial-label weighting (coverage is shown) and the lag is label date − data date, both given by the uploader. The concept change of the sample barely moves AUC (2025-07: 0.772 vs baseline 0.776; months 7–9 mean 0.759 vs 0.783 before): it shows in calibration (observed vs predicted rate), which is what the performance alert fired on. Shadow scoring and the paired comparison are binary only; regression and multiclass versions get the series and performance without a challenger. The retrain proposal trains on the labelled window only by default (`include_reference` adds the old training rows); its new model is compared with the champion only on its own holdout, and registering, reviewing and promoting it are the usual human steps. Batches scored before F18 have no `data_date` and fall back to their upload day.
@@ -300,7 +262,7 @@ registry, Vela and export.
   timeline, the cut-off picker and the random-vs-out-of-time comparison stay in New Model and Results. The model card's
   diagnostics are the summaries the source run holds when the card is opened (nothing is recomputed); a check that was
   never run reads "not run". The Model Doctor's "Serve <model>" opens Register with that model preselected only if the
-  run's latency profile lists it. The full smoke (every section) takes about 1.5–2 hours on 4 CPUs.
+  run's latency profile lists it.
 - **Targets** (F4). Splits are keyed by target and strategy but not by seed or holdout share (fixed at 42 and 20 %); a
   numeric target gets a plain random holdout.
 
@@ -310,7 +272,7 @@ The sidebar has five places: **Home, Build, Models, Registry, Vela**. Settings i
 
 | Route | What it shows |
 | --- | --- |
-| `#/home` | The workbench: the samples on a fresh install, runs of every kind as strings, best scores per dataset, registry activity, a training monitor and log |
+| `#/home` | The workbench: your datasets, runs of every kind as strings, best scores per dataset, registry activity, a training monitor and log |
 | `#/build` | **Build** (G0 Smart Intake), the single entry point: upload, pick a table or load one from SQL → each column's role (target, date, entity, row ID, money, duration, segment, geography, text, leaky, …) as an editable chip with its confidence and evidence → what you can build, best first, each opening its flow pre-filled: New Model, Forecast, Anomaly, Import, Expected loss, Segmented models, Time to event, Reject inference, Multi-label. **Advanced** opens the Training Gym (`#/gym`). `?dataset=` |
 | `#/build?view=data` | **Build › Data** (U1/U2): the catalog of the current team (or all; rows another team shares with yours are marked). Upload… takes one or several files (each CSV/Parquet file and each workbook sheet is a table): the check shows per table its action (new / rewrite / append / delta / skip, the parent's other tables carried or dropped), key, delta counts, relations with orphans, typed columns, PII tags and the contract; a file with an `_op` column offers **Apply as delta**. `&dataset=` opens a dataset: versions, the **tables** of a version (the table picker scopes the diff, Edit and training), **joins** (build, coverage c = m / N, frame, masked preview, train on it), lineage with join frames, usage, and governance: PII tags, data contract (edit / freeze), certifications and shares (request, decide by a second person, revoke), every button greyed by `/authz/check`. **Purge values** (U3): columns and/or `__row_id`s → a new version without them and the cross-team impact report; an owner of every involved team approves, then it executes. A change set whose operation column is not `_op` opens with "This file is a change set…"; a delta row of the plan edits `op_column`, the `ops` mapping and `allow_new_columns`. Edit shows masked columns and **Unmask (reason)** |
 | `#/quick-train` | **New Model** (a Build choice): label, problem type and column types → metric, preset, budget, raw `fit_kwargs` → the live race. A finished run opens in Models. `?run=` watches a run that is still training |
@@ -336,8 +298,7 @@ backend/
 │   ├── main.py          the FastAPI app: /api/health, /api/datasets; mounts the engine routes
 │   ├── config.py        settings: ENSEMBLE_DATA_DIR (default backend/data), seed, holdout share, folds
 │   ├── db.py            SQLite through the standard library (datasets, runs, run_events)
-│   ├── datasets.py      dataset files and records; generates the samples on first start
-│   ├── samples.py       seeded generators: support tickets (text), account churn, credit default, loan amount
+│   ├── datasets.py      dataset files and records
 │   ├── profiling.py     column types, class balance or regression target, missing values, duplicates, label
 │   ├── splits.py        the holdout and 5 folds every model uses, one per (target, strategy[, parameters]): random, group, time, time + group (F4, F6)
 │   ├── schemas.py       response models (mirrored in src/shared/api/types.ts)
@@ -375,7 +336,7 @@ backend/
                          mlflow/{mlflow.db, artifacts/}
 clients/python/          ensemble_client: a pip-installable notebook client (datasets, runs, events, leaderboard, predict,
                          Vela, export, registry); `make setup` installs it into backend/.venv
-e2e/                     Playwright: live mode, mock mode, every page in both, one real AutoGluon run
+e2e/                     Playwright against the live API: every page, one real AutoGluon run
 ```
 
 ### Forecast, anomaly and import API (S8)
@@ -384,16 +345,16 @@ Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `hol
 
 | Call | What it does |
 | --- | --- |
-| `GET /api/forecast/options` · `GET /api/forecast/mapping/{dataset}` · `POST /api/forecast/preview` | Presets, metrics with formulas, defaults · a suggested column mapping (the sample's spec, else names and types) · what a mapping gives: series, lengths, inferred freq, season m, future rows, the last 60 points per series |
+| `GET /api/forecast/options` · `GET /api/forecast/mapping/{dataset}` · `POST /api/forecast/preview` | Presets, metrics with formulas, defaults · a suggested column mapping (from column names and types) · what a mapping gives: series, lengths, inferred freq, season m, future rows, the last 60 points per series |
 | `POST /api/forecast/runs` | `{dataset_id, mapping: {item_id, timestamp, target, known_covariates, static_features, past_covariates}, prediction_length, freq?, eval_metric, presets, time_limit, quantile_levels, num_val_windows? (none = auto), ensemble (greedy · quantile · both), conformal (default true), conformal_scope (pooled · item), hyperparameters?, fit_kwargs, predictor_kwargs}`. The last H steps of each series are held out; the predictor is fit on the rest. Result: leaderboard (val and holdout), ensemble weights, backtest windows scored per model, holdout metrics and per-series errors, the future forecast (known covariates from the file's future rows, else one season back); with conformal on, `holdout.conformal` (c_τ, n), `holdout.calibration_raw` beside `holdout.calibration`, `metrics_raw`, per-model coverage, and `forecast.csv?which=future_raw|holdout_raw` |
 | `GET /api/forecast/runs/{id}/chart` · `…/forecast.csv?which=future\|holdout` · `POST …/predict` (multipart history CSV) | Fan-chart data per series · the forecast as CSV (mean + every quantile) · a forecast from new history with the saved predictor |
-| `POST /api/anomaly/runs` | `{dataset_id, features?, contamination, n_estimators, max_samples, max_features, lof, lof_neighbors, iforest_kwargs}`; scores, threshold, distribution, TreeSHAP reasons for the top rows, precision@k against `anomaly_truth.json` when the dataset is the sample |
+| `POST /api/anomaly/runs` | `{dataset_id, features?, contamination, n_estimators, max_samples, max_features, lof, lof_neighbors, iforest_kwargs}`; scores, threshold, distribution, TreeSHAP reasons for the top rows |
 | `GET /api/anomaly/runs/{id}/top?contamination=&limit=` · `…/scores` · `…/scores.csv` · `POST …/score` (multipart CSV) | Top rows with reasons and flags at any contamination · histogram, quantiles, IF vs LOF · every row's score · a new batch scored and downloadable |
 | `POST /api/runs/import` (multipart: `dataset_id`, `file` = zip or `path`) | Import a TabularPredictor as a run (validated in a worker; scored on the dataset's holdout; not refit) |
 | `POST /api/admin/reset` | `{"confirm": "reset"}`: `make reset` |
 | `GET/POST /api/anomaly/runs/{id}/labels` | The dataset's reviewed rows; POST `{items: [{row, label: fraud \| not_fraud \| null}], by}` confirms, dismisses or clears (stored in `anomaly_labels.json`, audited as `anomaly_review`). `can_train` once ≥ 10 confirmed. |
 | `POST /api/anomaly/runs/{id}/supervised` · `GET …/supervised` | `{time_limit, presets, eval_metric='average_precision', num_bag_folds=5, negatives='unlabeled' \| 'dismissed_only', include_score, fit_kwargs}`: a new dataset version (data + group/velocity columns + s + `confirmed_fraud`) and an AutoGluon binary run on it. GET lists them with the comparison against the forest on unreviewed rows (out-of-fold scores; hidden truth for the sample). |
-| `GET /api/anomaly/mapping/{dataset}` | Suggested `entity_column`, `time_column`, `relative_columns` for group-relative features (the sample's spec, else names and types). `POST /api/anomaly/runs` takes `group_features` (default: on when an entity column is mapped; on for the card sample), `entity_column`, `time_column`, `relative_columns`, and (F2) `velocity_features` (default: on with entity and time), `amount_column`, `category_column`, `velocity_in_forest`; `max_samples` defaults to min(1024, n). The mapping also suggests the amount and category columns. |
+| `GET /api/anomaly/mapping/{dataset}` | Suggested `entity_column`, `time_column`, `relative_columns` for group-relative features (from column names and types). `POST /api/anomaly/runs` takes `group_features` (default: on when an entity column is mapped; on for the card sample), `entity_column`, `time_column`, `relative_columns`, and (F2) `velocity_features` (default: on with entity and time), `amount_column`, `category_column`, `velocity_in_forest`; `max_samples` defaults to min(1024, n). The mapping also suggests the amount and category columns. |
 | `GET /api/runs?kind=all` | Every run with its `kind` (tabular, import, forecast, anomaly): what Models and Home list. |
 
 ### Autopilot API (S7)
@@ -457,8 +418,7 @@ Forecast and anomaly runs are rows in the same `runs` table (forecast runs' `hol
 | `GET /api/registry/versions/{id}/monitoring` · `PUT /api/registry/models/{name}/monitoring` `{actor, thresholds?, challenger_version_id?, id_column?, label_column?, retrain_window_months?}` | F18 (`monitoring/1`): the batches in data order with PSI per feature and of p̂, the score quantiles, F15's adversarial AUC, performance with its label lag, alerts and their rules, which signal caught what first, the challenger's shadow and pooled paired comparison, the baseline (the version's holdout). The config is per registered model and audited; a challenger must be a ready Staging binary version with the same label (409 / 400 otherwise). |
 | `POST /api/registry/batches/{bid}/labels` (multipart `file`, `created_by`, `id_column?`, `label_column?`, `label_date?`) | F18: labels that arrive later, joined on the id; `result.labels` (coverage, unmatched, duplicates, lag, performance, paired). Audited `labels_attached`. |
 | `GET · POST /api/registry/versions/{id}/monitoring/retrain` (`window_months`, `include_reference`, `actor`, `time_limit?`) | F18: the retrain proposal (window, batches, rows, the champion's body, the split note, why) · launch it: a window dataset with lineage, then `POST /api/runs` with `parent_run_id` = the champion's run, `source = monitoring`. Audited `retrain_launched`. Never automatic. |
-| `GET /api/monitoring/stream` · `POST /api/registry/versions/{id}/monitoring/stream` `{month, actor, deliver_labels=true}` | F18: the simulated 12-month stream of the loan-stream sample · feed month m (a batch dated its last day) and attach every earlier month's labels due by then (409 when fed twice). |
-| `GET /api/registry/versions/{id}/credit-report` `?on=holdout\|batches&date_column=&cohort=auto\|month\|quarter&format=json\|md\|html&download=` · `POST …/credit-report/tape` (file, actor) · `DELETE …/credit-report/tape?actor=` | G2 (`credit-report/1`): Gini (DeLong CI) and KS (bootstrap CI) overall and by month (holdout months + labelled batches), score bands (PDO 20, 600 at 50:1) with bad rate, capture and lift, deciles, score PSI and CSI per feature per month, vintage curves from a performance tape (the loan-stream sample's, or an uploaded one; columns from the G0 roles). `format=md/html` is the downloadable Model Performance Report. |
+| `GET /api/registry/versions/{id}/credit-report` `?on=holdout\|batches&date_column=&cohort=auto\|month\|quarter&format=json\|md\|html&download=` · `POST …/credit-report/tape` (file, actor) · `DELETE …/credit-report/tape?actor=` | G2 (`credit-report/1`): Gini (DeLong CI) and KS (bootstrap CI) overall and by month (holdout months + labelled batches), score bands (PDO 20, 600 at 50:1) with bad rate, capture and lift, deciles, score PSI and CSI per feature per month, vintage curves from an uploaded performance tape ( columns from the G0 roles). `format=md/html` is the downloadable Model Performance Report. |
 | `GET /api/gym/schema` | What the Gym configures: model families with objectives and slider specs (AutoGluon key, symbol, interval, log/linear, integer, AutoGluon's default), presets and what they expand to, metrics per problem type, HPO options, the GPU count, every keyword `TabularPredictor.fit` accepts with its default (read from the installed AutoGluon), the default model zoo. |
 | `POST /api/gym/validate` | A run body (as for `POST /api/runs`) → `errors` / `warnings` (unknown fit arguments with a suggestion, invalid values, stacking without bagging, GPUs that are not there, metric vs problem type, columns), `resolved` (the exact predictor and fit kwargs, post-fit steps), `call` (Python), `diff` against fit()'s defaults with origin, `effective` (AutoGluon's `get_validation_and_stacking_method` for this data: k, s, L, dynamic stacking, holdout_frac, refit), `estimate` (T̂ with per-family rates and their source). `POST /api/runs` refuses a body with errors (400). |
 | `GET /api/runs/{id}/gym` | The body that starts the run again, its parent run and patch. |
@@ -483,44 +443,17 @@ The tree mirrors the app: one folder per page under `features/`, the frame aroun
 
 ```
 src/
-├── main.tsx
-├── app/                         the frame around every page
-│   ├── App.tsx                  state, routing, layout
-│   ├── routes.ts                routes, titles, sidebar order
-│   └── shell/                   Sidebar, ContextBar, StatusBar, CommandPalette (+ shell.css)
-├── features/                    one folder per page
-│   ├── home/                    HomePage, LiveHome
-│   ├── quick-train/             New Model wizard: QuickTrainPage · wizard.ts (choices, metrics with formulas, presets)
-│   │                              components/{DatasetStep, TargetStep, GoalStep} · datasets.ts
-│   │                              race/{useRace (events → state, readable playback), RaceStage, ModelString, EnsembleMerge,
-│   │                                StackEquation, mockRun (mock mode's simulated run)}
-│   │                              results/{ResultsStep, MetricCards, Leaderboard (+ ScoreScatter, ModelCard), Diagnostics
-│   │                                (ClassReport, TopWords: mock mode), CustomEnsemble, TryPrediction, stats (metrics, bootstrap)}
-│   ├── autopilot/               AutopilotPage · components/{BriefStep, IterationString, RequirementGauge, DecisionLog,
-│   │                              GroundTruthInbox, DataChanges} · run.tsx (the scripted run)
-│   ├── training-gym/            TrainingGymPage · components/{Hyperparameters, ConfigBlock, ClassBalance, PipelineCard,
-│   │                              ValidationCurve, FitEstimate, ConsoleDock, StepSummary} · params.ts
-│   ├── models/                  ModelsPage (the list; ?run= → RunPage: Results, Explain, Doctor) · RunList · tabs.ts
-│   │                              components/{RunTable (mock), RunCoordinates, CompareRuns, ParamDiff}
-│   │                              explain/ExplainTab · explain/components/{Curves, ThresholdPanel, Importance, ShapPanel,
-│   │                                Errors, FairnessPanel, FairLendingPanel, DoctorPanel, SlicesPanel, ShiftPanel, …}
-│   ├── registry/                RegistryPage
-│   ├── settings/                SettingsPage · components/SettingRow
-│   └── vela/                    VelaSidecar · components/PatchCard (the assistant panel, shown on every page)
+├── main.tsx · app/              App, routes.ts, shell/ (Sidebar, ContextBar, StatusBar, CommandPalette)
+├── features/                    one folder per page: home, build, quick-train (New Model), training-gym, models
+│                                  (runs, Explain, Doctor), registry, labels, vela (assistant and Autopilot), forecast,
+│                                  anomaly, import, the credit flows (expected-loss, segmented, survival,
+│                                  reject-inference, multilabel) and settings
 └── shared/
     ├── primitives/              fundamentals: one small thing each, no layout of their own
-    │                              StatusPill, ParamChip, Segmented, Tabs, NumberInput, Icon, VelaCrest,
-    │                              ResonanceWave, SparkWave, PluckString
-    ├── components/              larger pieces composed from primitives
-    │                              FretSlider, PlotFrame, LineChart, XYPlot (real-valued axes, hover, marks),
-    │                              ConfusionMatrix, StringPlot, TopWords, Graph, RunString, StringField,
-    │                              KindFlow (the credit flows' setup and run), KindResults (their results, shared with Registry)
-    ├── api/                     the typed API client, its types, and the live/mock mode provider (useApi)
-    ├── hooks/                   useWidth
-    ├── lib/                     prefs (saved settings), tools (the toolkit list), random, format, metrics (metrics with
-    │                              their formulas, number formatting)
-    ├── data/                    mock runs and metrics used by more than one page
-    ├── assets/                  the ENSEMBLE wordmarks and Vela crest, unchanged from the design system
+    ├── components/              larger pieces composed from primitives (charts, sliders, KindFlow, KindResults)
+    ├── api/                     the typed API client, its types, and the API status provider (useApi)
+    ├── hooks/ · lib/            small hooks; prefs, formatting, metrics with their formulas
+    ├── assets/                  the ENSEMBLE wordmarks and Vela crest
     └── styles/                  tokens.css, base.css, surfaces.css, responsive.css, index.css
 ```
 
@@ -528,7 +461,7 @@ src/
 
 - **A page owns what only it uses.** A component, data file or stylesheet used by one page lives in that page's folder. Move it to `shared/` when a second page needs it.
 - **Primitives vs components.** `shared/primitives` are the fundamentals (a pill, a chip, a wave). `shared/components` are bigger and are built from primitives (a chart, a slider with its input, a graph).
-- **Imports.** `@/` is `src/`. Features import from `shared/`; `shared/` never imports from `features/`. The one cross-feature import is Autopilot reusing Quick Train's sample datasets.
+- **Imports.** `@/` is `src/`. Features import from `shared/`; `shared/` never imports from `features/`.
 - **Styles.** Each folder keeps its own `.css` beside its code, and the same ownership rule applies: a class used by two pages lives in `shared/` (for example the navy `.stage` panel and the `.wizard` page layout). `surfaces.css` is the one deliberate exception: it is the tonal layer (gray bands, wells, navy readouts) applied across everything. `shared/styles/index.css` imports them all in a fixed order (tokens → base → shared → shell → features → overrides), so the cascade is explicit. Class names are global.
-- **Live and mock.** Pages call the API through `shared/api` and fall back to their simulation when `useApi().mode` is `mock` or a call can't reach the API. Never remove the mock path. Numbers in mock mode that appear on more than one page come from one place (`shared/data/runs.ts`, `quick-train/recipes.tsx`).
+- **Live only.** Pages call the API through `shared/api`. When it can't be reached they say the API is offline; they never fall back to made-up data.
 - **Assets.** `ensemble-wordmark.svg` (for light surfaces) is kept although nothing uses it yet; the app only shows the on-shell wordmark.

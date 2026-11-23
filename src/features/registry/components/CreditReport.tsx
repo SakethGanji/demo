@@ -82,7 +82,7 @@ function Inputs({ r, v, actor, dateCol, setDateCol, onTape }: { r: Report; v: Mo
   }
   return (
     <details className="an-adv" data-testid="credit-inputs">
-      <summary className="micro-label">Inputs · month from <b className="mono">{d.date?.column ?? '— (by batch)'}</b>, id <b className="mono">{d.id?.column ?? '—'}</b>, vintages from {src ? (src.kind === 'sample' ? 'the sample tape' : `${src.file}`) : 'no tape'} · detected from the column roles, change below</summary>
+      <summary className="micro-label">Inputs · month from <b className="mono">{d.date?.column ?? '— (by batch)'}</b>, id <b className="mono">{d.id?.column ?? '—'}</b>, vintages from {src ? src.file : 'no tape'} · detected from the column roles, change below</summary>
       <div className="table-wrap">
         <table className="table compact">
           <thead><tr><th>input</th><th>column</th><th>why</th></tr></thead>
@@ -94,14 +94,14 @@ function Inputs({ r, v, actor, dateCol, setDateCol, onTape }: { r: Report; v: Mo
               <td className="helper" style={{ fontSize: 12 }}>{d.date ? `date role: ${d.date.evidence.join(', ')}` : 'no date role: holdout is one period'}; batches use their data date</td></tr>
             <tr><td>loan id</td><td className="mono">{d.id?.column ?? '—'}</td><td className="helper" style={{ fontSize: 12 }}>{d.id ? `row ID role: ${d.id.evidence.join(', ')}` : '—'}</td></tr>
             <tr><td>performance tape</td><td className="mono">{src ? `${src.mapping.open} · ${src.mapping.default}${src.mapping.until ? ` · ${src.mapping.until}` : ''}` : '—'}</td>
-              <td className="helper" style={{ fontSize: 12 }}>{src ? (src.kind === 'sample' ? `${src.note}; ${src.filtered_to}` : `uploaded by ${src.by}`) : 'upload one row per loan: an origination date and a default date (blank = none), optionally an as-of date'}</td></tr>
+              <td className="helper" style={{ fontSize: 12 }}>{src ? `uploaded by ${src.by}` : 'upload one row per loan: an origination date and a default date (blank = none), optionally an as-of date'}</td></tr>
           </tbody>
         </table>
       </div>
       <div className="row" style={{ gap: 8, justifyContent: 'flex-end', padding: 'var(--space-8) 0' }}>
         {msg && <span className="helper" style={{ fontSize: 12 }} role="status">{msg}</span>}
         {busy && <ResonanceWave width={40} height={12} />}
-        {src?.kind === 'uploaded' && <button className="btn sm" disabled={busy || !actor} onClick={remove}>Remove the tape</button>}
+        {src && <button className="btn sm" disabled={busy || !actor} onClick={remove}>Remove the tape</button>}
         <label className={`btn sm ${busy || !actor ? 'disabled' : ''}`} title={actor ? '' : 'Set your name at the top of the registry first'}>
           Upload a tape…<input type="file" accept=".csv" hidden disabled={busy || !actor} data-testid="credit-tape" onChange={(e) => upload(e.target.files?.[0])} />
         </label>
@@ -124,7 +124,7 @@ function GiniByMonth({ r }: { r: Report }) {
   return (
     <PlotFrame title="Gini By Month" legend={[{ name: 'holdout months', color: 'var(--text-muted)', data: [] }, { name: 'scored batches (labelled)', color: 'var(--viz-a)', data: [] }]}
       chips={g0 != null ? <ParamChip sym="Gini₀" value={fix(g0)} /> : undefined}
-      caption={<span>Each point is one month's Gini with its 95 % DeLong interval. Holdout months come from the training period; batch months from the labelled scored batches (3 months after scoring for the sample stream). ○: scored, labels not in yet.</span>}>
+      caption={<span>Each point is one month's Gini with its 95 % DeLong interval. Holdout months come from the training period; batch months from the labelled scored batches. ○: scored, labels not in yet.</span>}>
       <XYPlot height={230} testId="credit-gini" x={{ min: -0.5, max: all.length - 0.5, ticks: all.map((_, i) => i), title: 'month', fmt: (x) => all[Math.round(x)]?.slice(2) ?? '' }}
         y={{ min: lo, max: hi, ticks: niceTicks(lo, hi, 4), title: 'Gini', fmt: (v) => v.toFixed(2) }}
         refs={g0 != null ? [{ y: g0, label: 'Gini₀', dash: '4 3' }] : []}
@@ -179,7 +179,7 @@ function BandsCard({ r, on, setOn }: { r: Report; on: 'holdout' | 'batches'; set
 function StabilityCard({ r }: { r: Report }) {
   const st = r.stability
   const cs = st.csi
-  if (!cs.periods.length) return <div className="card card-body helper">Stability: no scored batch yet. Score a file in Batch &amp; Drift (or feed the sample stream in Monitoring); each batch adds a month of PSI and CSI.</div>
+  if (!cs.periods.length) return <div className="card card-body helper">Stability: no scored batch yet. Score a file in Batch &amp; Drift; each batch adds a month of PSI and CSI.</div>
   const cell = (val: number | null, band: string, key: string) => <td key={key} className="r mono" style={{ background: band === 'stable' || band === 'missing' ? undefined : `color-mix(in srgb, ${BAND_COLOR[band]} ${band === 'shift' ? 28 : 16}%, transparent)` }}>{val == null ? '—' : val.toFixed(2)}</td>
   const fb = st.flag_bins
   return (

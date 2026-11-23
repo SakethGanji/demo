@@ -50,8 +50,8 @@ def _embed(df: pd.DataFrame, text_cols: list[str], num_cols: list[str], cat_cols
         N = (N - N.mean()) / N.std(ddof=0).replace(0, 1)
         parts.append(N.fillna(0).to_numpy() * (0.5 if text_cols else 1.0))
     if cat_cols:
-        # F-X5a (X5 J3): one-hot of every category column made a dense n × (distinct values) matrix: on credit-default
-        # (12k rows) applicant_id, customer_id and application_date alone gave ≈ 21k columns (2 GB), copied several times
+        # F-X5a (X5 J3): one-hot of every category column made a dense n × (distinct values) matrix: on a 12k-row
+        # credit table applicant_id, customer_id and application_date alone gave ≈ 21k columns (2 GB), copied several times
         # by the scaling, the k-NN and cleanlab's OutOfDistribution, so the audit was OOM-killed at ≥ 10 GB. ID-like
         # columns (distinct values > half the rows) carry no similarity and are left out; the others keep their
         # CAT_LEVELS most frequent values, the rest one "other" level. Width ≤ CAT_LEVELS + 1 per column.

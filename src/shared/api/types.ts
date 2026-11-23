@@ -57,7 +57,7 @@ export type Profile = {
   duplicates: { rows: number; share: number; text: Record<string, number>; conflicting_labels: number; ignoring: string[] }
   warnings: string[]
   splits: Splits
-  /** given: named on upload (or a sample's label) · guessed: the profiler's pick, not yet confirmed · confirmed: by the user */
+  /** given: named on upload · guessed: the profiler's pick, not yet confirmed · confirmed: by the user */
   target_source?: 'given' | 'guessed' | 'confirmed'
   target_history?: { target: string; at: string }[]
   /** G9: a dataset loaded by a SQL query (Autopilot's derived versions carry their own lineage shape). */
@@ -113,8 +113,7 @@ export type DatasetSummary = {
   id: string
   name: string
   filename: string
-  source: 'sample' | 'upload'
-  sample: boolean
+  source: 'upload'
   note: string
   created_at: string
   size_bytes: number
@@ -998,13 +997,9 @@ export type ApStep = {
   body?: Record<string, unknown>; relabelled?: number; dropped?: number; confirmed?: number; skipped?: number; synthetic?: number
   stats?: Record<string, unknown>; kinds?: Record<string, number>; text?: string; facts_text?: string
 }
-export type ApRecall = {
-  planted: number; found: number; recall: number; top_k: number; precision: number; suggestion_correct: number
-  suggestion_accuracy: number; recall_at_planted: number; fixed: number; source: string
-}
 export type ApInboxSummary = {
   n_items: number; answers: Record<string, number>; stats: Record<string, number | string>; kinds?: Record<string, number>
-  recall: ApRecall | null; run_id?: string; model?: string; applied?: boolean; submitted?: boolean; seconds?: number
+  run_id?: string; model?: string; applied?: boolean; submitted?: boolean; seconds?: number
 }
 export type ApInboxItem = {
   id: string; row: number; kind: 'label' | 'conflict' | 'duplicate' | 'outlier'; split: 'train' | 'holdout'
@@ -1146,30 +1141,22 @@ export type ActiveLearning = {
 }
 
 // F14: several annotators per row (GET /api/runs/{id}/annotations)
-export type AnnAcc = { accuracy: number; ci: [number, number] | null; correct: number }
 export type AnnotatorStat = {
   name: string; n: number; quality: number | null; agreement_with_consensus: number; weight: number | null; kappa_mean: number | null
   worst_class: string | null
   top_confusion: { consensus: string; given: string; n: number; share_of_class: number; of_class_rows: number } | null
   confusion_vs_consensus: number[][]
-  truth?: { accuracy: number; ci: [number, number] | null; n: number; top_error?: { true: string; given: string; n: number }; profile?: { name: string; kind: string; accuracy: number; profile: string; pair?: string[]; p_swap?: number } }
 }
 export type AnnotationsSummary = {
   schema: 'annotations/1'; n_rows: number; n_annotations: number; n_annotators: number
   annotations_per_row: { mean: number; min: number; max: number }; classes: string[]
   probs: { source: 'run-oof' | 'quick-bagged'; model: string; note: string; n_oof: number; n_predicted: number; fit_seconds?: number | null }
   agreement: { fleiss_kappa: { value: number; ci: [number, number]; n_rows: number } | null; cohen_kappa_mean: number | null; raw_agreement: number | null; interpretation: string | null }
-  annotators: { name: string; n: number; quality: number | null; agreement_with_consensus: number; weight: number | null; kappa_mean: number | null; worst_class: string | null; truth_accuracy?: number }[]
+  annotators: { name: string; n: number; quality: number | null; agreement_with_consensus: number; weight: number | null; kappa_mean: number | null; worst_class: string | null }[]
   worst_annotator: { name: string; quality: number; by: string; min_labels: number } | null
   model_weight: number | null
   crowdlab: { pi: number | null; model_weight: number | null; annotator_weights: Record<string, number> | null; consensus_is_argmax: boolean; weights_from: string }
   consensus: { method: string; disagreements: number; low_quality: number; queue: number; queue_threshold: number; consensus_vs_majority_vote_differ: number; majority_vote_ties: number; adjudicated: number; changed_vs_given: number | null; mean_quality: number }
-  truth: null | {
-    simulated: true; source: string; n: number
-    accuracy: { given: AnnAcc | null; majority_vote: AnnAcc; majority_vote_cleanlab: AnnAcc; consensus: AnnAcc; final: AnnAcc; model: AnnAcc }
-    paired: { consensus_right_mv_wrong: number; mv_right_consensus_wrong: number; gain: number; mcnemar_p: number }
-    worst_by_truth: { name: string; accuracy: number } | null; worst_identified: boolean
-  }
 }
 export type AnnItem = {
   row: number; fields: Record<string, string | null>; given: string | null
@@ -1179,17 +1166,14 @@ export type AnnItem = {
 }
 export type Annotations = {
   run_id: string; status: 'none' | 'computing' | 'ready' | 'failed'; error?: string | null; classes: string[]
-  sample_available: boolean; sample_defaults: { n_rows: number; per_row: number; seed: number }
-  sample_annotators: { name: string; profile: string }[]
   versions: { id: string; name: string; rows: number; relabelled: number; annotated_rows: number; adjudicated: number; holdout_unchanged: boolean; created_at: string }[]
-  source?: 'sample' | 'upload'; n_raw?: number; load?: Record<string, unknown>
+  source?: 'upload'; n_raw?: number; load?: Record<string, unknown>
   summary?: AnnotationsSummary; annotators?: AnnotatorStat[]
   pairwise?: { a: string; b: string; n: number; kappa: number | null; ci: [number, number] | null; agreement: number | null }[]
   fleiss?: { value: number; ci: [number, number]; n_rows: number; P_bar: number; P_e: number; p: Record<string, number>; raters_per_row: { min: number; max: number; mean: number } } | null
   probs?: AnnotationsSummary['probs'] & { classes: string[]; seconds: number }
   queue?: { items: AnnItem[]; total: number; offset: number; limit: number; include: 'queue' | 'all' }
-  show_columns?: string[]; simulated?: boolean
-  simulation?: { annotators: { name: string; kind: string; accuracy: number; profile: string; pair?: string[]; p_swap?: number }[]; params: { n_rows: number; per_row: number; seed: number } } | null
+  show_columns?: string[]
 }
 
 // ---------------------------------------------------------------- F15 · adversarial validation (shift check)
@@ -1398,7 +1382,6 @@ export type MonitoringState = {
     latest_labelled: { batch_id: string; period: string; data_date: string; labels_date: string; label_lag_days: number } | null; unlabelled_since: string | null; n_points: number; n_labelled: number }
   challenger: { version_id: string; label: string; stage: Stage; approval: string; run_id: string; batches: number; agreement_mean: number | null; psi_mean: number | null; spearman_mean: number | null
     pooled: { n: number; auc?: PairedAuc; log_loss: PairedLoss; batches: string[] } | null; decision: string; promote: { review: string; transition: string } } | null
-  stream: { dataset: string; fed_months: number[]; next_month: number | null } | null
   retrain: { endpoint: string; suggested: boolean; feed_fixes?: { feature: string; factor: number; rescale: number; text: string; batch_id: string; period: string | null }[] }
   formulas: Record<string, string>
 }
@@ -1407,9 +1390,6 @@ export type RetrainProposal = {
   batches: { batch_id: string; filename: string; data_date: string; rows: number; label_date: string }[]; rows: number; rows_window: number; rows_reference: number
   include_reference: boolean; body: Record<string, unknown>; split_note: string; why: string[]; ready: boolean; blocked: string | null; note: string
 }
-export type StreamSpec = { dataset: string; months: { month: number; label: string; start: string; end: string; rows: number; labels_arrive: string; covariate_drift: Record<string, number>; concept_change: boolean }[]
-  rows_per_month: number; drift_month: number; label_lag_months: number; label_rule: string; covariate_drift: Record<string, unknown>; concept_change: Record<string, unknown>; id_column: string; date_column: string }
-export type StreamFeedResult = { month: number; period: string; batch: BatchJob; data_date: string; labels_delivered: { month: number; batch_id: string; label_date: string; lag_days: number; n: number }[]; labels_pending: unknown[]; labels_due: { month: number; arrive: string } }
 
 /** G2 · credit-risk model report (GET /registry/versions/{id}/credit-report). */
 export type CreditRank = {
@@ -1443,7 +1423,7 @@ export type CreditReport = {
   }
   vintage: null | {
     cohort_by: 'month' | 'quarter'; cohorts: CreditCohort[]; max_mob: number; loans: number; as_of: string | null
-    source: { kind: 'sample' | 'uploaded'; file?: string; by?: string; note?: string; filtered_to?: string; mapping: { open: string | null; default: string | null; until: string | null; id: string | null; evidence: Record<string, string> } }
+    source: { kind: 'uploaded'; file?: string; by?: string; mapping: { open: string | null; default: string | null; until: string | null; id: string | null; evidence: Record<string, string> } }
   }
   formulas: Record<string, string>
   headline: { gini: number | null; gini_ci: [number, number] | null; ks: number | null; bad_rate: number | null; months: number; first_csi_flag: string | null; cohorts: number }
@@ -1486,7 +1466,6 @@ export type SqlLineage = {
   base_name: string; diff: { added: number; removed: number; kept: number; columns_changed: number } | null
 }
 export type SqlTable = { name: string; kind: string; rows: number | null; columns: { name: string; type: string }[] }
-export type SqlDemo = { url: string; query: string; tables: SqlTable[]; limit: number; max_limit: number; note: string }
 export type SqlPreview = { columns: { name: string; dtype: string; missing: number }[]; rows: Record<string, unknown>[]; n_rows: number; truncated: boolean; limit: number; seconds: number; url: string; dialect: string }
 export type SqlVersions = { dataset_id: string; root?: string; query?: string; url?: string
   versions: { id: string; name: string; rows: number; created_at: string; version: number; parent: string | null; data_sha: string; diff: SqlLineage['diff']; truncated: boolean; fetched_at: string }[] }

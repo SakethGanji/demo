@@ -1,10 +1,8 @@
 import { useHashParam } from '@/shared/hooks/useHashParam'
-import { ApiOnly } from '@/shared/components/Status'
-import { EmptyState } from '@/shared/components/EmptyState'
 import { Segmented } from '@/shared/primitives/Segmented'
 import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { AgentChat } from './agent/AgentChat'
-import { EndToEnd } from './autopilot/EndToEnd'
+import { LiveAutopilot } from './autopilot/live/LiveAutopilot'
 
 const MODES = ['Ask Vela', 'Run it end to end'] as const
 type Mode = (typeof MODES)[number]
@@ -29,13 +27,7 @@ export function VelaPage({ go }: { go: (r: string) => void }) {
           <Segmented options={[...MODES]} value={mode} onChange={setMode} />
         </div>
       </div>
-      {auto ? <EndToEnd go={go} /> : (
-        <ApiOnly mock={<div className="wizard-scroll"><div className="page"><EmptyState title="The agent needs the API" testId="agent-mock">
-          It calls the workbench's own routes, so it runs only against a live API (<span className="mono">make dev</span>). "Run it end to end" shows the scripted prototype.
-        </EmptyState></div></div>}>
-          <AgentChat sid={sid} setSid={setSid} />
-        </ApiOnly>
-      )}
+      {auto ? <LiveAutopilot go={go} /> : <AgentChat sid={sid} setSid={setSid} />}
     </div>
   )
 }

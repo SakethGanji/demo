@@ -16,19 +16,19 @@ function defaults(d: DatasetDetail | null): ApRequirement[] {
 
 export function LiveBrief({ onStarted, onOpen }: { onStarted: (id: string) => void; onOpen: (id: string) => void }) {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [dsId, setDsId] = useState('support-tickets')
+  const [dsId, setDsId] = useState('')
   const [ds, setDs] = useState<DatasetDetail | null>(null)
   const [reqs, setReqs] = useState<ApRequirement[]>(defaults(null))
   const [budget, setBudget] = useState(600)
   const [autonomy, setAutonomy] = useState<'ask' | 'auto'>('ask')
   const [decider, setDecider] = useState<'auto' | 'layer1'>('auto')
-  const [goal, setGoal] = useState('Route each support ticket to the right team, fast enough to run on every incoming ticket.')
+  const [goal, setGoal] = useState('')
   const [past, setPast] = useState<Autopilot[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
-  useEffect(() => { api.datasets.list().then((l) => setDatasets(l.filter((d) => d.target))).catch(() => {}); api.autopilot.list().then(setPast).catch(() => {}) }, [])
-  useEffect(() => { api.datasets.get(dsId).then((d) => { setDs(d); setReqs(defaults(d)) }).catch(() => setDs(null)) }, [dsId])
+  useEffect(() => { api.datasets.list().then((l) => { const ok = l.filter((d) => d.target); setDatasets(ok); setDsId((id) => id || ok[0]?.id || '') }).catch(() => {}); api.autopilot.list().then(setPast).catch(() => {}) }, [])
+  useEffect(() => { if (!dsId) return; api.datasets.get(dsId).then((d) => { setDs(d); setReqs(defaults(d)) }).catch(() => setDs(null)) }, [dsId])
 
   const classes = (ds?.profile.classes ?? []).map((c) => c.name)
   const metrics = [...QUALITY, 'p95_latency_ms', 'p50_latency_ms', ...classes.map((c) => `recall[${c}]`)]
@@ -51,9 +51,10 @@ export function LiveBrief({ onStarted, onOpen }: { onStarted: (id: string) => vo
                 {datasets.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} rows · predicts {d.target}</option>)}
               </select>
             </label>
+            {!datasets.length && <p className="helper" style={{ fontSize: 12 }} data-testid="ap-no-data">No dataset with a label yet. <a href="#/build">Upload data in Build →</a></p>}
             {ds && <p className="helper" style={{ fontSize: 12 }}>Label <b className="mono">{ds.target}</b> · {ds.profile.task}{classes.length ? ` · ${classes.length} classes` : ''} · holdout {ds.profile.splits?.holdout_rows?.toLocaleString()} rows (fixed; every step is scored on it)</p>}
             <label className="stack" style={{ gap: 4 }}><span className="micro-label">Goal</span>
-              <textarea className="goal" rows={2} value={goal} onChange={(e) => setGoal(e.target.value)} />
+              <textarea className="goal" rows={2} value={goal} placeholder="What the model is for, e.g. route each ticket to the right team" onChange={(e) => setGoal(e.target.value)} />
             </label>
             <div className="stack" style={{ gap: 6 }}>
               <span className="micro-label">Requirements (all must hold on the holdout)</span>

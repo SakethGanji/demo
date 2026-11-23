@@ -1,21 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { RUNS } from '@/shared/data/runs'
-import { useApi } from '@/shared/api/mode'
 import { Icon } from '@/shared/primitives/Icon'
 import { NAV, TITLES } from '../routes'
 
 export function CommandPalette({ onClose, go }: { onClose: () => void; go: (r: string) => void }) {
-  const { mode } = useApi()
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const items = useMemo(() => {
-    const all: { group: string; label: string; hint: string; mono?: boolean; run: () => void }[] = [
-      ...[...NAV, { id: 'settings' as const }].map((n) => ({ group: 'Go To', label: TITLES[n.id], hint: 'Page', run: () => go(n.id) })),
-      // the scripted runs exist only in mock mode; live runs are one click away in Models
-      ...(mode === 'mock' ? RUNS : []).map((r) => ({ group: 'Runs', label: r.id, hint: `${r.pipeline} · ${r.status}`, mono: true, run: () => go(`models?run=${r.id}`) })),
-    ]
+    const all = [...NAV, { id: 'settings' as const }].map((n) => ({ group: 'Go To', label: TITLES[n.id], hint: 'Page', run: () => go(n.id) }))
     return all.filter((i) => `${i.label} ${i.hint}`.toLowerCase().includes(q.toLowerCase()))
-  }, [q, mode])
+  }, [q])
   // hand focus back to whatever opened the palette
   useEffect(() => { const opener = document.activeElement as HTMLElement | null; return () => opener?.focus?.() }, [])
   const pick = (i: number) => { items[i]?.run(); onClose() }
@@ -40,7 +33,7 @@ export function CommandPalette({ onClose, go }: { onClose: () => void; go: (r: s
             <div key={`${it.group}-${it.label}`}>
               {(i === 0 || items[i - 1].group !== it.group) && <div className="palette-group micro-label">{it.group}</div>}
               <button ref={i === idx ? (el) => el?.scrollIntoView({ block: 'nearest' }) : undefined} tabIndex={-1} className={`palette-item ${i === idx ? 'on' : ''}`} onMouseEnter={() => setIdx(i)} onClick={() => pick(i)}>
-                <span className={it.mono ? 'mono' : ''} style={it.mono ? { fontSize: 12.5 } : undefined}>{it.label}</span><span className="hint">{it.hint}</span>
+                <span>{it.label}</span><span className="hint">{it.hint}</span>
               </button>
             </div>
           ))}

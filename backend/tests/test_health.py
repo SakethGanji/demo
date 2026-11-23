@@ -4,7 +4,7 @@ def test_health_reports_ok(client, data_dir):
     body = r.json()
     assert body["status"] == "ok"
     assert isinstance(body["version"], str) and body["version"]
-    assert body["datasets"] >= 2  # the two samples are generated on first start
+    assert isinstance(body["datasets"], int) and body["datasets"] >= 0  # the app ships no datasets
     assert body["data_dir"] == str(data_dir.resolve())
 
 

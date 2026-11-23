@@ -48,7 +48,7 @@
 .statusbar .live { color: var(--accent-secondary-shell); display: inline-flex; align-items: center; gap: 6px; }
 .statusbar .api-mode { all: unset; cursor: pointer; font: inherit; color: var(--text-on-shell-muted); }
 .statusbar .api-mode.live { color: var(--accent-primary-shell); }
-.statusbar .api-mode.mock { color: var(--status-warning); }
+.statusbar .api-mode.offline { color: var(--status-warning); }
 .statusbar .sb-poc { color: var(--status-warning); font-weight: 600; }
 .statusbar .api-mode:focus-visible { outline: 1px solid var(--accent-secondary-shell); outline-offset: 2px; }
 .statusbar .sb-sep { width: 1px; height: 12px; background: var(--border-shell); }

@@ -1,4 +1,4 @@
-import type { Diff } from '../run'
+import type { Diff } from '../steps'
 
 /** What Vela changed in the dataset so far. */
 export function DataChanges({ diff, version, rows }: { diff: Diff; version: number; rows: number }) {

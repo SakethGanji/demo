@@ -227,7 +227,7 @@ function Formula({ al, metric }: { al: ActiveLearning; metric: string }) {
           <dt>m</dt><dd>the holdout {metric} after round {fin.round}, at n = {nfmt(fin.n[0])} labels in both arms ({s.greater_is_better ? 'greater is better' : 'lower is better, so the sign is flipped: + = active better'})</dd>
           <dt>s</dt><dd>a seed: its own seed labels L₀(s) ({pctTrim(1 - (al.pool?.hide_share ?? 0))} stratified), shared by both arms, and its own random draws</dd>
           <dt>s<sub>d</sub></dt><dd>the sd of the {fin.gap.n_seeds} paired gaps, {fin.gap.sd?.toFixed(4) ?? '—'}; t: Student's 97.5% quantile</dd>
-          <dt>oracle</dt><dd>both arms are labelled with the sample's own hidden labels, a stand-in for a person</dd>
+          <dt>oracle</dt><dd>both arms are labelled with the dataset's own hidden labels, a stand-in for a person</dd>
         </dl>
       </div>}
     </div>

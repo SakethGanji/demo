@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { flows, type AnCompare, type AnReviewSummary, type AnRow, type AnSupervised, type AnTruth, type AnVelocity } from '@/shared/api/flows'
+import { flows, type AnCompare, type AnReviewSummary, type AnRow, type AnSupervised, type AnVelocity } from '@/shared/api/flows'
 import { useActor } from '@/features/registry/lib'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { fix, sig4 } from '@/shared/lib/format'
+import { sig4 } from '@/shared/lib/format'
 
 
 /** F2 · the velocity features this run added: the formulas bound to the run's entity, time, amount and category
@@ -115,23 +115,7 @@ function SupervisedRun({ s, go }: { s: AnSupervised; go: (r: string) => void }) 
 }
 
 function Comparison({ c }: { c: AnCompare }) {
-  if (!c.iforest || !c.supervised) return <p className="helper" style={{ fontSize: 12 }}>Scored {c.rows_scored.toLocaleString()} rows out of sample ({c.source}); {c.overlap_top_k} of the top {c.k} unreviewed rows are shared with the isolation forest. No hidden truth for this dataset: review the new top rows.</p>
-  const k = c.hidden_in_unreviewed ?? 0
-  const at = (t: AnTruth | undefined, kk: number) => t?.precision_at_k.find((x) => x.k === kk)
-  const rows: { name: string; f: (t: AnTruth | undefined, t2: AnTruth | undefined) => string }[] = [
-    { name: `hits in the top ${k} (R-precision)`, f: (t) => `${at(t, k)?.hits ?? '—'} / ${k}` },
-    { name: `hits in the top ${c.k}`, f: (_t, t2) => `${at(t2, c.k)?.hits ?? '—'} / ${k}` },
-    { name: 'average precision', f: (t) => fix(t?.average_precision) },
-    { name: 'ROC AUC', f: (t) => fix(t?.roc_auc) },
-  ]
-  const kinds = Object.keys(c.supervised_at_k?.by_kind ?? {})
   return (
-    <div className="stack" style={{ gap: 8 }} data-testid="an-compare">
-      <p className="helper" style={{ fontSize: 12 }}>On the <b>{c.unreviewed.toLocaleString()}</b> rows nobody reviewed, which still hide <b>{k}</b> planted frauds (sample only: the hidden truth is never given to either model). Supervised scores are out of sample: {c.source} ({c.n_oof.toLocaleString()} out-of-fold).</p>
-      <table className="table"><thead><tr><th>on unreviewed rows</th><th className="r">IsolationForest s</th><th className="r">supervised P(ŷ = 1 | x)</th></tr></thead>
-        <tbody>{rows.map((r) => <tr key={r.name}><td>{r.name}</td><td className="r table-cell">{r.f(c.iforest, c.iforest_at_k)}</td><td className="r table-cell"><b>{r.f(c.supervised, c.supervised_at_k)}</b></td></tr>)}
-          {kinds.map((kd) => <tr key={kd}><td className="mono" style={{ fontSize: 11.5 }}>· {kd} in the top {c.k}</td><td className="r table-cell">{c.iforest_at_k?.by_kind[kd]?.found ?? 0} / {c.iforest_at_k?.by_kind[kd]?.planted ?? 0}</td><td className="r table-cell">{c.supervised_at_k?.by_kind[kd]?.found ?? 0} / {c.supervised_at_k?.by_kind[kd]?.planted ?? 0}</td></tr>)}</tbody></table>
-      <p className="helper" style={{ fontSize: 12 }}>The holdout score of this run (predicting ŷ) is near perfect by construction: the reviewed rows were chosen by s, so s nearly determines ŷ. That is selection, not leakage of fraud; the fair test is this table, on rows nobody reviewed. {c.overlap_top_k} of the {c.k} top unreviewed rows are shared. The supervised model learns what the analyst confirmed, so it is strongest on kinds that were confirmed often and cannot learn a kind nobody confirmed.</p>
-    </div>
+    <p className="helper" style={{ fontSize: 12 }} data-testid="an-compare">Scored {c.rows_scored.toLocaleString()} unreviewed rows out of sample ({c.source}, {c.n_oof.toLocaleString()} out-of-fold); {c.overlap_top_k} of the top {c.k} are shared with the isolation forest. The holdout score of this run is near perfect by construction: the reviewed rows were chosen by s, so s nearly determines ŷ. Review the new top rows to judge it.</p>
   )
 }

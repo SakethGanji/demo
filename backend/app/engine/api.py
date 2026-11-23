@@ -140,7 +140,7 @@ class PredictRequest(BaseModel):
 
 
 def display_name(ds: dict[str, Any]) -> str:
-    return ds["name"].replace(" (sample)", "")
+    return ds["name"]
 
 
 def alloc_run(app: Any) -> tuple[str, Path]:

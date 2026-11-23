@@ -19,8 +19,6 @@
 .wizard-footer { background: var(--bg-band); }
 .table tbody tr:nth-child(even):not(.sel) { background: color-mix(in srgb, var(--bg-table-header) 60%, transparent); }
 .table tbody tr:hover:not(.sel) { background: var(--bg-subtle); }
-.kpi { background: linear-gradient(var(--bg-surface) 62%, var(--bg-band) 62%); }
-.kpi .foot { padding-top: var(--space-8); }
 .run-string .rs-id { background: var(--bg-subtle); border-radius: var(--radius-badge); padding: 2px 6px; justify-self: start; }
 .drop { background: var(--bg-subtle); }
 .cm { background: var(--bg-subtle); border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: var(--space-12); }

@@ -4,7 +4,7 @@
 // backend/tests/test_registry.py).
 import { readFileSync } from 'node:fs'
 import type { APIRequestContext } from '@playwright/test'
-import { expect, open, test } from './fixtures'
+import { creditCsv, expect, loanAmountCsv, open, test, uploadCsv } from './fixtures'
 
 type Run = { id: string; status: string; error: string | null; best_model: string; positive_class: string }
 
@@ -45,7 +45,8 @@ function batchCsv(profile: { columns: { name: string; type: string; stats?: { me
 
 test('registry: register the winner, approve, promote, card, Try It, batch score with a download, drift', async ({ page, errors }) => {
   test.setTimeout(600_000)
-  const run = await train(page.request, { dataset_id: 'credit-default', eval_metric: 'roc_auc', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
+  const credit = await uploadCsv(page.request, 'e2e_credit.csv', creditCsv())
+  const run = await train(page.request, { dataset_id: credit.id, label: 'defaulted', eval_metric: 'roc_auc', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
 
   // Register from the Experiments row
   await open(page, 'models')
@@ -120,7 +121,7 @@ test('registry: register the winner, approve, promote, card, Try It, batch score
 
   // Batch scoring: upload, progress, preview, download, drift
   await page.getByRole('tab', { name: 'Batch & Drift' }).click()
-  const ds = await (await page.request.get('/api/datasets/credit-default')).json()
+  const ds = await (await page.request.get(`/api/datasets/${credit.id}`)).json()
   const csv = batchCsv(ds.profile)
   await page.getByTestId('batch-file').setInputFiles({ name: 'applicants_2026_11.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) })
   await page.getByTestId('batch-submit').click()
@@ -149,9 +150,10 @@ test('registry: register the winner, approve, promote, card, Try It, batch score
   expect(errors).toEqual([])
 })
 
-test('home: real runs, best scores, registry and the monitor; no demo identities in live mode', async ({ page, errors }) => {
+test('home: real runs, best scores, registry and the monitor; no demo identities', async ({ page, errors }) => {
   test.setTimeout(300_000)
-  const run = await train(page.request, { dataset_id: 'loan-amount', feature_importance: false, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 40 } } } })
+  const loan = await uploadCsv(page.request, 'e2e_loan_amount.csv', loanAmountCsv())
+  const run = await train(page.request, { dataset_id: loan.id, label: 'loan_amount_usd', feature_importance: false, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 40 } } } })
   await open(page, 'home')
   await expect(page.getByTestId('home-live')).toBeVisible()
   await expect(page.getByTestId('home-runs')).toContainText(run.id)
@@ -159,10 +161,10 @@ test('home: real runs, best scores, registry and the monitor; no demo identities
   await expect(page.getByTestId('home-read')).toContainText(`${st.runs} runs`)
   await expect(page.getByTestId('home-read')).toContainText(`${st.registry.stages.Production} in Production`)
   await expect(page.getByTestId('home-monitor')).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByTestId('home-best')).toContainText('Loan amount')
+  await expect(page.getByTestId('home-best')).toContainText(run.best_model)
   const text = await page.locator('body').innerText()
   for (const fake of ['Maya Lin', 'Arun Patel', 'run_8a10', 'run_894a', 'v2.4.1', 'v3.0.0-rc1', '9 runs · 3 selected', 'zendesk']) expect(text, fake).not.toContain(fake)
-  // Registry page in live mode has no scripted versions either
+  // The Registry page has no scripted versions either
   await open(page, 'registry')
   await expect(page.getByTestId('registry')).toBeVisible()
   const t2 = await page.locator('.workspace').innerText()

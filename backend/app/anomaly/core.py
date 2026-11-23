@@ -207,38 +207,6 @@ def _text(r: dict[str, Any]) -> str:
     return f"{r['feature']} = {v}"
 
 
-def precision_at_k(order: np.ndarray, truth: set[int], ks: list[int]) -> list[dict[str, Any]]:
-    out = []
-    for k in ks:
-        if k <= 0:
-            continue
-        top = order[:k]
-        hits = int(sum(1 for r in top if int(r) in truth))
-        out.append({"k": int(k), "hits": hits, "precision": hits / k, "recall": hits / max(len(truth), 1)})
-    return out
-
-
-def truth_check(rows: np.ndarray, s: np.ndarray, truth: dict[str, Any], n_flagged: int) -> dict[str, Any]:
-    from sklearn.metrics import average_precision_score, roc_auc_score
-
-    t = set(int(r) for r in truth["rows"])
-    y = np.array([1 if int(r) in t else 0 for r in rows])
-    order = rows[np.argsort(-s, kind="stable")]
-    kinds = dict(zip((int(r) for r in truth["rows"]), truth.get("kinds") or []))
-    top = set(int(r) for r in order[:n_flagged])
-    by_kind: dict[str, dict[str, int]] = {}
-    for r, kd in kinds.items():
-        d = by_kind.setdefault(kd, {"planted": 0, "found": 0})
-        d["planted"] += 1
-        d["found"] += int(r in top)
-    ks = sorted(set([10, 25, 50, 100, len(t), n_flagged]))
-    return {"planted": len(t), "precision_at_k": precision_at_k(order, t, ks),
-            "roc_auc": float(roc_auc_score(y, s)) if 0 < y.sum() < len(y) else None,
-            "average_precision": float(average_precision_score(y, s)) if y.sum() else None,
-            "by_kind": by_kind, "flagged": n_flagged, "base_rate": float(y.mean()),
-            "note": "sample only: the planted rows (anomaly_truth.json) are never given to the model"}
-
-
 def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any]) -> dict[str, Any]:
     import joblib
     from sklearn.ensemble import IsolationForest
@@ -402,14 +370,8 @@ def run(cfg: dict[str, Any], run_dir: Path, emit: Emit, merge: Callable[..., Any
         + ([{"model": "LocalOutlierFactor", "family": "lof", "rank": 2, "stack_level": 1}] if lof_s is not None else []),
         "fit_seconds": fit_if,
     }
-    truth = cfg.get("truth")
-    if truth:
-        result["anomaly"]["truth"] = truth_check(np.arange(len(df)), s, truth, n_flag)
-        if lof_s is not None:
-            result["anomaly"]["truth_lof"] = truth_check(np.arange(len(df)), lof_s, truth, n_flag)
     merge(**result)
-    emit("evaluation", n_flagged=n_flag, threshold=thr,
-         precision_at_k=(result["anomaly"].get("truth") or {}).get("precision_at_k"))
+    emit("evaluation", n_flagged=n_flag, threshold=thr)
     return {"best_model": "IsolationForest", "n_flagged": n_flag}
 
 

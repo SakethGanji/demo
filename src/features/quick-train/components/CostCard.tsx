@@ -1,4 +1,4 @@
-import type { Dataset } from '../datasets'
+import type { Dataset } from '../dataset'
 import { DEFAULT_COST, bayesThreshold, costMatrix, costPositive, labelClasses, type Choices, type CostChoice, type Task } from '../wizard'
 
 /**

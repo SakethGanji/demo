@@ -17,7 +17,7 @@ ens = Ensemble("http://127.0.0.1:8000")          # `make dev` serves the API on 
 ens.health()["engine"]                            # {'name': 'AutoGluon', 'version': '1.6.3', …}
 
 # 1 · data: a sample, a CSV path, or a DataFrame
-ds = ens.datasets.get("credit-default")
+ds = ens.datasets.get("ds_1234abcd")  # a dataset id from Build → Data
 # ds = ens.datasets.upload(df, name="applicants.csv", target="defaulted")
 
 # 2 · check a config before it trains: errors, the resolved fit call, AutoGluon's own bagging/stacking choice, T̂

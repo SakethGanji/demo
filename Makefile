@@ -1,4 +1,4 @@
-# One-command workflows for the ENSEMBLE demo. See docs/progress/S1.md.
+# One-command workflows for ENSEMBLE. See RUNNING.md.
 SHELL := /bin/bash
 PYTHON ?= python3
 VENV := backend/.venv
@@ -6,7 +6,7 @@ PY := $(VENV)/bin/python
 API_PORT ?= 8000
 UI_PORT ?= 5190
 
-.PHONY: setup lock dev dev-pg dev-pg-stop api ui smoke realdata reset test test-full test-backend test-backend-full test-ui e2e clean-data
+.PHONY: setup lock dev dev-pg dev-pg-stop api ui realdata reset test test-full test-backend test-backend-full test-ui e2e clean-data
 
 ## Create the Python venv, install the pinned backend deps and the npm packages.
 setup:
@@ -50,16 +50,6 @@ api:
 ui:
 	npx vite --port $(UI_PORT)
 
-## The smoke chain (scripts/smoke.py) against the API on :$(API_PORT); starts the API itself if nothing answers there
-## (and stops it afterwards). SMOKE_ONLY=core,samples,intake,datadoctor,ladder,featurelab,doctor2,missing,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,recourse,scorecard,learning,active,annotators,shift,slices,doctor,monitor,credit,el,fair,seg,surv,ri,ml,sql,agent,llm,reset picks sections.
-SMOKE_ONLY ?= core,samples,intake,datadoctor,ladder,featurelab,doctor2,missing,autopilot,forecast,anomaly,import,fresh,latency,targets,splits,cost,monotone,quantile,reasons,recourse,scorecard,learning,active,annotators,shift,slices,doctor,monitor,credit,el,fair,seg,surv,ri,ml,sql,agent,llm,reset
-smoke:
-	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
-		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY); \
-	else \
-		$(PY) scripts/smoke.py --api http://127.0.0.1:$(API_PORT) --only $(SMOKE_ONLY) --start-api; \
-	fi
-
 ## D5 · the real-data proof: a manual driver (not a test suite) that chains the API calls the UI makes on six public
 ## datasets and eight planted-issue copies of real data, and prints one PASS / FAIL line per expectation. Needs the API on
 ## :$(API_PORT); downloads are cached in backend/data/realdata/ (not committed). REALDATA_ONLY=taiwan,bank_leak,… picks items.
@@ -85,8 +75,8 @@ test-backend-full:
 e2e:
 	npx playwright test --trace off
 
-## Reset the workbench: delete every run, registered model, batch, autopilot, MLflow record and uploaded dataset, and
-## regenerate the (seeded) samples. Through the running API when it answers on :$(API_PORT) (POST /api/admin/reset; refused
+## Reset the workbench: delete every run, registered model, batch, autopilot, MLflow record and uploaded dataset.
+## Through the running API when it answers on :$(API_PORT) (POST /api/admin/reset; refused
 ## while a run is active), else offline with python -m app.reset. DL3: governed on both paths. It needs the API (or this
 ## shell) to run with ENSEMBLE_DEMO_MODE=1 and BY=<an admin from ENSEMBLE_ADMINS>; while a registered model or a champion
 ## is live it also needs REQUEST=<an approved four-eyes reset request> (POST /api/admin/reset-requests). The audit log is
@@ -98,11 +88,11 @@ reset:
 	@if curl -sf http://127.0.0.1:$(API_PORT)/api/health >/dev/null; then \
 		curl -s -X POST http://127.0.0.1:$(API_PORT)/api/admin/reset -H 'content-type: application/json' \
 			-d '{"confirm":"reset","by":"$(BY)"$(if $(REQUEST),$(comma)"request_id":"$(REQUEST)",)}' \
-		| $(PY) -c 'import json,sys; d=json.load(sys.stdin); print("reset via the API:", d["deleted"], "· samples regenerated:", ", ".join(d["samples"])) if "deleted" in d else (print("reset refused:", json.dumps(d.get("detail"), indent=1)), sys.exit(1))'; \
+		| $(PY) -c 'import json,sys; d=json.load(sys.stdin); print("reset via the API:", d["deleted"]) if "deleted" in d else (print("reset refused:", json.dumps(d.get("detail"), indent=1)), sys.exit(1))'; \
 	else \
 		cd backend && .venv/bin/python -m app.reset --by "$(BY)" $(if $(REQUEST),--request $(REQUEST),); \
 	fi
 
-## Delete the local data folder (datasets, database). The samples are regenerated on the next start.
+## Delete the local data folder (datasets, database).
 clean-data:
 	rm -rf backend/data

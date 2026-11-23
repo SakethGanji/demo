@@ -77,4 +77,3 @@
 .ag.compact .ag-scroll { padding: 0; }
 .ag.compact .ag-foot { padding: var(--space-8) 0 0; background: none; }
 .ag.compact .ag-why, .ag.compact .ag-detail, .ag.compact .ag-confirm, .ag.compact .ag-err { margin-left: 0; }
-.e2e-sim { position: absolute; right: 24px; margin-top: 8px; z-index: 1; }

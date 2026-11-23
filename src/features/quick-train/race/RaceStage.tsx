@@ -22,9 +22,9 @@ function useNow(active: boolean) {
 }
 
 /** The navy stage the race plays on: clock against the budget, one string per model, stack layers, the ensemble forming. */
-export function RaceStage({ s, runId, label, budget, speed, setSpeed, onCancel, reconnecting, simulated }: {
+export function RaceStage({ s, runId, label, budget, speed, setSpeed, onCancel, reconnecting }: {
   s: RaceState; runId: string; label: string; budget: number; speed: number; setSpeed: (n: number) => void
-  onCancel: () => void; reconnecting: boolean; simulated: boolean
+  onCancel: () => void; reconnecting: boolean
 }) {
   const running = s.status === 'running' || s.status === 'queued' || s.status === 'connecting'
   const now = useNow(running)
@@ -48,7 +48,7 @@ export function RaceStage({ s, runId, label, budget, speed, setSpeed, onCancel, 
     <section className="stage race" data-testid="race" data-status={s.status}>
       <div className="stage-head">
         <div>
-          <span className="hero-eyebrow" style={{ paddingLeft: 0 }}>{pill} · AUTOGLUON{simulated ? ' · SIMULATED' : ''} · <span data-testid="race-run-id">{runId}</span></span>
+          <span className="hero-eyebrow" style={{ paddingLeft: 0 }}>{pill} · AUTOGLUON · <span data-testid="race-run-id">{runId}</span></span>
           <h2 className="hero-title">Predicting <span className="mono">{label}</span>{s.problemType ? <span className="race-pt"> · {s.problemType}</span> : null}</h2>
         </div>
         <div className="stage-read">

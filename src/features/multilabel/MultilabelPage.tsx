@@ -28,7 +28,7 @@ function Formula() {
  * threshold, micro/macro F1, Hamming loss, PR curves. Registry → Results shows the same view; Try It returns a label set.
  */
 export const ML_SPEC: KindSpec = {
-  id: 'multilabel', title: 'Multi-Label Classifier', testId: 'ml', defaultDataset: 'complaint-topics', mockWhat: 'multi-label models train',
+  id: 'multilabel', title: 'Multi-Label Classifier', testId: 'ml',
   sub: 'Each row can carry several labels at once (complaint topics, say): one model per label, a label set per row.',
   detect: flows.ml.detect, create: (b) => flows.ml.create(b as never),
   roles: [{ key: 'label_column', label: 'label set Y', testId: 'ml-label', emptyHint: 'nothing detected: pick a column of label lists',

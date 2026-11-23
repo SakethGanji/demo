@@ -22,7 +22,7 @@ function Formula({ seg, binary }: { seg: string; binary: boolean }) {
  * the routed version to register. Registry → Results shows the same view.
  */
 export const SEG_SPEC: KindSpec = {
-  id: 'segmented', title: 'Segmented Models', testId: 'seg', defaultDataset: 'segmented-loans', mockWhat: 'segmented models train AutoGluon',
+  id: 'segmented', title: 'Segmented Models', testId: 'seg',
   sub: 'One AutoGluon model per segment against one global model, on the same holdout; the result is one routed version.',
   detect: flows.seg.detect, create: (b) => flows.seg.create(b as never),
   roles: [

@@ -14,10 +14,8 @@ button { cursor: pointer; }
 
 /* ---------- typography ---------- */
 .page-title { font-family: var(--font-display); font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-primary); margin: 0; }
-.section-header { font-size: 15px; line-height: 20px; font-weight: 600; color: var(--text-primary); margin: 0; padding-bottom: var(--space-8); border-bottom: 1px solid var(--border-default); }
 .card-title { white-space: nowrap; font-size: 14px; line-height: 20px; font-weight: 600; color: var(--text-primary); margin: 0; }
 .micro-label { font-size: 11px; line-height: 14px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); }
-.metric-hero { font-family: var(--font-mono); font-size: 24px; line-height: 30px; font-weight: 500; color: var(--text-primary); font-variant-numeric: tabular-nums; }
 .table-cell { font-family: var(--font-mono); font-size: 12.5px; line-height: 18px; font-variant-numeric: tabular-nums; }
 .helper { color: var(--text-body); margin: 0; }
 

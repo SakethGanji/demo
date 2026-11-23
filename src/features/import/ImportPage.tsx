@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/shared/api/client'
 import { flows, type FlowRun } from '@/shared/api/flows'
-import { ApiOnly, HeroCell } from '@/shared/components/Status'
+import { HeroCell } from '@/shared/components/Status'
 import type { DatasetSummary } from '@/shared/api/types'
 import { LiveModels } from '@/shared/components/FlowParts'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
@@ -12,23 +12,15 @@ import { fix } from '@/shared/lib/format'
 /** Import an AutoGluon TabularPredictor someone already trained (a zipped folder or a path on the server): it is
  *  checked, scored on a dataset's holdout like a trained run, and then works everywhere a run does. */
 export function ImportPage() {
-  return (
-    <ApiOnly mock={<div className="page"><div className="page-head"><h1 className="page-title">Import Predictor</h1></div><div className="card card-body"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span> to import a predictor.</p></div></div>}>
-      <ImportSetup />
-    </ApiOnly>
-  )
-}
-
-function ImportSetup() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [dsId, setDsId] = useState('credit-default')
+  const [dsId, setDsId] = useState('')
   const [file, setFile] = useState<File | null>(null)
   const [path, setPath] = useState('')
   const [how, setHow] = useState<'zip' | 'path'>('zip')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const ref = useRef<HTMLInputElement>(null)
-  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => {}) }, [])
+  useEffect(() => { api.datasets.list().then((l) => { setDatasets(l); setDsId((id) => id || l[0]?.id || '') }).catch(() => {}) }, [])
   const submit = async () => {
     setBusy(true); setErr('')
     try {
@@ -60,7 +52,7 @@ function ImportSetup() {
             <select className="select" value={dsId} onChange={(e) => setDsId(e.target.value)} data-testid="imp-dataset">{datasets.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} rows</option>)}</select>
             <p className="helper" style={{ fontSize: 12 }}>It must contain the predictor’s label and every feature. The dataset’s fixed 20% holdout is scored. If those rows were in the predictor’s own training data, its holdout scores are optimistic, and the run says so.</p>
             {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }} data-testid="imp-error">✕ {err}</p>}
-            <div className="row"><span className="spacer" /><button className="btn primary" disabled={busy || (how === 'zip' ? !file : !path.trim())} onClick={submit} data-testid="imp-go">{busy ? 'Checking…' : 'Import'}</button></div>
+            <div className="row"><span className="spacer" /><button className="btn primary" disabled={busy || !dsId || (how === 'zip' ? !file : !path.trim())} onClick={submit} data-testid="imp-go">{busy ? 'Checking…' : 'Import'}</button></div>
           </div>
         </div>
       </div>

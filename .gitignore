@@ -9,3 +9,4 @@ __pycache__/
 test-results/
 playwright-report/
 .e2e-data/
+*.egg-info/

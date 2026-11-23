@@ -1,7 +1,7 @@
 """S4: understanding a run. Every endpoint's numbers are recomputed here independently, with scikit-learn, fairlearn,
 pandas and scipy, from the run's holdout predictions (GET /holdout-predictions) and its data, and must match.
 
-Tiny fits on small uploads (fast tier); the credit-default sample's calibrated F1 is in the slow tier."""
+Tiny fits on small uploads (fast tier); the seeded credit data's calibrated F1 is in the slow tier."""
 
 from __future__ import annotations
 
@@ -475,14 +475,14 @@ def test_status_reports_machine_and_active_run(client, imb_ds):
     assert client.get("/api/status").json()["active"] is None
 
 
-# --------------------------------------------------------------------------- the credit-default sample (slow)
+# --------------------------------------------------------------------------- the seeded credit data (slow)
 
 
 @pytest.mark.slow
-def test_credit_default_calibrated_threshold_is_sensible(client):
+def test_credit_default_calibrated_threshold_is_sensible(client, credit_ds):
     """S3 saw holdout F1 0.106 and balanced accuracy 0.528 at t = 0.5 on 8% positives. With the wizard's default
     (calibrate the threshold for F1 after the fit) both are sensible, and better than at 0.5."""
-    run = _fit(client, "credit-default", eval_metric="roc_auc", calibrate_threshold="f1",
+    run = _fit(client, credit_ds["id"], eval_metric="roc_auc", calibrate_threshold="f1",
                fit_kwargs={"hyperparameters": {"GBM": {}, "CAT": {"iterations": 300}, "LR": {}}})
     t = run["threshold"]
     m = run["holdout"]["metrics"]

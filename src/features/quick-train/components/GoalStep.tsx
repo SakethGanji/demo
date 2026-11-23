@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { FretSlider } from '@/shared/components/FretSlider'
 import { ParamChip } from '@/shared/primitives/ParamChip'
-import type { Dataset } from '../datasets'
+import type { Dataset } from '../dataset'
 import { CostCard } from './CostCard'
 import { COST_METRIC, DEFAULT_COST, PINBALL, metricInfo, BUDGETS, METRICS, PRESETS, columnTypesPayload, defaultMetric, defaultThreshold, fmtBudget, labelImbalance, minorityShare, parseKwargs, type Choices, type Task } from '../wizard'
 

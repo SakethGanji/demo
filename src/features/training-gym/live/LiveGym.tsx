@@ -39,13 +39,13 @@ export function LiveGym({ gym, setGym, guided, setGuided, go }: {
     } catch (e) { setErr((e as Error).message) }
   }, [setGym])
 
-  // First visit: #/gym?from=<run> loads that run; otherwise a sample with a label.
+  // First visit: #/gym?from=<run> loads that run; otherwise the first dataset with a label.
   useEffect(() => {
     const from = fromHash()
     if (from && from !== gym.fromRun) { loadRun(from); return }
     if (body) return
     api.datasets.list().then((list) => {
-      const pick = list.find((d) => d.id === 'credit-default') ?? list.find((d) => d.target) ?? list[0]
+      const pick = list.find((d) => d.target) ?? list[0]
       if (pick) api.datasets.get(pick.id).then((d) => setGym((g) => (g.body ? g : { body: defaultBody(d), fromRun: null, patch: null })))
     }).catch((e) => setErr((e as Error).message))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -97,7 +97,7 @@ export function LiveGym({ gym, setGym, guided, setGuided, go }: {
   const props: StepProps = { body, set, setBody, schema, v, ds, guided }
   const nErr = v?.errors.length ?? 0
   const nWarn = v?.warnings.length ?? 0
-  const title = ds ? `${ds.name.replace(' (sample)', '')} · ${body.label ?? '—'}` : body.dataset_id
+  const title = ds ? `${ds.name} · ${body.label ?? '—'}` : body.dataset_id
 
   return (
     <div className="wizard gym-live" data-testid="gym-live">

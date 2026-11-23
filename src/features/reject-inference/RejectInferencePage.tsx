@@ -38,7 +38,7 @@ function Assumption({ k, decision }: { k: number; decision: string | null }) {
  * augmentation, on a through-the-door holdout, with paired CIs and the assumption. A study, so it is not registrable.
  */
 export const RI_SPEC: KindSpec = {
-  id: 'reject_inference', title: 'Reject Inference', testId: 'ri', defaultDataset: 'credit-rejects', mockWhat: 'reject inference trains AutoGluon',
+  id: 'reject_inference', title: 'Reject Inference', testId: 'ri',
   sub: 'Outcomes exist only for the applicants you approved. Add the declined back three standard ways and see which model holds up on everyone who applies.',
   detect: flows.ri.detect, create: (b) => flows.ri.create(b as never),
   roles: [
@@ -51,7 +51,7 @@ export const RI_SPEC: KindSpec = {
   ],
   rows: ({ d }) => (
     <tr><td>check</td><td colSpan={2} className={d.through_the_door ? 'el-ok' : 'helper'} style={{ fontSize: 12.5 }}>{d.through_the_door
-      ? '● Through the door: this sample keeps the outcomes the declined applicants would have had, aside, so every method is checked on everyone in the holdout.'
+      ? '● Through the door: every row has an outcome, the declined applicants included (a bureau outcome or an approve-all test cell), so every method is checked on everyone in the holdout.'
       : 'Approved holdout only: nobody knows how the declined would have done, so the methods can be compared only where outcomes exist, which is the biased view.'}</td></tr>),
   leftOut: ({ d }) => <>IDs, dates, leaks, protected · {d.split_why}</>,
   Formula: ({ o }) => <Formula k={o.k} />,
@@ -153,7 +153,7 @@ export function RiResults({ r, decision }: { r: RiResult; decision: string | nul
               <thead><tr><th>parcel band (by f₀)</th><th className="r">approved</th><th className="r">approved bad rate</th><th className="r">declined</th><th className="r">assigned bad rate</th></tr></thead>
               <tbody>{r.detail.parcelling.bands.map((x) => <tr key={x.band}><td className="mono">{x.band}</td><td className="r mono">{x.approved.toLocaleString()}</td><td className="r mono">{x.approved_bad_rate == null ? '—' : pct(x.approved_bad_rate)}</td><td className="r mono">{x.declined.toLocaleString()}</td><td className="r mono">{pct(x.assigned_bad_rate)}</td></tr>)}</tbody>
             </table></div>
-            {t && <><p className="helper" style={{ fontSize: 12.5 }}>Without the hidden outcomes, only the approved holdout applicants could be scored. That view is the one reject inference exists to correct:</p>
+            {t && <><p className="helper" style={{ fontSize: 12.5 }}>Without the declined applicants' outcomes, only the approved holdout applicants could be scored. That view is the one reject inference exists to correct:</p>
               <div className="table-wrap"><table className="table compact">
                 <thead><tr><th>method</th><th className="r">AUC, approved only</th><th className="r">log loss</th><th className="r">mean p̂ vs bad rate</th></tr></thead>
                 <tbody>{ORDER.map((m) => { const c = r.approved_holdout[m]; return <tr key={m}><td>{NAME[m]}</td><td className="r mono">{fix(c.auc ?? null, 4)}</td><td className="r mono">{fix(c.log_loss, 4)}</td><td className="r mono">{fix(c.mean_p, 3)} vs {fix(c.bad_rate, 3)}</td></tr> })}</tbody>

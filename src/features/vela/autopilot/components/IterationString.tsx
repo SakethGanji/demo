@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useWidth } from '@/shared/hooks/useWidth'
 import { reducedMotion, usePrefs } from '@/shared/lib/prefs'
-import type { Step } from '../run'
+import type { Step } from '../steps'
 
 /** The run as one string. Kept steps are taut nodes, a dropped experiment hangs off as a dashed catenary,
  *  a question is a diamond, and the step in progress is a travelling wave. */

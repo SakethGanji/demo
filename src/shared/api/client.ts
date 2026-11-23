@@ -1,6 +1,6 @@
 // Typed client for the ENSEMBLE API. Every call goes through the Vite proxy at /api.
 
-import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, Ladder, FeatureLabJob, FeatureLabList, FeatureTransform, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, StreamSpec, StreamFeedResult, CreditReport, SqlDemo, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus, Review, ReviewList, ChangesState, ChangeItem } from './types'
+import type { AuditEntry, BatchJob, BatchListItem, LatencyProfile, ModelCard, ScoreResult, ServingBenchmark, ModelVersion, RegisteredModel, RegisterRequest, RegistryCounts, Stage, TryResult, ApiStatus, CustomEnsemble, DataFix, DataFixResult, DataReport, DatasetDetail, DatasetSplits, Intake, DatasetSummary, Explain, FairLending, Fairness, Health, HoldoutPredictions, ImportanceResponse, ModelFamily, Prediction, Run, RunCreate, RunEvent, ShapResult, ThresholdAnalysis, ThresholdRecord, Holdout, GymSchema, GymValidation, VelaResponse, VelaWording, Autopilot, ApInbox, ApRequirement, VelaAnswer, LlmStatus, LlmSettings, SplitComparison, SplitDescription, SplitOptions, SplitSpec, CostAnalysis, CostComparison, CostRequest, MonotoneCheck, ScorecardReport, ScorecardScore, Ladder, FeatureLabJob, FeatureLabList, FeatureTransform, LearningCurve, LearningCurveRequest, ActiveLearning, ALRequest, Annotations, ShiftAction, ShiftCheck, ShiftList, ShiftRequest, SliceRequest, SliceRows, SliceSearch, SliceShap, SlicePool, ReasonsConfig, ReasonMapping, ReasonStability, RecourseAction, RecourseCheck, RecourseConfig, RecourseRows, Doctor, MonitoringState, MonitoringConfig, RetrainProposal, CreditReport, SqlTable, SqlPreview, SqlLineage, SqlVersions, AgentSession, AgentSessionSummary, AgentStatus, Review, ReviewList, ChangesState, ChangeItem } from './types'
 import { withUnmask, type MaskInfo, type Unmask } from './unmask'
 
 /** Who is acting (typed once in the Registry; there is no sign-in): recorded in the audit log. */
@@ -73,7 +73,6 @@ export const api = {
     },
     /** G9: a dataset from a read-only SQL query (SQLite/DuckDB files on the server, or Postgres). The password is sent, never stored. */
     sql: {
-      demo: () => request<SqlDemo>('/sql/demo'),
       tables: (url: string, password?: string, project_id?: string) => json<{ tables: SqlTable[] }>('/sql/tables', 'POST', { url, password, project_id }),
       preview: (q: SqlQuery) => json<SqlPreview>('/sql/preview', 'POST', q, 120_000),
       create: (q: SqlQuery & { name?: string }) => json<DatasetDetail>('/sql/datasets', 'POST', { ...q, created_by: actor() }, 300_000),
@@ -185,8 +184,6 @@ export const api = {
       Object.entries(q).forEach(([k, v]) => { if (v != null) p.set(k, String(v)) })
       return request<Annotations & MaskInfo>(withUnmask(`/runs/${encodeURIComponent(id)}/annotations${p.toString() ? `?${p}` : ''}`, u))
     },
-    loadSampleAnnotations: (id: string, body: { n_rows?: number; per_row?: number; seed?: number } = {}) =>
-      request<Annotations>(`/runs/${encodeURIComponent(id)}/annotations/sample`, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
     uploadAnnotations: (id: string, file: File, mode: 'replace' | 'append' = 'replace') => {
       const form = new FormData()
       form.append('file', file)
@@ -195,8 +192,6 @@ export const api = {
     },
     answerAnnotations: (id: string, answers: { row: number; action: 'vote' | 'adjudicate' | 'clear'; label?: string }[], reviewer: string) =>
       request<{ answered: number }>(`/runs/${encodeURIComponent(id)}/annotations/answer`, { method: 'POST', body: JSON.stringify({ answers, reviewer }), headers: { 'Content-Type': 'application/json' } }),
-    simulateAdjudication: (id: string, n = 50) =>
-      request<{ adjudicated: number }>(`/runs/${encodeURIComponent(id)}/annotations/simulate-adjudication`, { method: 'POST', body: JSON.stringify({ n }), headers: { 'Content-Type': 'application/json' } }),
     annotationsVersion: (id: string) =>
       request<{ dataset_version: Annotations['versions'][number] }>(`/runs/${encodeURIComponent(id)}/annotations/version`, { method: 'POST' }),
     /** F11: the deployable scorecard on holdout rows (by position): points per feature, score, P, reason codes. */
@@ -384,9 +379,6 @@ export const api = {
       request<RetrainProposal>(`/registry/versions/${encodeURIComponent(id)}/monitoring/retrain${windowMonths ? `?window_months=${windowMonths}` : ''}`, { timeoutMs: 60_000 }),
     launchRetrain: (id: string, actor: string, windowMonths?: number) =>
       json<{ proposal: RetrainProposal; dataset: { id: string; rows: number; name: string }; run: { id: string; status: string } }>(`/registry/versions/${encodeURIComponent(id)}/monitoring/retrain`, 'POST', { actor, window_months: windowMonths }, 120_000),
-    stream: () => request<StreamSpec>('/monitoring/stream'),
-    feedStream: (id: string, month: number, actor: string) =>
-      json<StreamFeedResult>(`/registry/versions/${encodeURIComponent(id)}/monitoring/stream`, 'POST', { month, actor }, 120_000),
   },
 }
 

@@ -13,10 +13,11 @@ import httpx
 import pytest
 
 from .conftest import TERMINAL, ApiServer, read_sse, start_run, wait_for_event, wait_for_run
+from .seed_data import generate_churn, upload_frame
 
 pytestmark = pytest.mark.slow
 
-# Enough work on the churn sample to still be fitting when the API restarts (several seconds per model).
+# Enough work on the seeded churn data to still be fitting when the API restarts (several seconds per model).
 SLOW_HP = {"GBM": [{"num_boost_round": 400, "learning_rate": 0.02, "ag_args": {"name_suffix": f"_{i}"}} for i in range(4)],
            "RF": {"n_estimators": 150}, "XT": {"n_estimators": 150}}
 
@@ -25,15 +26,17 @@ SLOW_HP = {"GBM": [{"num_boost_round": 400, "learning_rate": 0.02, "ag_args": {"
 def server(tmp_path_factory):
     s = ApiServer(tmp_path_factory.mktemp("devreload") / "data", env={"ENSEMBLE_DEV_RELOAD": "1"})
     s.start()
+    with httpx.Client(base_url=s.url, timeout=60) as c:
+        s.churn_id = upload_frame(c, generate_churn(), "account_churn.csv", target="churned")["id"]
     yield s
     s.stop()
 
 
 def test_reload_keeps_running_and_queued_fits(server):
     with httpx.Client(base_url=server.url, timeout=60) as c:
-        run = start_run(c, dataset_id="account-churn", time_limit=300, feature_importance=False,
+        run = start_run(c, dataset_id=server.churn_id, time_limit=300, feature_importance=False,
                         fit_kwargs={"hyperparameters": SLOW_HP})
-        queued = start_run(c, dataset_id="account-churn", time_limit=60, feature_importance=False,
+        queued = start_run(c, dataset_id=server.churn_id, time_limit=60, feature_importance=False,
                            fit_kwargs={"hyperparameters": {"LR": {}}})
         wait_for_event(c, run["id"], "model_finished", timeout=240)
         rec = c.get(f"/api/runs/{run['id']}").json()
@@ -65,7 +68,7 @@ def test_reload_keeps_running_and_queued_fits(server):
 
 def test_cancel_an_adopted_worker(server):
     with httpx.Client(base_url=server.url, timeout=60) as c:
-        run = start_run(c, dataset_id="account-churn", time_limit=300, feature_importance=False,
+        run = start_run(c, dataset_id=server.churn_id, time_limit=300, feature_importance=False,
                         fit_kwargs={"hyperparameters": SLOW_HP})
         wait_for_event(c, run["id"], "model_started", timeout=240)
         pid = int(next(e for e in c.get(f"/api/runs/{run['id']}/events", params={"format": "json"}).json()["events"]

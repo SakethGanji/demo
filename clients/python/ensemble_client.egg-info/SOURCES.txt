@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-ensemble_client/__init__.py
-ensemble_client/client.py
-ensemble_client.egg-info/PKG-INFO
-ensemble_client.egg-info/SOURCES.txt
-ensemble_client.egg-info/dependency_links.txt
-ensemble_client.egg-info/requires.txt
-ensemble_client.egg-info/top_level.txt

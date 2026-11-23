@@ -8,7 +8,7 @@ from pathlib import Path
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-#: One seed for everything that should be reproducible (samples, holdout, folds).
+#: One seed for everything that should be reproducible (holdout, folds).
 SEED = 42
 HOLDOUT_SHARE = 0.2
 N_FOLDS = 5

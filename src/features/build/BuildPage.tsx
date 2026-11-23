@@ -4,7 +4,7 @@ import type { Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { Intake, IntakeColumn, IntakeSuggestion } from '@/shared/api/types'
 import { DropZone } from '@/shared/components/DropZone'
-import { ApiOnly, HeroCell } from '@/shared/components/Status'
+import { HeroCell } from '@/shared/components/Status'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
@@ -69,26 +69,14 @@ function prefillLine(s: IntakeSuggestion): string {
     p.metric === 'expected_cost' ? 'business cost' : ''].filter(Boolean).join(' · ')
 }
 
+const VIEWS = ['Start', 'Data'] as const
+
 /**
  * Build (G0 Smart Intake): the single entry point. Upload a table → what each column is for (editable) → what you can
  * build from it, best first; each choice opens its flow (New Model, Forecast, Anomaly, Import) pre-filled. The Training
  * Gym is the Advanced switch. Every role and suggestion comes from GET /api/datasets/{id}/intake with its evidence.
  */
 export function BuildPage({ go }: { go: (r: string) => void }) {
-  return (
-    <ApiOnly mock={(
-      <div className="page"><BuildHead go={go} />
-        <div className="card card-body" data-testid="build-mock"><p className="helper">▲ mock mode: Smart Intake reads your table on the API, which is offline. Start it with <span className="mono">make dev</span>. Meanwhile New Model plays a simulated run on built-in samples.</p>
-          <button className="btn primary" onClick={() => go('quick-train')}>New Model (simulated) →</button></div></div>
-    )}>
-      <BuildViews go={go} />
-    </ApiOnly>
-  )
-}
-
-const VIEWS = ['Start', 'Data'] as const
-/** U1 (C §2): Build is where data comes in and models start: Start (Smart Intake) · Data (the catalog, datasets). */
-function BuildViews({ go }: { go: (r: string) => void }) {
   const view = useHashParam('view') === 'data' ? 'Data' : 'Start'
   if (view === 'Start') return <BuildLive go={go} />
   return (

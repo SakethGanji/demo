@@ -1,5 +1,5 @@
-"""Reset the workbench: delete every run, registered model, batch, autopilot, agent conversation, MLflow record and uploaded
-dataset, then regenerate the sample datasets exactly (they are seeded). `make reset` calls POST /api/admin/reset when the
+"""Reset the workbench: delete every run, registered model, batch, autopilot, agent conversation, MLflow record and
+dataset. `make reset` calls POST /api/admin/reset when the
 API is running (so its in-memory state is cleared too), else `python -m app.reset` offline.
 
 DL3 (C1): a reset is governed like every other destructive action, on both paths:
@@ -60,10 +60,10 @@ def live_governance(con) -> list[str]:
 
 
 def user_data(con) -> list[str]:
-    """DL4: what a reset would wipe that a person made: uploaded / derived datasets and runs. Any of it needs four eyes."""
+    """DL4: what a reset would wipe that a person made: datasets (every version) and runs. Any of it needs four eyes."""
     out = []
     try:
-        n_ds = int(con.execute("SELECT COUNT(*) FROM datasets WHERE COALESCE(source, '') != 'sample' OR parent_id IS NOT NULL").fetchone()[0])
+        n_ds = int(con.execute("SELECT COUNT(*) FROM datasets").fetchone()[0])
         n_runs = int(con.execute("SELECT COUNT(*) FROM runs").fetchone()[0])
     except Exception:  # noqa: BLE001 - no tables yet
         return out
@@ -120,7 +120,6 @@ def check(db: Database, by: str | None, request_id: str | None = None) -> dict[s
 def reset(settings: config.Settings, by: str | None = None, request_id: str | None = None, reason: str = "",
           via: str = "api") -> dict[str, Any]:
     from .catalog.schema import audit, now
-    from .datasets import DatasetStore
 
     db = Database(settings.db_path)  # migrates: the admin_requests table exists
     approval = check(db, by, request_id)
@@ -153,10 +152,9 @@ def reset(settings: config.Settings, by: str | None = None, request_id: str | No
             con.execute("UPDATE admin_requests SET status = 'used', used_at = ?, used_by = ? WHERE id = ?", (now(), by, approval["id"]))
     for f in FOLDERS:
         shutil.rmtree(settings.data_dir / f, ignore_errors=True)
-    store = DatasetStore(settings, db)
-    made = store.ensure_samples()
     settings.runs_dir.mkdir(parents=True, exist_ok=True)
-    return {"deleted": counts, "samples": made, "data_dir": str(settings.data_dir), "audit_kept": True, "by": by,
+    settings.datasets_dir.mkdir(parents=True, exist_ok=True)
+    return {"deleted": counts, "data_dir": str(settings.data_dir), "audit_kept": True, "by": by,
             "four_eyes": approval["id"] if approval else None}
 
 

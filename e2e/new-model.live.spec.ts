@@ -2,14 +2,14 @@
 // upload → target → goal → the race → results → a custom ensemble → a prediction. Every number checked on screen is
 // compared with what the API recorded.
 import type { Page } from '@playwright/test'
-import { expect, open, test } from './fixtures'
+import { expect, loanAmountCsv, open, test, ticketsCsv, uploadCsv } from './fixtures'
 
 const FAST = { hyperparameters: { GBM: { num_boost_round: 40 }, LR: {}, KNN: {} } }
 
 type Lb = { model: string; family: string; score_val_natural: number; score_test_natural: number; weights: Record<string, number> | null }
 
+/** The wizard opens on Target when Build hands it a dataset (?dataset=). */
 async function throughTheWizard(page: Page, fitKwargs: object, opts: { label?: string; expectTask: string }) {
-  await page.getByRole('button', { name: 'Continue →' }).click()
   // Target: label and the inferred problem type
   if (opts.label) await page.getByTestId('label-select').selectOption(opts.label)
   await expect(page.getByTestId('problem-type').locator('button.on')).toHaveText(opts.expectTask)
@@ -115,19 +115,16 @@ const fmt = (v: number) => fmtD(v, 4)
 
 test('binary: upload a fresh CSV, train, race, leaderboard, custom ensemble, prediction, resume after reload', async ({ page, errors }) => {
   test.setTimeout(420_000)
-  await open(page, 'quick-train')
-  await expect(page.getByTestId('dataset-profile')).toHaveAttribute('data-source', 'api')
   const rows = ['customer_id,balance,tenure,segment,txn_90d,defaulted']
   for (let i = 0; i < 420; i++) {
     const bal = (Math.sin(i * 1.3) * 5000 + 6000).toFixed(0), ten = (i * 7) % 60, seg = ['retail', 'sme', 'private'][i % 3], txn = (i * 13) % 50
     const risk = -Number(bal) / 4000 + (seg === 'sme' ? 0.8 : 0) - ten / 40 + Math.cos(i) * 0.7
     rows.push(`c${1000 + i},${bal},${ten},${seg},${txn},${risk > -1.6 ? 'yes' : 'no'}`)
   }
-  await page.getByTestId('dataset-file').setInputFiles({ name: 'e2e_fresh_binary.csv', mimeType: 'text/csv', buffer: Buffer.from(rows.join('\n')) })
-  await expect(page.getByTestId('profile-name')).toHaveText('e2e_fresh_binary.csv')
-  await expect(page.locator('.valid')).toContainText('target defaulted · K = 2')
+  const ds = await uploadCsv(page.request, 'e2e_fresh_binary.csv', rows.join('\n'))
+  await open(page, `quick-train?dataset=${ds.id}`)
   // A few more models than FAST, so the reload below lands while the fit is still running.
-  await throughTheWizard(page, { hyperparameters: { ...FAST.hyperparameters, RF: { n_estimators: 300 }, XT: { n_estimators: 300 }, CAT: { iterations: 200 } } }, { expectTask: 'binary' })
+  await throughTheWizard(page, { hyperparameters: { ...FAST.hyperparameters, RF: { n_estimators: 300 }, XT: { n_estimators: 300 }, CAT: { iterations: 200 } } }, { label: 'defaulted', expectTask: 'binary' })
 
   // Reload mid-run: the race resumes from the URL by replaying the run's events.
   const race = page.getByTestId('race')
@@ -145,7 +142,6 @@ test('binary: upload a fresh CSV, train, race, leaderboard, custom ensemble, pre
   expect(run.id).toBe(runId)
   expect(run.problem_type).toBe('binary')
   await checkResults(page, run)
-  await expect(page.getByTestId('confusion')).toContainText(`n=${run.holdout.n_rows.toLocaleString()}`)
 
   const base = (run.leaderboard as Lb[]).filter((r) => !r.model.startsWith('WeightedEnsemble')).map((r) => r.model)
   await customEnsemble(page, run.id, base.slice(0, 2))
@@ -162,15 +158,11 @@ test('binary: upload a fresh CSV, train, race, leaderboard, custom ensemble, pre
   expect(errors).toEqual([])
 })
 
-test('regression: the loan-amount sample, residuals, custom ensemble, a predicted value', async ({ page, errors }) => {
+test('regression: an uploaded loan amount table, residuals, custom ensemble, a predicted value', async ({ page, errors }) => {
   test.setTimeout(420_000)
-  await open(page, 'quick-train')
-  await expect(page.getByTestId('dataset-profile')).toHaveAttribute('data-source', 'api')
-  await page.getByTestId('dataset-list').getByTestId('dataset-loan-amount').click()
-  await expect(page.getByTestId('profile-name')).toHaveText('loan_amount_sample.csv')
-  await expect(page.locator('.valid')).toContainText('target loan_amount_usd · regression')
-  await expect(page.getByTestId('profile-target-stats')).toBeVisible()
-  await throughTheWizard(page, FAST, { expectTask: 'regression' })
+  const ds = await uploadCsv(page.request, 'e2e_loan_amount.csv', loanAmountCsv())
+  await open(page, `quick-train?dataset=${ds.id}`)
+  await throughTheWizard(page, FAST, { label: 'loan_amount_usd', expectTask: 'regression' })
   const run = await raceToTheEnd(page)
   expect(run.problem_type).toBe('regression')
   expect(run.eval_metric.name).toBe('root_mean_squared_error')
@@ -202,13 +194,12 @@ test('regression: the loan-amount sample, residuals, custom ensemble, a predicte
   expect(errors).toEqual([])
 })
 
-test('text: support tickets with the TF-IDF models, top words per class', async ({ page, errors }) => {
+test('text: uploaded support tickets with the TF-IDF models, top words per class', async ({ page, errors }) => {
   test.setTimeout(480_000)
-  await open(page, 'quick-train')
-  await expect(page.getByTestId('profile-name')).toHaveText('support_tickets_sample.csv')
-  await expect(page.locator('.valid')).toContainText('target category · K = 6')
+  const ds = await uploadCsv(page.request, 'e2e_tickets.csv', ticketsCsv())
+  await open(page, `quick-train?dataset=${ds.id}`)
   // TF-IDF models are added to these hyperparameters for the text columns
-  await throughTheWizard(page, { hyperparameters: { GBM: { num_boost_round: 30 } } }, { expectTask: 'multiclass' })
+  await throughTheWizard(page, { hyperparameters: { GBM: { num_boost_round: 30 } } }, { label: 'category', expectTask: 'multiclass' })
   const run = await raceToTheEnd(page)
   const tfidf = (run.leaderboard as Lb[]).filter((r) => r.family === 'TFIDF_LR' || r.family === 'TFIDF_SVM')
   expect(tfidf.length).toBeGreaterThanOrEqual(1)
@@ -222,7 +213,7 @@ test('text: support tickets with the TF-IDF models, top words per class', async 
     await expect(card).toContainText(words[0][0])
     await expect(card).toContainText(words[0][1].toFixed(2))
   }
-  await expect(page.getByTestId('confusion')).toContainText('Security')
+  expect(Object.keys(run.text_models[model])).toContain('Security')
   // the model card shows the family's objective from the catalogue
   await page.getByTestId(`lb-row-${tfidf[0].model}`).click()
   const fams = (await (await page.request.get('/api/models')).json()).families as { key: string; objective: string }[]

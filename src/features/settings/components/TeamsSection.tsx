@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { authz, holds, notServed, refusal, teamsApi, type AuthzDecision, type LegalHold, type Member, type Role, type Team } from '@/shared/api/governance'
 import { useApi } from '@/shared/api/mode'
 import { useFetch } from '@/shared/hooks/useFetch'
-import { ErrorCard, Loading } from '@/shared/components/Status'
+import { ApiOffline, ErrorCard, Loading } from '@/shared/components/Status'
 import { useTeam } from '@/shared/lib/team'
 import { Badge, CardHead, ConfirmButton, CopyId, Field, Flash, Why } from '@/shared/components/DataKit'
 
@@ -49,7 +49,7 @@ export function TeamsSection() {
   const mine = (list.data ?? []).filter((t) => t.my_role)
   const selected = mine.find((t) => t.id === sel) ?? mine.find((t) => t.id === current?.id) ?? mine[0] ?? null
 
-  if (mode !== 'live') return <div className="card card-body helper" data-testid="settings-teams">Teams, members, policies and legal holds live in the API: switch to live mode to manage them.</div>
+  if (mode !== 'live') return <ApiOffline inline />
   if (!actor) return <div className="card card-body helper" data-testid="settings-teams">Type your name in the sidebar first: teams belong to people.</div>
 
   const create = () => {

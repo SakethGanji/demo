@@ -24,10 +24,8 @@ from .. import config, frames
 from ..authz import path, require# P19
 from ..http import version_or_404
 from . import credit_report as C
-from .scoring import read_batch
 
 router = APIRouter(prefix="/api", tags=["credit-report"])
-SAMPLE_TAPES = {"loan-stream": "samples_g2"}
 OPEN = re.compile(r"(orig|open|book|appl|start|disburs|fund|issue)", re.I)
 DEFAULT = re.compile(r"(default|bad|charge|write|dpd|delinq)", re.I)
 UNTIL = re.compile(r"(observ|as_of|asof|until|snapshot|report)", re.I)
@@ -123,16 +121,6 @@ def _tape_path(request: Request, model: str) -> Path:
     return _dir(request) / _safe(model) / "tape.csv"
 
 
-def _sample_tape(request: Request, dataset_id: str) -> pd.DataFrame:
-    p = _dir(request) / "_samples" / f"{dataset_id}.csv"
-    if not p.exists():
-        from ..samples_g2 import performance_tape
-
-        p.parent.mkdir(parents=True, exist_ok=True)
-        performance_tape(config.SEED).to_csv(p, index=False)
-    return frames.read_artifact(p, dtype=str, keep_default_na=False)
-
-
 def _read_tape(content: bytes) -> pd.DataFrame:
     """§6.5 R-F: a user's performance tape (stored as uploaded), every cell as its text ('' for blank): the encoding and
     the separator detected as for any upload. Errors are a plain message, never the parser's text."""
@@ -184,37 +172,16 @@ def _normalise(df: pd.DataFrame, m: dict[str, Any]) -> pd.DataFrame:
                          "open": dt(m["open"]), "default": dt(m["default"]), "until": until})
 
 
-def _vintage(request: Request, v: dict[str, Any], run: dict[str, Any], train: pd.DataFrame, det: dict[str, Any],
-             batch_ids: list[str], cohort: str) -> dict[str, Any] | None:
+def _vintage(request: Request, v: dict[str, Any], cohort: str) -> dict[str, Any] | None:
+    """The vintage curves from the performance tape uploaded for this model, or None without one."""
     up = _tape_path(request, v["model_name"])
-    if up.exists():
-        meta = json.loads((up.parent / "tape.json").read_text())
-        tape = _normalise(_read_tape(up.read_bytes()), meta["mapping"])
-        src = {"kind": "uploaded", "file": meta.get("filename"), "by": meta.get("uploaded_by"), "at": meta.get("uploaded_at"),
-               "mapping": meta["mapping"]}
-    elif run.get("dataset_id") in SAMPLE_TAPES:
-        raw = _sample_tape(request, run["dataset_id"])
-        mp = map_tape(raw.head(3000))
-        tape = _normalise(raw, mp)
-        # only the loans this version has seen: its training data and the batches it scored
-        seen: set[str] = set()
-        idc = (det.get("id") or {}).get("column")
-        if idc and idc in train.columns:
-            seen |= set(train[idc].astype(str))
-            bdir = request.app.state.settings.data_dir / "registry" / "batches"
-            for b in batch_ids:
-                try:
-                    seen |= set(read_batch(bdir / b / "input.csv", run["config"], columns=[idc])[idc].astype(str))
-                except (FileNotFoundError, ValueError, KeyError):
-                    pass
-            tape = tape[tape["id"].isin(seen)]
-        src = {"kind": "sample", "file": f"{SAMPLE_TAPES[run['dataset_id']]}.performance_tape", "mapping": mp,
-               "note": "the loan-stream sample's seeded performance tape: the month each defaulter reached 90 DPD, as of 2026-03-31",
-               "filtered_to": "the loans in this version's training data and scored batches"}
-    else:
+    if not up.exists():
         return None
+    meta = json.loads((up.parent / "tape.json").read_text())
+    tape = _normalise(_read_tape(up.read_bytes()), meta["mapping"])
     out = C.vintage(tape, cohort)
-    out["source"] = src
+    out["source"] = {"kind": "uploaded", "file": meta.get("filename"), "by": meta.get("uploaded_by"), "at": meta.get("uploaded_at"),
+                     "mapping": meta["mapping"]}
     return out
 
 
@@ -264,7 +231,7 @@ def build(request: Request, vid: str, on: str = "holdout", date_column: str | No
             if fe and fe.get("bins"):
                 bins = {"feature": flag["feature"], "period": flag["first_shift"], "csi": fe["psi"], "bins": fe["bins"]}
 
-    vin = _vintage(request, v, run, train, det, [p["batch_id"] for p in points], cohort)
+    vin = _vintage(request, v, cohort)
     gh = overall["holdout"]
     out = {"schema": "credit-report/1", "version_id": vid, "label": f"{v['model_name']} v{v['version']}", "model": v["model_name"],
            "stage": v["stage"], "run_id": v["run_id"], "positive_class": pos, "threshold": t, "served_model": ver.get("model"),
@@ -359,7 +326,7 @@ def card_section(v: dict[str, Any]) -> dict[str, Any]:
 
 @router.delete("/registry/versions/{vid}/credit-report/tape", dependencies=[require("model.use", path("vid", "model_version"))])
 def delete_tape(vid: str, request: Request, actor: str = "") -> dict[str, Any]:
-    """Remove the uploaded tape: the vintage goes back to the detected source (the sample's tape, or none)."""
+    """Remove the uploaded tape: the report has no vintage curves until another is uploaded."""
     v, _, _ = _ctx(request, vid)
     if not actor.strip():
         raise HTTPException(400, "actor is required (the removal is audited).")

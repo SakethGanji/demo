@@ -44,13 +44,6 @@ from .authz import body, path, public, query, require, with_team
 
 log = logging.getLogger("ensemble.main")
 from .http import dataset_or_404
-from .samples import SAMPLES
-from .samples_g3 import SAMPLES_G3
-from .samples_g4 import SAMPLES_G4
-from .samples_g5 import SAMPLES_G5
-from .samples_g6 import SAMPLES_G6
-from .samples_g7 import SAMPLES_G7
-from .samples_g8 import SAMPLES_G8
 from .segmented import api as segmented_api
 from .survival import api as survival_api
 from .multilabel import api as multilabel_api
@@ -76,7 +69,7 @@ def _summary(rec: dict[str, Any]) -> dict[str, Any]:
     p = rec["profile"]
     return {
         "id": rec["id"], "name": rec["name"], "filename": rec["filename"], "source": rec["source"],
-        "sample": rec["source"] == "sample", "note": rec["note"], "created_at": rec["created_at"],
+        "note": rec["note"], "created_at": rec["created_at"],
         "size_bytes": rec["size_bytes"], "rows": rec["rows"], "n_cols": p["n_cols"], "kind": rec["kind"],
         "target": rec["target"], "n_classes": p["n_classes"],
         "flows": {"timeseries": ["forecast"], "transactions": ["anomaly"]}.get(rec["kind"], ["tabular", "anomaly"]),
@@ -153,7 +146,6 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         db = Database(settings.db_path)
         store = DatasetStore(settings, db)
-        await run_in_threadpool(store.ensure_samples)  # first start: generate the samples
         await run_in_threadpool(catalog_backfill, db, settings.data_dir)  # P1: once per database (idempotent)
         app.state.settings, app.state.db, app.state.datasets = settings, db, store
         app.state.catalog = store.catalog  # P1: projects, edges, tags and notes, champions
@@ -210,7 +202,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     from .lake.values import SafeJSONResponse, ValueRefused
 
     # P03 (§4.4): every JSON response through one encoder (non-finite → null + "non_finite": true, allow_nan=False)
-    app = FastAPI(title="ENSEMBLE demo API", version=__version__, lifespan=lifespan, default_response_class=SafeJSONResponse)
+    app = FastAPI(title="ENSEMBLE API", version=__version__, lifespan=lifespan, default_response_class=SafeJSONResponse)
     from .lake import api as lake_api
 
     lake_api.install(app, settings)  # P02: the lake self-check (refuses to start on a hash mismatch), the store, /lake routes
@@ -249,18 +241,16 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
     @app.get("/api/datasets", dependencies=[public("list: rows filtered to visible_teams() in enforce mode")], response_model=DatasetList)
     def list_datasets(request: Request, all: bool = False, limit: int | None = None, after: str | None = None,
                       project_id: str | None = None, root_id: str | None = None) -> dict[str, Any]:
-        """Samples first, in a fixed order; then uploads, oldest first. DL1: archived and deleted ones are hidden
-        (all=true shows them). P08: `limit` (≤ 500) pages the list by keyset (`after` = the `next_after` of the last
-        page) from light columns (no profile JSON is parsed); without it the whole list comes back as before.
-        `project_id` / `root_id` narrow it."""
-        order = [*SAMPLES, *SAMPLES_G3, *SAMPLES_G4, *SAMPLES_G5, *SAMPLES_G6, *SAMPLES_G7, *SAMPLES_G8]
+        """Oldest first. DL1: archived and deleted ones are hidden (all=true shows them). P08: `limit` (≤ 500) pages
+        the list by keyset (`after` = the `next_after` of the last page) from light columns (no profile JSON is parsed);
+        without it the whole list comes back as before. `project_id` / `root_id` narrow it."""
         if limit is not None:
             page = request.app.state.db.list_datasets_page(limit=max(1, min(int(limit), 500)), after=after, include_hidden=all,
-                                                           pinned=order, project_id=project_id, root_id=root_id)
+                                                           project_id=project_id, root_id=root_id)
             return with_team(request, {"datasets": [_summary(r) for r in page["rows"]], "next_after": page["next_after"],
                                        "total": page["total"]}, "datasets")
         recs = sorted([r for r in request.app.state.db.list_datasets(light=True) if all or not r.get("state")],
-                      key=lambda r: (0, order.index(r["id"]), "") if r["id"] in order else (1, 0, r["created_at"]))
+                      key=lambda r: (r["created_at"], r["id"]))
         return with_team(request, {"datasets": [_summary(r) for r in recs]}, "datasets")
 
     @app.get("/api/datasets/diff", dependencies=[require("data.preview", query("a", "dataset"), also=[("data.preview", query("b", "dataset"))])])
@@ -570,7 +560,7 @@ def create_app(settings: config.Settings | None = None) -> FastAPI:
 
     @app.post("/api/admin/reset", dependencies=[require("admin.reset")])
     def admin_reset(request: Request, body: dict[str, Any]) -> dict[str, Any]:
-        """Delete every run, registry entry, batch, autopilot and upload; regenerate the samples.
+        """Delete every run, registry entry, batch, autopilot and dataset.
         Body {"confirm": "reset", "by": <admin>, "request_id"?, "reason"?}. DL3 (C1): only with ENSEMBLE_DEMO_MODE=1, only by
         an admin, and while models or champions are live only with an approved four-eyes request. The audit log is kept
         and gets a row for the reset (who, counts). Refused while a run is queued or running."""

@@ -1,7 +1,7 @@
 // The New Model wizard's choices: label and problem type, column types, metric, preset, budget, raw fit kwargs.
 // Everything here is plain data with its mathematics, so the steps can show every symbol they use.
 
-import type { Col, Dataset } from './datasets'
+import type { Col, Dataset } from './dataset'
 
 export type { Task } from '@/shared/lib/metrics'
 import type { Task } from '@/shared/lib/metrics'
@@ -120,10 +120,7 @@ export function inferTask(ds: Dataset, label: string): Task | null {
     if (c.type === 'number' && c.unique > 50) return 'regression'
     return c.unique === 2 ? 'binary' : 'multiclass'
   }
-  // mock datasets: no profile, the label is categorical
-  if (label === ds.target) return ds.classes.length === 2 ? 'binary' : ds.classes.length > 2 ? 'multiclass' : null
-  const col = ds.cols.find((x) => x.name === label)
-  return col?.type === 'number' ? 'regression' : 'multiclass'
+  return null
 }
 
 /** The classes of a label (shares sum to 1), or [] for a numeric one. */

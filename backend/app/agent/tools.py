@@ -602,7 +602,7 @@ async def autopilot_start(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
 # --------------------------------------------------------------------------------------------------------- registry
 
 S = lambda t, d=None, **k: {"type": t, **({"description": d} if d else {}), **k}  # noqa: E731
-DS = S("string", "dataset id, e.g. credit-default")
+DS = S("string", "dataset id (from list_datasets)")
 RUN = S("string", "run id, e.g. run_1a2b3c4d")
 VER = S("string", "registry version id, e.g. mv_1a2b3c4d")
 ROW = S("object", "one row: column → value (features only)")
@@ -623,11 +623,11 @@ TOOLS: list[Tool] = [
     Tool("upload_dataset", "Upload a small CSV as a new dataset.", {"filename": S("string"), "csv_text": S("string"),
          "target": S("string", "column to predict (optional)")}, ["filename", "csv_text"], WRITE, upload_dataset,
          lambda a, r: f"#/build?dataset={r.get('dataset_id')}", "data"),
-    Tool("sql_preview", "G9: run a read-only SELECT against the demo database (or a given SQLAlchemy URL) and preview rows.",
-         {"query": S("string"), "url": S("string"), "limit": S("integer", minimum=1, maximum=100000)}, [], READ, sql_preview, group="data"),
+    Tool("sql_preview", "G9: run a read-only SELECT against a SQLAlchemy URL (an import-dir SQLite/DuckDB file or Postgres) and preview rows.",
+         {"query": S("string"), "url": S("string"), "limit": S("integer", minimum=1, maximum=100000)}, ["url", "query"], READ, sql_preview, group="data"),
     Tool("sql_save_dataset", "G9: save a SELECT's result as a dataset (the query goes in its lineage).",
          {"query": S("string"), "url": S("string"), "name": S("string"), "target": S("string"), "limit": S("integer", minimum=1)},
-         ["query"], WRITE, sql_save, lambda a, r: f"#/build?dataset={r.get('dataset_id')}", "data"),
+         ["url", "query"], WRITE, sql_save, lambda a, r: f"#/build?dataset={r.get('dataset_id')}", "data"),
     Tool("sql_refresh", "G9: re-run a SQL dataset's query into a new version.", {"dataset_id": DS}, ["dataset_id"], WRITE, sql_refresh, group="data"),
     Tool("train_from_intake", "Train a model from a Smart Intake suggestion's pre-fill (target, dropped IDs, split, F7 cost): "
          "validated by the Gym, then POST /api/runs. split: time (out-of-time), time-group, group or random; default the suggestion's.",

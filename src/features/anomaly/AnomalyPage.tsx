@@ -15,7 +15,8 @@ import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fix, pct } from '@/shared/lib/format'
 import { useHashParam } from '@/shared/hooks/useHashParam'
-import { ApiOnly, ErrorCard, Loading } from '@/shared/components/Status'
+import { ErrorCard, Loading } from '@/shared/components/Status'
+import { EmptyState } from '@/shared/components/EmptyState'
 
 const EULER = 0.5772156649
 const cn = (n: number) => (n <= 2 ? 1 : 2 * (Math.log(n - 1) + EULER) - (2 * (n - 1)) / n)
@@ -23,15 +24,8 @@ const val = (v: unknown) => (v == null ? '—' : typeof v === 'number' ? (Math.a
 
 /** Anomaly detection without labels: IsolationForest (and LOF) on a table, the isolation score's distribution and
  *  threshold, the most anomalous rows with their reasons, and a batch scorer. */
-export function AnomalyPage({ go }: { go: (r: string) => void }) {
-  return (
-    <ApiOnly mock={(
-    <div className="page"><div className="page-head"><div><h1 className="page-title">Anomaly Detection</h1></div></div>
-      <div className="card card-body" data-testid="anomaly-mock"><p className="helper">▲ mock mode: the API is offline. Start it with <span className="mono">make dev</span>; this page then fits IsolationForest on the card-transactions sample or your CSV.</p></div></div>
-    )}>
-      <AnomalySetup />
-    </ApiOnly>
-  )
+export function AnomalyPage() {
+  return <AnomalySetup />
 }
 
 function IsolationFormula({ psi, extra, psiRule }: { psi: number; extra?: React.ReactNode; psiRule?: string }) {
@@ -55,7 +49,7 @@ function IsolationFormula({ psi, extra, psiRule }: { psi: number; extra?: React.
 
 function AnomalySetup() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [dsId, setDsId] = useState(useHashParam('dataset') ?? 'card-transactions')  // G0: Build opens ?dataset=
+  const [dsId, setDsId] = useState(useHashParam('dataset') ?? '')  // G0: Build opens ?dataset=; else the first table
   const [ds, setDs] = useState<DatasetDetail | null>(null)
   const [feats, setFeats] = useState<string[]>([])
   const [c, setC] = useState(0.015)
@@ -69,8 +63,14 @@ function AnomalySetup() {
   const [useVel, setUseVel] = useState(true)
   const [velForest, setVelForest] = useState<string[]>([])
   const [psiIn, setPsiIn] = useState<number | null>(null)
-  useEffect(() => { api.datasets.list().then(setDatasets).catch((e) => setErr(e.message)) }, [])
   useEffect(() => {
+    api.datasets.list().then((list) => {
+      setDatasets(list)
+      setDsId((id) => id || ([...list].sort((a, b) => Number(b.kind === 'transactions') - Number(a.kind === 'transactions'))[0]?.id ?? ''))
+    }).catch((e) => setErr(e.message))
+  }, [])
+  useEffect(() => {
+    if (!dsId) return
     flows.anomaly.mapping(dsId).then((g) => {
       setGrp(g); setUseGrp(!!g.entity_column); setUseVel(!!(g.entity_column && g.time_column)); setVelForest(g.velocity_in_forest ?? [])
       api.datasets.get(dsId).then((d) => { setDs(d); setFeats(d.profile.columns.filter((x) => x.type !== 'id' && x.type !== 'text' && x.name !== g.entity_column && x.name !== g.time_column).map((x) => x.name)) }).catch((e) => setErr(e.message))
@@ -88,6 +88,14 @@ function AnomalySetup() {
     catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const sorted = [...datasets].sort((a, b) => Number(b.kind === 'transactions') - Number(a.kind === 'transactions'))
+  if (!dsId && !err) return (
+    <div className="page anomaly" data-testid="anomaly-setup">
+      <div className="page-head"><div><h1 className="page-title">Anomaly Detection</h1></div></div>
+      <EmptyState title="No data yet" testId="an-empty" actions={<a className="btn primary" href="#/build">Upload data in Build →</a>}>
+        Upload a table in Build, then come back to find its unusual rows.
+      </EmptyState>
+    </div>
+  )
   return (
     <div className="page anomaly" data-testid="anomaly-setup">
       <div className="page-head">
@@ -129,7 +137,7 @@ function AnomalySetup() {
             <details className="an-adv"><summary className="micro-label">Advanced</summary>
               <label className="col" style={{ marginTop: 8 }}><span className="micro-label">max_samples ψ (rows per tree)</span>
                 <input className="num-input" type="number" min={16} placeholder={`auto: ${Math.min(1024, n || 1024)}`} value={psiIn ?? ''} onChange={(e) => setPsiIn(e.target.value ? Math.max(16, Number(e.target.value)) : null)} data-testid="an-psi" /></label>
-              <p className="helper" style={{ fontSize: 12 }}>Default ψ = min(1024, n). scikit-learn’s own default is 256; on the card sample 1024 found more of every planted kind at every seed tried (larger ψ resolves rare single-feature extremes that small sub-samples mask).</p>
+              <p className="helper" style={{ fontSize: 12 }}>Default ψ = min(1024, n). scikit-learn’s own default is 256; a larger ψ resolves rare single-feature extremes that small sub-samples mask.</p>
             </details>
             {lof && <p className="helper" style={{ fontSize: 12 }}>LOF<sub>k</sub>(x) = mean<sub>o∈N<sub>k</sub>(x)</sub> lrd<sub>k</sub>(o) / lrd<sub>k</sub>(x): local density of x against its k neighbours’ (robust-scaled features). ≫ 1 = in a sparser region than its neighbours.</p>}
             {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)' }}>✕ {err}</p>}
@@ -142,8 +150,7 @@ function AnomalySetup() {
   )
 }
 
-/** Group-relative features: amounts that are unusual only for this card / account. Mapped from the sample's spec or
- *  guessed from names; the user can change the entity, the time column and which amounts are compared. */
+/** Group-relative features: amounts that are unusual only for this card / account. Guessed from names; the user can change the entity, the time column and which amounts are compared. */
 function GroupFeatures({ ds, grp, setGrp, on, setOn }: { ds: DatasetDetail | null; grp: AnGroup; setGrp: (g: AnGroup) => void; on: boolean; setOn: (v: boolean) => void }) {
   const cols = ds?.profile.columns ?? []
   const nums = cols.filter((c) => c.type === 'number')
@@ -209,7 +216,7 @@ function VelocitySetup({ ds, grp, setGrp, on, setOn, canOn, forest, setForest }:
             const sel = forest.includes(c)
             return <button key={c} className={`chip-btn ${sel ? 'on' : ''}`} onClick={() => setForest(sel ? forest.filter((x) => x !== c) : [...forest, c])}>{sel ? '✓ ' : ''}{c}</button>
           })}</div>
-          <p className="helper" style={{ fontSize: 12 }}>All {all.length} are computed and go to the supervised model. By default the forest sees one column per signal: an isolation split picks a feature at random, so near-duplicates (Σ ≈ n·x̄, k ≈ n, ρ ≈ r) give one signal several votes. On the card sample all seven gave P@90 0.70–0.71; these three 0.80–0.82.</p>
+          <p className="helper" style={{ fontSize: 12 }}>All {all.length} are computed and go to the supervised model. By default the forest sees one column per signal: an isolation split picks a feature at random, so near-duplicates (Σ ≈ n·x̄, k ≈ n, ρ ≈ r) give one signal several votes.</p>
         </details>
       </>}
     </div>
@@ -233,7 +240,7 @@ export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => vo
     try {
       const L = await flows.anomaly.review(runId, [{ row, label }], actor || 'Analyst')
       const rv = label == null ? null : { label: (label === 'fraud' ? 1 : 0) as 0 | 1, by: actor || 'Analyst', at: new Date().toISOString() }
-      const { labels: _l, dataset_id: _d, truth_agreement: _t, ...summary } = L
+      const { labels: _l, dataset_id: _d, ...summary } = L
       setTop((t) => t && { ...t, review: summary, rows: t.rows.map((r) => (r.row === row ? { ...r, review: rv } : r)) })
       setSel((r) => (r && r.row === row ? { ...r, review: rv } : r))
       if (summary.can_train !== top?.review?.can_train) setReviewKey((k) => k + 1)
@@ -253,7 +260,6 @@ export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => vo
   const done = run.status === 'succeeded' && a
   // threshold for the slider's c, from 201 quantiles of s (exact counts come back from the API)
   const sStar = top?.threshold ?? a?.threshold ?? null
-  const truth = top?.truth ?? a?.truth ?? null
   const group = ((run.data as Record<string, unknown> | null)?.group as GroupInfo | undefined) ?? null
   const vel = ((run.data as Record<string, unknown> | null)?.velocity as AnVelocity | undefined) ?? null
   return (
@@ -289,7 +295,6 @@ export function AnomalyRun({ runId, go }: { runId: string; go: (r: string) => vo
             <IsolationFormula psi={a.psi} psiRule={(run.resolved as { iforest_kwargs?: { max_samples?: unknown } } | null)?.iforest_kwargs?.max_samples === 'auto' ? 'min(256, n)' : undefined} />
             {group && <GroupCard g={group} />}
             {vel && <VelocityCard v={vel} />}
-            {truth && <TruthCard truth={truth} lofTruth={a.truth_lof} group={group} vel={vel} />}
           </div>
         </div>
         <MaskBar info={top} kind="run" id={run.id} value={unmask} onChange={setUnmask} what="row values, reasons and medians" />
@@ -348,32 +353,16 @@ function Distribution({ a, scores, c, setC, sStar }: { a: NonNullable<FlowRun['a
   )
 }
 
-function TruthCard({ truth, lofTruth, group, vel }: { truth: NonNullable<AnTop['truth']>; lofTruth?: AnTop['truth'] | null; group?: GroupInfo | null; vel?: AnVelocity | null }) {
-  const lofAt = (k: number) => lofTruth?.precision_at_k.find((r) => r.k === k)
-  return (
-    <div className="card" data-testid="an-truth">
-      <div className="card-head"><div className="left"><h3 className="card-title">Check against planted anomalies</h3><StatusPill status="warning">sample only</StatusPill></div></div>
-      <div className="card-body stack" style={{ gap: 8 }}>
-        <p className="helper" style={{ fontSize: 12 }}>The sample has {truth.planted} planted anomalies listed in a hidden file the model never reads. P@k = hits in the top k by s / k. With real data there is no such file: review the flags.</p>
-        <table className="table"><thead><tr><th className="r">k</th><th className="r">hits</th><th className="r">P@k (IF)</th><th className="r">recall</th>{lofTruth && <th className="r">P@k (LOF)</th>}</tr></thead>
-          <tbody>{truth.precision_at_k.map((r) => <tr key={r.k}><td className="r table-cell">{r.k}</td><td className="r table-cell">{r.hits}</td><td className="r table-cell"><b>{pct(r.precision, 0)}</b></td><td className="r table-cell">{pct(r.recall, 0)}</td>{lofTruth && <td className="r table-cell">{pct(lofAt(r.k)?.precision, 0)}</td>}</tr>)}</tbody></table>
-        <div className="an-kinds">{Object.entries(truth.by_kind).map(([k, v]) => <div key={k} className="fc-w"><span className="mono">{k}</span><span className="bar"><i style={{ width: `${(100 * v.found) / v.planted}%`, background: 'var(--viz-a)' }} /></span><span className="mono">{v.found}/{v.planted}</span></div>)}</div>
-        <p className="helper" style={{ fontSize: 12 }}>ROC AUC {fix(truth.roc_auc)} · AP {fix(truth.average_precision)} (base rate {pct(truth.base_rate)}). Per kind: found among the flagged. {group ? <>This run adds the group-relative features r, z{group.time_column ? ', Δt' : ''} on {group.entity_column}: an amount large only for its own card is now visible. {vel ? <>The velocity features ({vel.in_forest.join(', ')} in the forest) give a burst minutes after the card’s previous transaction its own short paths: n<sub>1h</sub> ≥ 1 and a tiny Δ are rare on their own.</> : <>Without velocity features a burst is one short gap among many features and is rarely isolated; map a time column to add them.</>}</> : <>Without group-relative features, spikes that are large only for the card’s own history are invisible to the forest (it sees the amount, not the ratio). Map an entity column on the setup page to add r = x / x̄<sub>e</sub> and z within the entity.</>}</p>
-      </div>
-    </div>
-  )
-}
-
 function TopTable({ top, sel, setSel, onReview }: { top: AnTop | null; sel: AnRow | null; setSel: (r: AnRow) => void; onReview: (row: number, label: 'fraud' | 'not_fraud' | null) => void }) {
   if (!top) return <div className="card card-body row"><ResonanceWave /> Ranking rows…</div>
   return (
     <div className="card" data-testid="an-top">
       <div className="card-head"><div className="left"><h3 className="card-title">Most anomalous rows</h3><span className="helper" style={{ fontSize: 12 }}>by s, highest first · {top.rows.filter((r) => r.flagged).length} of these flagged · {top.rows.filter((r) => r.review).length} reviewed</span></div></div>
-      <div className="table-wrap an-top-wrap"><table className="table"><thead><tr><th className="r">#</th><th className="r">row</th><th className="r">s</th><th className="r">E[h]</th><th className="r">LOF</th><th>why</th>{top.truth && <th title="planted in the sample (hidden truth)">✓</th>}<th title="Confirm fraud / dismiss">review</th></tr></thead>
+      <div className="table-wrap an-top-wrap"><table className="table"><thead><tr><th className="r">#</th><th className="r">row</th><th className="r">s</th><th className="r">E[h]</th><th className="r">LOF</th><th>why</th><th title="Confirm fraud / dismiss">review</th></tr></thead>
         <tbody>{top.rows.map((r) => <tr key={r.row} className={sel?.row === r.row ? 'sel' : ''} onClick={() => setSel(r)} style={{ cursor: 'pointer' }}>
           <td className="r table-cell">{r.rank}</td><td className="r table-cell">{r.row}</td>
           <td className="r table-cell" style={{ color: r.flagged ? 'var(--status-danger)' : undefined }}><b>{r.s.toFixed(3)}</b></td><td className="r table-cell">{r.Eh.toFixed(2)}</td><td className="r table-cell">{fix(r.lof, 2)}</td>
-          <td className="an-why" style={{ maxWidth: 200 }}>{r.reasons.slice(0, 3).map((x) => x.feature).join(', ')}</td>{top.truth && <td>{r.planted ? '●' : ''}</td>}<td><ReviewButtons row={r} onReview={onReview} /></td></tr>)}</tbody></table></div>
+          <td className="an-why" style={{ maxWidth: 200 }}>{r.reasons.slice(0, 3).map((x) => x.feature).join(', ')}</td><td><ReviewButtons row={r} onReview={onReview} /></td></tr>)}</tbody></table></div>
     </div>
   )
 }
@@ -382,7 +371,7 @@ function Reason({ row, onReview }: { row: AnRow; onReview: (row: number, label: 
   const max = Math.max(...row.reasons.map((r) => Math.abs(r.phi)), 1e-9)
   return (
     <div className="card" data-testid="an-reason">
-      <div className="card-head"><div className="left"><h3 className="card-title">Why row {row.row}</h3><span className="helper" style={{ fontSize: 12 }}>s = {row.s.toFixed(4)} · E[h(x)] = {row.Eh.toFixed(2)} splits</span></div>{row.planted != null && <StatusPill status={row.planted ? 'danger' : 'neutral'}>{row.planted ? 'planted' : 'not planted'}</StatusPill>}</div>
+      <div className="card-head"><div className="left"><h3 className="card-title">Why row {row.row}</h3><span className="helper" style={{ fontSize: 12 }}>s = {row.s.toFixed(4)} · E[h(x)] = {row.Eh.toFixed(2)} splits</span></div></div>
       <div className="card-body stack" style={{ gap: 10 }}>
         <div className="row" style={{ gap: 8 }}><span className="micro-label">analyst review</span><ReviewButtons row={row} onReview={onReview} size="sm" />
           <span className="helper" style={{ fontSize: 12 }}>{row.review ? `${row.review.label === 1 ? 'confirmed fraud' : 'dismissed'} by ${row.review.by}` : 'not reviewed'}</span></div>

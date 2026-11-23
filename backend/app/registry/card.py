@@ -419,8 +419,7 @@ def _anomaly_section(cfg: dict[str, Any], res: dict[str, Any]) -> dict[str, Any]
         "params": (res.get("resolved") or {}).get("iforest_kwargs"), "contamination": a.get("contamination"),
         "threshold": a.get("threshold"), "n_flagged": a.get("n_flagged"), "psi": a.get("psi"), "c_n": a.get("c_n"),
         "n_trees": a.get("n_trees"), "lof": a.get("lof"), "features": res.get("features"),
-        "truth_check": a.get("truth"),
-        "validation": "Unsupervised: no labels. On the sample only, precision@k against planted anomalies that the model never saw.",
+        "validation": "Unsupervised: no labels.",
         "limitations": ["Scores rank unusualness, not fraud: a flag needs human review.",
                         "The threshold is a share of rows (contamination), not a calibrated probability."],
     }
@@ -825,12 +824,6 @@ def to_markdown(c: dict[str, Any]) -> str:
               f"n = ψ = {a.get('psi')} rows per tree, c(n) = {_fmt(a.get('c_n'))}, {a.get('n_trees')} trees, "
               f"contamination {_fmt(a.get('contamination'))}, threshold s* = {_fmt(a.get('threshold'))}, {a.get('n_flagged')} rows flagged.", "",
               f"Validation: {a['validation']}"]
-        tc = a.get("truth_check") or {}
-        if tc:
-            L += ["", "| k | hits | precision@k | recall |", "| ---: | ---: | ---: | ---: |"]
-            for r in tc.get("precision_at_k") or []:
-                L.append(f"| {r['k']} | {r['hits']} | {_fmt(r['precision'])} | {_fmt(r['recall'])} |")
-            L.append(f"\nROC AUC on the planted rows {_fmt(tc.get('roc_auc'))}, AP {_fmt(tc.get('average_precision'))}.")
         L += ["", "Limitations:"] + [f"- {x}" for x in a["limitations"]]
     if c.get("imported"):
         im = c["imported"]

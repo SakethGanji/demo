@@ -76,17 +76,18 @@ def test_model_catalogue(client):
 
 
 @pytest.mark.parametrize("body, code, text", [
-    ({"dataset_id": "nope"}, 404, "No dataset"),
-    ({"dataset_id": "account-churn", "label": "nope"}, 400, "not in the dataset"),
-    ({"dataset_id": "account-churn", "problem_type": "clustering"}, 422, ""),
-    ({"dataset_id": "account-churn", "time_limit": -5}, 422, ""),
-    ({"dataset_id": "account-churn", "predictor_kwargs": {"path": "/tmp/x"}}, 400, "path"),
-    ({"dataset_id": "account-churn", "predictor_kwargs": {"label": "plan"}}, 400, "label"),
-    ({"dataset_id": "account-churn", "fit_kwargs": {"train_data": "x.csv"}}, 400, "train_data"),
-    ({"dataset_id": "account-churn", "drop_columns": ["churned"]}, 400, "label column"),
-    ({"dataset_id": "account-churn", "drop_columns": ["nope"]}, 400, "no column"),
+    ({"dataset_id": "nope"}, 404, "No dataset"),  # "{churn}": the seeded churn dataset's id
+    ({"dataset_id": "{churn}", "label": "nope"}, 400, "not in the dataset"),
+    ({"dataset_id": "{churn}", "problem_type": "clustering"}, 422, ""),
+    ({"dataset_id": "{churn}", "time_limit": -5}, 422, ""),
+    ({"dataset_id": "{churn}", "predictor_kwargs": {"path": "/tmp/x"}}, 400, "path"),
+    ({"dataset_id": "{churn}", "predictor_kwargs": {"label": "plan"}}, 400, "label"),
+    ({"dataset_id": "{churn}", "fit_kwargs": {"train_data": "x.csv"}}, 400, "train_data"),
+    ({"dataset_id": "{churn}", "drop_columns": ["churned"]}, 400, "label column"),
+    ({"dataset_id": "{churn}", "drop_columns": ["nope"]}, 400, "no column"),
 ])
-def test_create_run_rejects_bad_requests(client, body, code, text):
+def test_create_run_rejects_bad_requests(client, churn_ds, body, code, text):
+    body = {**body, "dataset_id": body["dataset_id"].replace("{churn}", churn_ds["id"])}
     before = client.get("/api/runs").json()["runs"]
     r = client.post("/api/runs", json=body)
     assert r.status_code == code, r.text
@@ -264,11 +265,11 @@ def test_missing_labels_are_dropped(client):
     assert run["holdout"]["n_rows"] == d["holdout_rows"]
 
 
-def test_cancel_queued_and_running(client):
+def test_cancel_queued_and_running(client, tickets_ds, churn_ds):
     # One fit at a time: the first runs, the second waits in the queue.
-    slow = start_run(client, dataset_id="support-tickets", time_limit=600, feature_importance=False,
+    slow = start_run(client, dataset_id=tickets_ds["id"], time_limit=600, feature_importance=False,
                      fit_kwargs={"hyperparameters": {"GBM": {"num_boost_round": 5000}}, "num_bag_folds": 5})
-    queued = start_run(client, dataset_id="account-churn", time_limit=60, fit_kwargs={"hyperparameters": TINY_HP})
+    queued = start_run(client, dataset_id=churn_ds["id"], time_limit=60, fit_kwargs={"hyperparameters": TINY_HP})
     assert client.get(f"/api/runs/{queued['id']}").json()["status"] == "queued"
     assert client.post(f"/api/runs/{queued['id']}/cancel").status_code == 200
     q = wait_for_run(client, queued["id"], timeout=30)
@@ -289,8 +290,8 @@ def test_cancel_queued_and_running(client):
         os.kill(pid, 0)
 
 
-def test_delete_run(client):
-    run = start_run(client, dataset_id="account-churn", time_limit=60, feature_importance=False,
+def test_delete_run(client, churn_ds):
+    run = start_run(client, dataset_id=churn_ds["id"], time_limit=60, feature_importance=False,
                     fit_kwargs={"hyperparameters": {"LR": {}}})
     assert client.delete(f"/api/runs/{run['id']}").status_code in (409, 204)
     run = wait_for_run(client, run["id"])

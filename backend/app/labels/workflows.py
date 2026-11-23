@@ -8,7 +8,7 @@
   through the core (snapshot with the cells' columns → `labels.materialise`), so the version is made only by LB-A.
 - **Migration**: F14 `annotations.csv` / `adjudications.json` and F13 `answers.json` → `migration` events with
   deterministic ids (re-running inserts nothing), actor always `legacy:<name>`, CSV row position → `__row_id` via the
-  P10 row map (`lake.splitstore.row_ids`); `truth.json` and `probs.npz` are never imported; simulated annotators are
+  P10 row map (`lake.splitstore.row_ids`); `probs.npz` is never imported; simulated annotators are
   marked `simulated`. The old routes keep reading the run files (byte-identical GETs) and the answer routes also
   append events to the run's layer (adapters in annotations_api / active_learning_api).
 """
@@ -286,7 +286,6 @@ def migrate_run(app: Any, run_id: str, by: str, dry_run: bool = False) -> dict[s
     if ids is None:
         return {**out, "status": "unmapped", "message": "The run's version has no __row_id map; skipped, never guessed."}
     classes = [str(c) for c in (rec.get("result") or {}).get("classes") or []]
-    simulated_names = {a["name"] for a in an.SAMPLE_ANNOTATORS} if an.read_truth(run_dir) is not None else set()
     csv_bytes = (an.ann_dir(run_dir) / "annotations.csv").read_bytes() if (an.ann_dir(run_dir) / "annotations.csv").exists() else b""
     fsha = hashlib.sha256(csv_bytes).hexdigest()
     evs: list[dict[str, Any]] = []
@@ -299,7 +298,7 @@ def migrate_run(app: Any, run_id: str, by: str, dry_run: bool = False) -> dict[s
             continue
         name = str(r["annotator"])
         src = str(r.get("source") or "")
-        sim = (src == "sample" and name in simulated_names) or name.startswith("simulated")
+        sim = src == "sample" or name.startswith("simulated")  # "sample": the former simulated annotators
         evs.append({"id": _eid(run_id, "annotations.csv", pos, name, r.get("at")), "row_id": int(ids[pos]), "column": label,
                     "kind": "label", "value": str(r["label"]), "source": "migration", "actor": f"legacy:{name}",
                     "seen_version_id": rec["dataset_id"],

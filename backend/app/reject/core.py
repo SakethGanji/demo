@@ -21,8 +21,8 @@ fits pass the weights as AutoGluon's sample_weight with weight_evaluation=True, 
 the validation rows the same way. AutoGluon's neural nets ignore sample weights, so they are left out of every fit.
 
 The check is a TTD holdout: every applicant of the holdout, approved or declined. It needs the outcomes the declined
-applicants would have had, which a lender never has; the sample keeps them aside (`reject_truth.json`), only for this
-check. Each method is compared with f_0 on the same rows: ΔAUC with DeLong's paired CI; Δ log loss and Δ Brier with a
+applicants would have had, which a lender rarely has (a bureau outcome, an approve-all test cell): it runs only when every
+row of the dataset has an outcome. Each method is compared with f_0 on the same rows: ΔAUC with DeLong's paired CI; Δ log loss and Δ Brier with a
 paired bootstrap CI (calibration and ranking together); mean p̂ against the observed bad rate; and the bad rate among
 the applicants a model would approve at the old approval rate. Without hidden outcomes only the approved holdout rows
 can be scored, and the page says that this is exactly the biased view reject inference exists to avoid.
@@ -106,18 +106,11 @@ def decided(df: pd.DataFrame, f: dict[str, Any]) -> np.ndarray:
     return df[f["label"]].notna().to_numpy()
 
 
-def truth_outcomes(df: pd.DataFrame, sidecar: dict[str, Any] | None, label: str, pos: Any) -> np.ndarray | None:
-    """y for every row: the observed outcome where there is one, else the hidden outcome from the sample's sidecar (1 =
-    the positive class). None when some row has neither."""
-    y = (df[label] == pos).astype(float).where(df[label].notna(), np.nan).to_numpy()
-    if np.isnan(y).any() and sidecar and sidecar.get("hidden_outcomes"):
-        h = sidecar["hidden_outcomes"]
-        idc = sidecar.get("id_column")
-        if idc in df.columns:
-            m = dict(zip(h["ids"], h["defaulted"]))
-            miss = np.isnan(y)
-            y[miss] = [m.get(i, np.nan) for i in df.loc[miss, idc].astype(str)]
-    return None if np.isnan(y).any() else y.astype(int)
+def truth_outcomes(df: pd.DataFrame, label: str, pos: Any) -> np.ndarray | None:
+    """y for every row (1 = the positive class), declined applicants included; None when some row has no outcome."""
+    if df[label].isna().any():
+        return None
+    return (df[label] == pos).astype(int).to_numpy()
 
 
 # --------------------------------------------------------------------------------------------------------- numbers
@@ -208,8 +201,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit, merge) -> dict[str, Any]:
     inputs = [c for c in df.columns if c not in set(cfg["drop_columns"]) | {label, cfg["found"].get("decision_column")}]
     X = df[inputs]
     y_obs = (df[label] == pos).astype(int).to_numpy()
-    sidecar = json.loads(Path(cfg["truth_path"]).read_text()) if cfg.get("truth_path") and Path(cfg["truth_path"]).exists() else None
-    y_true = truth_outcomes(df, sidecar, label, pos)
+    y_true = truth_outcomes(df, label, pos)
 
     tr_acc = keep & A & has_y
     tr_rej = keep & ~A
@@ -302,7 +294,7 @@ def run(cfg: dict[str, Any], run_dir: Path, emit, merge) -> dict[str, Any]:
     out = {"label": label, "positive_class": pos, "decision_column": cfg["found"].get("decision_column"),
            "approved_value": cfg["found"].get("approved_value"), "k": k, "k_default": DEFAULT_K, "methods": METHODS,
            "fits": fits, "detail": detail, "approved_holdout": approved_view, "ttd": ttd, "shift": shift,
-           "truth": "hidden outcomes of the declined applicants (the sample's reject_truth.json): used only for this check"
+           "truth": "the declined applicants' outcomes in the dataset: used only for this check"
                     if ttd else None, "data": info, "detected": cfg.get("detected") or {}, "presets": cfg.get("presets"),
            "time_limit": cfg.get("time_limit")}
     head = (ttd or {}).get("methods", {}).get((ttd or {}).get("best") or "approved_only") or approved_view["approved_only"]

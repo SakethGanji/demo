@@ -27,12 +27,10 @@ const sqlErr = (e: unknown) => {
 }
 
 /**
- * G9 · Build's second way in: a read-only SQL query against a database on the server (the demo SQLite file is
- * pre-filled). Preview, then load it as a dataset; the query goes into the dataset's lineage. The password lives in
+ * G9 · Build's second way in: a read-only SQL query against a database on the server. Preview, then load it as a dataset; the query goes into the dataset's lineage. The password lives in
  * this component's state for the session only and is sent with each request, never stored.
  */
 export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }) {
-  const demo = useFetch(() => api.datasets.sql.demo(), [])
   const [url, setUrl] = useState('')
   const [password, setPassword] = useState('')
   const [query, setQuery] = useState('')
@@ -52,10 +50,6 @@ export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }
   }, [team?.id])
   const can = useCan('data.import', project ? 'project' : null, project || null, actor)
   const off = !project || can?.allow === false
-
-  useEffect(() => {  // zero-config: the demo database and its example join are filled in
-    if (demo.data && !url) { setUrl(demo.data.url); setQuery(demo.data.query); setTables(demo.data.tables); setLimit(demo.data.limit) }
-  }, [demo.data])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const q = { url, query, limit, password: password || undefined, project_id: project || undefined }
   const act = async (label: string, f: () => Promise<void>) => {
@@ -84,10 +78,10 @@ export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }
         {tables.map((t) => <button key={t.name} className="chip" title={t.columns.map((c) => `${c.name} ${c.type}`).join('\n')} onClick={() => { setQuery(`SELECT *\nFROM ${t.name}`); setPreview(null) }}>
           {t.name}{t.rows != null && <span className="muted">{t.rows.toLocaleString()}</span>}</button>)}
       </div>}
-      <textarea className="kw-input" rows={5} spellCheck={false} value={query} onChange={(e) => { setQuery(e.target.value); setPreview(null) }} aria-label="SQL query" data-testid="sql-query" />
+      <textarea className="kw-input" rows={5} spellCheck={false} value={query} onChange={(e) => { setQuery(e.target.value); setPreview(null) }} placeholder="SELECT … FROM …" aria-label="SQL query" data-testid="sql-query" />
       <details className="an-adv"><summary className="micro-label">Advanced · row limit, name</summary>
         <div className="row" style={{ gap: 6, padding: '8px 0' }}>
-          <label className="helper row" style={{ gap: 6, fontSize: 12 }}>limit <input className="input mono" type="number" min={1} max={demo.data?.max_limit ?? 1_000_000} value={limit} onChange={(e) => setLimit(Math.max(1, Number(e.target.value) || 1))} style={{ width: 110 }} data-testid="sql-limit" /></label>
+          <label className="helper row" style={{ gap: 6, fontSize: 12 }}>limit <input className="input mono" type="number" min={1} max={1_000_000} value={limit} onChange={(e) => setLimit(Math.max(1, Number(e.target.value) || 1))} style={{ width: 110 }} data-testid="sql-limit" /></label>
           <input className="input" style={{ flex: 1 }} value={name} onChange={(e) => setName(e.target.value)} placeholder="dataset name (default: the table)" aria-label="Dataset name" />
         </div>
       </details>
@@ -97,7 +91,7 @@ export function SqlSource({ onLoaded }: { onLoaded: (d: DatasetDetail) => void }
         <button className="btn sm primary" onClick={load} disabled={!!busy || !url || !query.trim() || off} title={why(can)} data-testid="sql-load">Load as dataset →</button>
       </div>
       {preview && <PreviewTable p={preview} />}
-      {(err || demo.err) && <div className="callout danger" role="alert" data-testid="sql-err"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body"><div className="callout-title">The source was refused</div>{err || demo.err}</div></div>}
+      {err && <div className="callout danger" role="alert" data-testid="sql-err"><span className="callout-ico" aria-hidden>✕</span><div className="callout-body"><div className="callout-title">The source was refused</div>{err}</div></div>}
       <p className="helper" style={{ fontSize: 11.5, margin: 0 }}>Read-only: one SELECT, on a read-only connection, at most {limit.toLocaleString()} rows. The password is used for this session only and never stored; lineage keeps the query.</p>
     </div>
   )

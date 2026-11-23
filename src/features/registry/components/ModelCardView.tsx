@@ -237,8 +237,7 @@ type FlowCard = { kind?: string; imported?: Record<string, unknown> | null
   forecasting?: { setup: Record<string, unknown> & { prediction_length_H: number; freq: string; seasonal_period_m: number; items: number; eval_metric: string; metric_formula: string; start: string; end: string; quantile_levels?: number[] }
     validation: string; holdout_metrics: Record<string, number>; coverage: number | null; interval: [number, number]; items: { item_id: string; MASE: number | null; WQL: number | null; sMAPE: number; coverage: number }[]
     ensemble: { weights?: Record<string, number> } | null; limitations: string[] } | null
-  anomaly_detection?: { method: string; contamination: number; threshold: number; n_flagged: number; psi: number; c_n: number; n_trees: number; validation: string; limitations: string[]
-    truth_check?: { precision_at_k: { k: number; hits: number; precision: number; recall: number }[]; roc_auc: number | null; planted: number } | null } | null }
+  anomaly_detection?: { method: string; contamination: number; threshold: number; n_flagged: number; psi: number; c_n: number; n_trees: number; validation: string; limitations: string[] } | null }
 
 const flowKind = (c: ModelCard) => ((c as unknown as FlowCard).kind ?? 'tabular') === 'tabular' ? 'tabular' : (c as unknown as FlowCard).kind!
 
@@ -265,8 +264,6 @@ function FlowCardSection({ c }: { c: ModelCard }) {
     return (
       <section className="mc-sec" data-testid="card-anomaly"><h3><i>5</i> Anomaly detection <small>{a.validation}</small></h3>
         <p className="helper" style={{ fontSize: 12.5 }}>{a.method}. ψ = {a.psi}, c(ψ) = {a.c_n.toFixed(3)}, T = {a.n_trees} trees, contamination c = {a.contamination}, threshold s* = <b className="mono">{a.threshold.toFixed(4)}</b>, {a.n_flagged} rows flagged.</p>
-        {a.truth_check && <table className="table compact"><thead><tr><th className="r">k</th><th className="r">hits</th><th className="r">precision@k</th><th className="r">recall</th></tr></thead>
-          <tbody>{a.truth_check.precision_at_k.map((r) => <tr key={r.k}><td className="r mono">{r.k}</td><td className="r mono">{r.hits}</td><td className="r mono">{fmtScore(r.precision)}</td><td className="r mono">{fmtScore(r.recall)}</td></tr>)}</tbody></table>}
         <ul className="helper" style={{ fontSize: 12.5 }}>{a.limitations.map((l) => <li key={l}>{l}</li>)}</ul>
       </section>
     )

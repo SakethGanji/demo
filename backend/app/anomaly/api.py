@@ -41,7 +41,7 @@ class AnomalyCreate(BaseModel):
     iforest_kwargs: dict[str, Any] = Field(default_factory=dict, description="Passed to IsolationForest(...).")
     group_features: bool | None = Field(None, description="Group-relative features (x ÷ the entity's mean, z within the "
                                         "entity, time since its previous row). None: on when an entity column is mapped.")
-    entity_column: str | None = Field(None, description="The entity (card, account, customer); default: the sample's spec.")
+    entity_column: str | None = Field(None, description="The entity (card, account, customer); default: none.")
     time_column: str | None = None
     relative_columns: list[str] | None = Field(None, description="Numeric columns compared within the entity.")
     velocity_features: bool | None = Field(None, description="Per-entity rolling features from earlier rows only: counts "
@@ -72,11 +72,6 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     for c in [body.entity_column, body.time_column, body.amount_column, body.category_column, *(body.relative_columns or [])]:
         if c and c not in cols:
             raise HTTPException(400, f"No column named '{c}'.")
-    if body.entity_column is None and body.group_features is not False:
-        spec = app.state.datasets.sidecar(body.dataset_id, "anomaly_truth.json") or {}
-        if spec.get("entity_column"):
-            body.entity_column, body.time_column = spec["entity_column"], spec.get("time_column")
-            body.relative_columns = body.relative_columns or spec.get("relative_columns")
     if body.group_features is None:
         body.group_features = bool(body.entity_column)
     if body.group_features:
@@ -103,13 +98,12 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
                                      f"choose from {', '.join(velocity.names(body.model_dump()))}.")
     settings = app.state.settings
     run_id, run_dir = alloc_run(app)
-    truth = (app.state.datasets.sidecar(body.dataset_id, "anomaly_truth.json") or {}).get("anomalies")
     params = body.model_dump(exclude={"dataset_id", "name", "features", "drop_columns", "source"})
     cfg = {"kind": "anomaly", "dataset_id": body.dataset_id, "features": body.features, "drop_columns": body.drop_columns or [],
            "params": params, "label": "anomaly", "source": body.source,
            "id_columns": [c for c, v in cols.items() if v["type"] == "id"],
            "profile": {"columns": [{"name": c["name"], "type": c["type"]} for c in ds["profile"]["columns"]]},
-           "truth": truth, "run_id": run_id, "db_path": str(settings.db_path),
+           "run_id": run_id, "db_path": str(settings.db_path),
            "csv_path": str(frames.version_file(body.dataset_id)), "input_ref": frames.input_ref_for(body.dataset_id),
            "run_dir": str(run_dir),
            "predictor_path": str(run_dir / "model")}
@@ -117,19 +111,18 @@ def _create(body: AnomalyCreate, request: Request) -> dict[str, Any]:
     store = queue_run(app, run_id, run_dir, name, body.dataset_id, "anomaly", cfg, kind="anomaly",
                       dataset_id=body.dataset_id, contamination=body.contamination)
     out = run_out(store.get(run_id), store)
-    out["config"] = {k: v for k, v in cfg.items() if k != "truth"}
+    out["config"] = cfg
     return out
 
 
 @router.get("/mapping/{dataset_id}", dependencies=[require("data.preview", path("dataset_id", "dataset"))])
 def mapping(dataset_id: str, request: Request) -> dict[str, Any]:
-    """Suggested entity, time and relative columns for group-relative features: the sample's spec, else names and
-    types (a repeated ID-like column, a datetime column, amount-like numbers)."""
+    """Suggested entity, time and relative columns for group-relative features, from names and types (a repeated
+    ID-like column, a datetime column, amount-like numbers)."""
     ds = dataset_or_404(request, dataset_id)
-    spec = request.app.state.datasets.sidecar(dataset_id, "anomaly_truth.json")
     df = frames.read_version(dataset_id, rows=range(0, 20000))
     types = {c["name"]: c["type"] for c in ds["profile"]["columns"]}
-    out = group.suggest(df, types, spec)
+    out = group.suggest(df, types)
     out["amount_column"] = (out.get("relative_columns") or [None])[0]
     out["category_column"] = velocity.suggest_category(df, types, {out.get("entity_column"), out.get("time_column")})
     out["velocity_columns"] = velocity.names(out) if out.get("amount_column") else []
@@ -150,8 +143,8 @@ def _run(request: Request, run_id: str, done: bool = True) -> dict[str, Any]:
 @router.get("/runs/{run_id}/top", dependencies=[require("run.read", path("run_id", "run"))])
 def top(run_id: str, request: Request, contamination: float | None = Query(None, gt=0, lt=0.5),
         limit: int = Query(100, ge=1, le=1000), by: str = "", unmasked: str = "", reason: str = "") -> dict[str, Any]:
-    """The most anomalous rows with their reasons; with `contamination`, the threshold and the flags at that share
-    (and, for the sample, precision@k against the hidden ground truth). DL3 (m2): a read of rows, audited (needs a name).
+    """The most anomalous rows with their reasons; with `contamination`, the threshold and the flags at that share.
+    DL3 (m2): a read of rows, audited (needs a name).
     F-PII: values of PII-tagged columns (row values, reasons, `why`) are masked; `unmasked=1&reason=…` as on …/rows."""
     from ..catalog import governance as G
     from ..catalog.datasets_api import _mask_err
@@ -174,19 +167,12 @@ def top(run_id: str, request: Request, contamination: float | None = Query(None,
     n_flag = int((s >= thr).sum())
     for r in rows:
         r["flagged"] = r["s"] >= thr
-    truth = rec["config"].get("truth")
-    check = None
-    if truth:
-        check = core.truth_check(scores["row"].to_numpy(), s, truth, n_flag)
-        t = set(truth["rows"])
-        for r in rows:
-            r["planted"] = r["row"] in t
     lab = review.load(request.app.state.datasets.dir(rec["dataset_id"]))
     for r in rows:
         v = lab.get(r["row"])
         r["review"] = None if v is None else {"label": v["label"], "by": v["by"], "at": v["at"]}
     out = {"run_id": run_id, "contamination": c, "threshold": thr, "n_flagged": n_flag, "rows": rows[:limit],
-           "truth": check, "n_rows": int(len(s)), "review": review.summary(lab)}
+           "n_rows": int(len(s)), "review": review.summary(lab)}
     if m is None:
         return out
     return {**m.scrub(out), **m.info()}
@@ -206,14 +192,8 @@ class ReviewBody(BaseModel):
 
 
 def _labels_out(request: Request, rec: dict[str, Any], cur: dict[int, dict[str, Any]]) -> dict[str, Any]:
-    truth = rec["config"].get("truth")
-    out = {"dataset_id": rec["dataset_id"], **review.summary(cur),
-           "labels": [{"row": r, **v} for r, v in sorted(cur.items())]}
-    if truth:  # the sample only: how often the analyst's (smoke's) calls agree with the hidden truth
-        t = set(truth["rows"])
-        out["truth_agreement"] = {"confirmed_planted": sum(1 for r, v in cur.items() if v["label"] == 1 and r in t),
-                                  "dismissed_planted": sum(1 for r, v in cur.items() if v["label"] == 0 and r in t)}
-    return out
+    return {"dataset_id": rec["dataset_id"], **review.summary(cur),
+            "labels": [{"row": r, **v} for r, v in sorted(cur.items())]}
 
 
 @router.get("/runs/{run_id}/labels", dependencies=[require("run.read", path("run_id", "run"))])
@@ -311,7 +291,7 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
             f"({'positive-unlabeled: unreviewed = 0' if body.negatives == 'unlabeled' else 'reviewed rows only'})")
     new = app.state.datasets.derive(  # P1: every row kept; a new label column and its own split
         rec["dataset_id"], df, None, "anomaly_review", [], splits=splits, extra={"anomaly_run": run_id, "summary": note},
-        name=f"{ds['name'].replace(' (sample)', '')} · confirmed labels", note=note, by=(body.by or "").strip()[:80] or None)
+        name=f"{ds['name']} · confirmed labels", note=note, by=(body.by or "").strip()[:80] or None)
     drop = [c for c in cfg.get("id_columns") or [] if c in df.columns]
     for c in (p.get("entity_column"), p.get("time_column")):
         if c and c in df.columns and c not in drop:
@@ -319,7 +299,7 @@ def _create_supervised(run_id: str, body: SupervisedCreate, request: Request) ->
     fit_kwargs = {"num_bag_folds": body.num_bag_folds, **body.fit_kwargs}
     rc = RunCreate(dataset_id=new["id"], label=label, problem_type="binary", eval_metric=body.eval_metric,
                    presets=body.presets, time_limit=body.time_limit, fit_kwargs=fit_kwargs, drop_columns=drop,
-                   name=f"{ds['name'].replace(' (sample)', '')} · supervised fraud (PU) from {run_id}",
+                   name=f"{ds['name']} · supervised fraud (PU) from {run_id}",
                    parent_run_id=run_id, source="anomaly-supervised")
     out = _create_run(rc, request)
     entry = {"run_id": out["id"], "dataset_id": new["id"], "created_at": now(), "by": body.by,
@@ -400,7 +380,7 @@ def _heavy_oof(predictor_path: str, input_ref: dict[str, Any], label: str) -> di
 
 def compare(rec: dict[str, Any], entry: dict[str, Any], sup: dict[str, Any], oof: dict[str, Any]) -> dict[str, Any]:
     """Per row an out-of-sample P(confirmed | x): out-of-fold for training rows, the holdout prediction for holdout
-    rows. Compared with the isolation score s on the rows nobody reviewed (U), against the hidden truth (sample)."""
+    rows. Compared with the isolation score s on the rows nobody reviewed (U)."""
     d = Path(rec["config"]["run_dir"])
     sc = frames.read_artifact(d / "scores.csv")
     n = len(sc)
@@ -419,18 +399,6 @@ def compare(rec: dict[str, Any], entry: dict[str, Any], sup: dict[str, Any], oof
     top_s, top_p = set(u[np.argsort(-s[u], kind="stable")[:k]]), set(u[np.argsort(-p[u], kind="stable")[:k]])
     out["k"] = k
     out["overlap_top_k"] = len(top_s & top_p)
-    truth = rec["config"].get("truth")
-    if truth:
-        keep = [(r, kd) for r, kd in zip(truth["rows"], truth.get("kinds") or []) if r not in reviewed]
-        tu = {"rows": [r for r, _ in keep], "kinds": [kd for _, kd in keep]}
-        kk = max(1, len(keep))
-        out["hidden_in_unreviewed"] = len(keep)
-        out["iforest"] = core.truth_check(u, s[u], tu, kk)
-        out["supervised"] = core.truth_check(u, p[u], tu, kk)
-        out["iforest_at_k"] = core.truth_check(u, s[u], tu, min(k, len(u)))
-        out["supervised_at_k"] = core.truth_check(u, p[u], tu, min(k, len(u)))
-        out["note"] = ("sample only: the hidden truth is never given to either model; rows the analyst reviewed are "
-                       "left out of the comparison (their labels were training data).")
     return out
 
 

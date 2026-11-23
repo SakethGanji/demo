@@ -2,7 +2,7 @@
 
     from ensemble_client import Ensemble
     ens = Ensemble("http://127.0.0.1:8000")
-    run = ens.runs.start("credit-default", eval_metric="roc_auc", time_limit=60)
+    run = ens.runs.start("ds_1234abcd", eval_metric="roc_auc", time_limit=60)
     run.wait()
     run.leaderboard()
 """

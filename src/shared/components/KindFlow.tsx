@@ -3,7 +3,8 @@ import { api } from '@/shared/api/client'
 import type { DatasetDetail, RunEvent } from '@/shared/api/types'
 import { Register } from '@/shared/components/FlowParts'
 import { RESULTS } from '@/shared/components/KindResults'
-import { ApiOnly, ErrorCard, Loading } from '@/shared/components/Status'
+import { EmptyState } from '@/shared/components/EmptyState'
+import { ErrorCard, Loading } from '@/shared/components/Status'
 import { useFetch } from '@/shared/hooks/useFetch'
 import { useHashParam } from '@/shared/hooks/useHashParam'
 import { useRunEvents } from '@/shared/hooks/useRunEvents'
@@ -27,7 +28,7 @@ export type KindRole = {
 export type Ctx = { d: Det; det: Det; pick: Det; setPick: (p: Det) => void; ds: DatasetDetail; o: Opts; set: (p: Opts) => void }
 /** A G-kind's setup and run page. Results live in KindResults' RESULTS map, shared with Registry → Results. */
 export type KindSpec = {
-  id: RunKind; title: string; sub: string; testId: string; defaultDataset: string; mockWhat: string
+  id: RunKind; title: string; sub: string; testId: string
   detect: (ds: string) => Promise<Det>; create: (body: Record<string, unknown>) => Promise<{ id: string }>
   roles: KindRole[]
   /** Rows after the roles (segments, horizons, label counts, the RI check); "left out" is always last. */
@@ -48,19 +49,21 @@ function Head({ spec, right }: { spec: KindSpec; right?: ReactNode }) {
   return <div className="page-head"><div><h1 className="page-title">{spec.title}</h1><p className="helper sub">{spec.sub}</p></div>{right}</div>
 }
 
-/** The Build choice for a G-kind: its setup (the run itself opens in Models). */
+/** The Build choice for a G-kind: its setup on Build's dataset, else the first one (the run itself opens in Models). */
 export function KindFlow({ spec, go }: { spec: KindSpec; go: (r: string) => void }) {
-  return (
-    <ApiOnly mock={<div className="page"><Head spec={spec} /><div className="card card-body"><p className="helper">▲ mock mode: {spec.mockWhat} on the API, which is offline. Start it with <span className="mono">make dev</span>.</p></div></div>}>
-      <KindSetup spec={spec} go={go} />
-    </ApiOnly>
-  )
+  const fromHash = useHashParam('dataset')
+  const list = useFetch(() => (fromHash ? Promise.resolve(null) : api.datasets.list()), [fromHash])
+  if (fromHash) return <KindSetup key={fromHash} spec={spec} dsId={fromHash} go={go} />
+  if (list.err) return <div className="page"><Head spec={spec} /><ErrorCard inline err={list.err} /></div>
+  if (!list.data) return <div className="page"><Head spec={spec} /><Loading inline>Loading datasets…</Loading></div>
+  const first = list.data.find((d) => d.kind === 'tabular') ?? list.data[0]
+  if (!first) return <div className="page"><Head spec={spec} /><EmptyState testId={`${spec.testId}-empty`} title="No data yet" actions={<a className="btn primary" href="#/build">Upload data in Build →</a>}>Upload a dataset in Build, then choose this model kind for it.</EmptyState></div>
+  return <KindSetup key={first.id} spec={spec} dsId={first.id} go={go} />
 }
 
 const defaultWhy = (k: string) => (d: Det, det: Det, pick: Det) => (pick[k] && pick[k] !== det[k] ? 'set by you' : (det.evidence?.[d[k] ?? ''] ?? []).join(', '))
 
-function KindSetup({ spec, go }: { spec: KindSpec; go: (r: string) => void }) {
-  const dsId = useHashParam('dataset') ?? spec.defaultDataset
+function KindSetup({ spec, dsId, go }: { spec: KindSpec; dsId: string; go: (r: string) => void }) {
   const det = useFetch(() => spec.detect(dsId), [dsId])
   const ds = useFetch(() => api.datasets.get(dsId), [dsId])
   // Build passes the roles it shows (with the user's edits) as ?param=; they override the detection.

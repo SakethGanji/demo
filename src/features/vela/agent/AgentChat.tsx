@@ -6,8 +6,8 @@ import { VelaCrest } from '@/shared/primitives/VelaCrest'
 import { DECIDER } from '../components/DeciderTrail'
 
 const EXAMPLES = [
-  'Train a default model on credit_default.csv with an out-of-time split, run the Model Doctor, apply its fix and register the best version.',
-  'Why was applicant C-500123 declined, and what would change it?',
+  'List my datasets and train a model on the newest one, then run the Model Doctor and register the best version.',
+  'Which features matter most in my latest run, and how sure are we?',
   'Score the latest batch and tell me if anything drifted.',
 ]
 const WORKING: AgentSession['status'][] = ['thinking', 'calling', 'awaiting_confirmation']
@@ -175,7 +175,7 @@ export function AgentChat({ sid, setSid, compact }: { sid: string | null; setSid
       <div className="ag-foot">
         <div className="ag-inner">
           <div className="ag-box">
-            <textarea rows={compact ? 2 : 2} value={q} placeholder={s ? 'Ask a follow-up…' : 'e.g. Train a default model on credit-default with an out-of-time split…'} data-testid="agent-input"
+            <textarea rows={compact ? 2 : 2} value={q} placeholder={s ? 'Ask a follow-up…' : 'e.g. Train a default model on my loans table with an out-of-time split…'} data-testid="agent-input"
               onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!working) send() } }} />
             {working
               ? <button className="btn sm" data-testid="agent-stop" onClick={() => sid && api.agent.stop(sid).catch(() => {})}>■ Stop</button>

@@ -3,7 +3,6 @@ import { api } from '@/shared/api/client'
 import type { ApInbox, ApInboxItem, Autopilot } from '@/shared/api/types'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { MathText } from '@/shared/components/MathText'
-import { pct } from '@/shared/lib/format'
 
 const KINDS: { id: string; label: string }[] = [{ id: 'all', label: 'All' }, { id: 'label', label: 'Label issues' }, { id: 'conflict', label: 'Conflicts' }, { id: 'duplicate', label: 'Duplicates' }, { id: 'outlier', label: 'Outliers' }]
 const PAGE = 40
@@ -26,7 +25,6 @@ export function LiveInbox({ a, onChange }: { a: Autopilot; onChange: () => void 
   const shown = items.slice(page * PAGE, (page + 1) * PAGE)
   const above = (ib?.items ?? []).filter((i) => !i.answer && i.confidence >= c).length
   const answered = (ib?.items ?? []).filter((i) => i.answer).length
-  const r = a.inbox?.recall
 
   const answer = (it: ApInboxItem, ans: ApInboxItem['answer'], label?: string) => {
     if (!editable) return
@@ -57,20 +55,6 @@ export function LiveInbox({ a, onChange }: { a: Autopilot; onChange: () => void 
             <dt>c</dt><dd>confidence of the suggestion: p̂ of the suggested class (relabel), 0.99 for an exact duplicate</dd>
           </dl>
         </div>
-        {r && (
-          <div className="recall-box" data-testid="ap-recall">
-            <span className="micro-label">Planted errors · {r.source}</span>
-            <div className="recall-big"><b>{pct(r.recall)}</b><span>recall</span></div>
-            <div className="mono" style={{ fontSize: 12 }}>{r.found} / {r.planted} flipped labels found in the {r.top_k} label items</div>
-            <div className="recall-bar"><i style={{ width: pct(r.recall) }} /><i className="p" style={{ left: pct(r.recall_at_planted), }} title="recall in the top N = planted" /></div>
-            <dl className="where tight">
-              <dt>precision</dt><dd>{pct(r.precision)} of label items are planted flips (the rest: genuine ambiguity in the text)</dd>
-              <dt>recall@{r.planted}</dt><dd>{pct(r.recall_at_planted)} in the top {r.planted} by m(x)</dd>
-              <dt>suggested</dt><dd>{pct(r.suggestion_accuracy)} of found flips get the true label as the suggestion</dd>
-              {a.inbox?.applied && <><dt>fixed</dt><dd>{r.fixed} flips relabelled to their true label</dd></>}
-            </dl>
-          </div>
-        )}
       </div>
 
       <div className="inbox-bar">

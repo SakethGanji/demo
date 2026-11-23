@@ -164,12 +164,8 @@ class VersionWriter:
                  reason: str = "", job_id: str | None = None, name: str | None = None, project_id: str | None = None,
                  primary_table: str | None = None, ops: list[dict[str, Any]] | None = None,
                  sources: list[dict[str, Any]] | None = None, warnings: list[dict[str, Any]] | None = None,
-                 duck_kw: dict[str, Any] | None = None, dedupe: bool | None = None, version_id: str | None = None) -> None:
+                 duck_kw: dict[str, Any] | None = None, dedupe: bool | None = None) -> None:
         self.db, self.store = db, store
-        #: P10: a new dataset's fixed id (the samples keep theirs); a taken id is refused, never replaced
-        self._fixed_id = version_id
-        if version_id is not None:
-            self._new_id = version_id
         #: P07: dedupe by data_sha256 (None = when `op` is in DEDUPE_OPS); derive() callers can turn it on or off
         self.dedupe = (op in DEDUPE_OPS) if dedupe is None else bool(dedupe)
         self.op, self.by, self.reason, self.job_id = op, (by or "system"), reason or "", job_id
@@ -625,8 +621,6 @@ class VersionWriter:
             else:
                 if con.execute("SELECT 1 FROM datasets WHERE id = ?", (version_id,)).fetchone():
                     con.rollback()
-                    if self._fixed_id:
-                        raise LakeError(409, "id_taken", f"{version_id} already exists.")
                     self._new_id = None
                     return None
                 if self.project_id is None:

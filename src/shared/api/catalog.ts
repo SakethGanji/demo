@@ -121,7 +121,7 @@ export type DsUploadSummary = { matched_by: string; matched: number; changed: nu
   checks: { warnings: DsWarning[]; columns_added: string[]; columns_removed: string[]; type_changes: { column: string; kind_from: string; kind_to: string; from: string; to: string }[]; rows_before: number; rows_after: number } }
 /** DL4 (#11): the live dataset an uploaded CSV most looks like (POST /datasets/match writes nothing) */
 export type DsMatchCandidate = { root_id: string; name: string; version_id: string; v: number; next_v: number; target: string | null; rows: number; score: number
-  columns_in_common: number; columns_added: string[]; columns_removed: string[]; same_target: boolean; name_similarity: number; sample: boolean; reasons: string[] }
+  columns_in_common: number; columns_added: string[]; columns_removed: string[]; same_target: boolean; name_similarity: number; reasons: string[] }
 export type DsMatch = { filename: string; rows: number; columns: string[]; match: DsMatchCandidate | null; others: DsMatchCandidate[] }
 export type DsVerify = { root_id: string; ok: boolean; results: { id: string; v: number; ok: boolean | null; status: string; stored: string | null; now?: string | null; remedy?: string; splits?: { file: string; status: string }[] }[] }
 

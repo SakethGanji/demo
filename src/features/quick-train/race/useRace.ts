@@ -92,17 +92,12 @@ export function applyEvent(s: RaceState, e: RunEvent, shownAt: number): RaceStat
 /** Minimum time a model is on screen as "fitting" before its score shows, at 1×. */
 export const MIN_ON_SCREEN_MS = 1400
 
-/** Something that produces a run's events: the live API (followRun) or the mock simulation. */
-export type EventSourceFn = (runId: string, onEvent: (e: RunEvent) => void, hooks: { onError: () => void; onOpen: () => void }) => () => void
-
-export const liveSource: EventSourceFn = (runId, onEvent, hooks) => followRun(runId, onEvent, hooks)
-
 /**
  * Follow a run and play its events back so that every model is on screen for at least MIN_ON_SCREEN_MS / speed.
  * Events from before we connected (a replay after a reload or reconnect) are applied at once, so resuming a run
  * mid-way catches up immediately and then continues live.
  */
-export function useRace(runId: string | null, speed: number, source: EventSourceFn = liveSource) {
+export function useRace(runId: string | null, speed: number) {
   const [state, setState] = useState<RaceState>(EMPTY_RACE)
   const [reconnecting, setReconnecting] = useState(false)
   const queue = useRef<RunEvent[]>([])
@@ -117,7 +112,7 @@ export function useRace(runId: string | null, speed: number, source: EventSource
     shown.current = {}
     if (!runId) return
     connectedAt.current = Date.now() / 1000
-    const stop = source(runId, (e) => { queue.current.push(e) }, {
+    const stop = followRun(runId, (e) => { queue.current.push(e) }, {
       onError: () => setReconnecting(true), onOpen: () => setReconnecting(false),
     })
     const pump = () => {
@@ -139,7 +134,7 @@ export function useRace(runId: string | null, speed: number, source: EventSource
     }
     const iv = setInterval(pump, 40)
     return () => { stop(); clearInterval(iv) }
-  }, [runId, source])
+  }, [runId])
 
   return { state, reconnecting, behind: queue.current.length }
 }

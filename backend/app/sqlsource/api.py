@@ -1,6 +1,5 @@
 """G9 routes: load a dataset from a SQL query, and refresh it into a new version.
 
-    GET  /api/sql/demo                       the demo database (URL, example query, tables) built from the samples
     POST /api/sql/tables                     {url, password?} → tables and views with their columns
     POST /api/sql/preview                    {url, query, limit?, password?} → columns, the first 20 rows, rows fetched
     POST /api/sql/datasets                   {url, query, limit?, name?, target?, password?} → a dataset (lineage: the query)
@@ -27,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from .. import frame_io as FIO
 from .. import frames
-from ..authz import body, path, public, query, require# P19
+from ..authz import body, path, query, require  # P19
 from ..datasets import DatasetError
 from ..http import dataset_or_404
 from . import core
@@ -37,14 +36,14 @@ router = APIRouter(prefix="/api/sql")
 
 
 class Conn(BaseModel):
-    url: str = Field(core.DEMO_URL, description="the demo file, sqlite:///file or duckdb:///file in an import dir "
-                                                "(ENSEMBLE_SQL_IMPORT_DIRS), or postgresql://user:password@host:port/db")
+    url: str = Field(..., description="sqlite:///file or duckdb:///file in an import dir (ENSEMBLE_SQL_IMPORT_DIRS), "
+                                      "or postgresql://user:password@host:port/db")
     password: str | None = Field(None, description="Used for this request only, never stored.")
     project_id: str | None = Field(None, description="The project the import is for (required; or ?project_id=).")
 
 
 class Query(Conn):
-    query: str = core.DEMO_QUERY
+    query: str = Field(..., description="One SELECT (or WITH … SELECT).")
     limit: int = Field(core.DEFAULT_LIMIT, ge=1, le=core.MAX_LIMIT)
 
 
@@ -115,9 +114,7 @@ def _refused(request: Request, pid: str, b: Conn, e: SqlError, what: str, query:
 
 
 def _data_dir(request: Request):
-    st = request.app.state
-    core.ensure_demo_db(st.settings.data_dir, st.datasets)
-    return st.settings.data_dir
+    return request.app.state.settings.data_dir
 
 
 def _columns(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -126,18 +123,6 @@ def _columns(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 def _rows(df: pd.DataFrame) -> list[dict[str, Any]]:
     return df.head(core.PREVIEW_ROWS).astype(object).where(df.head(core.PREVIEW_ROWS).notna(), None).to_dict("records")
-
-
-@router.get("/demo", dependencies=[public("the bundled demo SQLite file's tables")])
-def demo(request: Request) -> dict[str, Any]:
-    dd = _data_dir(request)
-    try:
-        tabs = core.tables(core.DEMO_URL, dd)
-    except SqlError as e:
-        raise HTTPException(400, str(e)) from e
-    return {"url": core.DEMO_URL, "query": core.DEMO_QUERY, "tables": tabs, "limit": core.DEFAULT_LIMIT,
-            "max_limit": core.MAX_LIMIT, "note": "A SQLite file built from the bundled samples: applications + outcomes "
-            "(credit-default), loans (loan-stream) and accounts (account-churn)."}
 
 
 IMPORT = require("data.import", query("project_id", "project"), body("project_id", "project"))

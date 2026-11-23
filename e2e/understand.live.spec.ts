@@ -2,7 +2,7 @@
 // checked on screen is compared with what the API returns (the API's numbers are checked against scikit-learn,
 // fairlearn and shap in backend/tests/test_understand.py).
 import type { APIRequestContext, Page } from '@playwright/test'
-import { expect, open, test } from './fixtures'
+import { creditCsv, expect, loanAmountCsv, open, test, uploadCsv } from './fixtures'
 
 const fmtD = (v: number, d: number) => {
   const a = Math.abs(v)
@@ -31,12 +31,14 @@ async function train(request: APIRequestContext, body: Record<string, unknown>):
   throw new Error(`run ${id} did not finish`)
 }
 
-const CREDIT_FAST = { dataset_id: 'credit-default', eval_metric: 'roc_auc', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } }
+/** The suite starts on an empty data folder: each test uploads the generated credit table (binary, with a region). */
+const credit = async (request: APIRequestContext) => (await uploadCsv(request, 'e2e_credit.csv', creditCsv())).id
+const creditFast = (dataset_id: string) => ({ dataset_id, label: 'defaulted', eval_metric: 'roc_auc', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
 const get = async (page: Page, path: string) => (await page.request.get(path)).json()
 
 test('explain: curves, the decision threshold, importance, SHAP, errors and fairness match the API', async ({ page, errors }) => {
   test.setTimeout(420_000)
-  const run = await train(page.request, { ...CREDIT_FAST, calibrate_threshold: 'f1' })
+  const run = await train(page.request, { ...creditFast(await credit(page.request)), calibrate_threshold: 'f1' })
   expect(run.threshold!.source).toBe('calibrated')
   const t = run.threshold!.value
 
@@ -125,9 +127,11 @@ test('explain: curves, the decision threshold, importance, SHAP, errors and fair
 
 test('models: real runs, filters, parallel coordinates, comparison and parameter diff', async ({ page, errors }) => {
   test.setTimeout(420_000)
-  const a = await train(page.request, { ...CREDIT_FAST, calibrate_threshold: 'f1' })
-  const b = await train(page.request, { dataset_id: 'credit-default', eval_metric: 'roc_auc', time_limit: 90, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 120 }, KNN: {} } } })
-  const c = await train(page.request, { dataset_id: 'loan-amount', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
+  const creditId = await credit(page.request)
+  const loan = await uploadCsv(page.request, 'e2e_loan_amount.csv', loanAmountCsv())
+  const a = await train(page.request, { ...creditFast(creditId), calibrate_threshold: 'f1' })
+  const b = await train(page.request, { dataset_id: creditId, label: 'defaulted', eval_metric: 'roc_auc', time_limit: 90, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 120 }, KNN: {} } } })
+  const c = await train(page.request, { dataset_id: loan.id, label: 'loan_amount_usd', fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 60 }, LR: {} } } })
 
   await open(page, 'models')
   await expect(page.getByTestId('experiments-live')).toBeVisible()
@@ -151,11 +155,11 @@ test('models: real runs, filters, parallel coordinates, comparison and parameter
     await rows.nth(i).locator('input[type=checkbox]').setChecked(id === a.id || id === b.id)
   }
   await expect(page.getByTestId('exp-summary')).toContainText('2 selected')
-  // parallel coordinates of the credit-default runs: a string per run, the selected ones in the legend
+  // parallel coordinates of the credit runs: a string per run, the selected ones in the legend
   const pc = page.locator('.plot-frame', { has: page.getByTestId('run-pc') })
   await expect(pc).toContainText(a.id)
   await expect(pc).toContainText(b.id)
-  await expect(pc).toContainText('credit-default')
+  await expect(pc).toContainText(creditId)
   expect(await page.getByTestId('run-pc').locator('path.pc-line').count()).toBeGreaterThanOrEqual(2)
 
   // compare: the API's holdout metrics per run, ROC overlays
@@ -195,7 +199,7 @@ test('status bar shows the real machine, versions and the active run', async ({ 
   const footer = await page.locator('.statusbar').innerText()
   for (const fake of ['Maya Lin', 'run_8a10', 'fold 3 of 5', 'class_weight', 'us-east-1', 'v3.0.0-rc1']) expect(footer).not.toContain(fake)
   // a run in flight appears in the status bar with its progress
-  const r = await page.request.post('/api/runs', { data: { ...CREDIT_FAST, time_limit: 60, feature_importance: false, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 2000 }, LR: {}, KNN: {} } } } })
+  const r = await page.request.post('/api/runs', { data: { ...creditFast(await credit(page.request)), time_limit: 60, feature_importance: false, fit_kwargs: { hyperparameters: { GBM: { num_boost_round: 2000 }, LR: {}, KNN: {} } } } })
   const { id } = await r.json()
   await expect(page.getByTestId('sb-active')).toContainText(id, { timeout: 180_000 })
   await expect(page.getByTestId('sb-active')).toContainText('models')

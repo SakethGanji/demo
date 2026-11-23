@@ -14,7 +14,7 @@ Read-only, three ways:
 
 F-X4b (X4 C4): the source never reaches the platform's own databases or the API host's identity:
   - files only under ENSEMBLE_SQL_IMPORT_DIRS (alias ENSEMBLE_SQL_ROOTS; a dir that is, holds or sits in the data dir is
-    ignored), plus the bundled demo file; never the platform database, the MLflow store or anything under the data dir;
+    ignored); never the platform database, the MLflow store or anything under the data dir;
   - Postgres only with an explicit TCP host, user and non-empty password; never the platform's database server
     (ENSEMBLE_DB_URL / ENSEMBLE_DB_OWNER_URL: the same address and port; a local server = every local address); no
     loopback / link-local / unspecified address unless ENSEMBLE_SQL_ALLOW_LOOPBACK=1; only ENSEMBLE_SQL_ALLOWED_HOSTS
@@ -31,8 +31,6 @@ import os
 import re
 import socket
 import sqlite3
-import threading
-import uuid
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -41,13 +39,10 @@ from typing import Any, Iterator
 
 import pandas as pd
 
-from .. import frames
-
 DEFAULT_LIMIT = 100_000
 MAX_LIMIT = 1_000_000
 PREVIEW_ROWS = 20
 TIMEOUT_S = 60
-DEMO_URL = "sqlite:///demo/bank.sqlite"  # relative file paths are read from the data directory
 
 WRITE_WORDS = ("insert", "update", "delete", "merge", "upsert", "drop", "alter", "create", "truncate",
                "grant", "revoke", "attach", "detach", "pragma", "vacuum", "copy", "call", "exec", "execute", "install",
@@ -144,10 +139,6 @@ def _roots(data_dir: Path) -> list[Path]:
     return out
 
 
-def demo_path(data_dir: Path) -> Path:
-    return (data_dir / "demo" / "bank.sqlite").resolve()
-
-
 def _platform_files(data_dir: Path) -> list[Path]:
     out = [(data_dir / "ensemble.sqlite3").resolve(), (data_dir / "mlflow" / "mlflow.db").resolve()]
     for env in ("ENSEMBLE_DB_URL", "ENSEMBLE_DB_OWNER_URL", "MLFLOW_TRACKING_URI"):
@@ -238,14 +229,14 @@ def parse_url(url: str, data_dir: Path, password: str | None = None) -> dict[str
 
 
 def _parse_url(url: str, data_dir: Path, password: str | None = None) -> dict[str, Any]:
-    """{dialect, path | conninfo, redacted}. F-X4b (X4 C4): files only from the import dirs (or the demo file); Postgres
+    """{dialect, path | conninfo, redacted}. F-X4b (X4 C4): files only from the import dirs; Postgres
     only to an explicit, checked TCP address with its own user and password; never a platform database."""
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import ArgumentError
 
     url = (url or "").strip()
     if not url:
-        raise SqlError("Give a connection URL, e.g. sqlite:///demo/bank.sqlite.")
+        raise SqlError("Give a connection URL, e.g. sqlite:///file.sqlite.")
     try:
         u = make_url(url)
     except ArgumentError as e:
@@ -257,26 +248,23 @@ def _parse_url(url: str, data_dir: Path, password: str | None = None) -> dict[st
     redacted = u.render_as_string(hide_password=True)
     if backend in ("sqlite", "duckdb"):
         if not u.database or u.database == ":memory:":
-            raise SqlError("Give the database file, e.g. sqlite:///demo/bank.sqlite.")
+            raise SqlError("Give the database file, e.g. sqlite:///file.sqlite.")
         if u.query:
             raise SqlError("File URLs take no options.", "sql_path_refused")
         dd = data_dir.resolve()
         roots = _roots(data_dir)
         p = Path(u.database)
-        demo = demo_path(data_dir)
-        if not p.is_absolute():  # relative: the demo file, else the first import dir
-            p = (dd / p) if (dd / p).resolve() == demo else ((roots[0] / p) if roots else (dd / p))
+        if not p.is_absolute():  # relative: under the first import dir
+            p = (roots[0] / p) if roots else (dd / p)
         p = p.resolve()
-        if p != demo:
-            if any(p == f for f in _platform_files(data_dir)):
-                raise SqlError("That is one of the workbench's own databases, not a data source.", "sql_platform_db")
-            if _under(p, dd):
-                raise SqlError("Files under the workbench's data directory are not data sources (only the bundled demo "
-                               "database is).", "sql_platform_db")
-            if not any(_under(p, r) for r in roots):
-                raise SqlError("Database files are read only from the import directories (ENSEMBLE_SQL_IMPORT_DIRS"
-                               + (f": {', '.join(map(str, roots))}" if roots else ", not set on this server") + f"); {p} is outside them.",
-                               "sql_path_refused")
+        if any(p == f for f in _platform_files(data_dir)):
+            raise SqlError("That is one of the workbench's own databases, not a data source.", "sql_platform_db")
+        if _under(p, dd):
+            raise SqlError("Files under the workbench's data directory are not data sources.", "sql_platform_db")
+        if not any(_under(p, r) for r in roots):
+            raise SqlError("Database files are read only from the import directories (ENSEMBLE_SQL_IMPORT_DIRS"
+                           + (f": {', '.join(map(str, roots))}" if roots else ", not set on this server") + f"); {p} is outside them.",
+                           "sql_path_refused")
         if not p.is_file():
             raise SqlError(f"No database file at {p}.")
         return {"dialect": backend, "path": p, "redacted": redacted, "has_password": False}
@@ -455,53 +443,3 @@ def lineage_record(res: dict[str, Any], df: pd.DataFrame, *, version: int, root:
             "limit": res["limit"], "truncated": res["truncated"], "rows": len(df), "columns": list(df.columns),
             "fetched_at": now(), "seconds": round(res["seconds"], 3), "data_sha": frame_sha(df),
             "version": version, "root": root, "parent": parent, "base_name": base_name, "diff": diff}
-
-
-# -- the demo database -----------------------------------------------------------------------------------------------
-
-DEMO_VERSION = "1"
-#: U3: concurrent first calls (two GET /sql/demo at once) built the file through one shared tmp path → 500
-_DEMO_LOCK = threading.Lock()
-DEMO_QUERY = """SELECT a.*, o.defaulted
-FROM applications a
-JOIN outcomes o ON o.applicant_id = a.applicant_id
-WHERE a.application_date >= '2022-01-01'"""
-
-
-def ensure_demo_db(data_dir: Path, store: Any) -> Path:
-    """data/demo/bank.sqlite, built from the bundled samples (rebuilt when they are regenerated):
-    applications + outcomes (credit-default, split in two so the demo query is a join), loans (loan-stream) and
-    accounts (account-churn)."""
-    path = data_dir / "demo" / "bank.sqlite"
-    # P10: stamped by each sample's content identity (a Parquet table's table_sha256, or a CSV-era file's hash)
-    try:
-        ids = [frames.data_identity(k) for k in ("credit-default", "loan-stream", "account-churn")]
-    except Exception:  # noqa: BLE001 - a sample is missing: no demo database
-        return path
-    stamp = DEMO_VERSION + ":" + ",".join(ids)
-    mark = path.with_suffix(".stamp")
-    if path.exists() and mark.exists() and mark.read_text() == stamp:
-        return path
-    # one builder per process (the lock; re-checked inside), and a private tmp file per call so builders in other
-    # processes never write into each other's file; os.replace makes the finished file appear at once
-    with _DEMO_LOCK:
-        if path.exists() and mark.exists() and mark.read_text() == stamp:
-            return path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp")
-        try:
-            cd = frames.read_version("credit-default")
-            with sqlite3.connect(tmp) as con:
-                cd.drop(columns=["defaulted"]).to_sql("applications", con, index=False)
-                cd[["applicant_id", "defaulted"]].to_sql("outcomes", con, index=False)
-                frames.read_version("loan-stream").to_sql("loans", con, index=False)
-                frames.read_version("account-churn").to_sql("accounts", con, index=False)
-                con.execute("CREATE INDEX ix_outcomes ON outcomes(applicant_id)")
-            con.close()
-            os.replace(tmp, path)
-        finally:
-            tmp.unlink(missing_ok=True)
-        mtmp = mark.with_name(f".{mark.name}.{os.getpid()}.{uuid.uuid4().hex[:8]}")
-        mtmp.write_text(stamp)
-        os.replace(mtmp, mark)
-    return path

@@ -21,7 +21,6 @@ class DatasetSummary(BaseModel):
     name: str
     filename: str
     source: Literal["sample", "upload"]
-    sample: bool
     note: str
     created_at: str
     size_bytes: int

@@ -39,16 +39,6 @@
 .num-input { width: var(--size-numeric-input); height: 30px; border: 1px solid var(--border-default); border-radius: var(--radius-control); padding: 0 var(--space-8); text-align: right; font-family: var(--font-mono); font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-primary); background: var(--bg-surface); }
 .num-input:focus { border-color: var(--border-focus); outline: none; box-shadow: 0 0 0 1px var(--border-focus); }
 
-/* ---------- pipeline (graph paper) ---------- */
-.graph-paper { position: relative; width: 100%; background-color: var(--bg-canvas); background-image: radial-gradient(var(--bg-grid-dot) 1px, transparent 1px); background-size: 16px 16px; background-position: 8px 8px; overflow: hidden; border-radius: 0 0 var(--radius-card) var(--radius-card); }
-.graph-paper svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; }
-.pnode { position: absolute; width: 190px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: var(--radius-card); padding: var(--space-12); }
-.pnode.active { border-color: var(--accent-secondary); background: linear-gradient(var(--bg-wave-tint), var(--bg-wave-tint)), var(--bg-surface); }
-.pnode .sig { white-space: nowrap; font-family: var(--font-math); font-style: italic; font-size: 14px; color: var(--text-body); margin-top: 4px; }
-.pnode .port { position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: var(--radius-full); background: var(--accent-primary); border: 2px solid var(--bg-surface); box-shadow: 0 0 0 1px var(--accent-primary); }
-.pnode .port.in { left: -5px; } .pnode .port.out { right: -5px; }
-.pnode .port.warn { background: var(--status-warning); box-shadow: 0 0 0 1px var(--status-warning); }
-
 /* ---------- plots ---------- */
 .plot-frame { display: flex; flex-direction: column; }
 .plot-frame .plot { position: relative; padding: var(--space-12) var(--space-16) 0; }
@@ -112,7 +102,6 @@
 .stage-read span { display: flex; flex-direction: column; gap: 2px; }
 .stage-read small { font-family: var(--font-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-on-shell-muted); }
 .stage-read b { font-size: 20px; line-height: 26px; font-weight: 500; white-space: nowrap; }
-.stage-sim { font-size: 11px; color: var(--text-on-shell-muted); border: 1px solid var(--border-shell); border-radius: var(--radius-badge); padding: 2px 6px; align-self: center; white-space: nowrap; }
 .pipe-string { padding: var(--space-8) 0 0; border-bottom: 1px solid var(--border-shell); }
 .ps-name { font-family: var(--font-sans); font-size: 12.5px; font-weight: 600; }
 .ps-note { font-family: var(--font-mono); font-size: 11px; fill: #94A3B8; color: var(--text-on-shell-muted); }
@@ -162,9 +151,6 @@
 .where dd { margin: 0; color: var(--text-body); }
 
 /* ---------- per-class report and top words (New Model results, Explain) ---------- */
-.cls-report { display: grid; grid-template-columns: minmax(80px, 1fr) 1.2fr 1.2fr 80px; gap: 6px var(--space-12); align-items: center; font-size: 12.5px; }
-.cls-report .r { text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
-.cr-name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cr-bar { display: inline-block; width: 70px; height: 4px; background: var(--border-row); border-radius: 2px; position: relative; overflow: hidden; }
 .cr-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-primary); }
 .tw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-12); }

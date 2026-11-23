@@ -68,7 +68,7 @@ function DatasetNode({ n, ctx, edge }: { n: LNode; ctx: Ctx; edge?: LEdge }) {
   return (
     <li data-testid={`pt-dataset-${n.id}`} className={ctx.focus === `dataset:${n.id}` ? 'pt-focus' : ''}>
       <div className="pt-row"><span className="pt-ico">▤</span><b>{n.name}</b> <span className="mono muted">{n.id}</span>
-        <span className="pt-chip">{(n.rows ?? 0).toLocaleString()} rows</span>{n.op && n.op !== 'upload' && n.op !== 'sample' && <span className="pt-chip op">{n.op.replace(/_/g, ' ')}</span>}
+        <span className="pt-chip">{(n.rows ?? 0).toLocaleString()} rows</span>{n.op && n.op !== 'upload' && <span className="pt-chip op">{n.op.replace(/_/g, ' ')}</span>}
         {edge?.inferred && <span className="mono muted" title="no root-row mapping: never paired with its parent">◇</span>}
         {n.state && <span className={`pt-chip ${n.state === 'deleted' ? 'appr-rejected' : ''}`} title={n.state === 'deleted' ? 'files removed; this record, its lineage and the audit are kept' : 'hidden from Build and the pickers'}>{n.state}</span>}
         <Tags n={n} />

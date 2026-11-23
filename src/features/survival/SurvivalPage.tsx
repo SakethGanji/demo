@@ -29,7 +29,7 @@ function Formula() {
  * against Kaplan–Meier by risk group, hazard ratios. Registry → Results shows the same view; Try It draws one subject's curve.
  */
 export const SURV_SPEC: KindSpec = {
-  id: 'survival', title: 'Time to Event', testId: 'surv', defaultDataset: 'account-attrition', mockWhat: 'survival models train',
+  id: 'survival', title: 'Time to Event', testId: 'surv',
   sub: 'How long until an event (an account closes, a loan prepays), using every row, censored ones included.',
   detect: flows.surv.detect, create: (b) => flows.surv.create(b as never),
   roles: [

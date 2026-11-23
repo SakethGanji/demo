@@ -6,7 +6,7 @@ import type { SplitDescription, SplitOptions, SplitSpec, SplitStrategy } from '@
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { useWidth } from '@/shared/hooks/useWidth'
-import type { Dataset } from '../datasets'
+import type { Dataset } from '../dataset'
 import { sub } from '../wizard'
 import { pct } from '@/shared/lib/format'
 

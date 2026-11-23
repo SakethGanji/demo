@@ -53,25 +53,19 @@ export type FcConformal = {
   per_item?: Record<string, Record<string, number | null>>; error?: string
 }
 
-export type AnTruth = {
-  planted: number; precision_at_k: { k: number; hits: number; precision: number; recall: number }[]; roc_auc: number | null
-  average_precision: number | null; by_kind: Record<string, { planted: number; found: number }>; flagged: number; base_rate: number; note: string
-}
 export type AnReason = { feature: string; phi: number; push: number; value: unknown; z: number | null; median?: number | null; share: number | null }
 export type AnReview = { label: 0 | 1; by: string; at: string }
-export type AnRow = { rank: number; row: number; s: number; Eh: number; lof: number | null; flagged: boolean; planted?: boolean; review?: AnReview | null; values: Record<string, unknown>; phi0: number | null; phi_sum: number; reasons: AnReason[]; why: string }
+export type AnRow = { rank: number; row: number; s: number; Eh: number; lof: number | null; flagged: boolean; review?: AnReview | null; values: Record<string, unknown>; phi0: number | null; phi_sum: number; reasons: AnReason[]; why: string }
 export type AnSummary = {
   threshold: number; contamination: number; n_flagged: number; psi: number; c_n: number; n_trees: number; fit_seconds: number; columns_out: number; mean_depth: number
   distribution: { edges: number[]; counts: number[]; quantiles: Record<string, number>; min: number; max: number; mean: number }
   lof: { n_neighbors: number; spearman_vs_iforest: number; overlap_top: number } | null
-  truth?: AnTruth; truth_lof?: AnTruth
 }
-export type AnTop = { run_id: string; contamination: number; threshold: number; n_flagged: number; rows: AnRow[]; truth: AnTruth | null; n_rows: number; review?: AnReviewSummary }
+export type AnTop = { run_id: string; contamination: number; threshold: number; n_flagged: number; rows: AnRow[]; n_rows: number; review?: AnReviewSummary }
 export type AnReviewSummary = { confirmed: number; dismissed: number; reviewed: number; min_positives: number; can_train: boolean; needed: number }
-export type AnLabels = AnReviewSummary & { dataset_id: string; labels: { row: number; label: 0 | 1; by: string; at: string; run_id: string; s: number | null; note: string }[]; truth_agreement?: { confirmed_planted: number; dismissed_planted: number } }
+export type AnLabels = AnReviewSummary & { dataset_id: string; labels: { row: number; label: 0 | 1; by: string; at: string; run_id: string; s: number | null; note: string }[] }
 export type AnCompare = {
-  model: string; rows_scored: number; unreviewed: number; n_oof: number; source: string; k: number; overlap_top_k: number
-  hidden_in_unreviewed?: number; iforest?: AnTruth; supervised?: AnTruth; iforest_at_k?: AnTruth; supervised_at_k?: AnTruth; note?: string
+  model: string; rows_scored: number; unreviewed: number; n_oof: number; source: string; k: number; overlap_top_k: number; note?: string
 }
 export type AnSupervised = {
   run_id: string; dataset_id: string; created_at: string; by: string; negatives: 'unlabeled' | 'dismissed_only'; include_score: boolean

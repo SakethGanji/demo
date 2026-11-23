@@ -3,7 +3,6 @@
     data/datasets/<id>/data.csv        CSV-era versions only (before P10): the rows (positions are the split IDs)
     data/datasets/<id>/splits/<key>.json  holdout and folds per (target, strategy); for a Parquet version a positional
                                        view of its `splits` row (lake/splitstore.py)
-    data/datasets/<id>/<sidecar>.json  samples only: ground truth (label_noise.json, signal.json)
 
 P10: every version is written by the VersionWriter (Parquet in the lake); the CSV-era layout is migrated by
 lake/migrate.py, which also holds what is left of the CSV-era bookkeeping for versions not migrated yet.
@@ -31,14 +30,6 @@ from . import frame_io as FIO
 from . import frames
 from .db import Database
 from .profiling import profile_frame
-from .samples import SAMPLES
-from .samples_g3 import SAMPLES_G3  # G3 adds its sample here: samples.py stays unchanged (its fingerprint)
-from .samples_g4 import SAMPLES_G4  # G4: loan applications with surname and zip (BISG)
-from .samples_g5 import SAMPLES_G5  # G5: loans from customer types that behave differently
-from .samples_g6 import SAMPLES_G6  # G6: accounts followed until they close or the data ends (censoring)
-from .samples_g7 import SAMPLES_G7  # G7: applications with declines (outcomes only for the approved)
-from .samples_g8 import SAMPLES_G8  # G8: complaints with overlapping topics (multi-label)
-from .samples_p12 import SAMPLES_P12  # P12: a credit book in three tables (keys, relations)
 from . import splits as splits_mod
 from .splits import RANDOM_STRATIFIED, load_splits, make_splits, save_splits, split_key, summarize
 
@@ -138,17 +129,6 @@ def sniff_sep(text: str) -> str:
     return best
 
 
-def _generator_fingerprint(fn) -> str:
-    """sha256 of the source file that defines a sample generator; changes when the generator code changes."""
-    import hashlib
-    import inspect
-    try:
-        src = inspect.getsource(inspect.getmodule(fn))
-    except (OSError, TypeError):
-        src = getattr(fn, "__qualname__", repr(fn))
-    return hashlib.sha256(src.encode()).hexdigest()[:16]
-
-
 class DatasetError(ValueError):
     """The file can't be used as a dataset; the message is shown to the user."""
 
@@ -222,7 +202,7 @@ def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 #: DL3 (m3): background jobs that make versions with no person behind the request; recorded as "system:<op>"
-SYSTEM_OPS = ("autopilot", "autopilot_synthetic", "sample_regenerated")
+SYSTEM_OPS = ("autopilot", "autopilot_synthetic")
 #: DL3 (m3): ops whose identical result returns the existing version instead of a duplicate
 DEDUPE_OPS = ("shift_weights", "edit", "anomaly_review", "feature_lab")
 
@@ -308,7 +288,7 @@ class DatasetStore:
         """(path, splits, created) of the (target, strategy, parameters) split. An existing split is never redrawn. A
         new one is drawn from data.csv with the fixed seed, so the same file and target always give the same holdout,
         whichever target the profiler guessed. The legacy upload split (pre-F4) is adopted when it was drawn for this target (so
-        the samples, Autopilot's derived datasets and pre-F4 runs keep their exact holdout). F6: group / time /
+        Autopilot's derived datasets and pre-F4 runs keep their exact holdout). F6: group / time /
         time-group splits take `params` (group_column, time_column, cutoff, tuning_share); bad ones raise
         DatasetError."""
         try:
@@ -523,7 +503,7 @@ class DatasetStore:
             profile = profile_frame(df, target)
         except ValueError as e:
             raise DatasetError(str(e)) from e
-        for k, v in old.items():  # keep what was added after profiling (lineage) and the sample's kind
+        for k, v in old.items():  # keep what was added after profiling (lineage) and the kind
             if k not in profile:
                 profile[k] = v
         profile["kind"] = old.get("kind", profile["kind"])
@@ -565,11 +545,11 @@ class DatasetStore:
 
     def write_frame_version(self, df: pd.DataFrame, *, name: str, filename: str, note: str, source: str,
                             target: str | None = None, by: str | None = None, parent_id: str | None = None,
-                            version_id: str | None = None, kind: str | None = None, hints: dict[str, str] | None = None,
+                            kind: str | None = None, hints: dict[str, str] | None = None,
                             lineage: dict[str, Any] | None = None, profile_extra: dict[str, Any] | None = None,
                             project_id: str | None = None) -> dict[str, Any]:
-        """P10: a frame (a sample, a SQL load, a monitoring window) as a Parquet version through the VersionWriter.
-        Without `parent_id`: a new dataset (its rows get __row_id 0..n-1; `version_id` fixes the id, for the samples).
+        """P10: a frame (a SQL load, a monitoring window) as a Parquet version through the VersionWriter.
+        Without `parent_id`: a new dataset (its rows get __row_id 0..n-1).
         With `parent_id`: a version of that dataset whose rows are all new (fresh ids from the root's counter, no row
         mapping), so the derived_from edge is marked inferred and nothing pairs on it (a SQL refresh, a monitoring
         window). `hints` are frame_io kinds (an upload's "kept as text"). The frame is written with its own types."""
@@ -588,7 +568,7 @@ class DatasetStore:
             if project_id and not parent_id:  # F-X4b: a SQL load goes into the project it was authorised on
                 kw["project_id"] = project_id
             w = VersionWriter(self.db, lake, parent_id=parent_id, dedupe=False, **kw) if parent_id else \
-                VersionWriter(self.db, lake, version_id=version_id, **kw)
+                VersionWriter(self.db, lake, **kw)
             with w:
                 start = reserve_row_ids(self.db, w.root_id, frames.PRIMARY_TABLE, 0, len(df)) if parent_id else 0
                 ids = start + np.arange(len(df), dtype="int64")
@@ -610,7 +590,7 @@ class DatasetStore:
         if lineage:
             profile["lineage"] = {k: v for k, v in lineage.items() if k != "changes"}
         profile.update(profile_extra or {})
-        rec = {**rec, "name": name, "filename": filename, "source": "sample" if source == "sample" else "upload", "note": note,
+        rec = {**rec, "name": name, "filename": filename, "source": "upload", "note": note,
                "profile": profile,
                "kind": kind or rec.get("kind")}
         self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
@@ -620,151 +600,6 @@ class DatasetStore:
                 add_edge(con, ("dataset", parent_id), ("dataset", vid), "derived_from", actor=who,
                          meta={"op": source, "storage": "parquet", "paired": False}, inferred=True, update_meta=True)
         return self.db.get_dataset(vid) or rec
-
-    def sidecar(self, dataset_id: str, name: str) -> dict[str, Any] | None:
-        """A sample's ground-truth / spec file (forecast_spec.json, anomaly_truth.json, …), or None."""
-        p = self.dir(dataset_id) / name
-        return json.loads(p.read_text()) if p.exists() else None
-
-    def ensure_samples(self) -> list[str]:
-        """Generate the sample datasets if they are missing. Returns the IDs generated."""
-        made = []
-        for dataset_id, spec in {**SAMPLES, **SAMPLES_G3, **SAMPLES_G4, **SAMPLES_G5, **SAMPLES_G6, **SAMPLES_G7, **SAMPLES_G8}.items():
-            # A sample made by an older generator is stale (new columns, new planted truth): regenerate it.
-            # The fingerprint is the source of the module that defines the generator.
-            fp = _generator_fingerprint(spec["generate"])
-            stamp = self.dir(dataset_id) / ".generator"
-            current = stamp.exists() and stamp.read_text().strip() == fp
-            rec = self.db.get_dataset(dataset_id)
-            if rec and (frames.is_parquet(dataset_id) or self.data_file(dataset_id).exists()):
-                if current:
-                    continue
-                # DL3 (m7): a sample is never rewritten in place (P10: a version's bytes are immutable): the new
-                # generator's rows become a new version of it, with lineage and an audit row
-                try:
-                    made += self._sample_as_version(dataset_id, spec, fp)
-                except Exception:  # noqa: BLE001 - never fail startup over a sample; the old one stays as it was
-                    log.exception("sample %s: could not write the regenerated rows as a new version", dataset_id)
-                continue
-            if rec:  # a CSV-era sample whose data.csv is gone: left as it is (verify reports it)
-                log.warning("sample %s has no data file; not regenerated over its record", dataset_id)
-                continue
-            log.info("generating sample dataset %s", dataset_id)
-            df, sidecar = spec["generate"](seed=config.SEED)
-            d = self.dir(dataset_id)
-            d.mkdir(parents=True, exist_ok=True)
-            (d / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
-            # P10: written as Parquet with the types the engine read the sample's CSV with (what every run so far saw)
-            written = FIO.roundtrip(df, None)
-            self.write_frame_version(written, name=spec["name"], filename=spec["filename"], source="sample", note=spec["note"],
-                                     target=sidecar["label_column"], kind=spec.get("kind"), version_id=dataset_id,
-                                     by="system:samples")
-            stamp.write_text(fp)
-            made.append(dataset_id)
-        for dataset_id, spec in SAMPLES_P12.items():  # P12: multi-table samples
-            fp = _generator_fingerprint(spec["generate"])
-            stamp = self.dir(dataset_id) / ".generator"
-            if self.db.get_dataset(dataset_id):
-                if not (stamp.exists() and stamp.read_text().strip() == fp):
-                    log.info("multi-table sample %s: its generator changed; the version in use is kept as it is", dataset_id)
-                continue
-            try:
-                self._write_multi_sample(dataset_id, spec)
-            except Exception:  # noqa: BLE001 - never fail startup over a sample
-                log.exception("multi-table sample %s could not be written", dataset_id)
-                continue
-            stamp.write_text(fp)
-            made.append(dataset_id)
-        return made
-
-    def _write_multi_sample(self, dataset_id: str, spec: dict[str, Any]) -> dict[str, Any]:
-        """P12: a sample of several tables as one Parquet version: each table written with the types its CSV read
-        gives (as the single-table samples), the keys and relations of its sidecar declared."""
-        from .lake import derive as LD
-        from .lake.store import open_store
-        from .lake.writer import VersionWriter
-
-        tables, sidecar = spec["generate"](seed=config.SEED)
-        d = self.dir(dataset_id)
-        d.mkdir(parents=True, exist_ok=True)
-        (d / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
-        label = sidecar["label_column"]
-        who = "system:samples"
-        w = VersionWriter(self.db, open_store(self.settings), version_id=dataset_id, op="sample", by=who, name=spec["name"],
-                          primary_table=sidecar["primary_table"], reason=spec["note"][:500])
-        with w:
-            for name, df in tables.items():
-                written = FIO.roundtrip(df, None).reset_index(drop=True)
-                LD.write_frame(w, name, written, np.arange(len(written), dtype="int64"), {}, {},
-                               source_file=f"{spec['filename']}#{name}")
-            for t, cols in sidecar["keys"].items():
-                w.key(t, cols, declared_by=who)
-            for r in sidecar["relations"]:
-                w.relation(r["name"], r["from"]["table"], r["from"]["columns"], r["to"]["table"], r["to"]["columns"],
-                           cardinality=r["cardinality"], declared_by=who)
-            w.commit(target=label, kind="tabular", note=spec["note"])
-        rec = self.finish_lake_version(dataset_id, target=label, by=who)
-        profile = {**rec["profile"], "target_source": "given"}
-        rec = {**rec, "name": spec["name"], "filename": spec["filename"], "source": "sample", "note": spec["note"],
-               "profile": profile}
-        self.db.insert_dataset({k: rec[k] for k in ("id", "name", "filename", "source", "note", "created_at", "size_bytes",
-                                                     "rows", "target", "kind", "profile")})
-        return rec
-
-    def _sample_in_use(self, dataset_id: str) -> bool:
-        with self.db.connect() as con:
-            return bool(con.execute("SELECT 1 FROM lineage_edges WHERE src_kind = 'dataset' AND src_id = ? AND relation IN"
-                                    " ('trained_on', 'derived_from') LIMIT 1", (dataset_id,)).fetchone())
-
-    def _sample_as_version(self, dataset_id: str, spec: dict[str, Any], fp: str) -> list[str]:
-        """DL3 (m7): the regenerated sample as a new version of the one in use. P07: rows are matched by the Matcher
-        with an explicit method (P06), never guessed: the parent's confirmed key when it has one, else exact row hash,
-        and the method is recorded."""
-        import pyarrow as pa
-
-        from .dataset_versions import Matcher
-        from .lake import duck
-        from .lake.derive import ParentRows
-        from .lake.store import open_store
-
-        df, sidecar = spec["generate"](seed=config.SEED)
-        df = FIO.roundtrip(df, None)  # as the engine reads it back
-        lake = open_store(self.settings)
-        pr = ParentRows(self.db, lake, self, dataset_id)
-        p = pr.p
-        method = {"method": "declared", "columns": p.declared[0]} if getattr(p, "declared", None) else {"method": "row_hash"}
-        with duck.job() as con:
-            p.attach(con)
-            nf = df.reset_index(drop=True).copy()
-            nf.insert(0, "__fr", np.arange(len(nf), dtype="int64"))
-            con.register("_sample_new", pa.Table.from_pandas(nf, preserve_index=False))
-            mt = Matcher(con, p.sql, "SELECT * FROM _sample_new", p.holdout_ids, getattr(p, "declared", None))
-            sim = mt.simulate(method)
-            mt.materialise(method, "_m")
-            pairs = con.execute("SELECT __fr, pid FROM _m").fetchall()
-            checks = mt.contract((self.db.get_dataset(dataset_id) or {}).get("target"))
-        pos_of = {int(r): i for i, r in enumerate(pr.ids.tolist())}
-        rmap = np.full(len(df), -1, dtype=int)
-        for fr, pid in pairs:
-            rmap[int(fr)] = pos_of.get(int(pid), -1)
-        match = {"method": method["method"], **({"columns": method["columns"]} if method.get("columns") else {}),
-                 "matched_by": sim.get("label"), "confirmed_by": "system:sample generator",
-                 **{k: sim.get(k) for k in ("matched", "changed", "added", "removed", "holdout_identity_lost")}}
-        rec = self.derive(dataset_id, df, None, "sample_regenerated",
-                          [{"op": "rows_changed", "n": match["changed"]}, {"op": "rows_added", "n": match["added"]},
-                           {"op": "rows_removed", "n": match["removed"]}],
-                          name=spec["name"], note=f"The sample's generator changed ({fp}): its new rows, as a new version (the version "
-                                                  "runs trained on is kept as it was)",
-                          extra={"kind": "sample_regenerated", "generator": fp, "matched_by": match["matched_by"],
-                                 "matched": match["matched"], "changed": match["changed"], "added": match["added"],
-                                 "removed": match["removed"], "checks": {"warnings": checks["warnings"]}, "match": match},
-                          by="system:sample generator", row_map=rmap, new_holdout_share=config.HOLDOUT_SHARE,
-                          reason="the sample generator changed", dedupe=True, ops_record={"match": match})
-        if not rec.get("deduplicated"):
-            (self.dir(rec["id"]) / spec["sidecar"]).write_text(json.dumps(sidecar, indent=1))
-        (self.dir(dataset_id) / ".generator").write_text(fp)
-        log.info("sample %s is in use: the regenerated rows are version %s", dataset_id, rec["id"])
-        return [rec["id"]]
 
     def create_version(self, parent_id: str, df: pd.DataFrame, splits: dict[str, Any], *, name: str, note: str,
                        lineage: dict[str, Any], op: str | None = None, schema: dict[str, Any] | None = None,

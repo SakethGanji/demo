@@ -32,7 +32,7 @@ function Formula() {
  * stress scenarios. Registry → Results shows the same view.
  */
 export const EL_SPEC: KindSpec = {
-  id: 'expected_loss', title: 'Expected Loss', testId: 'el', defaultDataset: 'loan-losses', mockWhat: 'expected loss trains three AutoGluon models',
+  id: 'expected_loss', title: 'Expected Loss', testId: 'el',
   sub: 'PD × LGD × EAD per loan: three AutoGluon models, checked against the realised loss, with stress scenarios.',
   detect: flows.el.detect, create: (b) => flows.el.create(b as never),
   roles: ([['pd_column', 'default flag y (PD target)', 'pd'], ['lgd_column', 'loss given default, 0–1', 'lgd'], ['ead_column', 'exposure at default', 'ead']] as const).map(([key, label, urlParam]) => (

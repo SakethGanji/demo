@@ -58,7 +58,7 @@ export function DataStep({ body, set, setBody, ds, onDataset, onLoadRun }: StepP
     <div className="stack">
       <div className="card"><div className="card-head"><h2 className="card-title">Dataset</h2><span className="helper" style={{ fontSize: 12 }}>holdout rows fixed per dataset</span></div>
         <div className="card-body">
-          <Row label="Dataset" sub="a sample or an upload from New Model">
+          <Row label="Dataset" sub="an upload from Build">
             <select className="select" value={body.dataset_id} onChange={(e) => onDataset(e.target.value)} data-testid="gym-dataset">
               {list.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.rows.toLocaleString()} × {d.n_cols}</option>)}
             </select>

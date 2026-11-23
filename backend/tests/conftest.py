@@ -1,7 +1,8 @@
 """Tests talk to a real uvicorn process over HTTP, exactly as the UI does (through /api).
 
-Each test session gets its own data folder, so the samples are generated from scratch and nothing
-touches backend/data. `api_server` can be restarted on the same folder to test recovery.
+Each test session gets its own data folder, so nothing touches backend/data. The app ships no data: tests upload
+their own seeded datasets (tests/seed_data.py; the `*_ds` fixtures below upload each once per session).
+`api_server` can be restarted on the same folder to test recovery.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+from .seed_data import generate_churn, generate_credit, generate_loan_amount, generate_tickets, upload_frame
 
 BACKEND = Path(__file__).resolve().parent.parent
 
@@ -90,6 +93,32 @@ def client(api_server: ApiServer):
 @pytest.fixture(scope="session")
 def data_dir(api_server: ApiServer) -> Path:
     return api_server.data_dir
+
+
+# -- seeded datasets (uploaded once per session) ------------------------------
+
+@pytest.fixture(scope="session")
+def tickets_ds(client) -> dict:
+    """Text, six classes (target `category`), 20,000 rows."""
+    return upload_frame(client, generate_tickets(), "support_tickets.csv", target="category")
+
+
+@pytest.fixture(scope="session")
+def churn_ds(client) -> dict:
+    """Tabular, two classes (target `churned`, "Yes"/"No"), 10,000 rows."""
+    return upload_frame(client, generate_churn(), "account_churn.csv", target="churned")
+
+
+@pytest.fixture(scope="session")
+def credit_ds(client) -> dict:
+    """Tabular, two classes (target `defaulted`, ~8 % "Yes"), 12,000 rows with customer ids and dates."""
+    return upload_frame(client, generate_credit(), "credit_default.csv", target="defaulted")
+
+
+@pytest.fixture(scope="session")
+def loan_amount_ds(client) -> dict:
+    """Regression (target `loan_amount_usd`, 40 rows without a label), 8,000 rows."""
+    return upload_frame(client, generate_loan_amount(), "loan_amount.csv", target="loan_amount_usd")
 
 
 # -- runs ---------------------------------------------------------------------

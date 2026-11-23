@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { holds as holdsApi, teamsApi, type Team } from '@/shared/api/governance'
 import { gc, purges, retention, RT_CATEGORIES, RT_KEYS, RT_WHAT, type GcArmed, type GcPlan, type GcRun, type Periods, type PurgeRow, type RtCategory, type RtItem, type RtPlan, type RtRun } from '@/shared/api/lifecycle'
 import { useApi } from '@/shared/api/mode'
+import { ApiOffline } from '@/shared/components/Status'
 import { useCan, why } from '@/shared/hooks/useCan'
 import { useTeam } from '@/shared/lib/team'
 import { PurgeDetail, lifecycleLine, useTeamNames } from '@/shared/components/PurgeDetail'
@@ -22,7 +23,7 @@ export function LifecycleSection() {
   useEffect(() => { if (mode === 'live' && actor) teamsApi.list(true).then(setAll).catch(() => setAll([])) }, [mode, actor])
   const choices = all.filter((t) => t.state !== 'archived')
   const t = choices.find((x) => x.id === sel) ?? choices.find((x) => x.id === current?.id) ?? choices.find((x) => x.my_role) ?? choices[0] ?? null
-  if (mode !== 'live') return <div className="card card-body helper" data-testid="settings-lifecycle">Retention, GC and purge live in the API: switch to live mode.</div>
+  if (mode !== 'live') return <ApiOffline inline />
   if (!actor) return <div className="card card-body helper" data-testid="settings-lifecycle">Type your name in the sidebar first.</div>
   return (
     <div className="stack" style={{ gap: 'var(--space-12)' }} data-testid="settings-lifecycle">

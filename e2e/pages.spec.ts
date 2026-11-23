@@ -1,4 +1,4 @@
-// Every page opens and renders without console errors, in both live and mock mode (one project each).
+// Every page opens against the live API and renders without console errors, even on an empty data folder.
 import { ROUTES, apiMode, expect, open, test } from './fixtures'
 
 const TITLES: Record<string, string> = {
@@ -7,10 +7,10 @@ const TITLES: Record<string, string> = {
 }
 
 for (const route of ROUTES) {
-  test(`${route} renders without console errors`, async ({ page, errors }, info) => {
+  test(`${route} renders without console errors`, async ({ page, errors }) => {
     await open(page, route)
     await expect(page).toHaveTitle(`Project ENSEMBLE · ${TITLES[route]}`)
-    await expect(apiMode(page)).toHaveAttribute('data-mode', info.project.name)
+    await expect(apiMode(page)).toHaveAttribute('data-mode', 'live')
     const text = await page.locator('.workspace').innerText()
     expect(text.trim().length).toBeGreaterThan(40)
     await page.waitForTimeout(500) // let effects and the first animation frames run

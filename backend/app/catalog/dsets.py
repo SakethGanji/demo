@@ -302,7 +302,7 @@ def history(app, dataset_id: str) -> dict[str, Any]:
     for r in rows:
         e = edges.get(r["id"]) or {}
         lin = lineage_meta(store, r["id"])  # P08: never the row maps
-        r["created_by"] = r["created_by"] or e.get("actor") or ("system" if r["source"] == "sample" else None)
+        r["created_by"] = r["created_by"] or e.get("actor")
         r["changes"] = {k: lin.get(k) for k in ("matched_by", "matched", "changed", "added", "removed", "rows_before", "rows_after",
                                                 "relabelled", "dropped", "synthetic") if lin.get(k) is not None}
         r["n_changes"] = (e.get("meta") or {}).get("n_changes")
@@ -1095,9 +1095,8 @@ def match_upload(app, filename: str, content: bytes) -> dict[str, Any]:
                           "target": tgt, "rows": r["rows"], "score": round(0.6 * jac + 0.25 * same_target + 0.15 * name_sim, 3),
                           "columns_in_common": len(inter), "columns_added": sorted(cols[c] for c in set(cols) - set(pn)),
                           "columns_removed": sorted(pn[c] for c in set(pn) - set(cols)), "same_target": same_target,
-                          "name_similarity": round(name_sim, 2), "sample": r["source"] == "sample", "reasons": reasons})
-    # an upload of the user's own data matches their datasets before a built-in sample with the same columns
-    cands.sort(key=lambda c: (c["score"] - (0.05 if c["sample"] else 0)), reverse=True)
+                          "name_similarity": round(name_sim, 2), "reasons": reasons})
+    cands.sort(key=lambda c: c["score"], reverse=True)
     return {"filename": filename, "rows": int(len(df)), "columns": [str(c) for c in df.columns],
             "match": cands[0] if cands else None, "others": cands[1:4],
             "note": "nothing was written; send the file to POST /api/datasets/{version_id}/versions to add it as the next version, "

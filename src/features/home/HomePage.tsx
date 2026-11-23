@@ -1,46 +1,11 @@
-import { useEffect, useState } from 'react'
 import wordmark from '@/shared/assets/ensemble-wordmark-on-shell.svg'
-import { LineChart, type Series } from '@/shared/components/LineChart'
-import { PlotFrame } from '@/shared/components/PlotFrame'
-import { RunString, type RunState } from '@/shared/components/RunString'
 import { StringField } from '@/shared/components/StringField'
-import { LOG_LINES } from '@/shared/data/runs'
-import { curve } from '@/shared/lib/random'
 import { Icon } from '@/shared/primitives/Icon'
-import { ParamChip } from '@/shared/primitives/ParamChip'
-import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import { StatusPill } from '@/shared/primitives/StatusPill'
 import { useApi } from '@/shared/api/mode'
 import { FirstRunLive, LiveHeroRead, LiveHome } from './LiveHome'
 
-const TRAIN = curve(40, 1.2, 0.24, 0.12, 0.03, 7)
-
-const VAL = curve(40, 1.25, 0.29, 0.1, 0.04, 11)
-
 export function HomePage({ go, openPalette }: { go: (r: string) => void; openPalette: () => void }) {
-  const { mode, status } = useApi()
-  const live = mode === 'live'
-  const [n, setN] = useState(14)
-  const [logN, setLogN] = useState(5)
-  useEffect(() => {
-    const t = setInterval(() => {
-      setN((v) => (v >= 40 ? 14 : v + 1))
-      setLogN((v) => (v >= LOG_LINES.length ? 5 : v + 1))
-    }, 900)
-    return () => clearInterval(t)
-  }, [])
-  const series: Series[] = [
-    { name: 'Train loss', color: 'var(--viz-a)', data: TRAIN.slice(0, n) },
-    { name: 'Validation loss', color: 'var(--viz-c)', dash: '6 4', data: VAL.slice(0, n) },
-  ]
-  const sim = 0.42 + ((n - 14) / 26) * 0.5
-  const strings: RunState[] = [
-    { id: 'run_8a10', label: 'TF-IDF → LogReg (OvR)', status: 'Training', progress: sim, readout: `fold ${Math.min(5, Math.floor(sim * 5) + 1)} of 5 · 06m 12s` },
-    { id: 'run_894a', label: 'TF-IDF → LogReg (OvR)', status: 'Completed', progress: 1, readout: 'F1: 0.914 ± 0.006' },
-    { id: 'run_8931', label: 'TF-IDF → SVD → GBM', status: 'Completed', progress: 1, readout: 'F1: 0.902 ± 0.009' },
-    { id: 'run_88f7', label: 'Tokenize → DistilBERT', status: 'Failed', progress: 0.47, readout: 'CUDA OOM · fold 3' },
-    { id: 'run_8b02', label: 'Counts → MultinomialNB', status: 'Queued', progress: 0, readout: 'position 1 · gym-default' },
-  ]
+  const { status } = useApi()
 
   return (
     <div className="page">
@@ -50,9 +15,7 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
             <span className="hero-eyebrow">PROJECT</span>
             <img src={wordmark} alt="ENSEMBLE" height={36} />
           </div>
-          {live ? <LiveHeroRead /> : <div className="hero-read" data-testid="home-read-sim">
-            <span className="pill warning">SIMULATED</span><span><b>1</b> run on the strings</span><span><b>v2.4.1</b> in Production</span><span>best F1: <b>0.914 ± 0.006</b></span>
-          </div>}
+          <LiveHeroRead />
         </div>
         <StringField height={104} />
         <div className="hero-bottom">
@@ -69,47 +32,9 @@ export function HomePage({ go, openPalette }: { go: (r: string) => void; openPal
         </div>
       </section>
 
-      {live && status && status.runs === 0 && <FirstRunLive go={go} />}
+      {status && status.runs === 0 && <FirstRunLive go={go} />}
 
-      {live ? <LiveHome go={go} /> : <>
-      <div className="bench-head">
-        <h2 className="bench-title">On the Strings</h2><span className="pill warning" data-testid="home-simulated">SIMULATED</span>
-        <span className="helper">Each run is one string. Frets are folds, the node is progress, a wave means it is computing.</span>
-        <span className="spacer" />
-        <button className="btn sm" onClick={() => go('models')}>Open String Plot →</button>
-      </div>
-      <div className="card run-strings">
-        {strings.map((r) => <RunString key={r.id} run={r} onClick={() => go('models')} />)}
-      </div>
-
-      <div className="grid two">
-        <div className="stack">
-          <PlotFrame
-            title="Training Monitor"
-            right={<><span className="mono" style={{ fontSize: 12.5 }}>run_8a10</span><ResonanceWave width={56} height={14} /></>}
-            chips={<><ParamChip sym="C" value="2.0" /><ParamChip sym="k" value="5" /><ParamChip sym="seed" value="42" /></>}
-            legend={series}
-            caption={<span>Cross-entropy <span className="math" style={{ fontSize: 14 }}>ℒ = −Σ y log ŷ</span> per epoch <span className="math" style={{ fontSize: 14 }}>t</span></span>}
-          >
-            <LineChart series={series} xMax={40} yMin={0} yMax={1.4} yTicks={[0, 0.35, 0.7, 1.05, 1.4]} xTicks={[0, 10, 20, 30, 40]} xTitle="t" yTitle="ℒ" fmtY={(v) => v.toFixed(2)} live height={196} />
-          </PlotFrame>
-        </div>
-        <div className="stack">
-          <div className="card">
-            <div className="card-head">
-              <div className="left"><h3 className="card-title">Live Log</h3><span className="mono" style={{ fontSize: 12.5 }}>run_8a10</span></div>
-              <StatusPill status="info">Streaming</StatusPill>
-            </div>
-            <div className="card-body">
-              <div className="log-panel" aria-live="polite">
-                {LOG_LINES.slice(0, logN).map(([c, l], i) => <div key={i} className={c}>{l}</div>)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      </>}
+      <LiveHome go={go} />
     </div>
   )
 }

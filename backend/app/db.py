@@ -228,12 +228,10 @@ class Database:
             return int(con.execute("SELECT count(*) FROM datasets").fetchone()[0])
 
     def list_datasets_page(self, *, limit: int, after: str | None = None, include_hidden: bool = False,
-                           pinned: list[str] | None = None, project_id: str | None = None, root_id: str | None = None) -> dict[str, Any]:
-        """P08: one page of the dataset list in the list's order (the pinned samples in their order, then the rest by
-        created_at, id), by keyset: `after` is the previous page's `next_after` (an opaque cursor). The ordering and
-        the count use the covering index ix_datasets_list (state, created_at, id), so no row's profile is read except
-        the page's own n_cols / n_classes."""
-        pinned = list(pinned or [])
+                           project_id: str | None = None, root_id: str | None = None) -> dict[str, Any]:
+        """P08: one page of the dataset list in the list's order (created_at, id), by keyset: `after` is the previous
+        page's `next_after` (an opaque cursor). The ordering and the count use the covering index ix_datasets_list
+        (state, created_at, id), so no row's profile is read except the page's own n_cols / n_classes."""
         where, params = ["1=1"], []
         if not include_hidden:
             where.append("state IS NULL")
@@ -244,27 +242,20 @@ class Database:
             where.append("(id = ? OR root_id = ?)")
             params += [root_id, root_id]
         w = " AND ".join(where)
-        cur: list[Any] = ["p", -1]
+        cur: list[Any] | None = None
         if after:
             try:
                 cur = json.loads(after)
-                assert isinstance(cur, list) and cur and cur[0] in ("p", "r")
+                assert isinstance(cur, list) and len(cur) == 3 and cur[0] == "r"
             except (ValueError, AssertionError):
-                cur = ["p", -1]
-        keys: list[tuple[str, list[Any]]] = []  # (id, cursor)
+                cur = None
+        kc, kp = "", []
+        if cur:
+            kc, kp = " AND (created_at > ? OR (created_at = ? AND id > ?))", [cur[1], cur[1], cur[2]]
         with self.connect() as con:
-            if cur[0] == "p" and pinned:
-                have = {r[0] for r in con.execute(f"SELECT id FROM datasets WHERE {w} AND id IN ({','.join('?' * len(pinned))})",
-                                                  [*params, *pinned])}
-                keys = [(x, ["p", i]) for i, x in enumerate(pinned) if x in have and i > int(cur[1])][:limit + 1]
-            if len(keys) <= limit:
-                pin = f" AND id NOT IN ({','.join('?' * len(pinned))})" if pinned else ""
-                kc, kp = "", []
-                if cur[0] == "r":
-                    kc, kp = " AND (created_at > ? OR (created_at = ? AND id > ?))", [cur[1], cur[1], cur[2]]
-                rest = con.execute(f"SELECT id, created_at FROM datasets WHERE {w}{pin}{kc} ORDER BY created_at, id LIMIT ?",
-                                   [*params, *pinned, *kp, limit + 1 - len(keys)]).fetchall()
-                keys += [(r[0], ["r", r[1], r[0]]) for r in rest]
+            rest = con.execute(f"SELECT id, created_at FROM datasets WHERE {w}{kc} ORDER BY created_at, id LIMIT ?",
+                               [*params, *kp, limit + 1]).fetchall()
+            keys = [(r[0], ["r", r[1], r[0]]) for r in rest]
             more = len(keys) > limit
             keys = keys[:limit]
             got = {r["id"]: r for r in con.execute(f"SELECT {LIGHT_COLS} FROM datasets WHERE id IN ({','.join('?' * len(keys))})",

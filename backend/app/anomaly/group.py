@@ -20,12 +20,9 @@ import pandas as pd
 AMOUNT_HINT = ("amount", "amt", "value", "spend", "balance", "price", "sum", "total")
 
 
-def suggest(df: pd.DataFrame, types: dict[str, str], spec: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Entity, time and relative columns: the sample's spec, else a repeated ID-like column (2 ≤ mean group size ≤
-    n/5), a column that parses as datetimes, and amount-like numeric columns."""
-    if spec and spec.get("entity_column"):
-        return {"entity_column": spec["entity_column"], "time_column": spec.get("time_column"),
-                "relative_columns": spec.get("relative_columns") or [], "source": "the sample's spec"}
+def suggest(df: pd.DataFrame, types: dict[str, str]) -> dict[str, Any]:
+    """Entity, time and relative columns: a repeated ID-like column (2 ≤ mean group size ≤ n/5), a column that parses
+    as datetimes, and amount-like numeric columns."""
     n = len(df)
     ent = None
     for c in df.columns:

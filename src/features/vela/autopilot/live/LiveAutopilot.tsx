@@ -5,7 +5,7 @@ import { StatusPill } from '@/shared/primitives/StatusPill'
 import { DataChanges } from '../components/DataChanges'
 import { IterationString } from '../components/IterationString'
 import { Gauge } from '../components/RequirementGauge'
-import type { Step } from '../run'
+import type { Step } from '../steps'
 import { LiveBrief } from './LiveBrief'
 import { LiveInbox } from './LiveInbox'
 import { LiveDecisionLog, RequirementMath, StepsTable } from './panels'
@@ -32,12 +32,12 @@ function toString(a: Autopilot): { steps: Step[]; total: number } {
   const ib = a.inbox
   for (const s of a.steps) {
     if ((s.status === 'running' && s.kind !== 'final') || s.status === 'interrupted') continue
-    const base = { id: s.id, short: s.kind === 'final' ? (a.verdict?.met ? 'Met' : 'Not met') : SHORT[s.kind] ?? s.kind, title: s.title, finding: '', ms: 0 }
+    const base = { id: s.id, short: s.kind === 'final' ? (a.verdict?.met ? 'Met' : 'Not met') : SHORT[s.kind] ?? s.kind, title: s.title }
     if (s.status === 'dropped') out.push({ ...base, kind: 'branch', tried: { f1: s.score ?? 0, rec: 0, lat: 0 } })
     else out.push({ ...base, kind: 'step', after: { f1: s.run_id ? s.score ?? 0 : s.kind === 'final' ? a.verdict?.score ?? 0 : 0, rec: 0, lat: 0 } })
     if (s.kind === 'audit' && ib && ib.n_items > 0) {
       const answered = !!(ib.submitted || ib.applied)
-      out.push({ id: `${s.id}-ask`, kind: 'ask', short: 'Inbox', title: 'Ground-Truth Inbox', finding: '', ms: 0,
+      out.push({ id: `${s.id}-ask`, kind: 'ask', short: 'Inbox', title: 'Ground-Truth Inbox',
         answer: answered ? 'answered' : undefined, auto: a.brief.autonomy === 'auto' })
     }
   }

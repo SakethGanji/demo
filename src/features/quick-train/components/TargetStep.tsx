@@ -3,7 +3,7 @@ import { api } from '@/shared/api/client'
 import type { DatasetSplits } from '@/shared/api/types'
 import { ParamChip } from '@/shared/primitives/ParamChip'
 import { StatusPill } from '@/shared/primitives/StatusPill'
-import { fromServer, type Dataset } from '../datasets'
+import { fromServer, type Dataset } from '../dataset'
 import { SplitCard } from './SplitCard'
 import { RangeCard } from './RangeCard'
 import { useWidth } from '@/shared/hooks/useWidth'
@@ -14,8 +14,8 @@ const TYPE_LABEL: Record<ColType, string> = { number: 'number', category: 'categ
 const AG_RAW: Record<ColType, string> = { number: 'float', category: 'object', text: 'object', id: '—' }
 
 /** Step 2: which column to predict, what kind of problem that is, and how each column is read (AutoGluon feature_metadata). */
-/** Is y = label confirmed for this server dataset? (Mock datasets have no server split: nothing to confirm.) */
-export const targetConfirmed = (ds: Dataset, label: string) => !ds.id || (ds.target === label && ds.profile?.target_source !== 'guessed')
+/** Is y = label confirmed for this dataset (its holdout drawn on the server)? */
+export const targetConfirmed = (ds: Dataset, label: string) => !!ds.id && ds.target === label && ds.profile?.target_source !== 'guessed'
 
 export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choices; set: (p: Partial<Choices>) => void; onConfirmed?: (d: Dataset) => void }) {
   const inferred = inferTask(ds, ch.label)
@@ -26,7 +26,6 @@ export function TargetStep({ ds, ch, set, onConfirmed }: { ds: Dataset; ch: Choi
   const K = classes.length
   const unique = col?.unique ?? K
   const allowed: Task[] = unique === 2 ? ['binary', 'multiclass'] : col?.type === 'number' ? (unique <= 50 ? ['multiclass', 'regression'] : ['regression']) : ['multiclass']
-  if (!ds.profile) allowed.splice(0, allowed.length, ...(K === 2 ? ['binary', 'multiclass'] as Task[] : K > 2 ? ['multiclass'] as Task[] : ['regression'] as Task[]))
   const maxShare = Math.max(...classes.map((c) => c.share), 1e-4)
   const minShare = Math.min(...classes.map((c) => c.share), 1)
   const options = labelOptions(ds)

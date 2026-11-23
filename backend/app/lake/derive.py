@@ -1,7 +1,7 @@
 """P07 (plan §5.5, §6.5 R-D): the `derive()` contract's pandas adapter.
 
-Data Doctor, Feature Lab, Autopilot, relabel, active learning, anomaly review, shift weights, annotations and the
-sample generator hand `DatasetStore.derive()` a pandas frame plus, per row, its position in the parent (or -1 for a new
+Data Doctor, Feature Lab, Autopilot, relabel, active learning, anomaly review, shift weights, and annotations
+hand `DatasetStore.derive()` a pandas frame plus, per row, its position in the parent (or -1 for a new
 row). This module turns that into a Parquet table for the VersionWriter:
 
 * **Row ids.** A kept row keeps the parent's `__row_id` (the parent's ids in read order, `__row_id` order for a Parquet

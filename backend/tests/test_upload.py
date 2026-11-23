@@ -8,7 +8,8 @@ import json
 import pandas as pd
 import pytest
 
-from .test_samples import SUMMARY_FIELDS
+SUMMARY_FIELDS = {"id", "name", "filename", "source", "note", "created_at", "size_bytes", "rows", "n_cols", "kind", "target",
+                  "n_classes", "flows"}  # the flows a dataset can feed (tabular / forecast / anomaly)
 
 PROFILE_FIELDS = {
     "rows", "n_cols", "kind", "target", "suggested_target", "label_candidates", "columns", "classes", "n_classes",
@@ -56,7 +57,7 @@ def test_upload_returns_full_profile(uploaded):
     d, df = uploaded
     assert set(d) == SUMMARY_FIELDS | {"profile"}
     assert d["id"].startswith("ds_") and d["name"] == "my_reviews" and d["filename"] == "my_reviews.csv"
-    assert d["source"] == "upload" and d["sample"] is False and d["note"] == "Uploaded file"
+    assert d["source"] == "upload" and "sample" not in d and d["note"] == "Uploaded file"
     assert d["rows"] == 62 and d["n_cols"] == 6 and d["kind"] == "text" and d["target"] == "label" and d["n_classes"] == 3
     assert d["size_bytes"] == len(make_csv()[0])
 
@@ -119,7 +120,7 @@ def test_uploaded_dataset_is_listed_and_fetchable(client, uploaded):
     d = uploaded[0]
     listed = client.get("/api/datasets").json()["datasets"]
     assert d["id"] in [x["id"] for x in listed]
-    assert [x["source"] for x in listed[:2]] == ["sample", "sample"]
+    assert all(x["source"] == "upload" for x in listed)  # the app ships no datasets of its own
     got = client.get(f"/api/datasets/{d['id']}")
     assert got.status_code == 200 and got.json() == d
 

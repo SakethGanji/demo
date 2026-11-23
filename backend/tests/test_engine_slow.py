@@ -1,4 +1,4 @@
-"""Slow tier for the engine: every sample trains over HTTP above a score floor, bagging gives fold spreads and
+"""Slow tier for the engine: each seeded dataset (tests/seed_data.py) trains over HTTP above a score floor, bagging gives fold spreads and
 out-of-fold predictions, and the same data and config give the same leaderboard as raw AutoGluon."""
 
 from __future__ import annotations
@@ -17,18 +17,18 @@ pytestmark = pytest.mark.slow
 
 HP = {"GBM": {"num_boost_round": 200}, "LR": {}, "RF": {"n_estimators": 100}}
 
-# dataset, request, (holdout metric, floor). Floors sit a little under what these configs score (seed 42 data).
-SAMPLES = [
-    ("support-tickets", {"fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 200}}}}, ("accuracy", 0.935)),
-    ("account-churn", {"eval_metric": "roc_auc", "fit_kwargs": {"hyperparameters": HP}}, ("roc_auc", 0.73)),
-    ("credit-default", {"eval_metric": "roc_auc", "fit_kwargs": {"hyperparameters": HP}}, ("roc_auc", 0.75)),
-    ("loan-amount", {"fit_kwargs": {"hyperparameters": HP}}, ("r2", 0.70)),
+# dataset fixture, request, (holdout metric, floor). Floors sit a little under what these configs score (seed 42 data).
+DATASETS = [
+    ("tickets_ds", {"fit_kwargs": {"hyperparameters": {"GBM": {"num_boost_round": 200}}}}, ("accuracy", 0.935)),
+    ("churn_ds", {"eval_metric": "roc_auc", "fit_kwargs": {"hyperparameters": HP}}, ("roc_auc", 0.73)),
+    ("credit_ds", {"eval_metric": "roc_auc", "fit_kwargs": {"hyperparameters": HP}}, ("roc_auc", 0.75)),
+    ("loan_amount_ds", {"fit_kwargs": {"hyperparameters": HP}}, ("r2", 0.70)),
 ]
 
 
-@pytest.mark.parametrize("dataset_id, body, floor", SAMPLES, ids=[s[0] for s in SAMPLES])
-def test_every_sample_trains(client, dataset_id, body, floor):
-    run = start_run(client, dataset_id=dataset_id, time_limit=600, **body)
+@pytest.mark.parametrize("fixture, body, floor", DATASETS, ids=[s[0] for s in DATASETS])
+def test_every_dataset_trains(client, request, fixture, body, floor):
+    run = start_run(client, dataset_id=request.getfixturevalue(fixture)["id"], time_limit=600, **body)
     events = read_sse(client, f"/api/runs/{run['id']}/events")
     assert events[-1]["event"] == "run_succeeded", events[-1]
     run = wait_for_run(client, run["id"])
@@ -41,7 +41,7 @@ def test_every_sample_trains(client, dataset_id, body, floor):
     assert math.isclose(sum(run["ensemble"]["weights"].values()), 1, abs_tol=1e-9)
     assert run["feature_importance"] and run["feature_importance"][0]["importance"] > 0
 
-    if dataset_id == "support-tickets":  # text: the custom TF-IDF models train and explain themselves
+    if fixture == "tickets_ds":  # text: the custom TF-IDF models train and explain themselves
         assert run["problem_type"] == "multiclass"
         fams = {r["family"] for r in lb}
         assert {"TFIDF_LR", "TFIDF_SVM", "GBM", "ENS_WEIGHTED"} <= fams
@@ -56,13 +56,13 @@ def test_every_sample_trains(client, dataset_id, body, floor):
             assert top & {"invoice", "refund", "charged", "billed", "subscription", "payment", "receipt"}, top
         tfidf_scores = [r["score_test"] for r in lb if r["family"] in ("TFIDF_LR", "TFIDF_SVM")]
         assert min(tfidf_scores) >= 0.89
-    if dataset_id == "loan-amount":
+    if fixture == "loan_amount_ds":
         assert run["problem_type"] == "regression"
         assert run["data"]["dropped_missing_label"] == 40
         assert run["eval_metric"] == {**run["eval_metric"], "name": "root_mean_squared_error", "greater_is_better": False}
         assert run["holdout"]["metrics"]["root_mean_squared_error"] < 6800
         assert all(r["score_test_natural"] == pytest.approx(-r["score_test"]) for r in lb)
-    if dataset_id in ("account-churn", "credit-default"):
+    if fixture in ("churn_ds", "credit_ds"):
         assert run["problem_type"] == "binary" and run["positive_class"] == "Yes"
 
     # Predict a few holdout rows through the API.
@@ -74,8 +74,8 @@ def test_every_sample_trains(client, dataset_id, body, floor):
     assert len(r.json()["predictions"]) == 5
 
 
-def test_bagging_gives_fold_scores_and_oof(client):
-    run = start_run(client, dataset_id="credit-default", eval_metric="roc_auc", time_limit=600, feature_importance=False,
+def test_bagging_gives_fold_scores_and_oof(client, credit_ds):
+    run = start_run(client, dataset_id=credit_ds["id"], eval_metric="roc_auc", time_limit=600, feature_importance=False,
                     fit_kwargs={"hyperparameters": {"GBM": {"num_boost_round": 100}, "LR": {}}, "num_bag_folds": 5})
     events = read_sse(client, f"/api/runs/{run['id']}/events")
     run = wait_for_run(client, run["id"])
@@ -120,12 +120,12 @@ def _compare(api_lb, raw_lb, tol=1e-6):
         assert api[m]["stack_level"] == raw[m]["stack_level"]
 
 
-def test_parity_with_raw_autogluon(client, tmp_path):
+def test_parity_with_raw_autogluon(client, credit_ds, tmp_path):
     """Same data, same config: the API's leaderboard equals TabularPredictor's, model for model."""
     from autogluon.tabular import TabularPredictor
 
     hp = {"GBM": {"num_boost_round": 100}, "RF": {"n_estimators": 50}, "LR": {}}
-    run = start_run(client, dataset_id="credit-default", eval_metric="roc_auc", time_limit=None,
+    run = start_run(client, dataset_id=credit_ds["id"], eval_metric="roc_auc", time_limit=None,
                     presets="medium_quality", feature_importance=False, fit_kwargs={"hyperparameters": hp})
     run = wait_for_run(client, run["id"])
     assert run["status"] == "succeeded", run["error"]
@@ -141,12 +141,12 @@ def test_parity_with_raw_autogluon(client, tmp_path):
     assert loaded.evaluate(holdout, silent=True)["roc_auc"] == pytest.approx(run["holdout"]["scores"]["roc_auc"], abs=1e-9)
 
 
-def test_parity_text_run_from_resolved_config(client, tmp_path):
+def test_parity_text_run_from_resolved_config(client, tickets_ds, tmp_path):
     """A text run (custom TF-IDF models added) is reproduced exactly by its recorded `resolved` call."""
     import ensemble_models  # noqa: F401 — registers TFIDF_LR and TFIDF_SVM
     from autogluon.tabular import TabularPredictor
 
-    run = start_run(client, dataset_id="support-tickets", time_limit=None, feature_importance=False,
+    run = start_run(client, dataset_id=tickets_ds["id"], time_limit=None, feature_importance=False,
                     fit_kwargs={"hyperparameters": {"GBM": {"num_boost_round": 50}}})
     run = wait_for_run(client, run["id"])
     assert run["status"] == "succeeded", run["error"]

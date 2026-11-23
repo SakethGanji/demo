@@ -105,7 +105,7 @@ export function RunList({ go }: { go: (r: string) => void }) {
       <EmptyState testId="exp-empty" title="No runs yet"
         actions={<><button className="btn primary" onClick={() => go('build')}>Build →</button> <button className="btn" onClick={() => go('build?view=data')} data-testid="exp-empty-data">Data</button></>}>
         <p>Each run becomes one row with its own metric s on held-out data, its parameters and its fit time; tabular runs on the same dataset and label are drawn as strings across parallel coordinates, compared side by side (ROC, PR, residuals, Δ on the same holdout) and diffed down to the exact <span className="mono">TabularPredictor(...).fit(...)</span> arguments.</p>
-        <p>Six samples are ready: support tickets (text, 6 classes), account churn and credit default (binary, imbalanced), loan amount (regression), transaction volume (forecasting) and card transactions (anomalies).</p>
+        <p>Upload a table in Build to start: it shows what each column is for and what you can train from it.</p>
       </EmptyState>
     </div>
   )
@@ -192,7 +192,7 @@ export function RunList({ go }: { go: (r: string) => void }) {
             </tbody>
           </table></div>
           <p className="helper" style={{ fontSize: 12, padding: 'var(--space-8) var(--space-16) var(--space-12)' }}>
-            s = the run's own metric in its natural units. Tabular: AutoGluon <span className="mono">eval_metric</span> on the fixed holdout rows no model trained on; val = AutoGluon's validation (tuning split or out-of-fold) for the best model. Forecast: the eval metric on the last H steps of every series (holdout) and on the backtest windows (val). Anomaly: ROC AUC of the isolation score s against the planted anomalies (sample only; the model never reads them), else rows flagged at s ≥ s*. ↑ higher is better, ↓ lower. t = decision threshold (binary); s* = anomaly threshold, the (1 − c) quantile of s. τ = time budget. Click rows to select them; Compare and Parameter Diff use the tabular runs.
+            s = the run's own metric in its natural units. Tabular: AutoGluon <span className="mono">eval_metric</span> on the fixed holdout rows no model trained on; val = AutoGluon's validation (tuning split or out-of-fold) for the best model. Forecast: the eval metric on the last H steps of every series (holdout) and on the backtest windows (val). Anomaly: the number of rows flagged at s ≥ s*. ↑ higher is better, ↓ lower. t = decision threshold (binary); s* = anomaly threshold, the (1 − c) quantile of s. τ = time budget. Click rows to select them; Compare and Parameter Diff use the tabular runs.
           </p>
         </div>
         <RunCoordinates runs={shown.filter(tabularLike)} selected={sel} onToggle={toggle} />

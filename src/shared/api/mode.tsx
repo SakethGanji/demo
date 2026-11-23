@@ -1,17 +1,17 @@
-// Live or mock: the app talks to the API when /api/health answers, and falls back to its in-browser simulation when it doesn't.
+// Live or offline: the app talks to the API when /api/health answers; when it doesn't, pages say so and the health check keeps retrying.
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { api } from './client'
 import type { ApiStatus, Health } from './types'
 
-export type ApiMode = 'checking' | 'live' | 'mock'
+export type ApiMode = 'checking' | 'live' | 'offline'
 
 /** `status` (live only): the machine, versions, the active run and the queue, polled every 3 s. */
 type ApiState = { mode: ApiMode; health: Health | null; status: ApiStatus | null; recheck: () => void }
 
-const ApiContext = createContext<ApiState>({ mode: 'mock', health: null, status: null, recheck: () => {} })
+const ApiContext = createContext<ApiState>({ mode: 'checking', health: null, status: null, recheck: () => {} })
 
-/** Polls the health endpoint: every 5 s while in mock mode (so starting the API flips the UI to live), every 20 s while live. */
+/** Polls the health endpoint: every 5 s while offline (so starting the API brings the UI up), every 20 s while live. */
 export function ApiProvider({ children }: { children: ReactNode }) {
   const [health, setHealth] = useState<Health | null>(null)
   const [mode, setMode] = useState<ApiMode>('checking')
@@ -23,7 +23,7 @@ export function ApiProvider({ children }: { children: ReactNode }) {
     let alive = true
     api.health()
       .then((h) => { if (alive) { setHealth(h); setMode('live') } })
-      .catch(() => { if (alive) { setHealth(null); setMode('mock') } })
+      .catch(() => { if (alive) { setHealth(null); setMode('offline') } })
     return () => { alive = false }
   }, [tick])
 

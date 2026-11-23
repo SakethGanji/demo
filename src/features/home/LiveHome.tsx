@@ -91,7 +91,7 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
               const h = headline(r)
               return <tr key={r.id} onClick={() => go(runPage(r))} style={{ cursor: 'pointer' }} title={h.note}>
                 <td className="bt-name" title={r.name}>{r.name}<small className="bt-kind">{problemLine(r)}</small></td><td className="mono muted bt-model" title={r.best_model ?? ''}>{r.best_model}</td>
-                <td className="r mono bt-score"><span className="muted">{kindOf(r) === 'anomaly' ? 'AUC' : metricInfo(h.label)?.name ?? h.label} {h.dir}</span> <b>{h.text}</b></td></tr>
+                <td className="r mono bt-score"><span className="muted">{metricInfo(h.label)?.name ?? h.label} {h.dir}</span> <b>{h.text}</b></td></tr>
             })}</tbody></table> : <p className="helper card-body">Nothing finished yet: the best holdout score per dataset and label appears here.</p>}
           </div>
           <div className="card" data-testid="home-registry">
@@ -117,38 +117,32 @@ export function LiveHome({ go }: { go: (r: string) => void }) {
   )
 }
 
-/** First run: no runs yet. The samples on this API; each opens in Build, which finds what it suits (G0 Smart Intake). */
-function FirstRun({ datasets, go }: { datasets: DatasetSummary[]; go: (r: string) => void }) {
-  const samples = datasets.filter((d) => d.sample)
+/** First run: no runs yet. The datasets already uploaded open in Build, which finds what each suits (G0 Smart Intake);
+ *  with none, the panel asks for an upload. Home shows it above the toolkit while there are no runs. */
+export function FirstRunLive({ go }: { go: (r: string) => void }) {
+  const [datasets, setDatasets] = useState<DatasetSummary[] | null>(null)
+  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => setDatasets([])) }, [])
   return (
     <div className="card first-run" data-testid="home-first-run">
       <div className="fr-head">
         <div>
-          <b className="fr-title">No runs yet. Start with a sample.</b>
-          <p className="helper">Every sample is generated with a fixed seed on this machine. Pick one: Build shows what each column is for and what you can build from it, pre-filled. The run then appears on these strings, in Models and in Vela.</p>
+          <b className="fr-title">No runs yet.</b>
+          <p className="helper">{datasets?.length ? 'Pick a dataset: Build shows what each column is for and what you can build from it, pre-filled.' : 'Upload a table in Build: it shows what each column is for and what you can build from it.'} The run then appears on these strings, in Models and in Vela.</p>
         </div>
-        <button className="btn primary" onClick={() => go('build')} data-testid="home-first-new-model">Build →</button>
+        <button className="btn primary" onClick={() => go('build')} data-testid="home-first-new-model">{datasets?.length ? 'Build →' : 'Upload data in Build →'}</button>
       </div>
-      <div className="fr-grid">
-        {samples.map((d) => (
-          <button key={d.id} className="fr-card" onClick={() => go(`build?dataset=${d.id}`)} data-testid={`home-sample-${d.id}`}>
+      {!!datasets?.length && <div className="fr-grid">
+        {datasets.map((d) => (
+          <button key={d.id} className="fr-card" onClick={() => go(`build?dataset=${d.id}`)} data-testid={`home-dataset-${d.id}`}>
             <span className="fr-name">{d.name}</span>
             <span className="fr-meta mono">{d.rows.toLocaleString()} rows × {d.n_cols} cols</span>
-            <span className="fr-note">{d.note}</span>
+            {d.note && <span className="fr-note">{d.note}</span>}
             <span className="fr-go">Open in Build →</span>
           </button>
         ))}
-        {!samples.length && <p className="helper">Reading the samples…</p>}
-      </div>
+      </div>}
     </div>
   )
-}
-
-/** The first-run panel with its own sample list (Home shows it above the toolkit while there are no runs). */
-export function FirstRunLive({ go }: { go: (r: string) => void }) {
-  const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  useEffect(() => { api.datasets.list().then(setDatasets).catch(() => {}) }, [])
-  return <FirstRun datasets={datasets} go={go} />
 }
 
 /** The hero's one-line readout in live mode: runs, what is in Production, the best score. */
@@ -167,7 +161,7 @@ export function LiveHeroRead() {
     <div className="hero-read" data-testid="home-read">
       <span><b>{status?.runs ?? 0}</b> runs{status?.active ? <> · <b>1</b> on the strings</> : ''}</span>
       <span><b>{status?.registry?.stages.Production ?? 0}</b> in Production{prod ? <> · <b>{prod.model_name} v{prod.version}</b></> : ''}</span>
-      {best && h && <span title={`${best.id}: ${h.note ?? `holdout ${m}, the metric the run optimised`}`}>latest · {best.name.split(' · ')[0]} · {kindOf(best) === 'anomaly' ? 'AUC' : metricInfo(m)?.name ?? m} <b>{h.text}</b></span>}
+      {best && h && <span title={`${best.id}: ${h.note ?? `holdout ${m}, the metric the run optimised`}`}>latest · {best.name.split(' · ')[0]} · {metricInfo(m)?.name ?? m} <b>{h.text}</b></span>}
     </div>
   )
 }

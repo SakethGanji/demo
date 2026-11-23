@@ -3,7 +3,6 @@ import { MaskBar } from '@/shared/components/MaskBar'
 import type { Unmask } from '@/shared/api/unmask'
 import { api } from '@/shared/api/client'
 import type { AnnItem, Annotations, Run } from '@/shared/api/types'
-import { NumberInput } from '@/shared/primitives/NumberInput'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
 import { StatusPill } from '@/shared/primitives/StatusPill'
 import { fix, pct } from '@/shared/lib/format'
@@ -39,7 +38,6 @@ export function AnnotatorsPanel({ run }: { run: Run }) {
       {an?.status === 'failed' && <div className="card card-body" role="alert"><p className="helper">✕ {an.error}</p></div>}
       {an && ready && <Hero an={an} />}
       {an && ready && <AnnotatorTable an={an} />}
-      {an && ready && an.summary!.truth && <TruthCard an={an} />}
       {an && ready && <Agreement an={an} />}
       {an && ready && <Queue an={an} page={page} setPage={setPage} onChange={reload} />}
       {an && !working && <Load an={an} run={run} onLoaded={(r) => { setPage(0); setAn(r) }} setErr={setErr} />}
@@ -50,22 +48,17 @@ export function AnnotatorsPanel({ run }: { run: Run }) {
 function Hero({ an }: { an: Annotations }) {
   const s = an.summary!
   const fk = s.agreement.fleiss_kappa
-  const t = s.truth
   return <>
     <div className="card navy explain-hero" data-testid="ann-hero">
       <div className="eh-cell lead"><span className="micro-label">agreement · Fleiss' κ</span><b className="mono" data-testid="ann-fleiss">{fix(fk?.value)}</b>
         <small>95% CI {ci(fk?.ci, 3)} · {s.agreement.interpretation} (Landis–Koch) · {nfmt(s.n_rows)} rows × {s.annotations_per_row.mean.toFixed(1)} labels</small></div>
       <div className="eh-cell"><span className="micro-label">least reliable annotator</span><b data-testid="ann-worst">{s.worst_annotator?.name ?? '—'}</b>
-        <small>quality {fix(s.worst_annotator?.quality)}{t?.worst_by_truth ? <> · truth says {t.worst_by_truth.name} ({pct(t.worst_by_truth.accuracy)}) {t.worst_identified ? '✓' : '✕'}</> : null}</small></div>
-      {t ? <div className="eh-cell"><span className="micro-label">consensus vs majority vote · simulated truth</span>
-        <b className="mono" data-testid="ann-acc">{pct(t.accuracy.consensus.accuracy, 2)} vs {pct(t.accuracy.majority_vote.accuracy, 2)}</b>
-        <small>accuracy on {nfmt(t.n)} rows · {t.paired.consensus_right_mv_wrong} fixed, {t.paired.mv_right_consensus_wrong} broken · McNemar p = {t.paired.mcnemar_p.toExponential(1)}</small></div>
-        : <div className="eh-cell"><span className="micro-label">consensus ≠ majority vote</span><b className="mono">{s.consensus.consensus_vs_majority_vote_differ}</b><small>rows ({s.consensus.majority_vote_ties} majority-vote ties)</small></div>}
+        <small>quality {fix(s.worst_annotator?.quality)}</small></div>
+      <div className="eh-cell"><span className="micro-label">consensus ≠ majority vote</span><b className="mono">{s.consensus.consensus_vs_majority_vote_differ}</b><small>rows ({s.consensus.majority_vote_ties} majority-vote ties)</small></div>
       <div className="eh-cell"><span className="micro-label">disagreement queue</span><b className="mono">{nfmt(s.consensus.queue)}</b>
         <small>{s.consensus.disagreements} split votes · {s.consensus.low_quality} with q &lt; {s.consensus.queue_threshold} · {s.consensus.adjudicated} adjudicated</small></div>
     </div>
     <p className="helper" style={{ fontSize: 12.5 }} data-testid="ann-source">
-      {an.simulated ? <><StatusPill status="warning">simulated</StatusPill>{' '}The annotators are the sample's simulation: each label was drawn from the sample's hidden truth with the error profile listed below, so the truth columns can be shown. </> : null}
       p̂(x): {s.probs.note}{s.probs.fit_seconds ? ` in ${s.probs.fit_seconds} s` : ''}; {nfmt(s.probs.n_oof)} training rows out of fold. Only training rows are annotated, scored and relabelled; the holdout is never relabelled.
     </p>
   </>
@@ -79,28 +72,24 @@ function Bar({ v, color = 'var(--viz-a)' }: { v: number | null | undefined; colo
 function AnnotatorTable({ an }: { an: Annotations }) {
   const s = an.summary!
   const rows = [...(an.annotators ?? [])].sort((a, b) => (a.quality ?? 1) - (b.quality ?? 1))
-  const truth = !!s.truth
   return (
     <div className="card" data-testid="ann-annotators">
       <div className="card-head"><div className="left"><h3 className="card-title">Annotators, Least Reliable First</h3>
         <span className="helper" style={{ fontSize: 12 }}>quality, agreement and weight from cleanlab's CROWDLAB; the top confusion is against the consensus, so a systematic bias shows without any truth</span></div></div>
       <div className="card-body" style={{ overflowX: 'auto' }}>
         <table className="table compact">
-          <thead><tr><th>annotator</th><th className="r">labels</th><th>quality q<sub>j</sub></th><th className="r">agrees with ŷ</th><th className="r">weight w<sub>j</sub></th><th className="r">mean κ</th><th>top disagreement<br />consensus → label</th>
-            {truth && <th>accuracy vs truth (simulated)</th>}</tr></thead>
+          <thead><tr><th>annotator</th><th className="r">labels</th><th>quality q<sub>j</sub></th><th className="r">agrees with ŷ</th><th className="r">weight w<sub>j</sub></th><th className="r">mean κ</th><th>top disagreement<br />consensus → label</th></tr></thead>
           <tbody>{rows.map((a) => {
             const worst = s.worst_annotator?.name === a.name
             const tc = a.top_confusion
             return <tr key={a.name} data-testid="ann-row">
-              <td><b>{a.name}</b>{worst && <> <StatusPill status="danger">least reliable</StatusPill></>}
-                {truth && <div className="muted" style={{ fontSize: 11, whiteSpace: 'normal', maxWidth: 260 }}>{a.truth?.profile?.profile ?? 'not simulated (a person in this page)'}</div>}</td>
+              <td><b>{a.name}</b>{worst && <> <StatusPill status="danger">least reliable</StatusPill></>}</td>
               <td className="r mono">{a.n}</td>
               <td className="mono"><Bar v={a.quality} color={worst ? 'var(--status-danger)' : 'var(--viz-a)'} />{fix(a.quality)}</td>
               <td className="r mono">{pct(a.agreement_with_consensus)}</td>
               <td className="r mono">{fix(a.weight)}</td>
               <td className="r mono">{fix(a.kappa_mean)}</td>
               <td style={{ fontSize: 12 }}>{tc ? <><b>{tc.consensus} → {tc.given}</b>{tc.share_of_class > 0.3 ? <> <StatusPill status="warning">systematic?</StatusPill></> : null}<div className="muted" style={{ fontSize: 11 }}>{tc.n} of {tc.of_class_rows} consensus-{tc.consensus} rows ({pct(tc.share_of_class, 0)})</div></> : '—'}</td>
-              {truth && <td className="mono"><Bar v={a.truth?.accuracy} color="var(--viz-b)" />{pct(a.truth?.accuracy)}<div className="muted" style={{ fontSize: 10.5 }}>{ci(a.truth?.ci, 3)}</div></td>}
             </tr>
           })}</tbody>
         </table>
@@ -110,39 +99,6 @@ function AnnotatorTable({ an }: { an: Annotations }) {
           <dt>mean κ</dt><dd>the mean of j's Cohen's κ with every other annotator (pairs below)</dd>
           <dt>least reliable</dt><dd>the lowest q<sub>j</sub> among annotators with ≥ {s.worst_annotator?.min_labels ?? 30} labels</dd>
         </dl>
-      </div>
-    </div>
-  )
-}
-
-function TruthCard({ an }: { an: Annotations }) {
-  const t = an.summary!.truth!
-  const rows: [string, string, typeof t.accuracy.consensus | null][] = [
-    ['CROWDLAB consensus', 'arg max of p̃ (annotators + model)', t.accuracy.consensus],
-    ['final labels', 'consensus, with adjudications over it', t.accuracy.final],
-    ['majority vote', 'the commonest label; ties broken at random', t.accuracy.majority_vote],
-    ["cleanlab's majority vote", 'ties broken by the model', t.accuracy.majority_vote_cleanlab],
-    ['model alone', 'arg max p̂(x), out of fold', t.accuracy.model],
-    ["the dataset's label", 'the label the run trained on', t.accuracy.given],
-  ]
-  return (
-    <div className="card" data-testid="ann-truth">
-      <div className="card-head"><div className="left"><h3 className="card-title">Against the Hidden Truth</h3>
-        <span className="helper" style={{ fontSize: 12 }}>simulated: the sample knows each row's true class ({t.source}); a real upload has no such column</span></div>
-        <StatusPill status="warning">simulated</StatusPill></div>
-      <div className="card-body" style={{ overflowX: 'auto' }}>
-        <table className="table compact">
-          <thead><tr><th>labels</th><th>rule</th><th className="r">accuracy</th><th className="r">95% Wilson CI</th><th className="r">correct of {t.n}</th></tr></thead>
-          <tbody>{rows.map(([k, rule, a]) => a && <tr key={k}><td><b>{k}</b></td><td className="muted" style={{ fontSize: 12 }}>{rule}</td><td className="r mono"><b>{fix(a.accuracy, 4)}</b></td><td className="r mono">{ci(a.ci)}</td><td className="r mono">{a.correct}</td></tr>)}</tbody>
-        </table>
-        <div className="formula" style={{ marginTop: 'var(--space-12)' }}>
-          <div className="eq">b = {t.paired.consensus_right_mv_wrong}, c = {t.paired.mv_right_consensus_wrong} · Δ = (b − c) ⁄ n = <b className="mono">{(t.paired.gain * 100).toFixed(2)} points</b> · P(Bin(b + c, ½) as extreme) = <b className="mono">{t.paired.mcnemar_p.toExponential(2)}</b></div>
-          <dl className="where">
-            <dt>b</dt><dd>rows the consensus gets right and majority vote gets wrong</dd>
-            <dt>c</dt><dd>rows majority vote gets right and the consensus gets wrong</dd>
-            <dt>n</dt><dd>{t.n} annotated rows; the exact McNemar test asks whether b and c differ by more than a fair coin would</dd>
-          </dl>
-        </div>
       </div>
     </div>
   )
@@ -227,7 +183,6 @@ function Queue({ an, page, setPage, onChange }: { an: Annotations; page: number;
     setErr('')
     try { await api.runs.answerAnnotations(an.run_id, [{ row: it.row, action, label: action === 'clear' ? undefined : pick[it.row] ?? it.consensus }], who); onChange() } catch (e) { setErr((e as Error).message) }
   }
-  const simulate = async () => { setBusy(true); try { await api.runs.simulateAdjudication(an.run_id, 50); onChange() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) } }
   const version = async () => { setBusy(true); try { const r = await api.runs.annotationsVersion(an.run_id); setVer(r.dataset_version.id); onChange() } catch (e) { setErr((e as Error).message) } finally { setBusy(false) } }
   const pages = Math.max(1, Math.ceil(q.total / PAGE))
   const st = sel
@@ -263,7 +218,6 @@ function Queue({ an, page, setPage, onChange }: { an: Annotations; page: number;
         {err && <span className="helper" role="alert">✕ {err}</span>}
         {ver && <span className="helper" data-testid="ann-version">✓ dataset version <b className="mono">{ver}</b>: the holdout rows and labels are unchanged</span>}
         <span className="spacer" />
-        {an.simulated && <button className="btn sm" disabled={busy} onClick={simulate} data-testid="ann-simulate" title="Adjudicate the 50 lowest-quality open rows from the hidden truth, as simulated-adjudicator">Adjudicate 50 from Hidden Truth (Simulated)</button>}
         <button className="btn sm primary" disabled={busy} onClick={version} data-testid="ann-make-version">Save Final Labels as a Dataset Version</button>
       </div>
       <div className="table-wrap inbox-scroll">
@@ -304,29 +258,15 @@ function Queue({ an, page, setPage, onChange }: { an: Annotations; page: number;
 
 function Load({ an, run, onLoaded, setErr }: { an: Annotations; run: Run; onLoaded: (a: Annotations) => void; setErr: (s: string) => void }) {
   const [busy, setBusy] = useState(false)
-  const [body, setBody] = useState(an.sample_defaults)
   const [file, setFile] = useState<File | null>(null)
   const [mode, setMode] = useState<'replace' | 'append'>('replace')
   const loaded = an.status !== 'none'
-  const sample = async () => { setBusy(true); setErr(''); try { onLoaded(await api.runs.loadSampleAnnotations(run.id, body)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) } }
   const upload = async () => { if (!file) return; setBusy(true); setErr(''); try { onLoaded(await api.runs.uploadAnnotations(run.id, file, mode)) } catch (e) { setErr((e as Error).message) } finally { setBusy(false) } }
   return (
     <div className="card" data-testid="ann-load">
       <div className="card-head"><div className="left"><h3 className="card-title">{loaded ? 'Load Other Annotations' : 'Who Labelled These Rows, and How Well?'}</h3>
         <span className="helper" style={{ fontSize: 12 }}>several annotators per row → agreement, each annotator's quality, a consensus label with a quality score</span></div></div>
       <div className="card-body stack" style={{ gap: 'var(--space-12)' }}>
-        {an.sample_available && <div className="stack" style={{ gap: 'var(--space-8)' }}>
-          <p className="helper" style={{ fontSize: 12.5 }}><b>The sample's simulated annotators.</b> {body.n_rows.toLocaleString()} training rows of this run, each labelled by {body.per_row} of five people of different quality, every label drawn from the sample's hidden truth:</p>
-          <dl className="where tight">{an.sample_annotators.map((a) => <Fragment key={a.name}><dt>{a.name}</dt><dd>{a.profile}</dd></Fragment>)}</dl>
-          <details className="an-adv"><summary className="micro-label">Advanced · rows, annotators per row, seed</summary>
-            <div className="row" style={{ gap: 'var(--space-16)', flexWrap: 'wrap', marginTop: 'var(--space-8)' }}>
-              <label className="stack" style={{ gap: 4 }}><span className="micro-label">rows</span><NumberInput value={body.n_rows} min={50} max={10000} step={100} onChange={(v) => setBody({ ...body, n_rows: Math.round(v) })} label="Rows" /></label>
-              <label className="stack" style={{ gap: 4 }}><span className="micro-label">annotators per row</span><NumberInput value={body.per_row} min={2} max={5} step={1} onChange={(v) => setBody({ ...body, per_row: Math.round(v) })} label="Per row" /></label>
-              <label className="stack" style={{ gap: 4 }}><span className="micro-label">seed</span><NumberInput value={body.seed} min={0} max={9999} step={1} onChange={(v) => setBody({ ...body, seed: Math.round(v) })} label="Seed" /></label>
-            </div>
-          </details>
-          <div className="row"><button className="btn primary" disabled={busy} onClick={sample} data-testid="ann-sample">{busy ? 'Loading…' : 'Load the Simulated Annotators'}</button></div>
-        </div>}
         <div className="stack" style={{ gap: 'var(--space-8)' }}>
           <p className="helper" style={{ fontSize: 12.5 }}><b>Upload annotations</b>: a CSV in long format, one line per label: the row (<span className="mono">row</span>, the dataset's row number from 0, or an ID column of the dataset such as <span className="mono">ticket_id</span>), <span className="mono">annotator</span> and <span className="mono">label</span>. Holdout rows are left out.</p>
           <div className="row" style={{ gap: 'var(--space-8)', flexWrap: 'wrap' }}>

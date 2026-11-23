@@ -619,7 +619,6 @@ class Pilot:
             f["numeric_columns"], f["category_columns"], oof["classes"], rows, proba, h["rows"]).result(timeout=900)
         out["run_id"] = base["run_id"]
         out["model"] = oof["model"]
-        out["recall"] = self.recall(out["items"])
         out["applied"] = False
         self.st["inbox"] = out
         st = out["stats"]
@@ -632,33 +631,7 @@ class Pilot:
                f"{st['label_issues']} label issues (normalised margin), {st['duplicates']} exact duplicates, "
                f"{st['near_conflicts']} near-duplicate conflicts, {st['outliers']} outliers. "
                f"{len(out['items'])} rows are in your inbox.")
-        r = out["recall"]
-        if r:
-            txt += f" Against the planted errors in label_noise.json: {r['found']}/{r['planted']} found ({r['recall']:.1%}), precision {r['precision']:.1%}."
         self.note(txt)
-
-    def recall(self, items: list[dict[str, Any]]) -> dict[str, Any] | None:
-        """Recall of the planted label flips (sample datasets with label_noise.json), on root rows."""
-        root = self.st["brief"]["dataset_id"]
-        p = self.mgr.app.state.datasets.dir(root) / "label_noise.json"
-        if not p.exists():
-            return None
-        side = json.loads(p.read_text())
-        truth = {int(f["row"]): f["true_label"] for f in side["flipped"]}
-        roots = self._lineage_rows(self.st["inbox_dataset"] if self.st.get("inbox_dataset") else root)
-        lab_items = [it for it in items if it["kind"] in ("label", "conflict")]
-        found = [it for it in lab_items if int(roots[it["row"]]) in truth]
-        right = [it for it in found if it.get("suggested") == truth[int(roots[it["row"]])]]
-        k = len(truth)
-        topk = sorted(lab_items, key=lambda it: it.get("margin", 0))[:k]
-        found_k = sum(int(roots[it["row"]]) in truth for it in topk)
-        answered = [it for it in items if it.get("answer")]
-        fixed = sum(1 for it in answered if int(roots[it["row"]]) in truth and it["answer"] == "relabel"
-                    and it.get("answer_label") == truth[int(roots[it["row"]])])
-        return {"planted": k, "found": len(found), "recall": len(found) / k, "top_k": len(lab_items),
-                "precision": len(found) / max(1, len(lab_items)), "suggestion_correct": len(right),
-                "suggestion_accuracy": len(right) / max(1, len(found)), "recall_at_planted": found_k / k,
-                "fixed": fixed, "source": f"{root}/label_noise.json", "train_flips": None}
 
     def wait_for_inbox(self) -> None:
         ib = self.st["inbox"]
@@ -697,7 +670,6 @@ class Pilot:
         confirmed = sum(1 for it in items if it.get("answer") == "confirm")
         skipped = sum(1 for it in items if it.get("answer") in (None, "skip"))
         s = self.step("apply", "Apply your answers")
-        ib["recall"] = self.recall(items)
         if not relabel and not drop:
             ib["applied"] = True
             self.finish(s, status="skipped", relabelled=0, dropped=0, confirmed=confirmed, skipped=skipped)
@@ -721,7 +693,7 @@ class Pilot:
         new_sp = {**sp, "holdout": sorted(hold), "fold": fold, "derived_from": src}
         df2 = df.loc[keep].reset_index(drop=True)
         n_ver = len(self.st["dataset_versions"]) + 2
-        root_name = self.st["facts"]["dataset_name"].replace(" (sample)", "")
+        root_name = self.st["facts"]["dataset_name"]
         n_rel = sum(1 for c in changes if c["op"] == "relabel")
         lineage = {"version": n_ver, "autopilot": self.aid, "relabelled": n_rel, "dropped": len(drop), "synthetic": 0,
                    "relabelled_holdout": sum(1 for c in changes if c["op"] == "relabel" and c["row"] in set(sp["holdout"]))}
@@ -1085,7 +1057,7 @@ class Pilot:
         k = sp["n_folds"]
         new_sp = {**sp, "fold": list(sp["fold"]) + [i % k for i in range(len(add))], "derived_from": src}
         n_ver = len(self.st["dataset_versions"]) + 2
-        root_name = f["dataset_name"].replace(" (sample)", "")
+        root_name = f["dataset_name"]
         syn_start = len(df)
         rec = self._derived(f"{root_name} · v{n_ver}") or ds.derive(src, df2, None, "autopilot_synthetic",  # P1: every parent row, then synthetic rows (root -1-i)
                         [{"op": "synthetic", "row": syn_start + i, "label": cls} for i in range(len(add))], splits=new_sp,

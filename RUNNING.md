@@ -73,6 +73,8 @@ It lets one person test everything:
 
 Masking, integrity checks, legal holds, acknowledgements and the audit log stay on. **Never set it on a shared deployment.**
 
+A fresh install starts empty: there are no built-in demo datasets. Upload your own data, or use the files in `try-data/`.
+
 ## 5. Try it
 
 Use the test data in `try-data/`. `try-data/TRY.md` has the 15-minute walkthrough, including the LLM SQL query and prompt template.
@@ -115,7 +117,7 @@ Ports: `make dev API_PORT=8001 UI_PORT=5191` if 8000 or 5190 is taken.
 
 ## 7. Troubleshooting
 
-- **The UI says "mock mode · API offline".** The API isn't up yet or crashed. Look at the terminal, or open `curl localhost:8000/api/health`.
+- **The UI says "API offline".** The API isn't up yet or crashed. Look at the terminal, or open `curl localhost:8000/api/health`.
 - **`make setup` fails on scipy/numpy.** Use `PYTHON=python3.12`.
 - **Postgres not found by `make dev-pg`.** Install Postgres 16 and make sure `pg_ctl` is on PATH.
 - **Start fresh.** Stop the app, then `rm -rf backend/data` (SQLite), or `make dev-pg-stop && rm -rf ~/.ensemble/pg`.
@@ -133,7 +135,7 @@ Start Claude Code in the cloned repository, on branch `motion-components`, and p
 Working rules used so far:
 - Commit on `motion-components`; pull with merge, never rebase or force; no PRs unless asked.
 - Verify by running the real flow through the API, plus `npm run build` for UI changes.
-- Never edit `backend/app/samples*.py`. Never commit credentials.
+- Never commit credentials.
 
 ### Known gaps, as of this commit
 

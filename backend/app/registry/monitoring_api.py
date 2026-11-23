@@ -5,8 +5,6 @@ PUT  /registry/models/{name}/monitoring                thresholds, the challenge
 POST /registry/batches/{bid}/labels                    a later label file for a scored batch, keyed by an id column
 GET  /registry/versions/{vid}/monitoring/retrain       the proposal: a run on the recent labelled window with the champion's config
 POST /registry/versions/{vid}/monitoring/retrain       launch it (a click; never automatic)
-GET  /monitoring/stream                                the simulated 12-month stream (sample loan-stream)
-POST /registry/versions/{vid}/monitoring/stream        feed one month of it: score the month, deliver the labels now due
 """
 
 from __future__ import annotations
@@ -24,14 +22,13 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import config, frames
-from ..authz import path, public, require# P19
+from ..authz import path, require  # P19
 from ..http import batch_or_404, version_or_404
 from . import monitoring as M
 from .scoring import read_batch
 from .store import RegistryStore
 
 router = APIRouter(prefix="/api", tags=["monitoring"])
-STREAM_DATASET = "loan-stream"
 
 
 def _reg(request: Request) -> RegistryStore:
@@ -356,15 +353,10 @@ def monitoring_state(request: Request, vid: str) -> dict[str, Any]:
                       "promote": {"review": f"/api/registry/versions/{ch['id']}/review",
                                   "transition": f"/api/registry/versions/{ch['id']}/transition"}}
     summ = M.summarize_alerts(points)
-    stream = None
-    if run.get("dataset_id") == STREAM_DATASET:
-        fed = sorted({int(b["filename"].split("_m")[-1].split(".")[0]) for b in reg.list_batches(vid)
-                      if b["filename"].startswith("stream_") and "_m" in b["filename"]})
-        stream = {"dataset": STREAM_DATASET, "fed_months": fed, "next_month": next((m for m in range(1, 13) if m not in fed), None)}
     return {"schema": "monitoring/1", "version_id": vid, "label": _label(v), "stage": v["stage"], "model": v["model_name"],
             "run_id": v["run_id"], "problem_type": (run.get("result") or {}).get("problem_type"), "config": cfg,
             "rules": M.THRESHOLD_RULES, "baseline": baseline, "points": points, "running": running, "alerts": summ,
-            "challenger": challenger, "stream": stream,
+            "challenger": challenger,
             "retrain": {"endpoint": f"/api/registry/versions/{vid}/monitoring/retrain",
                         # A3 M6: a unit change (kind "feed") is fixed at the feed, never a reason to retrain
                         "suggested": bool([a for a in summ["active"] if a["kind"] != "feed" and not a.get("explained_by")]
@@ -573,74 +565,3 @@ def _window_dataset(request: Request, v: dict[str, Any], run: dict[str, Any], pr
                                     hints={c: "text" for c in df.attrs.get("kept_as_text") or []},
                                     note=f"Monitoring window of {_label(v)} · {prop['window']['start']} … {prop['window']['end']}")
     return request.app.state.db.get_dataset(rec["id"])
-
-
-# --------------------------------------------------------------------------- the simulated stream
-
-
-@router.get("/monitoring/stream", dependencies=[public("the bundled loan-stream sample's simulation spec")])
-def stream_spec(request: Request) -> dict[str, Any]:
-    """The simulated 12-month stream behind the loan-stream sample: months, label arrival dates, what drifts when."""
-    sc = request.app.state.datasets.sidecar(STREAM_DATASET, "stream_truth.json")
-    if not sc:
-        raise HTTPException(404, "The loan-stream sample is missing (make reset regenerates the samples).")
-    return {"dataset": STREAM_DATASET, **sc["stream"], "id_column": sc["id_column"], "date_column": sc["date_column"]}
-
-
-class StreamFeed(BaseModel):
-    month: int = Field(..., ge=1, le=12)
-    actor: str
-    deliver_labels: bool = Field(True, description="Also attach every label file due by the end of this month.")
-
-
-@router.post("/registry/versions/{vid}/monitoring/stream", status_code=202, dependencies=[require("model.use", path("vid", "model_version"))])
-async def feed_stream(vid: str, body: StreamFeed, request: Request) -> dict[str, Any]:
-    """Feed month m of the simulated stream to this version: the month's applications are scored as a batch dated the
-    month's last day; then each earlier month's labels whose arrival date (end of month + 3) is on or before that day
-    are attached to its batch. Labels of a batch still scoring are delivered on the next feed."""
-    from ..samples_f18 import label_delivery, stream_month
-    from .api import submit_batch
-
-    v = _version(request, vid)
-    if v["status"] != "ready":
-        raise HTTPException(409, f"Version {vid} is {v['status']}.")
-    run = request.app.state.runs.get(v["run_id"]) or {}
-    if run.get("dataset_id") != STREAM_DATASET:
-        raise HTTPException(400, f"The stream feeds versions trained on the {STREAM_DATASET} sample.")
-    actor = (body.actor or "").strip()
-    if not actor:
-        raise HTTPException(400, "actor is required.")
-    reg = _reg(request)
-    mine = {b["filename"]: b for b in reg.list_batches(vid)}
-    fname = f"stream_{_month_label(body.month)}_m{body.month:02d}.csv"
-    if fname in mine:
-        raise HTTPException(409, f"Month {body.month} was already fed to this version ({mine[fname]['id']}).")
-    x, _, info = await run_in_threadpool(stream_month, body.month, config.SEED)
-    b = submit_batch(request, v, x.to_csv(index=False).encode(), fname, actor, info["end"])
-    delivered, pending = [], []
-    if body.deliver_labels:
-        asof = date.fromisoformat(info["end"])
-        for m in range(1, body.month):
-            fn = f"stream_{_month_label(m)}_m{m:02d}.csv"
-            pb = mine.get(fn)
-            if not pb or label_delivery(m) > asof:
-                continue
-            if (pb.get("result") or {}).get("labels"):
-                continue
-            if pb["status"] != "succeeded":
-                pending.append({"month": m, "batch_id": pb["id"], "status": pb["status"]})
-                continue
-            _, lab, linfo = await run_in_threadpool(stream_month, m, config.SEED)
-            r = await attach(request, pb, lab.to_csv(index=False).encode(), actor, "application_id", "defaulted",
-                             linfo["labels_arrive"])
-            delivered.append({"month": m, "batch_id": pb["id"], "label_date": linfo["labels_arrive"],
-                              "lag_days": r["labels"].get("lag_days"), "n": r["labels"]["n_joined"]})
-    return {"month": body.month, "period": info["label"], "batch": b, "data_date": info["end"],
-            "labels_delivered": delivered, "labels_pending": pending,
-            "labels_due": {"month": body.month, "arrive": info["labels_arrive"]}}
-
-
-def _month_label(m: int) -> str:
-    from ..samples_f18 import _month
-
-    return _month(m)[0].strftime("%Y-%m")

@@ -188,16 +188,15 @@ def test_export_reproduces_the_run(client, tiny_run, tmp_path):
 
 
 @pytest.mark.slow
-def test_export_reproduces_post_fit_steps_and_text_models(client, data_dir, tmp_path):
+def test_export_reproduces_post_fit_steps_and_text_models(client, tickets_ds, tmp_path):
     """A text run (custom TF-IDF models), with pseudo-labelling on unlabeled rows and distillation after the fit:
     the exported script gives the same leaderboard, model for model."""
-    import pandas as pd
+    from .seed_data import generate_tickets
 
-    ds = client.get("/api/datasets/support-tickets").json()
-    df = pd.read_csv(data_dir / "datasets" / "support-tickets" / "data.csv").sample(300, random_state=4).drop(columns=[ds["target"]])
+    df = generate_tickets(n=2_000, seed=4).sample(300, random_state=4).drop(columns=["category"])
     u = client.post("/api/datasets", files={"file": ("tickets_unlabeled.csv", df.to_csv(index=False).encode(), "text/csv")}).json()
     # budgets far from binding: a step cut short by its time limit is not reproducible to the last model
-    run = start_run(client, dataset_id="support-tickets", time_limit=600, feature_importance=False,
+    run = start_run(client, dataset_id=tickets_ds["id"], time_limit=600, feature_importance=False,
                     fit_kwargs={"hyperparameters": {"GBM": {"num_boost_round": 40}}},
                     pseudolabel={"dataset_id": u["id"], "method": "fit_pseudolabel", "max_iter": 1},
                     distill={"time_limit": 600, "hyperparameters": {"GBM": {"num_boost_round": 20}}})

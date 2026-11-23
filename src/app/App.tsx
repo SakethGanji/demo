@@ -12,16 +12,14 @@ import { MultilabelPage } from '@/features/multilabel/MultilabelPage'
 import { ImportPage } from '@/features/import/ImportPage'
 import { HomePage } from '@/features/home/HomePage'
 import { QuickTrainPage } from '@/features/quick-train/QuickTrainPage'
-import { RegistryPage } from '@/features/registry/RegistryPage'
+import { LiveRegistry } from '@/features/registry/LiveRegistry'
 import { SettingsPage } from '@/features/settings/SettingsPage'
-import { TrainingGymPage } from '@/features/training-gym/TrainingGymPage'
-import { DEFAULTS, type Params } from '@/features/training-gym/params'
+import { LiveGym } from '@/features/training-gym/live/LiveGym'
 import { EMPTY_GYM, type GymState, applyChanges } from '@/features/training-gym/live/body'
 import type { VelaFinding } from '@/shared/api/types'
 import { VelaSidecar } from '@/features/vela/VelaSidecar'
-import type { Patch } from '@/features/vela/components/PatchCard'
 import { ApiProvider } from '@/shared/api/mode'
-import { MEAN_RECALL } from '@/shared/data/runs'
+import { ApiOnly } from '@/shared/components/Status'
 import { PrefsContext, loadPrefs, savePrefs, type Prefs } from '@/shared/lib/prefs'
 import { FULL_HEIGHT, TITLES, readRoute, type Route } from './routes'
 import { CommandPalette } from './shell/CommandPalette'
@@ -37,7 +35,6 @@ export default function App() {
   const [vela, setVela] = useState(prefs.velaOpen === 'Open' && window.innerWidth >= 1600)
   const [guided, setGuided] = useState(prefs.mode === 'Guided')
   useEffect(() => setGuided(prefs.mode === 'Guided'), [prefs.mode])
-  const [params, setParams] = useState<Params>(DEFAULTS)
   // The live Gym's config (the exact POST /api/runs body), kept here so Vela's patches can change it from any page.
   const [gym, setGym] = useState<GymState>(EMPTY_GYM)
   const applyVela = (runId: string, f: VelaFinding) => {
@@ -48,7 +45,6 @@ export default function App() {
     location.hash = '#/gym'
   }
   const [palette, setPalette] = useState(false)
-  const [approved, setApproved] = useState(false) // kept here so the Registry remembers it while you look at other pages
   useEffect(() => { document.title = `Project ENSEMBLE · ${TITLES[route]}` }, [route])
 
   useEffect(() => { const f = () => setRoute(readRoute()); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f) }, [])
@@ -61,21 +57,6 @@ export default function App() {
   }, [])
   const go = (r: string) => { location.hash = `#/${r}` }
 
-  const patches: Patch[] = [
-    {
-      id: 'cw', title: 'Rebalance Classes',
-      finding: <>Recall on Security is <b>0.84</b> (lower than <b>{MEAN_RECALL.toFixed(2)}</b> average), often confused with Technical. Weighting classes by inverse frequency should lift it.</>,
-      from: "class_weight=None", to: "class_weight='balanced'",
-      apply: () => setParams((p) => ({ ...p, classWeight: 'balanced' })), applied: params.classWeight === 'balanced',
-    },
-    {
-      id: 'c', title: 'Tune Regularization',
-      finding: <>Validation F1 is still rising at <span className="math">C</span> = 1.0. At <span className="math">C</span> = 2.0 you gain <b>Δ +0.004</b> macro F1 for 1.3× fit time.</>,
-      from: 'C=1.0', to: 'C=2.0',
-      apply: () => setParams((p) => ({ ...p, C: 2 })), applied: params.C === 2,
-    },
-  ]
-
   return (
     <ApiProvider>
     <PrefsContext.Provider value={{ prefs, set: setPref }}>
@@ -86,29 +67,30 @@ export default function App() {
       <div className="main">
         <ContextBar route={route} velaOpen={vela} onPalette={() => setPalette(true)} onVela={() => setVela(!vela)} />
         <main className="workspace" style={FULL_HEIGHT.includes(route) ? { overflow: 'hidden' } : undefined}>
-          {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
-          {route === 'build' && <BuildPage go={go} />}
-          {route === 'quick-train' && <QuickTrainPage go={go} />}
-          {route === 'vela' && <VelaPage go={go} />}
-          {route === 'gym' && <TrainingGymPage params={params} setParams={setParams} guided={guided} setGuided={setGuided} onStart={() => go('quick-train?start')} onAutopilot={() => go('vela?mode=auto')} gym={gym} setGym={setGym} go={go} />}
-          {route === 'models' && <ModelsPage go={go} onApplyPatch={(rid, p) => applyVela(rid, { patch: p } as unknown as VelaFinding)} />}
-          {route === 'registry' && <RegistryPage go={go} approved={approved} onApprove={() => setApproved(true)} />}
-          {route === 'settings' && <SettingsPage />}
-          {route === 'forecast' && <ForecastPage go={go} />}
-          {route === 'anomaly' && <AnomalyPage go={go} />}
-          {route === 'import' && <ImportPage />}
-          {route === 'expected-loss' && <ExpectedLossPage go={go} />}
-          {route === 'segmented' && <SegmentedPage go={go} />}
-          {route === 'survival' && <SurvivalPage go={go} />}
-          {route === 'reject-inference' && <RejectInferencePage go={go} />}
-          {route === 'multilabel' && <MultilabelPage go={go} />}
+          {route === 'settings' ? <SettingsPage /> : <ApiOnly>
+            {route === 'home' && <HomePage go={go} openPalette={() => setPalette(true)} />}
+            {route === 'build' && <BuildPage go={go} />}
+            {route === 'quick-train' && <QuickTrainPage />}
+            {route === 'vela' && <VelaPage go={go} />}
+            {route === 'gym' && <LiveGym gym={gym} setGym={setGym} guided={guided} setGuided={setGuided} go={go} />}
+            {route === 'models' && <ModelsPage go={go} onApplyPatch={(rid, p) => applyVela(rid, { patch: p } as unknown as VelaFinding)} />}
+            {route === 'registry' && <LiveRegistry go={go} />}
+            {route === 'forecast' && <ForecastPage go={go} />}
+            {route === 'anomaly' && <AnomalyPage />}
+            {route === 'import' && <ImportPage />}
+            {route === 'expected-loss' && <ExpectedLossPage go={go} />}
+            {route === 'segmented' && <SegmentedPage go={go} />}
+            {route === 'survival' && <SurvivalPage go={go} />}
+            {route === 'reject-inference' && <RejectInferencePage go={go} />}
+            {route === 'multilabel' && <MultilabelPage go={go} />}
+          </ApiOnly>}
         </main>
       </div>
 
-      <VelaSidecar open={vela} context={route === 'gym' ? 'Training Gym · Step 07' : TITLES[route]} patches={patches} onClose={() => setVela(false)}
+      <VelaSidecar open={vela} onClose={() => setVela(false)}
         preferredRun={route === 'gym' ? gym.fromRun : null} appliedKey={gym.patch && gym.fromRun ? `${gym.fromRun}:${gym.patch.id}` : null} onApplyLive={applyVela} />
     </div>
-    <StatusBar params={params} />
+    <StatusBar />
     {palette && <CommandPalette onClose={() => setPalette(false)} go={go} />}
     </div>
     </PrefsContext.Provider>

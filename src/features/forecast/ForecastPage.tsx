@@ -12,27 +12,15 @@ import { FAMILY_COLOR, LiveModels, Register } from '@/shared/components/FlowPart
 import { FanChart, fmtNum } from './components/FanChart'
 import { fix, pct } from '@/shared/lib/format'
 import { useHashParam } from '@/shared/hooks/useHashParam'
-import { ApiOnly, ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { ErrorCard, HeroCell, Loading } from '@/shared/components/Status'
+import { EmptyState } from '@/shared/components/EmptyState'
 
 
 /** New Forecast: AutoGluon's TimeSeriesPredictor on long-format data (item, time, target, covariates), live, with the
  *  leaderboard, the ensemble, backtest windows, per-series errors and the quantile fan. Every number is the API's. */
 export function ForecastPage({ go }: { go: (r: string) => void }) {
-  return (
-    <ApiOnly mock={(
-    <div className="page"><div className="page-head"><div><h1 className="page-title">New Forecast</h1><p className="helper sub">AutoGluon TimeSeriesPredictor on the API.</p></div></div>
-      <div className="card card-body" data-testid="forecast-mock"><p className="helper">▲ mock mode: the API is offline, so nothing can be forecast. Start it with <span className="mono">make dev</span>; this page then fits TimeSeriesPredictor live on the transaction-volume sample or your CSV.</p></div></div>
-    )}>
-      <ForecastSetup go={go} />
-    </ApiOnly>
-  )
-}
-
-// --------------------------------------------------------------------------- setup
-
-function ForecastSetup({ go }: { go: (r: string) => void }) {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([])
-  const [dsId, setDsId] = useState(useHashParam('dataset') ?? 'transaction-volume')  // G0: Build opens ?dataset=
+  const [dsId, setDsId] = useState(useHashParam('dataset') ?? '')  // G0: Build opens ?dataset=; else the first table
   const [ds, setDs] = useState<DatasetDetail | null>(null)
   const [map, setMap] = useState<FcMapping | null>(null)
   const [mapSrc, setMapSrc] = useState('')
@@ -43,7 +31,10 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
   const [cfg, setCfg] = useState({ H: 28, metric: 'MASE', presets: 'medium_quality', tau: 300, quantiles: '0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9', windows: null as number | null, freq: '', fitKwargs: '{}', hp: '', ensemble: 'both' as FcEnsembleKind, conformal: true, scope: 'pooled' as 'pooled' | 'item' })
 
   useEffect(() => {
-    api.datasets.list().then(setDatasets).catch((e) => setErr(e.message))
+    api.datasets.list().then((list) => {
+      setDatasets(list)
+      setDsId((id) => id || ([...list].sort((a, b) => Number(b.kind === 'timeseries') - Number(a.kind === 'timeseries'))[0]?.id ?? ''))
+    }).catch((e) => setErr(e.message))
     flows.forecast.options().then((o) => setOpts(o)).catch(() => {})
   }, [])
   useEffect(() => {
@@ -86,6 +77,14 @@ function ForecastSetup({ go }: { go: (r: string) => void }) {
     try { const r = await flows.forecast.create(body); location.hash = `#/models?run=${r.id}` } catch (e) { setErr((e as Error).message) } finally { setBusy(false) }
   }
   const tsDatasets = [...datasets].sort((a, b) => Number(b.kind === 'timeseries') - Number(a.kind === 'timeseries'))
+  if (!dsId && !err) return (
+    <div className="page forecast" data-testid="forecast-setup">
+      <div className="page-head"><div><h1 className="page-title">New Forecast</h1></div></div>
+      <EmptyState title="No data yet" testId="fc-empty" actions={<a className="btn primary" href="#/build">Upload data in Build →</a>}>
+        Upload a long-format table (one row per series and time step) in Build, then come back to forecast it.
+      </EmptyState>
+    </div>
+  )
 
   return (
     <div className="page forecast" data-testid="forecast-setup">

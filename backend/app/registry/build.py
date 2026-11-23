@@ -828,8 +828,7 @@ def build_other(db_path: str, version_id: str, registry_dir: str) -> dict[str, A
                    "single_ms_p95": _pct(single, 95), "batch_rows": len(df)}
             best = "IsolationForest"
             a = res.get("anomaly") or {}
-            holdout = {"threshold": a.get("threshold"), "contamination": a.get("contamination"),
-                       **({f"precision@{r['k']}": r["precision"] for r in ((a.get("truth") or {}).get("precision_at_k") or [])})}
+            holdout = {"threshold": a.get("threshold"), "contamination": a.get("contamination")}
             problem = "anomaly"
             metric = "isolation score"
         step("measure", "done", seconds=time.time() - t0)

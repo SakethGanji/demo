@@ -9,7 +9,6 @@ Per run: annotations live in `runs/<id>/annotations/`:
 - `probs.npz` + `probs.json`: the class probabilities p̂(x) of every training row, out of fold. The run's own OOF
   predictions when it was bagged; otherwise a quick bagged fit of the run's call (F12's prepare_fit / fit_predictor,
   `num_bag_folds = 5`, one GBM plus the run's text models) in its own process: `python -m app.engine.annotations <run_dir>`.
-- `truth.json`: the sample only: the hidden true label of each annotated row and the simulated annotators' profiles.
 
 Only training rows are annotated, scored and relabelled: the run's holdout is never relabelled.
 """
@@ -32,7 +31,6 @@ import pandas as pd
 
 from .. import frames
 from ..splits import holdout_mask
-from ..stats import wilson
 from .jsonsafe import read_json, write_json
 
 log = logging.getLogger("ensemble.annotations")
@@ -41,21 +39,6 @@ SCHEMA = "annotations/1"
 QUEUE_THRESHOLD = 0.5  # a row whose consensus quality score is below this joins the queue even if everyone agreed
 BOOT = 1000
 MIN_RATED = 30  # an annotator with fewer labels is shown but not ranked as the worst
-
-# The sample's simulated annotators. `kind` = how their mistakes are made:
-#   confusable: the wrong label is one of the true class's two look-alikes (samples.CONFUSABLE), as a tired expert errs
-#   uniform:    any other class at random (careless)
-#   swap:       systematic: a class pair is swapped with probability `p_swap`; otherwise right with `accuracy`
-SAMPLE_ANNOTATORS = [
-    {"name": "ana", "kind": "confusable", "accuracy": 0.96, "profile": "careful expert"},
-    {"name": "ben", "kind": "confusable", "accuracy": 0.90, "profile": "experienced"},
-    {"name": "chen", "kind": "confusable", "accuracy": 0.82, "profile": "new starter"},
-    {"name": "dara", "kind": "uniform", "accuracy": 0.55, "profile": "careless: a wrong label is any class at random"},
-    {"name": "eli", "kind": "swap", "accuracy": 0.97, "pair": ["Billing", "Account"], "p_swap": 0.6,
-     "profile": "systematically biased: labels Billing as Account and Account as Billing 60 % of the time"},
-]
-SAMPLE_DEFAULTS = {"n_rows": 1500, "per_row": 3, "seed": 14}
-
 
 def ann_dir(run_dir: Path | str) -> Path:
     return Path(run_dir) / "annotations"
@@ -92,10 +75,6 @@ def write_adjudications(run_dir: Path, adj: dict[str, Any]) -> None:
     write_json(ann_dir(run_dir) / "adjudications.json", adj)
 
 
-def read_truth(run_dir: Path) -> dict[str, Any] | None:
-    return read_json(ann_dir(run_dir) / "truth.json")
-
-
 def read_probs(run_dir: Path) -> tuple[dict[str, Any], np.ndarray] | None:
     d = ann_dir(run_dir)
     meta = read_json(d / "probs.json")
@@ -119,65 +98,6 @@ def split_rows(cfg: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
     structured = bool(sp.get("params"))
     bad = is_hold | ((fold == -2) | (fold == -3) if structured else np.zeros(len(fold), dtype=bool))
     return np.flatnonzero(~bad), np.sort(hold)
-
-
-# --------------------------------------------------------------------------- the sample's simulated annotators
-
-
-def sample_truth(datasets: Any, dataset_id: str) -> tuple[np.ndarray, str] | None:
-    """The hidden true label of every row of a support-tickets dataset (the sample, or a version of it whose lineage
-    maps each row to a sample row): the given label, except the sample's planted flips. None for other data."""
-    from .. import samples
-
-    lin = datasets.lineage(dataset_id) or {}
-    root = lin.get("root") or dataset_id
-    if root != "support-tickets":
-        return None
-    side = datasets.sidecar("support-tickets", "label_noise.json")
-    if not side:
-        return None
-    base = frames.read(frames.table("support-tickets"), columns=[side["label_column"]])[side["label_column"]].astype(str).to_numpy()
-    truth = base.copy()
-    for f in side.get("flipped") or []:
-        truth[int(f["row"])] = str(f["true_label"])
-    if dataset_id == root:
-        return truth, "label_noise.json of the support-tickets sample (given labels with the 300 planted flips undone)"
-    from ..lake import splitstore as SS
-
-    rr = SS.row_ids(datasets.db, datasets, dataset_id)  # P09: __row_id on a Parquet version, the lineage row map on a CSV-era one
-    n = (datasets.db.get_dataset(dataset_id) or {}).get("rows")
-    if rr is None or len(rr) != n or (len(rr) and int(rr.max()) >= len(truth)):
-        return None
-    _ = samples  # the classes and look-alikes live there
-    return truth[np.asarray(rr, dtype=int)], "label_noise.json of the support-tickets sample, mapped through the version's lineage"
-
-
-def simulate(truth: np.ndarray, rows: np.ndarray, classes: list[str], *, n_rows: int, per_row: int,
-             seed: int) -> pd.DataFrame:
-    """Long-format annotations of `n_rows` rows drawn from `rows`, each labelled by `per_row` of the
-    SAMPLE_ANNOTATORS chosen at random, every mistake drawn by the annotator's kind."""
-    from ..samples import CONFUSABLE
-
-    rng = np.random.default_rng(seed)
-    pick = np.sort(rng.choice(rows, size=min(n_rows, len(rows)), replace=False))
-    M = len(SAMPLE_ANNOTATORS)
-    out = []
-    for r in pick:
-        t = str(truth[r])
-        for m in rng.choice(M, size=min(per_row, M), replace=False):
-            a = SAMPLE_ANNOTATORS[m]
-            lab = t
-            if a["kind"] == "swap" and t in a["pair"]:
-                if rng.random() < a["p_swap"]:
-                    lab = a["pair"][1 - a["pair"].index(t)]
-            elif rng.random() > a["accuracy"]:
-                if a["kind"] == "confusable" and CONFUSABLE.get(t):
-                    lab = CONFUSABLE[t][rng.integers(len(CONFUSABLE[t]))]
-                else:
-                    others = [c for c in classes if c != t]
-                    lab = others[rng.integers(len(others))]
-            out.append({"row": int(r), "annotator": a["name"], "label": lab})
-    return pd.DataFrame(out)
 
 
 # --------------------------------------------------------------------------- upload
@@ -402,7 +322,6 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
     tied = counts == mx
     n_ties = int((tied.sum(1) > 1).sum())
     mv = np.array([rng.choice(np.flatnonzero(t)) for t in tied])
-    model = P.argmax(1)
 
     # adjudications override the consensus
     adj = read_adjudications(run_dir)
@@ -450,12 +369,6 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
                                                                                        "mean": float(ni.mean())}}
 
     # per annotator
-    truth_doc = read_truth(run_dir)
-    T = None
-    if truth_doc:
-        tmap = {int(k): v for k, v in truth_doc["truth"].items()}
-        if all(r in tmap for r in rows):
-            T = np.array([cidx.get(tmap[r], -1) for r in rows])
     ann = []
     for j, a in enumerate(names):
         has = Li[:, j] >= 0
@@ -480,19 +393,6 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
              "kappa_mean": float(np.mean(kap)) if kap else None,
              "top_confusion": top,
              "confusion_vs_consensus": conf.tolist()}
-        if T is not None:
-            t = T[has]
-            k = int((lab == t).sum())
-            x["truth"] = {"accuracy": k / len(t), "ci": wilson(k, len(t)), "n": int(len(t))}
-            ct = np.zeros((K, K), dtype=int)
-            np.add.at(ct, (t[t >= 0], lab[t >= 0]), 1)
-            np.fill_diagonal(ct, 0)
-            if ct.sum():
-                t_, l_ = np.unravel_index(ct.argmax(), ct.shape)
-                x["truth"]["top_error"] = {"true": classes[t_], "given": classes[l_], "n": int(ct[t_, l_])}
-            prof = next((p for p in truth_doc.get("annotators") or [] if p["name"] == a), None)
-            if prof:
-                x["truth"]["profile"] = prof
         ann.append(x)
     rated = [x for x in ann if x["quality"] is not None and x["n"] >= MIN_RATED]
     worst = min(rated, key=lambda x: x["quality"]) if rated else None
@@ -516,8 +416,7 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
                       "raw_agreement": float((counts.max(1)[multi] == n_ann[multi]).mean()) if multi.any() else None,
                       "interpretation": _landis(fleiss["value"]) if fleiss else None},
         "annotators": [{k: x.get(k) for k in ("name", "n", "quality", "agreement_with_consensus", "weight", "kappa_mean",
-                                              "worst_class", "top_confusion")} | ({"truth_accuracy": x["truth"]["accuracy"]}
-                                                                                 if "truth" in x else {}) for x in ann],
+                                              "worst_class", "top_confusion")} for x in ann],
         "worst_annotator": {"name": worst["name"], "quality": worst["quality"], "by": "cleanlab annotator_quality (CROWDLAB)",
                             "min_labels": MIN_RATED}
         if worst else None,
@@ -533,28 +432,7 @@ def analyze(run_dir: Path, cfg: dict[str, Any], given: pd.Series | None = None) 
                       "adjudicated": int(adjudicated.sum()),
                       "changed_vs_given": int((final != G).sum()) if G is not None else None,
                       "mean_quality": float(cq.mean())},
-        "truth": None,
     }
-    if T is not None:
-        ok = T >= 0
-
-        def acc(v: np.ndarray) -> dict[str, Any]:
-            k = int((v[ok] == T[ok]).sum())
-            return {"accuracy": k / int(ok.sum()), "ci": wilson(k, int(ok.sum())), "correct": k}
-
-        b = int(((consensus == T) & (mv != T))[ok].sum())
-        c = int(((consensus != T) & (mv == T))[ok].sum())
-        worst_t = min((x for x in ann if "truth" in x and x["n"] >= MIN_RATED), key=lambda x: x["truth"]["accuracy"], default=None)
-        summary["truth"] = {
-            "simulated": True, "source": truth_doc.get("source"), "n": int(ok.sum()),
-            "accuracy": {"given": acc(G) if G is not None else None, "majority_vote": acc(mv),
-                         "majority_vote_cleanlab": acc(mv_cl), "consensus": acc(consensus), "final": acc(final),
-                         "model": acc(model)},
-            "paired": {"consensus_right_mv_wrong": b, "mv_right_consensus_wrong": c, "gain": (b - c) / int(ok.sum()),
-                       "mcnemar_p": mcnemar_exact(b, c)},
-            "worst_by_truth": {"name": worst_t["name"], "accuracy": worst_t["truth"]["accuracy"]} if worst_t else None,
-            "worst_identified": bool(worst and worst_t and worst["name"] == worst_t["name"]),
-        }
     detail = {
         "rows": rows, "L": Li, "names": names, "P": P, "consensus": consensus, "cq": cq, "agree": agree, "mv": mv,
         "mv_cl": mv_cl, "post": post, "final": final, "adjudicated": adjudicated, "in_queue": in_queue, "n_ann": n_ann, "G": G,

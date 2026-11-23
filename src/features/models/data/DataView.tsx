@@ -25,7 +25,7 @@ import './data.css'
 export { readActor, saveActor }
 const num = (v?: number | null) => (v == null ? '—' : Math.abs(v) >= 1000 ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : v.toPrecision(4).replace(/\.?0+$/, ''))
 const BAND: Record<string, Status> = { stable: 'success', watch: 'warning', shift: 'danger' }
-const OP: Record<string, string> = { edit: 'edit', sample_regenerated: 'sample regenerated', upload: 'upload', sample: 'sample', upload_version: 'new file', data_doctor: 'Data Doctor', clean_labels: 'relabel', feature_lab: 'Feature Lab', 'monitoring-window': 'drift window', sql: 'SQL load', refresh: 'SQL refresh' }
+const OP: Record<string, string> = { edit: 'edit', upload: 'upload', upload_version: 'new file', data_doctor: 'Data Doctor', clean_labels: 'relabel', feature_lab: 'Feature Lab', 'monitoring-window': 'drift window', sql: 'SQL load', refresh: 'SQL refresh' }
 const opName = (op?: string | null) => (op ? OP[op] ?? op.replace(/_/g, ' ') : '—')
 
 /** Set `?name=` in the hash route without a navigation (the other params stay). */

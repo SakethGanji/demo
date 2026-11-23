@@ -1,21 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, api } from '@/shared/api/client'
-import { useApi } from '@/shared/api/mode'
-import type { Run, SplitSpec } from '@/shared/api/types'
-import { DatasetStep } from './components/DatasetStep'
+import type { SplitSpec } from '@/shared/api/types'
 import { GoalStep } from './components/GoalStep'
 import { TargetStep, targetConfirmed } from './components/TargetStep'
 import { STRATEGY_NAME } from './components/SplitCard'
-import { SAMPLES, fromServer, type Dataset } from './datasets'
-import { mockSource, simulate } from './race/mockRun'
+import { EMPTY_DATASET, fromServer, type Dataset } from './dataset'
 import { RaceStage } from './race/RaceStage'
-import { liveSource, useRace, type EventSourceFn } from './race/useRace'
-import { ResultsStep } from './results/ResultsStep'
+import { useRace } from './race/useRace'
 import { COST_METRIC, costPayload, rangePayload, columnTypesPayload, defaultMetric, defaultThreshold, labelImbalance, fmtBudget, inferTask, labelOptions, METRICS, parseKwargs, PRESETS, type Choices, type Task } from './wizard'
 
 const STEPS = ['Dataset', 'Target', 'Goal', 'Train', 'Results']
 
-export function initialChoices(ds: Dataset): Choices {
+function initialChoices(ds: Dataset): Choices {
   const label = ds.target || labelOptions(ds)[0]?.name || ''
   const task = inferTask(ds, label) ?? 'multiclass'
   return { label, problemType: null, types: {}, metric: defaultMetric(task, labelImbalance(ds, label)), preset: 'medium_quality', budget: 120, fitKwargs: '', threshold: defaultThreshold(ds, label, task) }
@@ -37,39 +33,30 @@ const setHashRun = (id: string | null) => history.replaceState(null, '', `#/quic
 
 /**
  * New Model: dataset or upload → label, problem type and column types → metric, preset and budget → the live race →
- * results (leaderboard, metrics, diagnostics, a custom ensemble, a first prediction). Live mode trains with AutoGluon
- * through the API; mock mode plays a simulated run through the same screens. (Route: #/quick-train.)
+ * results, trained with AutoGluon through the API. Data is picked in Build; a finished run opens its page in Models.
+ * (Route: #/quick-train.)
  */
-export function QuickTrainPage({ go }: { go: (r: string) => void }) {
-  const { mode } = useApi()
-  const live = mode === 'live'
-  const fromGym = useRef(location.hash.includes('?start')).current
-  const [step, setStep] = useState(fromGym ? 2 : 0)
-  const [ds, setDs] = useState<Dataset>(SAMPLES[0])
-  const [ch, setCh] = useState<Choices>(() => initialChoices(SAMPLES[0]))
+export function QuickTrainPage() {
+  const [step, setStep] = useState(0)
+  const [ds, setDs] = useState<Dataset>(EMPTY_DATASET)
+  const [ch, setCh] = useState<Choices>(() => initialChoices(EMPTY_DATASET))
   const [runId, setRunId] = useState<string | null>(null)
-  const [source, setSource] = useState<{ fn: EventSourceFn; run: Run | null }>({ fn: liveSource, run: null })
   const [speed, setSpeed] = useState(1)
   const [err, setErr] = useState('')
   const [starting, setStarting] = useState(false)
-  const { state: race, reconnecting } = useRace(runId, speed, source.fn)
+  const { state: race, reconnecting } = useRace(runId, speed)
   const scroller = useRef<HTMLDivElement>(null)
   useEffect(() => { scroller.current?.scrollTo(0, 0) }, [step])
 
   const set = useCallback((p: Partial<Choices>) => setCh((c) => ({ ...c, ...p })), [])
   const resumed = useRef(false)
-  const stepRef = useRef(step)
-  stepRef.current = step
-  // Only the dataset step picks datasets: a late answer from it (e.g. its first-load default) must not replace the
-  // dataset of a run resumed from the URL.
-  const pick = (d: Dataset) => { if (resumed.current && stepRef.current !== 0) return; setDs(d); setCh(initialChoices(d)) }
 
-  // Live mode picks data in Build. Arriving from it (?dataset=…) opens the Target step pre-filled; step 0 goes back.
+  // Data is picked in Build. Arriving from it (?dataset=…) opens the Target step pre-filled; step 0 goes back.
   const prefilled = useRef(false)
   // replace, not push: Back from Build must not land here and bounce straight back
   const toBuild = () => location.replace(`#/build${ds.id ? `?dataset=${ds.id}` : ''}`)
   useEffect(() => {
-    if (!live || runFromHash() || fromGym) return
+    if (runFromHash()) return
     const q = hashQuery()
     const id = q.get('dataset')
     if (!id) { toBuild(); return }
@@ -81,7 +68,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
       lastLabel.current = c.label
       setDs(d); setCh(c); setStep(1)
     }).catch((e) => setErr((e as Error).message))
-  }, [live]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const inferred = inferTask(ds, ch.label)
   const task: Task | null = ch.problemType ?? inferred
@@ -103,10 +90,9 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
   // Resume a run from the URL (#/quick-train?run=…): after a reload or from a link. Its events replay from 0.
   useEffect(() => {
     const id = runFromHash()
-    if (!id || !live || resumed.current) return
+    if (!id || resumed.current) return
     resumed.current = true
     api.runs.get(id).then(async (run) => {
-      stepRef.current = run.status === 'succeeded' ? 4 : 3
       // A busy API can be slow to answer: try a few times before giving up (a deleted dataset: the run still shows).
       for (let attempt = 0; attempt < 4; attempt++) {
         try {
@@ -119,58 +105,49 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
           await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
         }
       }
-      setSource({ fn: liveSource, run: null })
       setRunId(run.id)
       setStep(run.status === 'succeeded' ? 4 : 3)
     }).catch(() => setHashRun(null))
-  }, [live])
+  }, [])
 
   const kw = parseKwargs(ch.fitKwargs)
   const start = async () => {
     if (!task) return
     setErr('')
-    if (live && ds.id) {
-      if (!kw.ok) { setErr(kw.error); return }
-      const { types, drop } = columnTypesPayload(ds, ch)
-      const cost = costPayload(ds, ch, task)
-      const range = rangePayload(ch, task)
-      setStarting(true)
-      try {
-        const run = await api.runs.create({
-          dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: cost ? null : ch.metric, presets: ch.preset, time_limit: ch.budget,
-          fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
-          calibrate_threshold: task === 'binary' ? (cost ? COST_METRIC : ch.threshold) : null, split_spec: ch.split ?? null, cost,
-          ...(range ?? {}),
-        })
-        setSource({ fn: liveSource, run: null })
-        setRunId(run.id)
-        setHashRun(run.id)
-        setStep(3)
-      } catch (e) {
-        setErr(e instanceof ApiError && e.unreachable ? 'The API is not reachable; check that it is running.' : (e as Error).message)
-      } finally { setStarting(false) }
-      return
-    }
-    const id = `sim_${Math.random().toString(16).slice(2, 10)}`
-    const sim = simulate(ds, ch, task, id)
-    setSource({ fn: mockSource(sim), run: sim.run })
-    setRunId(id)
-    setStep(3)
+    if (!ds.id) return
+    if (!kw.ok) { setErr(kw.error); return }
+    const { types, drop } = columnTypesPayload(ds, ch)
+    const cost = costPayload(ds, ch, task)
+    const range = rangePayload(ch, task)
+    setStarting(true)
+    try {
+      const run = await api.runs.create({
+        dataset_id: ds.id, label: ch.label, problem_type: task, eval_metric: cost ? null : ch.metric, presets: ch.preset, time_limit: ch.budget,
+        fit_kwargs: kw.value, column_types: Object.keys(types).length ? types : null, drop_columns: drop, feature_importance: false,
+        calibrate_threshold: task === 'binary' ? (cost ? COST_METRIC : ch.threshold) : null, split_spec: ch.split ?? null, cost,
+        ...(range ?? {}),
+      })
+      setRunId(run.id)
+      setHashRun(run.id)
+      setStep(3)
+    } catch (e) {
+      setErr(e instanceof ApiError && e.unreachable ? 'The API is not reachable; check that it is running.' : (e as Error).message)
+    } finally { setStarting(false) }
   }
 
-  // A finished live run has its page in Models (Results, Explain, Doctor); the wizard only trains and watches.
-  const runPageNow = live && step === 4 && runId != null && source.run == null
+  // A finished run has its page in Models (Results, Explain, Doctor); the wizard only trains and watches.
+  const runPageNow = step === 4 && runId != null
   useEffect(() => { if (runPageNow) location.replace(`#/models?run=${runId}`) }, [runPageNow, runId])
 
-  const again = () => { if (live) { toBuild(); return } setRunId(null); setHashRun(null); setStep(0) }
+  const again = toBuild
   const running = runId != null && (race.status === 'running' || race.status === 'queued' || race.status === 'connecting')
   const done = race.status === 'succeeded'
   const maxStep = runId ? (done ? 4 : 3) : 2
   const K = ds.classes.length
   const usable = !!inferred
   const preset = PRESETS.find((p) => p.key === ch.preset)
-  // F4: in live mode the target is confirmed explicitly; its own holdout is drawn for it.
-  const confirmed = !live || targetConfirmed(ds, ch.label)
+  // F4: the target is confirmed explicitly; its own holdout is drawn for it.
+  const confirmed = targetConfirmed(ds, ch.label)
   const nFeat = useMemo(() => ds.cols.filter((c) => c.name !== ch.label && (ch.types[c.name] ?? c.type) !== 'id').length, [ds, ch])
 
   return (
@@ -187,7 +164,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
         <div className="stepper" role="list" style={{ gridTemplateColumns: `repeat(${STEPS.length}, 1fr)`, maxWidth: 820 }}>
           {STEPS.map((s, i) => (
             <button key={s} role="listitem" data-testid={`step-${s.toLowerCase()}`} disabled={i > maxStep || (running && i < 3)}
-              className={`step ${i < step || (i === 4 && done && step === 4) ? 'done' : i === step ? 'current' : ''}`} onClick={() => (live && i === 0 ? toBuild() : setStep(i))}>
+              className={`step ${i < step || (i === 4 && done && step === 4) ? 'done' : i === step ? 'current' : ''}`} onClick={() => (i === 0 ? toBuild() : setStep(i))}>
               <span className="node" /><span className="idx">{String(i + 1).padStart(2, '0')}</span><span>{s}</span>
             </button>
           ))}
@@ -195,22 +172,21 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
       </div>
 
       <div className="wizard-scroll" ref={scroller}>
-        {step === 0 && (live ? <div className="page"><p className="helper">Opening Build…</p></div> : <DatasetStep ds={ds} onPick={pick} />)}
+        {step === 0 && <div className="page"><p className="helper">Opening Build…</p></div>}
         {step === 1 && <TargetStep ds={ds} ch={ch} set={set} onConfirmed={setDs} />}
         {step === 2 && task && <GoalStep ds={ds} ch={ch} set={set} task={task} />}
         {step === 3 && runId && (
           <div className="page">
             <RaceStage s={race} runId={runId} label={ch.label} budget={ch.budget} speed={speed} setSpeed={setSpeed} reconnecting={reconnecting}
-              simulated={source.run != null} onCancel={() => { if (source.run == null) api.runs.cancel(runId).catch(() => {}) }} />
+              onCancel={() => { api.runs.cancel(runId).catch(() => {}) }} />
             <RaceSide race={race} />
           </div>
         )}
-        {step === 4 && runId && source.run && <ResultsStep runId={runId} mockRun={source.run} ds={ds} live={false} go={go} onAgain={again} />}
       </div>
 
       {step < 4 && (
         <div className="wizard-footer">
-          <div>{step > 0 && step < 3 && <button className="btn ghost" onClick={() => (live && step === 1 ? toBuild() : setStep(step - 1))}>← Back</button>}
+          <div>{step > 0 && step < 3 && <button className="btn ghost" onClick={() => (step === 1 ? toBuild() : setStep(step - 1))}>← Back</button>}
             {step === 3 && !running && <button className="btn ghost" onClick={again}>← New Model</button>}</div>
           <div className="valid" data-testid="wizard-status">
             {err ? <span style={{ color: 'var(--status-danger)' }} role="alert">✕ {err}</span>
@@ -219,7 +195,7 @@ export function QuickTrainPage({ go }: { go: (r: string) => void }) {
                 : !confirmed ? <span style={{ color: 'var(--status-warning)' }} data-testid="confirm-needed">▲ confirm y = {ch.label} to draw its holdout</span>
                 : <><span className="dot">●</span> y = {ch.label} (confirmed) · {task === 'regression' && ch.range ? `quantile τ = ${ch.range.levels.join(' · ')}` : task} · d = {nFeat} features · {ch.split ? <>{STRATEGY_NAME[ch.split.strategy]} split</> : <>|H| = {ds.profile?.splits.holdout_rows.toLocaleString() ?? '—'}</>}</>)
               : step === 2 && !confirmed ? <span style={{ color: 'var(--status-warning)' }}>▲ go back and confirm y = {ch.label}</span>
-              : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {task === 'regression' && ch.range ? 'pinball_loss' : ch.metric}{live && ds.id ? '' : ' · simulated (mock mode)'}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
+              : step === 2 ? (kw.ok ? <><span className="dot">●</span> {preset?.name} · τ = {fmtBudget(ch.budget)} · {task === 'regression' && ch.range ? 'pinball_loss' : ch.metric}</> : <span style={{ color: 'var(--status-danger)' }}>✕ fit_kwargs: {kw.error}</span>)
               : done ? <><span className="dot">●</span> Run complete · {race.bestModel}</> : race.status === 'failed' ? <span style={{ color: 'var(--status-danger)' }}>✕ {race.error}</span> : race.status === 'cancelled' ? <span>Cancelled</span> : <span>Training…</span>}
           </div>
           <div className="right">

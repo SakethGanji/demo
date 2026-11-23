@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { ApiError, api } from '@/shared/api/client'
 import type { ColumnProfile, Prediction, Run } from '@/shared/api/types'
 import { ResonanceWave } from '@/shared/primitives/ResonanceWave'
-import type { Dataset } from '../datasets'
+import type { Dataset } from '../dataset'
 import { fmtScore } from '../wizard'
 
 type Field = { name: string; kind: 'number' | 'category' | 'text'; options: string[]; example: string }
 
 /** A form generated from the run's feature columns; the prediction comes from the run's saved AutoGluon predictor. */
-export function TryPrediction({ run, ds, live, residualSd, models }: { run: Run; ds: Dataset | null; live: boolean; residualSd: number | null; models: string[] }) {
+export function TryPrediction({ run, ds, residualSd, models }: { run: Run; ds: Dataset | null; residualSd: number | null; models: string[] }) {
   const fields: Field[] = useMemo(() => {
     const cols = new Map<string, ColumnProfile>((ds?.profile?.columns ?? []).map((c) => [c.name, c]))
     const typesOverride = (run.resolved?.fit_kwargs?.feature_metadata as { type_group_map_special?: Record<string, string[]>; type_map_raw?: Record<string, string> } | undefined)
@@ -71,9 +71,8 @@ export function TryPrediction({ run, ds, live, residualSd, models }: { run: Run;
             </label>
           ))}
           <div className="row" style={{ gap: 'var(--space-8)', gridColumn: '1 / -1' }}>
-            <button className="btn primary" data-testid="tp-predict" disabled={!live || busy} onClick={predict}>Predict</button>
+            <button className="btn primary" data-testid="tp-predict" disabled={busy} onClick={predict}>Predict</button>
             {busy && <ResonanceWave width={80} height={16} />}
-            {!live && <span className="helper" style={{ fontSize: 12 }}>Needs the live API: mock mode has no saved predictor.</span>}
           </div>
           {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)', gridColumn: '1 / -1' }}>✕ {err}</p>}
         </div>

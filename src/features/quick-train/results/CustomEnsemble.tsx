@@ -10,7 +10,7 @@ import { FAMILY_SHORT, fmtScore } from '../wizard'
  * Build my own ensemble: choose base models, AutoGluon fits weights on them (fit_weighted_ensemble), and the result
  * says plainly whether it beats the best single model, on validation and on the holdout.
  */
-export function CustomEnsemble({ run, live, onDone }: { run: Run; live: boolean; onDone: (r: Result) => void }) {
+export function CustomEnsemble({ run, onDone }: { run: Run; onDone: (r: Result) => void }) {
   const base = (run.leaderboard ?? []).filter((r) => !(r as { deleted?: boolean }).deleted && !(r.family === 'ENS_WEIGHTED' || r.model.startsWith('WeightedEnsemble')) && !r.model.endsWith('_FULL'))
   const [chosen, setChosen] = useState<string[]>(() => base.slice(0, 3).map((r) => r.model))
   const [busy, setBusy] = useState(false)
@@ -46,9 +46,8 @@ export function CustomEnsemble({ run, live, onDone }: { run: Run; live: boolean;
             ))}
           </div>
           <div className="row" style={{ marginTop: 'var(--space-12)', gap: 'var(--space-8)' }}>
-            <button className="btn primary" data-testid="ce-fit" disabled={!live || busy || chosen.length === 0} onClick={fit}>{busy ? 'Fitting weights…' : 'Fit Weighted Ensemble'}</button>
+            <button className="btn primary" data-testid="ce-fit" disabled={busy || chosen.length === 0} onClick={fit}>{busy ? 'Fitting weights…' : 'Fit Weighted Ensemble'}</button>
             {busy && <ResonanceWave width={80} height={16} />}
-            {!live && <span className="helper" style={{ fontSize: 12 }}>Needs the live API: mock mode has no fitted models.</span>}
           </div>
           {err && <p className="helper" role="alert" style={{ color: 'var(--status-danger)', marginTop: 8 }}>✕ {err}</p>}
           <p className="helper" style={{ fontSize: 12, marginTop: 'var(--space-12)' }}>

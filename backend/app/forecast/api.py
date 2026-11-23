@@ -79,12 +79,6 @@ def options() -> dict[str, Any]:
 
 def suggest_mapping(request: Request, dataset_id: str) -> dict[str, Any]:
     ds = dataset_or_404(request, dataset_id)
-    spec = request.app.state.datasets.sidecar(dataset_id, "forecast_spec.json")
-    if spec and spec.get("forecast"):
-        f = spec["forecast"]
-        return {"mapping": {k: f.get(k) for k in ("item_id", "timestamp", "target", "known_covariates", "static_features")}
-                | {"past_covariates": []}, "source": "sample spec",
-                "prediction_length": f.get("suggested_prediction_length", 28)}
     cols = ds["profile"]["columns"]
     df = frames.read_version(dataset_id, rows=range(0, 500))
     ts = next((c["name"] for c in cols if re.search(r"date|time|day|month|week|period", c["name"], re.I)

@@ -1,7 +1,3 @@
-/* ---------- registry stat tiles ---------- */
-.kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.kpi { padding: var(--space-16); display: flex; flex-direction: column; gap: var(--space-4); }
-.kpi .foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-8); color: var(--text-body); font-size: 12px; }
 
 /* ---------- live registry (S5) ---------- */
 .registry .select, .registry .input { height: 32px; border: 1px solid var(--border-default); border-radius: var(--radius-control); background: var(--bg-surface); padding: 0 var(--space-8); color: var(--text-primary); font-size: 13px; min-width: 0; width: 100%; }
@@ -133,13 +129,6 @@
 @media (max-width: 1750px) { .tradeoff-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* F18 · monitoring: the stream's twelve months */
-.mon-months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; }
-.mon-month { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 4px; border: 1px solid var(--border-default); border-radius: var(--radius-control); color: var(--text-muted); }
-.mon-month b { font-size: 12px; }
-.mon-month small { font-size: 10px; white-space: nowrap; }
-.mon-month.fed { color: var(--text-primary); background: var(--bg-subtle); }
-.mon-month.drift { border-top: 2px solid var(--status-warning); }
-.mon-flag { position: absolute; top: 4px; right: 4px; width: 6px; height: 6px; border-radius: 50%; }
 /* F19: the card's diagnostics lines are sentences: let them wrap */
 .table.mc-diag { table-layout: fixed; width: 100%; }
 .table.mc-diag td { white-space: normal; height: auto; padding-top: 6px; padding-bottom: 6px; line-height: 1.45; }
