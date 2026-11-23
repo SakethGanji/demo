@@ -1,0 +1,7 @@
+payee_name,iban,amount,currency,reference
+Harbour Insurance,GB29NWBK60161331926819,120.50,GBP,Policy 2026-10
+Riverside Catering,GB29NWBK60161331926810,45.00,GBP,Event deposit
+,GB98BARC20041512345678,10.00,GBP,No name
+Kestrel Telecom,GB73LOYD30963512345670,-5.00,GBP,Refund
+Quayside Marina,GB71HBUK40127612345678,300.00,USD,Mooring
+Stonebridge Motors,GB29NWBK60161331926819,99.00,GBP

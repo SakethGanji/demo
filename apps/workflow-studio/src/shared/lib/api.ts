@@ -14,6 +14,20 @@ import type {
   ApiExecutionListItem,
   ApiPublishResponse,
 } from './backendTypes';
+import type { CheckResult, ImportReport, Shape } from '@/features/workflow-editor/lib/shapes';
+import type {
+  AiDraftResponse, DriftAlert, FuzzResponse, SmokeConfig, SmokeRun, WorkflowDrift,
+} from '@/features/workflow-editor/lib/testsAi';
+import type {
+  ApiSpecDetail,
+  ApiSpecSummary,
+  MockOption,
+  Mock,
+  Scorecard,
+  TestCase,
+  TestDefaults,
+  TestRunReport,
+} from '@/features/workflow-editor/lib/tests';
 
 // Property definition from API node type
 export interface ApiProperty {
@@ -55,36 +69,34 @@ interface NodeTypeInfo {
 // API Client
 // ============================================================================
 
-import { backends } from './config';
+import { request } from '@/shared/api/http';
 
 /**
- * Generic fetch wrapper with error handling
+ * Generic fetch wrapper with error handling. Delegates to the shared HTTP core, so failures
+ * throw `ApiError` (which extends `Error`, keeping `error.message` call sites working).
  */
 async function apiFetch<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${backends.workflow}/api${endpoint}`;
-
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return request<T>(`/api${endpoint}`, options as never);
 }
 
 // ============================================================================
 // Workflows API
 // ============================================================================
+
+export interface ApiWorkflowVersion {
+  id: number;
+  version_number: number;
+  message: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ApiWorkflowVersionDetail extends ApiWorkflowVersion {
+  definition: ApiWorkflowDetail['definition'];
+}
 
 export const workflowsApi = {
   list: (): Promise<ApiWorkflowSummary[]> => {
@@ -134,6 +146,70 @@ export const workflowsApi = {
     });
   },
 
+  listVersions: (id: string): Promise<ApiWorkflowVersion[]> => {
+    return apiFetch(`/workflows/${id}/versions`);
+  },
+
+  getVersion: (id: string, versionId: number): Promise<ApiWorkflowVersionDetail> => {
+    return apiFetch(`/workflows/${id}/versions/${versionId}`);
+  },
+
+  /** Copies a version's definition into the draft; returns the workflow like `get`. */
+  restoreVersion: (id: string, versionId: number): Promise<ApiWorkflowDetail> => {
+    return apiFetch(`/workflows/${id}/versions/${versionId}/restore`, { method: 'POST' });
+  },
+
+  /** Run only `name`, feeding it input from `source` (the saved draft is what runs). */
+  testNode: (
+    id: string,
+    name: string,
+    body: { source: 'input' | 'last_run' | 'pinned'; input_items?: Array<Record<string, unknown>>; environment?: string },
+  ): Promise<ApiExecutionResult> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/test`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Run from the trigger and stop after `name`. */
+  runTo: (id: string, name: string, body: { input_data?: Record<string, unknown>; environment?: string } = {}): Promise<ApiExecutionResult> => {
+    return apiFetch(`/workflows/${id}/run-to/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Re-run `name` and everything after it, reusing a past execution's upstream outputs. */
+  runFrom: (id: string, name: string, body: { execution_id?: string; environment?: string } = {}): Promise<ApiExecutionResult> => {
+    return apiFetch(`/workflows/${id}/run-from/${encodeURIComponent(name)}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  /** Stage 2 checker. Without `definition` it checks the stored draft. Never saves. */
+  check: (id: string, body: { definition?: Pick<BackendWorkflow, 'nodes' | 'connections'>; environment?: string } = {}): Promise<CheckResult> => {
+    return apiFetch(`/workflows/${id}/check`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  /** Propose a contract from a saved execution. Does not save. 409 `detail.missing_nodes` when there is no output. */
+  contractLearn: (id: string, name: string, body: { execution_id?: string } = {}): Promise<{ outputs: Record<string, Shape>; from_execution: string; sample_count: number }> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/contract/learn`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  contractApprove: (id: string, name: string, body: { outputs: Record<string, Shape>; from_execution: string; approved_by: string }): Promise<ApiWorkflowDetail> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/contract/approve`, { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  contractRemove: (id: string, name: string): Promise<ApiWorkflowDetail> => {
+    return apiFetch(`/workflows/${id}/nodes/${encodeURIComponent(name)}/contract`, { method: 'DELETE' });
+  },
+
+  /** Convert an n8n workflow. Does not save; create it through `create` afterwards. */
+  importN8n: (body: { n8n: unknown; name?: string; project_id?: string }): Promise<{ workflow: BackendWorkflow; report: ImportReport }> => {
+    return apiFetch('/workflows/import/n8n', { method: 'POST', body: JSON.stringify(body) });
+  },
+
   runAdhoc: (workflow: BackendWorkflow): Promise<ApiExecutionResult> => {
     return apiFetch('/workflows/run-adhoc', {
       method: 'POST',
@@ -151,6 +227,11 @@ export interface ApiAppListItem {
   name: string;
   created_at: string;
   updated_at: string;
+  project_id?: string;
+  slug?: string | null;
+  active?: boolean;
+  published_at?: string | null;
+  current_version_number?: number | null;
 }
 
 export interface ApiAppVersion {
@@ -181,6 +262,8 @@ export type ApiAppAccess = 'private' | 'public' | 'password';
 export interface ApiAppDetail {
   id: string;
   name: string;
+  project_id?: string;
+  description?: string | null;
   definition: Record<string, unknown>;
   active: boolean;
   workflow_ids: string[];
@@ -243,6 +326,8 @@ export const appsApi = {
       create_version?: boolean;
       version_trigger?: string;
       version_prompt?: string;
+      /** optimistic concurrency: the version this save was made on; a stale one is refused with 409 `stale_base` */
+      base_version_id?: number;
       slug?: string;
       access?: ApiAppAccess;
       access_password?: string;
@@ -312,10 +397,90 @@ export const appsApi = {
 // Executions API
 // ============================================================================
 
+/** `GET /api/executions/{id}`: `node_data` maps node name to its output items. */
+export interface ApiExecutionDetail {
+  id: string;
+  workflow_id: string;
+  workflow_name: string;
+  status: string;
+  mode: string;
+  start_time: string;
+  end_time: string | null;
+  errors: Array<{ node_name: string; error: string; timestamp?: string }>;
+  node_data: Record<string, Array<{ json: Record<string, unknown> }>>;
+  node_metrics?: Record<string, unknown>;
+  /** Per-item loop history (absent / null for runs saved before the engine kept it). */
+  loop_runs?: Record<string, ApiLoopRun> | null;
+  /** Each try of a repeat-until (Poll) step (absent / null for older runs). */
+  poll_tries?: Record<string, ApiPollRun> | null;
+}
+
+export interface ApiLoopStep {
+  status: string;
+  ports?: string[];
+  portCounts?: Record<string, number>;
+  items?: Array<Record<string, unknown>>;
+  itemCount?: number;
+  error?: string;
+  ms?: number;
+  runs?: number;
+  retries?: number;
+  branchDecision?: unknown;
+  truncated?: boolean;
+}
+
+export interface ApiLoopPass {
+  index: number;
+  /** ok | failed | skipped | running */
+  status: string;
+  items?: Array<Record<string, unknown>>;
+  itemCount?: number;
+  nodes: Record<string, ApiLoopStep>;
+  order?: string[];
+  failedAt?: string;
+  error?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface ApiLoopRun {
+  totalItems?: number;
+  batchSize?: number;
+  concurrency?: number;
+  onItemFailure?: string;
+  stopAfterFailures?: number;
+  concurrencyFallback?: string;
+  /** set only when "Run at a time" was above the limit (20) and was clamped */
+  concurrencyClamped?: string;
+  passes: ApiLoopPass[];
+  truncated?: boolean;
+  stoppedEarly?: boolean;
+  failed?: number;
+  skipped?: number;
+  longestFailStreak?: number;
+}
+
+export interface ApiPollTry {
+  n: number;
+  at: string;
+  /** pending | met | timeout */
+  result: string;
+  value?: unknown;
+}
+
+export interface ApiPollRun {
+  sessions: Array<{ startedAt?: string; tries: ApiPollTry[]; outcome?: string; attempts?: number; passes?: Record<string, number>; truncated?: boolean }>;
+  truncated?: boolean;
+}
+
 export const executionsApi = {
   list: (workflowId?: string): Promise<ApiExecutionListItem[]> => {
     const params = workflowId ? `?workflow_id=${workflowId}` : '';
     return apiFetch(`/executions${params}`);
+  },
+
+  get: (id: string): Promise<ApiExecutionDetail> => {
+    return apiFetch(`/executions/${id}`);
   },
 };
 
@@ -421,4 +586,97 @@ export const apiTesterApi = {
       method: 'DELETE',
     });
   },
+};
+
+// ============================================================================
+// Tests API (CONTRACTS-STAGE3A §1, §5, §6, §7)
+// ============================================================================
+
+type DraftDefinition = Pick<BackendWorkflow, 'nodes' | 'connections'> & { tests?: TestCase[]; test_defaults?: TestDefaults };
+
+const post = <T>(endpoint: string, body: unknown): Promise<T> =>
+  apiFetch(endpoint, { method: 'POST', body: JSON.stringify(body ?? {}) });
+
+export const testsApi = {
+  /** `definition` runs the unsaved draft; it never saves the workflow. */
+  run: (id: string, body: { ids?: string[]; definition?: DraftDefinition } = {}): Promise<TestRunReport> =>
+    post(`/workflows/${id}/tests/run`, body),
+
+  approve: (id: string, testId: string, approvedBy: string): Promise<ApiWorkflowDetail> =>
+    post(`/workflows/${id}/tests/${encodeURIComponent(testId)}/approve`, { approved_by: approvedBy }),
+
+  unlock: (id: string, testId: string, by: string): Promise<ApiWorkflowDetail> =>
+    post(`/workflows/${id}/tests/${encodeURIComponent(testId)}/unlock`, { by }),
+
+  /** Drafts only; nothing is saved. */
+  suggest: (id: string, body: { node?: string } = {}): Promise<TestCase[]> =>
+    post(`/workflows/${id}/tests/suggest`, body),
+
+  fromExecution: (id: string, body: { execution_id: string; name?: string }): Promise<TestCase> =>
+    post(`/workflows/${id}/tests/from-execution`, body),
+
+  score: (id: string, body: { definition?: DraftDefinition; mutations?: boolean; repeat?: number } = {}): Promise<Scorecard> =>
+    post(`/workflows/${id}/score`, body),
+
+  generateMock: (
+    id: string,
+    node: string,
+    body: { kind: 'from_spec' | 'from_contract' | 'last_real'; status?: number },
+  ): Promise<{ mock: Mock; source: string }> =>
+    post(`/workflows/${id}/nodes/${encodeURIComponent(node)}/mock/generate`, body),
+
+  /** Drafts for grid gaps; nothing is saved. 503 = AI not set up, 502 = the model failed. */
+  aiDraft: (
+    id: string,
+    body: { definition?: DraftDefinition; cells?: Array<{ node: string; category: string }>; max?: number } = {},
+  ): Promise<AiDraftResponse> => post(`/workflows/${id}/tests/ai-draft`, body),
+
+  /** Odd inputs through the workflow; never saves. */
+  fuzz: (
+    id: string,
+    body: { definition?: DraftDefinition; target?: { kind: 'workflow' } | { kind: 'node'; node: string }; count?: number; seed?: number; ai?: boolean },
+  ): Promise<FuzzResponse> => post(`/workflows/${id}/tests/fuzz`, body),
+};
+
+export const driftApi = {
+  forWorkflow: (id: string, status: 'open' | 'all' = 'open'): Promise<WorkflowDrift> =>
+    apiFetch(`/workflows/${id}/drift?status=${status}`),
+
+  resolve: (id: string, driftId: string, by: string): Promise<DriftAlert> =>
+    post(`/workflows/${id}/drift/${encodeURIComponent(driftId)}/resolve`, { by }),
+};
+
+export const smokeApi = {
+  get: (id: string): Promise<SmokeConfig> => apiFetch(`/workflows/${id}/smoke`),
+
+  put: (id: string, body: SmokeConfig): Promise<SmokeConfig> =>
+    apiFetch(`/workflows/${id}/smoke`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  run: (id: string): Promise<SmokeRun> => post(`/workflows/${id}/smoke/run`, {}),
+
+  runs: (id: string, limit = 20): Promise<SmokeRun[]> => apiFetch(`/workflows/${id}/smoke/runs?limit=${limit}`),
+};
+
+export const apiSpecsApi = {
+  list: (projectId: string): Promise<ApiSpecSummary[]> => apiFetch(`/api-specs?project_id=${encodeURIComponent(projectId)}`),
+
+  get: (id: string): Promise<ApiSpecDetail> => apiFetch(`/api-specs/${id}`),
+
+  create: (body: { project_id: string; name?: string; spec_text?: string; url?: string }): Promise<ApiSpecDetail> =>
+    post('/api-specs', body),
+
+  fromExample: (body: {
+    project_id: string;
+    name: string;
+    method: string;
+    base_url: string;
+    path: string;
+    status?: number;
+    example: unknown;
+  }): Promise<ApiSpecDetail> => post('/api-specs/from-example', body),
+
+  remove: (id: string): Promise<{ success: boolean }> => apiFetch(`/api-specs/${id}`, { method: 'DELETE' }),
+
+  mocks: (id: string, operationId: string): Promise<MockOption[]> =>
+    apiFetch(`/api-specs/${id}/operations/${encodeURIComponent(operationId)}/mocks`),
 };

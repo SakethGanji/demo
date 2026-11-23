@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, TYPE_CHECKING
 
 from ...base import NodeTypeDescription
@@ -42,7 +41,7 @@ class DataSampleToolNode(ConfigProvider):
                 "properties": {
                     "dataset_id": {
                         "type": "string",
-                        "description": "ID of an uploaded dataset (preferred over raw data)",
+                        "description": "A dataset of this project, by name, or an analytics dataset id (preferred over raw data)",
                     },
                     "data": {
                         "type": "array",
@@ -79,11 +78,15 @@ async def _execute_sample(
     """Call the analytics service /sample endpoint."""
     import httpx
 
-    from ._analytics_helpers import resolve_dataset_ref
+    from ....services.project_dataset_service import DatasetNotFound, analytics_url
+    from ._analytics_helpers import resolve_dataset_payload
 
-    payload = resolve_dataset_ref(input_data)
+    try:
+        payload = await resolve_dataset_payload(input_data, context)
+    except DatasetNotFound as e:
+        return {"error": str(e)}
     payload["return_data"] = False
-    service_url = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:8001")
+    service_url = analytics_url()
 
     owned_client = False
     client = context.http_client

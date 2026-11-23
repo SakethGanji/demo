@@ -1,0 +1,129 @@
+openapi: 3.0.3
+info:
+  title: accounts
+  version: '1.0'
+servers:
+- url: http://accounts.bank.test
+paths:
+  /accounts/{account_id}/balance:
+    get:
+      operationId: getBalance
+      summary: Current balance of an account
+      parameters:
+      - name: account_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id:
+                    type: string
+                  balance:
+                    type: number
+                  currency:
+                    type: string
+                required:
+                - account_id
+                - balance
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /accounts/{account_id}/close:
+    post:
+      operationId: close
+      summary: Close an account
+      parameters:
+      - name: account_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - account_id
+                - status
+        '409':
+          description: Account cannot be closed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /accounts/{account_id}/overdraft-history:
+    get:
+      operationId: history
+      summary: Past overdraft events of an account
+      parameters:
+      - name: account_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  account_id:
+                    type: string
+                  overdraft_count:
+                    type: integer
+                  last_overdraft_on:
+                    type: string
+                    nullable: true
+                required:
+                - account_id
+                - overdraft_count
+        '404':
+          description: Account not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

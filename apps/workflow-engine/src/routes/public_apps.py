@@ -31,10 +31,11 @@ from fastapi import APIRouter, Cookie, Depends, Form, HTTPException, Request, Re
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from ..core.dependencies import get_app_service, get_api_test_repository
-from ..core.public_tokens import PublicTokenError, issue_token, verify_token
+from ..core.dependencies import get_app_service, get_api_test_repository, get_execution_service
+from ..core.public_tokens import PublicTokenError, app_token_ttl, app_token_valid_for, issue_token, verify_token
 from ..db.models import AppModel
 from ..repositories import ApiTestRepository
+from ..engine.types import run_status
 from ..services.app_service import AppService
 
 router = APIRouter(prefix="/a")
@@ -132,6 +133,28 @@ var apiMap=window.__APP_API_MAP||{};
 var base='/a/'+slug+'/api';
 var origFetch=window.fetch.bind(window);
 
+// Review D3: tokens expire (1h) and are refreshed from /a/{slug}/_token — on a 401, and shortly before expiry.
+var refreshing=null;
+function refreshToken(){
+  if(refreshing) return refreshing;
+  refreshing=origFetch('/a/'+slug+'/_token',{method:'POST',credentials:'same-origin'})
+    .then(function(r){return r.ok?r.json():null;})
+    .then(function(j){ if(j&&j.token){ token=j.token; window.__APP_TOKEN=token; schedule(j.expires_in); } return j?j.token:null; })
+    .catch(function(){return null;})
+    .then(function(t){ refreshing=null; return t; });
+  return refreshing;
+}
+window.__APP_REFRESH=refreshToken;
+function schedule(sec){ if(typeof sec==='number'&&sec>0){ setTimeout(refreshToken, Math.max(5, sec-60)*1000); } }
+schedule(window.__APP_TOKEN_TTL);
+function authed(url,o,build){
+  var once=function(){ return origFetch(url,build(token)); };
+  return once().then(function(res){
+    if(res.status===401&&token){ return refreshToken().then(function(t){ return t?once():res; }); }
+    return res;
+  });
+}
+
 function normalizeBase(u){
   if(typeof u!=='string') return '';
   var i=u.indexOf('?'); if(i>=0) u=u.slice(0,i);
@@ -147,29 +170,34 @@ function findReplayId(url){
 
 window.fetch=function(url,opts){
   var o=opts||{};
-  // 1) Workflow proxy paths
+  // 0) Project API routes (/api/p/{project}/...) — same origin, stamped with the app token
+  if(typeof url==='string' && url.indexOf('/api/p/')===0){
+    return authed(url,o,function(t){
+      var h0=Object.assign({},o.headers||{});
+      if(t) h0['Authorization']='Bearer '+t;
+      return Object.assign({},o,{headers:h0});
+    });
+  }
+  // 1) Workflow proxy paths. '/api/workflow/{id}/run' → '/a/{slug}/api/workflow/{id}/run'
   if(typeof url==='string' && (url.indexOf('/api/')===0 || url.indexOf('/webhook/')===0)){
-    var rewritten=base+url;
-    var h1=Object.assign({},o.headers||{});
-    if(token) h1['Authorization']='Bearer '+token;
-    return origFetch(rewritten,Object.assign({},o,{headers:h1}));
+    var rewritten=(url.indexOf('/api/workflow/')===0)?(base+url.slice(4)):(base+url);
+    return authed(rewritten,o,function(t){
+      var h1=Object.assign({},o.headers||{});
+      if(t) h1['Authorization']='Bearer '+t;
+      return Object.assign({},o,{headers:h1});
+    });
   }
   // 2) External-URL replay (captured API tester executions)
   var replayId=findReplayId(url);
   if(replayId){
-    var headers={'Content-Type':'application/json'};
-    if(token) headers['Authorization']='Bearer '+token;
     var bodyStr=null;
     if(typeof o.body==='string') bodyStr=o.body;
     else if(o.body!=null) try{ bodyStr=JSON.stringify(o.body); }catch(e){ bodyStr=null; }
-    return origFetch('/a/'+slug+'/api-tester/replay/'+replayId,{
-      method:'POST',
-      headers:headers,
-      body:JSON.stringify({
-        method:o.method||'GET',
-        headers:o.headers||null,
-        body:bodyStr,
-      }),
+    return authed('/a/'+slug+'/api-tester/replay/'+replayId,o,function(t){
+      var headers={'Content-Type':'application/json'};
+      if(t) headers['Authorization']='Bearer '+t;
+      return {method:'POST', headers:headers,
+              body:JSON.stringify({method:o.method||'GET', headers:o.headers||null, body:bodyStr})};
     });
   }
   return origFetch(url,opts);
@@ -195,12 +223,14 @@ def _html_shell(
     bundle_hash: str,
     csp: str,
     api_map: dict[str, str],
+    token_key: str | None = None,
 ) -> str:
     """Standalone HTML for the published app. Loads the fingerprinted assets,
     injects the slug + short-lived API token + captured-URL→execution-id map
     into globals, then runs the inline runtime."""
     slug = app.slug or ""
-    token = issue_token(app.id, version_id)
+    ttl = app_token_ttl(app)
+    token = issue_token(app.id, version_id, ttl, rk=token_key)
     runtime = _runtime_inline()
     escaped_token = json.dumps(token)
     escaped_slug = json.dumps(slug)
@@ -210,7 +240,6 @@ def _html_shell(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="{csp}">
 <title>{html.escape(app.name)}</title>
 <link rel="stylesheet" href="/a/{html.escape(slug)}/_assets/{bundle_hash}.css">
 <style>html,body,#root{{height:100%;margin:0}}body{{font-family:ui-sans-serif,system-ui,sans-serif}}</style>
@@ -219,8 +248,7 @@ def _html_shell(
 <div id="root"></div>
 <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
-<script>window.__APP_SLUG={escaped_slug};window.__APP_TOKEN={escaped_token};window.__APP_API_MAP={escaped_api_map};</script>
+<script>window.__APP_SLUG={escaped_slug};window.__APP_TOKEN={escaped_token};window.__APP_TOKEN_TTL={ttl};window.__APP_API_MAP={escaped_api_map};</script>
 <script src="/a/{html.escape(slug)}/_assets/{bundle_hash}.js"></script>
 <script>{runtime}</script>
 </body>
@@ -279,7 +307,7 @@ async def render_app(
         for ex in execs:
             api_map[ex.url] = ex.id
 
-    body = _html_shell(app, version.id, version.bundle_hash, csp, api_map)
+    body = _html_shell(app, version.id, version.bundle_hash, csp, api_map, await service.ensure_token_key(app))
     return HTMLResponse(body, headers={"Content-Security-Policy": csp})
 
 
@@ -318,6 +346,28 @@ async def get_asset(
             "ETag": f'"{asset.hash}"',
         },
     )
+
+
+@router.post("/{slug}/_token")
+async def refresh_app_token(
+    slug: str,
+    app_unlock: str | None = Cookie(default=None, alias=_UNLOCK_COOKIE),
+    service: AppService = Depends(get_app_service),
+):
+    """Review D3: a fresh page token for a published app (the runtime and the generated client call
+    this on a 401 and shortly before expiry). Same gate as loading the page: private / unpublished
+    apps 404, password apps need the unlock cookie."""
+    from datetime import datetime, timezone
+
+    app = await _resolve_app(slug, service)
+    if app.access == "password" and not _check_unlock_cookie(app, app_unlock):
+        return JSONResponse({"error": "unlock_required"}, status_code=401)
+    ttl = app_token_ttl(app)
+    token = issue_token(app.id, app.published_version_id, ttl, rk=await service.ensure_token_key(app))
+    exp = verify_token(token).exp
+    return JSONResponse({"token": token, "expires_in": ttl,
+                         "expires_at": datetime.fromtimestamp(exp, tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")},
+                        headers={"Cache-Control": "no-store"})
 
 
 @router.post("/{slug}/_unlock")
@@ -376,14 +426,14 @@ async def run_workflow_for_public_app(
     workflow_id: str,
     request: Request,
     service: AppService = Depends(get_app_service),
+    exec_service=Depends(get_execution_service),
 ):
     app = await _resolve_app(slug, service)
     claims = _verify_request_token(request.headers.get("authorization"))
 
-    # Token must match this app + the currently-published version. If the
-    # owner publishes a new version, old in-flight tokens stop working — that
-    # is intentional and bounded by the 1h TTL.
-    if claims.app_id != app.id or claims.version_id != app.published_version_id:
+    # Review D3: the token is bound to this app (+ its rotation key), not to one published version,
+    # so open pages keep working across re-publish / promote / rollback.
+    if not app_token_valid_for(app, claims):
         raise HTTPException(status_code=401, detail="token scope mismatch")
 
     # Allow-list: app may only run workflows it explicitly references.
@@ -395,20 +445,94 @@ async def run_workflow_for_public_app(
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        body = {"value": body}
 
-    # The actual run-workflow path lives elsewhere; for now we just stub a
-    # response so the route is wired and the frontend can be built against
-    # it. Replace with a call into the real ExecutionService when its
-    # public-friendly entry point is settled.
-    return JSONResponse(
-        {
-            "ok": True,
-            "workflow_id": workflow_id,
-            "app_id": app.id,
-            "echo": body,
-            "note": "TODO wire into ExecutionService.run_workflow_async",
-        }
-    )
+    return await _run_app_workflow(app, workflow_id, body, exec_service)
+
+
+async def _run_app_workflow(app: AppModel, workflow_id: str, body: dict, exec_service,
+                            environment: str | None = None, mode: str = "app",
+                            trigger_type: str = "app") -> Response:
+    """Run an allow-listed workflow for a published app (phase 3, BACKEND-DESIGN §3.3).
+
+    * The workflow must be in the app's project.
+    * Environment = the project's live environment.
+    * Caller payload is NOT $vars-substituted (anonymous surface); outputs are redacted.
+    """
+    import asyncio
+
+    from ..core.exceptions import WorkflowExecutionError, WorkflowNotFoundError
+    from ..db.models import ProjectModel, WorkflowModel
+    from ..services.http_response import build_response
+    from ..services.project_service import env_kind
+    from ..services.vars_substitution import redact_deep
+
+    session = exec_service._workflow_repo._session
+    wf = await session.get(WorkflowModel, workflow_id)
+    if wf is None:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    if wf.project_id != app.project_id:
+        raise HTTPException(status_code=403, detail={"code": "workflow_not_in_project", "message": "workflow is not in this app's project"})
+    project = await session.get(ProjectModel, app.project_id)
+    env = environment or (project.live_environment if project else "default")
+    # Audit #2 / D8: in a release environment the app runs the ACTIVE RELEASE's pinned workflow version and
+    # module sources, never the drafts (same as router runs). A workflow the release does not pin is refused.
+    version_id, extras = None, None
+    if project is not None and env_kind(project, env) == "release":
+        from ..services.release_service import ReleaseService
+        from ..services.route_dispatcher import release_extras
+
+        rel = await ReleaseService(session).active_release(project.id, env)
+        if rel is not None:   # no release yet → drafts, exactly like RouteDispatcher.route_set
+            pin = next((w for w in (rel.snapshot or {}).get("workflows") or []
+                        if w["workflow_id"] == workflow_id and w.get("via") != "subworkflow"), None)
+            if pin is None:
+                return JSONResponse({"error": "workflow_not_in_release",
+                                     "message": "this workflow is not part of the active release"}, status_code=409)
+            version_id, extras = pin["version_id"], release_extras(rel)
+    try:
+        _, context = await exec_service.run_saved_workflow(
+            workflow_id, body or None, environment=env, mode=mode, substitute_inputs=False,
+            timeout_s=_PUBLIC_RUN_TIMEOUT_S, metadata={"trigger": {"type": trigger_type, "app_id": app.id}},
+            version_id=version_id, extras=extras,
+        )
+    except asyncio.TimeoutError:
+        return JSONResponse({"status": "timeout"}, status_code=504)
+    except WorkflowNotFoundError:
+        raise HTTPException(status_code=404, detail="workflow not found")
+    except WorkflowExecutionError as e:
+        from ..services.variable_loader import load_run_secrets
+        secrets = await load_run_secrets(environment=env, team_id=project.team_id if project else "default",
+                                         project_id=app.project_id)
+        return JSONResponse(redact_deep({"status": "failed", "execution_id": None, "data": [],
+                                         "errors": [{"node_name": "", "error": e.message, "error_code": "workflow_invalid",
+                                                     "details": None}]}, secrets))
+
+    secrets = context.extras.get("secret_values") or set()
+    if context.webhook_response is not None:
+        # Review D4: Respond-node headers are redacted like the body.
+        resp = context.webhook_response
+        if isinstance(resp.body, (dict, list, str)):
+            resp.body = redact_deep(resp.body, secrets)
+        resp.headers = {str(k): redact_deep(str(v), secrets) for k, v in (resp.headers or {}).items()}
+        return build_response(resp, {"X-Execution-Id": context.execution_id})
+
+    data: list = []
+    if context.last_completed_node and context.last_completed_node in context.node_states:
+        data = [d.json for d in context.node_states[context.last_completed_node]]
+    payload = {
+        "status": run_status(context),
+        "execution_id": context.execution_id,
+        "data": data,
+        # G24 / review D17: error_code + details, as on every other run surface.
+        "errors": [{"node_name": e.node_name, "error": e.error, "error_code": getattr(e, "error_code", None),
+                    "details": getattr(e, "details", None)} for e in context.errors],
+    }
+    return JSONResponse(redact_deep(payload, secrets), headers={"X-Execution-Id": context.execution_id})
+
+
+_PUBLIC_RUN_TIMEOUT_S = 120.0
 
 
 # ── External-URL replay proxy ────────────────────────────────────────────────
@@ -463,7 +587,7 @@ async def replay_api_test_execution(
     app = await _resolve_app(slug, service)
     claims = _verify_request_token(request.headers.get("authorization"))
 
-    if claims.app_id != app.id or claims.version_id != app.published_version_id:
+    if not app_token_valid_for(app, claims):
         raise HTTPException(status_code=401, detail="token scope mismatch")
 
     allowed = set(app.api_execution_ids or [])

@@ -111,6 +111,7 @@ def _get_tool_classes() -> dict[str, type]:
     from .tools.data_report_tool import DataReportToolNode
     from .tools.mongo_query_tool import MongoQueryToolNode
     from .tools.api_request_tool import ApiRequestToolNode
+    from .tools.studio_function_tool import StudioFunctionToolNode
 
     return {
         "calculator": CalculatorToolNode,
@@ -127,11 +128,13 @@ def _get_tool_classes() -> dict[str, type]:
         "dataReport": DataReportToolNode,
         "mongoQuery": MongoQueryToolNode,
         "apiRequest": ApiRequestToolNode,
+        "studioFunction": StudioFunctionToolNode,
     }
 
 
 def resolve_tools(
     tool_specs: list[str | dict[str, Any]],
+    owner: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Resolve inline tool selections into tool definitions + executors.
 
@@ -142,6 +145,8 @@ def resolve_tools(
         threads node-level parameters into the tool's ``get_config()``. This
         is how the workflow definition supplies, e.g., the Mongo connection
         string and mandatory filter scope for ``mongoQuery``.
+
+    ``owner`` is the name of the node the tools belong to.
 
     Returns:
         Tuple of ``(tools_list, tool_executors_dict)`` matching the format
@@ -172,6 +177,8 @@ def resolve_tools(
             logger.warning("Unknown tool type: %s", tool_key)
             continue
 
+        if owner and tool_key == "workflow":
+            params = {**params, "_owner": owner}  # the agent node's name: a Run Workflow tool pins its child per (agent, tool)
         node_def = _SyntheticNodeDef(parameters=params)
         instance = cls()
         try:

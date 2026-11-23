@@ -1,0 +1,101 @@
+openapi: 3.0.3
+info:
+  title: payments
+  version: '1.0'
+servers:
+- url: http://payments.bank.test
+paths:
+  /payments/schedule:
+    post:
+      operationId: schedule
+      summary: Schedule a vendor payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vendor_id:
+                  type: string
+                invoice_id:
+                  type: string
+                amount:
+                  type: number
+                pay_on:
+                  type: string
+              required:
+              - vendor_id
+              - invoice_id
+              - amount
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - payment_id
+                - status
+        '422':
+          description: Payment refused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /payments/{payment_id}/retry:
+    post:
+      operationId: retry
+      summary: Retry a failed payment
+      parameters:
+      - name: payment_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payment_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - payment_id
+                - status
+        '409':
+          description: Payment cannot be retried
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

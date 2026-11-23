@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from typing import Any, TYPE_CHECKING
 
 import httpx
@@ -19,6 +18,8 @@ from ..base import (
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
+
+from ...engine import shapes as sh
 
 class SampleNode(BaseNode):
     """Sample node - samples data using the analytics service API."""
@@ -106,12 +107,12 @@ class SampleNode(BaseNode):
                 display_options={"show": {"sourceType": ["file"], "fileLocation": ["s3"]}},
             ),
             NodeProperty(
-                display_name="Dataset ID",
+                display_name="Dataset",
                 name="datasetId",
-                type="string",
+                type="datasetSelector",
                 default="",
-                placeholder="dataset-uuid",
-                description="ID of the dataset in the analytics service",
+                placeholder="sales",
+                description="A dataset imported into this project (the picker saves its id; its name also works)",
                 display_options={"show": {"sourceType": ["dataset"]}},
             ),
             NodeProperty(
@@ -317,6 +318,24 @@ class SampleNode(BaseNode):
     def description(self) -> str:
         return "Samples data using various sampling methods via analytics service"
 
+    def contract(self, params, inputs, lookups=None):
+        """Declared: the fixed metadata item execute() builds from the analytics service response."""
+        s = sh.scalar
+        shape = sh.object_of(
+            {
+            "success": s("boolean", "declared", nullable=True),
+            "original_count": s("number", "declared", nullable=True),
+            "sampled_count": s("number", "declared", nullable=True),
+            "sample_file": s("string", "declared", nullable=True),
+            "columns": s("array", "declared"),
+            "preview": s("array", "declared"),
+            "steps_summary": s("array", "declared"),
+            "goal_validation": s("object", "declared", nullable=True),
+            "reproducibility": s("object", "declared", nullable=True),
+            },
+            [], "declared")
+        return sh.make_contract(inputs, {"main": shape})
+
     async def execute(
         self,
         context: ExecutionContext,
@@ -325,8 +344,9 @@ class SampleNode(BaseNode):
     ) -> NodeExecutionResult:
         from ...engine.types import NodeData as ND
         from ...engine.expression_engine import ExpressionEngine, expression_engine
+        from ...services.project_dataset_service import analytics_url, resolve_dataset_for_run
 
-        service_url = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:8001")
+        service_url = analytics_url()
 
         # Get parameters
         source_type = self.get_parameter(node_definition, "sourceType", "input")
@@ -397,6 +417,8 @@ class SampleNode(BaseNode):
         }
         if seed is not None:
             payload["seed"] = int(seed)
+        elif getattr(context, "test_options", None) is not None:
+            payload["seed"] = context.rng.randint(0, 2**31 - 1)  # repeatable inside a test run
         if shuffle:
             payload["shuffle"] = True
         if sort_by:
@@ -406,6 +428,7 @@ class SampleNode(BaseNode):
         results: list[ND] = []
         items = input_data if input_data else [ND(json={})]
 
+        dataset_ids: dict[str, str] = {}
         async with httpx.AsyncClient() as client:
             for idx, item in enumerate(items):
                 expr_context = ExpressionEngine.create_context(
@@ -422,8 +445,11 @@ class SampleNode(BaseNode):
                 if source_type == "dataset":
                     resolved_id = expression_engine.resolve(dataset_id, expr_context)
                     if not resolved_id:
-                        raise ValueError("Dataset ID is required when source type is 'dataset'")
-                    item_payload["dataset_id"] = str(resolved_id)
+                        raise ValueError("Dataset is required when source type is 'dataset'")
+                    key = str(resolved_id).strip()
+                    if key not in dataset_ids:  # a name (or link id) -> the analytics UUID, within the run's project
+                        dataset_ids[key] = await resolve_dataset_for_run(context.project_id, key)
+                    item_payload["dataset_id"] = dataset_ids[key]
                     if version_number is not None:
                         item_payload["version_number"] = int(version_number)
                     if tag:

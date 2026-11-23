@@ -1,0 +1,1306 @@
+{
+  "format": "wf-template/1",
+  "slug": "kyc-review",
+  "version": "1.0.0",
+  "name": "KYC review with compliance approval",
+  "summary": "Screen a customer against sanctions, identity and risk checks; low risk is verified at once, the rest go to compliance.",
+  "category": "compliance",
+  "tags": [
+    "kyc",
+    "sanctions",
+    "approval",
+    "form",
+    "sub-workflow"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [
+      {
+        "slug": "customer-notify",
+        "version": "^1"
+      }
+    ],
+    "secrets": [
+      {
+        "name": "KYC_API_KEY",
+        "used_by": [
+          "main/Mark verified",
+          "main/Mark declined"
+        ]
+      }
+    ],
+    "variables": [],
+    "egress_hosts": [
+      "kyc.bank.example",
+      "sanctions.bank.example",
+      "risk.bank.example"
+    ]
+  },
+  "apis": [
+    {
+      "key": "kyc",
+      "name": "kyc",
+      "file": "apis/kyc.yaml"
+    },
+    {
+      "key": "sanctions",
+      "name": "sanctions",
+      "file": "apis/sanctions.yaml"
+    },
+    {
+      "key": "risk",
+      "name": "risk",
+      "file": "apis/risk.yaml"
+    }
+  ],
+  "tables": [
+    {
+      "key": "kyc_risk_thresholds",
+      "name": "kyc_risk_thresholds",
+      "description": "Credit score range of each risk rating",
+      "columns": [
+        {
+          "name": "band",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "min_score",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "max_score",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "seed_rows": [
+        {
+          "band": "low",
+          "min_score": 0,
+          "max_score": 39
+        },
+        {
+          "band": "medium",
+          "min_score": 40,
+          "max_score": 69
+        },
+        {
+          "band": "high",
+          "min_score": 70,
+          "max_score": 100
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "KYC review",
+      "publish": false,
+      "description": "Identity review: low risk customers are verified at once, the others wait for compliance.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "KYC form",
+            "type": "FormTrigger",
+            "parameters": {
+              "title": "Customer identity review",
+              "submit_label": "Start review",
+              "input_schema": {
+                "type": "object",
+                "required": [
+                  "customer_id",
+                  "full_name",
+                  "country",
+                  "email"
+                ],
+                "properties": {
+                  "customer_id": {
+                    "type": "string",
+                    "title": "Customer id"
+                  },
+                  "full_name": {
+                    "type": "string",
+                    "title": "Full name"
+                  },
+                  "country": {
+                    "type": "string",
+                    "title": "Country"
+                  },
+                  "email": {
+                    "type": "string",
+                    "title": "Email"
+                  }
+                }
+              }
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Screen customer",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/screen",
+              "version": "latest",
+              "inputMode": "map",
+              "mode": "once",
+              "inputs": {
+                "customer_id": "{{ $json.customer_id }}",
+                "full_name": "{{ $json.full_name }}",
+                "country": "{{ $json.country }}"
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Low risk?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.risk == 'low' }}"
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Compliance review",
+            "type": "Approval",
+            "parameters": {
+              "title": "KYC review for {{ $node[\"KYC form\"].json.full_name }} ({{ $json.risk }} risk)",
+              "context": {
+                "Customer": "{{ $node[\"KYC form\"].json.full_name }}",
+                "Country": "{{ $node[\"KYC form\"].json.country }}",
+                "Risk": "{{ $json.risk }}",
+                "Score": "{{ $json.score }}",
+                "Findings": "{{ $json.hits }}"
+              },
+              "require_comment_on_reject": true
+            },
+            "position": {
+              "x": 720,
+              "y": 120
+            }
+          },
+          {
+            "name": "Mark verified",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/kyc",
+                "operation_id": "updateStatus"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.KYC_API_KEY }}"
+                }
+              ],
+              "body": {
+                "status": "verified",
+                "reviewer": "{{ $json.approval.decided_by or 'automatic' }}"
+              },
+              "path_params": {
+                "customer_id": "{{ $node[\"KYC form\"].json.customer_id }}"
+              }
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          },
+          {
+            "name": "Mark declined",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/kyc",
+                "operation_id": "updateStatus"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.KYC_API_KEY }}"
+                }
+              ],
+              "body": {
+                "status": "declined",
+                "reviewer": "{{ $json.approval.decided_by or 'automatic' }}"
+              },
+              "path_params": {
+                "customer_id": "{{ $node[\"KYC form\"].json.customer_id }}"
+              }
+            },
+            "position": {
+              "x": 960,
+              "y": 240
+            }
+          },
+          {
+            "name": "Status saved?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.statusCode == 200 }}"
+            },
+            "position": {
+              "x": 1200,
+              "y": 120
+            }
+          },
+          {
+            "name": "Tell customer",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/customer-notify:notify",
+              "version": "latest",
+              "inputMode": "map",
+              "inputs": {
+                "to": "{{ $node[\"KYC form\"].json.email }}",
+                "channel": "email",
+                "template": "{{ 'kyc_approved' if $json.body.status == 'verified' else 'kyc_declined' }}",
+                "vars": {
+                  "name": "{{ $node[\"KYC form\"].json.full_name }}"
+                }
+              },
+              "mode": "once"
+            },
+            "position": {
+              "x": 1440,
+              "y": 40
+            }
+          },
+          {
+            "name": "Show result",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 200,
+              "body": {
+                "message": "The review is complete",
+                "notified": "{{ $json.delivered }}"
+              }
+            },
+            "position": {
+              "x": 1680,
+              "y": 40
+            }
+          },
+          {
+            "name": "Show failure",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 502,
+              "body": {
+                "message": "The review result could not be saved. Try again."
+              }
+            },
+            "position": {
+              "x": 1440,
+              "y": 220
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "KYC form",
+            "target_node": "Screen customer",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Screen customer",
+            "target_node": "Low risk?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Low risk?",
+            "target_node": "Mark verified",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Low risk?",
+            "target_node": "Compliance review",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Compliance review",
+            "target_node": "Mark verified",
+            "source_output": "approved",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Compliance review",
+            "target_node": "Mark declined",
+            "source_output": "rejected",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Mark verified",
+            "target_node": "Status saved?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Mark declined",
+            "target_node": "Status saved?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Status saved?",
+            "target_node": "Tell customer",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Status saved?",
+            "target_node": "Show failure",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Tell customer",
+            "target_node": "Show result",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_ddce8c6b",
+            "name": "A low risk customer is verified without a person",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB",
+                  "email": "dana@example.com"
+                }
+              ]
+            },
+            "mocks": {
+              "Screen customer": {
+                "items": [
+                  {
+                    "customer_id": "c-9001",
+                    "risk": "low",
+                    "score": 22,
+                    "hits": []
+                  }
+                ]
+              },
+              "Mark verified": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "customer_id": "c-9001",
+                    "status": "verified"
+                  }
+                }
+              },
+              "Tell customer": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Compliance review",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Mark verified",
+                "subject": "request",
+                "item": "any",
+                "path": "body.status",
+                "op": "eq",
+                "value": "verified"
+              },
+              {
+                "node": "Mark verified",
+                "subject": "request",
+                "item": "any",
+                "path": "body.reviewer",
+                "op": "eq",
+                "value": "automatic"
+              },
+              {
+                "node": "Tell customer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_05035edb",
+            "name": "A high risk customer approved by compliance is verified",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB",
+                  "email": "dana@example.com"
+                }
+              ]
+            },
+            "mocks": {
+              "Screen customer": {
+                "items": [
+                  {
+                    "customer_id": "c-9001",
+                    "risk": "high",
+                    "score": 82,
+                    "hits": [
+                      "sanctions match: SANCTIONS-TEST-LIST"
+                    ]
+                  }
+                ]
+              },
+              "Compliance review": {
+                "approval": {
+                  "decision": "approved",
+                  "comment": "documents ok"
+                }
+              },
+              "Mark verified": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "customer_id": "c-9001",
+                    "status": "verified"
+                  }
+                }
+              },
+              "Tell customer": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Compliance review",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Mark verified",
+                "subject": "request",
+                "item": "any",
+                "path": "body.reviewer",
+                "op": "eq",
+                "value": "tester"
+              },
+              {
+                "node": "Tell customer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_57a99bd4",
+            "name": "A high risk customer rejected by compliance is declined",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB",
+                  "email": "dana@example.com"
+                }
+              ]
+            },
+            "mocks": {
+              "Screen customer": {
+                "items": [
+                  {
+                    "customer_id": "c-9001",
+                    "risk": "high",
+                    "score": 82,
+                    "hits": [
+                      "identity not verified: name mismatch"
+                    ]
+                  }
+                ]
+              },
+              "Compliance review": {
+                "approval": {
+                  "decision": "rejected",
+                  "comment": "mismatch"
+                }
+              },
+              "Mark declined": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "customer_id": "c-9001",
+                    "status": "declined"
+                  }
+                }
+              },
+              "Mark verified": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "customer_id": "c-9001",
+                    "status": "verified"
+                  }
+                }
+              },
+              "Tell customer": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Mark declined",
+                "subject": "request",
+                "item": "any",
+                "path": "body.status",
+                "op": "eq",
+                "value": "declined"
+              },
+              {
+                "node": "Mark verified",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Tell customer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_d816bf4e",
+            "name": "The status update fails",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB",
+                  "email": "dana@example.com"
+                }
+              ]
+            },
+            "mocks": {
+              "Screen customer": {
+                "items": [
+                  {
+                    "customer_id": "c-9001",
+                    "risk": "low",
+                    "score": 22,
+                    "hits": []
+                  }
+                ]
+              },
+              "Mark verified": {
+                "http": {
+                  "status": 404,
+                  "body": {
+                    "error": "customer not found"
+                  }
+                }
+              },
+              "Tell customer": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Show failure",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Tell customer",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {},
+        "interface": {
+          "kind": "form",
+          "slug": "kyc-review",
+          "title": "Customer identity review",
+          "description": "",
+          "access": {
+            "mode": "public"
+          },
+          "trigger_node": "KYC form",
+          "result_node": "Show failure"
+        }
+      }
+    },
+    {
+      "key": "screen",
+      "role": "subworkflow",
+      "name": "Screen customer",
+      "publish": true,
+      "description": "Sanctions, identity and credit risk checks combined into one risk rating; a failing check never lowers the rating.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Inputs",
+            "type": "ExecuteWorkflowTrigger",
+            "parameters": {
+              "inputSource": "fields",
+              "fields": [
+                {
+                  "name": "customer_id",
+                  "type": "string",
+                  "required": true,
+                  "description": "Customer id"
+                },
+                {
+                  "name": "full_name",
+                  "type": "string",
+                  "required": true,
+                  "description": "Full name"
+                },
+                {
+                  "name": "country",
+                  "type": "string",
+                  "required": true,
+                  "description": "Country of residence"
+                }
+              ]
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Sanctions check",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/sanctions",
+                "operation_id": "screen"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "body": {
+                "name": "{{ $json.full_name }}",
+                "country": "{{ $json.country }}"
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Identity check",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/kyc",
+                "operation_id": "verifyIdentity"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "body": {
+                "full_name": "{{ $node[\"Inputs\"].json.full_name }}",
+                "country": "{{ $node[\"Inputs\"].json.country }}"
+              },
+              "path_params": {
+                "customer_id": "{{ $node[\"Inputs\"].json.customer_id }}"
+              }
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Risk score",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/risk",
+                "operation_id": "score"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "body": {
+                "applicant_id": "{{ $node[\"Inputs\"].json.customer_id }}"
+              }
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            }
+          },
+          {
+            "name": "Load thresholds",
+            "type": "DataTable",
+            "parameters": {
+              "table": "@tpl:table/kyc_risk_thresholds",
+              "operation": "list",
+              "limit": 10,
+              "sort": "min_score"
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          },
+          {
+            "name": "Assess",
+            "type": "Code",
+            "parameters": {
+              "code": "def reply(name):\n    j = (node_data.get(name) or {}).get('json') or {}\n    return j.get('statusCode'), (j.get('body') or {})\nwho = node_data['Inputs']['json']\ns_code, s = reply('Sanctions check')\ni_code, i = reply('Identity check')\nr_code, r = reply('Risk score')\nrank = {'low': 0, 'medium': 1, 'high': 2}\nhits = []\nrisk = 'low'\nscore = 0\nif r_code == 200 and r.get('score') is not None:\n    score = r.get('score')\n    for row in [x['json'] for x in items]:\n        if row.get('min_score') <= score <= row.get('max_score'):\n            risk = row.get('band')\nelse:\n    hits.append('risk score unavailable')\n    risk = 'medium'\nif s_code != 200:\n    hits.append('sanctions check unavailable')\n    if rank[risk] < 1:\n        risk = 'medium'\nelif s.get('match'):\n    hits.append('sanctions match: ' + str(s.get('list_name')))\n    risk = 'high'\nif i_code != 200:\n    hits.append('identity check unavailable')\n    if rank[risk] < 1:\n        risk = 'medium'\nelif not i.get('verified'):\n    hits.append('identity not verified: ' + str(i.get('reason')))\n    if rank[risk] < 1:\n        risk = 'medium'\nreturn [{'json': {'customer_id': who['customer_id'], 'risk': risk, 'score': score, 'hits': hits}}]\n"
+            },
+            "position": {
+              "x": 1200,
+              "y": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Inputs",
+            "target_node": "Sanctions check",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Sanctions check",
+            "target_node": "Identity check",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Identity check",
+            "target_node": "Risk score",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Risk score",
+            "target_node": "Load thresholds",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Load thresholds",
+            "target_node": "Assess",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_7e8da8b2",
+            "name": "A clean customer is low risk",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB"
+                }
+              ]
+            },
+            "mocks": {
+              "Sanctions check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "match": false,
+                    "list_name": ""
+                  }
+                }
+              },
+              "Identity check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "verified": true,
+                    "reason": ""
+                  }
+                }
+              },
+              "Risk score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 22,
+                    "band": "A"
+                  }
+                }
+              },
+              "Load thresholds": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "low",
+                    "min_score": 0,
+                    "max_score": 39
+                  },
+                  {
+                    "id": 2,
+                    "band": "medium",
+                    "min_score": 40,
+                    "max_score": 69
+                  },
+                  {
+                    "id": 3,
+                    "band": "high",
+                    "min_score": 70,
+                    "max_score": 100
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "risk",
+                "op": "eq",
+                "value": "low"
+              },
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "hits",
+                "op": "eq",
+                "value": []
+              },
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "score",
+                "op": "eq",
+                "value": 22
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_9bc7736b",
+            "name": "A sanctions match is high risk",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB"
+                }
+              ]
+            },
+            "mocks": {
+              "Sanctions check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "match": true,
+                    "list_name": "SANCTIONS-TEST-LIST"
+                  }
+                }
+              },
+              "Identity check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "verified": true,
+                    "reason": ""
+                  }
+                }
+              },
+              "Risk score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 22,
+                    "band": "A"
+                  }
+                }
+              },
+              "Load thresholds": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "low",
+                    "min_score": 0,
+                    "max_score": 39
+                  },
+                  {
+                    "id": 2,
+                    "band": "medium",
+                    "min_score": 40,
+                    "max_score": 69
+                  },
+                  {
+                    "id": 3,
+                    "band": "high",
+                    "min_score": 70,
+                    "max_score": 100
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "risk",
+                "op": "eq",
+                "value": "high"
+              },
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "hits[0]",
+                "op": "contains",
+                "value": "sanctions match"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_2e968215",
+            "name": "A high credit risk score is high risk",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB"
+                }
+              ]
+            },
+            "mocks": {
+              "Sanctions check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "match": false,
+                    "list_name": ""
+                  }
+                }
+              },
+              "Identity check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "verified": true,
+                    "reason": ""
+                  }
+                }
+              },
+              "Risk score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 82,
+                    "band": "A"
+                  }
+                }
+              },
+              "Load thresholds": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "low",
+                    "min_score": 0,
+                    "max_score": 39
+                  },
+                  {
+                    "id": 2,
+                    "band": "medium",
+                    "min_score": 40,
+                    "max_score": 69
+                  },
+                  {
+                    "id": 3,
+                    "band": "high",
+                    "min_score": 70,
+                    "max_score": 100
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "risk",
+                "op": "eq",
+                "value": "high"
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_beca6200",
+            "name": "When the sanctions service fails the customer goes to review",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB"
+                }
+              ]
+            },
+            "mocks": {
+              "Sanctions check": {
+                "http": {
+                  "status": 400,
+                  "body": {
+                    "error": "bad request"
+                  }
+                }
+              },
+              "Identity check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "verified": true,
+                    "reason": ""
+                  }
+                }
+              },
+              "Risk score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 22,
+                    "band": "A"
+                  }
+                }
+              },
+              "Load thresholds": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "low",
+                    "min_score": 0,
+                    "max_score": 39
+                  },
+                  {
+                    "id": 2,
+                    "band": "medium",
+                    "min_score": 40,
+                    "max_score": 69
+                  },
+                  {
+                    "id": 3,
+                    "band": "high",
+                    "min_score": 70,
+                    "max_score": 100
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "risk",
+                "op": "eq",
+                "value": "medium"
+              },
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "hits[0]",
+                "op": "contains",
+                "value": "unavailable"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_2859bb34",
+            "name": "An identity that does not verify needs review",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "full_name": "Dana Example",
+                  "country": "GB"
+                }
+              ]
+            },
+            "mocks": {
+              "Sanctions check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "match": false,
+                    "list_name": ""
+                  }
+                }
+              },
+              "Identity check": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "verified": false,
+                    "reason": "name mismatch"
+                  }
+                }
+              },
+              "Risk score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 22,
+                    "band": "A"
+                  }
+                }
+              },
+              "Load thresholds": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "low",
+                    "min_score": 0,
+                    "max_score": 39
+                  },
+                  {
+                    "id": 2,
+                    "band": "medium",
+                    "min_score": 40,
+                    "max_score": 69
+                  },
+                  {
+                    "id": 3,
+                    "band": "high",
+                    "min_score": 70,
+                    "max_score": 100
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "risk",
+                "op": "eq",
+                "value": "medium"
+              },
+              {
+                "node": "Assess",
+                "port": "main",
+                "path": "hits[0]",
+                "op": "contains",
+                "value": "name mismatch"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

@@ -1,0 +1,8 @@
+[
+ [
+  "WF005",
+  "Refund issued",
+  "fields[1].value",
+  "body.refund_id"
+ ]
+]

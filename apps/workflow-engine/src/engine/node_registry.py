@@ -193,6 +193,7 @@ def register_all_nodes() -> None:
         CronNode,
         ErrorTriggerNode,
         ExecuteWorkflowTriggerNode,
+        FormTriggerNode,
         # Flow control
         IfNode,
         SwitchNode,
@@ -202,6 +203,9 @@ def register_all_nodes() -> None:
         PollNode,
         ExecuteWorkflowNode,
         StopAndErrorNode,
+        RespondNode,
+        NoOpNode,
+        ApprovalNode,
         # Data / Transform
         SetNode,
         HttpRequestNode,
@@ -211,6 +215,9 @@ def register_all_nodes() -> None:
         SampleNode,
         ProfileNode,
         AggregateNode,
+        DataTableNode,
+        PythonStepNode,
+        HtmlNode,
         # Integrations
         SendEmailNode,
         PostgresNode,
@@ -230,6 +237,7 @@ def register_all_nodes() -> None:
         CronNode,
         ErrorTriggerNode,
         ExecuteWorkflowTriggerNode,
+        FormTriggerNode,
         # Flow control
         IfNode,
         SwitchNode,
@@ -239,6 +247,9 @@ def register_all_nodes() -> None:
         PollNode,
         ExecuteWorkflowNode,
         StopAndErrorNode,
+        RespondNode,
+        NoOpNode,
+        ApprovalNode,
         # Data / Transform
         SetNode,
         HttpRequestNode,
@@ -248,6 +259,9 @@ def register_all_nodes() -> None:
         SampleNode,
         ProfileNode,
         AggregateNode,
+        DataTableNode,
+        PythonStepNode,
+        HtmlNode,
         # Integrations
         SendEmailNode,
         PostgresNode,

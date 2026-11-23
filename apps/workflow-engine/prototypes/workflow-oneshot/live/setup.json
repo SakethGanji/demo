@@ -1,0 +1,25 @@
+{
+ "project": "proj_01a166f0-d344-79b9-b05f-e556bc5e44de",
+ "specs": {
+  "accounts": "api_d4c3fc8146db",
+  "bureau": "api_6bf729540633",
+  "dms": "api_dabcd7cdf207",
+  "esign": "api_c5c162040868",
+  "iam": "api_e4c8f9768630",
+  "mortgages": "api_f49e9538a5ff",
+  "screening": "api_7cf26f323e71",
+  "wires": "api_471947fafd8c"
+ },
+ "connections": {
+  "core_banking": "core_banking",
+  "iam_db": "iam_db",
+  "ops_db": "ops_db"
+ },
+ "workflows": {
+  "mortgage_offer": "wf_01a166f0-d4d5-7879-981c-91b89a67a771",
+  "wire_release": "wf_01a166f0-d4e0-74bf-8667-c95544ff0fa1",
+  "kyc_document_chase": "wf_01a166f0-d4ec-701a-beba-c4d55c7aebb4",
+  "access_recertification": "wf_01a166f0-d4f5-7a71-8574-9c73c1b8b8cc",
+  "hardship_restructure": "wf_01a166f0-d4fe-74e7-b74a-12147895c167"
+ }
+}

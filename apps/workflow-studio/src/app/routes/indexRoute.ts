@@ -1,9 +1,9 @@
-import { createRoute } from '@tanstack/react-router'
+import { createRoute, lazyRouteComponent } from '@tanstack/react-router'
 import { rootRoute } from './__root'
-import LandingPage from './landing'
 
 export const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: LandingPage,
+  // lazy: studio users never download the landing (its shader, mocks and fixtures)
+  component: lazyRouteComponent(() => import('./landing')),
 })

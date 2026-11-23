@@ -1,0 +1,21 @@
+{
+  "name": "test-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone AI browser test builder prototype (Playwright + Chromium) with builder-enforced policy.",
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "demo": "node demo-app/server.ts",
+    "tb": "node src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@playwright/test": "1.62.1",
+    "jszip": "3.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "5.9.3"
+  }
+}

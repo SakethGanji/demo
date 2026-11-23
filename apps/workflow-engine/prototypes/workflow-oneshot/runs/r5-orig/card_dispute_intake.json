@@ -1,0 +1,442 @@
+{
+ "name": "Card dispute intake",
+ "nodes": [
+  {
+   "name": "Dispute form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Dispute a card transaction",
+    "description": "Tell us what went wrong with a card transaction.",
+    "submit_label": "Submit dispute",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "customer_id": {
+       "type": "string"
+      },
+      "card_last4": {
+       "type": "string"
+      },
+      "merchant": {
+       "type": "string"
+      },
+      "amount": {
+       "type": "number"
+      },
+      "description": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "customer_id",
+      "card_last4",
+      "merchant",
+      "amount",
+      "description"
+     ]
+    },
+    "field_order": [
+     "customer_id",
+     "card_last4",
+     "merchant",
+     "amount",
+     "description"
+    ]
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Under $50?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.amount < 50 }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Give provisional credit",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "cards",
+     "operation_id": "provisionalCredit"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "card_last4": "{{ $json.card_last4 }}"
+    },
+    "body": {
+     "customer_id": "{{ $json.customer_id }}",
+     "amount": "{{ $json.amount }}",
+     "merchant": "{{ $json.merchant }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Confirm credit",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "credited",
+     "message": "Your dispute of ${{ $node[\"Dispute form\"].json.amount }} was approved. A provisional credit has been applied to your account.",
+     "credit_id": "{{ $json.body.credit_id }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Open dispute case",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "disputes",
+     "operation_id": "createCase"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "customer_id": "{{ $json.customer_id }}",
+     "card_last4": "{{ $json.card_last4 }}",
+     "merchant": "{{ $json.merchant }}",
+     "amount": "{{ $json.amount }}",
+     "description": "{{ $json.description }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 110
+   }
+  },
+  {
+   "name": "Message customer",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "notify",
+     "operation_id": "sendMessage"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "to": "{{ $node[\"Dispute form\"].json.customer_id }}",
+     "text": "We have opened dispute case {{ $node[\"Open dispute case\"].json.body.case_id }} for your ${{ $node[\"Dispute form\"].json.amount }} charge at {{ $node[\"Dispute form\"].json.merchant }}.",
+     "channel": "email"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Confirm case",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "case_opened",
+     "message": "Your dispute has been opened. Your case number is {{ $node[\"Open dispute case\"].json.body.case_id }}.",
+     "case_id": "{{ $node[\"Open dispute case\"].json.body.case_id }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Dispute form",
+   "target_node": "Under $50?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Under $50?",
+   "target_node": "Give provisional credit",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Under $50?",
+   "target_node": "Open dispute case",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Give provisional credit",
+   "target_node": "Confirm credit",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Open dispute case",
+   "target_node": "Message customer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Message customer",
+   "target_node": "Confirm case",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Under 50 gives credit and opens no case",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C100",
+      "card_last4": "4242",
+      "merchant": "Corner Cafe",
+      "amount": 20,
+      "description": "Charged twice"
+     }
+    ]
+   },
+   "mocks": {
+    "Give provisional credit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "credit_id": "CR-1",
+       "amount": 20
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Give provisional credit",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 20
+    },
+    {
+     "node": "Give provisional credit",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "4242"
+    },
+    {
+     "node": "Open dispute case",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Message customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Confirm credit",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "credited"
+    }
+   ]
+  },
+  {
+   "name": "Just under 50 still credits",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C101",
+      "card_last4": "1111",
+      "merchant": "Gas Stop",
+      "amount": 49.99,
+      "description": "Wrong amount"
+     }
+    ]
+   },
+   "mocks": {
+    "Give provisional credit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "credit_id": "CR-2",
+       "amount": 49.99
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Give provisional credit",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Open dispute case",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Exactly 50 opens a case",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C102",
+      "card_last4": "5555",
+      "merchant": "Shoe Shop",
+      "amount": 50,
+      "description": "Never delivered"
+     }
+    ]
+   },
+   "mocks": {
+    "Open dispute case": {
+     "http": {
+      "status": 201,
+      "body": {
+       "case_id": "D-1001",
+       "status": "open"
+      }
+     }
+    },
+    "Message customer": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Open dispute case",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 50
+    },
+    {
+     "node": "Give provisional credit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Message customer",
+     "subject": "request",
+     "path": "body.text",
+     "op": "contains",
+     "value": "D-1001"
+    },
+    {
+     "node": "Message customer",
+     "subject": "request",
+     "path": "body.to",
+     "op": "eq",
+     "value": "C102"
+    }
+   ]
+  },
+  {
+   "name": "Large dispute confirms with case number",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C103",
+      "card_last4": "9999",
+      "merchant": "Electronics Hub",
+      "amount": 900,
+      "description": "Item not as described"
+     }
+    ]
+   },
+   "mocks": {
+    "Open dispute case": {
+     "http": {
+      "status": 201,
+      "body": {
+       "case_id": "D-2002",
+       "status": "open"
+      }
+     }
+    },
+    "Message customer": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Confirm case",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "case_opened"
+    },
+    {
+     "node": "Confirm case",
+     "subject": "request",
+     "path": "body.case_id",
+     "op": "eq",
+     "value": "D-2002"
+    },
+    {
+     "node": "Confirm credit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "card-dispute-intake",
+  "title": "Dispute a card transaction",
+  "description": "Tell us what went wrong with a card transaction.",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Dispute form",
+  "result_node": "Confirm case"
+ }
+}

@@ -6,10 +6,18 @@ import {
   Settings,
   ClipboardPaste,
   Files,
+  FlaskConical,
+  Route,
+  StepForward,
+  Power,
+  PowerOff,
+  Workflow,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
 import { isTriggerType } from '../../lib/nodeConfig';
+import { useNodeActions } from '../../hooks/useNodeActions';
+import { useConvertSubworkflowStore } from '../../stores/convertSubworkflowStore';
 
 interface NodeContextMenuProps {
   nodeId: string;
@@ -29,6 +37,8 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
   const openNDV = useNDVStore((s) => s.openNDV);
 
   const node = nodes.find((n) => n.id === nodeId);
+  const nodeActions = useNodeActions();
+  const isDisabled = !!(node?.data as { disabled?: boolean } | undefined)?.disabled;
 
   // Get selected nodes - if current node is part of selection, use all selected
   const selectedNodes = nodes.filter((n) => n.selected);
@@ -43,6 +53,43 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       shortcut: 'Enter',
       onClick: () => {
         openNDV(nodeId);
+        onClose();
+      },
+    },
+    {
+      label: 'Test step',
+      icon: FlaskConical,
+      testId: 'ctx-test-step',
+      onClick: () => {
+        void nodeActions.testStep(nodeId, 'last_run');
+        onClose();
+      },
+    },
+    {
+      label: 'Run to here',
+      icon: Route,
+      testId: 'ctx-run-to',
+      onClick: () => {
+        void nodeActions.runTo(nodeId);
+        onClose();
+      },
+    },
+    {
+      label: 'Run from here',
+      icon: StepForward,
+      testId: 'ctx-run-from',
+      onClick: () => {
+        void nodeActions.runFrom(nodeId);
+        onClose();
+      },
+    },
+    {
+      label: isDisabled ? 'Enable' : 'Disable',
+      icon: isDisabled ? Power : PowerOff,
+      shortcut: 'D',
+      testId: 'ctx-toggle-disable',
+      onClick: () => {
+        nodeActions.toggleDisable(nodeId);
         onClose();
       },
     },
@@ -87,6 +134,21 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
         onClose();
       },
     },
+    {
+      label: 'Convert to sub-workflow',
+      icon: Workflow,
+      shortcut: 'Alt+X',
+      testId: 'ctx-convert-subworkflow',
+      onClick: () => {
+        const names = targetNodeIds
+          .map((nid) => nodes.find((nd) => nd.id === nid))
+          .filter((nd) => nd?.type === 'workflowNode')
+          .map((nd) => (nd?.data as { name?: string } | undefined)?.name)
+          .filter((n): n is string => typeof n === 'string');
+        if (names.length > 0) useConvertSubworkflowStore.getState().openDialog(names);
+        onClose();
+      },
+    },
     { type: 'separator' as const },
     {
       label: 'Delete',
@@ -96,7 +158,7 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       onClick: () => {
         const hasTrigger = targetNodeIds.some((nid) => {
           const n = nodes.find((nd) => nd.id === nid);
-          return n && isTriggerType(n.data?.type || '');
+          return n && typeof n.data?.type === 'string' && isTriggerType(n.data.type);
         });
         if (hasTrigger) {
           const confirmed = window.confirm('This will delete a trigger node. Are you sure?');
@@ -125,7 +187,7 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
 
       {/* Context menu */}
       <div
-        className="fixed z-50 min-w-[180px] rounded-lg border border-border bg-popover p-1 shadow-lg"
+        className="glass-overlay fixed z-50 min-w-[180px] p-1"
         style={{
           left: x,
           top: y,
@@ -133,7 +195,7 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
       >
         {menuItems.map((item, index) => {
           if (item.type === 'separator') {
-            return <div key={index} className="my-1 h-px bg-border" />;
+            return <div key={index} className="my-1 h-px bg-hairline" />;
           }
 
           const Icon = item.icon;
@@ -142,14 +204,15 @@ function NodeContextMenu({ nodeId, x, y, onClose }: NodeContextMenuProps) {
               key={item.label}
               onClick={item.onClick}
               disabled={item.disabled}
+              data-testid={item.testId}
               className={`
-                flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm
+                flex w-full items-center gap-2 rounded-chip px-2 py-1 text-[13px]
                 transition-colors
                 ${item.disabled
                   ? 'cursor-not-allowed opacity-50'
                   : item.danger
-                    ? 'text-destructive hover:bg-destructive/10'
-                    : 'hover:bg-accent'
+                    ? 'text-destructive hover:bg-destructive-soft'
+                    : 'hover:bg-raise hover:shadow-raise-sm'
                 }
               `}
             >

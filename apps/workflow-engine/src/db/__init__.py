@@ -19,6 +19,8 @@ from .models import (
     DataTableModel,
     DataTableRowModel,
     ApiTestExecutionModel,
+    ProjectModel,
+    DEFAULT_PROJECT_ID,
 )
 from .seed import seed_workflows
 
@@ -45,5 +47,7 @@ __all__ = [
     "DataTableModel",
     "DataTableRowModel",
     "ApiTestExecutionModel",
+    "ProjectModel",
+    "DEFAULT_PROJECT_ID",
     "seed_workflows",
 ]

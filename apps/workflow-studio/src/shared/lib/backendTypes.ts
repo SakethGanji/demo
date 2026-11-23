@@ -5,6 +5,9 @@
  * Used by both the API client and the workflow transformation layer.
  */
 
+import type { NodeContractOverride } from '@/features/workflow-editor/lib/shapes';
+import type { TestCase, TestDefaults } from '@/features/workflow-editor/lib/tests';
+
 // Individual node data item (backend format)
 export interface BackendNodeData {
   json: Record<string, unknown>;
@@ -18,10 +21,14 @@ export interface BackendNodeDefinition {
   label?: string;
   parameters: Record<string, unknown>;
   position?: { x: number; y: number };
+  disabled?: boolean;
+  on_error?: 'stop' | 'continue' | 'error_output';
+  /** legacy, read-only */
   continue_on_fail?: boolean;
   retry_on_fail?: number;
   retry_delay?: number;
   pinned_data?: BackendNodeData[];
+  contract?: NodeContractOverride;
 }
 
 // Connection between two nodes in the backend format
@@ -39,12 +46,20 @@ export interface BackendWorkflow {
   name: string;
   nodes: BackendNodeDefinition[];
   connections: BackendConnection[];
+  project_id?: string;
+  settings?: Record<string, unknown>;
+  /** CONTRACTS-STAGE3A §1 */
+  tests?: TestCase[];
+  test_defaults?: TestDefaults;
+  /** {old: new} node renames since the last save, so a rename never trips the test lock */
+  node_renames?: Record<string, string>;
 }
 
 // Summary returned by GET /api/workflows (list endpoint)
 export interface ApiWorkflowSummary {
   id: string;
   name: string;
+  project_id?: string;
   active: boolean;
   webhook_url: string;
   node_count: number;
@@ -74,6 +89,8 @@ export interface ApiPublishResponse {
   id: string;
   active: boolean;
   version_id: number | null;
+  /** per-workflow version number (v1, v2, ...); only returned by publish */
+  version_number?: number | null;
 }
 
 // Execution list item from GET /api/executions
@@ -92,6 +109,7 @@ export interface ApiExecutionListItem {
 export interface ApiWorkflowDetail {
   id: string;
   name: string;
+  project_id?: string;
   active: boolean;
   definition: {
     nodes: Array<{
@@ -101,10 +119,13 @@ export interface ApiWorkflowDetail {
       parameters: Record<string, unknown>;
       position?: { x: number; y: number };
       // Node settings
+      disabled?: boolean;
+      on_error?: 'stop' | 'continue' | 'error_output';
       continue_on_fail?: boolean;
       retry_on_fail?: number;
       retry_delay?: number;
       pinnedData?: Array<{ json: Record<string, unknown> }>;
+      contract?: NodeContractOverride;
       // Enriched I/O data from backend
       inputs?: Array<{ name: string; displayName: string }>;
       inputCount?: number;
@@ -124,5 +145,9 @@ export interface ApiWorkflowDetail {
       target_input: string;
       waypoints?: Array<{ x: number; y: number }>;
     }>;
+    tests?: TestCase[];
+    test_defaults?: TestDefaults;
+    /** Workflow settings; `sticky_notes` holds the canvas notes (they never run) */
+    settings?: Record<string, unknown>;
   };
 }

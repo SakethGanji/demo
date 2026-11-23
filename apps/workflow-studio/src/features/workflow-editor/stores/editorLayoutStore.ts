@@ -1,9 +1,11 @@
 import { create } from 'zustand';
 import type { NodeCreatorView } from '../types/workflow';
 
-export type BottomPanelTab = 'logs' | 'input';
-export type RightPanelTab = 'nodes' | 'ai';
+export type BottomPanelTab = 'logs' | 'input' | 'problems' | 'tests';
+export type RightPanelTab = 'nodes' | 'ai' | 'interface' | 'builder';
 type CanvasMode = 'pointer' | 'hand';
+/** `canvas`: the editable node graph. `read`: the same workflow as a top-to-bottom flowchart, for reading. */
+export type EditorViewMode = 'canvas' | 'read';
 
 const STORAGE_PREFIX = 'workflow-studio:editor-layout';
 
@@ -29,10 +31,18 @@ function loadBottomTab(fallback: BottomPanelTab): BottomPanelTab {
 function loadRightTab(fallback: RightPanelTab): RightPanelTab {
   try {
     const v = localStorage.getItem(`${STORAGE_PREFIX}:right-tab`);
-    if (v === '"nodes"' || v === '"ai"') return JSON.parse(v);
+    if (v === '"nodes"' || v === '"ai"' || v === '"interface"' || v === '"builder"') return JSON.parse(v);
     return fallback;
   } catch {
     return fallback;
+  }
+}
+
+function loadViewMode(): EditorViewMode {
+  try {
+    return localStorage.getItem(`${STORAGE_PREFIX}:view-mode`) === '"read"' ? 'read' : 'canvas';
+  } catch {
+    return 'canvas';
   }
 }
 
@@ -59,6 +69,16 @@ interface EditorLayoutState {
   payloadInput: string;
   setPayloadInput: (value: string) => void;
 
+  // "Try it" dock: the workflow's interface (chat / form / screen) used live over the canvas
+  interfaceDockOpen: boolean;
+  openInterfaceDock: () => void;
+  closeInterfaceDock: () => void;
+  toggleInterfaceDock: () => void;
+
+  // Canvas or read view
+  viewMode: EditorViewMode;
+  setViewMode: (mode: EditorViewMode) => void;
+
   // Canvas mode
   canvasMode: CanvasMode;
   setCanvasMode: (mode: CanvasMode) => void;
@@ -80,6 +100,7 @@ interface EditorLayoutState {
   toggleBottomPanel: () => void;
   setBottomPanelTab: (tab: BottomPanelTab) => void;
   openBottomPanel: (tab?: BottomPanelTab) => void;
+  showBottomTab: (tab: BottomPanelTab) => void;
   closeBottomPanel: () => void;
   toggleBottomPanelMaximized: () => void;
 
@@ -102,6 +123,17 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
   // Payload input
   payloadInput: '{\n  "message": "Hello world",\n  "count": 42\n}',
   setPayloadInput: (value) => set({ payloadInput: value }),
+
+  interfaceDockOpen: false,
+  openInterfaceDock: () => set({ interfaceDockOpen: true }),
+  closeInterfaceDock: () => set({ interfaceDockOpen: false }),
+  toggleInterfaceDock: () => set((s) => ({ interfaceDockOpen: !s.interfaceDockOpen })),
+
+  viewMode: loadViewMode(),
+  setViewMode: (mode) => {
+    persist('view-mode', mode);
+    set({ viewMode: mode });
+  },
 
   // Canvas mode
   canvasMode: 'hand' as CanvasMode,
@@ -171,6 +203,13 @@ export const useEditorLayoutStore = create<EditorLayoutState>((set, get) => ({
       if (tab) persist('bottom-tab', tab);
       return { bottomPanelOpen: true, ...(tab ? { bottomPanelTab: tab } : {}) };
     }),
+
+  /** Open the bottom panel on `tab` (never toggles it closed, unlike `openBottomPanel`). */
+  showBottomTab: (tab) => {
+    persist('bottom-open', true);
+    persist('bottom-tab', tab);
+    set({ bottomPanelOpen: true, bottomPanelTab: tab });
+  },
 
   closeBottomPanel: () => {
     persist('bottom-open', false);

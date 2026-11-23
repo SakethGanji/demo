@@ -1,0 +1,157 @@
+openapi: 3.0.3
+info:
+  title: kyc
+  version: '1.0'
+servers:
+- url: http://kyc.bank.example
+paths:
+  /customers/{customer_id}/document-requests:
+    post:
+      operationId: requestDocuments
+      summary: Ask a customer for missing documents
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                missing_documents:
+                  type: array
+                  items:
+                    type: string
+                message:
+                  type: string
+              required:
+              - missing_documents
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request_id:
+                    type: string
+                required:
+                - request_id
+        '404':
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /customers/{customer_id}/kyc-status:
+    post:
+      operationId: updateStatus
+      summary: Set the KYC status of a customer
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum:
+                  - approved
+                  - rejected
+                  - pending
+                reviewer:
+                  type: string
+              required:
+              - status
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - customer_id
+                - status
+        '404':
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error
+  /customers/{customer_id}/verify:
+    post:
+      operationId: verifyIdentity
+      summary: Check the identity details of a customer against the registry
+      parameters:
+      - name: customer_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name:
+                  type: string
+                country:
+                  type: string
+              required:
+              - full_name
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                  reason:
+                    type: string
+                    nullable: true
+                required:
+                - verified
+        '404':
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

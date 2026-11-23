@@ -1,20 +1,57 @@
+import type { NodeContractOverride } from '../lib/shapes';
 import type { NodeGroup, NodeIO } from '../lib/nodeStyles';
 
 // ---------------------------------------------------------------------------
 // AI Chat types
 // ---------------------------------------------------------------------------
 
+/**
+ * What the chat shows under an assistant message (DESIGN-STAGE6 §8). The chat never changes a workflow itself: a change is a
+ * proposal that a person reviews, a new workflow starts as a spec that a person approves.
+ */
+export type AIChatCard =
+  | {
+      kind: 'spec';
+      proposalId: string;
+      title: string;
+      summary: string;
+      rules: number;
+      steps: number;
+      tests: number;
+      /** errors the plan still has: it cannot be approved until they are fixed */
+      errors: number;
+      /** draft = waiting for Approve; approving / building = working; failed = see `error` */
+      phase: 'draft' | 'approving' | 'building' | 'failed';
+      error?: string;
+    }
+  | {
+      kind: 'proposal';
+      proposalId: string;
+      workflowId: string | null;
+      status: string;
+      summary: string;
+      counts: { added: number; removed: number; changed: number };
+      passed: boolean;
+    };
+
 export interface AIChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  operations?: AIResponsePayload;
+  /** a short line while the server works ("Making the change on a copy...") */
+  status?: string;
+  card?: AIChatCard;
 }
 
+/** Body of POST /api/ai/chat. `workflow_context` is the editor snapshot, kept for older engines; the engine reads the stored draft. */
 export interface AIChatRequest {
   message: string;
   session_id: string;
+  project_id: string | null;
+  workflow_id: string | null;
+  selected_node: string | null;
+  actor: string;
   workflow_context: WorkflowContextPayload | null;
   conversation_history: { role: 'user' | 'assistant'; content: string }[];
   mode_hint: 'auto' | 'generate' | 'modify' | 'explain' | 'fix';
@@ -30,29 +67,6 @@ interface WorkflowContextPayload {
     target_input: string;
   }>;
 }
-
-export interface AIResponsePayload {
-  mode: 'full_workflow' | 'incremental' | 'explanation';
-  workflow: {
-    name: string;
-    nodes: Array<{ name: string; type: string; parameters: Record<string, unknown> }>;
-    connections: Array<{
-      source_node: string;
-      target_node: string;
-      source_output?: string;
-      target_input?: string;
-    }>;
-  } | null;
-  operations: AIOperation[] | null;
-  summary: string;
-}
-
-export type AIOperation =
-  | { op: 'addNode'; type: string; name: string; parameters: Record<string, unknown>; connect_after?: string }
-  | { op: 'updateNode'; name: string; parameters: Record<string, unknown> }
-  | { op: 'removeNode'; name: string }
-  | { op: 'addConnection'; source_node: string; target_node: string; source_output?: string; target_input?: string }
-  | { op: 'removeConnection'; source_node: string; target_node: string };
 
 // Output strategy for dynamic output nodes (like Switch)
 export interface OutputStrategy {
@@ -81,12 +95,17 @@ export interface WorkflowNodeData {
   notes?: string;
 
   // Error handling options
+  /** @deprecated legacy; read from old workflows only, never written. Use onError. */
   continueOnFail?: boolean;
+  onError?: OnErrorMode;
   retryOnFail?: number;   // 0-10
   retryDelay?: number;    // ms
 
   // Pinned data for testing (format: { json: {...} }[])
   pinnedData?: Array<{ json: Record<string, unknown> }>;
+
+  /** Approved learned contract (CONTRACTS-STAGE2 §2); replaces the node's computed outputs. */
+  contract?: NodeContractOverride;
 
   // For sticky notes (UI-only)
   content?: string;
@@ -195,12 +214,30 @@ interface ExecutionData {
   error?: string;
 }
 
+/** What a node does when it fails (engine `on_error`). */
+export type OnErrorMode = 'stop' | 'continue' | 'error_output';
+
+/** One open human task of a run that paused for approval (the `execution_waiting` stream event). */
+export interface WaitingTask {
+  id: string;
+  node_name: string;
+  run_index: number;
+  title: string;
+  assignees: string[];
+  due_at: string | null;
+}
+
+export interface WaitingRun {
+  executionId: string;
+  tasks: WaitingTask[];
+}
+
 export interface NodeExecutionData {
   input: ExecutionData | null;
   output: ExecutionData | null;
   startTime?: number;
   endTime?: number;
-  status: 'idle' | 'running' | 'success' | 'error';
+  status: 'idle' | 'running' | 'success' | 'error' | 'waiting';
   metrics?: NodeMetrics;
   agentTrace?: AgentTraceEvent[];
 }

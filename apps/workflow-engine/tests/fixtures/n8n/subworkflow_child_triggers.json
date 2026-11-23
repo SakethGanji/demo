@@ -1,0 +1,38 @@
+{
+  "name": "Sub-workflow trigger input sources",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "jsonExample",
+        "jsonExample": "{\n  \"payment_id\": \"pay_001\",\n  \"amount\": 120.5,\n  \"urgent\": false,\n  \"lines\": [1, 2],\n  \"meta\": {\"channel\": \"web\"},\n  \"note\": null\n}"
+      },
+      "id": "3c4d5e6f-2222-4b6c-9d0e-1f2a3b4c5d01",
+      "name": "Example Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 200]
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "3c4d5e6f-2222-4b6c-9d0e-1f2a3b4c5d02",
+      "name": "Passthrough Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [200, 400]
+    },
+    {
+      "parameters": {},
+      "id": "3c4d5e6f-2222-4b6c-9d0e-1f2a3b4c5d03",
+      "name": "Version One Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [200, 600]
+    }
+  ],
+  "connections": {},
+  "pinData": {},
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

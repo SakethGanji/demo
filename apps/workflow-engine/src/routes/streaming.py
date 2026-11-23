@@ -38,6 +38,7 @@ class AdhocWorkflowRequest(BaseModel):
     settings: dict[str, Any] = {}
     input_data: dict[str, Any] | None = None  # Test input for webhook/trigger
     environment: str = "default"
+    project_id: str | None = None
 
 
 class WorkflowTestRequest(BaseModel):
@@ -67,10 +68,15 @@ def _event_to_dict(event: ExecutionEvent) -> dict[str, Any]:
         result["progress"] = event.progress
     if event.metrics:
         result["metrics"] = event.metrics
+        if event.metrics.get("errorCode"):
+            result["error_code"] = event.metrics["errorCode"]
+            result["details"] = event.metrics.get("errorDetails") or {}
     if event.subworkflow_parent_node:
         result["subworkflowParentNode"] = event.subworkflow_parent_node
     if event.subworkflow_id:
         result["subworkflowId"] = event.subworkflow_id
+    if event.tasks is not None:
+        result["tasks"] = event.tasks
 
     return result
 
@@ -91,6 +97,8 @@ async def _run_workflow_with_events(
     workflow_repo: WorkflowRepository | None = None,
     variables: dict[str, str] | None = None,
     secret_values: set[str] | None = None,
+    project_id: str | None = None,
+    environment: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """Run workflow and yield SSE events.
 
@@ -99,17 +107,23 @@ async def _run_workflow_with_events(
     this is called).
     """
     from ..db.session import async_session_factory
+    from ..services.subworkflow_wiring import subworkflow_invoker
     from ..utils.ids import execution_id as gen_exec_id
 
     event_queue: asyncio.Queue[ExecutionEvent | None] = asyncio.Queue()
 
+    held_waiting: list[ExecutionEvent] = []
+
     def on_event(event: ExecutionEvent) -> None:
+        if event.type == ExecutionEventType.EXECUTION_WAITING:
+            held_waiting.append(event)  # sent after complete(): only then do the tasks exist
+            return
         event_queue.put_nowait(event)
 
     # Pre-create execution row so node_outputs FK is satisfied during run
     exec_id = gen_exec_id()
     wf_id = workflow.id or "adhoc"
-    await execution_repo.start(exec_id, wf_id, workflow.name, mode)
+    await execution_repo.start(exec_id, wf_id, workflow.name, mode, project_id=project_id, environment=environment)
 
     event_bus = _get_event_bus()
     runner = WorkflowRunner(db_session_factory=async_session_factory, event_bus=event_bus)
@@ -128,8 +142,19 @@ async def _run_workflow_with_events(
                 execution_id=exec_id,
                 variables=variables,
                 secret_values=secret_values,
+                project_id=project_id,
+                environment=environment,
+                subworkflow_invoker=subworkflow_invoker(async_session_factory),  # Stage 8: child rows, version pins
             )
             await execution_repo.complete(context, wf_id, workflow.name)
+            if held_waiting:
+                tasks = await execution_repo.open_task_summaries(exec_id)
+                ev = held_waiting[0]
+                if tasks:
+                    ev.tasks = tasks
+                else:  # nothing is open after all (e.g. cancelled meanwhile): it is a plain completion
+                    ev.type = ExecutionEventType.EXECUTION_COMPLETE
+                event_queue.put_nowait(ev)
         except Exception as e:
             on_event(
                 ExecutionEvent(
@@ -143,6 +168,9 @@ async def _run_workflow_with_events(
             event_queue.put_nowait(None)
 
     task = asyncio.create_task(run_workflow())
+    from ..engine import execution_registry
+
+    execution_registry.register(exec_id, task)  # so POST /executions/{id}/cancel stops a streamed run
 
     try:
         while True:
@@ -153,6 +181,25 @@ async def _run_workflow_with_events(
     finally:
         if not task.done():
             task.cancel()
+
+
+async def _project_env(workflow_repo, project_ref: str | None, workflow_id: str | None, requested: str | None):
+    """(project, effective env) for a streamed run: explicit project, else the saved workflow's."""
+    from ..services.project_service import ProjectError, effective_environment, get_project_for_workflow, resolve_project
+    session = workflow_repo._session
+    project = None
+    if project_ref:
+        project = await resolve_project(session, project_ref)
+        if not project:
+            raise HTTPException(status_code=422, detail=f"Project '{project_ref}' not found")
+    elif workflow_id:
+        from ..db.models import WorkflowModel
+        if await session.get(WorkflowModel, workflow_id):
+            project = await get_project_for_workflow(session, workflow_id)
+    try:
+        return project, effective_environment(project, requested, strict=True)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail())
 
 
 # ============================================================================
@@ -182,7 +229,11 @@ async def stream_adhoc_execution(
                 pinned_data=[NodeData(json=d["json"]) for d in n["pinnedData"]] if n.get("pinnedData") else None,
                 retry_on_fail=n.get("retry_on_fail") or n.get("retryOnFail", 0),
                 retry_delay=n.get("retry_delay") or n.get("retryDelay", 1000),
-                continue_on_fail=n.get("continue_on_fail") or n.get("continueOnFail", False),
+                continue_on_fail=(n.get("on_error") or n.get("onError")) == "continue"
+                or bool(n.get("continue_on_fail") or n.get("continueOnFail", False)),
+                disabled=bool(n.get("disabled", False)),
+                on_error=n.get("on_error") or n.get("onError") or "stop",
+                contract=n.get("contract") or None,
             )
             for n in workflow.nodes
         ],
@@ -208,8 +259,10 @@ async def stream_adhoc_execution(
     if not start_node:
         raise HTTPException(status_code=400, detail="No start node found in workflow")
 
-    variables = await load_run_variables(environment=workflow.environment)
-    secrets = await load_run_secrets(environment=workflow.environment)
+    project, env = await _project_env(workflow_repo, workflow.project_id, workflow.id, workflow.environment)
+    project_id = project.id if project else None
+    variables = await load_run_variables(environment=env, project_id=project_id)
+    secrets = await load_run_secrets(environment=env, project_id=project_id)
     resolved_input = substitute_vars(workflow.input_data, variables) if workflow.input_data else None
 
     # Build initial data - wrap in webhook-style format for consistency
@@ -225,7 +278,7 @@ async def stream_adhoc_execution(
                 }
             )
         ]
-        mode = "webhook"
+        mode = "manual"  # review C2: studio runs with input are still manual runs
     else:
         initial_data = [
             NodeData(
@@ -247,6 +300,8 @@ async def stream_adhoc_execution(
             workflow_repo=workflow_repo,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         ):
             yield event
 
@@ -281,8 +336,10 @@ async def stream_workflow_execution(
     ]
 
     from ..services.variable_loader import load_run_variables, load_run_secrets
-    variables = await load_run_variables(environment=environment)
-    secrets = await load_run_secrets(environment=environment)
+    project, env = await _project_env(workflow_repo, None, stored.id, environment)
+    project_id = project.id if project else None
+    variables = await load_run_variables(environment=env, project_id=project_id)
+    secrets = await load_run_secrets(environment=env, project_id=project_id)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         async for event in _run_workflow_with_events(
@@ -294,6 +351,8 @@ async def stream_workflow_execution(
             workflow_repo=workflow_repo,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         ):
             yield event
 
@@ -320,8 +379,10 @@ async def stream_workflow_execution_with_input(
 
     from ..services.variable_loader import load_run_variables, load_run_secrets
     from ..services.vars_substitution import substitute_vars
-    variables = await load_run_variables(environment=request.environment)
-    secrets = await load_run_secrets(environment=request.environment)
+    project, env = await _project_env(workflow_repo, None, stored.id, request.environment)
+    project_id = project.id if project else None
+    variables = await load_run_variables(environment=env, project_id=project_id)
+    secrets = await load_run_secrets(environment=env, project_id=project_id)
     resolved_input = (
         substitute_vars(request.input_data, variables) if request.input_data is not None else None
     )
@@ -339,7 +400,7 @@ async def stream_workflow_execution_with_input(
                 }
             )
         ]
-        mode = "webhook"
+        mode = "manual"  # review C2: studio runs with input are still manual runs
     else:
         initial_data = [
             NodeData(
@@ -361,6 +422,8 @@ async def stream_workflow_execution_with_input(
             workflow_repo=workflow_repo,
             variables=variables,
             secret_values=secrets,
+            project_id=project_id,
+            environment=env,
         ):
             yield event
 

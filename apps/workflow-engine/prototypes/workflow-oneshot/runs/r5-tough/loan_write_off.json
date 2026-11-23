@@ -1,0 +1,821 @@
+{
+ "name": "Loan write-off approval",
+ "nodes": [
+  {
+   "name": "Write-off request",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "loan-write-offs",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get loan",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT loan_id, outstanding, status FROM loans WHERE loan_id = %s",
+    "queryParameters": [
+     "{{ $json.body.loan_id }}"
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Loan found?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.rowCount > 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Refuse not found",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 422,
+    "body": {
+     "status": "refused",
+     "reason": "loan not found"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Loan defaulted?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.rows[0].status == 'defaulted' }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Refuse not defaulted",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 422,
+    "body": {
+     "status": "refused",
+     "reason": "loan not defaulted"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  },
+  {
+   "name": "Amount within balance?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($node[\"Write-off request\"].json.body.amount) <= float($json.rows[0].outstanding) }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Refuse exceeds",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 422,
+    "body": {
+     "status": "refused",
+     "reason": "amount exceeds outstanding"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Up to 5000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($node[\"Write-off request\"].json.body.amount) <= 5000 }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Up to 50000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($node[\"Write-off request\"].json.body.amount) <= 50000 }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Refuse board",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 422,
+    "body": {
+     "status": "refused",
+     "reason": "needs board approval"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Ops manager approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve write-off of {{ $node[\"Write-off request\"].json.body.amount }} for loan {{ $node[\"Write-off request\"].json.body.loan_id }}",
+    "context": {
+     "Loan": "{{ $node[\"Write-off request\"].json.body.loan_id }}",
+     "Amount": "{{ $node[\"Write-off request\"].json.body.amount }}",
+     "Reason": "{{ $node[\"Write-off request\"].json.body.reason }}",
+     "Outstanding": "{{ $json.rows[0].outstanding }}"
+    },
+    "due_in": "2d",
+    "on_timeout": "reject",
+    "notify_email": "{{ $vars.OPS_MANAGER_EMAIL }}",
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Committee approval 1",
+   "type": "Approval",
+   "parameters": {
+    "title": "First approval: write-off of {{ $node[\"Write-off request\"].json.body.amount }} for loan {{ $node[\"Write-off request\"].json.body.loan_id }}",
+    "context": {
+     "Loan": "{{ $node[\"Write-off request\"].json.body.loan_id }}",
+     "Amount": "{{ $node[\"Write-off request\"].json.body.amount }}",
+     "Reason": "{{ $node[\"Write-off request\"].json.body.reason }}",
+     "Outstanding": "{{ $json.rows[0].outstanding }}"
+    },
+    "due_in": "2d",
+    "on_timeout": "reject",
+    "notify_email": "{{ $vars.CREDIT_COMMITTEE_EMAIL }}",
+    "require_comment_on_reject": true,
+    "four_eyes": true
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Committee approval 2",
+   "type": "Approval",
+   "parameters": {
+    "title": "Second approval: write-off of {{ $node[\"Write-off request\"].json.body.amount }} for loan {{ $node[\"Write-off request\"].json.body.loan_id }}",
+    "context": {
+     "Loan": "{{ $node[\"Write-off request\"].json.body.loan_id }}",
+     "Amount": "{{ $node[\"Write-off request\"].json.body.amount }}",
+     "Reason": "{{ $node[\"Write-off request\"].json.body.reason }}",
+     "First approver comment": "{{ $json.approval.comment }}"
+    },
+    "due_in": "2d",
+    "on_timeout": "reject",
+    "notify_email": "{{ $vars.CREDIT_COMMITTEE_EMAIL }}",
+    "require_comment_on_reject": true,
+    "four_eyes": true
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record write-off",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO write_offs (loan_id, amount, approver_comment) VALUES (%s, %s, %s)",
+      "params": [
+       "{{ $node[\"Write-off request\"].json.body.loan_id }}",
+       "{{ $node[\"Write-off request\"].json.body.amount }}",
+       "{{ $json.approval.comment }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('loan', %s, 'write_off', %s)",
+      "params": [
+       "{{ $node[\"Write-off request\"].json.body.loan_id }}",
+       "{{ $node[\"Write-off request\"].json.body.reason }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply written off",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "written_off"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected",
+     "reason": "{{ $json.approval.comment }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 400
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Write-off request",
+   "target_node": "Get loan",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get loan",
+   "target_node": "Loan found?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Loan found?",
+   "target_node": "Loan defaulted?",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Loan found?",
+   "target_node": "Refuse not found",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Loan defaulted?",
+   "target_node": "Amount within balance?",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Loan defaulted?",
+   "target_node": "Refuse not defaulted",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Amount within balance?",
+   "target_node": "Up to 5000?",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Amount within balance?",
+   "target_node": "Refuse exceeds",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Up to 5000?",
+   "target_node": "Ops manager approval",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Up to 5000?",
+   "target_node": "Up to 50000?",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Up to 50000?",
+   "target_node": "Committee approval 1",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Up to 50000?",
+   "target_node": "Refuse board",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Ops manager approval",
+   "target_node": "Record write-off",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Ops manager approval",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee approval 1",
+   "target_node": "Committee approval 2",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee approval 1",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee approval 2",
+   "target_node": "Record write-off",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Committee approval 2",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record write-off",
+   "target_node": "Reply written off",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Unknown loan is refused",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L404",
+       "amount": 1000,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Refuse not found",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 422
+    },
+    {
+     "node": "Refuse not found",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "loan not found"
+    },
+    {
+     "node": "Ops manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record write-off",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Loan not defaulted is refused",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L1",
+       "amount": 1000,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "outstanding": "10000",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Refuse not defaulted",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "loan not defaulted"
+    },
+    {
+     "node": "Ops manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Amount above outstanding is refused",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L1",
+       "amount": 10001,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "outstanding": "10000",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Refuse exceeds",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "amount exceeds outstanding"
+    },
+    {
+     "node": "Record write-off",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Exactly 5000 needs only the ops manager",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L1",
+       "amount": 5000,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "outstanding": "8000",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Ops manager approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "ok",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Record write-off": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Committee approval 1",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record write-off",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Reply written off",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "written_off"
+    }
+   ]
+  },
+  {
+   "name": "Exactly 50000 needs two committee approvals",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L2",
+       "amount": 50000,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L2",
+         "outstanding": "60000",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Committee approval 1": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "first ok",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Committee approval 2": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "second ok",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Record write-off": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Ops manager approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Committee approval 2",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Record write-off",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Reply written off",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "written_off"
+    }
+   ]
+  },
+  {
+   "name": "Over 50000 needs the board",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L3",
+       "amount": 50001,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "outstanding": "100000",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Refuse board",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 422
+    },
+    {
+     "node": "Refuse board",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "needs board approval"
+    },
+    {
+     "node": "Committee approval 1",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record write-off",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Rejection replies with the comment and writes nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L1",
+       "amount": 3000,
+       "reason": "uncollectable"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get loan": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L1",
+         "outstanding": "8000",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Ops manager approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "still collectable",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "still collectable"
+    },
+    {
+     "node": "Record write-off",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,1115 @@
+{
+ "id": "card_limit_change",
+ "request": "Branch staff ask for a card's daily limit to change by calling a webhook with card_id, requested_limit and reason. Look up the card's current daily limit in core banking. If the card isn't there, reply 404 with {status: 'not_found'} and do nothing else. A decrease, or the same limit, is applied straight away. An increase needs a credit officer: send the task to CREDIT_OFFICER_EMAIL, show them the card, the current and requested limit and the reason, let them enter the limit they approve as approved_limit (it can be lower than asked), and make them give a reason when they reject. If the credit officer hasn't decided within 4 hours, escalate the same task to the head of credit (HEAD_OF_CREDIT_EMAIL), due within 1 day; if that runs out too, it is rejected. When a change goes ahead, set the new limit through the cards API (for an increase, the limit the approver entered), then record it in ops_db in one transaction: a limit_changes row (card, old limit, new limit, reason) and an audit_log row (entity 'card', the card id, action 'limit_change'). Reply 200 with {status: 'applied', limit: <new limit>} or {status: 'rejected', reason: <the approver's reason, empty if nobody decided>}.",
+ "apis": [
+  "cards.yaml"
+ ],
+ "tables": {},
+ "expect": {
+  "trigger": "Webhook",
+  "must_have_types": [
+   "Postgres",
+   "Approval",
+   "Respond"
+  ],
+  "must_call": [
+   "cards.setLimit"
+  ],
+  "max_nodes": 24,
+  "min_types": {
+   "Approval": 2
+  }
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Decrease applies at once, change and audit in one transaction",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 1500,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C9",
+         "customer_id": "CU1",
+         "daily_limit": "2000.00",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C9",
+       "daily_limit": 1500
+      }
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "request",
+     "item": "any",
+     "path": "body.daily_limit",
+     "op": "eq",
+     "value": 1500
+    },
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "C9"
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "request",
+     "item": "any",
+     "path": "sql",
+     "op": "contains",
+     "value": "audit_log"
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": 1500
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": "C9"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 1500
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Same limit is not an increase",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 2000,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C9",
+         "customer_id": "CU1",
+         "daily_limit": "2000.00",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C9",
+       "daily_limit": 2000
+      }
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Officer approves a lower limit than asked; old limit recorded",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 5000,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C9",
+         "customer_id": "CU1",
+         "daily_limit": "2000.00",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$has:Approval:CREDIT_OFFICER_EMAIL": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_limit": 4000
+      },
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:HEAD_OF_CREDIT_EMAIL": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_limit": 9999
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C9",
+       "daily_limit": 4000
+      }
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:CREDIT_OFFICER_EMAIL",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$has:Approval:HEAD_OF_CREDIT_EMAIL",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$has:Approval:CREDIT_OFFICER_EMAIL",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "4h",
+      "240m"
+     ]
+    },
+    {
+     "node": "$has:Approval:CREDIT_OFFICER_EMAIL",
+     "subject": "request",
+     "item": "any",
+     "path": "params.notify_email",
+     "op": "eq",
+     "value": "credit-officers@bank.test"
+    },
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "request",
+     "item": "any",
+     "path": "body.daily_limit",
+     "op": "eq",
+     "value": 4000
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": 4000
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "request",
+     "item": "any",
+     "path": "text",
+     "op": "contains",
+     "value": "2000"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 4000
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Officer rejects: nothing changes, reason replied",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 5000,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C9",
+         "customer_id": "CU1",
+         "daily_limit": "2000.00",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$has:Approval:CREDIT_OFFICER_EMAIL": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "income too low",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:HEAD_OF_CREDIT_EMAIL": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_limit": 9999
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {}
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$has:Approval:HEAD_OF_CREDIT_EMAIL",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$has:Approval:CREDIT_OFFICER_EMAIL",
+     "subject": "request",
+     "item": "any",
+     "path": "params.require_comment_on_reject",
+     "op": "eq",
+     "value": true
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "income too low"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Officer times out, head of credit approves",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 5000,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C9",
+         "customer_id": "CU1",
+         "daily_limit": "2000.00",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$has:Approval:CREDIT_OFFICER_EMAIL": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:HEAD_OF_CREDIT_EMAIL": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_limit": 3000
+      },
+      "decided_by": "test"
+     }
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C9",
+       "daily_limit": 3000
+      }
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$has:Approval:HEAD_OF_CREDIT_EMAIL",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$has:Approval:HEAD_OF_CREDIT_EMAIL",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "1d",
+      "24h"
+     ]
+    },
+    {
+     "node": "$has:Approval:HEAD_OF_CREDIT_EMAIL",
+     "subject": "request",
+     "item": "any",
+     "path": "params.notify_email",
+     "op": "eq",
+     "value": "head-credit@bank.test"
+    },
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "request",
+     "item": "any",
+     "path": "body.daily_limit",
+     "op": "eq",
+     "value": 3000
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Both time out: rejected, nothing changes",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 5000,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C9",
+         "customer_id": "CU1",
+         "daily_limit": "2000.00",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$has:Approval:CREDIT_OFFICER_EMAIL": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$has:Approval:HEAD_OF_CREDIT_EMAIL": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {}
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:limit_changes",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Unknown card: 404, nothing else",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 5000,
+       "reason": "travel"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:cards": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:cards.setLimit": {
+     "http": {
+      "status": 200,
+      "body": {}
+     }
+    },
+    "$pgw:limit_changes": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 404
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "not_found"
+    },
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:cards.setLimit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ],
+ "variables": {
+  "CREDIT_OFFICER_EMAIL": {
+   "value": "credit-officers@bank.test"
+  },
+  "HEAD_OF_CREDIT_EMAIL": {
+   "value": "head-credit@bank.test"
+  },
+  "COLLECTIONS_LEAD_EMAIL": {
+   "value": "collections-lead@bank.test"
+  },
+  "OPS_MANAGER_EMAIL": {
+   "value": "ops-manager@bank.test"
+  },
+  "CREDIT_COMMITTEE_EMAIL": {
+   "value": "credit-committee@bank.test"
+  },
+  "BRANCH_MANAGER_EMAIL": {
+   "value": "branch-manager@bank.test"
+  },
+  "AUTO_REFUND_LIMIT": {
+   "value": "50",
+   "description": "largest fee refunded without a manager"
+  },
+  "CORE_API_KEY": {
+   "value": "sk-core-999",
+   "secret": true
+  }
+ },
+ "subworkflows": [
+  {
+   "id": "wf_notify_customer",
+   "name": "Notify customer",
+   "description": "Sends a customer a message on their preferred channel and logs it.",
+   "inputs": [
+    {
+     "name": "customer_id",
+     "type": "string",
+     "required": true
+    },
+    {
+     "name": "message",
+     "type": "string",
+     "required": true
+    }
+   ],
+   "output_fields": [
+    "sent",
+    "channel"
+   ],
+   "definition": {
+    "name": "child",
+    "nodes": [
+     {
+      "name": "Called",
+      "type": "ExecuteWorkflowTrigger",
+      "parameters": {
+       "inputSource": "fields",
+       "fields": [
+        {
+         "name": "customer_id",
+         "type": "string",
+         "required": true
+        },
+        {
+         "name": "message",
+         "type": "string",
+         "required": true
+        }
+       ]
+      }
+     },
+     {
+      "name": "Result",
+      "type": "Set",
+      "parameters": {
+       "mode": "manual",
+       "keepOnlySet": true,
+       "fields": [
+        {
+         "name": "sent",
+         "value": "{{ true }}"
+        },
+        {
+         "name": "channel",
+         "value": "sms"
+        }
+       ]
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source_node": "Called",
+      "target_node": "Result",
+      "source_output": "main",
+      "target_input": "main"
+     }
+    ]
+   }
+  }
+ ],
+ "databases": {
+  "core_banking": {
+   "writable": false,
+   "description": "read replica of core banking",
+   "tables": {
+    "customers": [
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "full_name",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "segment",
+      "text"
+     ]
+    ],
+    "accounts": [
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "product",
+      "text"
+     ],
+     [
+      "balance",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "loans": [
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "outstanding",
+      "numeric"
+     ],
+     [
+      "days_past_due",
+      "integer"
+     ],
+     [
+      "officer_email",
+      "text"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "cards": [
+     [
+      "card_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "daily_limit",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  },
+  "ops_db": {
+   "writable": true,
+   "description": "our operations database",
+   "tables": {
+    "limit_changes": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "card_id",
+      "text"
+     ],
+     [
+      "old_limit",
+      "numeric"
+     ],
+     [
+      "new_limit",
+      "numeric"
+     ],
+     [
+      "reason",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "audit_log": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "entity",
+      "text"
+     ],
+     [
+      "entity_id",
+      "text"
+     ],
+     [
+      "action",
+      "text"
+     ],
+     [
+      "detail",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "collection_actions": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "stage",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "write_offs": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "approver_comment",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "fee_refunds": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "approved_by_manager",
+      "boolean"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "account_closures": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ]
+   }
+  }
+ }
+}

@@ -10,9 +10,10 @@
  */
 
 import type { Node, Edge } from '@xyflow/react';
-import type { WorkflowNodeData } from '../types/workflow';
+import type { WorkflowNodeData, StickyNoteData } from '../types/workflow';
 import type { WorkflowDefinition } from '@/features/projects/hooks/useWorkflows';
 import { getNodeIcon, isTriggerType, normalizeNodeGroup } from './nodeConfig';
+import type { TestCase, TestDefaults } from './tests';
 import { createWorkflowNodeData, getDefaultIO } from './createNodeData';
 import type {
   BackendNodeDefinition,
@@ -53,6 +54,49 @@ export function generateNodeName(
 }
 
 // ============================================================================
+// Sticky notes ↔ workflow settings
+// ============================================================================
+
+export const STICKY_NOTES_KEY = 'sticky_notes';
+
+interface SavedStickyNote {
+  id: string;
+  position: { x: number; y: number };
+  content: string;
+  color: StickyNoteData['color'];
+  width?: number;
+  height?: number;
+}
+
+function toStickyNotes(nodes: Node[]): SavedStickyNote[] {
+  return nodes
+    .filter((n) => n.type === 'stickyNote')
+    .map((n) => {
+      const d = (n.data ?? {}) as Partial<StickyNoteData>;
+      return {
+        id: n.id,
+        position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+        content: typeof d.content === 'string' ? d.content : '',
+        color: d.color ?? 'yellow',
+        ...(d.width ? { width: d.width } : {}),
+        ...(d.height ? { height: d.height } : {}),
+      };
+    });
+}
+
+function fromStickyNotes(raw: unknown): Node[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((r): r is SavedStickyNote => !!r && typeof r === 'object' && typeof (r as SavedStickyNote).id === 'string')
+    .map((r) => ({
+      id: r.id,
+      type: 'stickyNote',
+      position: { x: Number(r.position?.x) || 0, y: Number(r.position?.y) || 0 },
+      data: { content: r.content ?? '', color: r.color ?? 'yellow', ...(r.width ? { width: r.width } : {}), ...(r.height ? { height: r.height } : {}) },
+    }));
+}
+
+// ============================================================================
 // ReactFlow → Backend Transformation
 // ============================================================================
 
@@ -68,7 +112,8 @@ export function toBackendWorkflow(
   nodes: Node<WorkflowNodeData>[],
   edges: Edge[],
   workflowName: string,
-  workflowId?: string
+  workflowId?: string,
+  testData?: { tests: TestCase[]; testDefaults: TestDefaults; nodeRenames?: Record<string, string> },
 ): BackendWorkflow {
   // Filter to workflow nodes (exclude addNodes placeholder and sticky notes)
   const workflowNodes = nodes.filter(
@@ -91,10 +136,12 @@ export function toBackendWorkflow(
       x: Math.round(node.position.x),
       y: Math.round(node.position.y),
     },
-    continue_on_fail: node.data.continueOnFail || false,
+    disabled: node.data.disabled || false,
+    on_error: node.data.onError ?? 'stop',
     retry_on_fail: node.data.retryOnFail || 0,
     retry_delay: node.data.retryDelay || 1000,
     pinned_data: node.data.pinnedData,
+    ...(node.data.contract ? { contract: node.data.contract } : {}),
   }));
 
   // Transform edges to connections (deduplicate by source+target+handles)
@@ -129,6 +176,15 @@ export function toBackendWorkflow(
     name: workflowName,
     nodes: backendNodes,
     connections,
+    // Sticky notes are not steps: they ride in settings (the engine merges settings keys on update)
+    settings: { [STICKY_NOTES_KEY]: toStickyNotes(nodes) },
+    ...(testData
+      ? {
+          tests: testData.tests,
+          test_defaults: testData.testDefaults,
+          ...(testData.nodeRenames && Object.keys(testData.nodeRenames).length > 0 ? { node_renames: testData.nodeRenames } : {}),
+        }
+      : {}),
   };
 }
 
@@ -195,6 +251,8 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
   workflowName: string;
   workflowId: string;
   isActive: boolean;
+  tests: TestCase[];
+  testDefaults: TestDefaults;
 } {
   // Build name to ID map (we use the name as the ID for simplicity)
   // Node types use backend PascalCase format directly
@@ -221,10 +279,12 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
         name: node.name,
         label: node.label || node.name,
         parameters: node.parameters,
-        continueOnFail: node.continue_on_fail ?? false,
+        disabled: node.disabled ?? false,
+        onError: node.on_error ?? (node.continue_on_fail ? 'continue' : 'stop'),
         retryOnFail: node.retry_on_fail ?? 0,
         retryDelay: node.retry_delay ?? 1000,
         pinnedData: node.pinnedData,
+        contract: node.contract,
       },
     );
 
@@ -254,12 +314,16 @@ export function fromBackendWorkflow(api: ApiWorkflowDetail): {
     };
   });
 
+  nodes.push(...(fromStickyNotes(api.definition.settings?.[STICKY_NOTES_KEY]) as Node<WorkflowNodeData>[]));
+
   return {
     nodes,
     edges,
     workflowName: api.name,
     workflowId: api.id,
     isActive: api.active,
+    tests: api.definition.tests ?? [],
+    testDefaults: api.definition.test_defaults ?? { mocks: {} },
   };
 }
 

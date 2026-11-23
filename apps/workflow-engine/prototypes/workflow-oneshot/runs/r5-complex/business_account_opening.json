@@ -1,0 +1,1208 @@
+{
+ "name": "Business account application",
+ "nodes": [
+  {
+   "name": "Application received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "business-account-application",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Verify director",
+   "type": "ExecuteWorkflow",
+   "parameters": {
+    "workflowId": "wf_kyc_verify",
+    "version": "latest",
+    "inputMode": "map",
+    "inputs": {
+     "customer_id": "{{ $json.body.director_customer_id }}",
+     "document_id": "{{ $json.body.director_document_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Verified?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.verified == true }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Record declined ID",
+   "type": "DataTable",
+   "parameters": {
+    "table": "business_applications",
+    "operation": "insert",
+    "data": {
+     "company_name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "status": "declined"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply declined ID",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "declined",
+     "message": "Director identity could not be verified"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  },
+  {
+   "name": "Screen sanctions",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "screening",
+     "operation_id": "screen"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "country": "{{ $node[\"Application received\"].json.body.country }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Sanctions hit?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.hit == true }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Open compliance case",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "compliance",
+     "operation_id": "openCase"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "subject": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "reason": "Sanctions screening hit on business account application"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Record declined sanctions",
+   "type": "DataTable",
+   "parameters": {
+    "table": "business_applications",
+    "operation": "insert",
+    "data": {
+     "company_name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "status": "declined"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply declined sanctions",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "declined",
+     "message": "Application declined after sanctions screening"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Get rating",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "bizbureau",
+     "operation_id": "companyRating"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Work out risk",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "rating",
+      "value": "{{ $json.body.rating }}"
+     },
+     {
+      "name": "risk",
+      "value": "{{ 'high' if ($json.body.rating == 'D' or float($node[\"Application received\"].json.body.expected_monthly_volume) > 5000000) else ('low' if (($json.body.rating == 'A' or $json.body.rating == 'B') and float($node[\"Application received\"].json.body.expected_monthly_volume) <= 1000000) else 'medium') }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Low risk?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.risk == 'low' }}"
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "AI risk note",
+   "type": "AIAgent",
+   "parameters": {
+    "systemPrompt": "You write short risk notes for bank compliance staff. Two sentences at most, plain facts only.",
+    "task": "Write a short risk note for this business account application. Company: {{ $node[\"Application received\"].json.body.company_name }}. Country: {{ $node[\"Application received\"].json.body.country }}. Credit rating: {{ $json.rating }}. Expected monthly volume: {{ $node[\"Application received\"].json.body.expected_monthly_volume }}. Risk level: {{ $json.risk }}.",
+    "outputSchema": {
+     "type": "object",
+     "properties": {
+      "note": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "note"
+     ]
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Compliance officer",
+   "type": "Approval",
+   "parameters": {
+    "title": "Business account: {{ $node[\"Application received\"].json.body.company_name }} ({{ $node[\"Work out risk\"].json.risk }} risk)",
+    "context": {
+     "Company": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "Registration number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "Country": "{{ $node[\"Application received\"].json.body.country }}",
+     "Expected monthly volume": "{{ $node[\"Application received\"].json.body.expected_monthly_volume }}",
+     "Credit rating": "{{ $node[\"Work out risk\"].json.rating }}",
+     "Risk": "{{ $node[\"Work out risk\"].json.risk }}",
+     "Risk note": "{{ $node[\"AI risk note\"].json.structured.note }}"
+    },
+    "notify_email": "{{ $vars.COMPLIANCE_EMAIL }}",
+    "four_eyes": true,
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Needs head?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Work out risk\"].json.risk == 'high' }}"
+   },
+   "position": {
+    "x": 570,
+    "y": 290
+   }
+  },
+  {
+   "name": "Head of compliance",
+   "type": "Approval",
+   "parameters": {
+    "title": "High risk business account: {{ $node[\"Application received\"].json.body.company_name }}",
+    "context": {
+     "Company": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "Registration number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "Country": "{{ $node[\"Application received\"].json.body.country }}",
+     "Expected monthly volume": "{{ $node[\"Application received\"].json.body.expected_monthly_volume }}",
+     "Credit rating": "{{ $node[\"Work out risk\"].json.rating }}",
+     "Risk": "{{ $node[\"Work out risk\"].json.risk }}",
+     "Risk note": "{{ $node[\"AI risk note\"].json.structured.note }}",
+     "Officer comment": "{{ $node[\"Compliance officer\"].json.approval.comment }}"
+    },
+    "notify_email": "{{ $vars.HEAD_OF_COMPLIANCE_EMAIL }}",
+    "four_eyes": true,
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 760,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record rejected",
+   "type": "DataTable",
+   "parameters": {
+    "table": "business_applications",
+    "operation": "insert",
+    "data": {
+     "company_name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "risk": "{{ $node[\"Work out risk\"].json.risk }}",
+     "status": "rejected"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 400
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected",
+     "message": "Application rejected by compliance"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 510
+   }
+  },
+  {
+   "name": "Open account",
+   "type": "HttpRequest",
+   "on_error": "error_output",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "openBusiness"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "company_name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record opened",
+   "type": "DataTable",
+   "parameters": {
+    "table": "business_applications",
+    "operation": "insert",
+    "data": {
+     "company_name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "risk": "{{ $node[\"Work out risk\"].json.risk }}",
+     "status": "opened"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 290
+   }
+  },
+  {
+   "name": "Email contact",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Application received\"].json.body.contact_email }}",
+    "subject": "Your business account is open",
+    "bodyFormat": "plain",
+    "body": "Your business account for {{ $node[\"Application received\"].json.body.company_name }} is now open. Account number: {{ $node[\"Open account\"].json.body.account_number }}"
+   },
+   "position": {
+    "x": 0,
+    "y": 690
+   }
+  },
+  {
+   "name": "Reply opened",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "opened",
+     "account_number": "{{ $node[\"Open account\"].json.body.account_number }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 690
+   }
+  },
+  {
+   "name": "Record failed",
+   "type": "DataTable",
+   "parameters": {
+    "table": "business_applications",
+    "operation": "insert",
+    "data": {
+     "company_name": "{{ $node[\"Application received\"].json.body.company_name }}",
+     "registration_number": "{{ $node[\"Application received\"].json.body.registration_number }}",
+     "risk": "{{ $node[\"Work out risk\"].json.risk }}",
+     "status": "failed"
+    }
+   },
+   "position": {
+    "x": 1140,
+    "y": 400
+   }
+  },
+  {
+   "name": "Reply failed",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 500,
+    "body": {
+     "status": "error",
+     "message": "The account could not be opened"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 800
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Application received",
+   "target_node": "Verify director",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verify director",
+   "target_node": "Verified?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verified?",
+   "target_node": "Screen sanctions",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verified?",
+   "target_node": "Record declined ID",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record declined ID",
+   "target_node": "Reply declined ID",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Screen sanctions",
+   "target_node": "Sanctions hit?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sanctions hit?",
+   "target_node": "Open compliance case",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sanctions hit?",
+   "target_node": "Get rating",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Open compliance case",
+   "target_node": "Record declined sanctions",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record declined sanctions",
+   "target_node": "Reply declined sanctions",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get rating",
+   "target_node": "Work out risk",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Work out risk",
+   "target_node": "Low risk?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Low risk?",
+   "target_node": "Open account",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Low risk?",
+   "target_node": "AI risk note",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "AI risk note",
+   "target_node": "Compliance officer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Compliance officer",
+   "target_node": "Needs head?",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Compliance officer",
+   "target_node": "Record rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Needs head?",
+   "target_node": "Head of compliance",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Needs head?",
+   "target_node": "Open account",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of compliance",
+   "target_node": "Open account",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of compliance",
+   "target_node": "Record rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record rejected",
+   "target_node": "Reply rejected",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Open account",
+   "target_node": "Record opened",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Open account",
+   "target_node": "Record failed",
+   "source_output": "error",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record opened",
+   "target_node": "Email contact",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email contact",
+   "target_node": "Reply opened",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record failed",
+   "target_node": "Reply failed",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Low risk at exactly 1,000,000 opens automatically",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "company_name": "Acme Ltd",
+       "registration_number": "REG1",
+       "country": "GB",
+       "director_customer_id": "c1",
+       "director_document_id": "d1",
+       "expected_monthly_volume": 1000000,
+       "contact_email": "cfo@acme.test"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify director": {
+     "items": [
+      {
+       "verified": true,
+       "reason": ""
+      }
+     ]
+    },
+    "Screen sanctions": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Get rating": {
+     "http": {
+      "status": 200,
+      "body": {
+       "registration_number": "REG1",
+       "rating": "B"
+      }
+     }
+    },
+    "Open account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_number": "BA-1001"
+      }
+     }
+    },
+    "Record opened": {
+     "items": [
+      {
+       "id": "1"
+      }
+     ]
+    },
+    "Email contact": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Work out risk",
+     "path": "risk",
+     "op": "eq",
+     "value": "low"
+    },
+    {
+     "node": "Compliance officer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Open account",
+     "subject": "request",
+     "path": "body.company_name",
+     "op": "eq",
+     "value": "Acme Ltd"
+    },
+    {
+     "node": "Record opened",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "opened"
+    },
+    {
+     "node": "Record opened",
+     "subject": "request",
+     "path": "params.data.risk",
+     "op": "eq",
+     "value": "low"
+    },
+    {
+     "node": "Email contact",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "cfo@acme.test"
+    },
+    {
+     "node": "Email contact",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "BA-1001"
+    },
+    {
+     "node": "Reply opened",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "opened"
+    }
+   ]
+  },
+  {
+   "name": "Unverified director is declined and nothing else runs",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "company_name": "Acme Ltd",
+       "registration_number": "REG1",
+       "country": "GB",
+       "director_customer_id": "c1",
+       "director_document_id": "d1",
+       "expected_monthly_volume": 1000,
+       "contact_email": "cfo@acme.test"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify director": {
+     "items": [
+      {
+       "verified": false,
+       "reason": "document mismatch"
+      }
+     ]
+    },
+    "Record declined ID": {
+     "items": [
+      {
+       "id": "1"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Screen sanctions",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Open account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record declined ID",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "declined"
+    },
+    {
+     "node": "Reply declined ID",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "name": "Sanctions hit opens a compliance case naming the company and declines",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "company_name": "Blocked Trading",
+       "registration_number": "REG2",
+       "country": "XX",
+       "director_customer_id": "c2",
+       "director_document_id": "d2",
+       "expected_monthly_volume": 50000,
+       "contact_email": "info@blocked.test"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify director": {
+     "items": [
+      {
+       "verified": true,
+       "reason": ""
+      }
+     ]
+    },
+    "Screen sanctions": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": true,
+       "list": "OFAC"
+      }
+     }
+    },
+    "Open compliance case": {
+     "http": {
+      "status": 200,
+      "body": {
+       "case_id": "CASE-1"
+      }
+     }
+    },
+    "Record declined sanctions": {
+     "items": [
+      {
+       "id": "2"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Open compliance case",
+     "subject": "request",
+     "path": "body.subject",
+     "op": "eq",
+     "value": "Blocked Trading"
+    },
+    {
+     "node": "Get rating",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Open account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record declined sanctions",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "declined"
+    },
+    {
+     "node": "Reply declined sanctions",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "name": "High risk needs the officer and then the head of compliance",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "company_name": "Big Co",
+       "registration_number": "REG3",
+       "country": "DE",
+       "director_customer_id": "c3",
+       "director_document_id": "d3",
+       "expected_monthly_volume": 6000000,
+       "contact_email": "fin@bigco.test"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify director": {
+     "items": [
+      {
+       "verified": true,
+       "reason": ""
+      }
+     ]
+    },
+    "Screen sanctions": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Get rating": {
+     "http": {
+      "status": 200,
+      "body": {
+       "registration_number": "REG3",
+       "rating": "B"
+      }
+     }
+    },
+    "AI risk note": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "note": "Very high volume for a B-rated company."
+       }
+      }
+     ]
+    },
+    "Compliance officer": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "ok",
+      "form_data": {},
+      "decided_by": "officer"
+     }
+    },
+    "Head of compliance": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "ok",
+      "form_data": {},
+      "decided_by": "head"
+     }
+    },
+    "Open account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_number": "BA-2002"
+      }
+     }
+    },
+    "Record opened": {
+     "items": [
+      {
+       "id": "3"
+      }
+     ]
+    },
+    "Email contact": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Work out risk",
+     "path": "risk",
+     "op": "eq",
+     "value": "high"
+    },
+    {
+     "node": "Compliance officer",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Head of compliance",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Record opened",
+     "subject": "request",
+     "path": "params.data.risk",
+     "op": "eq",
+     "value": "high"
+    },
+    {
+     "node": "Reply opened",
+     "subject": "request",
+     "path": "body.account_number",
+     "op": "eq",
+     "value": "BA-2002"
+    }
+   ]
+  },
+  {
+   "name": "Medium risk rejected by the officer is not opened",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "company_name": "Mid Co",
+       "registration_number": "REG4",
+       "country": "FR",
+       "director_customer_id": "c4",
+       "director_document_id": "d4",
+       "expected_monthly_volume": 200000,
+       "contact_email": "a@mid.test"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify director": {
+     "items": [
+      {
+       "verified": true,
+       "reason": ""
+      }
+     ]
+    },
+    "Screen sanctions": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Get rating": {
+     "http": {
+      "status": 200,
+      "body": {
+       "registration_number": "REG4",
+       "rating": "C"
+      }
+     }
+    },
+    "AI risk note": {
+     "items": [
+      {
+       "response": "",
+       "structured": {
+        "note": "Average credit, modest volume."
+       }
+      }
+     ]
+    },
+    "Compliance officer": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "unclear ownership",
+      "form_data": {},
+      "decided_by": "officer"
+     }
+    },
+    "Record rejected": {
+     "items": [
+      {
+       "id": "4"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Work out risk",
+     "path": "risk",
+     "op": "eq",
+     "value": "medium"
+    },
+    {
+     "node": "Head of compliance",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Open account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record rejected",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  },
+  {
+   "name": "Account opening failure is recorded and answered with an error",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "company_name": "Acme Ltd",
+       "registration_number": "REG1",
+       "country": "GB",
+       "director_customer_id": "c1",
+       "director_document_id": "d1",
+       "expected_monthly_volume": 500000,
+       "contact_email": "cfo@acme.test"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Verify director": {
+     "items": [
+      {
+       "verified": true,
+       "reason": ""
+      }
+     ]
+    },
+    "Screen sanctions": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": false,
+       "list": ""
+      }
+     }
+    },
+    "Get rating": {
+     "http": {
+      "status": 200,
+      "body": {
+       "registration_number": "REG1",
+       "rating": "A"
+      }
+     }
+    },
+    "Open account": {
+     "error": {
+      "message": "accounts system down",
+      "code": "500"
+     }
+    },
+    "Record failed": {
+     "items": [
+      {
+       "id": "5"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Record failed",
+     "subject": "request",
+     "path": "params.data.status",
+     "op": "eq",
+     "value": "failed"
+    },
+    {
+     "node": "Email contact",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record opened",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply failed",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 500
+    }
+   ]
+  }
+ ]
+}

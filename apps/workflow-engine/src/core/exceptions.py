@@ -96,3 +96,46 @@ class WorkflowInactiveError(WorkflowEngineError):
             details={"workflow_id": workflow_id},
         )
         self.workflow_id = workflow_id
+
+
+class ConflictError(WorkflowEngineError):
+    """A request conflicts with existing state (HTTP 409)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message, {"code": code})
+        self.code = code
+
+
+class NodeNotFoundInWorkflowError(WorkflowEngineError):
+    """Raised when a named node does not exist in a workflow."""
+
+    def __init__(self, node_name: str) -> None:
+        super().__init__(
+            message=f"Node not found in workflow: {node_name}",
+            details={"node_name": node_name},
+        )
+        self.node_name = node_name
+
+
+class MissingNodeDataError(WorkflowEngineError):
+    """Raised when a partial run needs saved/pinned data that does not exist."""
+
+    def __init__(self, message: str, missing_nodes: list[str]) -> None:
+        super().__init__(message=message, details={"missing_nodes": missing_nodes})
+        self.missing_nodes = missing_nodes
+
+
+class ApprovedTestsFailError(WorkflowEngineError):
+    """Publish blocked: an approved test fails (HTTP 422)."""
+
+    def __init__(self, failed_tests: list[dict[str, Any]]) -> None:
+        super().__init__("Approved tests fail", {"failed_tests": failed_tests})
+        self.failed_tests = failed_tests
+
+
+class WorkflowHasErrorsError(WorkflowEngineError):
+    """Publish blocked: the mistake checker found error-level findings (HTTP 422)."""
+
+    def __init__(self, findings: list[dict[str, Any]]) -> None:
+        super().__init__("Workflow has errors", {"findings": findings})
+        self.findings = findings

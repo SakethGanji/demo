@@ -1,0 +1,440 @@
+{
+ "name": "Outgoing wire request",
+ "nodes": [
+  {
+   "name": "Wire request",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Outgoing wire request",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "from_account": {
+       "type": "string"
+      },
+      "to_account": {
+       "type": "string"
+      },
+      "beneficiary": {
+       "type": "string"
+      },
+      "amount": {
+       "type": "number"
+      },
+      "destination_country": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "from_account",
+      "to_account",
+      "beneficiary",
+      "amount",
+      "destination_country"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Sanctioned country?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ lower(trim($json.destination_country)) == \"iran\" or lower(trim($json.destination_country)) == \"north korea\" or lower(trim($json.destination_country)) == \"syria\" or lower(trim($json.destination_country)) == \"cuba\" }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Stop sanctioned",
+   "type": "StopAndError",
+   "parameters": {
+    "message": "Wire refused: {{ $json.destination_country }} is a sanctioned country"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Over 25000?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.amount > 25000 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 110
+   }
+  },
+  {
+   "name": "Treasury approval",
+   "type": "Approval",
+   "parameters": {
+    "title": "Approve wire of {{ $json.amount }} to {{ $json.beneficiary }}",
+    "context": {
+     "From account": "{{ $json.from_account }}",
+     "To account": "{{ $json.to_account }}",
+     "Beneficiary": "{{ $json.beneficiary }}",
+     "Amount": "{{ $json.amount }}",
+     "Destination country": "{{ $json.destination_country }}"
+    },
+    "notify_email": "{{ $vars.TREASURY_EMAIL }}",
+    "require_comment_on_reject": true
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Send wire",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "wires",
+     "operation_id": "send"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "from_account": "{{ $json.from_account }}",
+     "to_account": "{{ $json.to_account }}",
+     "beneficiary": "{{ $json.beneficiary }}",
+     "amount": "{{ $json.amount }}",
+     "destination_country": "{{ $json.destination_country }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply sent",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "sent",
+     "wire_id": "{{ $json.body.wire_id }}"
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected",
+     "message": "Treasury rejected the wire: {{ $json.approval.comment }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Wire request",
+   "target_node": "Sanctioned country?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sanctioned country?",
+   "target_node": "Stop sanctioned",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Sanctioned country?",
+   "target_node": "Over 25000?",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 25000?",
+   "target_node": "Treasury approval",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Over 25000?",
+   "target_node": "Send wire",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Treasury approval",
+   "target_node": "Send wire",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Treasury approval",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Send wire",
+   "target_node": "Reply sent",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Sanctioned country stops with an error and sends nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "from_account": "A1",
+      "to_account": "B1",
+      "beneficiary": "Acme",
+      "amount": 100,
+      "destination_country": "Iran"
+     }
+    ]
+   },
+   "mocks": {},
+   "expect": [
+    {
+     "node": "Stop sanctioned",
+     "subject": "node",
+     "op": "status",
+     "value": "error"
+    },
+    {
+     "node": "Treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Send wire",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Sanctioned country is caught regardless of case, even for a large amount",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "from_account": "A1",
+      "to_account": "B1",
+      "beneficiary": "Acme",
+      "amount": 90000,
+      "destination_country": "north korea"
+     }
+    ]
+   },
+   "mocks": {},
+   "expect": [
+    {
+     "node": "Stop sanctioned",
+     "subject": "node",
+     "op": "status",
+     "value": "error"
+    },
+    {
+     "node": "Treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Send wire",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Exactly 25000 goes straight out",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "from_account": "A1",
+      "to_account": "B1",
+      "beneficiary": "Acme",
+      "amount": 25000,
+      "destination_country": "Germany"
+     }
+    ]
+   },
+   "mocks": {
+    "Send wire": {
+     "http": {
+      "status": 201,
+      "body": {
+       "wire_id": "W1",
+       "status": "sent"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Send wire",
+     "subject": "request",
+     "path": "body.amount",
+     "op": "eq",
+     "value": 25000
+    },
+    {
+     "node": "Reply sent",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "sent"
+    }
+   ]
+  },
+  {
+   "name": "Over 25000 approved by treasury is sent",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "from_account": "A1",
+      "to_account": "B1",
+      "beneficiary": "Acme",
+      "amount": 25000.01,
+      "destination_country": "Germany"
+     }
+    ]
+   },
+   "mocks": {
+    "Treasury approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Send wire": {
+     "http": {
+      "status": 201,
+      "body": {
+       "wire_id": "W2",
+       "status": "sent"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Treasury approval",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Send wire",
+     "subject": "request",
+     "path": "body.beneficiary",
+     "op": "eq",
+     "value": "Acme"
+    },
+    {
+     "node": "Reply sent",
+     "subject": "request",
+     "path": "body.wire_id",
+     "op": "eq",
+     "value": "W2"
+    }
+   ]
+  },
+  {
+   "name": "Over 25000 rejected by treasury is not sent",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "from_account": "A1",
+      "to_account": "B1",
+      "beneficiary": "Acme",
+      "amount": 60000,
+      "destination_country": "France"
+     }
+    ]
+   },
+   "mocks": {
+    "Treasury approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "Too risky",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Send wire",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "outgoing-wire-request",
+  "title": "Outgoing wire request",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Wire request",
+  "result_node": "Reply rejected"
+ }
+}

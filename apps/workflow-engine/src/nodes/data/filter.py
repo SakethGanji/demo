@@ -21,6 +21,8 @@ from ...engine.types import NodeData
 from ...engine.expression_engine import expression_engine, ExpressionEngine
 
 
+from ...engine import shapes as sh
+
 class FilterNode(BaseNode):
     """Filter node - pass only items that match a condition."""
 
@@ -122,6 +124,10 @@ class FilterNode(BaseNode):
     @property
     def description(self) -> str:
         return "Filter items based on a condition (single output with matching items only)"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived: kept items are unchanged (passthrough)."""
+        return sh.passthrough_contract(inputs)
 
     async def execute(
         self,

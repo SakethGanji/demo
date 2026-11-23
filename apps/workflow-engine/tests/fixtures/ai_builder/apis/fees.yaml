@@ -1,0 +1,53 @@
+openapi: 3.0.3
+info:
+  title: fees
+  version: '1.0'
+servers:
+- url: http://fees.bank.test
+paths:
+  /fees/waive:
+    post:
+      operationId: waive
+      summary: Waive a fee that was charged to an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account_id:
+                  type: string
+                fee_id:
+                  type: string
+                reason:
+                  type: string
+              required:
+              - account_id
+              - fee_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  waiver_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - waiver_id
+                - status
+        '409':
+          description: Fee already waived
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

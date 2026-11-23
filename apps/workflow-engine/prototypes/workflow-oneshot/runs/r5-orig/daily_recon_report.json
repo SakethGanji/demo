@@ -1,0 +1,409 @@
+{
+ "name": "Nightly ledger vs processor reconciliation",
+ "nodes": [
+  {
+   "name": "Every night 11pm",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 23 * * *"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Set today",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "date",
+      "value": "{{ first(split(date_now(), \"T\")) }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get ledger entries",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "ledger",
+     "operation_id": "list"
+    },
+    "body": {
+     "date": "{{ $json.date }}"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get settlements",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "processor",
+     "operation_id": "list"
+    },
+    "body": {
+     "date": "{{ $node[\"Set today\"].json.date }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Compare by reference",
+   "type": "Code",
+   "parameters": {
+    "code": "ledger = {}\nfor e in node_data[\"Get ledger entries\"][\"json\"][\"body\"][\"entries\"]:\n    ledger[e[\"ref\"]] = ledger.get(e[\"ref\"], 0) + e[\"amount\"]\nproc = {}\nfor s in json_data[\"body\"][\"settlements\"]:\n    proc[s[\"ref\"]] = proc.get(s[\"ref\"], 0) + s[\"amount\"]\nlines = []\nfor ref in ledger:\n    if ref not in proc:\n        lines.append(ref + \": only in ledger (\" + str(ledger[ref]) + \")\")\n    elif abs(ledger[ref] - proc[ref]) > 0.005:\n        lines.append(ref + \": amount differs, ledger \" + str(ledger[ref]) + \" vs processor \" + str(proc[ref]))\nfor ref in proc:\n    if ref not in ledger:\n        lines.append(ref + \": only in processor (\" + str(proc[ref]) + \")\")\nreturn [new_item({\"count\": len(lines), \"report\": \"\\n\".join(lines)})]"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Any differences?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.count > 0 }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email finance",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.FINANCE_EMAIL }}",
+    "subject": "Reconciliation differences: {{ $json.count }} reference(s)",
+    "bodyFormat": "plain",
+    "body": "These references differ between the ledger and the card processor:\n\n{{ $json.report }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every night 11pm",
+   "target_node": "Set today",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Set today",
+   "target_node": "Get ledger entries",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get ledger entries",
+   "target_node": "Get settlements",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get settlements",
+   "target_node": "Compare by reference",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Compare by reference",
+   "target_node": "Any differences?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Any differences?",
+   "target_node": "Email finance",
+   "source_output": "true",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Amount differs sends an email",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "B2",
+         "amount": 50
+        }
+       ]
+      }
+     }
+    },
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "B2",
+         "amount": 55
+        }
+       ]
+      }
+     }
+    },
+    "Email finance": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Any differences?",
+     "port": "true",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email finance",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email finance",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "B2"
+    }
+   ]
+  },
+  {
+   "name": "Only in processor is reported",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "C3",
+         "amount": 20
+        }
+       ]
+      }
+     }
+    },
+    "Email finance": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email finance",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "C3: only in processor"
+    }
+   ]
+  },
+  {
+   "name": "Only in ledger is reported",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "D4",
+         "amount": 5
+        }
+       ]
+      }
+     }
+    },
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "A1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "Email finance": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email finance",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "D4: only in ledger"
+    }
+   ]
+  },
+  {
+   "name": "Everything matches sends no email",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "ref": "A1",
+         "amount": 100
+        },
+        {
+         "ref": "B2",
+         "amount": 50
+        }
+       ]
+      }
+     }
+    },
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "settlements": [
+        {
+         "ref": "B2",
+         "amount": 50
+        },
+        {
+         "ref": "A1",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "Email finance": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Any differences?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email finance",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,450 @@
+{
+ "name": "Close account request",
+ "nodes": [
+  {
+   "name": "Close request",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Close an account",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "account_number": {
+       "type": "string"
+      },
+      "email": {
+       "type": "string"
+      },
+      "reason": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "account_number",
+      "email",
+      "reason"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get balance",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "getBalance"
+    },
+    "method": "GET",
+    "url": "",
+    "path_params": {
+     "account_id": "{{ $json.account_number }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Balance is zero?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ float($json.body.balance) == 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Close account",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "close"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "account_id": "{{ $node[\"Close request\"].json.account_number }}"
+    },
+    "body": {
+     "reason": "{{ $node[\"Close request\"].json.reason }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email confirmation",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Close request\"].json.email }}",
+    "subject": "Your account has been closed",
+    "bodyFormat": "plain",
+    "body": "Hello,\n\nAs requested, account {{ $node[\"Close request\"].json.account_number }} has been closed.\n\nThank you for banking with us."
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply closed",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "closed",
+     "message": "Your account has been closed. A confirmation email is on its way."
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply refused",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "refused",
+     "message": "Your account still has money in it. Please withdraw or transfer the full balance first, then submit the request again."
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Close request",
+   "target_node": "Get balance",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get balance",
+   "target_node": "Balance is zero?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Balance is zero?",
+   "target_node": "Close account",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Balance is zero?",
+   "target_node": "Reply refused",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Close account",
+   "target_node": "Email confirmation",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email confirmation",
+   "target_node": "Reply closed",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Zero balance closes and emails",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_number": "ACC-100",
+      "email": "anna@example.com",
+      "reason": "Moving abroad"
+     }
+    ]
+   },
+   "mocks": {
+    "Get balance": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-100",
+       "balance": 0,
+       "currency": "USD"
+      }
+     }
+    },
+    "Close account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-100",
+       "status": "closed"
+      }
+     }
+    },
+    "Email confirmation": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Close account",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "ACC-100"
+    },
+    {
+     "node": "Close account",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "Moving abroad"
+    },
+    {
+     "node": "Email confirmation",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "anna@example.com"
+    },
+    {
+     "node": "Reply closed",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "closed"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Money left refuses and closes nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_number": "ACC-200",
+      "email": "ben@example.com",
+      "reason": "Not needed"
+     }
+    ]
+   },
+   "mocks": {
+    "Get balance": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-200",
+       "balance": 250.5,
+       "currency": "USD"
+      }
+     }
+    },
+    "Close account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-200",
+       "status": "closed"
+      }
+     }
+    },
+    "Email confirmation": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "refused"
+    },
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email confirmation",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply closed",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "One cent left still refuses",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_number": "ACC-300",
+      "email": "cy@example.com",
+      "reason": "Switching banks"
+     }
+    ]
+   },
+   "mocks": {
+    "Get balance": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-300",
+       "balance": 0.01
+      }
+     }
+    },
+    "Close account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-300",
+       "status": "closed"
+      }
+     }
+    },
+    "Email confirmation": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Overdrawn account refuses",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_number": "ACC-400",
+      "email": "di@example.com",
+      "reason": "Closing"
+     }
+    ]
+   },
+   "mocks": {
+    "Get balance": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-400",
+       "balance": -20
+      }
+     }
+    },
+    "Close account": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-400",
+       "status": "closed"
+      }
+     }
+    },
+    "Email confirmation": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "refused"
+    },
+    {
+     "node": "Close account",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "close-account-request",
+  "title": "Close an account",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Close request",
+  "result_node": "Reply refused"
+ }
+}

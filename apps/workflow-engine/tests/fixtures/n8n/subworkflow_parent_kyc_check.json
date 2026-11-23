@@ -1,0 +1,91 @@
+{
+  "name": "Onboarding - run KYC check per applicant",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "onboarding/applicants",
+        "options": {}
+      },
+      "id": "5f1c2e0a-0b0a-4a52-9a4e-1d0d6a7a1001",
+      "name": "Applicants Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "a7d1c6a0-3b1e-4d0f-8a41-2f9a5b0c7e11"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.applicants",
+        "options": {}
+      },
+      "id": "5f1c2e0a-0b0a-4a52-9a4e-1d0d6a7a1002",
+      "name": "Split Applicants",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "Xk3pQ9aLmN2sT7vB",
+          "mode": "list",
+          "cachedResultName": "KYC check (sub-workflow)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "applicant_id": "={{ $json.id }}",
+            "full_name": "={{ $json.first_name }} {{ $json.last_name }}",
+            "country": "={{ $json.country }}",
+            "risk_tier": "standard",
+            "monthly_income": null
+          },
+          "matchingColumns": [],
+          "schema": [
+            {"id": "applicant_id", "displayName": "applicant_id", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string"},
+            {"id": "full_name", "displayName": "full_name", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string"},
+            {"id": "country", "displayName": "country", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string"},
+            {"id": "risk_tier", "displayName": "risk_tier", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "string"},
+            {"id": "monthly_income", "displayName": "monthly_income", "required": false, "defaultMatch": false, "display": true, "canBeUsedToMatch": true, "type": "number"}
+          ],
+          "attemptToConvertTypes": true,
+          "convertFieldsToString": false
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "5f1c2e0a-0b0a-4a52-9a4e-1d0d6a7a1003",
+      "name": "Run KYC Check",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "a1", "name": "decision", "value": "={{ $json.kyc_status }}", "type": "string"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "5f1c2e0a-0b0a-4a52-9a4e-1d0d6a7a1004",
+      "name": "Record Decision",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Applicants Webhook": {"main": [[{"node": "Split Applicants", "type": "main", "index": 0}]]},
+    "Split Applicants": {"main": [[{"node": "Run KYC Check", "type": "main", "index": 0}]]},
+    "Run KYC Check": {"main": [[{"node": "Record Decision", "type": "main", "index": 0}]]}
+  },
+  "pinData": {},
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

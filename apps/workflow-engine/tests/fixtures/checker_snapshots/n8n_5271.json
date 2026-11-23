@@ -1,0 +1,44 @@
+[
+ [
+  "WF005",
+  "3. Working with Arrays",
+  "fields[0].value",
+  "skills[1]"
+ ],
+ [
+  "WF005",
+  "4. Going Deeper",
+  "fields[0].value",
+  "contact.email"
+ ],
+ [
+  "WF005",
+  "5. The Combo Move",
+  "fields[0].value",
+  "projects[0].status"
+ ],
+ [
+  "WF005",
+  "Final Exam",
+  "fields[0].value",
+  "projects[0].name"
+ ],
+ [
+  "WF009",
+  "6. A Touch of Magic",
+  "fields[2].value",
+  null
+ ],
+ [
+  "WF009",
+  "7. Inspecting Objects",
+  "fields[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "9. The All Items View",
+  "fields[0].value",
+  null
+ ]
+]

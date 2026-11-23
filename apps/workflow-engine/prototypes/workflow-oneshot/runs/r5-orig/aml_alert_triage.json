@@ -1,0 +1,460 @@
+{
+ "name": "AML alert handling",
+ "nodes": [
+  {
+   "name": "Alert received",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "aml-alert"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Low risk?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.risk == 'low' }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Auto-close alert",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "aml",
+     "operation_id": "closeAlert"
+    },
+    "path_params": {
+     "alert_id": "{{ $node[\"Alert received\"].json.body.alert_id }}"
+    },
+    "body": {
+     "resolution": "no_action",
+     "note": "auto-closed: low risk"
+    }
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Log auto-close",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "audit",
+     "operation_id": "logEvent"
+    },
+    "body": {
+     "actor": "system",
+     "action": "auto-closed: low risk",
+     "subject": "{{ $node[\"Alert received\"].json.body.alert_id }}",
+     "details": "Customer {{ $node[\"Alert received\"].json.body.customer_id }}: {{ $node[\"Alert received\"].json.body.description }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Officer review",
+   "type": "Approval",
+   "parameters": {
+    "title": "Review high risk AML alert {{ $json.body.alert_id }}",
+    "context": {
+     "Alert": "{{ $json.body.alert_id }}",
+     "Customer": "{{ $json.body.customer_id }}",
+     "Risk": "{{ $json.body.risk }}",
+     "Description": "{{ $json.body.description }}"
+    },
+    "notify_email": "{{ $vars.COMPLIANCE_EMAIL }}",
+    "allow_comment": true
+   },
+   "position": {
+    "x": 380,
+    "y": 110
+   }
+  },
+  {
+   "name": "Escalate alert",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "aml",
+     "operation_id": "escalateAlert"
+    },
+    "path_params": {
+     "alert_id": "{{ $node[\"Alert received\"].json.body.alert_id }}"
+    },
+    "body": {
+     "note": "Approved by compliance officer for suspicious activity report"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Log escalation",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "audit",
+     "operation_id": "logEvent"
+    },
+    "body": {
+     "actor": "compliance officer",
+     "action": "escalated",
+     "subject": "{{ $node[\"Alert received\"].json.body.alert_id }}",
+     "details": "Customer {{ $node[\"Alert received\"].json.body.customer_id }}: {{ $node[\"Alert received\"].json.body.description }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Close rejected alert",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "aml",
+     "operation_id": "closeAlert"
+    },
+    "path_params": {
+     "alert_id": "{{ $node[\"Alert received\"].json.body.alert_id }}"
+    },
+    "body": {
+     "resolution": "dismissed",
+     "note": "rejected by compliance officer"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 220
+   }
+  },
+  {
+   "name": "Log rejection",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "audit",
+     "operation_id": "logEvent"
+    },
+    "body": {
+     "actor": "compliance officer",
+     "action": "closed after rejection",
+     "subject": "{{ $node[\"Alert received\"].json.body.alert_id }}",
+     "details": "Customer {{ $node[\"Alert received\"].json.body.customer_id }}: {{ $node[\"Alert received\"].json.body.description }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Alert received",
+   "target_node": "Low risk?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Low risk?",
+   "target_node": "Auto-close alert",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Low risk?",
+   "target_node": "Officer review",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Auto-close alert",
+   "target_node": "Log auto-close",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Officer review",
+   "target_node": "Escalate alert",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Officer review",
+   "target_node": "Close rejected alert",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Escalate alert",
+   "target_node": "Log escalation",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Close rejected alert",
+   "target_node": "Log rejection",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Low risk is auto-closed and logged",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "alert_id": "A1",
+       "customer_id": "C1",
+       "risk": "low",
+       "description": "small transfer"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Auto-close alert": {
+     "http": {
+      "status": 200,
+      "body": {
+       "alert_id": "A1",
+       "status": "closed"
+      }
+     }
+    },
+    "Log auto-close": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "E1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Auto-close alert",
+     "subject": "request",
+     "path": "body.note",
+     "op": "eq",
+     "value": "auto-closed: low risk"
+    },
+    {
+     "node": "Auto-close alert",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "A1"
+    },
+    {
+     "node": "Log auto-close",
+     "subject": "request",
+     "path": "body.subject",
+     "op": "eq",
+     "value": "A1"
+    },
+    {
+     "node": "Officer review",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Escalate alert",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "High risk approved is escalated and logged",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "alert_id": "A2",
+       "customer_id": "C2",
+       "risk": "high",
+       "description": "structuring pattern"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Officer review": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Escalate alert": {
+     "http": {
+      "status": 200,
+      "body": {
+       "alert_id": "A2",
+       "status": "escalated"
+      }
+     }
+    },
+    "Log escalation": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "E2"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Escalate alert",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "A2"
+    },
+    {
+     "node": "Log escalation",
+     "subject": "request",
+     "path": "body.subject",
+     "op": "eq",
+     "value": "A2"
+    },
+    {
+     "node": "Log escalation",
+     "subject": "request",
+     "path": "body.action",
+     "op": "eq",
+     "value": "escalated"
+    },
+    {
+     "node": "Close rejected alert",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Auto-close alert",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "High risk rejected is closed and logged",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "alert_id": "A3",
+       "customer_id": "C3",
+       "risk": "high",
+       "description": "unusual login"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Officer review": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "benign",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Close rejected alert": {
+     "http": {
+      "status": 200,
+      "body": {
+       "alert_id": "A3",
+       "status": "closed"
+      }
+     }
+    },
+    "Log rejection": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "E3"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Close rejected alert",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "A3"
+    },
+    {
+     "node": "Log rejection",
+     "subject": "request",
+     "path": "body.subject",
+     "op": "eq",
+     "value": "A3"
+    },
+    {
+     "node": "Escalate alert",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Log escalation",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,73 @@
+{
+  "slug": "stuck-wires",
+  "title": "Stuck wires check",
+  "description": "Find wires that have sat in 'stuck' longer than the settlement window, keep the ones over the review limit, and release the oldest after you review the change.",
+  "icon": "bank",
+  "keeps_as": "scheduled_check",
+  "placeholders": [
+    "__CONNECTION__"
+  ],
+  "cells": [
+    {
+      "kind": "data",
+      "title": "Settlement window",
+      "spec": {
+        "columns": [
+          "max_age_days"
+        ],
+        "rows": [
+          {
+            "max_age_days": 1
+          }
+        ]
+      }
+    },
+    {
+      "kind": "query",
+      "title": "Stuck wires older than the window",
+      "spec": {
+        "connection": "__CONNECTION__",
+        "sql": "SELECT wire_id, amount, status, created_at FROM bank.wires WHERE status = 'stuck' AND created_at < now() - make_interval(days => %(days)s) ORDER BY created_at",
+        "params": {
+          "days": "{{cells.c1.rows[0].max_age_days}}"
+        },
+        "limit": 500
+      }
+    },
+    {
+      "kind": "rule",
+      "title": "Over the review limit",
+      "spec": {
+        "op": "filter",
+        "left": "{{cells.c2.rows}}",
+        "where": [
+          {
+            "field": "amount",
+            "op": "gt",
+            "value": 50
+          }
+        ]
+      }
+    },
+    {
+      "kind": "change",
+      "title": "Release the stuck wire",
+      "guard": {
+        "left": "{{cells.c3.count}}",
+        "op": "gt",
+        "right": 0
+      },
+      "spec": {
+        "connection": "__CONNECTION__",
+        "table": "bank.wires",
+        "key": {
+          "wire_id": "{{cells.c3.rows[0].wire_id}}"
+        },
+        "set": {
+          "status": "released"
+        },
+        "reason": "Pending past the settlement window"
+      }
+    }
+  ]
+}

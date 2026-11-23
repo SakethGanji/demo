@@ -1,0 +1,49 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Projects · luna</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ body{background:var(--canvas);overflow:auto}
+ .home-top{position:sticky;top:12px;z-index:20;margin:12px 12px 0;display:flex;align-items:center;gap:8px;height:44px;padding:0 8px 0 10px;border-radius:var(--r-xl);border:1px solid var(--panel-border);background:color-mix(in srgb,var(--card) 82%,transparent);box-shadow:var(--shadow-lg);backdrop-filter:blur(24px)}
+ .home-top input{flex:1;height:32px;background:transparent;border:0;outline:0;font-size:13px;color:var(--foreground)}
+ .home-top input::placeholder{color:var(--muted-foreground);opacity:.8}
+ main{max-width:1176px;margin:0 auto;padding:40px 24px 64px}
+ h1{font-size:22px;font-weight:600;letter-spacing:-.015em}
+ .grid{display:grid;gap:16px;margin-top:24px;grid-template-columns:repeat(3,1fr)}
+ @media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}} @media(max-width:640px){.grid{grid-template-columns:1fr}}
+ .card{display:flex;flex-direction:column;min-height:244px;cursor:pointer;transition:box-shadow .15s}
+ .card:hover{box-shadow:var(--shadow-md)}
+ .card-top{display:flex;gap:8px;padding:14px 16px 0}.card-top .t{flex:1;min-width:0}
+ .card-top .name{font-size:14px;font-weight:600}.card-top .sub{margin-top:2px;font:12px var(--font-mono);color:var(--muted-foreground)}
+ .card-body{margin:12px 12px 0;flex:1;border:1px solid var(--border);border-radius:var(--r-lg);background:color-mix(in srgb,var(--muted) 30%,transparent);padding:8px 10px;display:flex;flex-direction:column;gap:6px;font-size:12px}
+ .card-body .row{display:flex;align-items:center;gap:8px}.card-body .row .p{font-family:var(--font-mono)}.card-body .row .r{margin-left:auto;font:11px var(--font-mono);color:var(--muted-foreground)}
+ .card-foot{margin-top:12px;display:flex;align-items:center;gap:12px;border-top:1px solid var(--border);padding:10px 16px;font-size:12px;color:var(--muted-foreground)}
+ .card-foot span{display:inline-flex;align-items:center;gap:6px}.card-foot svg{width:14px;height:14px}.card-foot .when{margin-left:auto}
+ .new{border:1px dashed var(--border);border-radius:var(--r-xl);min-height:244px;box-shadow:none;background:transparent}.new:hover{background:color-mix(in srgb,var(--card) 60%,transparent);box-shadow:none}
+ .new .ico{color:var(--primary)}
+</style></head><body>
+<header class="home-top"><a class="brand" href="projects.html">luna</a><span class="divider-v"></span><i data-lucide="search" class="muted" style="width:14px;height:14px"></i><input placeholder="Search projects…">
+ <button class="btn ghost sm">⇅ Recent</button><button class="btn ghost icon-sm" id="theme-toggle"><i data-lucide="sun"></i></button><span class="divider-v"></span><button class="btn sm"><i data-lucide="plus"></i> New project</button></header>
+<main>
+ <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px">
+  <div><h1>Projects</h1><p class="muted" style="margin-top:4px">Each project has a Python backend, its data, and the apps built on it.</p></div>
+  <div class="seg"><button class="on">All <span class="count">2</span></button><button>Healthy</button><button>Needs attention</button></div>
+ </div>
+ <div class="grid">
+  <a class="card panel" href="overview.html">
+   <div class="card-top"><div class="t"><div class="name">Payments Ops</div><div class="sub">/api/p/payments-ops</div></div><button class="btn ghost icon-xs">···</button><span class="badge warning"><span class="dot warn"></span>Degraded</span></div>
+   <div class="card-body">
+    <div class="row"><span class="method get">GET</span><span class="p">/refunds</span><span class="r">listRefunds</span></div>
+    <div class="row"><span class="method post">POST</span><span class="p">/refunds</span><span class="r">createRefund</span></div>
+    <div class="row"><span class="method get">GET</span><span class="p">/refunds/stats</span><span class="r">refundStats</span></div>
+   </div>
+   <div class="card-foot"><span><i data-lucide="route"></i>3 routes</span><span><i data-lucide="app-window"></i>1 app</span><span class="warn-text"><i data-lucide="key-round"></i>1 missing secret</span><span class="when">now</span></div>
+  </a>
+  <a class="card panel" href="#">
+   <div class="card-top"><div class="t"><div class="name">Default project</div><div class="sub" style="font-family:var(--font-sans)">Workflows created before projects existed</div></div><button class="btn ghost icon-xs">···</button><span class="badge outline">Legacy</span></div>
+   <div class="card-body" style="align-items:center;justify-content:center;color:var(--muted-foreground)">No workflows</div>
+   <div class="card-foot"><span><i data-lucide="workflow"></i>0 workflows</span><span><i data-lucide="app-window"></i>0 apps</span><span class="when">now</span></div>
+  </a>
+  <a class="card new" href="#" style="align-items:center;justify-content:center;gap:8px;text-align:center;display:flex">
+   <span class="ico empty" style="padding:0;width:40px;height:40px;border-radius:var(--r-lg);background:var(--card);box-shadow:var(--shadow-xs)"><i data-lucide="plus"></i></span>
+   <span style="font-weight:500">New project</span><span class="muted" style="font-size:12px">A backend, data and apps — together</span>
+  </a>
+ </div>
+</main>
+<script>document.addEventListener('DOMContentLoaded',()=>Shell.bind())</script></body></html>

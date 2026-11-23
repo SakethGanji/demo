@@ -1,0 +1,21 @@
+/*
+ * Stage styling for the AI build (PLAN-MOTION-UI §6, Builder A). Not imported anywhere yet: Builder B wires it in.
+ * Tokens only; choreography itself runs through `motion`, never through CSS keyframes (reduced-motion kills those).
+ */
+
+:root {
+  /** AI marker */
+  --ai-marker-size: 28px;
+  --ai-marker-offset: 6px;
+  /** draft nodes dim to this while the AI is thinking */
+  --stage-dim: 0.45;
+}
+
+/* Draft nodes dim while the AI reads the request: an opacity on a stage wrapper, not on the viewport. */
+.stage-dim .react-flow__node {
+  opacity: var(--stage-dim);
+}
+
+.stage-dim .react-flow__node.stage-bright {
+  opacity: 1;
+}

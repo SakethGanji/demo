@@ -1,0 +1,314 @@
+{
+  "format": "wf-template/1",
+  "slug": "profile-dataset",
+  "version": "1.0.0",
+  "name": "Profile a dataset",
+  "summary": "Profile one of the project's datasets and summarise its size, duplicates and missing values.",
+  "category": "data",
+  "tags": [
+    "datasets",
+    "profile",
+    "data quality"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [],
+    "secrets": [],
+    "variables": [],
+    "egress_hosts": []
+  },
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "Profile a dataset",
+      "publish": false,
+      "description": "Pick a dataset on the Profile step, run it, and read the summary.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Run",
+            "type": "Start",
+            "parameters": {},
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Profile dataset",
+            "type": "Profile",
+            "parameters": {
+              "sourceType": "dataset",
+              "datasetId": "",
+              "includeHistograms": true,
+              "includeCorrelations": false,
+              "includeDuplicates": true,
+              "topN": 10
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            },
+            "on_error": "error_output"
+          },
+          {
+            "name": "Summary",
+            "type": "Code",
+            "parameters": {
+              "code": "p = items[0]['json'] if items else {}\ncols = p.get('columns') or []\ngaps = [c.get('name') for c in cols if (c.get('null_count') or 0) > 0]\ndups = p.get('duplicate_row_count') or 0\ntext = str(p.get('row_count', 0)) + ' rows, ' + str(p.get('column_count', 0)) + ' columns'\nif dups:\n    text = text + ', ' + str(dups) + ' duplicate rows'\nif gaps:\n    text = text + '; missing values in ' + ', '.join(gaps)\nelse:\n    text = text + '; no missing values'\nreturn [{'json': {'ok': True, 'rows': p.get('row_count'), 'columns': p.get('column_count'), 'duplicate_rows': dups,\n                  'columns_with_missing_values': gaps, 'summary': text}}]\n"
+            },
+            "position": {
+              "x": 480,
+              "y": -80
+            }
+          },
+          {
+            "name": "Explain failure",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "ok": false,
+                "error": "{{ $json.error.message }}"
+              }
+            },
+            "position": {
+              "x": 480,
+              "y": 80
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Run",
+            "target_node": "Profile dataset",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Profile dataset",
+            "target_node": "Summary",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Profile dataset",
+            "target_node": "Explain failure",
+            "source_output": "error",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_5d1a0c21",
+            "name": "A dataset with gaps and duplicates is summarised",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "items": [
+                  {
+                    "success": true,
+                    "row_count": 120,
+                    "column_count": 3,
+                    "memory_usage_bytes": 4096,
+                    "duplicate_row_count": 2,
+                    "columns": [
+                      {
+                        "name": "order_id",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 118,
+                        "top_values": []
+                      },
+                      {
+                        "name": "email",
+                        "dtype": "text",
+                        "count": 120,
+                        "null_count": 7,
+                        "null_percent": 5.83,
+                        "unique_count": 101,
+                        "top_values": []
+                      },
+                      {
+                        "name": "amount",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 95,
+                        "top_values": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Summary",
+                "port": "main",
+                "path": "summary",
+                "op": "eq",
+                "value": "120 rows, 3 columns, 2 duplicate rows; missing values in email"
+              },
+              {
+                "node": "Summary",
+                "port": "main",
+                "path": "columns_with_missing_values[0]",
+                "op": "eq",
+                "value": "email"
+              },
+              {
+                "node": "Summary",
+                "port": "main",
+                "path": "ok",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "node": "Explain failure",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_8b3e47f2",
+            "name": "A clean dataset reports no missing values",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "items": [
+                  {
+                    "success": true,
+                    "row_count": 50,
+                    "column_count": 2,
+                    "memory_usage_bytes": 1024,
+                    "duplicate_row_count": 0,
+                    "columns": [
+                      {
+                        "name": "region",
+                        "dtype": "categorical",
+                        "count": 50,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 4,
+                        "top_values": []
+                      },
+                      {
+                        "name": "revenue",
+                        "dtype": "numeric",
+                        "count": 50,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 50,
+                        "top_values": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Summary",
+                "port": "main",
+                "path": "summary",
+                "op": "eq",
+                "value": "50 rows, 2 columns; no missing values"
+              },
+              {
+                "node": "Summary",
+                "port": "main",
+                "path": "duplicate_rows",
+                "op": "eq",
+                "value": 0
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_c40f9e16",
+            "name": "A missing dataset is explained instead of failing the run",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "error": {
+                  "message": "No dataset named 'sales' in this project.",
+                  "code": "DATASET_NOT_FOUND"
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Profile dataset",
+                "port": "error",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Explain failure",
+                "port": "main",
+                "path": "ok",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "Explain failure",
+                "port": "main",
+                "path": "error",
+                "op": "contains",
+                "value": "No dataset named"
+              },
+              {
+                "node": "Summary",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

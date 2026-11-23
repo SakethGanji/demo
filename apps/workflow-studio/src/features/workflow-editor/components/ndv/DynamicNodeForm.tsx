@@ -7,10 +7,21 @@
 
 import { useState, useId, useMemo, useCallback, useEffect, useRef, memo } from 'react';
 import { Eye, EyeOff, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Input } from '@/shared/components/ui/input';
+import { Switch } from '@/shared/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import ExpressionEditor from './ExpressionEditor';
+import { jsonFieldText } from '../../lib/jsonParam';
 import CodeEditor from '@/shared/components/ui/code-editor';
 import { WorkflowSelectorField } from './WorkflowSelectorField';
 import { FilePathField } from './FilePathField';
+import { DatasetSelectorField } from './DatasetSelectorField';
+import { isExpressionValue } from '@/features/datasets/lib/datasets';
+import { registerPendingFlush } from '../../lib/pendingEdits';
+import { useCheckStore } from '../../stores/checkStore';
+import { useNDVStore } from '../../stores/ndvStore';
+import { useWorkflowStore } from '../../stores/workflowStore';
+import type { Finding } from '../../lib/shapes';
 
 // --- Inlined from formValidation.ts ---
 interface FieldError {
@@ -36,21 +47,59 @@ function validateField(
 }
 
 // --- Inlined from useDebouncedCallback.ts ---
-function useDebouncedCallback<T extends (...args: unknown[]) => void>(
-  callback: T,
+/**
+ * Debounces `onChange(key, value)` per key: a pending edit of one field is never cancelled by an
+ * edit of another field (one shared timer used to drop the first field's change).
+ */
+function useKeyedDebouncedChange(
+  callback: (key: string, value: unknown) => void,
   delay: number
-): T {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+): { change: (key: string, value: unknown) => void; flush: () => void } {
+  const timersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const pendingRef = useRef(new Map<string, unknown>());
   const callbackRef = useRef(callback);
-  callbackRef.current = callback;
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
 
-  return useCallback(
-    (...args: unknown[]) => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => callbackRef.current(...args), delay);
+  const flush = useCallback(() => {
+    const timers = timersRef.current;
+    const pending = pendingRef.current;
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+    const entries = Array.from(pending.entries());
+    pending.clear();
+    for (const [key, value] of entries) callbackRef.current(key, value);
+  }, []);
+
+  const change = useCallback(
+    (key: string, value: unknown) => {
+      const timers = timersRef.current;
+      const t = timers.get(key);
+      if (t) clearTimeout(t);
+      pendingRef.current.set(key, value);
+      timers.set(
+        key,
+        setTimeout(() => {
+          timers.delete(key);
+          pendingRef.current.delete(key);
+          callbackRef.current(key, value);
+        }, delay)
+      );
     },
     [delay]
-  ) as T;
+  );
+
+  // Flush on unmount, and let save / run / test paths flush through the registry.
+  useEffect(() => {
+    const unregister = registerPendingFlush(flush);
+    return () => {
+      unregister();
+      flush();
+    };
+  }, [flush]);
+
+  return useMemo(() => ({ change, flush }), [change, flush]);
 }
 
 // Type definitions matching the API schema
@@ -62,6 +111,7 @@ interface NodePropertyOption {
 }
 
 interface NodePropertyTypeOptions {
+  extensions?: string;
   password?: boolean;
   rows?: number;
   language?: string;
@@ -77,7 +127,7 @@ interface DisplayOptions {
 }
 
 // Type for property field types
-type NodePropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multiOptions' | 'json' | 'collection' | 'workflowSelector' | 'filePath';
+type NodePropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multiOptions' | 'json' | 'collection' | 'workflowSelector' | 'datasetSelector' | 'filePath';
 
 interface NodeProperty {
   displayName: string;
@@ -116,14 +166,38 @@ export type { NodeProperty, OutputSchema };
 function FieldDescription({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <p className="mt-1 text-[11px] text-muted-foreground/70 leading-relaxed">{text}</p>
+    <p className="mt-1 text-[12px] text-muted-foreground leading-4">{text}</p>
   );
 }
 
 function FieldErrorMessage({ error }: { error?: FieldError | null }) {
   if (!error) return null;
   return (
-    <p className="mt-1 text-xs text-[var(--destructive)]">{error.message}</p>
+    <p className="mt-1 text-[12px] text-destructive" role="alert">{error.message}</p>
+  );
+}
+
+/**
+ * Live-check message under a field. `Finding.param` is matched on its first segment, so a finding
+ * for `headers.auth` or `values[0].name` shows under the top-level `headers` / `values` field.
+ * Errors are red (destructive), warnings amber (warning); info findings show nothing.
+ */
+function ParamCheckMessage({ param, findings }: { param: string; findings: Finding[] }) {
+  const mine = findings.filter((f) => f.severity !== 'info' && f.param && f.param.split(/[.[]/, 1)[0] === param);
+  if (mine.length === 0) return null;
+  return (
+    <div data-testid={`param-check-${param}`} className="mt-1 space-y-0.5">
+      {mine.map((f, i) => (
+        <p
+          key={i}
+          data-check={f.severity}
+          data-code={f.code}
+          className={`text-[12px] leading-4 ${f.severity === 'error' ? 'text-destructive' : 'text-warning-text'}`}
+        >
+          {f.message}
+        </p>
+      ))}
+    </div>
   );
 }
 
@@ -150,6 +224,13 @@ export default memo(function DynamicNodeForm({
   sampleData,
   allNodeData,
 }: DynamicNodeFormProps) {
+  // Findings for the node open in the node panel (reported by node name)
+  const activeNodeId = useNDVStore((st) => st.activeNodeId);
+  const activeNodeName = useWorkflowStore((st) => {
+    const id = activeNodeId;
+    return id ? (st.nodes.find((n) => n.id === id)?.data as { name?: string } | undefined)?.name : undefined;
+  });
+  const nodeFindings = useCheckStore((st) => (activeNodeName ? st.findingsByNodeMap[activeNodeName] : undefined));
   const [fieldErrors, setFieldErrors] = useState<Record<string, FieldError | null>>({});
   const [touchedFields, setTouchedFields] = useState<Set<string>>(new Set());
   // Ref for touchedFields — keeps handleFieldChange stable across touches
@@ -157,11 +238,13 @@ export default memo(function DynamicNodeForm({
   touchedFieldsRef.current = touchedFields;
 
   // Debounced onChange for text-input types
-  const debouncedOnChange = useDebouncedCallback(onChange, 300);
+  const { change: debouncedOnChange, flush: flushPending } = useKeyedDebouncedChange(onChange, 300);
 
   // Determine which onChange to use based on field type
   const getOnChange = useCallback((property: NodeProperty) => {
-    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'filePath'];
+    // `collection` is immediate: each item edit is built from the current prop value, so a
+    // debounced edit would be overwritten by the next edit of a sibling field in the same item.
+    const immediateTypes: NodePropertyType[] = ['boolean', 'options', 'workflowSelector', 'datasetSelector', 'filePath', 'collection'];
     if (immediateTypes.includes(property.type)) {
       return onChange;
     }
@@ -180,9 +263,10 @@ export default memo(function DynamicNodeForm({
   }, []);
 
   const handleBlur = useCallback((name: string, property: NodeProperty, value: unknown) => {
+    flushPending();
     setTouchedFields((prev) => new Set(prev).add(name));
     handleValidate(name, property, value);
-  }, [handleValidate]);
+  }, [handleValidate, flushPending]);
 
   // Use ref for touchedFields to keep this callback stable
   const handleFieldChange = useCallback((property: NodeProperty, value: unknown) => {
@@ -205,7 +289,7 @@ export default memo(function DynamicNodeForm({
         <div key={property.name}>
           {/* Field grouping divider after 6th field when form is long */}
           {visibleProperties.length > 8 && index === 6 && (
-            <div className="border-t border-border/50 my-1" />
+            <div className="h-px bg-hairline my-1" />
           )}
           <PropertyField
             property={property}
@@ -218,6 +302,7 @@ export default memo(function DynamicNodeForm({
             sampleData={sampleData}
             allNodeData={allNodeData}
           />
+          {nodeFindings && <ParamCheckMessage param={property.name} findings={nodeFindings} />}
         </div>
       ))}
     </div>
@@ -398,6 +483,27 @@ const PropertyField = memo(function PropertyField({ property, value, onChange, o
         />
       );
 
+    case 'datasetSelector':
+      // an expression value keeps the normal expression input (the picker only holds literal names)
+      return isExpressionValue(value) ? (
+        <StringField
+          property={property}
+          value={value as string}
+          onChange={onChange}
+          onBlur={onBlur}
+          error={error}
+          upstreamSchema={upstreamSchema}
+          sampleData={sampleData}
+          allNodeData={allNodeData}
+        />
+      ) : (
+        <DatasetSelectorField
+          property={property}
+          value={value as string | undefined}
+          onChange={onChange}
+        />
+      );
+
     case 'filePath':
       return (
         <FilePathField
@@ -443,7 +549,7 @@ function StringField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
+      <label htmlFor={fieldId} className="mb-1 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
@@ -481,26 +587,26 @@ function PasswordField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
+      <label htmlFor={fieldId} className="mb-1 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
       <div className="relative">
-        <input
+        <Input
           id={fieldId}
           type={showPassword ? 'text' : 'password'}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onBlur={onBlur}
           placeholder={property.placeholder}
-          className={`w-full rounded border bg-[var(--surface)] px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
-            error ? 'border-[var(--destructive)]' : 'border-border/60'
-          }`}
+          aria-invalid={error ? true : undefined}
+          className="pr-9"
         />
         <button
           type="button"
           onClick={() => setShowPassword(!showPassword)}
           className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground"
+          aria-label={showPassword ? 'Hide value' : 'Show value'}
         >
           {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
         </button>
@@ -567,11 +673,11 @@ function NumberField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
+      <label htmlFor={fieldId} className="mb-1 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
-      <input
+      <Input
         id={fieldId}
         type="number"
         value={localValue}
@@ -580,9 +686,7 @@ function NumberField({
         min={min}
         max={max}
         step={step}
-        className={`w-full rounded border bg-[var(--surface)] px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
-          displayError ? 'border-[var(--destructive)]' : 'border-border/60'
-        }`}
+        aria-invalid={displayError ? true : undefined}
       />
       <FieldDescription text={property.description} />
       <FieldErrorMessage error={displayError} />
@@ -602,13 +706,11 @@ function BooleanField({
   const fieldId = useId();
 
   return (
-    <label htmlFor={fieldId} className="flex items-center gap-2 cursor-pointer">
-      <input
+    <label htmlFor={fieldId} className="flex items-center gap-2.5 cursor-pointer">
+      <Switch
         id={fieldId}
-        type="checkbox"
         checked={value}
-        onChange={(e) => onChange(e.target.checked)}
-        className="h-3.5 w-3.5 rounded border-border/60 text-primary focus:ring-ring/50"
+        onCheckedChange={(checked) => onChange(checked)}
       />
       <div>
         <span className="text-[13px] text-foreground">{property.displayName}</span>
@@ -636,29 +738,30 @@ function OptionsField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-foreground/80">
+      <label htmlFor={fieldId} className="mb-1 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
-      <select
-        id={fieldId}
+      <Select
         value={String(value ?? property.default ?? '')}
-        onChange={(e) => {
+        onValueChange={(v) => {
           // Try to preserve the original type (number vs string)
-          const selectedOption = options.find((o) => String(o.value) === e.target.value);
-          onChange(selectedOption?.value ?? e.target.value);
+          const selectedOption = options.find((o) => String(o.value) === v);
+          onChange(selectedOption?.value ?? (v as string));
         }}
-        onBlur={onBlur}
-        className={`w-full rounded border bg-[var(--surface)] px-2.5 py-1.5 text-[13px] focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50 ${
-          error ? 'border-[var(--destructive)]' : 'border-border/60'
-        }`}
+        items={Object.fromEntries(options.map((o) => [String(o.value), o.name]))}
       >
-        {options.map((option) => (
-          <option key={String(option.value)} value={String(option.value)}>
-            {option.name}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger id={fieldId} className="w-full" aria-invalid={error ? true : undefined} onBlur={onBlur}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={String(option.value)} value={String(option.value)}>
+              {option.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <FieldDescription text={property.description} />
       <FieldErrorMessage error={error} />
     </div>
@@ -699,7 +802,7 @@ function MultiOptionsField({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
-        <label className="block text-xs font-medium text-foreground/80">
+        <label className="block text-[12.5px] font-medium text-foreground">
           {property.displayName}
           {selectedCount > 0 && (
             <span className="ml-1.5 text-[11px] text-muted-foreground">
@@ -717,15 +820,15 @@ function MultiOptionsField({
         </div>
       </div>
       {options.length > 8 && (
-        <input
+        <Input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search tools…"
-          className="mb-1.5 w-full rounded border border-border/60 bg-[var(--surface)] px-2.5 py-1 text-[12px] placeholder:text-muted-foreground/50 focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring/50"
+          className="mb-1.5 h-7 text-[12px]"
         />
       )}
-      <div className="max-h-[180px] overflow-y-auto rounded border border-border/60 bg-[var(--surface)]">
+      <div className="well max-h-[180px] overflow-y-auto">
         {filtered.length === 0 ? (
           <div className="px-2.5 py-2 text-[12px] text-muted-foreground">No matches</div>
         ) : (
@@ -736,15 +839,15 @@ function MultiOptionsField({
                 key={String(option.value)}
                 type="button"
                 onClick={() => toggle(String(option.value))}
-                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors hover:bg-muted/50 ${
+                className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12px] transition-colors row-hover ${
                   active ? 'text-foreground' : 'text-muted-foreground'
                 }`}
               >
                 <span
-                  className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors ${
+                  className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-chip transition-colors ${
                     active
-                      ? 'border-ring bg-ring text-white'
-                      : 'border-border/80 bg-transparent'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-raise shadow-raise-sm'
                   }`}
                 >
                   {active && (
@@ -780,13 +883,8 @@ function JsonField({
   const rows = property.typeOptions?.rows ?? 6;
   const language = property.typeOptions?.language ?? 'json';
 
-  // Convert value to string for editing
-  const stringValue =
-    typeof value === 'string'
-      ? value
-      : value !== undefined
-        ? JSON.stringify(value, null, 2)
-        : (property.default as string) ?? '';
+  // Convert value to string for editing (objects, null and numbers must never reach the editor raw)
+  const stringValue = jsonFieldText(value, property.default);
 
   const handleChange = (newValue: string) => {
     // For JavaScript code, keep as string
@@ -811,7 +909,7 @@ function JsonField({
 
   return (
     <div onBlur={onBlur}>
-      <label className="mb-1 block text-xs font-medium text-foreground/80">
+      <label className="mb-1 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
         {property.required && <span className="text-destructive ml-0.5">*</span>}
       </label>
@@ -904,7 +1002,7 @@ function CollectionField({
 
   return (
     <div>
-      <label htmlFor={fieldId} className="mb-1.5 block text-xs font-medium text-foreground/80">
+      <label htmlFor={fieldId} className="mb-1.5 block text-[12.5px] font-medium text-foreground">
         {property.displayName}
       </label>
 
@@ -917,13 +1015,13 @@ function CollectionField({
           return (
             <div
               key={index}
-              className="rounded border border-border/40 bg-muted/30"
+              className="rounded-ctl bg-foreground/4"
             >
               <div className="flex items-center justify-between px-2.5 py-1.5">
                 <button
                   type="button"
                   onClick={() => toggleItem(index)}
-                  className="flex items-center gap-1.5 text-[12px] font-medium text-foreground/80 min-w-0"
+                  className="flex items-center gap-1.5 text-[12px] font-medium text-foreground min-w-0"
                 >
                   {isExpanded ? <ChevronUp size={13} className="flex-shrink-0 text-muted-foreground" /> : <ChevronDown size={13} className="flex-shrink-0 text-muted-foreground" />}
                   <span>Item {index + 1}</span>
@@ -938,7 +1036,7 @@ function CollectionField({
                     type="button"
                     onClick={() => moveItem(index, 'up')}
                     disabled={index === 0}
-                    className="p-0.5 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip disabled:opacity-30 disabled:cursor-not-allowed"
                     title="Move up"
                   >
                     <ChevronUp size={12} />
@@ -947,7 +1045,7 @@ function CollectionField({
                     type="button"
                     onClick={() => moveItem(index, 'down')}
                     disabled={index === value.length - 1}
-                    className="p-0.5 text-muted-foreground hover:text-foreground rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip disabled:opacity-30 disabled:cursor-not-allowed"
                     title="Move down"
                   >
                     <ChevronDown size={12} />
@@ -963,7 +1061,7 @@ function CollectionField({
               </div>
 
               {isExpanded && (
-                <div className="border-t border-border/30 px-2.5 py-2.5 space-y-3">
+                <div className="px-2.5 pt-1 pb-2.5 space-y-3">
                   {nestedProperties.map((nestedProp) => (
                     <PropertyField
                       key={nestedProp.name}

@@ -22,12 +22,12 @@ export function ChatPanel({
   return (
     <div className={cn('h-full flex flex-col overflow-hidden', className)}>
       {onClose && (
-        <div className="flex items-center px-2 py-1.5 border-b border-border/50 shrink-0">
+        <div className="flex items-center px-2 py-1.5 shrink-0 shadow-[inset_0_-1px_0_var(--hairline)]">
           {actions}
           <div className="flex-1" />
           <button
             onClick={onClose}
-            className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded transition-colors"
+            className="rounded-chip p-1 text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground"
             title="Close"
           >
             <X size={14} />
@@ -50,7 +50,7 @@ export function ChatPanelFooter({
   className?: string
 }) {
   return (
-    <div className={cn('p-3 border-t border-border/50 shrink-0', className)}>
+    <div className={cn('p-3 shrink-0', className)}>
       {children}
     </div>
   )

@@ -8,6 +8,8 @@ import {
   AlertDialogFooter,
   AlertDialogCancel,
 } from '@/shared/components/ui/alert-dialog';
+import { Button } from '@/shared/components/ui/button';
+import { Textarea } from '@/shared/components/ui/textarea';
 import { parseCurl, type ParsedCurlResult } from '../../lib/parseCurl';
 
 interface ImportCurlDialogProps {
@@ -56,7 +58,7 @@ export default function ImportCurlDialog({ open, onOpenChange, onImport }: Impor
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <textarea
+        <Textarea
           ref={textareaRef}
           rows={8}
           value={value}
@@ -65,7 +67,8 @@ export default function ImportCurlDialog({ open, onOpenChange, onImport }: Impor
             if (error) setError('');
           }}
           placeholder={`curl -X POST https://api.example.com/data \\\n  -H "Authorization: Bearer token" \\\n  -H "Content-Type: application/json" \\\n  -d '{"key": "value"}'`}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+          className="font-mono resize-none"
+          data-testid="curl-input"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               handleImport();
@@ -74,17 +77,14 @@ export default function ImportCurlDialog({ open, onOpenChange, onImport }: Impor
         />
 
         {error && (
-          <p className="text-sm text-destructive">{error}</p>
+          <p className="text-[12px] text-destructive" role="alert">{error}</p>
         )}
 
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <button
-            onClick={handleImport}
-            className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-          >
+          <Button onClick={handleImport} data-testid="curl-import">
             Import
-          </button>
+          </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -1,22 +1,29 @@
 import { useEffect } from 'react'
-import { createRootRoute, Outlet, useMatchRoute } from '@tanstack/react-router'
-import { Toaster } from 'sonner'
+import { createRootRouteWithContext, Outlet, useMatchRoute } from '@tanstack/react-router'
+import type { QueryClient } from '@tanstack/react-query'
 
 import { ThemeProvider } from '@/shared/components/theme-provider'
 import { ErrorBoundary } from '@/shared/components/ErrorBoundary'
+import { Toaster } from '@/shared/components/ui/toaster'
+import { TooltipProvider } from '@/shared/components/ui/tooltip'
+import { flushPendingToasts } from '@/shared/lib/pendingToast'
 import { useEditorLayoutStore } from '@/features/workflow-editor/stores/editorLayoutStore'
 
-export const rootRoute = createRootRoute({
+export interface RouterContext {
+  queryClient: QueryClient
+}
+
+export const rootRoute = createRootRouteWithContext<RouterContext>()({
   component: RootLayout,
 })
 
 function RootLayout() {
   const closePanel = useEditorLayoutStore((s) => s.closeCreatorPanel)
   const matchRoute = useMatchRoute()
-  const isEditorRoute = matchRoute({ to: '/editor', fuzzy: true })
-  const isBuilderRoute = matchRoute({ to: '/builder', fuzzy: true })
-  const isProjectsRoute = matchRoute({ to: '/projects', fuzzy: true })
   const isLandingRoute = matchRoute({ to: '/', fuzzy: false })
+
+  // Toasts queued by router redirects before first render (the Toaster is mounted by now: children's effects run first)
+  useEffect(() => flushPendingToasts(), [])
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -30,33 +37,18 @@ function RootLayout() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [closePanel])
 
-  const isFullScreen = isEditorRoute || isBuilderRoute || isProjectsRoute
-
-  // Full takeover layout (editor, builder, projects, landing)
-  if (isFullScreen || isLandingRoute) {
-    return (
-      <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
+  // Every studio page (projects, /p/…, redirects) is a full-screen takeover; the landing scrolls.
+  // Every page sits on the shared backdrop (body::before/::after in index.css); Projects home and the landing add stars.
+  return (
+    <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
+      <TooltipProvider delay={500} timeout={300}>
         <ErrorBoundary>
-          <main className={isFullScreen ? 'h-screen w-screen overflow-hidden' : 'min-h-screen w-screen'}>
+          <main className={isLandingRoute ? 'relative z-[1] min-h-screen w-screen' : 'relative z-[1] h-screen w-screen overflow-hidden'}>
             <Outlet />
           </main>
         </ErrorBoundary>
-        <Toaster position="bottom-right" richColors closeButton />
-      </ThemeProvider>
-    )
-  }
-
-  // Fallback layout
-  return (
-    <ThemeProvider defaultTheme="system" storageKey="workflow-studio-theme">
-      <ErrorBoundary>
-        <main className="relative flex w-full flex-1 flex-col h-screen">
-          <div className="h-full w-full relative">
-            <Outlet />
-          </div>
-        </main>
-      </ErrorBoundary>
-      <Toaster position="bottom-right" richColors closeButton />
+        <Toaster />
+      </TooltipProvider>
     </ThemeProvider>
   )
 }

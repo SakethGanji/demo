@@ -72,6 +72,8 @@ def _process_records(records_raw: list, keys: list) -> list:
     return records
 
 
+from ...engine import shapes as sh
+
 class Neo4jNode(BaseNode):
     """Neo4j node - executes Cypher queries against a Neo4j graph database."""
 
@@ -186,6 +188,8 @@ class Neo4jNode(BaseNode):
     @property
     def description(self) -> str:
         return "Execute Cypher queries against a Neo4j graph database"
+
+    # Neo4j: observed -> default contract (UNKNOWN unless the instance has an approved contract).
 
     async def execute(
         self,

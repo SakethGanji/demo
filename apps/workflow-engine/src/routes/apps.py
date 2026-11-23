@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..core.config import settings
-from ..core.dependencies import get_app_service
+from ..core.dependencies import get_app_service, get_execution_service
 from ..schemas.app import (
     AppCreateRequest,
     AppPublishRequest,
@@ -13,7 +13,7 @@ from ..schemas.app import (
     CreateVersionRequest,
     UpdateVersionLabelRequest,
 )
-from ..services.app_service import AppPublishError, AppService
+from ..services.app_service import AppPublishError, AppService, AppValidationError, SlugTakenError, StaleBaseError
 
 router = APIRouter(prefix="/apps")
 
@@ -21,9 +21,10 @@ router = APIRouter(prefix="/apps")
 @router.get("")
 async def list_apps(
     folder_id: str | None = None,
+    project_id: str | None = None,
     service: AppService = Depends(get_app_service),
 ):
-    return await service.list_apps(folder_id)
+    return await service.list_apps(folder_id, project_id=project_id)
 
 
 @router.post("", status_code=201)
@@ -31,7 +32,14 @@ async def create_app(
     req: AppCreateRequest,
     service: AppService = Depends(get_app_service),
 ):
-    return await service.create_app(req)
+    try:
+        return await service.create_app(req)
+    except AppValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail()) from e
+    except SlugTakenError as e:
+        raise HTTPException(status_code=409, detail=e.detail()) from e
+    except AppPublishError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from e
 
 
 @router.get("/{app_id}")
@@ -51,7 +59,18 @@ async def update_app(
     req: AppUpdateRequest,
     service: AppService = Depends(get_app_service),
 ):
-    result = await service.update_app(app_id, req)
+    try:
+        result = await service.update_app(app_id, req)
+    except StaleBaseError as e:
+        raise HTTPException(status_code=409, detail=e.detail()) from e
+    except AppValidationError as e:
+        raise HTTPException(status_code=422, detail=e.detail()) from e
+    except SlugTakenError as e:
+        raise HTTPException(status_code=409, detail=e.detail()) from e
+    except AppPublishError as e:
+        if str(e).startswith("project "):
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        raise
     if not result:
         raise HTTPException(status_code=404, detail="App not found")
     return result
@@ -76,6 +95,8 @@ async def publish_app(
 ):
     try:
         result = await service.publish_app(app_id, req)
+    except SlugTakenError as e:  # review C4
+        raise HTTPException(status_code=409, detail=e.detail()) from e
     except AppPublishError as e:
         msg = str(e)
         if msg == "app not found":
@@ -106,6 +127,53 @@ async def unpublish_app(
         if msg == "app not found":
             raise HTTPException(status_code=404, detail=msg) from e
         raise HTTPException(status_code=400, detail=msg) from e
+
+
+# ── App ↔ API (phase 6) ───────────────────────────────────────────────────────
+
+
+@router.get("/{app_id}/api-usage")
+async def app_api_usage(app_id: str, service: AppService = Depends(get_app_service)):
+    from ..db.models import AppModel
+    from ..services.api_usage import ApiUsageService
+    app = await service._session.get(AppModel, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    return await ApiUsageService(service._session).app_usage(app)
+
+
+@router.post("/{app_id}/workflow/{workflow_id}/run")
+async def preview_workflow_run(app_id: str, workflow_id: str, request: Request,
+                               service: AppService = Depends(get_app_service),
+                               exec_service=Depends(get_execution_service)):
+    """G20: the studio preview's equivalent of /a/{slug}/api/workflow/{id}/run (preview token)."""
+    from ..core.public_tokens import PublicTokenError, verify_token
+    from ..db.models import AppModel, ProjectModel
+    from .public_apps import _run_app_workflow
+
+    app = await service._session.get(AppModel, app_id)
+    if not app:
+        raise HTTPException(status_code=404, detail={"code": "app_not_found", "message": "App not found"})
+    auth = request.headers.get("authorization") or ""
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "preview token required"})
+    try:
+        claims = verify_token(auth.split(" ", 1)[1].strip())
+    except PublicTokenError as e:
+        code = "token_expired" if "expired" in str(e) else "unauthorized"
+        raise HTTPException(status_code=401, detail={"code": code, "message": str(e)}) from e
+    if not claims.preview or claims.app_id != app.id:
+        raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "not a preview token for this app"})
+    if workflow_id not in set(app.workflow_ids or []):
+        raise HTTPException(status_code=403, detail={"code": "workflow_not_allowed", "message": "workflow not allowed by this app"})
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    project = await service._session.get(ProjectModel, app.project_id)
+    return await _run_app_workflow(app, workflow_id, body if isinstance(body, dict) else {"value": body}, exec_service,
+                                   environment=claims.env or (project.default_environment if project else "default"),
+                                   mode="app", trigger_type="app_preview")
 
 
 # ── Version endpoints ────────────────────────────────────────────────────────

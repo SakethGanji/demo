@@ -1,0 +1,391 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Projects · Command Studio</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><link rel="stylesheet" href="assets/theme.css"><link rel="stylesheet" href="assets/character.css"><link rel="stylesheet" href="assets/system.css"><link rel="stylesheet" href="assets/inset.css"><link rel="stylesheet" href="assets/edges.css"><link rel="stylesheet" href="assets/light.css"><link rel="stylesheet" href="assets/paper.css"><link rel="stylesheet" href="assets/kit.css"><link rel="stylesheet" href="assets/motion.css"><script src="assets/motion.js"></script><script src="assets/art.js"></script><script src="assets/edges.js"></script><script src="assets/kit.js"></script><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>
+ body{background:radial-gradient(55% 38% at 12% -6%,color-mix(in srgb,var(--brand-1) 10%,transparent),transparent 70%),radial-gradient(40% 30% at 92% -4%,color-mix(in srgb,var(--brand-2) 7%,transparent),transparent 70%),var(--canvas);background-attachment:fixed;overflow:auto}
+ .dark body{background:radial-gradient(55% 38% at 12% -6%,color-mix(in srgb,var(--brand-2) 17%,transparent),transparent 70%),radial-gradient(40% 30% at 92% -4%,color-mix(in srgb,var(--brand-1) 10%,transparent),transparent 70%),var(--canvas)}
+ main{max-width:1176px;margin:0 auto;padding:var(--s10) var(--s6) calc(var(--s8) * 2)}
+
+ /* ── top bar ── */
+ .home-top{position:sticky;top:var(--s3);z-index:20;margin:var(--s3) var(--s3) 0;display:flex;align-items:center;gap:var(--s2);height:44px;padding:0 var(--s2) 0 10px;border-radius:var(--r-panel);background:var(--card)}
+ .home-top input{flex:1;height:32px;background:transparent;border:0;outline:0;font-size:13px;color:var(--foreground)}
+ .home-top input::placeholder{color:var(--muted-foreground);opacity:.8}
+ .home-top .kbd{transition:opacity var(--d-fast)}.home-top input:focus ~ .kbd{opacity:0}
+
+ /* ── hero: greeting · workspace constellation · pulse, over the page's one beam + grid ── */
+ .hero{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--s6);align-items:end;margin:0}
+ .hero > .vx-grid{inset:calc(var(--s10) * -1) calc(var(--s6) * -1) calc(var(--s5) * -1)}
+ /* system.css's beam stops (160-200deg after "from 180deg") aim the wedge up, off the element; same beam, aimed down */
+ .hero > .vx-beam{left:24%;background:conic-gradient(from 152deg at 50% 0%,transparent 0deg,color-mix(in srgb,var(--brand-1) 9%,transparent) 14deg,var(--glow) 24deg,color-mix(in srgb,var(--brand-2) 20%,transparent) 28deg,var(--glow) 32deg,color-mix(in srgb,var(--brand-1) 9%,transparent) 42deg,transparent 56deg);opacity:.75}
+ .hello{font-size:13px;color:var(--muted-foreground);display:flex;align-items:center;gap:var(--s2)}
+ .hello .ws{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:var(--r-chip);background:linear-gradient(135deg,var(--brand-1),var(--brand-2));color:#fff;font-size:10px;font-weight:650}
+ .hello .dim{opacity:.45}
+ .hero h1{margin-top:10px;font-size:30px !important;font-weight:650 !important;letter-spacing:-.032em !important;white-space:nowrap}
+ .sub-line{margin-top:6px;font-size:13px;color:var(--muted-foreground);white-space:nowrap}
+ .sub-line .dim{opacity:.5}
+ .sub-line a{color:var(--warning-text);display:inline-flex;align-items:center;gap:6px;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--warning) 45%,transparent);transition:transform var(--d-fast) var(--ease-out),color var(--d-base)}
+ .sub-line a:hover{text-decoration-line:underline}
+ .sub-line a:active{transform:scale(.98);transition-duration:var(--d-instant)}
+ .constel{align-self:center;justify-self:center;width:100%;max-width:260px;min-width:0}
+ .constel .a-name{font-size:10.5px;font-weight:600;fill:var(--foreground)}
+ .constel .a-faint-ring{fill:none;stroke:var(--art-faint);stroke-width:1;stroke-dasharray:1.5 3.5}
+ .pulse{display:grid;grid-template-columns:repeat(3,auto);padding:0}
+ .pulse .pc{padding:var(--s4) var(--s6) var(--s4) var(--s5);border-left:1px solid var(--hairline);min-width:150px}
+ .pulse .pc:first-child{border-left:0;background:linear-gradient(180deg,var(--brand-soft),transparent 80%);border-radius:var(--r-panel) 0 0 var(--r-panel)}
+ .pulse .l{font-size:12px;font-weight:500;color:var(--muted-foreground)}
+ .pulse .v{margin-top:var(--s1);display:flex;align-items:baseline;gap:var(--s2);font-size:28px;font-weight:600;letter-spacing:-.03em;line-height:1.15}
+ .pulse .v small{font-size:12px;font-weight:400;letter-spacing:0;color:var(--muted-foreground)}
+ .pulse .m-spark{width:72px;height:20px;align-self:center}
+ .pulse .attn{color:var(--warning-text)}
+ @media(max-width:1100px){.hero{grid-template-columns:minmax(0,1fr) auto}.constel{display:none}}
+
+ /* ── the missing-secret alert ── */
+ .alert{margin-top:var(--s6);display:grid;grid-template-rows:1fr;transition:grid-template-rows var(--d-base) var(--ease-io),margin var(--d-base) var(--ease-io),opacity var(--d-base)}
+ .alert > .in{overflow:hidden;min-height:0;padding:1px}
+ .alert .box{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s3) var(--s3) var(--s4);border-radius:var(--r-panel);background:color-mix(in srgb,var(--warning) 6%,var(--card));box-shadow:0 0 0 1px color-mix(in srgb,var(--warning) 28%,transparent),var(--shadow-xs);transition:background var(--d-base),box-shadow var(--d-base)}
+ .alert .ic{width:32px;height:32px;border-radius:var(--r-ctl);display:grid;place-items:center;flex-shrink:0;color:var(--warning-text);background:color-mix(in srgb,var(--warning) 14%,transparent);transition:color var(--d-base),background var(--d-base)}
+ .alert .ic svg{width:16px;height:16px}
+ .alert .tx{flex:1;min-width:0}
+ .alert .tx b{font-weight:600} .alert .tx > div{font-size:12px;color:var(--muted-foreground);margin-top:1px}
+ .alert .tx .mono{font-size:12.5px}
+ .alert .acts{display:flex;align-items:center;gap:var(--s1)}
+ .alert.ok .box{background:color-mix(in srgb,var(--success) 7%,var(--card));box-shadow:0 0 0 1px color-mix(in srgb,var(--success) 30%,transparent),var(--shadow-xs)}
+ .alert.ok .ic{color:var(--success-text);background:color-mix(in srgb,var(--success) 14%,transparent)}
+ .alert.gone{grid-template-rows:0fr;margin-top:0;opacity:0}
+
+ /* ── section rows ── */
+ .sec-row{display:flex;align-items:center;gap:var(--s3);margin-top:var(--s8)}
+ .sec-row h2{font-size:15px;font-weight:600;letter-spacing:-.015em}
+ .sec-row .meta{font-size:12px;color:var(--muted-foreground)}
+ .sec-row .spacer{flex:1}
+ .seg > button:active{transform:scale(.98)}
+
+ /* ── project cards: header · well (art + activity) · meta ── */
+ .grid{display:grid;gap:var(--s4);margin-top:var(--s3);grid-template-columns:repeat(3,1fr)}
+ .grid > [hidden]{display:none !important}
+ @media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}.tpls{grid-template-columns:repeat(2,1fr)}} @media(max-width:640px){.grid{grid-template-columns:1fr}}
+ .press{transition:box-shadow var(--d-fast),transform var(--d-fast) var(--ease-out),background-color var(--d-fast),border-color var(--d-fast)}
+ .press:active{transform:scale(.98) !important;transition-duration:var(--d-instant)}
+ .card{display:flex;flex-direction:column;min-height:252px;cursor:pointer}
+ .card.proj:hover,.tpl.press:hover{transform:translateY(-1px);box-shadow:var(--panel-ring),var(--shadow-md) !important}
+ .card-top{display:flex;align-items:center;gap:10px;padding:var(--s4) var(--s4) 0 var(--s4)}.card-top .t{flex:1;min-width:0}
+ .card-top .name{font-size:14px;font-weight:600;letter-spacing:-.01em}
+ .card-top .sub{margin-top:1px;font-size:12px;color:var(--muted-foreground)}
+ .card-top .sub.mono{font-family:var(--font-mono)}
+ .p-avatar.sm{width:28px;height:28px;border-radius:var(--r-ctl);font-size:12.5px}
+ .p-avatar.muted-tile{background:var(--muted);color:var(--muted-foreground);box-shadow:inset 0 0 0 1px var(--border)}
+ .card-top .more{opacity:0;transition:opacity var(--d-fast),background-color var(--d-instant),transform var(--d-fast) var(--ease-out)}.card:hover .more,.card:focus-within .more{opacity:1}
+ .card-top .more svg{width:14px;height:14px}
+ .card > .well{margin:var(--s3) var(--s2) 0;flex:1;display:flex;flex-direction:column;justify-content:center}
+ .act{display:flex;align-items:center;gap:var(--s3);margin-top:var(--s3)}
+ .act .m-spark{flex:1;width:auto;height:22px;margin:0;display:block}
+ .act .lbl{font-size:12px;color:var(--muted-foreground);white-space:nowrap}
+ .act .lbl b{font-weight:600;color:var(--foreground)}
+ .card-foot{display:flex;align-items:center;gap:var(--s3);padding:var(--s3) var(--s4);font-size:12px;color:var(--muted-foreground)}
+ .card-foot span{display:inline-flex;align-items:center;gap:6px}.card-foot svg{width:14px;height:14px}.card-foot .when{margin-left:auto}
+ .pc-warn{transition:opacity var(--d-slow) var(--ease-out)}
+ .fixed .pc-warn{opacity:0}
+
+ /* new project: a dashed slot with a blueprint; the + is the drawing's one glow */
+ .card.new{border:1px dashed color-mix(in srgb,var(--foreground) 14%,transparent);border-radius:var(--r-panel);background:transparent;align-items:center;justify-content:center;gap:var(--s1);text-align:center;padding:var(--s5)}
+ .card.new:hover{background:color-mix(in srgb,var(--card) 55%,transparent);border-color:color-mix(in srgb,var(--brand-1) 45%,transparent)}
+ .card.new .bp{width:208px;margin-bottom:var(--s3)}
+ .card.new .bp .bp-plus{transform-box:fill-box;transform-origin:center;transition:transform var(--d-base) var(--ease-out)}
+ .card.new:hover .bp .bp-plus{transform:scale(1.08)}
+ .card.new .bp .bp-dash{transition:stroke var(--d-base)}
+ .card.new:hover .bp .bp-dash{stroke:color-mix(in srgb,var(--brand-1) 45%,transparent)}
+ .card.new .title{font-weight:500}
+ .card.new .hint{font-size:12px;color:var(--muted-foreground)}
+
+ /* ── templates ── */
+ .tpls{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--s4);margin-top:var(--s3)}
+ .tpl{display:flex;flex-direction:column;cursor:pointer}
+ .tpl .pic.well{margin:var(--s2) var(--s2) 0;height:112px;padding:var(--s3);display:grid;place-items:center;position:relative}
+ .tpl .pic::before{content:'';position:absolute;inset:0;background-image:radial-gradient(var(--art-faint) .9px,transparent 1px);background-size:12px 12px;-webkit-mask:radial-gradient(70% 70% at 50% 50%,#000,transparent);mask:radial-gradient(70% 70% at 50% 50%,#000,transparent)}
+ .tpl .pic .art{position:relative}
+ .tpl .bd{padding:var(--s3) var(--s4) var(--s4);display:flex;flex-direction:column;gap:3px;flex:1}
+ .tpl .bd b{font-weight:600;letter-spacing:-.01em}
+ .tpl .bd > span{font-size:12px;color:var(--muted-foreground);line-height:1.45}
+ .tpl .ft{display:flex;align-items:center;gap:var(--s2);margin-top:auto;padding-top:10px;font-size:12px;color:var(--muted-foreground)}
+ .tpl .ft .go{margin-left:auto;opacity:0;transform:translateX(-4px);transition:opacity var(--d-fast),transform var(--d-fast) var(--ease-out);font-size:12px;font-weight:500;color:var(--primary);display:inline-flex;align-items:center;gap:var(--s1)}
+ .tpl .ft .go svg{width:13px;height:13px}
+ .tpl:hover .go,.tpl:focus-visible .go{opacity:1;transform:none}
+ .ai-card{cursor:default;background:linear-gradient(160deg,var(--brand-soft),transparent 55%),var(--card)}
+ .ai-card .bd{padding:var(--s4)}
+ .ai-card .spark-ic{width:32px;height:32px;border-radius:var(--r-ctl);display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--brand-1),var(--brand-2));box-shadow:inset 0 1px 0 rgb(255 255 255 / .25),0 4px 12px -4px color-mix(in srgb,var(--brand-2) 60%,transparent);margin-bottom:var(--s2)}
+ .ai-card .spark-ic svg{width:16px;height:16px;stroke-width:2;color:#fff}
+ .ai-card textarea{margin-top:10px;width:100%;height:76px;resize:none;border-radius:var(--r-ctl);border:1px solid var(--input);background:var(--background);padding:9px 10px;font:12.5px/1.5 var(--font-sans);color:var(--foreground);outline:none;transition:border-color var(--d-fast),box-shadow var(--d-fast)}
+ .dark .ai-card textarea{background:rgb(255 255 255 / .03)}
+ .ai-card textarea:focus{border-color:var(--ring);box-shadow:0 0 0 3px color-mix(in srgb,var(--ring) 18%,transparent)}
+ .ai-card textarea::placeholder{color:var(--muted-foreground)}
+ .ai-card .row{display:flex;align-items:center;gap:var(--s2);margin-top:10px}
+ .ai-card .row .hint{font-size:12px;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:6px}
+</style></head><body>
+<header class="home-top"><a class="brand" href="projects.html" aria-label="Command Studio"><span class="brand-mark"></span><span class="brand-word">Command <span>Studio</span></span></a><span class="divider-v"></span><i data-lucide="search" class="muted" style="width:14px;height:14px"></i><input id="q" placeholder="Search projects…" aria-label="Search projects"><span class="kbd" data-tip="Focus search" data-kbd="/">/</span>
+ <button class="btn ghost sm" data-tip="Sort projects"><i data-lucide="arrow-up-down"></i> Recent</button><button class="btn ghost icon-sm" id="theme-toggle" aria-label="Toggle theme"><i data-lucide="sun"></i></button><span class="divider-v"></span><button class="btn sm"><i data-lucide="plus"></i> New project</button></header>
+<main data-edge="field" data-edge-from=":scope > .tpls" data-edge-gap="20" data-edge-inset="0" data-edge-quiet>
+ <section class="hero vx-host">
+  <div class="vx-grid"></div><div class="vx-beam"></div>
+  <div>
+   <div class="hello"><span class="brand-mark sm"></span>Command Studio<span class="dim">·</span><span id="when">Thursday, Oct 15</span></div>
+   <h1 id="greet">Good evening, Saketh</h1>
+   <p class="sub-line">2 projects<span class="dim"> · </span>128 runs in 24h<span class="dim"> · </span><a href="#" id="to-attn" data-tip="Show projects that need attention"><span class="dot warn"></span><span id="attn-text">1 secret missing in prod</span></a></p>
+  </div>
+  <div class="constel" data-art="ws-constellation"></div>
+  <div class="panel pulse vx-edge">
+   <div class="pc"><div class="l">Runs · 24h</div><div class="v">128<svg class="m-spark" id="ws-spark" viewBox="0 0 64 20" preserveAspectRatio="none" data-tip="128 runs in 24h · 1 failed"></svg></div></div>
+   <div class="pc"><div class="l">Apps</div><div class="v">1<small>draft</small></div></div>
+   <div class="pc"><div class="l">Needs attention</div><div class="v"><span class="attn m-roll" id="attn-n"></span><small id="attn-sub">secret</small></div></div>
+  </div>
+ </section>
+ <div class="alert" id="alert"><div class="in"><div class="box">
+  <span class="ic"><i data-lucide="key-round"></i></span>
+  <div class="tx"><b id="al-title"><span class="mono">PAYMENTS_TOKEN</span> is missing in prod</b><div id="al-sub" class="truncate" data-trunc>Payments Ops · <span class="mono">refundStats</span> reads it on line 26 and will fail once you release.</div></div>
+  <div class="acts"><a class="btn ghost sm" href="overview.html" data-tip="Open Payments Ops">Review</a><button class="btn sm" id="al-fix" data-tip="Set PAYMENTS_TOKEN in prod"><span class="m-swap" style="width:14px;height:14px"><i data-lucide="plus" class="a"></i><i data-lucide="check" class="b"></i></span> <span id="al-btn">Add to prod</span></button></div>
+ </div></div></div>
+ <div class="sec-row" data-edge="reg leader"><h2>Projects</h2><span class="meta">2</span><span class="spacer"></span>
+  <div class="seg" id="filter"><button class="on" data-f="all">All <span class="count">2</span></button><button data-f="healthy">Healthy</button><button data-f="attention">Needs attention</button></div>
+ </div>
+ <div class="grid">
+  <a class="card panel proj press" id="card-pay" href="overview.html" data-status="healthy attention">
+   <div class="card-top"><span class="p-avatar sm">P</span><div class="t"><div class="name truncate" data-trunc>Payments Ops</div><div class="sub mono truncate" data-trunc>/api/p/payments-ops</div></div><button class="btn ghost icon-xs more" aria-label="More actions" data-tip="More actions" onclick="event.preventDefault()"><i data-lucide="ellipsis"></i></button><span class="badge success"><span class="dot ok flat"></span>Healthy</span></div>
+   <div class="well pad">
+    <div data-art="proj-payments"></div>
+    <div class="act"><svg class="m-spark" id="act-spark" viewBox="0 0 132 22" preserveAspectRatio="none" data-tip="128 runs in 24h · 1 failed"></svg><span class="lbl"><b>128</b> runs · 24h</span></div>
+   </div>
+   <div class="card-foot"><span><i data-lucide="route"></i>3 routes</span><span><i data-lucide="app-window"></i>1 app</span><span class="warn-text" id="card-secret"><i data-lucide="key-round"></i>1 missing secret</span><span class="when" data-ts="2026-10-15T18:42:07Z">now</span></div>
+  </a>
+  <a class="card panel proj press" href="#" data-status="">
+   <div class="card-top"><span class="p-avatar sm muted-tile">D</span><div class="t"><div class="name truncate" data-trunc>Default project</div><div class="sub truncate" data-trunc>Workflows created before projects existed</div></div><button class="btn ghost icon-xs more" aria-label="More actions" data-tip="More actions" onclick="event.preventDefault()"><i data-lucide="ellipsis"></i></button><span class="badge outline">Legacy</span></div>
+   <div class="well pad"><div data-art="proj-empty"></div></div>
+   <div class="card-foot"><span><i data-lucide="workflow"></i>0 workflows</span><span><i data-lucide="app-window"></i>0 apps</span><span class="when" data-tip="No runs yet. This project is empty.">—</span></div>
+  </a>
+  <a class="card new press" href="#">
+   <span class="bp" data-art="proj-blueprint"></span>
+   <span class="title">New project</span><span class="hint">A backend, data and apps — together</span>
+  </a>
+ </div>
+ <div class="sec-row" data-edge="reg leader"><h2>Start something new</h2><span class="meta">Templates create the routes and tables for you</span></div>
+ <div class="tpls">
+  <a class="panel tpl press" href="#"><div class="pic well"><div data-art="tpl-webhook" style="width:100%"></div></div><div class="bd"><b>Webhook receiver</b><span>Accept events from Stripe, GitHub or Slack and store them.</span><div class="ft">1 route · 1 table<span class="go">Use template<i data-lucide="arrow-right"></i></span></div></div></a>
+  <a class="panel tpl press" href="#"><div class="pic well"><div data-art="tpl-crud" style="width:100%"></div></div><div class="bd"><b>CRUD API</b><span>Create, read, update and delete rows in a table.</span><div class="ft">4 routes · 1 table<span class="go">Use template<i data-lucide="arrow-right"></i></span></div></div></a>
+  <a class="panel tpl press" href="#"><div class="pic well"><div data-art="tpl-cron" style="width:100%"></div></div><div class="bd"><b>Scheduled job</b><span>Call an API on a schedule and keep the results.</span><div class="ft">1 job · 1 table<span class="go">Use template<i data-lucide="arrow-right"></i></span></div></div></a>
+  <div class="panel tpl ai-card"><div class="bd"><span class="spark-ic"><i data-lucide="sparkles"></i></span><b>Describe it instead</b><span>Command Studio writes the Python, creates the tables, and runs a test.</span>
+   <textarea id="ai-q" placeholder="A refunds API that takes Stripe webhooks and flags refunds over $500…" aria-label="Describe a project"></textarea>
+   <div class="row"><span class="hint"><span class="kbd">⌘↵</span>to generate</span><span class="spacer"></span><button class="btn ai sm" data-tip="Generate a project" data-kbd="⌘↵"><i data-lucide="sparkles"></i> Generate</button></div></div></div>
+ </div>
+</main>
+<script>
+(function () {
+  const { v, defs } = LunaArt;
+  const ROUTES = [['GET', 'get', '/refunds'], ['POST', 'post', '/refunds'], ['GET', 'get', '/refunds/stats']];
+  const HOT = { '/refunds·POST': 1, '/refunds/stats·GET': 1 }; // used by the Refunds dashboard (createRefund, refundStats)
+  const CY = [15, 49, 83];
+  const cyl = (cls, extra = '') => `
+    <path d="M152 30 v32 a20 6 0 0 0 40 0 v-32" ${cls}/>${extra}
+    <ellipse cx="172" cy="30" rx="20" ry="6" ${cls}/>`;
+
+  /* mini system diagram: routes -> refunds table -> app, plus the missing prod secret */
+  LunaArt.add('proj-payments', () => {
+    const id = 'pc';
+    const chips = ROUTES.map(([m, mc, p], i) => `
+      <g transform="translate(2 ${CY[i] - 11})"><rect width="120" height="22" rx="6" class="a-card"/>
+        <text x="8" y="14.5" class="a-mono a-strong" style="font-size:9.5px;fill:${v('method-' + mc)}">${m}</text>
+        <text x="${m.length > 3 ? 38 : 32}" y="14.5" class="a-mono" style="font-size:9.5px">${p}</text></g>`).join('');
+    const wires = ROUTES.map(([m, , p], i) => `<path d="M122 ${CY[i]} C 138 ${CY[i]}, 138 ${42 + i * 7}, 152 ${42 + i * 7}" class="a-wire${HOT[p + '·' + m] ? ' a-hot' : ''}"/>`).join('');
+    return `<svg viewBox="0 0 300 110" class="art" role="img" aria-label="refunds.py has 3 routes wired to the refunds table, which feeds the Refunds dashboard. PAYMENTS_TOKEN is missing in prod.">${defs(id)}
+      ${wires}
+      <path d="M192 48 C 204 48, 206 46, 220 46" class="a-wire a-hot"/>
+      <path d="M96 94 C 96 102, 108 102, 124 102" class="a-wire a-warn" data-wire="secret"/>
+      ${chips}
+      <g class="a-glow">${cyl(`style="fill:${v('card')}" class="a-stroke-brand"`, `<path d="M152 30 v32 a20 6 0 0 0 40 0 v-32" fill="url(#${id}-fade)"/><path d="M152 46 a20 6 0 0 0 40 0" class="a-stroke-brand" fill="none" opacity=".5"/>`)}
+        <ellipse cx="172" cy="30" rx="20" ry="6" fill="url(#${id}-fade)"/>
+        <text x="172" y="82" text-anchor="middle" class="a-mono a-strong" style="font-size:9.5px">refunds</text></g>
+      <g transform="translate(220 14)">
+        <rect width="76" height="64" rx="7" class="a-card"/>
+        <path d="M0 7 a7 7 0 0 1 7 -7 h62 a7 7 0 0 1 7 7 v5 h-76z" style="fill:${v('muted')}"/>
+        <circle cx="7" cy="6" r="1.6" class="a-dot"/><circle cx="12" cy="6" r="1.6" class="a-dot"/><circle cx="17" cy="6" r="1.6" class="a-dot"/>
+        <rect x="7" y="18" width="18" height="10" rx="2.5" class="a-tile"/><rect x="29" y="18" width="18" height="10" rx="2.5" class="a-tile"/><rect x="51" y="18" width="18" height="10" rx="2.5" class="a-tile"/>
+        <rect x="10" y="22" width="9" height="2.4" rx="1.2" style="fill:url(#${id}-brand)"/>
+        <path d="M7 57 L17 50 L26 52 L36 44 L46 47 L56 39 L69 42 L69 59 L7 59Z" fill="url(#${id}-fade)"/>
+        <path d="M7 57 L17 50 L26 52 L36 44 L46 47 L56 39 L69 42" fill="none" style="stroke:url(#${id}-brand)" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/>
+        <text x="38" y="77" text-anchor="middle" class="a-label" style="font-size:9px">Refunds dashboard</text></g>
+      <g data-secret-pill transform="translate(124 94)"><rect width="104" height="16" rx="8" class="a-warn-pill"/>
+        <circle cx="9" cy="8" r="2.5" style="fill:${v('warning')}"/>
+        <text x="16" y="11.2" class="a-mono" style="font-size:8.5px;fill:${v('warning-text')}">PAYMENTS_TOKEN</text></g>
+    </svg>`;
+  });
+
+  /* Default project: nothing in it yet, so the well holds empty orbits around a workflow glyph */
+  LunaArt.add('proj-empty', () => {
+    const cx = 150, cy = 46, ring = (r, o) => `<circle cx="${cx}" cy="${cy}" r="${r}" style="fill:none;stroke:${v('art-line')};opacity:${o}" stroke-width="1" stroke-dasharray="2 4"/>`;
+    const slot = (r, deg) => { const t = deg * Math.PI / 180; return `<circle cx="${(cx + r * Math.cos(t)).toFixed(1)}" cy="${(cy - r * Math.sin(t)).toFixed(1)}" r="3.2" style="fill:${v('card')};stroke:${v('art-line')}" stroke-width="1" stroke-dasharray="1.6 1.6"/>`; };
+    return `<svg viewBox="0 0 300 112" class="art" role="img" aria-label="Default project is empty: no workflows and no apps yet.">
+      <defs><radialGradient id="pe-g" gradientUnits="userSpaceOnUse" cx="${cx}" cy="${cy}" r="80"><stop offset=".45" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient>
+        <mask id="pe-m"><rect width="300" height="112" fill="url(#pe-g)"/></mask></defs>
+      <g mask="url(#pe-m)">${ring(30, 1)}${ring(44, .75)}${ring(58, .5)}${ring(72, .3)}<path d="M${cx - 80} ${cy} H${cx + 80}" style="stroke:${v('art-faint')}" stroke-width="1" stroke-dasharray="1 5"/></g>
+      ${slot(30, 38)}${slot(44, 152)}${slot(44, -24)}
+      <circle cx="${cx}" cy="${cy}" r="17" class="a-card"/>
+      <g transform="translate(${cx - 8.4} ${cy - 8.4}) scale(.7)" style="fill:none;stroke:${v('muted-foreground')}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="8" height="8" x="3" y="3" rx="2"/><path d="M7 11v4a2 2 0 0 0 2 2h4"/><rect width="8" height="8" x="13" y="13" rx="2"/></g>
+      <text x="${cx}" y="106" text-anchor="middle" class="a-label">No workflows yet</text>
+    </svg>`;
+  });
+
+  /* New project: a blueprint of what a project holds (backend, data, apps), fanned out from the + */
+  LunaArt.add('proj-blueprint', () => {
+    const id = 'bp', d = `class="bp-dash" style="fill:none;stroke:${v('art-line')}" stroke-width="1" stroke-dasharray="2.5 3"`;
+    const tick = (x, y) => `<path d="M${x - 4} ${y} h8 M${x} ${y - 4} v8" style="stroke:${v('art-faint')}" stroke-width="1"/>`;
+    return `<svg viewBox="0 0 208 100" class="art" role="img" aria-label="A new project holds a backend, data and apps.">${defs(id)}
+      ${tick(4, 4)}${tick(204, 4)}${tick(4, 96)}${tick(204, 96)}
+      <path d="M104 36 C 104 48, 36 46, 36 60" ${d}/><path d="M104 36 V58" ${d}/><path d="M104 36 C 104 48, 172 46, 172 58" ${d}/>
+      <g><rect x="12" y="60" width="48" height="20" rx="5" ${d}/><path d="M19 70 h8 M31 70 h21" ${d} stroke-dasharray="none" stroke-linecap="round" opacity=".8"/></g>
+      <g><path d="M92 62 v14 a12 3.6 0 0 0 24 0 v-14" ${d}/><ellipse cx="104" cy="62" rx="12" ry="3.6" ${d}/></g>
+      <g><rect x="148" y="58" width="48" height="26" rx="5" ${d}/><path d="M148 65 h48" ${d}/><path d="M154 78 l7 -5 l6 2 l8 -6 l7 3 l8 -4" ${d} stroke-dasharray="none" stroke-linejoin="round" stroke-linecap="round" opacity=".8"/></g>
+      <text x="36" y="96" text-anchor="middle" class="a-label" style="font-size:9.5px">backend</text><text x="104" y="96" text-anchor="middle" class="a-label" style="font-size:9.5px">data</text><text x="172" y="96" text-anchor="middle" class="a-label" style="font-size:9.5px">apps</text>
+      <g class="bp-plus"><circle cx="104" cy="22" r="14" class="a-glow" style="fill:${v('card')};stroke:url(#${id}-brand)" stroke-width="1.4"/>
+        <path d="M104 16 v12 M98 22 h12" style="stroke:url(#${id}-brand)" stroke-width="1.6" stroke-linecap="round"/></g>
+    </svg>`;
+  });
+
+  /* hero: the workspace and its two projects as system glyphs. Payments Ops is live (runs flow, 3 routes,
+     1 table, 1 app around it, the missing secret in amber); Default is an empty dashed slot. */
+  LunaArt.add('ws-constellation', () => {
+    const id = 'ws', px = 132, py = 30, R = 19;
+    const at = (deg) => { const t = deg * Math.PI / 180; return [(px + R * Math.cos(t)).toFixed(1), (py - R * Math.sin(t)).toFixed(1)]; };
+    const sat = (deg, style) => { const [x, y] = at(deg); return `<circle cx="${x}" cy="${y}" r="2.4" style="${style}" stroke-width="1"/>`; };
+    const route = `fill:${v('card')};stroke:${v('art-line')}`, brand = `fill:${v('card')};stroke:${v('brand-1')}`;
+    const [wx, wy] = at(-62);
+    return `<svg viewBox="0 0 260 96" class="art" role="img" aria-label="Workspace: Payments Ops has 3 routes, 1 table and 1 app, with 128 runs in 24h and PAYMENTS_TOKEN missing in prod. Default project is empty.">${defs(id)}
+      <path id="ws-w1" data-wire="runs" d="M34 50 C 74 50, 78 ${py}, ${px - 14} ${py}" class="a-wire a-hot"/>
+      <path d="M34 50 C 74 50, 78 74, ${px - 12} 74" class="a-wire" stroke-dasharray="2 3"/>
+      <g><rect x="12" y="39" width="22" height="22" rx="6" class="a-card"/>
+        <g style="fill:${v('muted-foreground')}"><circle cx="19.5" cy="46.5" r="1.4"/><circle cx="26.5" cy="46.5" r="1.4"/><circle cx="19.5" cy="53.5" r="1.4"/><circle cx="26.5" cy="53.5" r="1.4"/></g></g>
+      <circle cx="${px}" cy="${py}" r="${R}" class="a-faint-ring"/>
+      ${sat(150, route)}${sat(118, route)}${sat(86, route)}${sat(40, brand)}${sat(8, route)}
+      <g class="pc-warn"><circle cx="${wx}" cy="${wy}" r="2.6" style="fill:${v('warning')}"/></g>
+      <rect x="${px - 12}" y="${py - 12}" width="24" height="24" rx="7" class="a-glow" style="fill:url(#${id}-brand)"/>
+      <text x="${px}" y="${py + 4.2}" text-anchor="middle" style="fill:#fff;font-size:12px;font-weight:650">P</text>
+      <rect x="${px - 12}" y="62" width="24" height="24" rx="7" style="fill:none;stroke:${v('art-line')}" stroke-width="1" stroke-dasharray="2 3"/>
+      <text x="${px}" y="78.2" text-anchor="middle" style="fill:${v('faint')};font-size:11px;font-weight:600">D</text>
+      <text x="${px + 30}" y="${py - 1}" class="a-name">Payments Ops</text>
+      <text x="${px + 30}" y="${py + 12}" class="a-label">3 routes · 1 app</text>
+      <text x="${px + 30}" y="72" class="a-label" style="fill:${v('foreground')};opacity:.7">Default</text>
+      <text x="${px + 30}" y="85" class="a-label">empty</text>
+    </svg>`;
+  });
+
+  /* 24h activity: 12 two-hour buckets */
+  const buckets = [3, 1, 1, 6, 14, 19, 17, 19, 17, 13, 9, 9]; // runs per 2 h over the last 24 h (128 total)
+  const max = Math.max(...buckets), bw = 132 / 12;
+  document.getElementById('act-spark').innerHTML = buckets.map((n, i) => {
+    const h = Math.max(2, (n / max) * 22);
+    return `<rect x="${(i * bw).toFixed(2)}" y="${(22 - h).toFixed(2)}" width="${(bw - 3).toFixed(2)}" height="${h.toFixed(2)}" rx="1.2"${i === 11 ? ' class="last"' : ''}/>`;
+  }).join('');
+
+
+  /* greeting and date */
+  const now = new Date(), hr = now.getHours();
+  document.getElementById('greet').textContent = (hr < 12 ? 'Good morning' : hr < 18 ? 'Good afternoon' : 'Good evening') + ', Saketh';
+  document.getElementById('when').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+
+  /* workspace pulse */
+  const wmax = Math.max(...buckets);
+  document.getElementById('ws-spark').innerHTML = buckets.map((n, i) => { const h = Math.max(2, n / wmax * 20); return `<rect x="${i * 5.4}" y="${20 - h}" width="3.4" height="${h}" rx="1"${i === 11 ? ' class="last"' : ''}/>`; }).join('');
+  Motion.setRoll(document.getElementById('attn-n'), 1);
+
+  /* the fix: one click, and everything that depended on the missing secret updates once */
+  const fix = document.getElementById('al-fix');
+  fix.addEventListener('click', () => { if (fix.disabled) return; document.dispatchEvent(new CustomEvent('cs:secret-added', { detail: { name: 'PAYMENTS_TOKEN' } })); });
+  /* cs:secret-added comes from Add to prod here or from the Kit release sheet; either way the page updates once */
+  document.addEventListener('cs:secret-added', (e) => {
+    if (!e.detail || e.detail.name !== 'PAYMENTS_TOKEN' || fix.disabled) return; fix.disabled = true;
+    fix.querySelector('.m-swap').classList.add('done'); document.getElementById('al-btn').textContent = 'Added';
+    const al = document.getElementById('alert'); al.classList.add('ok');
+    al.querySelector('.ic').innerHTML = '<i data-lucide="check"></i>'; lucide.createIcons();
+    document.getElementById('al-title').innerHTML = '<span class="mono">PAYMENTS_TOKEN</span> is set in dev and prod';
+    document.getElementById('al-sub').textContent = 'Payments Ops is ready to release.';
+    document.getElementById('card-pay').classList.add('fixed'); document.querySelector('.hero').classList.add('fixed');
+    setTimeout(() => {
+      al.classList.add('gone');
+      const an = document.getElementById('attn-n'); Motion.setRoll(an, 0); an.style.transition = 'color var(--d-base)'; an.style.color = 'var(--success-text)'; document.getElementById('attn-sub').textContent = 'all clear';
+      const a = document.getElementById('to-attn'); a.style.color = 'var(--success-text)'; a.querySelector('.dot').className = 'dot ok flat'; document.getElementById('attn-text').textContent = 'all secrets set';
+      const cs = document.getElementById('card-secret'); cs.className = ''; cs.innerHTML = '<i data-lucide="key-round"></i>secrets set'; lucide.createIcons();
+      document.getElementById('card-pay').dataset.status = 'healthy';
+    }, 1200);
+  });
+
+  /* ⌘↵ in the describe box */
+  document.getElementById('ai-q').addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') e.preventDefault(); });
+
+  /* template art: the same line language as the project diagrams */
+  const chip = (x, y, m, mc, p, w = 104) => `<g transform="translate(${x} ${y})"><rect width="${w}" height="20" rx="6" class="a-card"/><text x="7" y="13.5" class="a-mono a-strong" style="font-size:8.5px;fill:${v('method-' + mc)}">${m}</text><text x="${m.length > 4 ? 44 : m.length > 3 ? 36 : 30}" y="13.5" class="a-mono" style="font-size:8.5px">${p}</text></g>`;
+  const table = (x, y, name, id) => `<g transform="translate(${x} ${y})"><path d="M0 6 v26 a18 5.5 0 0 0 36 0 v-26" style="fill:${v('card')}" class="a-stroke-brand"/><path d="M0 6 v26 a18 5.5 0 0 0 36 0 v-26" fill="url(#${id}-fade)"/><ellipse cx="18" cy="6" rx="18" ry="5.5" style="fill:${v('card')}" class="a-stroke-brand"/><ellipse cx="18" cy="6" rx="18" ry="5.5" fill="url(#${id}-fade)"/><text x="18" y="50" text-anchor="middle" class="a-mono a-strong" style="font-size:8.5px">${name}</text></g>`;
+  const node = (x, y, inner, label) => `<g transform="translate(${x} ${y})"><circle r="17" class="a-card"/><g style="stroke:url(#${'t'}-brand)" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${inner}</g>${label ? `<text y="32" text-anchor="middle" class="a-label" style="font-size:8.5px">${label}</text>` : ''}</g>`;
+  LunaArt.add('tpl-webhook', () => `<svg viewBox="0 0 240 90" class="art" role="img" aria-label="An incoming webhook is received by a POST route and stored in an events table.">${defs('t')}
+    <path id="tw1" data-step="0" d="M50 40 H70" class="a-wire a-hot"/><path id="tw2" data-step="1" d="M174 40 C 182 40, 184 40, 192 40" class="a-wire a-hot"/>
+    ${node(32, 40, '<path d="M-5 4 a5 5 0 1 1 6 -6"/><path d="M5 4 h-6 l3 -8"/><circle cx="-5" cy="4" r="1.5"/><circle cx="5" cy="4" r="1.5"/>', 'Stripe')}
+    ${chip(70, 30, 'POST', 'post', '/hooks/stripe')}${table(192, 18, 'events', 't')}</svg>`);
+  LunaArt.add('tpl-crud', () => `<svg viewBox="0 0 240 90" class="art" role="img" aria-label="Four routes, GET POST PUT and DELETE, read and write one table.">${defs('t')}
+    ${[0, 1, 2, 3].map((i) => `<path d="M138 ${12 + i * 22} C 160 ${12 + i * 22}, 160 ${38 + i * 4}, 178 ${38 + i * 4}" class="a-wire${i < 2 ? ' a-hot' : ''}"${i < 2 ? ` data-step="${i}"` : ''}/>`).join('')}
+    ${chip(30, 2, 'GET', 'get', '/items')}${chip(30, 24, 'POST', 'post', '/items')}${chip(30, 46, 'PUT', 'put', '/items/:id')}${chip(30, 68, 'DELETE', 'delete', '/items/:id')}
+    ${table(178, 24, 'items', 't')}</svg>`);
+  LunaArt.add('tpl-cron', () => `<svg viewBox="0 0 240 90" class="art" role="img" aria-label="A schedule triggers a job that calls an outside API and stores the results.">${defs('t')}
+    <path id="tc1" data-step="0" d="M50 40 H70" class="a-wire a-hot"/><path data-step="1" d="M174 34 C 184 34, 184 22, 196 22" class="a-wire a-hot"/><path id="tc2" data-step="2" d="M174 46 C 184 46, 184 60, 196 60" class="a-wire"/>
+    ${node(32, 40, '<circle r="7"/><path d="M0 -4 v4 l3 2"/>', 'every hour')}
+    ${chip(70, 30, 'JOB', 'patch', 'sync_rates()')}
+    <g transform="translate(196 10)"><rect width="34" height="24" rx="6" class="a-card"/><path d="M8 15 a5 5 0 0 1 4 -8 a6 6 0 0 1 11 2 a4 4 0 0 1 -1 6z" fill="none" style="stroke:${v('muted-foreground')}" stroke-width="1.2"/></g>
+    ${table(196, 50, '', 't').replace('<text', '<text style="display:none"')}</svg>`);
+  LunaArt.draw();
+
+  /* packets are events: the constellation sends one run on arrival; a template shows its flow once per hover */
+  LunaArt.pulse('ws-w1', { delay: 600 });
+  const STEP = 2 * (parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--d-slow')) || 280);
+  document.querySelectorAll('.tpl').forEach((t) => t.addEventListener('pointerenter', () =>
+    t.querySelectorAll('[data-step]').forEach((p) => LunaArt.pulse(p, { delay: +p.dataset.step * STEP * .8 }))));
+
+  /* filter: FLIP. Leaving cards fade and shrink, then the rest slide to their new spots */
+  const grid = document.querySelector('.grid'), seg = document.getElementById('filter');
+  const cards = [...grid.children];
+  const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const ms = (n) => parseFloat(css(n)) || 0;
+  let settle = null; // completes an in-flight filter change synchronously, so quick clicks never race
+  const finishAll = () => cards.forEach((c) => c.getAnimations().forEach((a) => a.finish()));
+  function applyFilter(f) {
+    if (settle) settle();
+    finishAll();
+    const keep = (c) => !c.classList.contains('proj') || f === 'all' || c.dataset.status.split(' ').includes(f);
+    const leaving = cards.filter((c) => !c.hidden && !keep(c));
+    const entering = cards.filter((c) => c.hidden && keep(c));
+    if (!leaving.length && !entering.length) return;
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fast = reduce ? 0 : ms('--d-fast'), base = reduce ? 0 : ms('--d-base');
+    const first = new Map(cards.filter((c) => !c.hidden).map((c) => [c, c.getBoundingClientRect()]));
+    const outs = leaving.map((c) => c.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.98)' }], { duration: fast, easing: css('--ease-in'), fill: 'forwards' }));
+    const done = () => {
+      if (settle !== done) return; settle = null;
+      leaving.forEach((c) => { c.hidden = true; });
+      outs.forEach((a) => a.cancel());
+      entering.forEach((c) => { c.hidden = false; });
+      cards.filter((c) => !c.hidden).forEach((c) => {
+        const a = first.get(c), b = c.getBoundingClientRect();
+        if (!a) { c.animate([{ opacity: 0, transform: 'scale(.98)' }, { opacity: 1, transform: 'none' }], { duration: base, delay: fast / 2, easing: css('--ease-out'), fill: 'backwards' }); return; }
+        const dx = a.left - b.left, dy = a.top - b.top;
+        if (dx || dy) c.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: 'none' }], { duration: base, easing: css('--ease-io') });
+      });
+    };
+    settle = done;
+    Promise.all(outs.map((a) => a.finished)).then(done, () => {});
+  }
+  seg.addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) applyFilter(b.dataset.f); });
+  document.getElementById('to-attn').addEventListener('click', (e) => { e.preventDefault(); seg.querySelector('[data-f="attention"]').click(); });
+
+  /* truncated text shows the full text in a tooltip, only when it is actually cut off */
+  const trunc = () => document.querySelectorAll('[data-trunc]').forEach((el) => { if (el.scrollWidth > el.clientWidth + 1) el.dataset.tip = el.textContent.trim(); else delete el.dataset.tip; });
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(trunc); addEventListener('resize', trunc);
+
+  /* "/" focuses search; Esc leaves it */
+  const q = document.getElementById('q');
+  document.addEventListener('keydown', (e) => {
+    const t = e.target, typing = t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName);
+    if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) { e.preventDefault(); q.focus(); q.select(); }
+    else if (e.key === 'Escape' && t === q) q.blur();
+  });
+})();
+</script></body></html>

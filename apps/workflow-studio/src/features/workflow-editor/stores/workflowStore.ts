@@ -1,12 +1,16 @@
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import type { Node, Edge, Connection, NodeChange, EdgeChange } from '@xyflow/react';
 import { addEdge, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
-import type { WorkflowNodeData, NodeExecutionData, AgentTraceEvent, StickyNoteData, OutputStrategy } from '../types/workflow';
+import type { WorkflowNodeData, WaitingRun, OnErrorMode, NodeExecutionData, AgentTraceEvent, StickyNoteData, OutputStrategy } from '../types/workflow';
 import type { BackendNodeData } from '@/shared/lib/backendTypes';
 import type { NodeIO } from '../lib/nodeStyles';
 import type { NodeTypeMetadata } from '../lib/createNodeData';
 import { isTriggerType } from '../lib/nodeConfig';
+import { withFieldOrder } from '@/features/interfaces/lib/formFields';
 import { generateNodeName, getExistingNodeNames } from '../lib/workflowTransform';
+import { buildRunData } from '../lib/executionRunData';
+import { renameNodeInTests, recordRename, type TestCase, type TestDefaults, type Mock } from '../lib/tests';
+import type { ApiExecutionDetail } from '@/shared/lib/api';
 
 // Helper to compute dynamic outputs for nodes with outputStrategy
 function computeDynamicOutputs(data: WorkflowNodeData): WorkflowNodeData {
@@ -87,6 +91,8 @@ interface WorkflowState {
 
   // Execution data per node
   executionData: Record<string, NodeExecutionData>;
+  /** Set while the editor shows a saved run (`?execution=<id>`); live runs never set it. */
+  viewingExecution: { id: string; startTime: string; status: string } | null;
 
   // Pinned data per node - backend format: { json: {...} }[]
   pinnedData: Record<string, BackendNodeData[]>;
@@ -108,10 +114,27 @@ interface WorkflowState {
   // Dirty state tracking
   lastSavedSnapshot: string | null;
 
+  // Tests (CONTRACTS-STAGE3A §1): part of the workflow definition, saved with it
+  tests: TestCase[];
+  testDefaults: TestDefaults;
+  /** Node renames since the last successful save ({old: new}); sent as `node_renames` on save. */
+  nodeRenames: Record<string, string>;
+  setTests: (tests: TestCase[]) => void;
+  upsertTest: (test: TestCase) => void;
+  removeTest: (id: string) => void;
+  setTestDefaultMock: (node: string, mock: Mock | null) => void;
+  clearNodeRenames: () => void;
+
   // Derived state for efficient selectors
   nodeCount: number;
   edgeCount: number;
   isAnyNodeRunning: boolean;
+  /** A whole-workflow run is in flight (set by useExecutionStream), including gaps between nodes. */
+  runActive: boolean;
+  setRunActive: (active: boolean) => void;
+  /** The last run paused on human tasks (`execution_waiting`); cleared when the run data is cleared or a new run starts. */
+  waitingRun: WaitingRun | null;
+  setWaitingRun: (w: WaitingRun | null) => void;
   _canUndo: boolean;
   _canRedo: boolean;
   _isDirty: boolean;
@@ -139,6 +162,12 @@ interface WorkflowState {
   addStickyNote: (position: { x: number; y: number }) => void;
   updateNodeData: (nodeId: string, data: Partial<WorkflowNodeData>) => void;
   updateStickyNote: (nodeId: string, data: Partial<StickyNoteData>) => void;
+  /** Flip `data.disabled` on a workflow node (one undo step, marks the workflow dirty). */
+  toggleNodeDisabled: (nodeId: string) => void;
+  /** Set `data.onError`; leaving `error_output` drops edges from the `error` handle. */
+  setNodeOnError: (nodeId: string, onError: OnErrorMode) => void;
+  /** Merge run results into the run-data store without touching other nodes. */
+  mergeExecutionData: (data: Record<string, NodeExecutionData>) => void;
   deleteNode: (nodeId: string) => void;
 
   setSelectedNode: (nodeId: string | null) => void;
@@ -147,6 +176,10 @@ interface WorkflowState {
   setNodeExecutionData: (nodeId: string, data: NodeExecutionData) => void;
   appendAgentTraceEvent: (nodeId: string, event: AgentTraceEvent) => void;
   clearExecutionData: () => void;
+  /** Fill the run-data store from a saved execution and remember which run is shown. */
+  loadExecutionData: (detail: ApiExecutionDetail) => void;
+  /** Leave "viewing run" mode and clear its data. */
+  exitViewingExecution: () => void;
 
   // Pinned data - uses backend format { json: {...} }[]
   pinNodeData: (nodeId: string, data: BackendNodeData[]) => void;
@@ -164,6 +197,8 @@ interface WorkflowState {
     workflowName: string;
     workflowId: string;
     isActive: boolean;
+    tests?: TestCase[];
+    testDefaults?: TestDefaults;
   }) => void;
 
   // Reset to empty state
@@ -210,6 +245,17 @@ interface WorkflowState {
 }
 
 /** Count only real workflow nodes (excludes placeholders and sticky notes). */
+
+/** node id → pinned items, for the nodes that carry pinned data. */
+function pinnedFromNodes(nodes: Node[]): Record<string, Array<{ json: Record<string, unknown> }>> {
+  const out: Record<string, Array<{ json: Record<string, unknown> }>> = {};
+  for (const n of nodes) {
+    const pd = (n.data as Partial<WorkflowNodeData> | undefined)?.pinnedData;
+    if (n.type === 'workflowNode' && Array.isArray(pd) && pd.length) out[n.id] = pd as Array<{ json: Record<string, unknown> }>;
+  }
+  return out;
+}
+
 function countWorkflowNodes(nodes: Node[]) {
   return nodes.filter((n) => n.type === 'workflowNode').length;
 }
@@ -276,6 +322,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   edges: [],
   selectedNodeId: null,
   executionData: {},
+  viewingExecution: null,
   pinnedData: {},
   draggedNodeType: null,
   dropTargetNodeId: null,
@@ -286,9 +333,30 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   historyIndex: -1,
   isUndoRedoAction: false,
   lastSavedSnapshot: null,
+  tests: [],
+  testDefaults: { mocks: {} },
+  nodeRenames: {},
+  setTests: (tests) => set({ tests, _isDirty: true }),
+  upsertTest: (test) => {
+    const list = get().tests;
+    const i = list.findIndex((t) => t.id === test.id);
+    set({ tests: i >= 0 ? list.map((t, j) => (j === i ? test : t)) : [...list, test], _isDirty: true });
+  },
+  removeTest: (id) => set({ tests: get().tests.filter((t) => t.id !== id), _isDirty: true }),
+  setTestDefaultMock: (node, mock) => {
+    const mocks = { ...get().testDefaults.mocks };
+    if (mock) mocks[node] = mock;
+    else delete mocks[node];
+    set({ testDefaults: { ...get().testDefaults, mocks }, _isDirty: true });
+  },
+  clearNodeRenames: () => set({ nodeRenames: {} }),
   nodeCount: countWorkflowNodes(initialNodes),
   edgeCount: 0,
   isAnyNodeRunning: false,
+  runActive: false,
+  setRunActive: (active) => set({ runActive: active }),
+  waitingRun: null,
+  setWaitingRun: (w) => set({ waitingRun: w }),
   _canUndo: false,
   _canRedo: false,
   _isDirty: false,
@@ -306,7 +374,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   setEdges: (edges) => set({ edges }),
 
   onNodesChange: (changes) => {
-    const { nodes, edges, isUndoRedoAction, saveToHistory } = get();
+    const { nodes, isUndoRedoAction, saveToHistory } = get();
 
     // Save to history if nodes are being removed (for undo support)
     const hasRemovals = changes.some((c) => c.type === 'remove');
@@ -317,7 +385,10 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     // Apply the changes
     const updatedNodes = applyNodeChanges(changes, nodes);
 
-    set({ nodes: updatedNodes, nodeCount: countWorkflowNodes(updatedNodes), _isDirty: true });
+    // Selection and React Flow's own size measurements are not edits: only they would leave the
+    // workflow "unsaved" right after it is opened or saved.
+    const edited = changes.some((c) => c.type !== 'select' && c.type !== 'dimensions');
+    set({ nodes: updatedNodes, nodeCount: countWorkflowNodes(updatedNodes), ...(edited ? { _isDirty: true } : {}) });
   },
 
   onEdgesChange: (changes) => {
@@ -328,10 +399,11 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
 
     const newEdges = applyEdgeChanges(changes, get().edges);
+    const edited = changes.some((c) => c.type !== 'select');
     set({
       edges: newEdges,
       edgeCount: newEdges.length,
-      _isDirty: true,
+      ...(edited ? { _isDirty: true } : {}),
     });
   },
 
@@ -436,12 +508,30 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   updateNodeData: (nodeId, data) => {
+    // A changed `name` is a node rename: rewrite the tests that mention it and remember it for the save.
+    const before = get().nodes.find((n) => n.id === nodeId)?.data as WorkflowNodeData | undefined;
+    if (before && typeof data.name === 'string' && data.name !== before.name) {
+      const r = renameNodeInTests(get().tests, get().testDefaults, before.name, data.name);
+      set({
+        tests: r.tests,
+        testDefaults: r.defaults,
+        nodeRenames: recordRename(get().nodeRenames, before.name, data.name),
+        _isDirty: true,
+      });
+    }
+    // A changed label (the step's display name) is an edit too: it is saved with the workflow.
+    if (before && typeof data.label === 'string' && data.label !== before.label) set({ _isDirty: true });
     set({
       nodes: get().nodes.map((node) => {
         if (node.id !== nodeId) return node;
 
         const currentData = node.data as WorkflowNodeData;
         let updatedData = { ...currentData, ...data };
+
+        // A FormTrigger's field order is stored explicitly: JSONB does not keep the property order of `input_schema`.
+        if (data.parameters && currentData.type === 'FormTrigger') {
+          updatedData = { ...updatedData, parameters: withFieldOrder(currentData.parameters, data.parameters) };
+        }
 
         // If parameters changed and node has outputStrategy, recalculate outputs
         if (data.parameters && updatedData.outputStrategy) {
@@ -450,6 +540,39 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
 
         return { ...node, data: updatedData };
       }),
+    });
+  },
+
+  toggleNodeDisabled: (nodeId) => {
+    const node = get().nodes.find((n) => n.id === nodeId && n.type === 'workflowNode');
+    if (!node) return;
+    get().saveToHistory();
+    set({
+      nodes: get().nodes.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, disabled: !(n.data as WorkflowNodeData).disabled } } : n,
+      ),
+      _isDirty: true,
+    });
+  },
+
+  setNodeOnError: (nodeId, onError) => {
+    get().saveToHistory();
+    const edges = onError === 'error_output'
+      ? get().edges
+      : get().edges.filter((e) => !(e.source === nodeId && e.sourceHandle === 'error'));
+    set({
+      nodes: get().nodes.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, onError } } : n)),
+      edges,
+      edgeCount: edges.length,
+      _isDirty: true,
+    });
+  },
+
+  mergeExecutionData: (data) => {
+    const executionData = { ...get().executionData, ...data };
+    set({
+      executionData,
+      isAnyNodeRunning: Object.values(executionData).some((d) => d.status === 'running'),
     });
   },
 
@@ -496,13 +619,25 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     });
   },
 
-  clearExecutionData: () => set({ executionData: {}, isAnyNodeRunning: false }),
+  clearExecutionData: () => set({ executionData: {}, isAnyNodeRunning: false, waitingRun: null }),
+
+  loadExecutionData: (detail) => {
+    const { nodes, edges } = get();
+    set({
+      executionData: buildRunData(detail, nodes, edges),
+      isAnyNodeRunning: false,
+      viewingExecution: { id: detail.id, startTime: detail.start_time, status: detail.status },
+    });
+  },
+
+  exitViewingExecution: () => set({ executionData: {}, isAnyNodeRunning: false, viewingExecution: null }),
 
   // Pinned data methods - uses backend format { json: {...} }[]
   pinNodeData: (nodeId, data) => {
     // Atomic update: both pinnedData and node.data.pinnedData in one set()
     const { pinnedData, nodes } = get();
     set({
+      _isDirty: true,
       pinnedData: { ...pinnedData, [nodeId]: data },
       nodes: nodes.map((node) =>
         node.id === nodeId
@@ -518,6 +653,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     const newPinnedData = { ...pinnedData };
     delete newPinnedData[nodeId];
     set({
+      _isDirty: true,
       pinnedData: newPinnedData,
       nodes: nodes.map((node) =>
         node.id === nodeId
@@ -563,7 +699,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       isActive: data.isActive,
       selectedNodeId: null,
       executionData: {},
-      pinnedData: {},
+      viewingExecution: null,
+      // The server's pins arrive on node.data (fromBackendWorkflow); the record the canvas reads mirrors them.
+      pinnedData: pinnedFromNodes(processedNodes),
+      tests: data.tests ?? [],
+      testDefaults: data.testDefaults ?? { mocks: {} },
+      nodeRenames: {},
       lastSavedSnapshot: snapshot,
       nodeCount: countWorkflowNodes(processedNodes),
       edgeCount: data.edges.length,
@@ -586,8 +727,12 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       isActive: false,
       selectedNodeId: null,
       executionData: {},
+      viewingExecution: null,
       pinnedData: {},
       workflowTags: [],
+      tests: [],
+      testDefaults: { mocks: {} },
+      nodeRenames: {},
       clipboard: null,
       lastSavedSnapshot: null,
       draggedNodeType: null,

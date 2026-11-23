@@ -13,6 +13,8 @@ export interface ChatStoreState<TMessage extends BaseChatMessage> {
 
   addMessage: (msg: Omit<TMessage, 'id' | 'timestamp'>) => void
   updateLastMessage: (update: Partial<Omit<TMessage, 'id' | 'role' | 'timestamp'>>) => void
+  /** Merge `update` into the message with this id (unlike `updateLastMessage`, `content` replaces and any message can be addressed). */
+  updateMessage: (id: string, update: Partial<Omit<TMessage, 'id' | 'role' | 'timestamp'>>) => void
   setStreaming: (streaming: boolean) => void
   clearHistory: () => void
 }
@@ -62,6 +64,9 @@ export function createChatStore<TMessage extends BaseChatMessage>(
         }
         return { messages: msgs }
       }),
+
+    updateMessage: (id, update) =>
+      set((state) => ({ messages: state.messages.map((m) => (m.id === id ? { ...m, ...update } : m)) })),
 
     setStreaming: (streaming) => set({ isStreaming: streaming }),
 

@@ -1,0 +1,45 @@
+{
+  "rules": [
+    {
+      "id": "spec",
+      "when": {
+        "system_matches": "^WF_AI:SPEC\\n"
+      },
+      "respond": {
+        "text": "{\"title\": \"Refund approval\", \"summary\": \"Refund requests over 500 go to a manager; smaller ones are paid at once; every decision is logged and the caller gets the status.\", \"trigger\": {\"kind\": \"webhook\", \"fields\": []}, \"rules\": [{\"id\": \"r1\", \"text\": \"Refunds over 500 are sent to a manager.\"}, {\"id\": \"r2\", \"text\": \"Refunds of 500 or less are paid at once.\"}, {\"id\": \"r3\", \"text\": \"Every decision is logged and the caller gets the status back.\"}], \"steps\": [{\"name\": \"Receive refund request\", \"node_type\": \"Webhook\", \"purpose\": \"Receive the refund request\", \"rules\": []}, {\"name\": \"Normalise request\", \"node_type\": \"Set\", \"purpose\": \"Fix the currency to USD\", \"rules\": []}, {\"name\": \"Over limit?\", \"node_type\": \"If\", \"purpose\": \"amount > 500\", \"rules\": [\"r1\", \"r2\"]}, {\"name\": \"Send to manager\", \"node_type\": \"Set\", \"purpose\": \"status manager_review\", \"rules\": [\"r1\"]}, {\"name\": \"Pay refund\", \"node_type\": \"Set\", \"purpose\": \"status paid\", \"rules\": [\"r2\"]}, {\"name\": \"Log decision\", \"node_type\": \"Set\", \"purpose\": \"mark the decision as logged\", \"rules\": [\"r3\"]}, {\"name\": \"Reply\", \"node_type\": \"Respond\", \"purpose\": \"Return the status\", \"rules\": [\"r3\"]}], \"tests\": [{\"ref\": \"T1\", \"rules\": [\"r1\", \"r3\"], \"test_json\": \"{\\\"name\\\": \\\"A large refund goes to a manager\\\", \\\"target\\\": {\\\"kind\\\": \\\"workflow\\\"}, \\\"input\\\": {\\\"items\\\": [{\\\"body\\\": {\\\"amount\\\": 900}, \\\"headers\\\": {}, \\\"query\\\": {}, \\\"method\\\": \\\"POST\\\"}]}, \\\"mocks\\\": {}, \\\"expect\\\": [{\\\"node\\\": \\\"Over limit?\\\", \\\"port\\\": \\\"true\\\", \\\"op\\\": \\\"count\\\", \\\"value\\\": 1}, {\\\"node\\\": \\\"Send to manager\\\", \\\"path\\\": \\\"status\\\", \\\"op\\\": \\\"eq\\\", \\\"value\\\": \\\"manager_review\\\"}, {\\\"node\\\": \\\"Pay refund\\\", \\\"subject\\\": \\\"node\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"not_run\\\"}, {\\\"node\\\": \\\"Log decision\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}, {\\\"node\\\": \\\"Reply\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}], \\\"category\\\": \\\"normal\\\"}\"}, {\"ref\": \"T2\", \"rules\": [\"r2\", \"r3\"], \"test_json\": \"{\\\"name\\\": \\\"A refund of exactly 500 is paid at once\\\", \\\"target\\\": {\\\"kind\\\": \\\"workflow\\\"}, \\\"input\\\": {\\\"items\\\": [{\\\"body\\\": {\\\"amount\\\": 500}, \\\"headers\\\": {}, \\\"query\\\": {}, \\\"method\\\": \\\"POST\\\"}]}, \\\"mocks\\\": {}, \\\"expect\\\": [{\\\"node\\\": \\\"Over limit?\\\", \\\"port\\\": \\\"false\\\", \\\"op\\\": \\\"count\\\", \\\"value\\\": 1}, {\\\"node\\\": \\\"Pay refund\\\", \\\"path\\\": \\\"status\\\", \\\"op\\\": \\\"eq\\\", \\\"value\\\": \\\"paid\\\"}, {\\\"node\\\": \\\"Send to manager\\\", \\\"subject\\\": \\\"node\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"not_run\\\"}, {\\\"node\\\": \\\"Log decision\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}, {\\\"node\\\": \\\"Reply\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}], \\\"category\\\": \\\"boundary\\\"}\"}, {\"ref\": \"T3\", \"rules\": [\"r2\", \"r3\"], \"test_json\": \"{\\\"name\\\": \\\"A small refund is paid at once\\\", \\\"target\\\": {\\\"kind\\\": \\\"workflow\\\"}, \\\"input\\\": {\\\"items\\\": [{\\\"body\\\": {\\\"amount\\\": 100}, \\\"headers\\\": {}, \\\"query\\\": {}, \\\"method\\\": \\\"POST\\\"}]}, \\\"mocks\\\": {}, \\\"expect\\\": [{\\\"node\\\": \\\"Over limit?\\\", \\\"port\\\": \\\"false\\\", \\\"op\\\": \\\"count\\\", \\\"value\\\": 1}, {\\\"node\\\": \\\"Pay refund\\\", \\\"path\\\": \\\"status\\\", \\\"op\\\": \\\"eq\\\", \\\"value\\\": \\\"paid\\\"}, {\\\"node\\\": \\\"Send to manager\\\", \\\"subject\\\": \\\"node\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"not_run\\\"}, {\\\"node\\\": \\\"Log decision\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}, {\\\"node\\\": \\\"Reply\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}], \\\"category\\\": \\\"normal\\\"}\"}], \"assumptions\": [\"Amounts are in USD.\"], \"questions\": []}",
+        "delay_ms": 2500
+      }
+    },
+    {
+      "id": "build",
+      "when": {
+        "system_matches": "^WF_AI:BUILD\\n"
+      },
+      "respond": {
+        "text": "{\"plan\": [], \"ops\": [{\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Receive refund request\\\", \\\"type\\\": \\\"Webhook\\\", \\\"parameters\\\": {\\\"method\\\": \\\"POST\\\", \\\"path\\\": \\\"refund-approval\\\", \\\"responseMode\\\": \\\"lastNode\\\"}}\", \"why\": \"\"}, {\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Normalise request\\\", \\\"type\\\": \\\"Set\\\", \\\"parameters\\\": {\\\"mode\\\": \\\"manual\\\", \\\"keepOnlySet\\\": false, \\\"fields\\\": [{\\\"name\\\": \\\"currency\\\", \\\"value\\\": \\\"USD\\\"}]}}\", \"why\": \"\"}, {\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Over limit?\\\", \\\"type\\\": \\\"If\\\", \\\"parameters\\\": {\\\"condition\\\": \\\"{{ $json.body.amount > 5000 }}\\\"}}\", \"why\": \"\"}, {\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Send to manager\\\", \\\"type\\\": \\\"Set\\\", \\\"parameters\\\": {\\\"mode\\\": \\\"manual\\\", \\\"keepOnlySet\\\": false, \\\"fields\\\": [{\\\"name\\\": \\\"status\\\", \\\"value\\\": \\\"manager_review\\\"}]}}\", \"why\": \"\"}, {\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Pay refund\\\", \\\"type\\\": \\\"Set\\\", \\\"parameters\\\": {\\\"mode\\\": \\\"manual\\\", \\\"keepOnlySet\\\": false, \\\"fields\\\": [{\\\"name\\\": \\\"status\\\", \\\"value\\\": \\\"paid\\\"}]}}\", \"why\": \"\"}, {\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Log decision\\\", \\\"type\\\": \\\"Set\\\", \\\"parameters\\\": {\\\"mode\\\": \\\"manual\\\", \\\"keepOnlySet\\\": false, \\\"fields\\\": [{\\\"name\\\": \\\"logged\\\", \\\"value\\\": \\\"true\\\"}]}}\", \"why\": \"\"}, {\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Reply\\\", \\\"type\\\": \\\"Respond\\\", \\\"parameters\\\": {\\\"statusCode\\\": 200, \\\"body\\\": {\\\"status\\\": \\\"{{ $json.status }}\\\"}}}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Receive refund request\\\", \\\"target\\\": \\\"Normalise request\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Normalise request\\\", \\\"target\\\": \\\"Over limit?\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Over limit?\\\", \\\"target\\\": \\\"Send to manager\\\", \\\"source_output\\\": \\\"true\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Over limit?\\\", \\\"target\\\": \\\"Pay refund\\\", \\\"source_output\\\": \\\"false\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Send to manager\\\", \\\"target\\\": \\\"Log decision\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Pay refund\\\", \\\"target\\\": \\\"Log decision\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Log decision\\\", \\\"target\\\": \\\"Reply\\\"}\", \"why\": \"\"}], \"notes\": \"\"}",
+        "delay_ms": 2500
+      }
+    },
+    {
+      "id": "repair1",
+      "when": {
+        "system_matches": "^WF_AI:REPAIR\\n",
+        "nth": 1
+      },
+      "respond": {
+        "text": "{\"plan\": [], \"ops\": [{\"op\": \"set_parameter\", \"args_json\": \"{\\\"node\\\": \\\"Over limit?\\\", \\\"path\\\": \\\"condition\\\", \\\"value\\\": \\\"{{ $json.body.amount > 500 }}\\\"}\", \"why\": \"\"}], \"notes\": \"\"}",
+        "delay_ms": 1800
+      }
+    },
+    {
+      "id": "understand",
+      "when": {
+        "system_matches": "^WF_AI:UNDERSTAND\\n"
+      },
+      "respond": {
+        "text": "{\"concepts\": [{\"key\": \"concept:refund\", \"evidence\": \"refund requests\"}, {\"key\": \"concept:approval\", \"evidence\": \"send larger ones to a manager\"}], \"slots\": {\"approval.approver_role\": \"manager\"}, \"shape\": \"workflow\", \"parts_hint\": []}",
+        "delay_ms": 600
+      }
+    }
+  ]
+}

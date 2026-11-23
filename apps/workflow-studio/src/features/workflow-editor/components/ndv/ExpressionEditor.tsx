@@ -1,6 +1,14 @@
-import { useState, useRef, useEffect, useMemo, memo, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo, memo, useCallback, createContext, useContext } from 'react';
 import { X, ChevronDown, Eye, EyeOff, Maximize2 } from 'lucide-react';
 import FullscreenExpressionEditor from './FullscreenExpressionEditor';
+import { useActiveNodeName, useShapesByNode } from '../../hooks/useWorkflowSelectors';
+import { contractSuggestions } from '../../lib/contractSuggestions';
+import { detectTrigger, filterByToken, applyTrigger, type ExpressionTrigger } from '../../lib/expressionTrigger';
+
+/** When true, editors start with the resolved-value preview shown (the glass node sheet turns it on). */
+export const ExpressionPreviewContext = createContext(false);
+/** Fallback sample data for editors nested where the form does not pass it down (e.g. inside a collection). */
+export const ExpressionSampleContext = createContext<{ sampleData?: Record<string, unknown>[]; allNodeData?: Record<string, Record<string, unknown>[]> }>({});
 
 // Type definitions for output schema (matching workflow-engine)
 interface OutputSchemaProperty {
@@ -194,11 +202,14 @@ export default memo(function ExpressionEditor({
   id,
   onBlur,
   outputSchema,
-  sampleData,
-  allNodeData,
+  sampleData: sampleDataProp,
+  allNodeData: allNodeDataProp,
   rows = 2,
   maxRows = 15,
 }: ExpressionEditorProps) {
+  const sampleCtx = useContext(ExpressionSampleContext);
+  const sampleData = sampleDataProp ?? sampleCtx.sampleData;
+  const allNodeData = allNodeDataProp ?? sampleCtx.allNodeData;
   // Local state for responsive typing — prevents parent re-renders from resetting input
   const [localValue, setLocalValue] = useState(value);
   const prevValueRef = useRef(value);
@@ -215,10 +226,13 @@ export default memo(function ExpressionEditor({
   }, [onChange]);
 
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  // Open suggestions: the typed token being completed, and whether the user opened it by hand (link)
+  const [suggest, setSuggest] = useState<{ trigger: ExpressionTrigger; manual: boolean } | null>(null);
+  const showSuggestions = suggest !== null;
+  const setShowSuggestions = (open: boolean) => { if (!open) setSuggest(null); };
   const [cursorPosition, setCursorPosition] = useState(0);
   const [isDragOver, setIsDragOver] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(useContext(ExpressionPreviewContext));
   const [activeIndex, setActiveIndex] = useState(0);
   const [showFullscreen, setShowFullscreen] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -314,8 +328,21 @@ export default memo(function ExpressionEditor({
   };
 
   // Generate suggestions from output schema
+  const activeNodeName = useActiveNodeName();
+  const shapesByNode = useShapesByNode();
   const expressionSuggestions = useMemo(() => {
-    const schemaFields = generateSchemaFields(outputSchema);
+    const schemaFields: Array<{ label: string; description: string; category: string; source?: 'contract' }> =
+      generateSchemaFields(outputSchema);
+    // No run data for a node: fall back to the contract shapes from the live check.
+    const seen = new Set(schemaFields.map((f) => f.label));
+    for (const c of contractSuggestions({
+      currentNode: activeNodeName ?? undefined,
+      shapesByNode,
+      sampleData,
+      allNodeData,
+    })) {
+      if (!seen.has(c.label)) schemaFields.push(c);
+    }
 
     // If we have schema fields, show them first, then base suggestions
     if (schemaFields.length > 0) {
@@ -323,11 +350,11 @@ export default memo(function ExpressionEditor({
     }
 
     return baseExpressionSuggestions;
-  }, [outputSchema]);
+  }, [outputSchema, activeNodeName, shapesByNode, sampleData, allNodeData]);
 
   // Flatten suggestions into a single list with section headers for keyboard nav
   const flatSuggestions = useMemo(() => {
-    const items: Array<{ label: string; description: string; category: string }> = [];
+    const items: Array<{ label: string; description: string; category: string; source?: 'contract' }> = [];
     const categories = ['field', 'data', 'helper'] as const;
     for (const cat of categories) {
       const catItems = expressionSuggestions.filter((s) => s.category === cat);
@@ -338,29 +365,56 @@ export default memo(function ExpressionEditor({
     return items;
   }, [expressionSuggestions]);
 
+  const allFlat = flatSuggestions;
+  const visibleSuggestions = useMemo(
+    () => (suggest ? filterByToken(allFlat, suggest.trigger.token) : []),
+    [allFlat, suggest],
+  );
+
   const insertExpression = (expr: string) => {
-    const before = localValue.slice(0, cursorPosition);
-    const after = localValue.slice(cursorPosition);
-    const newValue = `${before}{{ ${expr} }}${after}`;
+    if (!suggest) return;
+    const cursor = inputRef.current?.selectionStart ?? cursorPosition;
+    const { value: newValue, cursor: newPos } = applyTrigger(localValue, cursor, suggest.trigger, expr);
     handleChange(newValue);
-    setShowSuggestions(false);
+    setSuggest(null);
 
     // Focus and set cursor position after the inserted expression
     setTimeout(() => {
       if (inputRef.current) {
         inputRef.current.focus();
-        const newPos = cursorPosition + expr.length + 6; // {{ expr }}
         inputRef.current.setSelectionRange(newPos, newPos);
       }
     }, 0);
   };
 
+  /** Re-evaluates the auto-open rules for the text and cursor. A hand-opened list stays until closed. */
+  const syncTrigger = (text: string, cursor: number) => {
+    setCursorPosition(cursor);
+    const t = detectTrigger(text, cursor);
+    setSuggest((prev) => {
+      if (t) return { trigger: t, manual: false };
+      return prev?.manual ? prev : null;
+    });
+  };
+
+  const openByHand = () => {
+    const cursor = inputRef.current?.selectionStart ?? localValue.length;
+    const before = localValue.slice(0, cursor);
+    const t = detectTrigger(localValue, cursor) ?? {
+      start: cursor,
+      token: '',
+      insideBraces: before.lastIndexOf('{{') > before.lastIndexOf('}}'),
+    };
+    setSuggest({ trigger: t, manual: true });
+  };
+
   // Reset activeIndex when suggestions open
+  const suggestToken = suggest?.trigger.token;
   useEffect(() => {
     if (showSuggestions) {
       setActiveIndex(0);
     }
-  }, [showSuggestions]);
+  }, [showSuggestions, suggestToken]);
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -384,25 +438,28 @@ export default memo(function ExpressionEditor({
 
   // Keyboard navigation for suggestions
   const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!showSuggestions || flatSuggestions.length === 0) return;
+    if (!showSuggestions) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.nativeEvent.stopImmediatePropagation();
+      setSuggest(null);
+      return;
+    }
+    if (visibleSuggestions.length === 0) return;
 
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setActiveIndex((prev) => (prev + 1) % flatSuggestions.length);
+        setActiveIndex((prev) => (prev + 1) % visibleSuggestions.length);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setActiveIndex((prev) => (prev - 1 + flatSuggestions.length) % flatSuggestions.length);
+        setActiveIndex((prev) => (prev - 1 + visibleSuggestions.length) % visibleSuggestions.length);
         break;
       case 'Enter':
+      case 'Tab':
         e.preventDefault();
-        insertExpression(flatSuggestions[activeIndex].label);
-        break;
-      case 'Escape':
-        e.preventDefault();
-        e.nativeEvent.stopImmediatePropagation();
-        setShowSuggestions(false);
+        insertExpression(visibleSuggestions[Math.min(activeIndex, visibleSuggestions.length - 1)].label);
         break;
     }
   };
@@ -412,14 +469,14 @@ export default memo(function ExpressionEditor({
     const headers: Map<number, string> = new Map();
     let currentCat = '';
     const categoryLabels: Record<string, string> = { field: 'Fields', data: 'Data', helper: 'Helpers' };
-    flatSuggestions.forEach((s, i) => {
+    visibleSuggestions.forEach((s, i) => {
       if (s.category !== currentCat) {
         currentCat = s.category;
         headers.set(i, categoryLabels[s.category] || s.category);
       }
     });
     return headers;
-  }, [flatSuggestions]);
+  }, [visibleSuggestions]);
 
   return (
     <div className="space-y-1">
@@ -444,9 +501,9 @@ export default memo(function ExpressionEditor({
             }
           }}
           className={`
-            flex items-start rounded border bg-[var(--surface)] transition-all
-            ${isExpanded ? 'border-primary/70 ring-1 ring-primary/40' : 'border-border/60'}
-            ${isDragOver ? 'border-primary ring-2 ring-primary/50 bg-primary/10' : ''}
+            field relative flex items-start transition-shadow
+            ${isExpanded ? 'shadow-focus' : ''}
+            ${isDragOver ? 'bg-brand-soft shadow-focus' : ''}
           `}
         >
           {/* Input area */}
@@ -455,11 +512,16 @@ export default memo(function ExpressionEditor({
               ref={inputRef}
               id={id}
               value={localValue}
-              onChange={(e) => handleChange(e.target.value)}
+              onChange={(e) => {
+                handleChange(e.target.value);
+                syncTrigger(e.target.value, e.target.selectionStart);
+              }}
               onInput={adjustTextareaHeight}
-              onSelect={(e) =>
-                setCursorPosition((e.target as HTMLTextAreaElement).selectionStart)
-              }
+              onSelect={(e) => {
+                const ta = e.target as HTMLTextAreaElement;
+                if (suggest && !suggest.manual) syncTrigger(ta.value, ta.selectionStart);
+                else setCursorPosition(ta.selectionStart);
+              }}
               onKeyDown={handleTextareaKeyDown}
               placeholder={placeholder}
               style={{ minHeight: `${minHeight}px`, maxHeight: `${maxHeight}px` }}
@@ -491,9 +553,9 @@ export default memo(function ExpressionEditor({
               <button
                 type="button"
                 onClick={() => setShowPreview(!showPreview)}
-                className={`p-0.5 rounded transition-colors ${
+                className={`p-0.5 rounded-chip transition-colors ${
                   showPreview
-                    ? 'text-[var(--warning)] bg-[var(--warning)]/10'
+                    ? 'text-warning-text bg-warning/13'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
                 title={showPreview ? 'Show expression' : 'Preview resolved value'}
@@ -504,7 +566,7 @@ export default memo(function ExpressionEditor({
             <button
               type="button"
               onClick={() => setShowFullscreen(true)}
-              className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+              className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip"
               title="Edit fullscreen"
             >
               <Maximize2 size={12} />
@@ -513,7 +575,7 @@ export default memo(function ExpressionEditor({
               <button
                 type="button"
                 onClick={() => handleChange('')}
-                className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+                className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip"
                 title="Clear"
               >
                 <X size={12} />
@@ -522,7 +584,7 @@ export default memo(function ExpressionEditor({
             <button
               type="button"
               onClick={() => setIsExpanded(!isExpanded)}
-              className="p-0.5 text-muted-foreground hover:text-foreground rounded"
+              className="p-0.5 text-muted-foreground hover:text-foreground rounded-chip"
               title={isExpanded ? 'Collapse' : 'Expand'}
             >
               <ChevronDown
@@ -534,7 +596,7 @@ export default memo(function ExpressionEditor({
 
           {/* Drop indicator overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-md bg-primary/10 border-2 border-dashed border-primary pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center rounded-ctl bg-brand-soft pointer-events-none">
               <span className="text-xs font-medium text-primary">Drop to insert</span>
             </div>
           )}
@@ -542,10 +604,10 @@ export default memo(function ExpressionEditor({
 
         {/* Preview display */}
         {showPreview && previewValue && (
-          <div className="mt-1 rounded-md bg-[var(--warning)]/10 border border-[var(--warning)]/20 px-2 py-1">
+          <div className="mt-1 rounded-ctl bg-warning-soft px-2 py-1" data-testid="expr-preview">
             <div className="flex items-center gap-1 mb-0.5">
-              <Eye size={10} className="text-[var(--warning)]" />
-              <span className="text-[10px] font-medium text-[var(--warning)]">Preview</span>
+              <Eye size={10} className="text-warning-text" />
+              <span className="text-[10.5px] font-medium text-warning-text">Preview</span>
             </div>
             <p className="text-xs font-mono text-foreground break-all">{previewValue}</p>
           </div>
@@ -556,40 +618,48 @@ export default memo(function ExpressionEditor({
           <div className="mt-1">
             <button
               type="button"
+              // mousedown would blur the textarea and collapse the editor before the click lands
+              onMouseDown={(e) => e.preventDefault()}
               onClick={(e) => {
                 e.stopPropagation();
-                setShowSuggestions(!showSuggestions);
+                openByHand();
               }}
               className="text-[10px] text-primary hover:underline"
             >
               Insert variable...
             </button>
 
-            {showSuggestions && (
+            {showSuggestions && visibleSuggestions.length > 0 && (
               <div
                 ref={suggestionsRef}
-                className="absolute z-50 mt-1 w-full max-h-48 overflow-auto rounded border border-border/50 bg-popover shadow-lg"
+                data-testid="expression-suggestions"
+                onMouseDown={(e) => e.preventDefault()}
+                className="glass-overlay absolute z-50 mt-1 w-full max-h-48 overflow-auto p-1"
                 onClick={(e) => e.stopPropagation()}
               >
-                {flatSuggestions.map((suggestion, idx) => (
+                {visibleSuggestions.map((suggestion, idx) => (
                   <div key={suggestion.label}>
                     {/* Category header */}
                     {categoryHeaders.has(idx) && (
-                      <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground bg-muted/50 border-b border-border">
+                      <div className="px-2 py-1 text-[11px] font-medium text-muted-foreground">
                         {categoryHeaders.get(idx)}
                       </div>
                     )}
                     <button
                       type="button"
                       data-active={idx === activeIndex}
+                      data-source={suggestion.source}
                       onClick={() => insertExpression(suggestion.label)}
                       className={`w-full px-2 py-1.5 text-left flex items-center justify-between gap-1 ${
-                        idx === activeIndex ? 'bg-accent' : 'hover:bg-accent'
+                        idx === activeIndex ? 'bg-raise shadow-raise-sm rounded-chip' : 'rounded-chip hover:bg-(--hover-fill)'
                       }`}
                     >
                       <code className="text-xs font-mono text-primary truncate">
                         {suggestion.label}
                       </code>
+                      {suggestion.source === 'contract' && (
+                        <span className="shrink-0 text-[10px] text-muted-foreground">from contract</span>
+                      )}
                     </button>
                   </div>
                 ))}

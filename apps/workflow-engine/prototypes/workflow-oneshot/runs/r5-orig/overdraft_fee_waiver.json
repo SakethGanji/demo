@@ -1,0 +1,432 @@
+{
+ "name": "Overdraft fee waiver",
+ "nodes": [
+  {
+   "name": "Waiver request",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Waive overdraft fee",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "account_id": {
+       "type": "string"
+      },
+      "fee_id": {
+       "type": "string"
+      },
+      "fee_amount": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "account_id",
+      "fee_id",
+      "fee_amount"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get overdraft history",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "history"
+    },
+    "method": "GET",
+    "url": "",
+    "path_params": {
+     "account_id": "{{ $json.account_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "First overdraft?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.overdraft_count == 1 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Waive fee automatically",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "fees",
+     "operation_id": "waive"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "account_id": "{{ $node[\"Waiver request\"].json.account_id }}",
+     "fee_id": "{{ $node[\"Waiver request\"].json.fee_id }}",
+     "reason": "First overdraft on the account, waived automatically"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Branch manager decision",
+   "type": "Approval",
+   "parameters": {
+    "title": "Waive overdraft fee on account {{ $node[\"Waiver request\"].json.account_id }}?",
+    "context": {
+     "Account": "{{ $node[\"Waiver request\"].json.account_id }}",
+     "Fee": "{{ $node[\"Waiver request\"].json.fee_id }}",
+     "Fee amount": "{{ $node[\"Waiver request\"].json.fee_amount }}",
+     "Overdrafts so far": "{{ $json.body.overdraft_count }}",
+     "Last overdraft on": "{{ $json.body.last_overdraft_on }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Waive fee after approval",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "fees",
+     "operation_id": "waive"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "account_id": "{{ $node[\"Waiver request\"].json.account_id }}",
+     "fee_id": "{{ $node[\"Waiver request\"].json.fee_id }}",
+     "reason": "Approved by branch manager"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Waiver request",
+   "target_node": "Get overdraft history",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get overdraft history",
+   "target_node": "First overdraft?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "First overdraft?",
+   "target_node": "Waive fee automatically",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "First overdraft?",
+   "target_node": "Branch manager decision",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Branch manager decision",
+   "target_node": "Waive fee after approval",
+   "source_output": "approved",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Exactly one overdraft is waived automatically",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "ACC-1",
+      "fee_id": "FEE-9",
+      "fee_amount": 35
+     }
+    ]
+   },
+   "mocks": {
+    "Get overdraft history": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-1",
+       "overdraft_count": 1,
+       "last_overdraft_on": "2026-10-01"
+      }
+     }
+    },
+    "Waive fee automatically": {
+     "http": {
+      "status": 200,
+      "body": {
+       "waiver_id": "W-1",
+       "status": "waived"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "First overdraft?",
+     "port": "true",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Waive fee automatically",
+     "subject": "request",
+     "path": "body.fee_id",
+     "op": "eq",
+     "value": "FEE-9"
+    },
+    {
+     "node": "Waive fee automatically",
+     "subject": "request",
+     "path": "body.account_id",
+     "op": "eq",
+     "value": "ACC-1"
+    },
+    {
+     "node": "Branch manager decision",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Waive fee after approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Repeat overdraft approved by manager is waived",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "ACC-2",
+      "fee_id": "FEE-10",
+      "fee_amount": 35
+     }
+    ]
+   },
+   "mocks": {
+    "Get overdraft history": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-2",
+       "overdraft_count": 3,
+       "last_overdraft_on": "2026-10-10"
+      }
+     }
+    },
+    "Branch manager decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Waive fee after approval": {
+     "http": {
+      "status": 200,
+      "body": {
+       "waiver_id": "W-2",
+       "status": "waived"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "First overdraft?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Branch manager decision",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Waive fee after approval",
+     "subject": "request",
+     "path": "body.fee_id",
+     "op": "eq",
+     "value": "FEE-10"
+    },
+    {
+     "node": "Waive fee automatically",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Repeat overdraft rejected by manager does nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "ACC-3",
+      "fee_id": "FEE-11",
+      "fee_amount": 35
+     }
+    ]
+   },
+   "mocks": {
+    "Get overdraft history": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-3",
+       "overdraft_count": 2,
+       "last_overdraft_on": "2026-09-20"
+      }
+     }
+    },
+    "Branch manager decision": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "No",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Branch manager decision",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Waive fee after approval",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Waive fee automatically",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Zero overdrafts on record still goes to a manager",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "account_id": "ACC-4",
+      "fee_id": "FEE-12",
+      "fee_amount": 20
+     }
+    ]
+   },
+   "mocks": {
+    "Get overdraft history": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "ACC-4",
+       "overdraft_count": 0
+      }
+     }
+    },
+    "Branch manager decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Waive fee after approval": {
+     "http": {
+      "status": 200,
+      "body": {
+       "waiver_id": "W-4",
+       "status": "waived"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "First overdraft?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Waive fee automatically",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Waive fee after approval",
+     "subject": "request",
+     "path": "body.account_id",
+     "op": "eq",
+     "value": "ACC-4"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "overdraft-fee-waiver",
+  "title": "Waive overdraft fee",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Waiver request"
+ }
+}

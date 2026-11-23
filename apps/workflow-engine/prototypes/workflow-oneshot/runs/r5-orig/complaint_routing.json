@@ -1,0 +1,368 @@
+{
+ "name": "Complaint intake",
+ "nodes": [
+  {
+   "name": "Complaint form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Log a complaint",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "customer_id": {
+       "type": "string"
+      },
+      "product": {
+       "type": "string",
+       "enum": [
+        "cards",
+        "loans",
+        "deposits"
+       ]
+      },
+      "urgent": {
+       "type": "boolean"
+      },
+      "description": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "customer_id",
+      "product",
+      "urgent",
+      "description"
+     ]
+    },
+    "success_message": "Complaint logged"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Create ticket",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "queues",
+     "operation_id": "create"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "queue": "{{ $json.product }}",
+     "customer_id": "{{ $json.customer_id }}",
+     "summary": "{{ $json.description }}",
+     "priority": "{{ 'urgent' if $json.urgent else 'normal' }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Urgent?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Complaint form\"].json.urgent == true }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Page on-call",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "notify",
+     "operation_id": "sendMessage"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "to": "{{ $vars.ONCALL_CONTACT }}",
+     "text": "Urgent {{ $node[\"Complaint form\"].json.product }} complaint, ticket {{ $node[\"Create ticket\"].json.body.ticket_id }}, customer {{ $node[\"Complaint form\"].json.customer_id }}: {{ $node[\"Complaint form\"].json.description }}",
+     "channel": "pager"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply urgent",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "logged",
+     "paged": true,
+     "ticket_id": "{{ $node[\"Create ticket\"].json.body.ticket_id }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply normal",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "logged",
+     "paged": false,
+     "ticket_id": "{{ $node[\"Create ticket\"].json.body.ticket_id }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Complaint form",
+   "target_node": "Create ticket",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Create ticket",
+   "target_node": "Urgent?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Urgent?",
+   "target_node": "Page on-call",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Urgent?",
+   "target_node": "Reply normal",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Page on-call",
+   "target_node": "Reply urgent",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Urgent cards complaint creates ticket and pages on-call",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C100",
+      "product": "cards",
+      "urgent": true,
+      "description": "Card blocked abroad"
+     }
+    ]
+   },
+   "mocks": {
+    "Create ticket": {
+     "http": {
+      "status": 201,
+      "body": {
+       "ticket_id": "T-1",
+       "queue": "cards"
+      }
+     }
+    },
+    "Page on-call": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Create ticket",
+     "subject": "request",
+     "path": "body.queue",
+     "op": "eq",
+     "value": "cards"
+    },
+    {
+     "node": "Create ticket",
+     "subject": "request",
+     "path": "body.priority",
+     "op": "eq",
+     "value": "urgent"
+    },
+    {
+     "node": "Page on-call",
+     "subject": "request",
+     "path": "body.channel",
+     "op": "eq",
+     "value": "pager"
+    },
+    {
+     "node": "Page on-call",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Reply urgent",
+     "subject": "request",
+     "path": "body.paged",
+     "op": "eq",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "Non-urgent loans complaint creates ticket only",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C200",
+      "product": "loans",
+      "urgent": false,
+      "description": "Wrong interest charged"
+     }
+    ]
+   },
+   "mocks": {
+    "Create ticket": {
+     "http": {
+      "status": 201,
+      "body": {
+       "ticket_id": "T-2",
+       "queue": "loans"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Create ticket",
+     "subject": "request",
+     "path": "body.queue",
+     "op": "eq",
+     "value": "loans"
+    },
+    {
+     "node": "Create ticket",
+     "subject": "request",
+     "path": "body.priority",
+     "op": "eq",
+     "value": "normal"
+    },
+    {
+     "node": "Page on-call",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply normal",
+     "subject": "request",
+     "path": "body.paged",
+     "op": "eq",
+     "value": false
+    }
+   ]
+  },
+  {
+   "name": "Urgent deposits complaint goes to deposits queue and pages",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C300",
+      "product": "deposits",
+      "urgent": true,
+      "description": "Funds missing"
+     }
+    ]
+   },
+   "mocks": {
+    "Create ticket": {
+     "http": {
+      "status": 201,
+      "body": {
+       "ticket_id": "T-3",
+       "queue": "deposits"
+      }
+     }
+    },
+    "Page on-call": {
+     "http": {
+      "status": 200,
+      "body": {
+       "delivered": true
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Create ticket",
+     "subject": "request",
+     "path": "body.queue",
+     "op": "eq",
+     "value": "deposits"
+    },
+    {
+     "node": "Create ticket",
+     "subject": "request",
+     "path": "body.customer_id",
+     "op": "eq",
+     "value": "C300"
+    },
+    {
+     "node": "Page on-call",
+     "subject": "request",
+     "path": "body.text",
+     "op": "contains",
+     "value": "T-3"
+    },
+    {
+     "node": "Page on-call",
+     "subject": "request",
+     "path": "body.to",
+     "op": "neq",
+     "value": "C300"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "complaint-intake",
+  "title": "Log a complaint",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Complaint form",
+  "result_node": "Reply normal"
+ }
+}

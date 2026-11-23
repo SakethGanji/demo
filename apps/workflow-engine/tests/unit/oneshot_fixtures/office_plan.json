@@ -1,0 +1,1337 @@
+{
+ "v": 1,
+ "nfr": {
+  "auth": "every route uses app_token; identity from req.caller, approver checked in approvers by caller.id",
+  "audit": "submit and decision write audit rows",
+  "limits": [
+   "25 rows per page",
+   "10 MB per upload"
+  ],
+  "failure": "no automatic retry; a failed action returns an error and changes nothing",
+  "reports": [
+   "Counts by status",
+   "Export to CSV"
+  ],
+  "page_size": 25,
+  "retention": "keep everything; retire instead of deleting",
+  "seed_data": "Realistic sample data",
+  "notifications": [
+   "In-app inbox"
+  ]
+ },
+ "apps": [
+  {
+   "key": "supply_requests",
+   "name": "Office Supplies",
+   "users": "staff (own requests, inbox), managers (approvers: review, dashboard, export)",
+   "app_id": "app_01a15c46-11e7-792f-ac2b-f58966840592",
+   "screens": [
+    {
+     "name": "New request",
+     "routes": [
+      "POST /requests"
+     ],
+     "states": {},
+     "purpose": "staff submit item, quantity, reason",
+     "journeys": []
+    },
+    {
+     "name": "My requests",
+     "routes": [
+      "GET /requests/mine"
+     ],
+     "states": {},
+     "purpose": "staff list of own requests with status and decision note",
+     "journeys": []
+    },
+    {
+     "name": "Inbox",
+     "routes": [
+      "GET /notifications",
+      "POST /notifications/{id}/read"
+     ],
+     "states": {},
+     "purpose": "staff see decision notifications and mark them read",
+     "journeys": []
+    },
+    {
+     "name": "Review",
+     "routes": [
+      "GET /requests",
+      "GET /approvers/me",
+      "POST /requests/{id}/decision"
+     ],
+     "states": {},
+     "purpose": "managers see pending requests, approve or reject with note",
+     "journeys": []
+    },
+    {
+     "name": "Dashboard",
+     "routes": [
+      "GET /requests/summary",
+      "GET /requests/export",
+      "GET /approvers/me"
+     ],
+     "states": {},
+     "purpose": "counts of requests per status, CSV export",
+     "journeys": []
+    }
+   ]
+  }
+ ],
+ "data": {
+  "tables": [
+   {
+    "name": "supply_requests",
+    "audit": true,
+    "owner": "requests",
+    "columns": [
+     {
+      "name": "item",
+      "type": "string",
+      "required": true,
+      "description": "what is requested, max 200 chars"
+     },
+     {
+      "name": "quantity",
+      "type": "integer",
+      "default": 1,
+      "required": true,
+      "description": "1..1000"
+     },
+     {
+      "name": "reason",
+      "type": "string",
+      "required": true,
+      "description": "max 1000 chars"
+     },
+     {
+      "enum": [
+       "pending",
+       "approved",
+       "rejected"
+      ],
+      "name": "status",
+      "type": "string",
+      "index": true,
+      "default": "pending",
+      "required": true
+     },
+     {
+      "name": "requester_id",
+      "type": "string",
+      "index": true,
+      "required": true,
+      "description": "caller.id of the requester"
+     },
+     {
+      "name": "requester_name",
+      "type": "string",
+      "required": false,
+      "description": "caller.name at submit time"
+     },
+     {
+      "name": "decided_by",
+      "type": "string",
+      "required": false,
+      "description": "caller.id of the approver"
+     },
+     {
+      "name": "decided_at",
+      "type": "datetime",
+      "required": false
+     },
+     {
+      "name": "decision_note",
+      "type": "string",
+      "required": false,
+      "description": "required when rejecting"
+     },
+     {
+      "name": "created_by",
+      "type": "string",
+      "required": false
+     },
+     {
+      "name": "updated_by",
+      "type": "string",
+      "required": false
+     },
+     {
+      "name": "archived_at",
+      "type": "datetime",
+      "required": false
+     }
+    ],
+    "indexes": [
+     [
+      "requester_id",
+      "status"
+     ]
+    ],
+    "writers": [],
+    "retention": {
+     "value": null,
+     "policy": "keep"
+    },
+    "description": "one supply request",
+    "growth_note": "office-sized; a few thousand rows a year",
+    "soft_delete": true,
+    "business_key": [],
+    "state_machine": {
+     "field": "status",
+     "final": [
+      "approved",
+      "rejected"
+     ],
+     "initial": "pending",
+     "transitions": [
+      {
+       "to": "approved",
+       "who": "approver",
+       "from": "pending",
+       "route": "POST /requests/{id}/decision",
+       "effect": "sets decided_by, decided_at; notifies requester"
+      },
+      {
+       "to": "rejected",
+       "who": "approver",
+       "from": "pending",
+       "route": "POST /requests/{id}/decision",
+       "effect": "sets decided_by, decided_at, decision_note; notifies requester"
+      }
+     ]
+    }
+   },
+   {
+    "name": "approvers",
+    "audit": true,
+    "owner": "requests",
+    "columns": [
+     {
+      "name": "user_id",
+      "type": "string",
+      "unique": true,
+      "required": true,
+      "description": "caller.id of the manager"
+     },
+     {
+      "name": "name",
+      "type": "string",
+      "required": false
+     },
+     {
+      "name": "active",
+      "type": "boolean",
+      "default": true,
+      "required": true
+     },
+     {
+      "name": "created_by",
+      "type": "string",
+      "required": false
+     },
+     {
+      "name": "updated_by",
+      "type": "string",
+      "required": false
+     },
+     {
+      "name": "archived_at",
+      "type": "datetime",
+      "required": false
+     }
+    ],
+    "indexes": [],
+    "writers": [],
+    "retention": {
+     "value": null,
+     "policy": "keep"
+    },
+    "description": "people allowed to decide requests; retire with active=false",
+    "growth_note": "",
+    "soft_delete": true,
+    "business_key": [],
+    "state_machine": null
+   },
+   {
+    "name": "notifications",
+    "audit": false,
+    "owner": "requests",
+    "columns": [
+     {
+      "name": "recipient_id",
+      "type": "string",
+      "index": true,
+      "required": true,
+      "description": "caller.id of the requester"
+     },
+     {
+      "ref": "supply_requests.id",
+      "name": "request_id",
+      "type": "integer",
+      "index": true,
+      "required": true
+     },
+     {
+      "enum": [
+       "request_approved",
+       "request_rejected"
+      ],
+      "name": "kind",
+      "type": "string",
+      "required": true
+     },
+     {
+      "name": "message",
+      "type": "string",
+      "required": true
+     },
+     {
+      "name": "read",
+      "type": "boolean",
+      "default": false,
+      "required": true
+     },
+     {
+      "name": "archived_at",
+      "type": "datetime",
+      "required": false
+     }
+    ],
+    "indexes": [
+     [
+      "recipient_id",
+      "read"
+     ]
+    ],
+    "writers": [],
+    "retention": {
+     "value": null,
+     "policy": "keep"
+    },
+    "description": "in-app inbox entries for requesters",
+    "growth_note": "",
+    "soft_delete": true,
+    "business_key": [],
+    "state_machine": null
+   }
+  ],
+  "conventions": {}
+ },
+ "title": "Office supply requests",
+ "routes": [
+  {
+   "key": "POST /requests",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "validation_failed",
+     "status": 422
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [],
+    "writes": [
+     "supply_requests"
+    ]
+   },
+   "purpose": "submit a request, status pending; notifies nobody",
+   "request": {
+    "fields": [
+     {
+      "name": "item",
+      "type": "string",
+      "required": true
+     },
+     {
+      "name": "quantity",
+      "type": "integer",
+      "required": true
+     },
+     {
+      "name": "reason",
+      "type": "string",
+      "required": true
+     }
+    ]
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "item",
+      "type": "string"
+     },
+     {
+      "name": "quantity",
+      "type": "integer"
+     },
+     {
+      "name": "reason",
+      "type": "string"
+     },
+     {
+      "name": "status",
+      "type": "string"
+     },
+     {
+      "name": "created_at",
+      "type": "datetime"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": "none",
+   "integrations": []
+  },
+  {
+   "key": "GET /requests/mine",
+   "auth": "app_token",
+   "errors": [],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "supply_requests"
+    ],
+    "writes": []
+   },
+   "purpose": "caller's own requests, newest first, optional status filter",
+   "request": {
+    "fields": [
+     {
+      "name": "status",
+      "type": "string"
+     }
+    ]
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "item",
+      "type": "string"
+     },
+     {
+      "name": "quantity",
+      "type": "integer"
+     },
+     {
+      "name": "reason",
+      "type": "string"
+     },
+     {
+      "name": "status",
+      "type": "string"
+     },
+     {
+      "name": "created_at",
+      "type": "datetime"
+     },
+     {
+      "name": "decided_by",
+      "type": "string"
+     },
+     {
+      "name": "decided_at",
+      "type": "datetime"
+     },
+     {
+      "name": "decision_note",
+      "type": "string"
+     }
+    ]
+   },
+   "pagination": true,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "GET /requests",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "not_approver",
+     "status": 403
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "supply_requests",
+     "approvers"
+    ],
+    "writes": []
+   },
+   "purpose": "all requests for approvers, optional status filter",
+   "request": {
+    "fields": [
+     {
+      "name": "status",
+      "type": "string"
+     }
+    ]
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "item",
+      "type": "string"
+     },
+     {
+      "name": "quantity",
+      "type": "integer"
+     },
+     {
+      "name": "reason",
+      "type": "string"
+     },
+     {
+      "name": "status",
+      "type": "string"
+     },
+     {
+      "name": "created_at",
+      "type": "datetime"
+     },
+     {
+      "name": "requester_name",
+      "type": "string"
+     },
+     {
+      "name": "decided_by",
+      "type": "string"
+     },
+     {
+      "name": "decided_at",
+      "type": "datetime"
+     },
+     {
+      "name": "decision_note",
+      "type": "string"
+     }
+    ]
+   },
+   "pagination": true,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "GET /requests/summary",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "not_approver",
+     "status": 403
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "supply_requests",
+     "approvers"
+    ],
+    "writes": []
+   },
+   "purpose": "request count per status (dashboard)",
+   "request": {
+    "fields": []
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "pending",
+      "type": "integer"
+     },
+     {
+      "name": "approved",
+      "type": "integer"
+     },
+     {
+      "name": "rejected",
+      "type": "integer"
+     },
+     {
+      "name": "total",
+      "type": "integer"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "GET /requests/export",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "not_approver",
+     "status": 403
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "supply_requests",
+     "approvers"
+    ],
+    "writes": []
+   },
+   "purpose": "CSV export of requests (max 5000 rows), optional status filter",
+   "request": {
+    "fields": [
+     {
+      "name": "status",
+      "type": "string"
+     }
+    ]
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "filename",
+      "type": "string"
+     },
+     {
+      "name": "content_type",
+      "type": "string"
+     },
+     {
+      "name": "csv",
+      "type": "string"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "GET /requests/{id}",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "forbidden",
+     "status": 403
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "supply_requests",
+     "approvers"
+    ],
+    "writes": []
+   },
+   "purpose": "one request; requester or approver only",
+   "request": {
+    "fields": []
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "item",
+      "type": "string"
+     },
+     {
+      "name": "quantity",
+      "type": "integer"
+     },
+     {
+      "name": "reason",
+      "type": "string"
+     },
+     {
+      "name": "status",
+      "type": "string"
+     },
+     {
+      "name": "created_at",
+      "type": "datetime"
+     },
+     {
+      "name": "requester_name",
+      "type": "string"
+     },
+     {
+      "name": "decided_by",
+      "type": "string"
+     },
+     {
+      "name": "decided_at",
+      "type": "datetime"
+     },
+     {
+      "name": "decision_note",
+      "type": "string"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "POST /requests/{id}/decision",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "not_approver",
+     "status": 403
+    },
+    {
+     "code": "own_request",
+     "status": 403
+    },
+    {
+     "code": "already_decided",
+     "status": 409
+    },
+    {
+     "code": "note_required",
+     "status": 422
+    },
+    {
+     "code": "invalid_decision",
+     "status": 422
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "approvers"
+    ],
+    "writes": [
+     "supply_requests",
+     "notifications"
+    ]
+   },
+   "purpose": "approve or reject a pending request; not own; reject needs note; notifies requester",
+   "request": {
+    "fields": [
+     {
+      "name": "decision",
+      "type": "string",
+      "required": true
+     },
+     {
+      "name": "note",
+      "type": "string"
+     }
+    ]
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "status",
+      "type": "string"
+     },
+     {
+      "name": "decided_by",
+      "type": "string"
+     },
+     {
+      "name": "decided_at",
+      "type": "datetime"
+     },
+     {
+      "name": "decision_note",
+      "type": "string"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": "repeat_is_noop",
+   "integrations": []
+  },
+  {
+   "key": "GET /approvers/me",
+   "auth": "app_token",
+   "errors": [],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "approvers"
+    ],
+    "writes": []
+   },
+   "purpose": "whether the caller is an active approver",
+   "request": {
+    "fields": []
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "is_approver",
+      "type": "boolean"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "GET /notifications",
+   "auth": "app_token",
+   "errors": [],
+   "module": "requests",
+   "tables": {
+    "reads": [
+     "notifications"
+    ],
+    "writes": []
+   },
+   "purpose": "caller's in-app inbox, newest first, optional unread filter",
+   "request": {
+    "fields": [
+     {
+      "name": "unread",
+      "type": "boolean"
+     }
+    ]
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "request_id",
+      "type": "integer"
+     },
+     {
+      "name": "kind",
+      "type": "string"
+     },
+     {
+      "name": "message",
+      "type": "string"
+     },
+     {
+      "name": "read",
+      "type": "boolean"
+     },
+     {
+      "name": "created_at",
+      "type": "datetime"
+     }
+    ]
+   },
+   "pagination": true,
+   "idempotency": null,
+   "integrations": []
+  },
+  {
+   "key": "POST /notifications/{id}/read",
+   "auth": "app_token",
+   "errors": [
+    {
+     "code": "forbidden",
+     "status": 403
+    }
+   ],
+   "module": "requests",
+   "tables": {
+    "reads": [],
+    "writes": [
+     "notifications"
+    ]
+   },
+   "purpose": "mark one of the caller's notifications read",
+   "request": {
+    "fields": []
+   },
+   "response": {
+    "fields": [
+     {
+      "name": "id",
+      "type": "integer"
+     },
+     {
+      "name": "read",
+      "type": "boolean"
+     }
+    ]
+   },
+   "pagination": false,
+   "idempotency": "repeat_is_noop",
+   "integrations": []
+  }
+ ],
+ "modules": [
+  {
+   "key": "common",
+   "kind": "shared",
+   "owns": [],
+   "reads": [],
+   "helpers": [
+    {
+     "name": "write_audit",
+     "purpose": "write an audit row",
+     "signature": "write_audit(table: str, row_id: int, action: str, actor_id: str, detail: dict | None = None) -> None"
+    },
+    {
+     "name": "paginate",
+     "purpose": "returns {items,total,page,page_size}",
+     "signature": "paginate(query, page: int = 1, page_size: int = 25) -> dict"
+    },
+    {
+     "name": "error",
+     "purpose": "uniform error body",
+     "signature": "error(status: int, code: str, message: str) -> dict"
+    },
+    {
+     "name": "is_approver",
+     "purpose": "active row in approvers",
+     "signature": "is_approver(caller_id: str) -> bool"
+    },
+    {
+     "name": "notify",
+     "purpose": "insert an inbox entry",
+     "signature": "notify(recipient_id: str, request_id: int, kind: str, message: str) -> int"
+    },
+    {
+     "name": "to_csv",
+     "purpose": "CSV text with a header row",
+     "signature": "to_csv(rows: list[dict], columns: list[str]) -> str"
+    }
+   ],
+   "purpose": "audit, pagination, errors, approver check, notifications, CSV",
+   "depends_on": [],
+   "integrations": []
+  },
+  {
+   "key": "requests",
+   "kind": "routes",
+   "owns": [
+    "supply_requests",
+    "approvers",
+    "notifications"
+   ],
+   "reads": [],
+   "helpers": [],
+   "purpose": "submit, list, decide, summarise, export requests; inbox",
+   "depends_on": [],
+   "integrations": []
+  }
+ ],
+ "secrets": [],
+ "summary": "Staff request supplies (item, quantity, reason); managers approve or reject; staff see their own requests with status; a dashboard counts requests per status.",
+ "migrations": [
+  {
+   "ops": [
+    {
+     "op": "create_table",
+     "columns": [
+      {
+       "name": "item",
+       "type": "string",
+       "required": true,
+       "description": "what is requested, max 200 chars"
+      },
+      {
+       "name": "quantity",
+       "type": "integer",
+       "default": 1,
+       "required": true,
+       "description": "1..1000"
+      },
+      {
+       "name": "reason",
+       "type": "string",
+       "required": true,
+       "description": "max 1000 chars"
+      },
+      {
+       "enum": [
+        "pending",
+        "approved",
+        "rejected"
+       ],
+       "name": "status",
+       "type": "string",
+       "index": true,
+       "default": "pending",
+       "required": true
+      },
+      {
+       "name": "requester_id",
+       "type": "string",
+       "index": true,
+       "required": true,
+       "description": "caller.id of the requester"
+      },
+      {
+       "name": "requester_name",
+       "type": "string",
+       "required": false,
+       "description": "caller.name at submit time"
+      },
+      {
+       "name": "decided_by",
+       "type": "string",
+       "required": false,
+       "description": "caller.id of the approver"
+      },
+      {
+       "name": "decided_at",
+       "type": "datetime",
+       "required": false
+      },
+      {
+       "name": "decision_note",
+       "type": "string",
+       "required": false,
+       "description": "required when rejecting"
+      },
+      {
+       "name": "created_by",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "updated_by",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "archived_at",
+       "type": "datetime",
+       "required": false
+      }
+     ],
+     "description": "one supply request"
+    }
+   ],
+   "table": "supply_requests",
+   "refused": [],
+   "version": 1
+  },
+  {
+   "ops": [
+    {
+     "op": "create_table",
+     "columns": [
+      {
+       "name": "user_id",
+       "type": "string",
+       "unique": true,
+       "required": true,
+       "description": "caller.id of the manager"
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "active",
+       "type": "boolean",
+       "default": true,
+       "required": true
+      },
+      {
+       "name": "created_by",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "updated_by",
+       "type": "string",
+       "required": false
+      },
+      {
+       "name": "archived_at",
+       "type": "datetime",
+       "required": false
+      }
+     ],
+     "description": "people allowed to decide requests; retire with active=false"
+    }
+   ],
+   "table": "approvers",
+   "refused": [],
+   "version": 1
+  },
+  {
+   "ops": [
+    {
+     "op": "create_table",
+     "columns": [
+      {
+       "name": "recipient_id",
+       "type": "string",
+       "index": true,
+       "required": true,
+       "description": "caller.id of the requester"
+      },
+      {
+       "ref": "supply_requests.id",
+       "name": "request_id",
+       "type": "integer",
+       "index": true,
+       "required": true
+      },
+      {
+       "enum": [
+        "request_approved",
+        "request_rejected"
+       ],
+       "name": "kind",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "message",
+       "type": "string",
+       "required": true
+      },
+      {
+       "name": "read",
+       "type": "boolean",
+       "default": false,
+       "required": true
+      },
+      {
+       "name": "archived_at",
+       "type": "datetime",
+       "required": false
+      }
+     ],
+     "description": "in-app inbox entries for requesters"
+    }
+   ],
+   "table": "notifications",
+   "refused": [],
+   "version": 1
+  }
+ ],
+ "roles_note": "Staff create and see their own requests; managers (rows in approvers) see all pending requests, decide them and view the dashboard.",
+ "build_order": [
+  "common",
+  "requests",
+  "app:supply_requests"
+ ],
+ "environments": [
+  {
+   "live": false,
+   "name": "dev",
+   "base_url": "",
+   "placeholder": true,
+   "refused_actions": []
+  },
+  {
+   "live": true,
+   "name": "prod",
+   "base_url": "",
+   "placeholder": true,
+   "refused_actions": [
+    "seed_sample_data",
+    "reset_data"
+   ]
+  }
+ ],
+ "integrations": [],
+ "requirements": {
+  "answers": [
+   {
+    "id": "q_approvers",
+    "round": 1,
+    "topic": "roles",
+    "answer": "Any listed manager can decide any request",
+    "source": "model",
+    "question": "Who are the managers who may approve, and should any manager be able to decide any request, or only the requester's own manager?"
+   },
+   {
+    "id": "q_self",
+    "round": 1,
+    "topic": "approvals",
+    "answer": "No, another manager must decide",
+    "source": "model",
+    "question": "May a manager approve their own supply request?"
+   },
+   {
+    "id": "q_limit",
+    "round": 1,
+    "topic": "safety",
+    "answer": "Max 1000 per request",
+    "source": "model",
+    "question": "Should large quantities need extra care (e.g. a maximum per request)?"
+   },
+   {
+    "id": "req_seed",
+    "round": 1,
+    "topic": "seed",
+    "answer": "Realistic sample data",
+    "source": "checklist",
+    "question": "What data should the app start with?"
+   },
+   {
+    "id": "req_notifications",
+    "round": 1,
+    "topic": "notifications",
+    "answer": "In-app inbox",
+    "source": "checklist",
+    "question": "Who should be told when a record changes state?"
+   },
+   {
+    "id": "req_limits",
+    "round": 1,
+    "topic": "limits",
+    "answer": "25 rows per page; 10 MB per upload",
+    "source": "checklist",
+    "question": "Which limits should the app enforce?"
+   },
+   {
+    "id": "req_reports",
+    "round": 1,
+    "topic": "reports",
+    "answer": "Counts by status; Export to CSV",
+    "source": "checklist",
+    "question": "Which reports or exports do you need?"
+   },
+   {
+    "id": "dom_identity",
+    "round": 1,
+    "topic": "identity",
+    "answer": "Studio sign-in (req.caller): record caller.id and check approvers against a data table by caller.id (recommended)",
+    "source": "domain",
+    "question": "How should 'who did this' and role limits be handled?"
+   },
+   {
+    "id": "dom_state_machines",
+    "round": 1,
+    "topic": "state_machines",
+    "answer": "Final states stay final; an illegal move returns 409 and changes nothing",
+    "source": "domain",
+    "question": "Status lifecycles: supply_requests (pending, approved, rejected). Which states are final, can a finished item be reopened, and what should an illegal move do?"
+   },
+   {
+    "id": "dom_concurrency",
+    "round": 1,
+    "topic": "concurrency",
+    "answer": "The second action gets 409; repeating the same action is a harmless no-op",
+    "source": "domain",
+    "question": "If two people act on the same record at once, or an approve/sync call is sent twice, what should happen?"
+   },
+   {
+    "id": "dom_failure",
+    "round": 1,
+    "topic": "failure",
+    "answer": "No automatic retry: mark error or blocked and let a person re-run",
+    "source": "domain",
+    "question": "When a run or an outside call fails, is slow, or comes back blocked or flaky: retry how often, and which status does the record get (error, blocked, failed)?"
+   },
+   {
+    "id": "dom_envs",
+    "round": 1,
+    "topic": "environments",
+    "answer": "Dangerous actions are refused in the live environment",
+    "source": "domain",
+    "question": "Should behavior differ per environment (target URLs, secrets), and where must dangerous actions be refused? This project has the environments dev, prod."
+   },
+   {
+    "id": "dom_retention",
+    "round": 1,
+    "topic": "retention",
+    "answer": "Keep everything; retire with a status instead of deleting",
+    "source": "domain",
+    "question": "How long are runs, results, artifacts and history kept, and may records be deleted?"
+   }
+  ],
+  "acceptance": [
+   {
+    "id": "A1",
+    "text": "Staff submit a request with item, quantity (1-1000) and reason; it starts as pending",
+    "covers": [
+     "route:POST /requests",
+     "table:supply_requests"
+    ]
+   },
+   {
+    "id": "A2",
+    "text": "Staff list only their own requests with current status",
+    "covers": [
+     "route:GET /requests/mine",
+     "screen:My requests"
+    ]
+   },
+   {
+    "id": "A3",
+    "text": "An approver approves or rejects a pending request; a different later decision is refused with 409, the same one is a no-op",
+    "covers": [
+     "route:POST /requests/{id}/decision",
+     "table:approvers"
+    ]
+   },
+   {
+    "id": "A4",
+    "text": "Non-approvers and the requester cannot decide a request",
+    "covers": [
+     "route:POST /requests/{id}/decision"
+    ]
+   },
+   {
+    "id": "A5",
+    "text": "Dashboard shows the number of requests in each status",
+    "covers": [
+     "route:GET /requests/summary",
+     "screen:Dashboard"
+    ]
+   },
+   {
+    "id": "A6",
+    "text": "The requester finds an inbox entry after their request is approved or rejected, and can mark it read",
+    "covers": [
+     "route:GET /notifications",
+     "route:POST /notifications/{id}/read",
+     "screen:Inbox",
+     "table:notifications"
+    ]
+   },
+   {
+    "id": "A7",
+    "text": "Approvers export requests as CSV",
+    "covers": [
+     "route:GET /requests/export",
+     "screen:Dashboard"
+    ]
+   }
+  ],
+  "assumptions": [
+   "Requests are free-text items (no catalogue or stock tracking)",
+   "Managers are listed in the approvers table, matched by caller.id; any listed manager may decide any request",
+   "A manager may not decide their own request",
+   "A decision is final: a different decision on a decided request returns 409, the same decision again is a no-op",
+   "A rejection needs a note",
+   "Nothing is deleted: records are retired (soft delete, approvers.active=false)",
+   "Notifications go to the requester only, when the request is decided",
+   "Pages hold 25 rows; no uploads exist, so the 10 MB limit has no use"
+  ],
+  "limitations": [
+   "No ordering/purchasing, no budgets, no email notifications"
+  ]
+ }
+}

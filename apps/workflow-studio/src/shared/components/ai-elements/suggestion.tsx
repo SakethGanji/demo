@@ -44,7 +44,7 @@ export const Suggestion = ({
 
   return (
     <Button
-      className={cn("cursor-pointer rounded-full px-4", className)}
+      className={cn("cursor-pointer rounded-full bg-recess px-3 text-[12.5px] font-normal text-foreground/85 hover:bg-(--hover-fill) hover:text-foreground", className)}
       onClick={handleClick}
       size={size}
       type="button"

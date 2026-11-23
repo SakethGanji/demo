@@ -1,0 +1,206 @@
+[
+ [
+  "WF004",
+  "Check Enabled Platforms",
+  null,
+  "false"
+ ],
+ [
+  "WF004",
+  "IF Facebook",
+  null,
+  "false"
+ ],
+ [
+  "WF004",
+  "IF Instagram",
+  null,
+  "false"
+ ],
+ [
+  "WF004",
+  "IF LinkedIn",
+  null,
+  "false"
+ ],
+ [
+  "WF004",
+  "IF TikTok",
+  null,
+  "false"
+ ],
+ [
+  "WF005",
+  "Download Large (GET)",
+  "url",
+  "imageUrl"
+ ],
+ [
+  "WF005",
+  "HTTP Request for content-length",
+  "url",
+  "imageUrl"
+ ],
+ [
+  "WF005",
+  "HTTP Request for files \u2264 ~4 MB",
+  "url",
+  "imageUrl"
+ ],
+ [
+  "WF005",
+  "Kie.ai - Generate Image",
+  "body",
+  "topic"
+ ],
+ [
+  "WF005",
+  "Kie.ai - Obtain Image",
+  "url",
+  "data.taskId"
+ ],
+ [
+  "WF005",
+  "Upload to Storage (PUT)",
+  "headers[0].value",
+  "contentType"
+ ],
+ [
+  "WF005",
+  "Upload to Storage (PUT)",
+  "url",
+  "uploadUrl"
+ ],
+ [
+  "WF005",
+  "Zernio - Init Upload files > 4MB",
+  "body",
+  "contentType"
+ ],
+ [
+  "WF005",
+  "Zernio - Init Upload files > 4MB",
+  "body",
+  "filename"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Facebook",
+  "body",
+  "facebook"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Facebook",
+  "body",
+  "files[\"\"][0].url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Facebook",
+  "body",
+  "publicUrl"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Facebook",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Instagram",
+  "body",
+  "files[\"\"][0].url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Instagram",
+  "body",
+  "instagram"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Instagram",
+  "body",
+  "publicUrl"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post Instagram",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post LinkedIn",
+  "body",
+  "files[\"\"][0].url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post LinkedIn",
+  "body",
+  "linkedin"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post LinkedIn",
+  "body",
+  "publicUrl"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post LinkedIn",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post TikTok",
+  "body",
+  "files[\"\"][0].url"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post TikTok",
+  "body",
+  "publicUrl"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post TikTok",
+  "body",
+  "tiktok"
+ ],
+ [
+  "WF005",
+  "Zernio Create Post TikTok",
+  "body",
+  "url"
+ ],
+ [
+  "WF009",
+  "Zernio Create Post Facebook",
+  "body",
+  null
+ ],
+ [
+  "WF009",
+  "Zernio Create Post Instagram",
+  "body",
+  null
+ ],
+ [
+  "WF009",
+  "Zernio Create Post LinkedIn",
+  "body",
+  null
+ ],
+ [
+  "WF009",
+  "Zernio Create Post TikTok",
+  "body",
+  null
+ ]
+]

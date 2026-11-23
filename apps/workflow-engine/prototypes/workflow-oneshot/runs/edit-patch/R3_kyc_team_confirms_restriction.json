@@ -1,0 +1,1589 @@
+{
+ "name": "Daily KYC document chase",
+ "nodes": [
+  {
+   "name": "Every day 8am",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 8 * * *"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get open requests",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "query",
+    "query": "SELECT id, customer_id, email, requested_on, COALESCE(reminders_sent, 0) AS reminders_sent, status, (CURRENT_DATE - requested_on) AS days_open FROM kyc_requests WHERE status IN ('open', 'restricted') ORDER BY id",
+    "queryParameters": []
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Split requests",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "rows",
+    "includeOther": false
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Each request",
+   "type": "Loop",
+   "parameters": {
+    "batchSize": 1
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Check documents",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "GET",
+    "url": "",
+    "api_ref": {
+     "spec_id": "dms",
+     "operation_id": "documents"
+    },
+    "path_params": {
+     "customer_id": "{{ $node[\"Each request\"].json.customer_id }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Documents uploaded?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.body.uploaded }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Was restricted?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $node[\"Each request\"].json.status == 'restricted' }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Lift restriction",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "liftRestriction"
+    },
+    "path_params": {
+     "customer_id": "{{ $node[\"Each request\"].json.customer_id }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Mark complete",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE kyc_requests SET status = 'complete' WHERE id = %s",
+      "params": [
+       "{{ $node[\"Each request\"].json.id }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('kyc_request', %s, 'completed', %s)",
+      "params": [
+       "{{ $node[\"Each request\"].json.customer_id }}",
+       "Documents received after {{ $node[\"Each request\"].json.days_open }} days"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 400
+   }
+  },
+  {
+   "name": "Thank customer",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each request\"].json.email }}",
+    "subject": "Thank you for your documents",
+    "bodyFormat": "plain",
+    "body": "Thank you. We have received your KYC documents and your request is now complete."
+   },
+   "position": {
+    "x": 380,
+    "y": 400
+   }
+  },
+  {
+   "name": "Day 10 and 2 reminders?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ int($node[\"Each request\"].json.days_open) >= 10 and int($node[\"Each request\"].json.reminders_sent) == 2 and $node[\"Each request\"].json.status == 'open' }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 110
+   }
+  },
+  {
+   "name": "Day 7 and 1 reminder?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ int($node[\"Each request\"].json.days_open) >= 7 and int($node[\"Each request\"].json.reminders_sent) == 1 }}"
+   },
+   "position": {
+    "x": 0,
+    "y": 620
+   }
+  },
+  {
+   "name": "Day 3 and no reminder?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ int($node[\"Each request\"].json.days_open) >= 3 and int($node[\"Each request\"].json.reminders_sent) == 0 }}"
+   },
+   "position": {
+    "x": 190,
+    "y": 730
+   }
+  },
+  {
+   "name": "Restrict customer",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "POST",
+    "url": "",
+    "api_ref": {
+     "spec_id": "accounts",
+     "operation_id": "restrictCustomer"
+    },
+    "path_params": {
+     "customer_id": "{{ $node[\"Each request\"].json.customer_id }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 110
+   }
+  },
+  {
+   "name": "Mark restricted",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE kyc_requests SET status = 'restricted' WHERE id = %s",
+      "params": [
+       "{{ $node[\"Each request\"].json.id }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('kyc_request', %s, 'restricted', %s)",
+      "params": [
+       "{{ $node[\"Each request\"].json.customer_id }}",
+       "Restricted after {{ $node[\"Each request\"].json.days_open }} days without documents"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 110
+   }
+  },
+  {
+   "name": "Tell customer restricted",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each request\"].json.email }}",
+    "subject": "Your accounts are restricted",
+    "bodyFormat": "plain",
+    "body": "We have not received your KYC documents, so your accounts are now restricted. Please upload them as soon as possible to have the restriction lifted."
+   },
+   "position": {
+    "x": 380,
+    "y": 110
+   }
+  },
+  {
+   "name": "Email RM to call",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.RM_EMAIL }}",
+    "subject": "Please call customer {{ $node[\"Each request\"].json.customer_id }}",
+    "bodyFormat": "plain",
+    "body": "Customer {{ $node[\"Each request\"].json.customer_id }} ({{ $node[\"Each request\"].json.email }}) has not provided KYC documents after {{ $node[\"Each request\"].json.days_open }} days and has been restricted. Please call them."
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Email second reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each request\"].json.email }}",
+    "subject": "Second reminder: KYC documents needed",
+    "bodyFormat": "plain",
+    "body": "This is our second reminder. Please upload your KYC documents soon. Your accounts may be restricted if we do not receive them."
+   },
+   "position": {
+    "x": 190,
+    "y": 620
+   }
+  },
+  {
+   "name": "Mark second reminder",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE kyc_requests SET reminders_sent = 2 WHERE id = %s",
+      "params": [
+       "{{ $node[\"Each request\"].json.id }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('kyc_request', %s, 'reminded', %s)",
+      "params": [
+       "{{ $node[\"Each request\"].json.customer_id }}",
+       "Second reminder on day {{ $node[\"Each request\"].json.days_open }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 510
+   }
+  },
+  {
+   "name": "Email first reminder",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $node[\"Each request\"].json.email }}",
+    "subject": "Reminder: KYC documents needed",
+    "bodyFormat": "plain",
+    "body": "We still need your KYC documents. Please upload them at your earliest convenience."
+   },
+   "position": {
+    "x": 380,
+    "y": 620
+   }
+  },
+  {
+   "name": "Mark first reminder",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "UPDATE kyc_requests SET reminders_sent = 1 WHERE id = %s",
+      "params": [
+       "{{ $node[\"Each request\"].json.id }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('kyc_request', %s, 'reminded', %s)",
+      "params": [
+       "{{ $node[\"Each request\"].json.customer_id }}",
+       "First reminder on day {{ $node[\"Each request\"].json.days_open }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 570,
+    "y": 400
+   }
+  },
+  {
+   "name": "Count outcomes",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "query",
+    "query": "SELECT COUNT(*) FILTER (WHERE action = 'completed') AS completed, COUNT(*) FILTER (WHERE action = 'reminded') AS reminded, COUNT(*) FILTER (WHERE action = 'restricted') AS restricted FROM audit_log WHERE entity = 'kyc_request' AND created_at >= CURRENT_DATE",
+    "queryParameters": []
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  },
+  {
+   "name": "Anything happened?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ int($json.rows[0].completed) + int($json.rows[0].reminded) + int($json.rows[0].restricted) > 0 }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Email KYC team",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.KYC_TEAM_EMAIL }}",
+    "subject": "Daily KYC summary",
+    "bodyFormat": "plain",
+    "body": "KYC requests today: {{ $json.rows[0].completed }} completed, {{ $json.rows[0].reminded }} reminded, {{ $json.rows[0].restricted }} restricted."
+   },
+   "position": {
+    "x": 1140,
+    "y": 220
+   }
+  },
+  {
+   "name": "KYC confirms restriction",
+   "type": "Approval",
+   "parameters": {
+    "title": "Confirm restriction for customer {{ $node[\"Each request\"].json.customer_id }}",
+    "context": {
+     "Customer": "{{ $node[\"Each request\"].json.customer_id }}",
+     "Email": "{{ $node[\"Each request\"].json.email }}",
+     "Days open": "{{ $node[\"Each request\"].json.days_open }}",
+     "Reminders sent": "{{ $node[\"Each request\"].json.reminders_sent }}"
+    },
+    "notify_email": "{{ $vars.KYC_TEAM_EMAIL }}",
+    "due_in": "1d",
+    "on_timeout": "timed_out"
+   },
+   "position": {
+    "x": 0,
+    "y": 510
+   }
+  },
+  {
+   "name": "Email RM to follow up",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.RM_EMAIL }}",
+    "subject": "Please follow up with customer {{ $node[\"Each request\"].json.customer_id }}",
+    "bodyFormat": "plain",
+    "body": "Customer {{ $node[\"Each request\"].json.customer_id }} ({{ $node[\"Each request\"].json.email }}) has not provided KYC documents after {{ $node[\"Each request\"].json.days_open }} days. The KYC team did not confirm a restriction (rejected or no answer within a day), so the customer has not been restricted. Please follow up."
+   },
+   "position": {
+    "x": 190,
+    "y": 510
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every day 8am",
+   "target_node": "Get open requests",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get open requests",
+   "target_node": "Split requests",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split requests",
+   "target_node": "Each request",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each request",
+   "target_node": "Check documents",
+   "source_output": "loop",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Each request",
+   "target_node": "Count outcomes",
+   "source_output": "done",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Check documents",
+   "target_node": "Documents uploaded?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Documents uploaded?",
+   "target_node": "Was restricted?",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Documents uploaded?",
+   "target_node": "Day 10 and 2 reminders?",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Was restricted?",
+   "target_node": "Lift restriction",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Was restricted?",
+   "target_node": "Mark complete",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Lift restriction",
+   "target_node": "Mark complete",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Mark complete",
+   "target_node": "Thank customer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Thank customer",
+   "target_node": "Each request",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Day 10 and 2 reminders?",
+   "target_node": "Day 7 and 1 reminder?",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Restrict customer",
+   "target_node": "Mark restricted",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Mark restricted",
+   "target_node": "Tell customer restricted",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Tell customer restricted",
+   "target_node": "Email RM to call",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email RM to call",
+   "target_node": "Each request",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Day 7 and 1 reminder?",
+   "target_node": "Email second reminder",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Day 7 and 1 reminder?",
+   "target_node": "Day 3 and no reminder?",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email second reminder",
+   "target_node": "Mark second reminder",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Mark second reminder",
+   "target_node": "Each request",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Day 3 and no reminder?",
+   "target_node": "Email first reminder",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Day 3 and no reminder?",
+   "target_node": "Each request",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email first reminder",
+   "target_node": "Mark first reminder",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Mark first reminder",
+   "target_node": "Each request",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Count outcomes",
+   "target_node": "Anything happened?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Anything happened?",
+   "target_node": "Email KYC team",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Day 10 and 2 reminders?",
+   "target_node": "KYC confirms restriction",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "KYC confirms restriction",
+   "target_node": "Restrict customer",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "KYC confirms restriction",
+   "target_node": "Email RM to follow up",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "KYC confirms restriction",
+   "target_node": "Email RM to follow up",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Email RM to follow up",
+   "target_node": "Each request",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Uploaded while restricted lifts restriction and completes",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 1,
+         "customer_id": "C100",
+         "email": "c100@example.com",
+         "requested_on": "2026-10-10",
+         "reminders_sent": 2,
+         "status": "restricted",
+         "days_open": 12
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C100",
+       "uploaded": true
+      }
+     }
+    },
+    "Lift restriction": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C100"
+      }
+     }
+    },
+    "Mark complete": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Thank customer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 1,
+         "reminded": 0,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email KYC team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Lift restriction",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Lift restriction",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C100"
+    },
+    {
+     "node": "Mark complete",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Thank customer",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "c100@example.com"
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email KYC team",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    }
+   ]
+  },
+  {
+   "name": "Uploaded while open completes without lifting",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 2,
+         "customer_id": "C200",
+         "email": "c200@example.com",
+         "requested_on": "2026-10-18",
+         "reminders_sent": 0,
+         "status": "open",
+         "days_open": 4
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C200",
+       "uploaded": true
+      }
+     }
+    },
+    "Mark complete": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Thank customer": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 1,
+         "reminded": 0,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email KYC team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Lift restriction",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark complete",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Thank customer",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email first reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Day 3 with no reminder sends the first reminder",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 3,
+         "customer_id": "C300",
+         "email": "c300@example.com",
+         "requested_on": "2026-10-19",
+         "reminders_sent": 0,
+         "status": "open",
+         "days_open": 3
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C300",
+       "uploaded": false
+      }
+     }
+    },
+    "Email first reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Mark first reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 1,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email KYC team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email first reminder",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "c300@example.com"
+    },
+    {
+     "node": "Mark first reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email second reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email KYC team",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    }
+   ]
+  },
+  {
+   "name": "Day 7 with one reminder sends the second reminder",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 4,
+         "customer_id": "C400",
+         "email": "c400@example.com",
+         "requested_on": "2026-10-15",
+         "reminders_sent": 1,
+         "status": "open",
+         "days_open": 7
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C400",
+       "uploaded": false
+      }
+     }
+    },
+    "Email second reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Mark second reminder": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 1,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email KYC team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email second reminder",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "c400@example.com"
+    },
+    {
+     "node": "Mark second reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email first reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Day 10 with two reminders restricts and tells customer and RM",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 5,
+         "customer_id": "C500",
+         "email": "c500@example.com",
+         "requested_on": "2026-10-12",
+         "reminders_sent": 2,
+         "status": "open",
+         "days_open": 10
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C500",
+       "uploaded": false
+      }
+     }
+    },
+    "KYC confirms restriction": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Restrict customer": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C500"
+      }
+     }
+    },
+    "Mark restricted": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Tell customer restricted": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Email RM to call": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 0,
+         "restricted": 1
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Email KYC team": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "KYC confirms restriction",
+     "port": "approved",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C500"
+    },
+    {
+     "node": "Mark restricted",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Tell customer restricted",
+     "subject": "request",
+     "path": "params.toEmail",
+     "op": "eq",
+     "value": "c500@example.com"
+    },
+    {
+     "node": "Email RM to call",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Email RM to follow up",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email second reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Day 5 with a reminder already sent is left alone and no summary",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 6,
+         "customer_id": "C600",
+         "email": "c600@example.com",
+         "requested_on": "2026-10-17",
+         "reminders_sent": 1,
+         "status": "open",
+         "days_open": 5
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C600",
+       "uploaded": false
+      }
+     }
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 0,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Email first reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email second reminder",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark complete",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Anything happened?",
+     "port": "false",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email KYC team",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Day 10 rejected by KYC does not restrict and emails RM to follow up",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 5,
+         "customer_id": "C500",
+         "email": "c500@example.com",
+         "requested_on": "2026-10-12",
+         "reminders_sent": 2,
+         "status": "open",
+         "days_open": 10
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C500",
+       "uploaded": false
+      }
+     }
+    },
+    "KYC confirms restriction": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "Customer is travelling",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email RM to follow up": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 0,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "KYC confirms restriction",
+     "port": "rejected",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark restricted",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Tell customer restricted",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email RM to call",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email RM to follow up",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email RM to follow up",
+     "subject": "request",
+     "path": "params.subject",
+     "op": "contains",
+     "value": "C500"
+    }
+   ]
+  },
+  {
+   "name": "Day 10 with no KYC answer does not restrict and emails RM to follow up",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 5,
+         "customer_id": "C500",
+         "email": "c500@example.com",
+         "requested_on": "2026-10-12",
+         "reminders_sent": 2,
+         "status": "open",
+         "days_open": 11
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C500",
+       "uploaded": false
+      }
+     }
+    },
+    "KYC confirms restriction": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Email RM to follow up": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 0,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "KYC confirms restriction",
+     "port": "timed_out",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Mark restricted",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email RM to follow up",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email RM to follow up",
+     "subject": "request",
+     "path": "params.subject",
+     "op": "contains",
+     "value": "C500"
+    }
+   ]
+  },
+  {
+   "name": "Day 9 with two reminders does not ask KYC yet",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get open requests": {
+     "items": [
+      {
+       "rows": [
+        {
+         "id": 7,
+         "customer_id": "C700",
+         "email": "c700@example.com",
+         "requested_on": "2026-10-14",
+         "reminders_sent": 2,
+         "status": "open",
+         "days_open": 9
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Check documents": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C700",
+       "uploaded": false
+      }
+     }
+    },
+    "Count outcomes": {
+     "items": [
+      {
+       "rows": [
+        {
+         "completed": 0,
+         "reminded": 0,
+         "restricted": 0
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "KYC confirms restriction",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Restrict customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email RM to follow up",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

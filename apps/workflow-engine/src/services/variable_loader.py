@@ -9,18 +9,18 @@ from __future__ import annotations
 
 
 async def load_run_variables(
-    environment: str = "default", team_id: str = "default"
+    environment: str = "default", team_id: str = "default", project_id: str | None = None,
 ) -> dict[str, str]:
     from ..db.session import async_session_factory
     from ..repositories.variable_repository import VariableRepository
 
     async with async_session_factory() as session:
         repo = VariableRepository(session)
-        return await repo.load_runtime_map(team_id=team_id, environment=environment)
+        return await repo.load_runtime_map(team_id=team_id, environment=environment, project_id=project_id)
 
 
 async def load_run_secrets(
-    environment: str = "default", team_id: str = "default"
+    environment: str = "default", team_id: str = "default", project_id: str | None = None,
 ) -> set[str]:
     """Decrypted set of `type=secret` VALUES (no keys) for log/UI redaction.
 
@@ -34,5 +34,5 @@ async def load_run_secrets(
     async with async_session_factory() as session:
         repo = VariableRepository(session)
         return await repo.load_runtime_secret_values(
-            team_id=team_id, environment=environment
+            team_id=team_id, environment=environment, project_id=project_id
         )

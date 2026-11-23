@@ -1,0 +1,64 @@
+/* Edge and empty-space vectors (DESIGN.md §6b).
+   A drafting-sheet vocabulary of three pieces, all theme tokens, all inert:
+     .eg-reg     registration mark: a 9px "+" where gutters cross, or beside a section rule
+     .eg-field   the hero grid continuing into empty space below content, with a ruler on the edge where content ends
+     .eg-leader  a dotted leader from a section title across to its controls / the column edge
+   Everything here is decorative: pointer-events none, aria-hidden, painted under content. */
+
+:root {
+  --eg-mark: var(--art-line);
+  --eg-grid: var(--art-faint);
+  --eg-tick: var(--art-line);
+  --eg-cell: 32px;   /* same cell as .vx-grid, so fields read as the hero grid continuing */
+  --eg-minor: 8px;   /* ruler minor tick */
+}
+.dark { --eg-mark: rgb(255 255 255 / .2); }
+
+.eg-reg, .eg-field, .eg-leader, .eg-gutters { pointer-events: none !important; user-select: none; }
+
+/* ── registration mark ── */
+.eg-reg { position: absolute; width: 9px; height: 9px; }
+.eg-reg::before, .eg-reg::after { content: ''; position: absolute; background: var(--eg-mark); }
+.eg-reg::before { left: 4px; top: 0; width: 1px; height: 9px; }
+.eg-reg::after { top: 4px; left: 0; width: 9px; height: 1px; }
+
+/* gutter marks: one layer, first child of the workspace (so every panel paints over it);
+   edges.js drops a mark wherever two gutters cross */
+.eg-gutters { position: absolute; inset: 0; }
+
+/* section marks: a pair of marks in the margin, level with a section rule (projects) */
+[data-edge~="reg"] { position: relative; }
+[data-edge~="reg"] > .eg-reg { top: 50%; margin-top: -4px; }
+[data-edge~="reg"] > .eg-reg.eg-l { left: -28px; }
+[data-edge~="reg"] > .eg-reg.eg-r { right: -28px; }
+
+/* ── field: grid + ruler in the empty space after content ── */
+.eg-host { position: relative; isolation: isolate; }
+.eg-field { position: absolute; z-index: -1; overflow: hidden; display: none; }
+.eg-field.eg-on { display: block; }
+.eg-field > .eg-grid { position: absolute; inset: 0;
+  background-image: linear-gradient(var(--eg-grid) 1px, transparent 1px), linear-gradient(90deg, var(--eg-grid) 1px, transparent 1px);
+  background-size: var(--eg-cell) var(--eg-cell);
+  -webkit-mask: linear-gradient(#000, rgb(0 0 0 / .5) 45%, transparent 92%), linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  -webkit-mask-composite: source-in;
+  mask: linear-gradient(#000, rgb(0 0 0 / .5) 45%, transparent 92%), linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  mask-composite: intersect; }
+/* ruler: minor ticks every 8px, major every 32px (on the grid's vertical lines), hanging from the edge where content ended */
+.eg-field > .eg-ruler { position: absolute; left: 0; right: 0; top: 0; height: 7px;
+  background:
+    linear-gradient(90deg, var(--eg-tick) 1px, transparent 1px) 0 0 / var(--eg-cell) 7px repeat-x,
+    linear-gradient(90deg, var(--eg-tick) 1px, transparent 1px) 0 0 / var(--eg-minor) 3px repeat-x;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  mask: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); opacity: .9; }
+.eg-field > .eg-reg { opacity: .9; }
+/* fields that sit on the panel (not in a well) are a touch quieter in light mode */
+.eg-field.quiet > .eg-grid { opacity: .7; }
+
+/* ── leader: the same dotted rule as the data page's end-of-table line ── */
+.eg-leader { flex: 1 1 auto; align-self: center; min-width: 24px; height: 1px; margin: 0 var(--s2, 8px); display: block;
+  background-image: radial-gradient(circle, var(--art-line) .75px, transparent 1px); background-size: 6px 1px; background-repeat: repeat-x; background-position: left center;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 48px); mask: linear-gradient(90deg, transparent, #000 48px); }
+.spacer > .eg-leader { margin: 0 var(--s3, 12px); }
+[data-edge~="leader"] .spacer:has(> .eg-leader) { display: flex; align-items: center; }
+
+@media print { .eg-gutters, .eg-field, .eg-reg { display: none !important; } }

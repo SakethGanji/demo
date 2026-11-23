@@ -1,0 +1,423 @@
+{
+  "id": "refund_over_500",
+  "holdout": false,
+  "request": "When a customer asks us for a refund we need their email, the amount and the reason. Anything over $500 has to be approved by a manager before we pay it out; anything up to $500 we just pay straight away. Whatever happens, let the customer know by message, and show the person who filled in the form what happened.",
+  "apis": [
+    "refunds.yaml",
+    "notify.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "FormTrigger",
+    "must_have_types": [
+      "If|Switch",
+      "Approval",
+      "Respond"
+    ],
+    "must_call": [
+      "refunds.issueRefund",
+      "notify.sendMessage"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved",
+      "rejected"
+    ],
+    "interface_kind": "form",
+    "max_nodes": 14,
+    "forbid_types": [],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "Small refund is paid without approval",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_email": "dana@example.com",
+            "amount": 200,
+            "reason": "item never arrived"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:refunds.issueRefund": {
+          "http": {
+            "status": 201,
+            "body": {
+              "refund_id": "RF-1001",
+              "status": "issued"
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 200
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Large refund approved is paid",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_email": "dana@example.com",
+            "amount": 900,
+            "reason": "item never arrived"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:refunds.issueRefund": {
+          "http": {
+            "status": 201,
+            "body": {
+              "refund_id": "RF-1001",
+              "status": "issued"
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 900
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Large refund rejected is not paid but the customer is told",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_email": "dana@example.com",
+            "amount": 900,
+            "reason": "item never arrived"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:refunds.issueRefund": {
+          "http": {
+            "status": 201,
+            "body": {
+              "refund_id": "RF-1001",
+              "status": "issued"
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Exactly 500 needs no approval",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_email": "dana@example.com",
+            "amount": 500,
+            "reason": "item never arrived"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:refunds.issueRefund": {
+          "http": {
+            "status": 201,
+            "body": {
+              "refund_id": "RF-1001",
+              "status": "issued"
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 500
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    },
+    {
+      "name": "501 needs approval and is paid when approved",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_email": "dana@example.com",
+            "amount": 501,
+            "reason": "item never arrived"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:refunds.issueRefund": {
+          "http": {
+            "status": 201,
+            "body": {
+              "refund_id": "RF-1001",
+              "status": "issued"
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:refunds.issueRefund",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 501
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    }
+  ],
+  "input_aliases": {
+    "customer_email": [
+      "email"
+    ],
+    "amount": [
+      "refund_amount"
+    ]
+  }
+}

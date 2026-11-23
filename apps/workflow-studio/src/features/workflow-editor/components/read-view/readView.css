@@ -1,0 +1,26 @@
+/* Read view (WorkflowReadView): cards and arrows from the canvas tokens, so light and dark both follow the studio.
+   Arrows are a step darker than the canvas's --edge-line: here the lines are the thing being read. */
+.rv { --rv-edge: color-mix(in srgb, var(--foreground) 45%, transparent); }
+
+.rv-card {
+  border-radius: 12px;
+  box-shadow: var(--node-edge), var(--node-shadow);
+  cursor: pointer;
+  transition: box-shadow var(--d-base, .15s) ease, transform var(--d-base, .15s) ease;
+}
+.rv-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px var(--ring), 0 0 0 4px color-mix(in srgb, var(--ring) 16%, transparent), var(--node-shadow);
+}
+.rv .react-flow__node { cursor: pointer; }
+
+.rv-handle { opacity: 0; pointer-events: none; width: 1px !important; height: 1px !important; min-width: 0 !important; min-height: 0 !important; border: 0 !important; }
+
+.rv-edge { fill: none; stroke: var(--rv-edge); stroke-width: 1.6px; stroke-linejoin: round; }
+.rv-arrow { fill: var(--rv-edge); }
+
+.rv-label {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 14%, transparent);
+}

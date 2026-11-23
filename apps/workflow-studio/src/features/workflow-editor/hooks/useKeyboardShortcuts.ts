@@ -3,6 +3,9 @@ import { useReactFlow } from '@xyflow/react';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useEditorLayoutStore } from '../stores/editorLayoutStore';
 import { useNDVStore } from '../stores/ndvStore';
+import { useEditorPaletteStore } from '../stores/editorActionsStore';
+import { useStageStore } from '@/features/ai-builder/stage/stageStore';
+import { useConvertSubworkflowStore, selectedWorkflowNodeNames } from '../stores/convertSubworkflowStore';
 
 interface KeyboardShortcutsOptions {
   onSave?: () => void;
@@ -23,6 +26,8 @@ const SHORTCUTS = [
   { key: 'Delete/Backspace', description: 'Delete selected nodes' },
   // Node operations
   { key: 'Enter', description: 'Open selected node settings' },
+  { key: 'D', description: 'Disable / enable selected nodes' },
+  { key: 'Alt + X', description: 'Convert selected nodes to a sub-workflow' },
   { key: 'Arrow keys', description: 'Move selected nodes' },
   { key: 'Shift + Arrow', description: 'Move nodes faster' },
   // Add nodes
@@ -39,6 +44,7 @@ const SHORTCUTS = [
   { key: 'Ctrl/Cmd + +', description: 'Zoom in' },
   { key: 'Ctrl/Cmd + -', description: 'Zoom out' },
   { key: 'F', description: 'Fit to view' },
+  { key: 'Ctrl/Cmd + K', description: 'Open command palette' },
   { key: 'Escape', description: 'Close panel/modal' },
   { key: '?', description: 'Show shortcuts help' },
 ] as const;
@@ -52,6 +58,13 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
+      // While an AI build or review owns the canvas it is view-only: shortcuts would edit the hidden draft.
+      // Esc is left to the stage (it skips the current round).
+      if (useStageStore.getState().active) {
+        if (event.key === 'Escape') useStageStore.getState().requestSkip();
+        return;
+      }
+
       const target = event.target as HTMLElement;
       const isInputFocused =
         target.tagName === 'INPUT' ||
@@ -69,6 +82,16 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         useEditorLayoutStore.getState().closeCreatorPanel();
       }
 
+      // Ctrl/Cmd + K: editor command palette (works from inputs too, like n8n; not over the node panel)
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === 'k') {
+        if (!isNDVOpen) {
+          event.preventDefault();
+          const palette = useEditorPaletteStore.getState();
+          palette.setOpen(!palette.open);
+        }
+        return;
+      }
+
       // Don't handle other shortcuts when typing or when NDV modal is open
       // (allow native copy/paste/cut in inputs, code editors, and NDV content)
       if (isInputFocused) return;
@@ -76,6 +99,16 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
 
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const modifierKey = isMac ? event.metaKey : event.ctrlKey;
+
+      // Alt + X: convert the selected nodes to a sub-workflow (Stage 8). `code`, because Alt changes `key` on a Mac.
+      if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === 'KeyX') {
+        const names = selectedWorkflowNodeNames(getNodes());
+        if (names.length > 0) {
+          event.preventDefault();
+          useConvertSubworkflowStore.getState().openDialog(names);
+        }
+        return;
+      }
 
       // Ctrl/Cmd + S: Save workflow
       if (modifierKey && event.key === 's') {
@@ -198,6 +231,18 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
         return;
       }
 
+      // D (plain): disable / enable the selected nodes
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'd') {
+        const selectedIds = getNodes().filter((n) => n.selected).map((n) => n.id);
+        const { selectedNodeId, toggleNodeDisabled } = useWorkflowStore.getState();
+        const ids = selectedIds.length > 0 ? selectedIds : selectedNodeId ? [selectedNodeId] : [];
+        if (ids.length > 0) {
+          event.preventDefault();
+          ids.forEach((id) => toggleNodeDisabled(id));
+        }
+        return;
+      }
+
       // Ctrl/Cmd + 0: Fit view
       if (modifierKey && event.key === '0') {
         event.preventDefault();
@@ -298,7 +343,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutsOptions = {}) {
       }
 
       // Enter: Open selected node details
-      if (event.key === 'Enter') {
+      if (event.key === 'Enter' && !modifierKey) {
         const { selectedNodeId } = useWorkflowStore.getState();
         if (selectedNodeId) {
           event.preventDefault();

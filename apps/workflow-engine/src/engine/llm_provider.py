@@ -56,6 +56,9 @@ class LLMResponse:
     usage: Optional[LLMUsage] = None
     response_time_ms: Optional[float] = None
     malformed_tool_call: bool = False
+    output_truncated: bool = False
+    # JSON-safe native model content retains Gemini's opaque thought signatures.
+    gemini_content: Optional[Dict[str, Any]] = None
 
     def get_assistant_message(self) -> Dict:
         """Return the model's response as an OpenAI-format message dict."""
@@ -63,6 +66,7 @@ class LLMResponse:
             return {
                 "role": "assistant",
                 "content": self.text,
+                **({"_gemini_content": self.gemini_content} if self.gemini_content else {}),
                 "tool_calls": [
                     {
                         "id": tc.id,
@@ -75,7 +79,50 @@ class LLMResponse:
                     for tc in self.tool_calls
                 ],
             }
-        return {"role": "assistant", "content": self.text}
+        return {"role": "assistant", "content": self.text,
+                **({"_gemini_content": self.gemini_content} if self.gemini_content else {})}
+
+
+class OutputTruncatedError(RuntimeError):
+    """The reply was cut off by the output limit, or its tool arguments could not be parsed (so they are likely cut off)."""
+
+    def __init__(self, message: str, response: "LLMResponse | None" = None) -> None:
+        super().__init__(message)
+        self.response = response
+        self.truncated = True
+
+
+def is_truncated(resp: "LLMResponse") -> bool:
+    """True when the reply hit the output limit (any provider) or carries a tool call whose arguments failed to parse."""
+    return bool(resp.output_truncated or resp.malformed_tool_call)
+
+
+def require_complete(resp: "LLMResponse") -> "LLMResponse":
+    """Return ``resp`` unchanged, or raise :class:`OutputTruncatedError` when :func:`is_truncated`, so a caller can split the work."""
+    if is_truncated(resp):
+        why = "output limit reached" if resp.output_truncated else "tool arguments did not parse"
+        raise OutputTruncatedError(f"the model reply was incomplete ({why})", resp)
+    return resp
+
+
+# Calls asking for more output than this stream the reply (a long non-streaming call is refused or dropped by the SDKs).
+STREAM_ABOVE_TOKENS = 16_000
+# Per-call timeout (seconds) for a large generation: a ~60KB JSON reply takes several minutes.
+DEFAULT_TIMEOUT_S = 120.0
+LARGE_OUTPUT_TIMEOUT_S = 600.0
+
+
+def call_timeout(kwargs: dict[str, Any]) -> float:
+    """Seconds one provider call may take: an explicit ``timeout`` kwarg, else longer for big output budgets."""
+    t = kwargs.get("timeout")
+    if t:
+        return float(t)
+    return LARGE_OUTPUT_TIMEOUT_S if (kwargs.get("max_tokens") or 0) > 8_000 else DEFAULT_TIMEOUT_S
+
+
+def _timeout_kw(kwargs: dict[str, Any]) -> dict[str, float]:
+    """``timeout=`` for the SDK call only when the caller set one or asked for a big output; small calls keep the SDK default."""
+    return {"timeout": call_timeout(kwargs)} if kwargs.get("timeout") or (kwargs.get("max_tokens") or 0) > 8_000 else {}
 
 
 # ---------------------------------------------------------------------------
@@ -84,11 +131,27 @@ class LLMResponse:
 
 GEMINI_MODELS: set[str] = {
     "gemini-2.5-pro", "gemini-2.5-flash",
-    "gemini-2.0-flash", "gemini-2.0-flash-001",
+    "gemini-3.7-flash", "gemini-3.8-flash",
     "gemini-1.5-flash", "gemini-1.5-flash-latest",
     "gemini-1.5-pro", "gemini-1.5-pro-latest",
     "gemini-1.0-pro",
 }
+
+# Models Google has retired -> their replacement. Workflows saved with an old name keep working.
+RETIRED_MODEL_ALIASES: dict[str, str] = {
+    "gemini-2.0-flash": "gemini-3.7-flash",
+    "gemini-2.0-flash-001": "gemini-3.7-flash",
+}
+
+
+def resolve_model_alias(model: str) -> str:
+    """Map a retired model name to its replacement (logs once per call when it applies)."""
+    new = RETIRED_MODEL_ALIASES.get(model)
+    if new is None:
+        return model
+    logger.info("Model %s is retired; using %s instead", model, new)
+    return new
+
 
 LLAMA_MODELS: dict[str, str] = {
     "meta/llama-4-maverick-17b-128e-instruct-maas": "us-east5",
@@ -200,6 +263,34 @@ from .tool_schema import (
     safe_repair_json,
 )
 
+
+
+def _normalize_tools(tools: Optional[list], provider: str = "anthropic") -> list[dict]:
+    """The one tool normaliser (UI-DESIGN §10.3, review E7): callables or dicts →
+    ``[{name, description, parameters}]`` hardened for ``provider``. Every adapter and the
+    test-only fake LLM use it, so the fake logs exactly the schemas a real provider would get."""
+    if not tools:
+        return []
+    return prepare_tools_for_provider(list(tools), provider)
+
+
+def is_configured(model: str) -> bool:
+    """Whether ``model`` can be called (credentials present). The fake LLM, when installed, decides
+    (``PUT /api/_test/fake-llm/state {unavailable}``)."""
+    from . import fake_llm
+
+    if fake_llm.ACTIVE is not None:
+        return not fake_llm.ACTIVE.unavailable
+    model = RETIRED_MODEL_ALIASES.get(model, model)
+    if model in GEMINI_MODELS or model.startswith("gemini-"):
+        return bool(_get_env("GEMINI_API_KEY") or os.environ.get("GOOGLE_CLOUD_PROJECT") or _get_env("LLM_PROXY_PROJECT"))
+    if model in LLAMA_MODELS:
+        return bool(os.environ.get("COIN_TOKEN"))
+    if model.startswith("claude-"):
+        return bool(_get_env("ANTHROPIC_API_KEY"))
+    return bool(_get_env("OPENAI_API_KEY"))
+
+
 # Models where OpenAI strict mode is safe to use
 _OPENAI_STRICT_MODELS = frozenset({
     "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-05-13", "gpt-4o-2024-08-06",
@@ -235,7 +326,9 @@ def _convert_messages_to_gemini_content(
             )
 
         elif role == "assistant":
-            if msg.get("tool_calls"):
+            if msg.get("_gemini_content"):
+                contents.append(Content.model_validate(msg["_gemini_content"]))
+            elif msg.get("tool_calls"):
                 parts = []
                 for tc in msg["tool_calls"]:
                     fn = tc.get("function", {})
@@ -378,7 +471,7 @@ async def _call_gemini_vertex(
     # Build tools — wrap in Tool(function_declarations=...)
     gemini_tools = None
     if tools:
-        prepared = prepare_tools_for_provider(tools, "gemini")
+        prepared = _normalize_tools(tools, "gemini")
         declarations = []
         for schema in prepared:
             declarations.append(FunctionDeclaration(
@@ -399,6 +492,8 @@ async def _call_gemini_vertex(
         # Pro requires >=128 (API error otherwise); Flash supports 0 (fully off).
         budget = 128 if "pro" in model else 0
         config_kwargs["thinking_config"] = ThinkingConfig(thinking_budget=budget)
+    if kwargs.get("thinking_level") is not None:
+        config_kwargs["thinking_config"] = ThinkingConfig(thinking_level=kwargs["thinking_level"])
     if gemini_tools:
         config_kwargs["tools"] = gemini_tools
         # Map tool_choice kwarg to Gemini's function_calling_mode
@@ -422,6 +517,13 @@ async def _call_gemini_vertex(
         config_kwargs["response_mime_type"] = "application/json"
         if "schema" in rf:
             config_kwargs["response_schema"] = rf["schema"]
+
+    try:
+        from google.genai.types import HttpOptions
+        if _timeout_kw(kwargs):
+            config_kwargs["http_options"] = HttpOptions(timeout=int(call_timeout(kwargs) * 1000))
+    except Exception:  # older SDKs without per-call options keep the client default
+        pass
 
     config = GenerateContentConfig(**config_kwargs)
 
@@ -458,8 +560,16 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         return LLMResponse(text="[Model returned no candidates]")
 
     candidate = response.candidates[0]
+    native_content = (candidate.content.model_dump(mode="json", exclude_none=True)
+                      if candidate.content is not None and hasattr(candidate.content, "model_dump") else None)
     finish = getattr(candidate, "finish_reason", None)
     finish_name = getattr(finish, "name", None)
+
+    if finish_name == "MAX_TOKENS":
+        # Never execute a partial file-writing tool call or report an empty
+        # reasoning-only response as a completed app generation.
+        return LLMResponse(text="The model exceeded its output token limit.",
+                           output_truncated=True, gemini_content=native_content)
 
     # Gemini returns MALFORMED_FUNCTION_CALL when function call output is
     # garbled — signal to the agent loop so it can retry the turn.
@@ -486,6 +596,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
             return LLMResponse(
                 text="\n".join(text_parts) if text_parts else None,
                 tool_calls=tool_calls,
+                gemini_content=native_content,
             )
         # No recoverable tool calls — try JSON repair on text parts
         if text_parts:
@@ -527,6 +638,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         return LLMResponse(
             text="\n".join(text_parts) if text_parts else None,
             tool_calls=tool_calls,
+            gemini_content=native_content,
         )
 
     text = None
@@ -540,7 +652,7 @@ def _parse_gemini_response(response: Any) -> LLMResponse:
         if finish_name and finish_name != "STOP":
             text += f" (finish_reason={finish_name})"
 
-    return LLMResponse(text=text)
+    return LLMResponse(text=text, gemini_content=native_content)
 
 
 # ---------------------------------------------------------------------------
@@ -561,9 +673,7 @@ async def _call_openai_compat(
     # Build schema lookup for JSON repair
     _tool_schema_lookup: dict[str, dict] = {}
     if tools:
-        prepared = prepare_tools_for_provider(
-            tools, "openai" if is_strict else "llama",
-        )
+        prepared = _normalize_tools(tools, "openai" if is_strict else "llama")
         api_tools = []
         for schema in prepared:
             _tool_schema_lookup[schema["name"]] = schema["parameters"]
@@ -581,12 +691,12 @@ async def _call_openai_compat(
 
     completion_kwargs: dict[str, Any] = {
         "model": model,
-        "messages": messages,
+        "messages": [{k: v for k, v in m.items() if k != "_gemini_content"} for m in messages],
         "temperature": temperature,
     }
     if api_tools:
         completion_kwargs["tools"] = api_tools
-        completion_kwargs["tool_choice"] = "auto"
+        completion_kwargs["tool_choice"] = "required" if kwargs.get("tool_choice") == "required" else "auto"
         completion_kwargs["parallel_tool_calls"] = True
     if kwargs.get("max_tokens"):
         completion_kwargs["max_tokens"] = kwargs["max_tokens"]
@@ -608,7 +718,7 @@ async def _call_openai_compat(
 
     from time import perf_counter as _pc
     _t0 = _pc()
-    completion = await client.chat.completions.create(**completion_kwargs)
+    completion = await client.chat.completions.create(**completion_kwargs, **_timeout_kw(kwargs))
     _elapsed = round((_pc() - _t0) * 1000, 2)
 
     resp = LLMResponse()
@@ -628,6 +738,8 @@ async def _call_openai_compat(
 
     msg = choice.message
     resp.text = msg.content or None
+    if getattr(choice, "finish_reason", None) == "length":
+        resp.output_truncated = True
     if msg.tool_calls:
         for tc in msg.tool_calls:
             raw_args_str = tc.function.arguments or ""
@@ -677,7 +789,7 @@ async def _call_anthropic(
 
     api_tools = None
     if tools:
-        prepared = prepare_tools_for_provider(tools, "anthropic")
+        prepared = _normalize_tools(tools, "anthropic")
         api_tools = []
         for schema in prepared:
             api_tools.append({
@@ -697,10 +809,17 @@ async def _call_anthropic(
         call_kwargs["tools"] = api_tools
     if temperature is not None:
         call_kwargs["temperature"] = temperature
+    if api_tools and kwargs.get("tool_choice") == "required":
+        call_kwargs["tool_choice"] = {"type": "any"}
 
     from time import perf_counter as _pc
     _t0 = _pc()
-    response = await client.messages.create(**call_kwargs)
+    if call_kwargs["max_tokens"] > STREAM_ABOVE_TOKENS:
+        # The SDK refuses a long non-streaming call; stream and take the assembled message.
+        async with client.messages.stream(**call_kwargs, **_timeout_kw(kwargs)) as stream:
+            response = await stream.get_final_message()
+    else:
+        response = await client.messages.create(**call_kwargs, **_timeout_kw(kwargs))
     _elapsed = round((_pc() - _t0) * 1000, 2)
 
     resp = LLMResponse()
@@ -726,6 +845,8 @@ async def _call_anthropic(
             ))
     if text_parts:
         resp.text = "\n".join(text_parts)
+    if getattr(response, "stop_reason", None) == "max_tokens":
+        resp.output_truncated = True
 
     return resp
 
@@ -774,8 +895,8 @@ _RETRY_BASE_DELAY = 1.0  # seconds
 def _is_retryable(exc: Exception) -> bool:
     """Check if an exception is transient and worth retrying."""
     # OpenAI / Anthropic SDK errors
-    status = getattr(exc, "status_code", None) or getattr(exc, "status", None)
-    if status in (429, 500, 502, 503, 529):
+    if any(getattr(exc, attr, None) in (429, 500, 502, 503, 529)
+           for attr in ("status_code", "status", "code")):
         return True
     # google-genai wraps HTTP errors in google.api_core.exceptions
     cls_name = type(exc).__name__
@@ -785,6 +906,25 @@ def _is_retryable(exc: Exception) -> bool:
     if isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
         return True
     return False
+
+
+def _retry_delay(exc: Exception, attempt: int) -> float:
+    """Honor Gemini's RetryInfo instead of retrying inside its quota window."""
+    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+    body = getattr(exc, "details", None)
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        details = (error.get("details") or []) if isinstance(error, dict) else []
+        for detail in details:
+            if not isinstance(detail, dict) or not str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+                continue
+            duration = detail.get("retryDelay")
+            if isinstance(duration, str) and duration.endswith("s"):
+                try:
+                    delay = max(delay, float(duration[:-1]) + 0.25)
+                except ValueError:
+                    pass
+    return delay
 
 
 async def call_llm(
@@ -797,7 +937,7 @@ async def call_llm(
     """Unified function to call an LLM with optional tool calling.
 
     Args:
-        model: Model identifier (e.g. "gemini-2.0-flash", "gpt-4o").
+        model: Model identifier (e.g. "gemini-3.7-flash", "gpt-4o").
         messages: Conversation as OpenAI-format dicts.
         temperature: Sampling temperature.
         tools: List of tools — each can be a Python callable (schema
@@ -816,7 +956,11 @@ async def call_llm(
             last_exc = exc
             if not _is_retryable(exc) or attempt == _MAX_RETRIES - 1:
                 raise
-            delay = _RETRY_BASE_DELAY * (2 ** attempt)
+            delay = _retry_delay(exc, attempt)
+            if delay > 60:
+                # Daily/exhausted quota needs outside action; never hold a run
+                # open for hours or repeatedly hammer the same failed request.
+                raise
             logger.warning(
                 "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
                 attempt + 1, _MAX_RETRIES, delay, exc,
@@ -833,6 +977,11 @@ async def _call_llm_once(
     **kwargs: Any,
 ) -> LLMResponse:
     """Single attempt to call an LLM backend."""
+    from . import fake_llm  # UI-DESIGN §10.3: test-only fake, below the retry loop
+
+    if fake_llm.ACTIVE is not None:
+        return await fake_llm.ACTIVE.call(model, messages, temperature, tools, **kwargs)
+    model = resolve_model_alias(model)
     if model in GEMINI_MODELS or model.startswith("gemini-"):
         return await _call_gemini_vertex(
             model, messages, temperature, tools=tools, **kwargs,

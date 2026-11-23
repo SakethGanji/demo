@@ -1,0 +1,75 @@
+{
+  "name": "Support chat",
+  "description": "A chat assistant for card questions.",
+  "nodes": [
+    {
+      "name": "Chat message",
+      "type": "ChatInput",
+      "parameters": {
+        "placeholder": "Ask about your card...",
+        "welcomeMessage": "Hi, how can I help?"
+      },
+      "position": {
+        "x": 0,
+        "y": 120
+      }
+    },
+    {
+      "name": "Assistant",
+      "type": "AIAgent",
+      "parameters": {
+        "model": "gemini-3.7-flash",
+        "systemPrompt": "SUPPORT_CHAT\nYou are a concise support assistant for a bank's card desk.",
+        "task": "{{ $json.message }}",
+        "memoryType": "buffer",
+        "memorySessionId": "{{ $json.session_id }}"
+      },
+      "position": {
+        "x": 280,
+        "y": 120
+      }
+    },
+    {
+      "name": "Chat reply",
+      "type": "Respond",
+      "parameters": {
+        "statusCode": 200,
+        "body": {
+          "text": "{{ $json.response }}"
+        }
+      },
+      "position": {
+        "x": 560,
+        "y": 120
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "Chat message",
+      "target_node": "Assistant",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Assistant",
+      "target_node": "Chat reply",
+      "source_output": "main",
+      "target_input": "main"
+    }
+  ],
+  "interface": {
+    "kind": "chat",
+    "slug": "support-chat",
+    "title": "Support chat",
+    "description": "",
+    "trigger_node": "Chat message",
+    "result_node": "Chat reply",
+    "screens": {},
+    "access": {
+      "mode": "public",
+      "public_tasks": false,
+      "hide_progress": false
+    }
+  }
+}

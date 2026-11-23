@@ -1,0 +1,2 @@
+payee_name,iban,amount,currency,reference
+Example Payee Ltd,GB29NWBK60161331926819,100.00,GBP,Invoice 123

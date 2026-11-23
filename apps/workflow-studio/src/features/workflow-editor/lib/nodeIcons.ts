@@ -5,6 +5,7 @@
 
 import {
   MousePointer,
+  UserCheck,
   Play,
   Clock,
   Webhook,
@@ -31,6 +32,7 @@ import {
   Pause,
   ArrowRightLeft,
   FileCode,
+  FileCode2,
   FileText,
   Send,
   Database,
@@ -145,6 +147,9 @@ const iconMap: Record<string, LucideIconComponent> = {
   pause: Pause,
   'hourglass-half': Pause,
   'fa:hourglass-half': Pause,
+  'user-check': UserCheck,
+  'fa:user-check': UserCheck,
+  approval: UserCheck,
   wait: Pause,
   sync: RefreshCw,
   'fa:sync': RefreshCw,
@@ -184,6 +189,9 @@ const iconMap: Record<string, LucideIconComponent> = {
   'fa:list-ol': ListOrdered,
   itemlists: ListOrdered,
   sample: Filter,
+  'file-code': FileCode2,
+  'fa:file-code': FileCode2,
+  html: FileCode2,
 
   // ── Integration/Database nodes ─────────────────────────────────────
   leaf: Leaf,

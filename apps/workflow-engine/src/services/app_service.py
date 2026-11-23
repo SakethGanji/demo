@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Iterable
 
@@ -34,6 +35,8 @@ from ..services.slug_utils import (
 )
 from ..utils.ids import app_id
 
+logger = logging.getLogger(__name__)
+
 
 # Argon2 hasher with library defaults — argon2-cffi picks sensible parameters.
 # We re-use a single instance because hasher state is internal config only.
@@ -43,6 +46,59 @@ _password_hasher = PasswordHasher()
 class AppPublishError(RuntimeError):
     """Raised when a publish request can't be satisfied (bad slug, no source,
     bundler down, etc). The message is safe to surface to the caller."""
+
+
+class SlugTakenError(AppPublishError):
+    """Review C4: the slug belongs to another app → 409 {"detail":{"code":"slug_taken"}}."""
+
+    def __init__(self, slug: str) -> None:
+        super().__init__(f"slug '{slug}' is already in use")
+        self.slug = slug
+
+    def detail(self) -> dict:
+        return {"code": "slug_taken", "message": str(self), "slug": self.slug}
+
+
+class StaleBaseError(RuntimeError):
+    """A save or AI turn was based on a version that is no longer the app's head (another save landed first) → 409."""
+
+    def __init__(self, base_version_id: int | None, current_version_id: int | None) -> None:
+        super().__init__(
+            f"this app changed since version {base_version_id}; reload the latest version before saving")
+        self.base_version_id, self.current_version_id = base_version_id, current_version_id
+
+    def detail(self) -> dict:
+        return {"code": "stale_base", "message": str(self),
+                "base_version_id": self.base_version_id, "current_version_id": self.current_version_id}
+
+
+def check_base(row: AppModel, base_version_id: int | None) -> None:
+    """Optimistic concurrency: raise StaleBaseError when ``base_version_id`` is given and is not the app's head."""
+    if base_version_id is not None and row.current_version_id != base_version_id:
+        raise StaleBaseError(base_version_id, row.current_version_id)
+
+
+class AppValidationError(ValueError):
+    def __init__(self, code: str, message: str, **extra) -> None:
+        super().__init__(message)
+        self.code, self.message, self.extra = code, message, extra
+
+    def detail(self) -> dict:
+        return {"code": self.code, "message": self.message, **self.extra}
+
+
+def rotate_token_key(row: AppModel) -> str:
+    """Review D3: the published-app token rotation key lives in ``apps.settings.token_key``."""
+    import secrets as _secrets
+    from sqlalchemy.orm.attributes import flag_modified
+
+    key = _secrets.token_urlsafe(16)
+    row.settings = {**(row.settings or {}), "token_key": key}
+    try:
+        flag_modified(row, "settings")
+    except Exception:
+        pass
+    return key
 
 
 class AppService:
@@ -60,19 +116,32 @@ class AppService:
 
     # ── List / Get / Create / Update / Delete ────────────────────────────────
 
-    async def list_apps(self, folder_id: str | None = None) -> list[AppListItem]:
+    async def list_apps(self, folder_id: str | None = None, project_id: str | None = None) -> list[AppListItem]:
         stmt = select(AppModel)
         if folder_id is not None:
             stmt = stmt.where(AppModel.folder_id == folder_id)
+        if project_id is not None:
+            stmt = stmt.where(AppModel.project_id == project_id)
         stmt = stmt.order_by(AppModel.updated_at.desc())
         result = await self._session.execute(stmt)
         rows = result.scalars().all()
+        vids = [r.current_version_id for r in rows if r.current_version_id]
+        numbers: dict[int, int] = {}
+        if vids:
+            vres = await self._session.execute(
+                select(AppVersionModel.id, AppVersionModel.version_number).where(AppVersionModel.id.in_(vids)))
+            numbers = {vid: n for vid, n in vres.all()}
         return [
             AppListItem(
                 id=r.id,
                 name=r.name,
                 created_at=r.created_at.isoformat(),
                 updated_at=r.updated_at.isoformat(),
+                project_id=r.project_id,
+                slug=r.slug,
+                active=r.active,
+                published_at=r.published_at.isoformat() if r.published_at else None,
+                current_version_number=numbers.get(r.current_version_id) if r.current_version_id else None,
             )
             for r in rows
         ]
@@ -92,8 +161,31 @@ class AppService:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def create_app(self, req: AppCreateRequest) -> AppDetailResponse:
+    async def _project_id(self, ref: str | None) -> str | None:
+        if not ref:
+            return None
+        from .project_service import resolve_project
+        p = await resolve_project(self._session, ref)
+        if not p:
+            raise AppPublishError(f"project '{ref}' not found")
+        return p.id
+
+    async def check_workflow_ids(self, project_id: str, workflow_ids: list[str] | None) -> None:
+        """G22: allow-listed workflows that exist must belong to the app's project."""
+        if not workflow_ids:
+            return
+        from ..db.models import WorkflowModel
+        res = await self._session.execute(
+            select(WorkflowModel.id, WorkflowModel.project_id).where(WorkflowModel.id.in_(list(workflow_ids))))
+        bad = sorted(wid for wid, pid in res.all() if pid != project_id)
+        if bad:
+            raise AppValidationError("workflow_not_in_project",
+                                     "workflow_ids must belong to the app's project", workflow_ids=bad)
+
+    async def create_app(self, req: AppCreateRequest, created_by: str | None = None) -> AppDetailResponse:
         now = datetime.now()
+        project_id = await self._project_id(getattr(req, "project_id", None))
+        await self.check_workflow_ids(project_id or "proj_default", req.workflow_ids)
         row = AppModel(
             id=app_id(),
             name=req.name,
@@ -105,18 +197,29 @@ class AppService:
             draft_definition=req.definition,
             created_at=now,
             updated_at=now,
+            created_by=created_by,
         )
+        if project_id:
+            row.project_id = project_id
         self._session.add(row)
         await self._session.commit()
         await self._session.refresh(row)
         return await self._to_detail(row)
 
     async def update_app(self, aid: str, req: AppUpdateRequest) -> AppDetailResponse | None:
-        row = await self._session.get(AppModel, aid)
+        base = getattr(req, "base_version_id", None)
+        # a based save locks the row so two concurrent saves from the same base can't both pass the check
+        row = await self._session.get(AppModel, aid, with_for_update=base is not None)
         if not row:
             return None
+        check_base(row, base)
         if req.name is not None:
             row.name = req.name
+        if getattr(req, "project_id", None):
+            row.project_id = await self._project_id(req.project_id)
+        if req.workflow_ids is not None or getattr(req, "project_id", None):
+            await self.check_workflow_ids(
+                row.project_id, req.workflow_ids if req.workflow_ids is not None else list(row.workflow_ids or []))
         if req.definition is not None:
             row.draft_definition = req.definition
         if req.description is not None:
@@ -139,6 +242,9 @@ class AppService:
         elif req.access_password is not None:
             # Setting/clearing the password without changing access mode.
             await self._apply_access(row, row.access, req.access_password)
+
+        if getattr(req, "token_ttl_s", None) is not None:  # test-only knob (review D3), honoured in test mode
+            row.settings = {**(row.settings or {}), "token_ttl_s": int(req.token_ttl_s)}
 
         row.updated_at = datetime.now()
 
@@ -273,6 +379,39 @@ class AppService:
             public_url=None,  # route layer fills this with the absolute URL
         )
 
+    async def publish_release_version(self, aid: str, version_id: int, client_src: str | None) -> bool:
+        """Phase 9: serve a release-pinned app version at /a/{slug} (promote/rollback into the live env).
+        Only for apps that are already published (slug + active). Returns True if re-published."""
+        from .client_codegen import CLIENT_PATH
+        row = await self._session.get(AppModel, aid)
+        version = await self._session.get(AppVersionModel, version_id)
+        if not row or not version or version.app_id != aid or not row.slug or not row.active:
+            return False
+        file_dicts = await self._file_storage.get_files(version_id)
+        files = [AppFileInput(path=f["path"], content=f["content"]) for f in file_dicts if f["path"] != CLIENT_PATH] \
+            or [AppFileInput(path="App.tsx", content=version.source_code or "")]
+        if client_src:
+            files.append(AppFileInput(path=CLIENT_PATH, content=client_src))
+        try:
+            artifact = await bundle_app(files)
+        except (BundlerUnavailableError, BundleBuildError) as e:
+            raise AppPublishError(f"bundle failed: {e}") from e
+        await self._bundle_storage.save_bundle(version_id, artifact)
+        row.published_version_id = version_id
+        row.published_at = datetime.now()
+        # The release service owns the transaction: app pointers and the active
+        # backend release must become visible together, or all roll back.
+        await self._session.flush()
+        return True
+
+    async def ensure_token_key(self, row: AppModel) -> str:
+        """The app's current token rotation key, created on first use (review D3)."""
+        key = (row.settings or {}).get("token_key")
+        if not key:
+            key = rotate_token_key(row)
+            await self._session.commit()
+        return key
+
     async def unpublish_app(self, aid: str) -> AppPublishResponse:
         """Take a published app offline. Bundle bytes stay on the version row
         (re-publish is then a no-op rebuild) and history is preserved — we
@@ -283,6 +422,7 @@ class AppService:
         row.active = False
         row.published_version_id = None
         row.published_at = None
+        rotate_token_key(row)  # review D3: tokens of the unpublished app die even if it is re-published
         row.updated_at = datetime.now()
         await self._session.commit()
         return AppPublishResponse(
@@ -454,7 +594,7 @@ class AppService:
         if row.slug == slug:
             return
         if await self._slug_exists(slug, exclude_id=row.id):
-            raise AppPublishError(f"slug '{slug}' is already in use")
+            raise SlugTakenError(slug)
         row.slug = slug
 
     async def _apply_access(
@@ -470,6 +610,7 @@ class AppService:
                 if not password:
                     raise AppPublishError("password may not be empty")
                 row.access_password_hash = _password_hasher.hash(password)
+                rotate_token_key(row)  # a new password invalidates outstanding page tokens
             elif not row.access_password_hash:
                 raise AppPublishError(
                     "access='password' requires access_password to be set"
@@ -479,6 +620,8 @@ class AppService:
             # don't carry around stale credentials.
             if password == "":
                 row.access_password_hash = None
+            if access == "private" and row.access != "private":
+                rotate_token_key(row)
 
         row.access = access
 
@@ -504,15 +647,34 @@ class AppService:
 
     async def _files_for_publish(self, row: AppModel) -> list[AppFileInput]:
         """Resolve the file list to bundle. Prefer current_version_id files
-        (richer multi-file structure); fall back to the single draft source."""
+        (richer multi-file structure); fall back to the single draft source.
+        The project's typed client (api/client.ts) is always regenerated (phase 6, G18)."""
+        files: list[AppFileInput] | None = None
         if row.current_version_id:
             file_dicts = await self._file_storage.get_files(row.current_version_id)
             if file_dicts:
-                return [
-                    AppFileInput(path=f["path"], content=f["content"])
-                    for f in file_dicts
-                ]
-        return [AppFileInput(path="App.tsx", content=row.draft_source_code or "")]
+                files = [AppFileInput(path=f["path"], content=f["content"]) for f in file_dicts]
+        if files is None:
+            files = [AppFileInput(path="App.tsx", content=row.draft_source_code or "")]
+        client = await self.project_client(row, live=True)
+        if client is not None:
+            from .client_codegen import CLIENT_PATH
+            files = [f for f in files if f.path != CLIENT_PATH] + [AppFileInput(path=CLIENT_PATH, content=client)]
+        return files
+
+    async def project_client(self, row: AppModel, live: bool = False) -> str | None:
+        """Generated client for the app's project (None when the project has no routes)."""
+        from ..db.models import ApiRouteModel, ProjectModel
+        project = await self._session.get(ProjectModel, row.project_id)
+        if project is None:
+            return None
+        n = (await self._session.execute(select(func.count()).select_from(ApiRouteModel).where(
+            ApiRouteModel.project_id == project.id))).scalar_one()
+        if not n:
+            return None
+        from ..routes.api_routes import client_source
+        src, _ = await client_source(self._session, project, project.live_environment if live else project.default_environment)
+        return src
 
     async def _next_version_number(self, aid: str) -> int:
         stmt = (
@@ -554,9 +716,30 @@ class AppService:
         if files:
             await self._file_storage.save_files(version.id, files)  # type: ignore[arg-type]
 
+        await self._record_file_changes(app, version, files)
         app.current_version_id = version.id
         app.draft_source_code = source_code
         return version
+
+    async def _record_file_changes(self, app: AppModel, version: AppVersionModel, files: list[dict[str, str]] | None) -> None:
+        """The project file change log: one row per file this version changes against its parent (never fails the save)."""
+        from . import project_files as pf
+
+        try:
+            before: dict[str, str] = {}
+            if version.parent_version_id:
+                parent = await self._session.get(AppVersionModel, version.parent_version_id)
+                if parent is not None:
+                    before = {p: f["content"] for p, f in (await pf.version_files(self._session, parent)).items()}
+            after = {f["path"]: f["content"] for f in files} if files else ({"App.tsx": version.source_code} if version.source_code else {})
+            slug = await pf.app_slug(self._session, app.project_id, app.id)
+        except Exception:  # noqa: BLE001
+            logger.warning("app %s: could not compute the file changes of a new version", app.id, exc_info=True)
+            return
+        label = f"v{version.version_number}" + (f": {version.prompt[:200]}" if version.prompt else "")
+        await pf.record_changes(self._session, app.project_id, [
+            {"path": f"apps/{slug}/{p}", "before": before.get(p), "after": after.get(p), "summary": label}
+            for p in sorted(set(before) | set(after))])
 
     async def _version_response(self, version_id: int | None) -> AppVersionResponse | None:
         if not version_id:
@@ -587,8 +770,10 @@ class AppService:
         return AppDetailResponse(
             id=row.id,
             name=row.name,
+            description=row.description,
             definition=row.draft_definition or {},
             active=row.active,
+            project_id=row.project_id,
             workflow_ids=row.workflow_ids or [],
             api_execution_ids=row.api_execution_ids or [],
             source_code=row.draft_source_code,

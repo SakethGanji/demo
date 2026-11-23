@@ -1,0 +1,809 @@
+{
+ "name": "Card daily limit change",
+ "nodes": [
+  {
+   "name": "Limit request",
+   "type": "Webhook",
+   "parameters": {
+    "method": "POST",
+    "path": "card-limit-change",
+    "responseMode": "lastNode"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get card",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "core_banking",
+    "operation": "query",
+    "query": "SELECT card_id, daily_limit FROM cards WHERE card_id = %s",
+    "queryParameters": [
+     "{{ $json.body.card_id }}"
+    ]
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Card found?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.rowCount > 0 }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply not found",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 404,
+    "body": {
+     "status": "not_found"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  },
+  {
+   "name": "Gather request",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "card_id",
+      "value": "{{ $node[\"Limit request\"].json.body.card_id }}"
+     },
+     {
+      "name": "requested_limit",
+      "value": "{{ float($node[\"Limit request\"].json.body.requested_limit) }}"
+     },
+     {
+      "name": "reason",
+      "value": "{{ $node[\"Limit request\"].json.body.reason }}"
+     },
+     {
+      "name": "current_limit",
+      "value": "{{ float($json.rows[0].daily_limit) }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Is increase?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.requested_limit > $json.current_limit }}"
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Use requested limit",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "new_limit",
+      "value": "{{ $json.requested_limit }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  },
+  {
+   "name": "Credit officer",
+   "type": "Approval",
+   "parameters": {
+    "title": "Card limit increase for {{ $json.card_id }}",
+    "context": {
+     "Card": "{{ $json.card_id }}",
+     "Current limit": "{{ $json.current_limit }}",
+     "Requested limit": "{{ $json.requested_limit }}",
+     "Reason": "{{ $json.reason }}"
+    },
+    "form": [
+     {
+      "name": "approved_limit",
+      "label": "Approved limit",
+      "type": "number",
+      "required": true
+     }
+    ],
+    "require_comment_on_reject": true,
+    "due_in": "4h",
+    "on_timeout": "timed_out",
+    "notify_email": "{{ $vars.CREDIT_OFFICER_EMAIL }}"
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Head of credit",
+   "type": "Approval",
+   "parameters": {
+    "title": "Escalated: card limit increase for {{ $json.card_id }}",
+    "context": {
+     "Card": "{{ $json.card_id }}",
+     "Current limit": "{{ $json.current_limit }}",
+     "Requested limit": "{{ $json.requested_limit }}",
+     "Reason": "{{ $json.reason }}"
+    },
+    "form": [
+     {
+      "name": "approved_limit",
+      "label": "Approved limit",
+      "type": "number",
+      "required": true
+     }
+    ],
+    "require_comment_on_reject": true,
+    "due_in": "1d",
+    "on_timeout": "reject",
+    "notify_email": "{{ $vars.HEAD_OF_CREDIT_EMAIL }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  },
+  {
+   "name": "Use approved limit",
+   "type": "Set",
+   "parameters": {
+    "mode": "manual",
+    "fields": [
+     {
+      "name": "new_limit",
+      "value": "{{ $json.approval.form_data.approved_limit }}"
+     }
+    ]
+   },
+   "position": {
+    "x": 0,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply rejected",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "rejected",
+     "reason": "{{ coalesce($json.approval.comment, \"\") }}"
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 400
+   }
+  },
+  {
+   "name": "Set limit",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "cards",
+     "operation_id": "setLimit"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "card_id": "{{ $json.card_id }}"
+    },
+    "body": {
+     "daily_limit": "{{ $json.new_limit }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 290
+   }
+  },
+  {
+   "name": "Record change",
+   "type": "Postgres",
+   "parameters": {
+    "connection": "ops_db",
+    "operation": "transaction",
+    "statements": [
+     {
+      "query": "INSERT INTO limit_changes (card_id, old_limit, new_limit, reason) VALUES (%s, %s, %s, %s)",
+      "params": [
+       "{{ $node[\"Limit request\"].json.body.card_id }}",
+       "{{ $node[\"Gather request\"].json.current_limit }}",
+       "{{ $node[\"Set limit\"].json.body.daily_limit }}",
+       "{{ $node[\"Limit request\"].json.body.reason }}"
+      ]
+     },
+     {
+      "query": "INSERT INTO audit_log (entity, entity_id, action, detail) VALUES ('card', %s, 'limit_change', %s)",
+      "params": [
+       "{{ $node[\"Limit request\"].json.body.card_id }}",
+       "Limit changed from {{ $node[\"Gather request\"].json.current_limit }} to {{ $node[\"Set limit\"].json.body.daily_limit }}"
+      ]
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 290
+   }
+  },
+  {
+   "name": "Reply applied",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "applied",
+     "limit": "{{ $node[\"Set limit\"].json.body.daily_limit }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 290
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Limit request",
+   "target_node": "Get card",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get card",
+   "target_node": "Card found?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Card found?",
+   "target_node": "Gather request",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Card found?",
+   "target_node": "Reply not found",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Gather request",
+   "target_node": "Is increase?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Is increase?",
+   "target_node": "Credit officer",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Is increase?",
+   "target_node": "Use requested limit",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Use requested limit",
+   "target_node": "Set limit",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Credit officer",
+   "target_node": "Use approved limit",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Credit officer",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Credit officer",
+   "target_node": "Head of credit",
+   "source_output": "timed_out",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of credit",
+   "target_node": "Use approved limit",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Head of credit",
+   "target_node": "Reply rejected",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Use approved limit",
+   "target_node": "Set limit",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Set limit",
+   "target_node": "Record change",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record change",
+   "target_node": "Reply applied",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Unknown card gets 404 and nothing else",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C9",
+       "requested_limit": 1000,
+       "reason": "travel"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get card": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply not found",
+     "subject": "request",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 404
+    },
+    {
+     "node": "Reply not found",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "not_found"
+    },
+    {
+     "node": "Set limit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record change",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Decrease is applied without approval",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C1",
+       "requested_limit": 300,
+       "reason": "lost phone"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get card": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C1",
+         "daily_limit": 500
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Set limit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C1",
+       "daily_limit": 300
+      }
+     }
+    },
+    "Record change": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Credit officer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Set limit",
+     "subject": "request",
+     "path": "body.daily_limit",
+     "op": "eq",
+     "value": 300
+    },
+    {
+     "node": "Reply applied",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "applied"
+    },
+    {
+     "node": "Reply applied",
+     "subject": "request",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 300
+    }
+   ]
+  },
+  {
+   "name": "Same limit is applied without approval",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C1",
+       "requested_limit": 500,
+       "reason": "no change"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get card": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C1",
+         "daily_limit": 500
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Set limit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C1",
+       "daily_limit": 500
+      }
+     }
+    },
+    "Record change": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Credit officer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Set limit",
+     "subject": "request",
+     "path": "body.daily_limit",
+     "op": "eq",
+     "value": 500
+    },
+    {
+     "node": "Reply applied",
+     "subject": "request",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 500
+    }
+   ]
+  },
+  {
+   "name": "Increase approved at a lower limit uses the approved limit",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C1",
+       "requested_limit": 1000,
+       "reason": "holiday"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get card": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C1",
+         "daily_limit": 500
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Credit officer": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {
+       "approved_limit": 800
+      },
+      "decided_by": "test"
+     }
+    },
+    "Set limit": {
+     "http": {
+      "status": 200,
+      "body": {
+       "card_id": "C1",
+       "daily_limit": 800
+      }
+     }
+    },
+    "Record change": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Set limit",
+     "subject": "request",
+     "path": "body.daily_limit",
+     "op": "eq",
+     "value": 800
+    },
+    {
+     "node": "Record change",
+     "subject": "request",
+     "path": "params.statements",
+     "op": "exists"
+    },
+    {
+     "node": "Head of credit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply applied",
+     "subject": "request",
+     "path": "body.limit",
+     "op": "eq",
+     "value": 800
+    }
+   ]
+  },
+  {
+   "name": "Credit officer rejects with a reason",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C1",
+       "requested_limit": 1000,
+       "reason": "holiday"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get card": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C1",
+         "daily_limit": 500
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Credit officer": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "too risky",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "too risky"
+    },
+    {
+     "node": "Set limit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Record change",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Nobody decides in time: rejected with empty reason",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "body": {
+       "card_id": "C1",
+       "requested_limit": 1000,
+       "reason": "holiday"
+      }
+     }
+    ]
+   },
+   "mocks": {
+    "Get card": {
+     "items": [
+      {
+       "rows": [
+        {
+         "card_id": "C1",
+         "daily_limit": 500
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "Credit officer": {
+     "port": "timed_out",
+     "approval": {
+      "decision": "timed_out",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Head of credit": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Head of credit",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "Reply rejected",
+     "subject": "request",
+     "path": "body.reason",
+     "op": "eq",
+     "value": ""
+    },
+    {
+     "node": "Set limit",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

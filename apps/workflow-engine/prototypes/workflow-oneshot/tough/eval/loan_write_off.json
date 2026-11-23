@@ -1,0 +1,984 @@
+{
+ "id": "loan_write_off",
+ "request": "Collections staff submit loan write-offs by webhook with loan_id, amount and reason. Check the loan in core banking: if it isn't there, isn't in status 'defaulted', or the amount is more than its outstanding balance, reply 422 with {status: 'refused', reason} where reason is 'loan not found', 'loan not defaulted' or 'amount exceeds outstanding', and stop. Up to 5,000 needs one approval from the ops manager (OPS_MANAGER_EMAIL). Over 5,000 and up to 50,000 needs two different credit committee members, one after the other (four eyes, both tasks sent to CREDIT_COMMITTEE_EMAIL). Over 50,000 is refused (422, reason 'needs board approval'): the board handles those offline. Every approval is due within 2 days and is rejected automatically if nobody decides; rejecting needs a reason. When approved, write it in ops_db in one transaction: a write_offs row (loan id, amount, the last approver's comment) and an audit_log row (entity 'loan', the loan id, action 'write_off'). Reply 200 {status: 'written_off'}, or 200 {status: 'rejected', reason: <the approver's comment>}.",
+ "apis": [],
+ "tables": {},
+ "expect": {
+  "trigger": "Webhook",
+  "must_have_types": [
+   "Postgres",
+   "Approval",
+   "Respond"
+  ],
+  "max_nodes": 24,
+  "min_types": {
+   "Approval": 3
+  }
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "5,000 needs only the ops manager",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 5000,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L7",
+         "customer_id": "CU7",
+         "outstanding": "9000.00",
+         "days_past_due": 200,
+         "officer_email": "o@bank.test",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "ok",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "item": "any",
+     "path": "params.notify_email",
+     "op": "eq",
+     "value": "ops-manager@bank.test"
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "item": "any",
+     "path": "params.due_in",
+     "op": "one_of",
+     "value": [
+      "2d",
+      "48h"
+     ]
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "item": "any",
+     "path": "params.on_timeout",
+     "op": "eq",
+     "value": "reject"
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "request",
+     "item": "any",
+     "path": "sql",
+     "op": "contains",
+     "value": "audit_log"
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": "L7"
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": 5000
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "written_off"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "5,001 needs two committee members, both four-eyes",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 5001,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L7",
+         "customer_id": "CU7",
+         "outstanding": "9000.00",
+         "days_past_due": 200,
+         "officer_email": "o@bank.test",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "agreed",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "item": "all",
+     "path": "params.four_eyes",
+     "op": "eq",
+     "value": true
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "item": "all",
+     "path": "params.notify_email",
+     "op": "eq",
+     "value": "credit-committee@bank.test"
+    },
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "item": "all",
+     "path": "params.on_timeout",
+     "op": "eq",
+     "value": "reject"
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": "agreed"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "written_off"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Second committee member rejects: nothing written",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 20000,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L7",
+         "customer_id": "CU7",
+         "outstanding": "30000",
+         "days_past_due": 200,
+         "officer_email": "o@bank.test",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval": {
+     "approval": {
+      "decision": "{{ 'rejected' if 'approval' in $json else 'approved' }}",
+      "comment": "{{ 'duplicate' if 'approval' in $json else 'fine' }}",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "duplicate"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Over 50,000 goes to the board",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 50001,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L7",
+         "customer_id": "CU7",
+         "outstanding": "90000",
+         "days_past_due": 200,
+         "officer_email": "o@bank.test",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:write_offs",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 422
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "needs board approval"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Not defaulted is refused",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 100,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L7",
+         "customer_id": "CU7",
+         "outstanding": "9000.00",
+         "days_past_due": 200,
+         "officer_email": "o@bank.test",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 422
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "loan not defaulted"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "More than outstanding is refused (text numbers compared as numbers)",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 1000,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L7",
+         "customer_id": "CU7",
+         "outstanding": "999.50",
+         "days_past_due": 200,
+         "officer_email": "o@bank.test",
+         "status": "defaulted"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "amount exceeds outstanding"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Unknown loan is refused",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "loan_id": "L7",
+       "amount": 100,
+       "reason": "uncollectable"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:loans": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$pgw:write_offs": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 422
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.reason",
+     "op": "eq",
+     "value": "loan not found"
+    }
+   ]
+  }
+ ],
+ "variables": {
+  "CREDIT_OFFICER_EMAIL": {
+   "value": "credit-officers@bank.test"
+  },
+  "HEAD_OF_CREDIT_EMAIL": {
+   "value": "head-credit@bank.test"
+  },
+  "COLLECTIONS_LEAD_EMAIL": {
+   "value": "collections-lead@bank.test"
+  },
+  "OPS_MANAGER_EMAIL": {
+   "value": "ops-manager@bank.test"
+  },
+  "CREDIT_COMMITTEE_EMAIL": {
+   "value": "credit-committee@bank.test"
+  },
+  "BRANCH_MANAGER_EMAIL": {
+   "value": "branch-manager@bank.test"
+  },
+  "AUTO_REFUND_LIMIT": {
+   "value": "50",
+   "description": "largest fee refunded without a manager"
+  },
+  "CORE_API_KEY": {
+   "value": "sk-core-999",
+   "secret": true
+  }
+ },
+ "subworkflows": [
+  {
+   "id": "wf_notify_customer",
+   "name": "Notify customer",
+   "description": "Sends a customer a message on their preferred channel and logs it.",
+   "inputs": [
+    {
+     "name": "customer_id",
+     "type": "string",
+     "required": true
+    },
+    {
+     "name": "message",
+     "type": "string",
+     "required": true
+    }
+   ],
+   "output_fields": [
+    "sent",
+    "channel"
+   ],
+   "definition": {
+    "name": "child",
+    "nodes": [
+     {
+      "name": "Called",
+      "type": "ExecuteWorkflowTrigger",
+      "parameters": {
+       "inputSource": "fields",
+       "fields": [
+        {
+         "name": "customer_id",
+         "type": "string",
+         "required": true
+        },
+        {
+         "name": "message",
+         "type": "string",
+         "required": true
+        }
+       ]
+      }
+     },
+     {
+      "name": "Result",
+      "type": "Set",
+      "parameters": {
+       "mode": "manual",
+       "keepOnlySet": true,
+       "fields": [
+        {
+         "name": "sent",
+         "value": "{{ true }}"
+        },
+        {
+         "name": "channel",
+         "value": "sms"
+        }
+       ]
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source_node": "Called",
+      "target_node": "Result",
+      "source_output": "main",
+      "target_input": "main"
+     }
+    ]
+   }
+  }
+ ],
+ "databases": {
+  "core_banking": {
+   "writable": false,
+   "description": "read replica of core banking",
+   "tables": {
+    "customers": [
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "full_name",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "segment",
+      "text"
+     ]
+    ],
+    "accounts": [
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "product",
+      "text"
+     ],
+     [
+      "balance",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "loans": [
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "outstanding",
+      "numeric"
+     ],
+     [
+      "days_past_due",
+      "integer"
+     ],
+     [
+      "officer_email",
+      "text"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "cards": [
+     [
+      "card_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "daily_limit",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  },
+  "ops_db": {
+   "writable": true,
+   "description": "our operations database",
+   "tables": {
+    "limit_changes": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "card_id",
+      "text"
+     ],
+     [
+      "old_limit",
+      "numeric"
+     ],
+     [
+      "new_limit",
+      "numeric"
+     ],
+     [
+      "reason",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "audit_log": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "entity",
+      "text"
+     ],
+     [
+      "entity_id",
+      "text"
+     ],
+     [
+      "action",
+      "text"
+     ],
+     [
+      "detail",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "collection_actions": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "stage",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "write_offs": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "approver_comment",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "fee_refunds": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "approved_by_manager",
+      "boolean"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "account_closures": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ]
+   }
+  }
+ }
+}

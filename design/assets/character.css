@@ -1,0 +1,66 @@
+/* Character: a few deliberate points of emphasis on the refreshed theme. A focal point, a type scale with
+   presence, one brand moment, and data that reads as data. Load after theme.css. */
+:root { --brand-1: #3b82f6; --brand-2: #4f46e5; --brand-soft: color-mix(in srgb, var(--primary) 8%, transparent); }
+.dark { --brand-1: #5b8cff; --brand-2: #6d5dfc; --brand-soft: color-mix(in srgb, var(--primary) 14%, transparent); }
+
+/* brand moment: the mark and the project get an identity */
+.brand { background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .25), 0 1px 2px rgb(30 40 120 / .25); letter-spacing: -.01em; }
+.p-avatar { width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0; display: grid; place-items: center; color: #fff; font-weight: 650; font-size: 15px; letter-spacing: -.02em;
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .25), 0 4px 12px -4px color-mix(in srgb, var(--brand-2) 60%, transparent); }
+.switcher .dot { display: none; }
+.switcher::before { content: 'P'; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; font-size: 10.5px; font-weight: 650; color: #fff; background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); }
+
+/* type with presence */
+h1 { font-size: 26px !important; letter-spacing: -.028em !important; font-weight: 650 !important; line-height: 1.15; }
+.panel-head h3, .rh h2 { font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+.eyebrow { letter-spacing: .05em; }
+
+/* focal point: the stats strip leads, runs lead the stats */
+.stats { box-shadow: 0 0 0 .5px var(--panel-border), var(--shadow-md) !important; }
+.stat .label { font-size: 12px; font-weight: 500; }
+.stat .value { font-size: 28px; font-weight: 600; letter-spacing: -.03em; margin-top: 6px; line-height: 1.15; }
+.stat .value small { font-size: 12.5px; letter-spacing: 0; }
+.stat:nth-child(4) { background: linear-gradient(180deg, var(--brand-soft), transparent 75%); }
+.m-spark rect { fill: color-mix(in srgb, var(--primary) 22%, transparent) !important; }
+.m-spark rect.last { fill: var(--primary) !important; }
+.m-spark { width: 96px; height: 24px; }
+
+/* section heads: icons sit in a quiet brand-tinted tile, giving each panel an anchor */
+.panel-head > svg { width: 26px !important; height: 26px !important; padding: 5px; border-radius: 7px; color: var(--primary); background: var(--brand-soft); stroke-width: 2; }
+
+/* status reads at a glance */
+.badge.success .dot { box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 22%, transparent); }
+.badge { font-weight: 550; }
+
+/* a hint of atmosphere: a faint brand wash behind the top of the workspace */
+.workspace { background: radial-gradient(60% 40% at 15% -5%, color-mix(in srgb, var(--brand-1) 9%, transparent), transparent 70%), var(--canvas); }
+.dark .workspace { background: radial-gradient(60% 40% at 15% -5%, color-mix(in srgb, var(--brand-2) 16%, transparent), transparent 70%), var(--canvas); }
+
+/* ── custom art ── */
+:root { --art-line: color-mix(in srgb, var(--foreground) 16%, transparent); --art-faint: color-mix(in srgb, var(--foreground) 13%, transparent); }
+.dark { --art-line: color-mix(in srgb, var(--foreground) 18%, transparent); --art-faint: color-mix(in srgb, var(--foreground) 12%, transparent); }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 540px); gap: 24px; align-items: center; margin: -6px 0 2px; }
+.hero-l { min-width: 0; }
+.hero-actions { display: flex; gap: 8px; margin-top: 18px; }
+.hero-art { min-width: 0; }
+.art { display: block; width: 100%; height: auto; overflow: visible; }
+.art text { font-family: var(--font-sans); }
+.art .a-mono { font-family: var(--font-mono); font-size: 10.5px; fill: var(--foreground); }
+.art .a-strong { font-weight: 600; }
+.art .a-label { font-size: 10.5px; fill: var(--muted-foreground); }
+.art .a-card { fill: var(--card); stroke: var(--art-line); stroke-width: 1; filter: drop-shadow(0 1px 1.5px rgb(15 15 25 / .06)); }
+.dark .art .a-card { filter: none; }
+.art .a-tile { fill: var(--muted); }
+.art .a-bar { fill: var(--art-line); }
+.art .a-dot { fill: var(--art-line); }
+.art .a-wire { fill: none; stroke: var(--art-line); stroke-width: 1.25; }
+.art .a-hot { stroke: color-mix(in srgb, var(--brand-1) 55%, transparent); }
+.art .a-warn { stroke: var(--warning); stroke-dasharray: 3 4; opacity: .8; }
+.art .a-stroke-brand { stroke: var(--brand-1); stroke-width: 1.25; }
+.art .a-packet { fill: var(--brand-1); filter: drop-shadow(0 0 3px var(--brand-1)); }
+.art .a-warn-pill { fill: color-mix(in srgb, var(--warning) 9%, var(--card)); stroke: color-mix(in srgb, var(--warning) 40%, transparent); stroke-width: 1; }
+.art-thumb { width: 96px; flex-shrink: 0; }
+.rel-art { padding: 14px 16px 10px; }
+@media (max-width: 1100px) { .hero { grid-template-columns: 1fr; } .hero-art { display: none; } }
+
+.err-text { color: var(--destructive); }

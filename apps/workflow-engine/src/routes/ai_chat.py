@@ -1,35 +1,33 @@
-"""AI Chat SSE endpoint."""
+"""AI Chat SSE endpoint (DESIGN-STAGE6-AI-BUILDER sections 4.13 and 8).
+
+The chat answers questions and proposes changes; it never saves. Events: ``phase``, ``route``, ``text``, ``spec`` (a spec_draft
+proposal to approve), ``proposal`` (a built modify proposal to review), ``error`` (with ``code``), ``done``. There is no ``operations``
+event: a change is a proposal that a person keeps in the review panel.
+"""
 
 from __future__ import annotations
 
-from typing import AsyncGenerator
+from typing import Annotated, AsyncGenerator
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 
-from ..core.dependencies import get_ai_chat_service, get_ai_chat_service_adk
+from ..core.dependencies import get_ai_chat_service
 from ..schemas.ai_chat import AIChatRequest
 
 router = APIRouter(prefix="/ai")
-
-# Toggle: "default" | "adk"
-_BACKEND = "default"
-
-_get_service = get_ai_chat_service if _BACKEND == "default" else get_ai_chat_service_adk
 
 
 @router.post("/chat")
 async def ai_chat(
     request: AIChatRequest,
-    service=Depends(_get_service),
+    service=Depends(get_ai_chat_service),
+    x_actor_name: Annotated[str | None, Header(alias="X-Actor-Name")] = None,
 ) -> EventSourceResponse:
-    """Stream AI chat response as SSE events."""
+    """Stream the AI chat reply as SSE events."""
 
     async def event_generator() -> AsyncGenerator[ServerSentEvent, None]:
-        async for event in service.stream_chat(request):
-            yield ServerSentEvent(
-                data=event["data"],
-                event=event["event"],
-            )
+        async for event in service.stream_chat(request, x_actor_name):
+            yield ServerSentEvent(data=event["data"], event=event["event"])
 
     return EventSourceResponse(event_generator())

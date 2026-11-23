@@ -1,0 +1,616 @@
+{
+  "format": "wf-template/1",
+  "slug": "dataset-report-email",
+  "version": "1.0.0",
+  "name": "Email a dataset report",
+  "summary": "Profile a dataset, have an LLM write a data-quality report, render it as HTML and email it.",
+  "category": "data",
+  "tags": [
+    "datasets",
+    "profile",
+    "report",
+    "email",
+    "llm"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [],
+    "secrets": [],
+    "variables": [
+      {
+        "name": "REPORT_TO",
+        "default": "reports@example.com",
+        "type": "string",
+        "description": "Who receives the report: one email address, or several separated by commas. Replace the reports@example.com placeholder."
+      }
+    ],
+    "egress_hosts": []
+  },
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "Email a dataset report",
+      "publish": false,
+      "description": "Pick a dataset on the Profile step, set REPORT_TO, run it, and read the report in your inbox.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Run",
+            "type": "Start",
+            "parameters": {},
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Profile dataset",
+            "type": "Profile",
+            "parameters": {
+              "sourceType": "dataset",
+              "datasetId": "",
+              "includeHistograms": false,
+              "includeCorrelations": false,
+              "includeDuplicates": true,
+              "topN": 5
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Analyse profile",
+            "type": "LLMChat",
+            "parameters": {
+              "model": "gemini-3.8-flash",
+              "systemPrompt": "You are a senior data analyst. You receive the profile of one dataset as JSON (row and column counts, duplicate rows and, per column, its type, count, null_count, null_percent, unique_count and, for numeric columns, min, max, mean and std). Write a concise report in Markdown for a busy reader, with exactly these sections:\n\n## Overview\nWhat the dataset is in two or three sentences: size, the kinds of columns, anything notable.\n\n## Data quality\nMissing values (which columns, how many, what share), duplicate rows, and likely outliers you can infer from min/max against mean and std (for example a max more than three standard deviations above the mean). Say plainly when something looks fine.\n\n## Column highlights\nA pipe table with the columns: Column | Type | Missing % | Unique | Notes. One row per column (at most 15; mention the rest in a sentence).\n\n## Recommendations\nTwo to five concrete next steps as a bulleted list.\n\nUse only numbers from the profile; never invent values. Do not wrap the report in a code fence and do not add a title above the first section.",
+              "userMessage": "Here is the dataset profile as JSON. Write the report.\n\n{{ json_stringify($json) }}",
+              "temperature": 0.2,
+              "maxTokens": 4096
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Build report",
+            "type": "Html",
+            "parameters": {
+              "mode": "markdown",
+              "content": "{{ $json.response }}",
+              "title": "Dataset report"
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            }
+          },
+          {
+            "name": "Email report",
+            "type": "SendEmail",
+            "parameters": {
+              "toEmail": "{{ $vars.REPORT_TO }}",
+              "subject": "Dataset report",
+              "bodyFormat": "html",
+              "body": "{{ $json.html }}"
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Run",
+            "target_node": "Profile dataset",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Profile dataset",
+            "target_node": "Analyse profile",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Analyse profile",
+            "target_node": "Build report",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Build report",
+            "target_node": "Email report",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_3e8a51c0",
+            "name": "The analyst's Markdown becomes an HTML report that is emailed",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "items": [
+                  {
+                    "success": true,
+                    "row_count": 120,
+                    "column_count": 3,
+                    "memory_usage_bytes": 4096,
+                    "duplicate_row_count": 2,
+                    "columns": [
+                      {
+                        "name": "order_id",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 118,
+                        "min": 1,
+                        "max": 120,
+                        "mean": 60.5,
+                        "std": 34.8,
+                        "top_values": []
+                      },
+                      {
+                        "name": "email",
+                        "dtype": "text",
+                        "count": 120,
+                        "null_count": 7,
+                        "null_percent": 5.83,
+                        "unique_count": 101,
+                        "top_values": []
+                      },
+                      {
+                        "name": "amount",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 95,
+                        "min": 2.5,
+                        "max": 9800.0,
+                        "mean": 140.2,
+                        "std": 610.4,
+                        "top_values": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Analyse profile": {
+                "items": [
+                  {
+                    "response": "## Overview\n120 orders across 3 columns: an id, a customer email and an amount.\n\n## Data quality\n- **email** is missing in 7 rows (5.83%).\n- 2 duplicate rows.\n- **amount** has a likely outlier: max 9800 is far above the mean of 140.2 (std 610.4).\n\n## Column highlights\n| Column | Type | Missing % | Unique | Notes |\n|---|---|---|---|---|\n| order_id | numeric | 0 | 118 | 2 ids repeat |\n| email | text | 5.83 | 101 | gaps |\n| amount | numeric | 0 | 95 | outlier at 9800 |\n\n## Recommendations\n1. Remove the 2 duplicate rows.\n2. Backfill or flag the missing emails.\n3. Check the 9800 order by hand.\n",
+                    "model": "gemini-3.8-flash"
+                  }
+                ]
+              },
+              "Email report": {
+                "items": [
+                  {
+                    "success": true,
+                    "sent": true,
+                    "to": "reports@example.com",
+                    "subject": "Dataset report",
+                    "html": "<!DOCTYPE html>...",
+                    "message_id": "<report-1@example.com>"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "title",
+                "op": "eq",
+                "value": "Dataset report"
+              },
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "html",
+                "op": "contains",
+                "value": "<h1"
+              },
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "html",
+                "op": "contains",
+                "value": "<table"
+              },
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "html",
+                "op": "contains",
+                "value": "Column highlights</h2>"
+              },
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "text",
+                "op": "contains",
+                "value": "| email | text | 5.83 | 101 | gaps |"
+              },
+              {
+                "node": "Email report",
+                "port": "main",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Email report",
+                "port": "main",
+                "path": "sent",
+                "op": "eq",
+                "value": true
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_7c2d94ab",
+            "name": "A report without a table still renders its sections",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "items": [
+                  {
+                    "success": true,
+                    "row_count": 120,
+                    "column_count": 3,
+                    "memory_usage_bytes": 4096,
+                    "duplicate_row_count": 2,
+                    "columns": [
+                      {
+                        "name": "order_id",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 118,
+                        "min": 1,
+                        "max": 120,
+                        "mean": 60.5,
+                        "std": 34.8,
+                        "top_values": []
+                      },
+                      {
+                        "name": "email",
+                        "dtype": "text",
+                        "count": 120,
+                        "null_count": 7,
+                        "null_percent": 5.83,
+                        "unique_count": 101,
+                        "top_values": []
+                      },
+                      {
+                        "name": "amount",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 95,
+                        "min": 2.5,
+                        "max": 9800.0,
+                        "mean": 140.2,
+                        "std": 610.4,
+                        "top_values": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Analyse profile": {
+                "items": [
+                  {
+                    "response": "## Overview\nA small, clean dataset.\n\n## Recommendations\n- Nothing to fix.\n"
+                  }
+                ]
+              },
+              "Email report": {
+                "items": [
+                  {
+                    "success": true,
+                    "sent": true,
+                    "to": "reports@example.com",
+                    "subject": "Dataset report",
+                    "html": "<!DOCTYPE html>...",
+                    "message_id": "<report-1@example.com>"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "html",
+                "op": "contains",
+                "value": "Overview</h2>"
+              },
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "html",
+                "op": "contains",
+                "value": "<ul"
+              },
+              {
+                "node": "Build report",
+                "port": "main",
+                "path": "text",
+                "op": "contains",
+                "value": "- Nothing to fix."
+              },
+              {
+                "node": "Email report",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_b51f0e72",
+            "name": "The analytics service failing stops the run before the LLM",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "error": {
+                  "message": "No dataset named 'sales' in this project.",
+                  "code": "DATASET_NOT_FOUND"
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Profile dataset",
+                "subject": "node",
+                "op": "status",
+                "value": "error"
+              },
+              {
+                "node": "Analyse profile",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Email report",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_d09c6a3f",
+            "name": "An LLM failure sends no email",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "items": [
+                  {
+                    "success": true,
+                    "row_count": 120,
+                    "column_count": 3,
+                    "memory_usage_bytes": 4096,
+                    "duplicate_row_count": 2,
+                    "columns": [
+                      {
+                        "name": "order_id",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 118,
+                        "min": 1,
+                        "max": 120,
+                        "mean": 60.5,
+                        "std": 34.8,
+                        "top_values": []
+                      },
+                      {
+                        "name": "email",
+                        "dtype": "text",
+                        "count": 120,
+                        "null_count": 7,
+                        "null_percent": 5.83,
+                        "unique_count": 101,
+                        "top_values": []
+                      },
+                      {
+                        "name": "amount",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 95,
+                        "min": 2.5,
+                        "max": 9800.0,
+                        "mean": 140.2,
+                        "std": 610.4,
+                        "top_values": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Analyse profile": {
+                "error": {
+                  "message": "The model is unavailable.",
+                  "code": "LLM_ERROR"
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Analyse profile",
+                "subject": "node",
+                "op": "status",
+                "value": "error"
+              },
+              {
+                "node": "Build report",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Email report",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_4a7e2b91",
+            "name": "A refused email fails the run with the server's reason",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {}
+              ]
+            },
+            "mocks": {
+              "Profile dataset": {
+                "items": [
+                  {
+                    "success": true,
+                    "row_count": 120,
+                    "column_count": 3,
+                    "memory_usage_bytes": 4096,
+                    "duplicate_row_count": 2,
+                    "columns": [
+                      {
+                        "name": "order_id",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 118,
+                        "min": 1,
+                        "max": 120,
+                        "mean": 60.5,
+                        "std": 34.8,
+                        "top_values": []
+                      },
+                      {
+                        "name": "email",
+                        "dtype": "text",
+                        "count": 120,
+                        "null_count": 7,
+                        "null_percent": 5.83,
+                        "unique_count": 101,
+                        "top_values": []
+                      },
+                      {
+                        "name": "amount",
+                        "dtype": "numeric",
+                        "count": 120,
+                        "null_count": 0,
+                        "null_percent": 0.0,
+                        "unique_count": 95,
+                        "min": 2.5,
+                        "max": 9800.0,
+                        "mean": 140.2,
+                        "std": 610.4,
+                        "top_values": []
+                      }
+                    ]
+                  }
+                ]
+              },
+              "Analyse profile": {
+                "items": [
+                  {
+                    "response": "## Overview\n120 orders across 3 columns: an id, a customer email and an amount.\n\n## Data quality\n- **email** is missing in 7 rows (5.83%).\n- 2 duplicate rows.\n- **amount** has a likely outlier: max 9800 is far above the mean of 140.2 (std 610.4).\n\n## Column highlights\n| Column | Type | Missing % | Unique | Notes |\n|---|---|---|---|---|\n| order_id | numeric | 0 | 118 | 2 ids repeat |\n| email | text | 5.83 | 101 | gaps |\n| amount | numeric | 0 | 95 | outlier at 9800 |\n\n## Recommendations\n1. Remove the 2 duplicate rows.\n2. Backfill or flag the missing emails.\n3. Check the 9800 order by hand.\n"
+                  }
+                ]
+              },
+              "Email report": {
+                "error": {
+                  "message": "Couldn't send the email via smtp.example.com:587: 550 mailbox unavailable",
+                  "code": "EMAIL_SEND_FAILED"
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Build report",
+                "port": "main",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Email report",
+                "subject": "node",
+                "op": "status",
+                "value": "error"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

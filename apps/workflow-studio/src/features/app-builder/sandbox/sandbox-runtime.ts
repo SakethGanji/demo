@@ -38,6 +38,18 @@ export const SANDBOX_RUNTIME_CODE = `
     };
   });
 
+  // ── Uncaught errors ──────────────────────────────────────────────
+  // Reported separately from render errors so the builder can collect them and offer a fix.
+  window.addEventListener('error', function(ev) {
+    var msg = ev && ev.message ? ev.message : (ev && ev.error ? String(ev.error) : '');
+    if (msg) parent.postMessage({ type: 'runtimeError', message: msg }, '*');
+  });
+  window.addEventListener('unhandledrejection', function(ev) {
+    var r = ev && ev.reason;
+    var msg = r && r.message ? r.message : String(r);
+    parent.postMessage({ type: 'runtimeError', message: 'Unhandled promise rejection: ' + msg }, '*');
+  });
+
   // ── API fetch bridge ─────────────────────────────────────────────
   // All fetches are proxied through the parent so the generated app can call
   // any URL (relative or absolute) without hitting iframe CORS. The parent
@@ -52,9 +64,21 @@ export const SANDBOX_RUNTIME_CODE = `
 
       // postMessage can clone strings/arraybuffers but not Streams/FormData
       // reliably across browsers — keep the LLM-generated path on plain types.
+      // Headers may be a Headers instance (not cloneable) — send a plain object (F14).
+      var plainHeaders = {};
+      var h = opts && opts.headers;
+      if (h) {
+        if (typeof h.forEach === 'function' && !Array.isArray(h)) {
+          h.forEach(function(v, k) { plainHeaders[k] = String(v); });
+        } else if (Array.isArray(h)) {
+          h.forEach(function(p) { if (p && p.length >= 2) plainHeaders[String(p[0])] = String(p[1]); });
+        } else {
+          Object.keys(h).forEach(function(k) { if (h[k] != null) plainHeaders[k] = String(h[k]); });
+        }
+      }
       var safeOpts = opts ? {
         method: opts.method,
-        headers: opts.headers,
+        headers: plainHeaders,
         body: typeof opts.body === 'string' ? opts.body : undefined,
       } : {};
 
@@ -73,6 +97,11 @@ export const SANDBOX_RUNTIME_CODE = `
 
   // Override fetch — every call goes through the parent bridge.
   window.fetch = function(url, opts) {
+    if (url && typeof url === 'object' && typeof url.url === 'string' && !(url instanceof URL)) {
+      // a Request object: carry its method and headers unless opts override them
+      opts = Object.assign({ method: url.method, headers: url.headers }, opts || {});
+      url = url.url;
+    }
     return proxyFetch(typeof url === 'string' ? url : String(url), opts);
   };
 
@@ -171,6 +200,11 @@ export const SANDBOX_RUNTIME_CODE = `
     if (!css) return;
     var style = document.createElement('style');
     style.id = '__app-css';
+    // Tailwind v4 sources (@theme, @apply, @import "tailwindcss") go through the Tailwind runtime
+    if (/@(theme|apply|plugin|custom-variant|utility|source)\\b|@import\\s+["']tailwindcss/.test(css)) {
+      style.type = 'text/tailwindcss';
+      if (!/@import\\s+["']tailwindcss/.test(css)) css = '@import "tailwindcss";\\n' + css;
+    }
     style.textContent = css;
     document.head.appendChild(style);
   }
@@ -181,7 +215,7 @@ export const SANDBOX_RUNTIME_CODE = `
     if (!data || !data.type) return;
 
     if (data.type === 'render') {
-      if (data.css) injectCSS(data.css);
+      injectCSS(data.css);
       renderSource(data.source);
     } else if (data.type === 'apiResponse') {
       var pending = pendingRequests.get(data.reqId);

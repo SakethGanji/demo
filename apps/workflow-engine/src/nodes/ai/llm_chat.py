@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
 class LLMChatNode(BaseNode):
     """LLM Chat node - single-turn LLM conversation."""
 
@@ -46,10 +48,11 @@ class LLMChatNode(BaseNode):
                 display_name="Model",
                 name="model",
                 type="options",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 options=[
                     NodePropertyOption(name="Mock (Testing)", value="mock"),
-                    NodePropertyOption(name="Gemini 2.0 Flash", value="gemini-2.0-flash"),
+                    NodePropertyOption(name="Gemini 3.7 Flash", value="gemini-3.7-flash"),
+                    NodePropertyOption(name="Gemini 3.8 Flash", value="gemini-3.8-flash"),
                     NodePropertyOption(name="Gemini 1.5 Flash", value="gemini-1.5-flash"),
                     NodePropertyOption(name="Gemini 1.5 Pro", value="gemini-1.5-pro"),
                     NodePropertyOption(name="GPT-4o", value="gpt-4o"),
@@ -85,8 +88,8 @@ class LLMChatNode(BaseNode):
                 display_name="Max Tokens",
                 name="maxTokens",
                 type="number",
-                default=1024,
-                description="Maximum response length",
+                default=8192,
+                description="Maximum response length. Thinking models spend part of this budget before they answer.",
             ),
         ],
     )
@@ -99,6 +102,11 @@ class LLMChatNode(BaseNode):
     def description(self) -> str:
         return "Send a message to an LLM and get a response"
 
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.output_schema`` (a Shape) when set; otherwise observed -> UNKNOWN unless approved."""
+        declared = sh.param_shape(params, "output_schema")
+        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
+
     async def execute(
         self,
         context: ExecutionContext,
@@ -108,11 +116,12 @@ class LLMChatNode(BaseNode):
         from ...engine.types import NodeData
         from ...engine.expression_engine import ExpressionEngine, expression_engine
 
-        model = self.get_parameter(node_definition, "model", "mock")
+        # Same default as the declared property: a definition saved without `model` (API, AI builder) is a real call.
+        model = self.get_parameter(node_definition, "model", "gemini-3.7-flash")
         system_prompt_template = self.get_parameter(node_definition, "systemPrompt", "You are a helpful assistant.")
         user_message_template = self.get_parameter(node_definition, "userMessage", "{{ $json.message }}")
         temperature = self.get_parameter(node_definition, "temperature", 0.7)
-        max_tokens = self.get_parameter(node_definition, "maxTokens", 1024)
+        max_tokens = self.get_parameter(node_definition, "maxTokens", 8192)
 
         results: list[NodeData] = []
         total_input_tokens = 0
@@ -239,6 +248,9 @@ class LLMChatNode(BaseNode):
             temperature=temperature,
             max_tokens=max_tokens,
         )
+        if getattr(response, "output_truncated", False):
+            raise ValueError(f"The model ran out of output tokens before it finished (Max Tokens is {max_tokens}). "
+                             "Raise Max Tokens and run again.")
 
         result = {
             "response": response.text or "",

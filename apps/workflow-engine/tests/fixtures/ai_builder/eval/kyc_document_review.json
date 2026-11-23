@@ -1,0 +1,533 @@
+{
+  "id": "kyc_document_review",
+  "holdout": false,
+  "request": "Our onboarding system sends us a new KYC upload with the customer id and the list of documents they uploaded. Have the AI check the file is complete: we need a photo ID, proof of address and a source of funds statement. The AI should answer whether it is complete and which documents are missing. If something is missing, ask the customer for exactly those documents. If it is complete, a KYC analyst has to approve before we mark the customer as approved; if the analyst rejects, mark the customer as rejected. The upload is posted with the fields customer_id and documents (a list of file names).",
+  "apis": [
+    "kyc.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "Webhook",
+    "must_have_types": [
+      "AIAgent",
+      "If|Switch",
+      "Approval"
+    ],
+    "must_call": [
+      "kyc.requestDocuments",
+      "kyc.updateStatus"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved",
+      "rejected"
+    ],
+    "max_nodes": 14,
+    "forbid_types": [],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "Missing proof of address asks the customer",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-1042",
+              "documents": [
+                "passport.pdf",
+                "utility_bill.pdf"
+              ]
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$type:AIAgent": {
+          "items": [
+            {
+              "response": "",
+              "structured": {
+                "complete": false,
+                "is_complete": false,
+                "missing_documents": [
+                  "proof of address"
+                ],
+                "missing": [
+                  "proof of address"
+                ]
+              }
+            }
+          ]
+        },
+        "$api:kyc.requestDocuments": {
+          "http": {
+            "status": 200,
+            "body": {
+              "request_id": "DR-9"
+            }
+          }
+        },
+        "$api:kyc.updateStatus": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-1042",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "request",
+          "item": "any",
+          "path": "body.missing_documents",
+          "op": "contains",
+          "value": "proof of address"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Complete file approved by the analyst",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-1042",
+              "documents": [
+                "passport.pdf",
+                "utility_bill.pdf"
+              ]
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$type:AIAgent": {
+          "items": [
+            {
+              "response": "",
+              "structured": {
+                "complete": true,
+                "is_complete": true,
+                "missing_documents": [],
+                "missing": []
+              }
+            }
+          ]
+        },
+        "$api:kyc.requestDocuments": {
+          "http": {
+            "status": 200,
+            "body": {
+              "request_id": "DR-9"
+            }
+          }
+        },
+        "$api:kyc.updateStatus": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-1042",
+              "status": "approved"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "request",
+          "item": "any",
+          "path": "body.status",
+          "op": "eq",
+          "value": "approved"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "c-1042"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Complete file rejected by the analyst",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-1042",
+              "documents": [
+                "passport.pdf",
+                "utility_bill.pdf"
+              ]
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$type:AIAgent": {
+          "items": [
+            {
+              "response": "",
+              "structured": {
+                "complete": true,
+                "is_complete": true,
+                "missing_documents": [],
+                "missing": []
+              }
+            }
+          ]
+        },
+        "$api:kyc.requestDocuments": {
+          "http": {
+            "status": 200,
+            "body": {
+              "request_id": "DR-9"
+            }
+          }
+        },
+        "$api:kyc.updateStatus": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-1042",
+              "status": "rejected"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "request",
+          "item": "any",
+          "path": "body.status",
+          "op": "eq",
+          "value": "rejected"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "c-1042"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Two missing documents are both requested",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-2210",
+              "documents": [
+                "passport.pdf",
+                "utility_bill.pdf"
+              ]
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$type:AIAgent": {
+          "items": [
+            {
+              "response": "",
+              "structured": {
+                "complete": false,
+                "is_complete": false,
+                "missing_documents": [
+                  "photo ID",
+                  "source of funds statement"
+                ],
+                "missing": [
+                  "photo ID",
+                  "source of funds statement"
+                ]
+              }
+            }
+          ]
+        },
+        "$api:kyc.requestDocuments": {
+          "http": {
+            "status": 200,
+            "body": {
+              "request_id": "DR-9"
+            }
+          }
+        },
+        "$api:kyc.updateStatus": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-2210",
+              "status": "pending"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "request",
+          "item": "any",
+          "path": "body.missing_documents",
+          "op": "contains",
+          "value": "photo ID"
+        },
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "request",
+          "item": "any",
+          "path": "body.missing_documents",
+          "op": "contains",
+          "value": "source of funds statement"
+        }
+      ],
+      "category": "unusual"
+    },
+    {
+      "name": "The right customer is updated",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "body": {
+              "customer_id": "c-7781",
+              "documents": [
+                "passport.pdf",
+                "utility_bill.pdf"
+              ]
+            },
+            "headers": {},
+            "query": {},
+            "method": "POST"
+          }
+        ]
+      },
+      "mocks": {
+        "$type:AIAgent": {
+          "items": [
+            {
+              "response": "",
+              "structured": {
+                "complete": true,
+                "is_complete": true,
+                "missing_documents": [],
+                "missing": []
+              }
+            }
+          ]
+        },
+        "$api:kyc.requestDocuments": {
+          "http": {
+            "status": 200,
+            "body": {
+              "request_id": "DR-9"
+            }
+          }
+        },
+        "$api:kyc.updateStatus": {
+          "http": {
+            "status": 200,
+            "body": {
+              "customer_id": "c-7781",
+              "status": "approved"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.requestDocuments",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "request",
+          "item": "any",
+          "path": "body.status",
+          "op": "eq",
+          "value": "approved"
+        },
+        {
+          "node": "$api:kyc.updateStatus",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "c-7781"
+        }
+      ],
+      "category": "normal"
+    }
+  ]
+}

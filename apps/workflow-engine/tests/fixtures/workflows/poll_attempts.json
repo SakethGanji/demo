@@ -1,0 +1,142 @@
+{
+  "name": "Wait for funds",
+  "description": "A transfer is checked until it has been tried three times (each check bumps the attempt count); if it never settles within the time limit the run stops.",
+  "nodes": [
+    {
+      "name": "Webhook",
+      "type": "Webhook",
+      "label": "Transfer arrives",
+      "parameters": {
+        "method": "POST",
+        "path": "wait-for-funds",
+        "responseMode": "onReceived"
+      },
+      "position": {
+        "x": 0,
+        "y": 200
+      }
+    },
+    {
+      "name": "Normalize",
+      "type": "Set",
+      "label": "Normalize transfer",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": true,
+        "fields": [
+          {
+            "name": "transfer_id",
+            "value": "{{ $json.body.transfer_id }}"
+          }
+        ]
+      },
+      "position": {
+        "x": 260,
+        "y": 200
+      }
+    },
+    {
+      "name": "Until settled",
+      "type": "Poll",
+      "label": "Until settled",
+      "parameters": {
+        "condition": "{{ $json.attempt >= 3 }}",
+        "interval": 1,
+        "timeout": 30
+      },
+      "position": {
+        "x": 520,
+        "y": 200
+      }
+    },
+    {
+      "name": "Check again",
+      "type": "Set",
+      "label": "Check again",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "attempt",
+            "value": "{{ ($json.attempt or 0) + 1 }}"
+          }
+        ]
+      },
+      "position": {
+        "x": 780,
+        "y": 100
+      }
+    },
+    {
+      "name": "Funds in",
+      "type": "Set",
+      "label": "Funds in",
+      "parameters": {
+        "mode": "manual",
+        "keepOnlySet": false,
+        "fields": [
+          {
+            "name": "status",
+            "value": "settled"
+          }
+        ]
+      },
+      "position": {
+        "x": 780,
+        "y": 260
+      }
+    },
+    {
+      "name": "Too slow",
+      "type": "StopAndError",
+      "label": "Too slow",
+      "parameters": {
+        "errorType": "error",
+        "message": "Funds did not arrive"
+      },
+      "position": {
+        "x": 780,
+        "y": 400
+      }
+    }
+  ],
+  "connections": [
+    {
+      "source_node": "Webhook",
+      "target_node": "Normalize",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Normalize",
+      "target_node": "Until settled",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Until settled",
+      "target_node": "Check again",
+      "source_output": "loop",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Check again",
+      "target_node": "Until settled",
+      "source_output": "main",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Until settled",
+      "target_node": "Funds in",
+      "source_output": "done",
+      "target_input": "main"
+    },
+    {
+      "source_node": "Until settled",
+      "target_node": "Too slow",
+      "source_output": "timeout",
+      "target_input": "main"
+    }
+  ]
+}

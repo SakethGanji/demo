@@ -1,0 +1,930 @@
+{
+ "id": "customer_exit",
+ "request": "When a customer leaves the bank, staff call a webhook with customer_id. In core banking, read the customer's open accounts and their active loans. If any open account has a balance other than zero, or the customer has any active loan, reply 409 with {status: 'blocked', blockers: [...]} listing every blocking account id and loan id, and stop. Otherwise the ops manager (OPS_MANAGER_EMAIL) approves the exit, seeing the customer id and the list of accounts. Once approved, close every open account through core banking, and for each one record in ops_db, in one transaction per account, an account_closures row (account id, customer id) and an audit_log row (entity 'account', the account id, action 'closed'). Reply 200 {status: 'closed', accounts: <how many were closed>}. If the manager rejects, reply 200 {status: 'rejected'} and close nothing.",
+ "apis": [
+  "corebank.yaml"
+ ],
+ "tables": {},
+ "expect": {
+  "trigger": "Webhook",
+  "must_have_types": [
+   "Postgres",
+   "Approval",
+   "Respond"
+  ],
+  "must_call": [
+   "corebank.closeAccount"
+  ],
+  "max_nodes": 22
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "All zero, no loans: every account closed and recorded",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "CU8"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:accounts!loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0.00",
+         "status": "open"
+        },
+        {
+         "account_id": "A2",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0",
+         "status": "open"
+        },
+        {
+         "account_id": "A3",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0.00",
+         "status": "open"
+        }
+       ],
+       "rowCount": 3
+      }
+     ]
+    },
+    "$pg:loans!accounts": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:corebank.closeAccount": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "{{ $json.account_id }}",
+       "status": "closed"
+      }
+     }
+    },
+    "$pgw:account_closures": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:corebank.closeAccount",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "$api:corebank.closeAccount",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "A2"
+    },
+    {
+     "node": "$api:corebank.closeAccount",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "A3"
+    },
+    {
+     "node": "$pgw:account_closures",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "$pgw:account_closures",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": "A3"
+    },
+    {
+     "node": "$pgw:account_closures",
+     "subject": "request",
+     "item": "all",
+     "path": "sql",
+     "op": "contains",
+     "value": "audit_log"
+    },
+    {
+     "node": "$pgw:account_closures",
+     "subject": "request",
+     "item": "all",
+     "path": "values",
+     "op": "contains",
+     "value": "CU8"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "closed"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.accounts",
+     "op": "eq",
+     "value": 3
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "A non-zero balance on a later account blocks",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "CU8"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:accounts!loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0.00",
+         "status": "open"
+        },
+        {
+         "account_id": "A2",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "12.40",
+         "status": "open"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "$pg:loans!accounts": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:corebank.closeAccount": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "{{ $json.account_id }}",
+       "status": "closed"
+      }
+     }
+    },
+    "$pgw:account_closures": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:corebank.closeAccount",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 409
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.blockers",
+     "op": "contains",
+     "value": "A2"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Negative balance and an active loan are both listed",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "CU8"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:accounts!loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "-5.00",
+         "status": "open"
+        },
+        {
+         "account_id": "A2",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0",
+         "status": "open"
+        }
+       ],
+       "rowCount": 2
+      }
+     ]
+    },
+    "$pg:loans!accounts": {
+     "items": [
+      {
+       "rows": [
+        {
+         "loan_id": "L3",
+         "customer_id": "CU8",
+         "outstanding": "800.00",
+         "days_past_due": 0,
+         "officer_email": "o@bank.test",
+         "status": "active"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:corebank.closeAccount": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "{{ $json.account_id }}",
+       "status": "closed"
+      }
+     }
+    },
+    "$pgw:account_closures": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.blockers",
+     "op": "contains",
+     "value": "A1"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.blockers",
+     "op": "contains",
+     "value": "L3"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "statusCode",
+     "op": "eq",
+     "value": 409
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Manager rejects: nothing closed",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "CU8"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:accounts!loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0.00",
+         "status": "open"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$pg:loans!accounts": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "pending complaint",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:corebank.closeAccount": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "{{ $json.account_id }}",
+       "status": "closed"
+      }
+     }
+    },
+    "$pgw:account_closures": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:corebank.closeAccount",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$pgw:account_closures",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Respond",
+     "subject": "request",
+     "item": "any",
+     "path": "body.status",
+     "op": "eq",
+     "value": "rejected"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Queries take the customer id as a parameter",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "customer_id": "CU8"
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$pg:accounts!loans": {
+     "items": [
+      {
+       "rows": [
+        {
+         "account_id": "A1",
+         "customer_id": "CU8",
+         "product": "savings",
+         "balance": "0.00",
+         "status": "open"
+        }
+       ],
+       "rowCount": 1
+      }
+     ]
+    },
+    "$pg:loans!accounts": {
+     "items": [
+      {
+       "rows": [],
+       "rowCount": 0
+      }
+     ]
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "$api:corebank.closeAccount": {
+     "http": {
+      "status": 200,
+      "body": {
+       "account_id": "{{ $json.account_id }}",
+       "status": "closed"
+      }
+     }
+    },
+    "$pgw:account_closures": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "$pg:accounts!loans",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": "CU8"
+    },
+    {
+     "node": "$pg:loans!accounts",
+     "subject": "request",
+     "item": "any",
+     "path": "values",
+     "op": "contains",
+     "value": "CU8"
+    }
+   ]
+  }
+ ],
+ "variables": {
+  "CREDIT_OFFICER_EMAIL": {
+   "value": "credit-officers@bank.test"
+  },
+  "HEAD_OF_CREDIT_EMAIL": {
+   "value": "head-credit@bank.test"
+  },
+  "COLLECTIONS_LEAD_EMAIL": {
+   "value": "collections-lead@bank.test"
+  },
+  "OPS_MANAGER_EMAIL": {
+   "value": "ops-manager@bank.test"
+  },
+  "CREDIT_COMMITTEE_EMAIL": {
+   "value": "credit-committee@bank.test"
+  },
+  "BRANCH_MANAGER_EMAIL": {
+   "value": "branch-manager@bank.test"
+  },
+  "AUTO_REFUND_LIMIT": {
+   "value": "50",
+   "description": "largest fee refunded without a manager"
+  },
+  "CORE_API_KEY": {
+   "value": "sk-core-999",
+   "secret": true
+  }
+ },
+ "subworkflows": [
+  {
+   "id": "wf_notify_customer",
+   "name": "Notify customer",
+   "description": "Sends a customer a message on their preferred channel and logs it.",
+   "inputs": [
+    {
+     "name": "customer_id",
+     "type": "string",
+     "required": true
+    },
+    {
+     "name": "message",
+     "type": "string",
+     "required": true
+    }
+   ],
+   "output_fields": [
+    "sent",
+    "channel"
+   ],
+   "definition": {
+    "name": "child",
+    "nodes": [
+     {
+      "name": "Called",
+      "type": "ExecuteWorkflowTrigger",
+      "parameters": {
+       "inputSource": "fields",
+       "fields": [
+        {
+         "name": "customer_id",
+         "type": "string",
+         "required": true
+        },
+        {
+         "name": "message",
+         "type": "string",
+         "required": true
+        }
+       ]
+      }
+     },
+     {
+      "name": "Result",
+      "type": "Set",
+      "parameters": {
+       "mode": "manual",
+       "keepOnlySet": true,
+       "fields": [
+        {
+         "name": "sent",
+         "value": "{{ true }}"
+        },
+        {
+         "name": "channel",
+         "value": "sms"
+        }
+       ]
+      }
+     }
+    ],
+    "connections": [
+     {
+      "source_node": "Called",
+      "target_node": "Result",
+      "source_output": "main",
+      "target_input": "main"
+     }
+    ]
+   }
+  }
+ ],
+ "databases": {
+  "core_banking": {
+   "writable": false,
+   "description": "read replica of core banking",
+   "tables": {
+    "customers": [
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "full_name",
+      "text"
+     ],
+     [
+      "email",
+      "text"
+     ],
+     [
+      "segment",
+      "text"
+     ]
+    ],
+    "accounts": [
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "product",
+      "text"
+     ],
+     [
+      "balance",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "loans": [
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "outstanding",
+      "numeric"
+     ],
+     [
+      "days_past_due",
+      "integer"
+     ],
+     [
+      "officer_email",
+      "text"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ],
+    "cards": [
+     [
+      "card_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "daily_limit",
+      "numeric"
+     ],
+     [
+      "status",
+      "text"
+     ]
+    ]
+   }
+  },
+  "ops_db": {
+   "writable": true,
+   "description": "our operations database",
+   "tables": {
+    "limit_changes": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "card_id",
+      "text"
+     ],
+     [
+      "old_limit",
+      "numeric"
+     ],
+     [
+      "new_limit",
+      "numeric"
+     ],
+     [
+      "reason",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "audit_log": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "entity",
+      "text"
+     ],
+     [
+      "entity_id",
+      "text"
+     ],
+     [
+      "action",
+      "text"
+     ],
+     [
+      "detail",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "collection_actions": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "stage",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "write_offs": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "loan_id",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "approver_comment",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "fee_refunds": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "amount",
+      "numeric"
+     ],
+     [
+      "approved_by_manager",
+      "boolean"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ],
+    "account_closures": [
+     [
+      "id",
+      "serial"
+     ],
+     [
+      "account_id",
+      "text"
+     ],
+     [
+      "customer_id",
+      "text"
+     ],
+     [
+      "created_at",
+      "timestamptz default now()"
+     ]
+    ]
+   }
+  }
+ }
+}

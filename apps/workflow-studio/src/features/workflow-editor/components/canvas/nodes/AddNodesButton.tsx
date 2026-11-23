@@ -25,7 +25,7 @@ function AddNodesButton({ data }: NodeProps<Node<AddNodesButtonData>>) {
             openPanel('trigger');
           }
         }}
-        className="group flex h-[100px] w-[100px] cursor-pointer items-center justify-center rounded-lg border-2 border-dashed border-border bg-card transition-all hover:border-primary hover:bg-primary/10 active:scale-95"
+        className="group flex h-[100px] w-[100px] cursor-pointer items-center justify-center rounded-panel glass transition-all hover:bg-primary/10 active:scale-95"
         style={{ pointerEvents: 'all' }}
       >
         <Plus

@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Overview · luna</title><link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/components.css"><script src="assets/lucide.min.js"></script><script src="assets/shell.js"></script><style>.pad{padding:24px 32px;overflow-y:auto;flex:1}h1{font-size:22px;font-weight:600;letter-spacing:-.015em}
+ .cols{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;margin-top:16px;align-items:start}.stack{display:flex;flex-direction:column;gap:16px}
+ .stats{display:grid;grid-template-columns:repeat(5,1fr);margin-top:16px}
+ .url{white-space:nowrap;flex-shrink:0;display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 10px;border:1px solid var(--border);border-radius:var(--r-lg);font:12px var(--font-mono)}
+ .li{display:flex;align-items:center;gap:10px;height:38px;padding:0 16px;border-bottom:1px solid var(--border);font-size:12.5px}.li:last-child{border-bottom:0}.li .r{margin-left:auto;color:var(--muted-foreground)}
+ .thumb{width:84px;height:48px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--muted);padding:6px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;align-content:start}.thumb i{height:8px;border-radius:4px;background:var(--card)}
+</style></head><body><div id="shell"></div>
+<template id="page"><div class="panel" style="flex:1;display:flex;flex-direction:column;min-height:0"><div class="pad">
+ <div style="display:flex;align-items:flex-start;gap:12px"><div style="flex:1">
+   <div style="display:flex;align-items:center;gap:10px"><h1>Payments Ops</h1><span class="badge success"><span class="dot ok flat"></span>Healthy</span></div>
+   <div style="display:flex;align-items:center;gap:12px;margin-top:8px;color:var(--muted-foreground);font-size:12.5px;flex-wrap:wrap"><span class="url">/api/p/payments-ops <i data-lucide="copy" style="width:14px;height:14px"></i></span>Python backend · 1 module · 3 routes · prod serves the latest saved code (no release yet)</div></div>
+   <button class="btn outline"><i data-lucide="sparkles" style="color:var(--ai)"></i> Generate</button><button class="btn"><i data-lucide="wand-sparkles"></i> Create UI from backend</button></div>
+ <div class="panel stats">
+  <div class="stat"><div class="label">Routes</div><div class="value">3</div></div>
+  <div class="stat"><div class="label">Tables</div><div class="value">1 <small>· 3 rows</small></div></div>
+  <div class="stat"><div class="label">Apps</div><div class="value">1 <small>· 0 published</small></div></div>
+  <div class="stat"><div class="label">Runs · 24h</div><div class="value">3 <span style="width:70px;height:12px;border-bottom:2px dotted var(--success);align-self:end"></span></div></div>
+  <div class="stat"><div class="label">Failed · 24h</div><div class="value">0 <small>· p50 113 ms</small></div></div>
+ </div>
+ <div class="cols">
+  <div class="stack">
+   <div class="panel"><div class="panel-head"><i data-lucide="server" style="width:16px;height:16px"></i><h3>Backend</h3><div class="spacer"></div><a class="btn outline sm" href="backend.html"><i data-lucide="code-xml"></i> Open editor</a></div>
+    <table class="table"><thead><tr><th>Method</th><th>Path</th><th>Operation</th><th>Auth</th><th>Last call · 24h</th><th class="num">p50</th><th></th></tr></thead><tbody>
+     <tr class="group-row"><td colspan="7">refunds.py</td></tr>
+     <tr><td><span class="method get">GET</span></td><td class="mono">/refunds</td><td class="mono muted">listRefunds</td><td><span class="badge outline">public</span></td><td class="muted">no calls</td><td class="num">—</td><td><i data-lucide="play" style="width:12px;height:12px"></i></td></tr>
+     <tr><td><span class="method post">POST</span></td><td class="mono">/refunds</td><td class="mono muted">createRefund</td><td><span class="badge outline">public</span></td><td class="muted">no calls</td><td class="num">—</td><td><i data-lucide="play" style="width:12px;height:12px"></i></td></tr>
+     <tr><td><span class="method get">GET</span></td><td class="mono">/refunds/stats</td><td class="mono muted">refundStats</td><td><span class="badge outline">public</span></td><td><span class="dot ok flat" style="margin-right:6px"></span>success · now</td><td class="num">113 ms</td><td><i data-lucide="play" style="width:12px;height:12px"></i></td></tr>
+    </tbody></table></div>
+   <div class="panel"><div class="panel-head"><i data-lucide="app-window" style="width:16px;height:16px"></i><h3>Apps</h3><div class="spacer"></div><button class="btn ghost sm"><i data-lucide="plus"></i> New app</button></div>
+    <div style="display:flex;align-items:center;gap:16px;padding:16px"><div class="thumb"><i></i><i></i><i></i><i style="grid-column:span 2"></i><i></i></div>
+     <div style="flex:1"><div style="display:flex;align-items:center;gap:8px;font-weight:500">Refunds dashboard <span class="badge neutral">Draft</span><span class="badge secondary">v1</span></div><div class="muted" style="font-size:12px;margin-top:2px">Uses refundStats, createRefund · 2 of 3 operations</div></div>
+     <button class="btn outline sm">Open builder</button></div></div>
+  </div>
+  <div class="stack">
+   <div class="panel"><div class="panel-head"><h3>Recent runs</h3><div class="spacer"></div><a class="muted" style="font-size:12px" href="runs.html">View all</a></div>
+    <div class="li"><span class="dot ok flat"></span><span class="method get" style="background:none">GET</span><span class="mono">/refunds/stats</span><span class="r">112 ms &nbsp; now</span></div>
+    <div class="li"><span class="dot ok flat"></span><span class="method get" style="background:none">GET</span><span class="mono">/refunds/stats</span><span class="r">113 ms &nbsp; now</span></div>
+    <div class="li"><span class="dot ok flat"></span><span class="method get" style="background:none">GET</span><span class="mono">/refunds/stats</span><span class="r">149 ms &nbsp; now</span></div></div>
+   <div class="panel"><div class="panel-head"><h3>Secrets</h3><div class="spacer"></div><button class="btn ghost sm muted"><i data-lucide="plus"></i> Add</button></div>
+    <div style="padding:12px 16px"><div style="display:flex;align-items:center;gap:8px"><i data-lucide="key-round" class="muted" style="width:14px;height:14px"></i><span class="mono" style="font-size:12px">PAYMENTS_TOKEN</span><div class="spacer"></div><span class="badge success">dev</span><span class="badge warning"><span class="dot warn"></span>missing in prod</span></div>
+     <p class="muted" style="font-size:12px;margin-top:8px"><span class="warn-text">Missing</span> = your code uses it and it isn’t set. <b style="font-weight:500;color:var(--foreground)">Not set</b> = unused there.</p></div></div>
+   <div class="panel"><div class="panel-head"><h3>Releases</h3><div class="spacer"></div><button class="btn ghost sm">Create release</button></div>
+    <div style="padding:12px 16px;display:flex;flex-direction:column;gap:10px;font-size:12.5px"><div style="display:flex;gap:10px;align-items:center"><span class="badge secondary">dev</span><span class="muted">Always your latest saved code</span></div><div style="display:flex;gap:10px;align-items:center"><span class="badge secondary">prod</span><span class="muted">No release yet · serves latest saved code</span></div></div></div>
+  </div></div>
+</div></div></template>
+<script>Shell.mount({active:'overview'})</script></body></html>

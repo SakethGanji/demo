@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -57,6 +58,9 @@ class NodeData:
 
     json: dict[str, Any]
     binary: dict[str, bytes] | None = None
+    # Item metadata, never part of ``json`` (Stage 8): ExecuteWorkflow sets ``pairedItem`` (index of the parent input
+    # item) and ``child_execution_id`` / ``child_workflow_id`` / ``child_version_number``. Excluded from equality.
+    meta: dict[str, Any] | None = field(default=None, compare=False)
 
 
 @dataclass
@@ -108,6 +112,12 @@ class ExecutionContext:
     # Execution order counter
     execution_order: int = 0
 
+    # Partial runs: when a node with this name finishes, no downstream jobs are queued
+    stop_at: str | None = None
+
+    # Partial runs: nodes whose state was borrowed from an earlier execution (not persisted for this one)
+    reused_nodes: set[str] = field(default_factory=set)
+
     # Subworkflow input data (set by ExecuteWorkflow node)
     subworkflow_input: list[NodeData] | None = None
 
@@ -118,6 +128,48 @@ class ExecutionContext:
     # in the expression engine. Loaded once per execution from VariableRepository.
     variables: dict[str, str] = field(default_factory=dict)
 
+    # Ownership / environment of this run (BACKEND-DESIGN §2.3). None = legacy/unscoped.
+    project_id: str | None = None
+    environment: str | None = None
+    team_id: str = "default"
+    # Opaque per-run extras (broker token, trace collector, ...).
+    extras: dict[str, Any] = field(default_factory=dict)
+
+    # Test mode (Stage 3A): set by WorkflowRunner.run(test_options=...). Real runs leave these at their defaults.
+    test_options: Any | None = None  # engine.test_mode.TestRunOptions
+    frozen_now: datetime | None = None  # frozen clock read by now()/date_now()/timestamp, Sample and the AI tools
+    rng: random.Random = field(default_factory=random.Random)  # seeded per test run
+    test_requests: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # node -> captured requests
+    test_outputs: dict[str, dict[str, list[NodeData]]] = field(default_factory=dict)  # node -> port -> emitted items
+    test_inputs: dict[str, list[NodeData]] = field(default_factory=dict)  # node -> items that arrived
+
+    # Stage 5: Approval nodes that paused this run. Each entry is {node, run_index, suspension: Suspension, input_items}.
+    # ExecutionRepository.complete() turns them into human_tasks rows and the run into "waiting".
+    suspensions: list[dict[str, Any]] = field(default_factory=list)
+    # The published version this run is pinned to (None = the draft); stored in the resume snapshot.
+    version_id: int | None = None
+
+    # Stage 8 sub-workflows (DESIGN-STAGE8-REUSE 3.2)
+    subworkflow_invoker: Any | None = None  # engine.subworkflow.SubworkflowInvoker; None = InMemoryInvoker
+    call_stack: tuple[str, ...] = ()  # workflow ids from the root run to this run
+    call_names: dict[str, str] = field(default_factory=dict)  # workflow id -> name for the members of call_stack (cycle messages)
+    root_execution_id: str | None = None  # the top-level execution this run belongs to
+    deadline: float | None = None  # time.monotonic() deadline inherited from the parent / the workflow's max_execution_time
+
+    # Per-item loop history and repeat-until tries (engine.loop_history): extra recorded data only, bounded, saved into
+    # the execution's metadata. They never change outputs.
+    loop_runs: dict[str, Any] = field(default_factory=dict)  # Loop name -> {passes: {index: record}, ...}
+    poll_tries: dict[str, Any] = field(default_factory=dict)  # Poll name -> [session {tries: [...], outcome}]
+    loop_bodies: dict[str, Any] = field(default_factory=dict)  # Loop name -> frozenset of body steps (cache)
+
+
+def run_status(context: ExecutionContext) -> str:
+    """How a finished ``runner.run`` reads to a caller: ``failed`` (any error), ``waiting`` (an Approval paused the run for a
+    person; the execution continues when it is decided), else ``success``. Matches what ``complete()`` stores."""
+    if context.errors:
+        return "failed"
+    return "waiting" if context.suspensions else "success"
+
 
 @dataclass
 class ExecutionError:
@@ -126,6 +178,20 @@ class ExecutionError:
     node_name: str
     error: str
     timestamp: datetime
+    error_code: str | None = None
+    details: dict[str, Any] | None = None
+
+
+@dataclass
+class Suspension:
+    """A node's request to pause the run until a human decides (Stage 5, DESIGN-STAGE5-UIS section 5.1).
+
+    ``payload`` holds the rendered, redacted task: ``title``, ``context``, ``form``, ``assignees``, ``due_at`` (ISO),
+    ``on_timeout``, ``allow_comment``, ``require_comment_on_reject``.
+    """
+
+    kind: Literal["approval"]
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -135,10 +201,14 @@ class NodeExecutionResult:
 
     Keys are output names: "main", "true", "false", "loop", "done", etc.
     None value signals that branch should propagate NO_OUTPUT_SIGNAL.
+
+    ``suspend`` is the pause signal (Stage 5): the node returns it instead of raising, so retry and ``on_error``
+    never see a pause as a failure. A result with ``suspend`` has no outputs; nothing downstream is queued.
     """
 
     outputs: dict[str, list[NodeData] | None]
     metadata: dict[str, Any] = field(default_factory=dict)
+    suspend: Suspension | None = None
 
 
 @dataclass
@@ -159,13 +229,16 @@ class ExecutionRecord:
     id: str
     workflow_id: str
     workflow_name: str
-    status: Literal["running", "success", "failed"]
+    status: Literal["running", "success", "failed", "waiting", "cancelled"]
     mode: Literal["manual", "webhook", "cron"]
     start_time: datetime
     end_time: datetime | None = None
     node_data: dict[str, list[NodeData]] = field(default_factory=dict)
     errors: list[ExecutionError] = field(default_factory=list)
     node_metrics: dict[str, dict[str, Any]] = field(default_factory=dict)
+    project_id: str | None = None
+    environment: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -178,6 +251,7 @@ class StoredWorkflow:
     active: bool
     created_at: datetime
     updated_at: datetime
+    project_id: str = "proj_default"
 
 
 class ExecutionEventType(str, Enum):
@@ -188,6 +262,8 @@ class ExecutionEventType(str, Enum):
     NODE_COMPLETE = "node:complete"
     NODE_ERROR = "node:error"
     EXECUTION_COMPLETE = "execution:complete"
+    # The run paused on a human task (Approval) instead of finishing; replaces EXECUTION_COMPLETE (DESIGN-STAGE5-UIS 5.7).
+    EXECUTION_WAITING = "execution_waiting"
     EXECUTION_ERROR = "execution:error"
     # Agent-specific events
     AGENT_THINKING = "agent:thinking"
@@ -217,6 +293,7 @@ class ExecutionEvent:
     metrics: dict[str, Any] | None = None
     subworkflow_parent_node: str | None = None
     subworkflow_id: str | None = None
+    tasks: list[dict[str, Any]] | None = None  # EXECUTION_WAITING: the open human tasks the run is waiting on
 
 
 # Callback type for receiving execution events
@@ -239,6 +316,15 @@ class NodeDefinition:
     retry_on_fail: int = 0
     retry_delay: int = 1000
     continue_on_fail: bool = False
+    disabled: bool = False
+    on_error: str = "stop"  # "stop" | "continue" | "error_output"
+    # Approved output contract (Stage 2): {"outputs": {port: Shape}, "source": "observed", "approved_by", "approved_at", "from_execution"}
+    contract: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        # Legacy field: continue_on_fail=True means on_error="continue".
+        if self.on_error == "stop" and self.continue_on_fail:
+            self.on_error = "continue"
 
 
 @dataclass
@@ -262,3 +348,8 @@ class Workflow:
     id: str | None = None
     description: str | None = None
     settings: dict[str, Any] = field(default_factory=dict)
+    # Stage 3A: test cases and shared test defaults ({mocks, now, seed}); plain dicts, validated by the schema
+    tests: list[dict[str, Any]] = field(default_factory=list)
+    test_defaults: dict[str, Any] = field(default_factory=dict)
+    # Stage 5: how people use this workflow (form / chat / custom screens); a plain dict, validated by schemas/interface.py
+    interface: dict[str, Any] | None = None

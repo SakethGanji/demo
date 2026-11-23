@@ -1,0 +1,316 @@
+{
+  "id": "wire_over_limit",
+  "holdout": true,
+  "request": "Outgoing wire requests come in through a form with the from account, the to account, the beneficiary name, the amount and the destination country. Never send a wire to a sanctioned country (Iran, North Korea, Syria or Cuba): stop with an error and send nothing. Wires over $25,000 need treasury approval before they go out; smaller ones go straight out.",
+  "apis": [
+    "wires.yaml"
+  ],
+  "spec_edits": null,
+  "expect": {
+    "trigger": "FormTrigger",
+    "must_have_types": [
+      "If|Switch",
+      "Approval"
+    ],
+    "must_call": [
+      "wires.send"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [
+      "approved"
+    ],
+    "interface_kind": "form",
+    "max_nodes": 12,
+    "forbid_types": [],
+    "min_spec_tests": 4
+  },
+  "hidden_tests": [
+    {
+      "name": "Small wire to the UK goes straight out",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "from_account": "AC-1",
+            "to_account": "DE89370400440532013000",
+            "beneficiary": "Acme GmbH",
+            "amount": 5000,
+            "destination_country": "United Kingdom"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:wires.send": {
+          "http": {
+            "status": 201,
+            "body": {
+              "wire_id": "WR-1",
+              "status": "sent"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:wires.send",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:wires.send",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 5000
+        }
+      ],
+      "category": "normal",
+      "allow_node_errors": true
+    },
+    {
+      "name": "Large wire approved by treasury goes out",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "from_account": "AC-1",
+            "to_account": "DE89370400440532013000",
+            "beneficiary": "Acme GmbH",
+            "amount": 40000,
+            "destination_country": "Germany"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:wires.send": {
+          "http": {
+            "status": 201,
+            "body": {
+              "wire_id": "WR-1",
+              "status": "sent"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:wires.send",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:wires.send",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 40000
+        }
+      ],
+      "category": "normal",
+      "allow_node_errors": true
+    },
+    {
+      "name": "Large wire rejected by treasury is not sent",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "from_account": "AC-1",
+            "to_account": "DE89370400440532013000",
+            "beneficiary": "Acme GmbH",
+            "amount": 40000,
+            "destination_country": "Germany"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:wires.send": {
+          "http": {
+            "status": 201,
+            "body": {
+              "wire_id": "WR-1",
+              "status": "sent"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "rejected",
+          "approval": {
+            "decision": "rejected",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$type:Approval",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:wires.send",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        }
+      ],
+      "category": "normal",
+      "allow_node_errors": true
+    },
+    {
+      "name": "Wire to Iran is blocked",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "from_account": "AC-1",
+            "to_account": "DE89370400440532013000",
+            "beneficiary": "Acme GmbH",
+            "amount": 2000,
+            "destination_country": "Iran"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:wires.send": {
+          "http": {
+            "status": 201,
+            "body": {
+              "wire_id": "WR-1",
+              "status": "sent"
+            }
+          }
+        },
+        "$type:Approval?": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:wires.send",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        }
+      ],
+      "category": "unusual",
+      "allow_node_errors": true
+    },
+    {
+      "name": "Large wire to Syria is blocked even if approved",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "from_account": "AC-1",
+            "to_account": "DE89370400440532013000",
+            "beneficiary": "Acme GmbH",
+            "amount": 90000,
+            "destination_country": "Syria"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:wires.send": {
+          "http": {
+            "status": 201,
+            "body": {
+              "wire_id": "WR-1",
+              "status": "sent"
+            }
+          }
+        },
+        "$type:Approval": {
+          "port": "approved",
+          "approval": {
+            "decision": "approved",
+            "comment": "",
+            "form_data": {},
+            "decided_by": "test"
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:wires.send",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        }
+      ],
+      "category": "unusual",
+      "allow_node_errors": true
+    }
+  ],
+  "input_aliases": {
+    "from_account": [
+      "source_account",
+      "from"
+    ],
+    "to_account": [
+      "destination_account",
+      "target_account",
+      "to"
+    ],
+    "beneficiary": [
+      "beneficiary_name"
+    ],
+    "destination_country": [
+      "country",
+      "destination"
+    ]
+  }
+}

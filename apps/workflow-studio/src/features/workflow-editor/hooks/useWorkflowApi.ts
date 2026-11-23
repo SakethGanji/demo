@@ -5,11 +5,19 @@
  * Uses fetch-based REST API.
  */
 
+import { flushPendingEdits } from '../lib/pendingEdits';
+import { saveDraftForRun, describeActionError, buildSavePayload, updateWorkflowDraft } from '../lib/nodeActions';
 import { useCallback, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { workflowsApi } from '@/shared/lib/api';
+import { projectsApi } from '@/shared/api/endpoints';
+import { useEditorProjectStore } from '../stores/editorProjectStore';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useCheckStore } from '../stores/checkStore';
+import { useEditorLayoutStore } from '../stores/editorLayoutStore';
+import { ApiError } from '@/shared/api/http';
+import type { Finding } from '../lib/shapes';
 import type { BackendWorkflow } from '@/shared/lib/backendTypes';
 import {
   toBackendWorkflow,
@@ -17,6 +25,7 @@ import {
   findUpstreamNodeName,
   buildNameToIdMap,
 } from '../lib/workflowTransform';
+import { showPublishBlocked } from '../lib/testActions';
 import { toast } from 'sonner';
 import type { WorkflowNodeData } from '../types/workflow';
 import type { Node } from '@xyflow/react';
@@ -30,17 +39,19 @@ export function useSaveWorkflow() {
   const isSavingRef = useRef(false);
 
   const createMutation = useMutation({
-    mutationFn: (workflow: BackendWorkflow) => workflowsApi.create(workflow),
+    mutationFn: (workflow: BackendWorkflow) =>
+      projectsApi.createWorkflow(useEditorProjectStore.getState().projectId, workflow),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, workflow }: { id: string; workflow: BackendWorkflow }) =>
-      workflowsApi.update(id, workflow),
+    mutationFn: ({ id }: { id: string }) => updateWorkflowDraft(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -48,23 +59,17 @@ export function useSaveWorkflow() {
     // Guard against concurrent saves (e.g. rapid double-click)
     if (isSavingRef.current) return;
     isSavingRef.current = true;
+    flushPendingEdits();
 
-    const { nodes, edges, workflowName, workflowId } = useWorkflowStore.getState();
-    const backendWorkflow = toBackendWorkflow(
-      nodes as Node<WorkflowNodeData>[],
-      edges,
-      workflowName,
-      workflowId
-    );
+    const { workflowId } = useWorkflowStore.getState();
+    const backendWorkflow = buildSavePayload(workflowId);
 
     try {
       if (workflowId) {
         // Update existing workflow
         const result = await updateMutation.mutateAsync({
           id: workflowId,
-          workflow: backendWorkflow,
         });
-        useWorkflowStore.getState().markAsSaved();
         toast.success('Workflow saved', {
           description: `"${result.name}" has been updated.`,
         });
@@ -75,8 +80,8 @@ export function useSaveWorkflow() {
         useWorkflowStore.getState().setWorkflowId(result.id);
         // Update URL to include the new workflow ID
         navigate({
-          to: '/editor',
-          search: { workflowId: result.id },
+          to: '/p/$project/workflows/$workflowId',
+          params: { project: useEditorProjectStore.getState().slug, workflowId: result.id },
           replace: true,
         });
         useWorkflowStore.getState().markAsSaved();
@@ -112,9 +117,11 @@ export function useImportWorkflow() {
   const queryClient = useQueryClient();
 
   const createMutation = useMutation({
-    mutationFn: (workflow: BackendWorkflow) => workflowsApi.create(workflow),
+    mutationFn: (workflow: BackendWorkflow) =>
+      projectsApi.createWorkflow(useEditorProjectStore.getState().projectId, workflow),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workflows'] });
+      queryClient.invalidateQueries({ queryKey: ['project'] });
     },
   });
 
@@ -150,8 +157,8 @@ export function useImportWorkflow() {
 
       // Navigate to the editor with the new workflow
       navigate({
-        to: '/editor',
-        search: { workflowId: created.id },
+        to: '/p/$project/workflows/$workflowId',
+        params: { project: useEditorProjectStore.getState().slug, workflowId: created.id },
         replace: true,
       });
 
@@ -314,14 +321,46 @@ export function usePublishWorkflow() {
       return;
     }
 
+    // Publish what is on screen: apply pending field edits and save the draft first (the engine publishes the stored draft)
+    flushPendingEdits();
+    try {
+      await saveDraftForRun();
+    } catch (error) {
+      toast.error("Couldn't publish", { description: `Could not save the draft: ${describeActionError(error).message}` });
+      return;
+    }
+
     try {
       const result = await publishMutation.mutateAsync({ id: workflowId, message });
       useWorkflowStore.getState().setIsActive(result.active);
-      toast.success(`Published v${result.version_id}`, {
+      toast.success(result.version_number != null ? `Published v${result.version_number}` : 'Published', {
         description: message || 'Workflow is now active.',
       });
       return result;
     } catch (error) {
+      // 422 {detail: {message, findings}}: the checker found errors. Show them in the Problems tab.
+      if (error instanceof ApiError && error.status === 422) {
+        const detail = (error.body as { detail?: { findings?: Finding[]; failed_tests?: Array<{ test_id: string; name: string }> } } | null)?.detail;
+        // 422 {detail: {message, failed_tests}}: approved tests fail. Toast them and open the Tests tab.
+        if (detail && Array.isArray(detail.failed_tests)) {
+          showPublishBlocked(detail.failed_tests);
+          return undefined;
+        }
+        if (detail && Array.isArray(detail.findings)) {
+          const findings = detail.findings;
+          const n = findings.filter((f) => f.severity === 'error').length || findings.length;
+          const prev = useCheckStore.getState().result;
+          useCheckStore.getState().setResult({
+            findings,
+            shapes_by_node: prev?.shapes_by_node ?? {},
+            coverage: prev?.coverage ?? { refs_total: 0, refs_checked: 0, refs_unknown: 0, nodes_total: 0, nodes_known_output: 0 },
+          });
+          useEditorLayoutStore.getState().setBottomPanelTab('problems');
+          if (!useEditorLayoutStore.getState().bottomPanelOpen) useEditorLayoutStore.getState().openBottomPanel('problems');
+          toast.error(`Can't publish: ${n} ${n === 1 ? 'error' : 'errors'}`);
+          return undefined; // handled; the Problems tab shows why
+        }
+      }
       const message = error instanceof Error ? error.message : 'Unknown error';
       toast.error('Failed to publish', { description: message });
       throw error;

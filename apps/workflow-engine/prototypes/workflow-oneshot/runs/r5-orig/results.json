@@ -1,0 +1,332 @@
+[
+ {
+  "id": "account_closure",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 22.9,
+  "nodes": 7,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "address_change_verify",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 19.3,
+  "nodes": 6,
+  "own_tests": 3,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "aml_alert_triage",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 22.3,
+  "nodes": 9,
+  "own_tests": 3,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.COMPLIANCE_EMAIL"
+ },
+ {
+  "id": "card_dispute_intake",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 20.8,
+  "nodes": 7,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "chargeback_evidence",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 17.8,
+  "nodes": 4,
+  "own_tests": 3,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "complaint_routing",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 17.3,
+  "nodes": 6,
+  "own_tests": 3,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.ONCALL_CONTACT (the on-call person's pager address or id)"
+ },
+ {
+  "id": "daily_recon_report",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 25.5,
+  "nodes": 7,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.FINANCE_EMAIL"
+ },
+ {
+  "id": "injection_vendor_onboarding",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 23.2,
+  "nodes": 6,
+  "own_tests": 3,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "kyc_document_review",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 25.9,
+  "nodes": 7,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "loan_precheck",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 30.9,
+  "nodes": 8,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "overdraft_fee_waiver",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 26.8,
+  "nodes": 6,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "payment_exception",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 25.4,
+  "nodes": 8,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.OPS_EMAIL (the ops reviewer's address). I assumed the transient error codes are exactly `timeout` and `network_error`. If your payments system spells them differently, change the list in \"Transient error?\"."
+ },
+ {
+  "id": "refund_over_500",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 25.5,
+  "nodes": 8,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.MANAGER_EMAIL (the manager who approves refunds over $500)"
+ },
+ {
+  "id": "vendor_invoice_approval",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 28.6,
+  "nodes": 6,
+  "own_tests": 6,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. No approver emails are specified, so the tasks go to the approval inbox. Add `notify_email` to the three approval steps if you want email alerts."
+ },
+ {
+  "id": "wire_over_limit",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 24.1,
+  "nodes": 8,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: $vars.TREASURY_EMAIL"
+ }
+]

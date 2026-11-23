@@ -16,6 +16,17 @@ if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
 
+from ...engine import shapes as sh
+
+class NodeCallError(RuntimeError):
+    """A node failure with a stable code (e.g. a broker policy error) — surfaced as error_code."""
+
+    def __init__(self, message: str, code: str, details: dict | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.details = details or {}
+
+
 class CodeNode(BaseNode):
     """Code node - execute custom Python code in a sandboxed environment."""
 
@@ -71,12 +82,41 @@ External imports and file system access are limited.""",
     def description(self) -> str:
         return "Execute custom Python code"
 
+    def contract(self, params, inputs, lookups=None):
+        """Declared: ``params.output_schema`` (a Shape) when set, else UNKNOWN (arbitrary user code)."""
+        declared = sh.param_shape(params, "output_schema", "outputSchema")
+        return sh.make_contract(inputs, {"main": declared if declared is not None else sh.unknown()})
+
     async def execute(
         self,
         context: ExecutionContext,
         node_definition: NodeDefinition,
         input_data: list[NodeData],
     ) -> NodeExecutionResult:
+        """Phase 8: run in the bubblewrap sandbox; legacy in-process exec only when unavailable."""
+        from ...sandbox.node_runner import SandboxNodeError, legacy_code_allowed, run_in_sandbox
+
+        if legacy_code_allowed():
+            return await self._execute_in_process(context, node_definition, input_data)
+        code = self.get_parameter(node_definition, "code", "return items")
+        node_data = {name: {"json": data[0].json if data else {}, "data": [d.json for d in data]}
+                     for name, data in context.node_states.items()}
+        payload = {"code": code, "items": [{"json": i.json} for i in input_data],
+                   "node_data": node_data, "execution": {"id": context.execution_id, "mode": context.mode}}
+        try:
+            result, trace = await run_in_sandbox(context, kind="code", payload=payload, timeout_s=5.0, origin="code_node")
+        except SandboxNodeError as e:
+            raise NodeCallError(str(e), e.code, e.details) from None
+        return self.output(self._normalize_output(result), metadata={
+            "sandboxed": True, "sandbox": {k: trace[k] for k in ("exit_code", "duration_ms", "broker_calls", "logs")}})
+
+    async def _execute_in_process(
+        self,
+        context: ExecutionContext,
+        node_definition: NodeDefinition,
+        input_data: list[NodeData],
+    ) -> NodeExecutionResult:
+        """Legacy path (pre-phase-8): restricted exec in a thread — NOT a security boundary."""
 
         code = self.get_parameter(node_definition, "code", "return items")
 
@@ -135,6 +175,8 @@ External imports and file system access are limited.""",
                 "all": all,
                 "isinstance": isinstance,
                 "type": type,
+                "chr": chr,
+                "ord": ord,
                 "print": log,
                 "None": None,
                 "True": True,
@@ -149,6 +191,30 @@ External imports and file system access are limited.""",
             "new_item": new_item,
             "log": log,
         }
+
+        # Nodes-as-functions (phase 4): `studio.nodes.<fn>(...)` via the broker, in-process.
+        # Unsandboxed until phase 8 moves this node into the sandbox.
+        import asyncio as _asyncio
+        loop_for_broker = _asyncio.get_running_loop()
+        broker_token = None
+        studio_transport = None
+        try:
+            from ...broker.service import BrokerService, mint_for_context
+            from ...sdk.generate import load_in_process
+
+            studio_mod = load_in_process()
+            broker_token = mint_for_context(context, "code_node")
+
+            def studio_transport(node: str, parameters: dict, items_: list) -> dict:
+                fut = _asyncio.run_coroutine_threadsafe(
+                    BrokerService().call_with_token(broker_token, None, node, parameters, items_), loop_for_broker)
+                status, body = fut.result(timeout=120)
+                body["status"] = status
+                return body
+
+            restricted_globals["studio"] = studio_mod
+        except Exception:  # SDK unavailable → Code node keeps working without `studio`
+            studio_mod = None
 
         # Add safe modules
         import json
@@ -178,8 +244,10 @@ External imports and file system access are limited.""",
 
         try:
             # Unescape literal \n and \t that arrive from LLM tool-call JSON
-            if '\\n' in code:
-                code = code.replace('\\n', '\n').replace('\\t', '\t')
+            # (only outside string literals and comments: a "\n" inside a string is the string's own escape)
+            from ...sandbox.code_escapes import unescape_code
+
+            code = unescape_code(code)
 
             # Wrap code in a function - properly indent each line
             code_lines = code.split('\n')
@@ -202,28 +270,41 @@ __result__ = __user_code__()
 
             def execute_code() -> Any:
                 exec_locals: dict[str, Any] = {}
+                if studio_mod is not None and studio_transport is not None:
+                    studio_mod._transport.use(studio_transport)
                 try:
                     exec(wrapped_code, restricted_globals, exec_locals)
                     return exec_locals.get("__result__")
                 except SyntaxError as e:
-                    # Enhance syntax error message with line number
-                    raise SyntaxError(f"Line {e.lineno}: {e.msg}") from e
+                    # Report the user's line: the code is wrapped in `def __user_code__():` (+1 line).
+                    line = max(1, (e.lineno or 2) - 1)
+                    err = SyntaxError(f"Line {line}: {e.msg}")
+                    err.user_line = line  # type: ignore[attr-defined]
+                    raise err from e
 
+            import contextvars
             loop = asyncio.get_event_loop()
+            ctx = contextvars.copy_context()
             with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = loop.run_in_executor(executor, execute_code)
+                future = loop.run_in_executor(executor, ctx.run, execute_code)
                 result = await asyncio.wait_for(future, timeout=5.0)
 
             # Normalize result
             output = self._normalize_output(result)
-            return self.output(output)
+            return self.output(output, metadata={"sandboxed": False})
 
         except asyncio.TimeoutError:
             raise RuntimeError("Code execution timed out (5 second limit)")
-        except SyntaxError as e:
-            raise RuntimeError(f"Syntax Error in code: {e}")
         except Exception as e:
+            if studio_mod is not None and isinstance(e, studio_mod._transport.BrokerError):
+                raise NodeCallError(f"Code execution failed: {e}", e.code, {**e.details}) from e
+            if isinstance(e, SyntaxError):
+                raise NodeCallError(f"Syntax Error in code: {e}", "syntax_error", {"line": getattr(e, "user_line", None)})
             raise RuntimeError(f"Code execution failed: {e}")
+        finally:
+            if broker_token:
+                from ...broker.service import revoke_for_context
+                revoke_for_context(context, "code_node")
 
     def _normalize_output(self, result: Any) -> list[NodeData]:
         """Normalize code output to NodeData list."""

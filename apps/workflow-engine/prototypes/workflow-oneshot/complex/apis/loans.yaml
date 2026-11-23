@@ -1,0 +1,70 @@
+openapi: 3.0.3
+info:
+  title: loans
+  version: '1.0'
+servers:
+- url: http://loans.bank.test
+paths:
+  /loans:
+    post:
+      operationId: book
+      summary: Book an approved loan
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loan_id:
+                    type: string
+                required:
+                - loan_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                applicant_id:
+                  type: string
+                product:
+                  type: string
+                amount:
+                  type: number
+              required:
+              - applicant_id
+              - product
+              - amount
+  /loans/declines:
+    post:
+      operationId: decline
+      summary: Record a declined application
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  decline_id:
+                    type: string
+                required:
+                - decline_id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                applicant_id:
+                  type: string
+                reason:
+                  type: string
+              required:
+              - applicant_id
+              - reason

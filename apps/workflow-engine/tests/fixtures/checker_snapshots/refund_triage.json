@@ -1,0 +1,20 @@
+[
+ [
+  "WF005",
+  "Normalize",
+  "fields[0].value",
+  "body.order_id"
+ ],
+ [
+  "WF005",
+  "Normalize",
+  "fields[1].value",
+  "body.amount"
+ ],
+ [
+  "WF005",
+  "Normalize",
+  "fields[2].value",
+  "body.reason"
+ ]
+]

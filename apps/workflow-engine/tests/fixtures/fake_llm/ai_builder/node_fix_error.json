@@ -1,0 +1,13 @@
+{
+ "rules": [
+  {
+   "id": "fix",
+   "when": {
+    "system_matches": "^WF_AI:NODE_FIX\\n"
+   },
+   "respond": {
+    "text": "{\"plan\": [], \"ops\": [{\"op\": \"set_parameter\", \"args_json\": \"{\\\"node\\\": \\\"Compute fee\\\", \\\"path\\\": \\\"fields[0].value\\\", \\\"value\\\": \\\"{{ $json.body.amount * 0.01 }}\\\"}\", \"why\": \"\"}], \"notes\": \"\"}"
+   }
+  }
+ ]
+}

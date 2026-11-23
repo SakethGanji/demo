@@ -14,7 +14,7 @@ from ..core.exceptions import (
     WorkflowInactiveError,
     WebhookError,
 )
-from ..engine.types import NodeData, WebhookResponse
+from ..engine.types import NodeData, WebhookResponse, run_status
 
 if TYPE_CHECKING:
     from ..engine.types import StoredWorkflow, NodeDefinition
@@ -115,12 +115,21 @@ class WebhookService:
         from .variable_loader import load_run_variables, load_run_secrets
         from .vars_substitution import substitute_vars
 
+        from .project_service import effective_environment, resolve_project
         env = headers.pop("x-env", None) or query_params.pop("env", None) or "default"
-        variables = await load_run_variables(environment=env)
-        secrets = await load_run_secrets(environment=env)
+        project = await resolve_project(self._workflow_repo._session, stored.project_id)
+        env = effective_environment(project, env)
+        variables = await load_run_variables(environment=env, project_id=stored.project_id)
+        secrets = await load_run_secrets(environment=env, project_id=stored.project_id)
         body = substitute_vars(body, variables)
         headers = substitute_vars(headers, variables)
         query_params = substitute_vars(query_params, variables)
+
+        # Same run extras as a manual/API run: the API catalog (api_ref HttpRequest nodes) and the egress allowlist.
+        from .api_catalog import load_api_specs
+        from .execution_service import _egress_allowlist
+        extras = {"egress_allowlist": _egress_allowlist(project),
+                  "api_specs": await load_api_specs(self._workflow_repo._session, stored.workflow.nodes)}
 
         # Build webhook data (includes raw body for signature verification etc.)
         webhook_data = NodeData(
@@ -138,9 +147,9 @@ class WebhookService:
         response_mode = webhook_node.parameters.get("responseMode", "onReceived")
 
         if response_mode == "onReceived":
-            return await self._handle_on_received(stored, webhook_node, webhook_data, variables, secrets)
+            return await self._handle_on_received(stored, webhook_node, webhook_data, variables, secrets, env, extras)
         else:
-            return await self._handle_last_node(stored, webhook_node, webhook_data, variables, secrets)
+            return await self._handle_last_node(stored, webhook_node, webhook_data, variables, secrets, env, extras)
 
     async def _handle_on_received(
         self,
@@ -149,6 +158,8 @@ class WebhookService:
         webhook_data: NodeData,
         variables: dict[str, str],
         secrets: set[str],
+        env: str | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Respond immediately and execute workflow in the background."""
         from ..utils.ids import execution_id
@@ -157,7 +168,7 @@ class WebhookService:
         # Fire-and-forget background execution with registry tracking
         from ..engine import execution_registry
         task = asyncio.create_task(
-            self._run_background(stored, webhook_node, webhook_data, exec_id, variables, secrets)
+            self._run_background(stored, webhook_node, webhook_data, exec_id, variables, secrets, env, extras)
         )
         execution_registry.register(exec_id, task)
 
@@ -175,18 +186,22 @@ class WebhookService:
         execution_id: str,
         variables: dict[str, str],
         secrets: set[str],
+        env: str | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> None:
         """Run workflow in background and save execution with its own DB session."""
         from ..engine.workflow_runner import WorkflowRunner
         from ..engine.types import ExecutionContext, ExecutionError
         from ..db.session import async_session_factory  # noqa: F811
         from ..repositories.execution_repository import ExecutionRepository
+        from .subworkflow_wiring import subworkflow_invoker
 
         try:
             # Pre-create execution row so node_outputs FK is satisfied during run
             async with async_session_factory() as session:
                 exec_repo = ExecutionRepository(session)
-                await exec_repo.start(execution_id, stored.id, stored.name, "webhook")
+                await exec_repo.start(execution_id, stored.id, stored.name, "webhook", project_id=stored.project_id,
+                                      environment=env)
 
             runner = WorkflowRunner(db_session_factory=async_session_factory)
             context = await runner.run(
@@ -198,6 +213,10 @@ class WebhookService:
                 execution_id=execution_id,
                 variables=variables,
                 secret_values=secrets,
+                project_id=stored.project_id,
+                environment=env,
+                extras=dict(extras or {}),
+                subworkflow_invoker=subworkflow_invoker(async_session_factory),
             )
 
             # Use a fresh DB session for background persistence
@@ -238,11 +257,14 @@ class WebhookService:
         webhook_data: NodeData,
         variables: dict[str, str],
         secrets: set[str],
+        env: str | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> dict[str, Any] | WebhookResponse:
         """Execute workflow synchronously and return last node's output."""
         from ..engine.workflow_runner import WorkflowRunner
         from ..db.session import async_session_factory
         from ..utils.ids import execution_id as gen_exec_id
+        from .subworkflow_wiring import subworkflow_invoker
 
         exec_id = gen_exec_id()
         await self._execution_repo.start(exec_id, stored.id, stored.name, "webhook")
@@ -257,6 +279,10 @@ class WebhookService:
             execution_id=exec_id,
             variables=variables,
             secret_values=secrets,
+            project_id=stored.project_id,
+            environment=env,
+            extras=dict(extras or {}),
+            subworkflow_invoker=subworkflow_invoker(async_session_factory),
         )
 
         await self._execution_repo.complete(context, stored.id, stored.name)
@@ -269,13 +295,13 @@ class WebhookService:
         if context.last_completed_node and context.last_completed_node in context.node_states:
             last_node_data = context.node_states[context.last_completed_node]
             return {
-                "status": "success" if not context.errors else "failed",
+                "status": run_status(context),
                 "executionId": context.execution_id,
                 "data": [d.json for d in last_node_data],
             }
 
         return {
-            "status": "success" if not context.errors else "failed",
+            "status": run_status(context),
             "executionId": context.execution_id,
             "data": [],
         }

@@ -1,0 +1,112 @@
+[
+ {
+  "id": "card_limit_change",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 48.4,
+  "nodes": 14,
+  "own_tests": 6,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   7,
+   7
+  ],
+  "first_hidden": [
+   7,
+   7
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. `CREDIT_OFFICER_EMAIL` and `HEAD_OF_CREDIT_EMAIL` already exist as variables."
+ },
+ {
+  "id": "customer_exit",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 44.0,
+  "nodes": 13,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing to set up beyond the existing `$vars.OPS_MANAGER_EMAIL`. I assumed core banking marks open accounts `status = 'open'` and active loans `status = 'active'`. If a customer has no open accounts and no loans, the workflow stops after approval without sending a reply."
+ },
+ {
+  "id": "fee_refund",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 51.4,
+  "nodes": 16,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "loan_write_off",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 50.8,
+  "nodes": 17,
+  "own_tests": 7,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   7,
+   7
+  ],
+  "first_hidden": [
+   7,
+   7
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing"
+ },
+ {
+  "id": "overdue_collections",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 55.0,
+  "nodes": 15,
+  "own_tests": 4,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. `COLLECTIONS_LEAD_EMAIL` already exists. The query assumes the `loans.status` value for active loans is `'active'`."
+ }
+]

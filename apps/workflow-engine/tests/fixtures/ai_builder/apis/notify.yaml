@@ -1,0 +1,54 @@
+openapi: 3.0.3
+info:
+  title: notify
+  version: '1.0'
+servers:
+- url: http://notify.bank.test
+paths:
+  /messages:
+    post:
+      operationId: sendMessage
+      summary: Send a message to a customer or to the on-call pager
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                to:
+                  type: string
+                text:
+                  type: string
+                channel:
+                  type: string
+                  enum:
+                  - email
+                  - sms
+                  - pager
+              required:
+              - to
+              - text
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  delivered:
+                    type: boolean
+                required:
+                - delivered
+        '400':
+          description: Bad recipient
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

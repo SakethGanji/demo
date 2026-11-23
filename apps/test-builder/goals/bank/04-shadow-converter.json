@@ -1,0 +1,84 @@
+{
+  "goal": "Use the currency converter web component in settings",
+  "slug": "bank-04-shadow-converter",
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "label": "Username"
+      },
+      "value": "{{teller_user}}",
+      "group": "Sign in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Password"
+      },
+      "value": "{{teller_pass}}",
+      "group": "Sign in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Sign in"
+      },
+      "group": "Sign in"
+    },
+    {
+      "action": "otp",
+      "value": "{{totp:teller_totp}}",
+      "group": "Pass MFA"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Verify"
+      },
+      "group": "Pass MFA"
+    },
+    {
+      "action": "waitFor",
+      "target": {
+        "role": "table",
+        "name": "Customer accounts"
+      },
+      "group": "Go to settings"
+    },
+    {
+      "action": "goto",
+      "url": "/settings",
+      "group": "Go to settings"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Amount in GBP"
+      },
+      "value": "100",
+      "group": "Convert"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Convert"
+      },
+      "group": "Convert"
+    },
+    {
+      "action": "expectText",
+      "target": {
+        "role": "status"
+      },
+      "text": "GBP =",
+      "group": "Convert"
+    },
+    {
+      "action": "done",
+      "reason": "open shadow DOM component used"
+    }
+  ]
+}

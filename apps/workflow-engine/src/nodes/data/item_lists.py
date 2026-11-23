@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 from ...engine.types import NodeData
 
 
+from ...engine import shapes as sh
+
 class ItemListsNode(BaseNode):
     """ItemLists node - perform list operations like sort, limit, deduplicate, aggregate."""
 
@@ -251,6 +253,85 @@ class ItemListsNode(BaseNode):
     @property
     def description(self) -> str:
         return "Sort, limit, remove duplicates, or aggregate items"
+
+    def contract(self, params, inputs, lookups=None):
+        """Derived by ``operation``:
+
+        * sort / limit / removeDuplicates / concatenate (and unknown ops): passthrough;
+        * aggregate: ``{<groupBy>, _count, <outputField or "<field>_<op>">...}`` (sum/avg number, count integer,
+          min/max number|null, first/last the field's shape, collect array of it);
+        * summarize: ``{<summarizeField|items>: [<input>], count: integer}`` (count only when ``includeCount``);
+        * splitOut: items of the array field merged with the other fields (``includeOther``, default true) or alone.
+        """
+        params = params or {}
+        item = sh.input_shape(inputs)
+        op = params.get("operation") or "sort"
+        if op == "aggregate":
+            out = self._aggregate_shape(params, item)
+        elif op == "summarize":
+            field = params.get("summarizeField") or "items"
+            props = {str(field): sh.array_of(item)}
+            if params.get("includeCount", True) not in (False, "false", 0):
+                props["count"] = sh.scalar("integer")
+            out = sh.object_of(props, list(props))
+        elif op == "splitOut":
+            out = self._split_out_shape(params, item)
+        else:
+            out = item
+        return sh.make_contract(inputs, {"main": out})
+
+    def _aggregate_shape(self, params, item):
+        props: dict = {}
+        group_by = params.get("groupBy") or ""
+        if group_by:
+            found = sh.lookup(item, str(group_by).split("."))
+            props[str(group_by)] = sh.unknown() if found is None else found
+        props["_count"] = sh.scalar("integer")
+        for agg in params.get("aggregations") or []:
+            if not isinstance(agg, dict):
+                continue
+            field = agg.get("field", "")
+            op = agg.get("aggOperation", "sum")
+            name = agg.get("outputField") or f"{field}_{op}"
+            src = sh.lookup(item, str(field).split(".")) if field else sh.unknown()
+            src = sh.unknown() if src is None else src
+            if op in ("sum", "avg"):
+                shape = sh.scalar("number")
+            elif op == "count":
+                shape = sh.scalar("integer")
+            elif op in ("min", "max"):
+                shape = sh.scalar("number", nullable=True)
+            elif op in ("first", "last"):
+                shape = sh.merge_shapes(src, sh.scalar("null")) if not sh.is_unknown(src) else sh.unknown()
+            elif op == "collect":
+                shape = sh.array_of(src if not sh.is_unknown(src) else None)
+            else:
+                continue  # execute() ignores unknown ops
+            props[str(name)] = shape
+        return sh.object_of(props, ["_count"])
+
+    def _split_out_shape(self, params, item):
+        field = params.get("arrayField") or ""
+        if not field:
+            return item
+        arr = sh.lookup(item, str(field).split("."))
+        if arr is None:
+            return item  # nothing to split: items pass through as they are
+        if not sh.is_closed_object(item) or sh.is_unknown(arr) or arr.get("type") != "array":
+            return sh.unknown()
+        element = arr.get("items")
+        include_other = params.get("includeOther", True) not in (False, "false", 0)
+        if not isinstance(element, dict) or sh.is_unknown(element):
+            return sh.unknown()
+        if element.get("type") == "object":
+            if not sh.is_closed_object(element):
+                return sh.unknown()
+            props = {k: v for k, v in item["properties"].items() if k != field} if include_other else {}
+            props.update(element["properties"])
+            return sh.object_of(props)
+        base = {k: v for k, v in item["properties"].items() if k != field} if include_other else {}
+        base[str(field)] = element
+        return sh.object_of(base)
 
     async def execute(
         self,

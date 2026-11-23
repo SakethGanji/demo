@@ -1,53 +1,43 @@
 /**
  * Environment Configuration
  *
- * Determines backend URLs based on the current hostname.
- * Each environment can have multiple backends.
+ * Determines backend URLs. `VITE_WORKFLOW_API_URL` (UI-DESIGN §11.4) wins when set — the
+ * isolated E2E stack points its own Vite instance at its own engine this way. Otherwise the
+ * backend is chosen by hostname.
  */
 
 interface Backends {
-  workflow: string;    // Workflow engine API
-  // Add more backends as needed:
-  // auth: string;
-  // analytics: string;
+  workflow: string; // Workflow engine API origin
 }
 
-// Add your environments here
 const ENVIRONMENTS: Record<string, Backends> = {
-  'localhost': {
-    workflow: 'http://localhost:8000',
-  },
-  '127.0.0.1': {
-    workflow: 'http://localhost:8000',
-  },
-
-  // Development
-  // 'dev.yourapp.com': {
-  //   workflow: 'https://workflow-dev.yourapp.com',
-  //   auth: 'https://auth-dev.yourapp.com',
-  // },
-
-  // UAT / Staging
-  // 'uat.yourapp.com': {
-  //   workflow: 'https://workflow-uat.yourapp.com',
-  //   auth: 'https://auth-uat.yourapp.com',
-  // },
-
-  // Production
-  // 'app.yourapp.com': {
-  //   workflow: 'https://workflow.yourapp.com',
-  //   auth: 'https://auth.yourapp.com',
-  // },
+  localhost: { workflow: 'http://localhost:8000' },
+  '127.0.0.1': { workflow: 'http://localhost:8000' },
 };
 
 // Default: same origin for all backends
-const DEFAULT_BACKENDS: Backends = {
-  workflow: '',
-};
+const DEFAULT_BACKENDS: Backends = { workflow: '' };
+
+const override = (import.meta.env.VITE_WORKFLOW_API_URL as string | undefined)?.replace(/\/+$/, '') || undefined;
 
 function getBackends(): Backends {
+  if (override) return { workflow: override };
   const hostname = window.location.hostname;
   return ENVIRONMENTS[hostname] ?? DEFAULT_BACKENDS;
 }
 
 export const backends = getBackends();
+
+/** Absolute engine origin (falls back to the page origin when the engine is same-origin). */
+function engineOrigin(): string {
+  try {
+    return new URL(backends.workflow || window.location.origin, window.location.origin).origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
+export const config = {
+  workflowApiUrl: backends.workflow,
+  engineOrigin: engineOrigin(),
+};

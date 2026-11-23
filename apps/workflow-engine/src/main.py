@@ -14,7 +14,7 @@ import os
 from .core.config import settings
 from .engine.node_registry import register_all_nodes
 from .engine.logging import setup_logging
-from .routes import api_router, webhook_router, stream_router, public_app_router
+from .routes import api_router, webhook_router, stream_router, public_app_router, project_router
 from .schemas.common import RootResponse, HealthResponse
 from .db import init_db
 
@@ -29,9 +29,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(settings.log_level)
     logger = logging.getLogger(__name__)
 
+    # UI-DESIGN §10.3 / re-review N7: test mode only on a workflows_test_* DB; the test-only fake LLM
+    # only when all six activation conditions hold (else RuntimeError — startup aborts). Both read
+    # os.environ only, and run before anything touches the database.
+    from .core import test_mode
+    from .engine import fake_llm
+    installed = fake_llm.install()
+    test_mode.check_startup()
+    if installed is not None:
+        from .routes.test_hooks import router as test_hooks_router
+        app.include_router(test_hooks_router)
+        logger.warning("FAKE LLM INSTALLED (test mode, db=%s) — /api/_test/* is enabled", settings.db_name)
+
     # Initialize database tables
     await init_db()
     register_all_nodes()
+    try:
+        from .sdk.generate import sdk_dir
+        sdk_dir()  # generate the studio SDK (nodes as functions) for this registry
+    except Exception:
+        logger.warning("studio SDK generation failed", exc_info=True)
 
     # Auto-seed demo workflows in dev. On by default; set SEED=0 to disable.
     if os.environ.get("SEED", "1").strip().lower() not in ("0", "false", "no"):
@@ -40,6 +57,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Dev seed applied")
 
     from .db.session import async_session_factory
+
+    # Stage 8: fill the sub-workflow reference index once, when it is empty (idempotent; never blocks startup)
+    try:
+        from .services.workflow_refs import backfill_if_empty
+        await backfill_if_empty(async_session_factory)
+    except Exception:
+        logger.warning("workflow_refs backfill failed", exc_info=True)
+
+    # Capability graph: seed the ontology and the global capabilities (idempotent; WORKFLOW_KG_SEED=0 skips; a failure never blocks startup)
+    if os.environ.get("WORKFLOW_KG_SEED", "1").strip().lower() not in ("0", "false", "no"):
+        try:
+            from .services import kg_extract
+            kg_report = await kg_extract.seed_global()
+            logger.info("Capability graph seeded (+%s new, %s changed)", kg_report.added, kg_report.updated)
+        except Exception:
+            logger.warning("capability graph seed failed (is the capability_graph migration applied?)", exc_info=True)
+
     from .engine.cron_scheduler import CronScheduler
     from .engine.stale_reaper import StaleReaper
     from .engine.retention_cleaner import RetentionCleaner
@@ -49,6 +83,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     cron_scheduler = CronScheduler(async_session_factory)
     stale_reaper = StaleReaper(async_session_factory)
     retention_cleaner = RetentionCleaner(async_session_factory)
+
+    # Stage 5: a resume that was running when the previous process died is never re-run (it could pay twice); it fails loudly.
+    from .engine import task_resumer
+    try:
+        await task_resumer.startup_sweep(async_session_factory)
+    except Exception:
+        logger.warning("startup sweep of interrupted approvals failed (is the interfaces_tasks migration applied?)", exc_info=True)
+
+    # Builds left running by the previous process end as failed / interrupted (a new build skips the finished modules).
+    from .services import build_coordinator
+    try:
+        await build_coordinator.startup_sweep(async_session_factory)
+    except Exception:
+        logger.warning("startup sweep of interrupted builds failed (is the project_builds migration applied?)", exc_info=True)
+
+    # Stage 5 6.2: chat completion hooks live for the whole process, so a run that waited on an approval still replies after a restart.
+    from .services import chat_service
+    if not chat_service.register_hooks():
+        logger.warning("chat completion hooks not registered (ExecutionRepository.on_complete_hooks is missing)")
 
     cron_scheduler.start()
     stale_reaper.start()
@@ -63,6 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await cron_scheduler.stop()
     await stale_reaper.stop()
     await retention_cleaner.stop()
+    await build_coordinator.shutdown()
 
     # Wait for running executions to finish
     running = execution_registry.get_all()
@@ -93,16 +147,30 @@ def create_app() -> FastAPI:
         debug=settings.debug,
     )
 
-    # CORS middleware
+    # Review D7: ?dry_run=true on a write without a dry-run mode → 422 (never a silent real write).
+    # Added before CORS so CORS stays the outermost middleware (its headers land on the 422 too).
+    from .core.dry_run_guard import DryRunGuard
+    app.add_middleware(DryRunGuard, fastapi_app=app)
+
+    # UI-DESIGN §10.3 / N7: /api/_test/* from a non-loopback client is always a 404.
+    from .routes.test_hooks import LoopbackOnlyTestPaths
+    app.add_middleware(LoopbackOnlyTestPaths)
+    # Audit #1: remember our own listening port so read-only broker egress can never call back in.
+    from .core.self_address import RecordOwnPort
+    app.add_middleware(RecordOwnPort)
+
+    # CORS middleware. Review C1: the studio is cross-origin, so the headers it reads must be exposed.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=settings.cors_allow_methods,
         allow_headers=settings.cors_allow_headers,
+        expose_headers=["X-Next-Cursor", "X-Execution-Id", "ETag", "Allow"],
     )
 
-    # Include routers
+    # Include routers. The project router (/api/p/...) goes first so it can't be shadowed.
+    app.include_router(project_router, tags=["Project API"])
     app.include_router(api_router)
     app.include_router(webhook_router, tags=["Webhooks"])
     app.include_router(stream_router, tags=["Streaming"])

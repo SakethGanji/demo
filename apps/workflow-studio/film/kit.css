@@ -1,0 +1,458 @@
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   film2 kit.css — tokens + every glass component of the landing film.
+   Source of the look: the c6f429f landing (index.css landing scope: clear glass, crisp rim, bright top
+   edge, soft floating shadow; raised inner glass; dot-grid well; spinning halo rim; pointer sheen),
+   recoloured to the studio sky-blue palette. Slides use ONLY these tokens and k-* classes.
+   Theme: <html data-theme="light|dark">. Units: stage px (the stage is 1600×900, scaled to fit).
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────── LIGHT ─────────────────────────────── */
+:root {
+  --bg: #eef2fa;
+  --sky-top: #d9e4f8;
+  --sky-mid: #e7edf9;
+  --beam-1: rgb(47 143 224 / .26);   /* azure */
+  --beam-2: rgb(70 110 235 / .22);   /* royal */
+  --beam-3: rgb(139 125 255 / .20);  /* indigo */
+  --vignette: rgb(170 185 220 / .35);
+
+  --fg: #0d1430;
+  --muted: #363f63;
+  --faint: #5a6282;
+  --hairline: rgb(16 24 56 / .07);
+  --input: rgb(16 24 56 / .12);
+  --recess: rgb(16 24 56 / .045);
+
+  --brand-1: #0b3a9e;                 /* navy */
+  --brand-2: #2f8fe0;                 /* azure */
+  --primary: #1d5bd0;
+  --primary-fg: #ffffff;
+  --brand-soft: color-mix(in srgb, #1d5bd0 10%, transparent);
+  --ai: #5a4fd6;
+  --ai-text: #4a3fc4;
+  --ai-soft: color-mix(in srgb, #5a4fd6 10%, transparent);
+
+  --ok: #16a34a;
+  --ok-text: #137538;
+  --ok-soft: color-mix(in srgb, #16a34a 11%, transparent);
+  --warn: #b58a12;                    /* gold, never orange */
+  --warn-text: #7d5f06;
+  --warn-soft: color-mix(in srgb, #c99a14 14%, transparent);
+  --bad: #c82828;
+  --bad-text: #a61f1f;
+  --bad-soft: color-mix(in srgb, #c82828 10%, transparent);
+
+  /* node kinds (icon colour on a node tile) */
+  --k-trigger: #2f8fe0;
+  --k-code: #3a67b8;
+  --k-data: #23875c;
+  --k-flow: #5b57e0;
+  --k-person: #7a62b0;
+  --k-out: #2a5fc4;
+
+  /* charts */
+  --viz-1: #1d5bd0;
+  --viz-2: #2f8fe0;
+  --viz-3: #7a6cf0;
+  --viz-4: #23875c;
+  --viz-5: #b58a12;
+
+  /* syntax */
+  --syn-k: #b4205f;
+  --syn-s: #137538;
+  --syn-f: #2a5fc4;
+  --syn-n: #8a6a08;
+  --syn-c: #75777c;
+  --syn-d: #5a4fd6;
+
+  /* glass: the c6f429f landing material, raised to a "liquid glass" finish (see FRAMEWORK §4 Glass finish).
+     Colour tokens (--glass-fill --well --raised --node-bg) stay plain colours so slides can color-mix them;
+     the layered parts (tint, grain, specular line, pointer rim light) are separate tokens the kit stacks. */
+  --glass-fill: rgb(255 255 255 / .50);
+  --glass-blur: blur(20px) saturate(180%);
+  --glass-tint: linear-gradient(158deg, rgb(255 255 255 / .42) 0%, rgb(255 255 255 / .10) 34%, rgb(236 242 255 / .04) 62%, rgb(196 212 255 / .16) 100%);
+  --glass-spec: linear-gradient(90deg, transparent 3%, rgb(255 255 255 / .95) 26%, rgb(255 255 255 / .7) 64%, transparent 95%);
+  --glass-edge: radial-gradient(140% 130% at 50% 38%, transparent 64%, rgb(255 255 255 / .30) 92%, rgb(255 255 255 / .5));
+  --glass-elev: inset 0 1px 0 rgb(255 255 255 / .75), inset 0 0 0 .5px rgb(255 255 255 / .6), inset 0 -1px 0 rgb(255 255 255 / .28), 0 1px 2px rgb(24 34 90 / .05), 0 24px 60px -30px rgb(40 50 120 / .35);
+  --glass-rim: linear-gradient(138deg, rgb(255 255 255 / 1) 0%, rgb(255 255 255 / .6) 10%, rgb(255 255 255 / .16) 30%, transparent 48%, transparent 70%, rgb(150 168 240 / .30) 90%, rgb(120 140 230 / .48) 100%);
+  --rim-spec: radial-gradient(460px circle at calc(28% + var(--lx) * 42%) calc(-4% + var(--ly) * 34%), rgb(255 255 255 / .95), rgb(255 255 255 / .25) 42%, transparent 70%);
+  --hero-depth: 0 1px 2px rgb(20 30 80 / .06), 0 3px 8px -2px rgb(30 40 90 / .07), 0 50px 92px -40px rgb(28 64 168 / .42);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .24 0 0 0 0 .30 0 0 0 0 .52 0 0 0 .055 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
+  --hi-line: rgb(255 255 255 / .8);              /* inner top highlight on small controls */
+  --face: linear-gradient(180deg, rgb(255 255 255 / .55), rgb(255 255 255 / 0) 58%);   /* convex face on raised parts */
+  --drop: 0 1px 2px rgb(20 30 80 / .05), 0 5px 10px -7px rgb(30 50 130 / .20);         /* contact + ambient under raised parts */
+  --well: rgb(255 255 255 / .38);
+  --well-elev: inset 0 1px 2px rgb(16 24 56 / .05), inset 0 0 0 1px rgb(16 24 56 / .055), 0 1px 0 rgb(255 255 255 / .85);
+  --raised: rgb(255 255 255 / .66);
+  --raised-hi: inset 0 1px 0 rgb(255 255 255 / 1);
+  --raised-ring: rgb(16 24 56 / .06);
+  --node-bg: rgb(255 255 255 / .92);
+  --node-ring: rgb(80 100 170 / .22);
+  --grid-dot: color-mix(in srgb, var(--fg) 16%, transparent);
+  --edge: var(--primary);
+  --sheen: radial-gradient(closest-side, rgb(255 255 255 / .30), rgb(255 255 255 / .09) 45%, transparent);
+  --mask-fill: repeating-linear-gradient(135deg, rgb(16 24 56 / .10) 0 3px, transparent 3px 6px);
+
+  /* gears (transition only): clear glass */
+  --gear-fill: linear-gradient(160deg, rgb(255 255 255 / .55), rgb(255 255 255 / .12) 55%, rgb(150 180 240 / .22));
+  --gear-rim: rgb(255 255 255 / .95);
+  --gear-rim-2: rgb(90 120 210 / .35);
+
+  /* radii, type, motion */
+  --r-panel: 20px;
+  --r-well: 12px;
+  --r-ctl: 8px;
+  --r-chip: 6px;
+  --r-kbd: 4px;
+  --font: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-io: cubic-bezier(.65, 0, .35, 1);
+  --ease-spring: cubic-bezier(.3, 1.3, .5, 1);
+
+  --lx: 0;   /* pointer lean, -1..1, written by kit.js */
+  --ly: 0;
+  color-scheme: light;
+}
+
+/* ─────────────────────────────── DARK ─────────────────────────────── */
+:root[data-theme="dark"] {
+  --bg: #050b10;
+  --sky-top: #0a1424;
+  --sky-mid: #070f18;
+  --beam-1: rgb(61 139 255 / .16);
+  --beam-2: rgb(139 125 255 / .14);
+  --beam-3: rgb(40 90 210 / .14);
+  --vignette: rgb(0 0 0 / .7);
+
+  --fg: #eef3fb;
+  --muted: #a6b0c6;
+  --faint: #6f7a92;
+  --hairline: rgb(255 255 255 / .07);
+  --input: rgb(255 255 255 / .10);
+  --recess: rgb(255 255 255 / .05);
+
+  --brand-1: #3d8bff;
+  --brand-2: #8b7dff;
+  --primary: #3d8bff;
+  --primary-fg: #ffffff;
+  --brand-soft: color-mix(in srgb, #3d8bff 16%, transparent);
+  --ai: #8b7dff;
+  --ai-text: #bdb3ff;
+  --ai-soft: color-mix(in srgb, #8b7dff 15%, transparent);
+
+  --ok: #22c55e;
+  --ok-text: #7fd6a0;
+  --ok-soft: color-mix(in srgb, #4ade80 13%, transparent);
+  --warn: #e3b64a;
+  --warn-text: #f0cd72;
+  --warn-soft: color-mix(in srgb, #e3b64a 16%, transparent);
+  --bad: #f87171;
+  --bad-text: #fca5a5;
+  --bad-soft: color-mix(in srgb, #f87171 15%, transparent);
+
+  --k-trigger: #6cb2ff;
+  --k-code: #86a8e0;
+  --k-data: #6fd8a8;
+  --k-flow: #a99cff;
+  --k-person: #c0b2ff;
+  --k-out: #93b2e6;
+
+  --viz-1: #3d8bff;
+  --viz-2: #7fb8ff;
+  --viz-3: #8b7dff;
+  --viz-4: #6fd8a8;
+  --viz-5: #e3b64a;
+
+  --syn-k: #ff7ab6;
+  --syn-s: #86efac;
+  --syn-f: #9cbbe8;
+  --syn-n: #fcd34d;
+  --syn-c: #6b6b75;
+  --syn-d: #bdb3ff;
+
+  --glass-fill: rgb(16 24 38 / .58);
+  --glass-blur: blur(20px) saturate(150%) brightness(.94);
+  --glass-tint: linear-gradient(158deg, rgb(200 215 255 / .05) 0%, rgb(160 185 255 / .012) 36%, transparent 62%, rgb(110 120 255 / .05) 100%);
+  --glass-edge: radial-gradient(140% 130% at 50% 38%, transparent 64%, rgb(150 175 255 / .045) 92%, rgb(150 175 255 / .08));
+  --glass-spec: linear-gradient(90deg, transparent 3%, rgb(255 255 255 / .34) 26%, rgb(255 255 255 / .2) 64%, transparent 95%);
+  --glass-elev: inset 0 1px 0 rgb(255 255 255 / .10), inset 0 0 0 .5px rgb(255 255 255 / .08), inset 0 -1px 0 rgb(255 255 255 / .03), 0 1px 2px rgb(0 0 0 / .3), 0 30px 70px -30px rgb(0 0 0 / .7);
+  --glass-rim: linear-gradient(138deg, rgb(255 255 255 / .46) 0%, rgb(255 255 255 / .18) 12%, rgb(255 255 255 / .05) 32%, transparent 48%, transparent 70%, rgb(139 125 255 / .22) 90%, rgb(100 130 255 / .34) 100%);
+  --rim-spec: radial-gradient(460px circle at calc(28% + var(--lx) * 42%) calc(-4% + var(--ly) * 34%), rgb(220 230 255 / .5), rgb(220 230 255 / .1) 42%, transparent 70%);
+  --hero-depth: 0 1px 2px rgb(0 0 0 / .4), 0 3px 10px -2px rgb(0 0 0 / .35), 0 60px 110px -40px rgb(3 8 34 / .8);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .8 0 0 0 0 .86 0 0 0 0 1 0 0 0 .026 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)'/%3E%3C/svg%3E");
+  --hi-line: rgb(255 255 255 / .08);
+  --face: linear-gradient(180deg, rgb(255 255 255 / .06), rgb(255 255 255 / 0) 58%);
+  --drop: 0 1px 2px rgb(0 0 0 / .3), 0 5px 10px -6px rgb(0 0 0 / .42);
+  --well: rgb(0 0 0 / .26);
+  --well-elev: inset 0 1px 3px rgb(0 0 0 / .32), inset 0 0 0 1px rgb(255 255 255 / .045), 0 1px 0 rgb(255 255 255 / .04);
+  --raised: rgb(255 255 255 / .05);
+  --raised-hi: inset 0 1px 0 rgb(255 255 255 / .09);
+  --raised-ring: rgb(255 255 255 / .05);
+  --node-bg: rgb(28 36 54 / .92);
+  --node-ring: rgb(255 255 255 / .16);
+  --sheen: radial-gradient(closest-side, rgb(160 178 255 / .10), rgb(160 178 255 / .03) 45%, transparent);
+  --mask-fill: repeating-linear-gradient(135deg, rgb(255 255 255 / .10) 0 3px, transparent 3px 6px);
+
+  --gear-fill: linear-gradient(160deg, rgb(170 205 255 / .20), rgb(90 140 255 / .03) 50%, rgb(139 125 255 / .13));
+  --gear-rim: rgb(225 236 255 / .85);
+  --gear-rim-2: rgb(139 125 255 / .45);
+  color-scheme: dark;
+}
+
+/* ─────────────────────────────── base + background ─────────────────────────────── */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  font-feature-settings: 'cv01', 'ss03';
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+/* The old landing's sky minus the aurora/ribbons and stars: a soft top-down sky, three static diagonal
+   beams (rotated -14deg, exactly the c6f429f body::before geometry) and the vignette. Painted once. */
+#k-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+#k-bg .sky { position: absolute; inset: 0; background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 42%, var(--bg) 100%); }
+#k-bg .beams {
+  position: absolute; inset: -20%; transform: rotate(-14deg);
+  background:
+    radial-gradient(60% 16% at 46% 28%, var(--beam-1), transparent 70%),
+    radial-gradient(45% 13% at 78% 62%, var(--beam-2), transparent 70%),
+    radial-gradient(34% 30% at 52% 92%, var(--beam-3), transparent 70%);
+}
+#k-bg .vig { position: absolute; inset: 0; background: radial-gradient(120% 95% at 50% 38%, transparent 48%, var(--vignette)); }
+
+#k-scenes { position: fixed; inset: 0; z-index: 1; transition: opacity .6s var(--ease-out); }
+#k-scenes.quiet { opacity: 0; }
+.k-scene {
+  position: absolute; left: 50%; top: 50%; width: 1600px; height: 900px;
+  transform-origin: 50% 50%;
+  transform: translate(-50%, -50%) scale(var(--k-scale, 1));
+  perspective: 1800px;
+}
+.k-scene[hidden] { display: none; }
+.k-approach { position: absolute; inset: 0; transform-origin: 50% 40%; }
+.k-content { position: absolute; inset: 0; }
+#k-gears { position: fixed; inset: 0; z-index: 3; pointer-events: none; perspective: 1100px; overflow: hidden; }
+#k-gears.off { display: none; }
+
+/* ─────────────────────────────── typography ─────────────────────────────── */
+.k-head { position: absolute; left: 64px; top: 52px; right: 120px; display: flex; flex-direction: column; align-items: flex-start; gap: 18px; }
+.k-head.center { left: 120px; right: 120px; align-items: center; text-align: center; }
+/* kicker: the c6f429f float-chip material (tile, rounded-full, 12.5px semibold), static */
+.k-kicker {
+  position: relative; display: inline-flex; align-items: center; gap: 9px; height: 34px; padding: 0 15px 0 13px;
+  border-radius: 999px; background: var(--glass-spec) 50% 0 / 100% 1px no-repeat, var(--glass-tint), var(--glass-fill); box-shadow: var(--glass-elev), var(--drop);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  font-size: 13px; font-weight: 600; letter-spacing: .005em; color: var(--muted); white-space: nowrap;
+}
+.k-kicker::after { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; background: var(--rim-spec), var(--glass-rim);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); pointer-events: none; }
+.k-kicker b { color: var(--primary); font-weight: 700; }
+.k-kicker i { width: 7px; height: 7px; border-radius: 99px; background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); box-shadow: 0 0 0 3px var(--brand-soft); }
+.k-title-stack { display: grid; }
+.k-title-stack > * { grid-area: 1 / 1; }
+.k-title { margin: 0; font-size: 54px; line-height: 1.04; font-weight: 720; letter-spacing: -0.042em; color: var(--fg); text-wrap: balance; }
+.k-slam { margin: 0; font-size: 84px; line-height: 1.0; font-weight: 720; letter-spacing: -0.045em; color: var(--fg); }
+.k-sub { margin: 0; max-width: 46rem; font-size: 17px; line-height: 1.55; color: var(--muted); }
+.k-head.center .k-sub { max-width: 36rem; }
+/* kinetic words: each rises out of its own line mask (c6f429f Kinetic) */
+.k-w { display: inline-block; overflow: hidden; vertical-align: top; padding-bottom: .14em; margin-bottom: -.14em; }
+.k-w > span { display: inline-block; white-space: pre; }
+.k-grad { background: linear-gradient(100deg, var(--brand-1), var(--brand-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* the area under the header where the hero lives (slides may ignore it) */
+.k-area { position: absolute; left: 64px; right: 64px; top: 214px; bottom: 56px; perspective: 1600px; }
+
+/* ─────────────────────────────── the 3D glass hero window ───────────────────────────────
+   .k-lean   pointer lean (2-3deg), the perspective child
+   .k-hero   halo wrapper (isolation) + spinning rim of light
+   .k-win    the pane: clear glass fill, top edge, rim, floating shadow, overflow hidden
+   .k-bar    title bar: three dots, title, right slot
+   .k-body   content
+   .k-sheen  soft light disc that follows the pointer                                          */
+.k-lean { position: relative; transform-style: flat; transform: rotateX(calc(var(--ly) * -2.2deg)) rotateY(calc(var(--lx) * 2.8deg)); transform-origin: 50% 50%; }
+.k-hero { position: relative; isolation: isolate; border-radius: var(--r-panel); }
+.k-halo { position: absolute; inset: -1.5px; z-index: 6; padding: 1.5px; overflow: hidden; border-radius: calc(var(--r-panel) + 1.5px); pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.k-halo > span { position: absolute; left: 50%; top: 50%; width: max(130%, 1100px); aspect-ratio: 1; translate: -50% -50%;
+  background: conic-gradient(transparent 0deg, var(--brand-1) 50deg, var(--brand-2) 100deg, transparent 150deg, transparent 360deg);
+  animation: k-spin 9s linear infinite; will-change: transform; }
+@keyframes k-spin { to { transform: rotate(360deg); } }
+/* finish, back to front: fill → inner tint gradient → edge brightening → grain → specular top line (no backdrop-filter on
+   the hero: over the still sky it buys nothing visible and costs frames; .k-glass, which flies over the hero, is frosted);
+   ::after = 1px rim, brightest top-left, plus a rim light that slides with the pointer; layered contact/ambient/glow shadow */
+.k-win { position: relative; overflow: hidden; border-radius: var(--r-panel);
+  background: var(--glass-spec) 50% 0 / 100% 1px no-repeat, var(--grain) 0 0 / 180px 180px, var(--glass-edge), var(--glass-tint), var(--glass-fill);
+  box-shadow: var(--glass-elev), var(--hero-depth); }
+.k-win::after, .k-glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 1px; pointer-events: none; background: var(--rim-spec), var(--glass-rim); z-index: 7;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); }
+.k-bar { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--hairline);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hi-line) 30%, transparent), transparent); }
+.k-bar > i { width: 10px; height: 10px; border-radius: 99px; flex: none;
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--hi-line) 60%, transparent), transparent 70%), color-mix(in srgb, var(--fg) 14%, transparent);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--fg) 12%, transparent); }
+.k-bar .k-wtitle { margin-left: 12px; font-size: 12px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-bar .k-wright { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.k-body { position: relative; padding: 12px; }
+.k-sheen { position: absolute; z-index: 5; width: 520px; height: 520px; margin: -260px 0 0 -260px; border-radius: 999px; pointer-events: none; background: var(--sheen);
+  left: calc(50% + var(--lx) * 46%); top: calc(28% + var(--ly) * 40%); }
+
+/* a smaller standalone glass card (same material as the window, no title bar, no halo) */
+.k-glass { position: relative; border-radius: var(--r-panel);
+  background: var(--glass-spec) 50% 0 / 100% 1px no-repeat, var(--grain) 0 0 / 180px 180px, var(--glass-edge), var(--glass-tint), var(--glass-fill);
+  -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-elev), var(--hero-depth); }
+
+/* ─────────────────────────────── inner layer ─────────────────────────────── */
+.k-well { position: relative; border-radius: var(--r-well); background: var(--well); box-shadow: var(--well-elev); }
+.k-raised { background: var(--face), var(--raised); box-shadow: var(--raised-hi), 0 0 0 1px var(--raised-tint, var(--raised-ring)), var(--drop); border-radius: var(--r-well); }
+.k-dots { background-image: radial-gradient(circle, var(--grid-dot) .8px, transparent 1.2px); background-size: 16px 16px; }
+.k-recess { background: var(--recess); border-radius: var(--r-ctl); box-shadow: inset 0 1px 1.5px color-mix(in srgb, var(--fg) 6%, transparent), 0 1px 0 var(--hi-line); }
+.k-hr { height: 1px; background: var(--hairline); border: 0; margin: 0; }
+.k-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--faint); }
+.k-meta { font-size: 12px; color: var(--muted); }
+.k-mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ─────────────────────────────── node (canvas) ───────────────────────────────
+   The c6f429f BuildMock node: a 36px tile (node-bg, inset ring, soft accent shadow), icon in the kind
+   colour, label under. --kc = the kind colour.                                                  */
+.k-node { position: absolute; display: flex; flex-direction: column; align-items: center; gap: 5px; width: 120px; transform: translate(-50%, -18px); }
+.k-node .t { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: var(--r-ctl); color: var(--kc, var(--primary));
+  background: var(--face), var(--node-bg); box-shadow: inset 0 0 0 1px var(--node-ring), inset 0 1px 0 var(--hi-line), 0 1px 2px rgb(10 20 60 / .08), 0 6px 16px -9px var(--kc, var(--primary)); }
+.k-node.lg .t { width: 46px; height: 46px; border-radius: 10px; }
+.k-node .n { max-width: 100%; font-size: 11.5px; font-weight: 550; line-height: 1.2; text-align: center; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-node .m { max-width: 100%; font-size: 10.5px; line-height: 1.2; text-align: center; color: var(--muted); white-space: nowrap; }
+.k-node.blueprint .t { background: transparent; box-shadow: none; outline: 1.5px dashed color-mix(in srgb, var(--primary) 60%, transparent); }
+.k-node .st { position: absolute; top: -6px; left: calc(50% + 12px); }
+/* a wider node card: icon tile + name + meta in one row (for richer graphs) */
+.k-ncard { position: absolute; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 14px 0 8px; border-radius: 12px; background: var(--face), var(--node-bg);
+  box-shadow: inset 0 0 0 1px var(--node-ring), inset 0 1px 0 var(--hi-line), 0 1px 2px rgb(10 20 60 / .07), 0 10px 24px -15px var(--kc, var(--primary)); white-space: nowrap; }
+.k-ncard .t { flex: none; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 8px; color: var(--kc, var(--primary));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--kc, var(--primary)) 16%, transparent), color-mix(in srgb, var(--kc, var(--primary)) 9%, transparent));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--kc, var(--primary)) 22%, transparent), inset 0 1px 0 var(--hi-line); }
+.k-ncard .n { font-size: 12.5px; font-weight: 600; color: var(--fg); line-height: 1.2; }
+.k-ncard .m { font-size: 11px; color: var(--muted); line-height: 1.25; }
+.k-edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.k-edges path { fill: none; stroke: var(--edge); stroke-opacity: .45; stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.k-edges path.hot { stroke-opacity: .9; stroke-width: 2; }
+.k-edges path.dash { stroke-dasharray: 4 5; }
+.k-pulse { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 99px; background: radial-gradient(circle at 40% 35%, rgb(255 255 255 / .7), transparent 55%), var(--primary);
+  box-shadow: 0 0 0 4px var(--brand-soft), 0 0 14px 2px color-mix(in srgb, var(--primary) 45%, transparent); }
+
+/* ─────────────────────────────── stepper ─────────────────────────────── */
+.k-steps { list-style: none; margin: 0; padding: 6px; display: flex; flex-direction: column; }
+.k-steps li { position: relative; display: flex; gap: 12px; padding: 8px 10px; }
+.k-steps li:not(:last-child)::before { content: ''; position: absolute; left: 19.5px; top: 28px; bottom: -6px; width: 1px; background: var(--hairline); }
+.k-steps li.done:not(:last-child)::before { background: color-mix(in srgb, var(--ok) 50%, transparent); }
+.k-steps .mk { position: relative; z-index: 1; flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 99px;
+  background: var(--recess); box-shadow: inset 0 0 0 1px var(--input); color: #fff; transition: background .25s, box-shadow .25s; }
+.k-steps .mk svg { width: 12px; height: 12px; stroke-width: 2.6; opacity: 0; }
+.k-steps li.cur .mk { background: linear-gradient(180deg, rgb(255 255 255 / .22), transparent 60%), var(--primary); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .3), 0 0 0 4px var(--brand-soft), 0 2px 8px -2px var(--primary); }
+.k-steps li.cur .mk::after { content: ''; width: 6px; height: 6px; border-radius: 99px; background: #fff; }
+.k-steps li.done .mk { background: linear-gradient(180deg, rgb(255 255 255 / .24), transparent 60%), var(--ok); box-shadow: inset 0 0 0 .5px rgb(255 255 255 / .3), 0 2px 6px -2px color-mix(in srgb, var(--ok) 70%, transparent); }
+.k-steps li.done .mk svg { opacity: 1; }
+.k-steps .tt { font-size: 13px; line-height: 20px; font-weight: 500; color: var(--fg); }
+.k-steps li.pend .tt { color: var(--muted); }
+.k-steps .mt { font-size: 12px; line-height: 18px; color: var(--muted); }
+
+/* ─────────────────────────────── chips, badges, buttons, avatars, tokens ─────────────────────────────── */
+.k-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  color: var(--muted); background: var(--recess); box-shadow: inset 0 0 0 .5px color-mix(in srgb, currentColor 18%, transparent), inset 0 1px 0 color-mix(in srgb, var(--hi-line) 50%, transparent); }
+.k-chip svg { width: 13px; height: 13px; }
+.k-chip.ai { color: var(--ai-text); background: var(--ai-soft); }
+.k-chip.brand { color: var(--primary); background: var(--brand-soft); }
+.k-chip.ok { color: var(--ok-text); background: var(--ok-soft); }
+.k-chip.warn { color: var(--warn-text); background: var(--warn-soft); }
+.k-chip.bad { color: var(--bad-text); background: var(--bad-soft); }
+.k-chip.sm { height: 20px; padding: 0 8px; font-size: 10.5px; }
+.k-chip.glass { background: var(--glass-spec) 50% 0 / 100% 1px no-repeat, var(--glass-tint), var(--glass-fill); box-shadow: var(--glass-elev), var(--drop); color: var(--fg); height: 32px; padding: 0 14px; font-size: 12.5px; }
+.k-dot { display: inline-block; width: 7px; height: 7px; border-radius: 99px; background: currentColor; flex: none; }
+.k-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 30px; padding: 0 14px; border-radius: 999px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  background: linear-gradient(180deg, rgb(255 255 255 / .20), rgb(255 255 255 / 0) 55%), linear-gradient(135deg, var(--brand-1), var(--brand-2)); color: #fff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .38), inset 0 0 0 .5px rgb(255 255 255 / .22), inset 0 -1px 0 rgb(0 10 50 / .14), 0 1px 2px rgb(10 30 100 / .18), 0 8px 18px -9px var(--primary); }
+.k-btn svg { width: 14px; height: 14px; }
+.k-btn.ghost { background: var(--face), var(--recess); color: var(--muted); box-shadow: inset 0 0 0 .5px var(--input), inset 0 1px 0 var(--hi-line); }
+.k-btn.sm { height: 24px; padding: 0 10px; font-size: 11.5px; }
+.k-btn.press { transform: scale(.94); }
+.k-icon-tile { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 8px; color: var(--kc, var(--primary));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--kc, var(--primary)) 16%, transparent), color-mix(in srgb, var(--kc, var(--primary)) 9%, transparent));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--kc, var(--primary)) 22%, transparent), inset 0 1px 0 var(--hi-line); }
+.k-icon-tile svg { width: 16px; height: 16px; }
+.k-icon-tile.lg { width: 40px; height: 40px; border-radius: 10px; }
+.k-icon-tile.lg svg { width: 20px; height: 20px; }
+.k-av { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; border-radius: 99px; font-size: 10.5px; font-weight: 700; color: #fff;
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .3), 0 0 0 2px var(--bg); }
+.k-av.b { background: linear-gradient(135deg, #5a4fd6, #8b7dff); }
+.k-av.c { background: linear-gradient(135deg, #1d7a52, #3fbf86); }
+.k-av.d { background: linear-gradient(135deg, #3a4a7a, #6a7cb8); }
+.k-avs { display: inline-flex; }
+.k-avs .k-av + .k-av { margin-left: -7px; }
+/* value token (living-pages): a value in a soft brand pill, mono */
+.k-tok { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+  color: var(--primary); background: var(--brand-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent), inset 0 1px 0 color-mix(in srgb, var(--hi-line) 50%, transparent); white-space: nowrap; vertical-align: 1px; }
+.k-tok.ai { color: var(--ai-text); background: var(--ai-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ai) 22%, transparent); }
+.k-tok.ok { color: var(--ok-text); background: var(--ok-soft); box-shadow: none; }
+.k-kbd { display: inline-flex; align-items: center; height: 20px; padding: 0 6px; border-radius: var(--r-kbd); font-family: var(--mono); font-size: 10.5px; color: var(--muted); background: var(--face), var(--recess); box-shadow: inset 0 0 0 .5px var(--input), inset 0 -1px 0 var(--input), inset 0 1px 0 var(--hi-line); }
+
+/* ─────────────────────────────── table ─────────────────────────────── */
+.k-table { display: grid; gap: 6px; font-size: 12.5px; }
+.k-table .th { display: grid; grid-template-columns: var(--cols); align-items: center; padding: 0 12px; font-size: 11px; font-weight: 600; color: var(--faint); letter-spacing: .02em; }
+.k-table .tr { display: grid; grid-template-columns: var(--cols); align-items: center; height: 36px; padding: 0 12px; border-radius: var(--r-ctl);
+  background: var(--face), var(--raised); box-shadow: var(--raised-hi), 0 0 0 1px var(--raised-tint, var(--raised-ring)), 0 1px 2px rgb(10 20 60 / .04); }
+.k-table .tr.hl { --raised-tint: color-mix(in srgb, var(--primary) 45%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--primary) 7%, transparent), transparent 70%), var(--face), var(--raised);
+  box-shadow: var(--raised-hi), 0 0 0 1.5px var(--raised-tint), 0 0 0 4px color-mix(in srgb, var(--primary) 8%, transparent), 0 10px 24px -14px var(--primary); }
+.k-table .tr.dim { opacity: .55; }
+.k-table .num { font-family: var(--mono); text-align: right; }
+.k-mask { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font-family: var(--mono); font-size: 11.5px; color: var(--muted); background: var(--mask-fill), var(--recess); }
+.k-mask svg { width: 12px; height: 12px; color: var(--faint); }
+
+/* ─────────────────────────────── code ─────────────────────────────── */
+.k-code { margin: 0; padding: 12px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.75; color: var(--fg); white-space: pre; }
+.k-code .ln { display: flex; }
+.k-code .g { width: 18px; margin-right: 16px; text-align: right; color: color-mix(in srgb, var(--muted) 55%, transparent); flex: none; user-select: none; }
+.k-code .k { color: var(--syn-k); } .k-code .s { color: var(--syn-s); } .k-code .f { color: var(--syn-f); }
+.k-code .n { color: var(--syn-n); } .k-code .c { color: var(--syn-c); } .k-code .d { color: var(--syn-d); }
+.k-caret { display: inline-block; width: 2px; height: 1.15em; margin-left: 1px; vertical-align: -.2em; border-radius: 1px; background: var(--primary); animation: k-blink 1s steps(1) infinite; }
+@keyframes k-blink { 50% { opacity: 0; } }
+
+/* ─────────────────────────────── charts + stats ─────────────────────────────── */
+.k-bars { display: flex; align-items: flex-end; gap: 5px; height: 100%; }
+.k-bars > span { flex: 1; border-radius: 4px 4px 2px 2px; background: color-mix(in srgb, var(--viz-1) 72%, transparent); transform-origin: 50% 100%; }
+.k-bars > span.hl { background: linear-gradient(180deg, var(--brand-2), var(--brand-1)); box-shadow: inset 0 1px 0 rgb(255 255 255 / .35), 0 6px 14px -6px var(--primary); }
+.k-bars > span.mut { background: color-mix(in srgb, var(--fg) 12%, transparent); }
+.k-stat { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; }
+.k-stat .v { font-size: 30px; line-height: 1; font-weight: 700; letter-spacing: -0.03em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.k-stat .l { font-size: 12px; color: var(--muted); }
+.k-meter { height: 6px; border-radius: 99px; background: var(--recess); overflow: hidden; box-shadow: inset 0 1px 1px color-mix(in srgb, var(--fg) 8%, transparent); }
+.k-meter > span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(180deg, rgb(255 255 255 / .28), transparent 60%), linear-gradient(90deg, var(--brand-1), var(--brand-2)); transform-origin: 0 50%; }
+.k-spark { overflow: visible; }
+.k-spark .ln { fill: none; stroke: var(--viz-1); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.k-spark .ar { fill: color-mix(in srgb, var(--viz-1) 14%, transparent); }
+
+/* skeleton shimmer (c6f429f UI view) */
+.k-shimmer { position: relative; overflow: hidden; border-radius: var(--r-ctl); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.k-shimmer::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 9%, transparent), transparent); transform: translateX(-100%); animation: k-sweep 1.4s ease-in-out infinite; }
+@keyframes k-sweep { to { transform: translateX(100%); } }
+
+/* svg icons */
+.k-i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+/* gears (kit-owned; transitions only) */
+.k-gear { position: absolute; left: 0; top: 0; will-change: transform, opacity; opacity: 0; }
+.k-gear .gl { position: absolute; inset: 0; background: var(--gear-fill); -webkit-backdrop-filter: blur(6px) saturate(160%); backdrop-filter: blur(6px) saturate(160%); }
+.k-gear svg { position: absolute; inset: 0; overflow: visible; }
+.k-gear svg .r1 { fill: none; stroke: var(--gear-rim); stroke-width: 1.6; }
+.k-gear svg .r2 { fill: none; stroke: var(--gear-rim-2); stroke-width: 1; }
+
+/* still: no loops */
+.k-still .k-halo > span, .k-still .k-caret, .k-still .k-shimmer::after { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .k-halo > span, .k-caret, .k-shimmer::after { animation: none; }
+}

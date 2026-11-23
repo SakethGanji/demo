@@ -1,0 +1,459 @@
+{
+ "name": "Daily card reconciliation",
+ "nodes": [
+  {
+   "name": "Every day 6am",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 6 * * *"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get settlements",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "network",
+     "operation_id": "settlements"
+    },
+    "method": "GET",
+    "url": ""
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get ledger entries",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "ledger",
+     "operation_id": "entries"
+    },
+    "method": "GET",
+    "url": ""
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Find breaks",
+   "type": "Code",
+   "parameters": {
+    "code": "sett = {}\nfor r in node_data['Get settlements']['json']['body']['rows']:\n    sett[r['reference']] = r['amount']\nled = {}\nfor e in node_data['Get ledger entries']['json']['body']['entries']:\n    led[e['reference']] = e['amount']\nout = []\nfor ref in sett:\n    if ref not in led:\n        out.append(new_item({'reference': ref, 'network_amount': sett[ref], 'ledger_amount': None, 'kind': 'missing'}))\n    elif abs(sett[ref] - led[ref]) > 0.005:\n        out.append(new_item({'reference': ref, 'network_amount': sett[ref], 'ledger_amount': led[ref], 'kind': 'amount_mismatch'}))\nfor ref in led:\n    if ref not in sett:\n        out.append(new_item({'reference': ref, 'network_amount': None, 'ledger_amount': led[ref], 'kind': 'unsettled'}))\nreturn out"
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Record break",
+   "type": "DataTable",
+   "parameters": {
+    "table": "recon_breaks",
+    "operation": "insert",
+    "data": {
+     "reference": "{{ $json.reference }}",
+     "network_amount": "{{ $json.network_amount }}",
+     "ledger_amount": "{{ $json.ledger_amount }}",
+     "kind": "{{ $json.kind }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Count by kind",
+   "type": "Code",
+   "parameters": {
+    "code": "m = 0\na = 0\nu = 0\nfor it in items:\n    k = it['json'].get('kind')\n    if k == 'missing':\n        m += 1\n    elif k == 'amount_mismatch':\n        a += 1\n    elif k == 'unsettled':\n        u += 1\nreturn [new_item({'missing': m, 'amount_mismatch': a, 'unsettled': u, 'total': m + a + u})]"
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Email finance ops",
+   "type": "SendEmail",
+   "parameters": {
+    "toEmail": "{{ $vars.FINANCE_OPS_EMAIL }}",
+    "subject": "Card reconciliation: {{ $json.total }} breaks",
+    "bodyFormat": "plain",
+    "body": "Yesterday's card reconciliation found {{ $json.total }} breaks.\nMissing: {{ $json.missing }}\nAmount mismatch: {{ $json.amount_mismatch }}\nUnsettled: {{ $json.unsettled }}"
+   },
+   "position": {
+    "x": 1140,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every day 6am",
+   "target_node": "Get settlements",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get settlements",
+   "target_node": "Get ledger entries",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get ledger entries",
+   "target_node": "Find breaks",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Find breaks",
+   "target_node": "Record break",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Record break",
+   "target_node": "Count by kind",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Count by kind",
+   "target_node": "Email finance ops",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Mixed breaks are recorded and counted",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "A",
+         "amount": 100
+        },
+        {
+         "reference": "B",
+         "amount": 50
+        },
+        {
+         "reference": "C",
+         "amount": 20
+        }
+       ]
+      }
+     }
+    },
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "A",
+         "amount": 100
+        },
+        {
+         "reference": "B",
+         "amount": 55
+        },
+        {
+         "reference": "D",
+         "amount": 30
+        }
+       ]
+      }
+     }
+    },
+    "Record break": {
+     "items": [
+      {
+       "id": "1",
+       "kind": "missing"
+      },
+      {
+       "id": "2",
+       "kind": "amount_mismatch"
+      },
+      {
+       "id": "3",
+       "kind": "unsettled"
+      }
+     ]
+    },
+    "Email finance ops": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Find breaks",
+     "port": "main",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "Record break",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Missing: 1"
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Amount mismatch: 1"
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Unsettled: 1"
+    }
+   ]
+  },
+  {
+   "name": "No breaks sends nothing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "A",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    },
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "A",
+         "amount": 100
+        }
+       ]
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Record break",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Reference only in ledger is unsettled",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": []
+      }
+     }
+    },
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": [
+        {
+         "reference": "D",
+         "amount": 30
+        }
+       ]
+      }
+     }
+    },
+    "Record break": {
+     "items": [
+      {
+       "id": "1",
+       "kind": "unsettled"
+      }
+     ]
+    },
+    "Email finance ops": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Record break",
+     "subject": "request",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "unsettled"
+    },
+    {
+     "node": "Record break",
+     "subject": "request",
+     "path": "params.data.ledger_amount",
+     "op": "eq",
+     "value": 30
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Unsettled: 1"
+    }
+   ]
+  },
+  {
+   "name": "Reference only in report is missing",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "Get settlements": {
+     "http": {
+      "status": 200,
+      "body": {
+       "rows": [
+        {
+         "reference": "C",
+         "amount": 20
+        }
+       ]
+      }
+     }
+    },
+    "Get ledger entries": {
+     "http": {
+      "status": 200,
+      "body": {
+       "entries": []
+      }
+     }
+    },
+    "Record break": {
+     "items": [
+      {
+       "id": "1",
+       "kind": "missing"
+      }
+     ]
+    },
+    "Email finance ops": {
+     "items": [
+      {
+       "success": true
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Record break",
+     "subject": "request",
+     "path": "params.data.kind",
+     "op": "eq",
+     "value": "missing"
+    },
+    {
+     "node": "Record break",
+     "subject": "request",
+     "path": "params.data.network_amount",
+     "op": "eq",
+     "value": 20
+    },
+    {
+     "node": "Email finance ops",
+     "subject": "request",
+     "path": "params.body",
+     "op": "contains",
+     "value": "Missing: 1"
+    }
+   ]
+  }
+ ]
+}

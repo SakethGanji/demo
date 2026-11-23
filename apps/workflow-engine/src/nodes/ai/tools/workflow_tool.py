@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
+
 import json
 from typing import Any, TYPE_CHECKING
 
 from ...base import (
     NodeProperty,
+    NodePropertyOption,
     NodeTypeDescription,
 )
 from .._config_base import ConfigProvider
@@ -40,6 +43,24 @@ class WorkflowToolNode(ConfigProvider):
                 description="ID of the workflow to execute as a tool",
             ),
             NodeProperty(
+                display_name="Version",
+                name="version",
+                type="options",
+                default="latest",
+                description="Which version of the workflow the agent runs: its latest published version, its draft, or a version number",
+                options=[
+                    NodePropertyOption(name="Latest published", value="latest"),
+                    NodePropertyOption(name="Draft", value="draft"),
+                ],
+            ),
+            NodeProperty(
+                display_name="Timeout (seconds)",
+                name="timeoutSeconds",
+                type="number",
+                default=300,
+                description="How long one run of the workflow may take (at most 3600)",
+            ),
+            NodeProperty(
                 display_name="Tool Name",
                 name="toolName",
                 type="string",
@@ -60,7 +81,12 @@ class WorkflowToolNode(ConfigProvider):
     def get_config(self, node_definition: NodeDefinition) -> dict[str, Any]:
         """Return workflow tool configuration."""
         workflow_id = self.get_parameter(node_definition, "workflowId", "")
+        version = self.get_parameter(node_definition, "version", "latest") or "latest"
+        timeout = self.get_parameter(node_definition, "timeoutSeconds", 300)
         tool_name = self.get_parameter(node_definition, "toolName", "run_workflow")
+        owner = self.get_parameter(node_definition, "_owner", "")
+        # the name this call is pinned and logged under: per (agent node, tool), so two tools never share a release pin
+        parent_node = f"{owner}/{tool_name}" if owner else "WorkflowTool"
         description = self.get_parameter(
             node_definition,
             "description",
@@ -82,75 +108,78 @@ class WorkflowToolNode(ConfigProvider):
             },
             # Store workflow_id so the async executor can load it at runtime
             "_workflow_id": workflow_id,
+            "_version": version,
             # Async executor — receives (input_data, context)
-            "execute": _make_workflow_executor(workflow_id),
+            "execute": _make_workflow_executor(workflow_id, version, timeout, parent_node),
         }
 
 
-def _make_workflow_executor(workflow_id: str):
-    """Create an async executor closure that captures the workflow ID."""
+def _make_workflow_executor(
+    workflow_id: str, version: str | int = "latest", timeout_seconds: Any = 300, parent_node: str = "WorkflowTool"
+):
+    """Create an async executor closure that captures the workflow ID and the pinned version.
+
+    The call goes through ``context.subworkflow_invoker`` (the in-memory invoker when there is none), so the guards,
+    the timeout, version pinning and the child execution row are the same as for the ExecuteWorkflow node (G9).
+    """
 
     async def execute(input_data: dict[str, Any], context: ExecutionContext) -> dict[str, Any]:
-        from ....engine.workflow_runner import WorkflowRunner
-        from ....engine.types import NodeData, RecursionLimitError
+        from ....engine.subworkflow import (
+            DEFAULT_TIMEOUT_SECONDS,
+            MAX_TIMEOUT_SECONDS,
+            InMemoryInvoker,
+            SubworkflowCall,
+        )
+        from ....engine.types import NodeData
+        from ...flow.execute_workflow import _parse_version
 
         if not workflow_id:
             return {"error": "workflowId is not configured"}
 
-        repo = context.workflow_repository
-        if repo is None:
-            return {"error": "No workflow repository available (subworkflows not supported in this execution mode)"}
-
-        # Load the target workflow
-        stored = await repo.get(workflow_id)
-        if stored is None:
-            return {"error": f"Workflow '{workflow_id}' not found"}
-
-        workflow = stored.workflow
-
-        # Find start node
-        runner = WorkflowRunner()
-        start_node = runner.find_start_node(workflow)
-        if start_node is None:
-            return {"error": f"Workflow '{workflow_id}' has no start node"}
-
-        # Build input data
-        wf_input = input_data.get("input") or {}
-        sub_input = [NodeData(json=wf_input)]
-
         try:
-            child_ctx = await runner.run_subworkflow(
-                workflow=workflow,
-                start_node_name=start_node,
-                input_data=sub_input,
-                parent_context=context,
-                on_event=context.on_event,
-            )
-        except RecursionLimitError as e:
+            pinned = _parse_version(version)
+        except ValueError as e:
             return {"error": str(e)}
+        try:
+            seconds = min(float(timeout_seconds), MAX_TIMEOUT_SECONDS)
+            if not math.isfinite(seconds) or seconds <= 0:
+                seconds = DEFAULT_TIMEOUT_SECONDS
+        except (TypeError, ValueError):
+            seconds = DEFAULT_TIMEOUT_SECONDS
+
+        wf_input = input_data.get("input") or {}
+        if not isinstance(wf_input, dict):
+            wf_input = {"data": wf_input}
+        call = SubworkflowCall(
+            parent_context=context,
+            parent_node=parent_node,
+            workflow_id=workflow_id,
+            version=pinned,
+            items=[NodeData(json=wf_input)],
+            timeout_seconds=seconds,
+        )
+        invoker = context.subworkflow_invoker or InMemoryInvoker()
+        try:
+            result = await invoker.invoke(call)
         except Exception as e:
             return {"error": f"Subworkflow execution failed: {e}"}
 
-        # Check for errors
-        if child_ctx.errors:
-            error_msgs = [f"{e.node_name}: {e.error}" for e in child_ctx.errors]
-            return {"error": "Subworkflow had errors", "details": error_msgs}
-
-        # Collect terminal node outputs
-        connected_sources = {c.source_node for c in workflow.connections}
-        all_nodes = {n.name for n in workflow.nodes}
-        terminal_nodes = all_nodes - connected_sources
-
-        results: dict[str, Any] = {}
-        for node_name in terminal_nodes:
-            if node_name in child_ctx.node_states:
-                data = child_ctx.node_states[node_name]
-                results[node_name] = [d.json for d in data]
+        if result.status != "success":
+            err = result.error
+            out: dict[str, Any] = {
+                "error": err.error if err else f"Subworkflow '{workflow_id}' failed",
+                "code": err.error_code if err else None,
+            }
+            if result.child_execution_id:
+                out["child_execution_id"] = result.child_execution_id
+            return out
 
         return {
             "workflow_id": workflow_id,
-            "workflow_name": workflow.name,
-            "output": results,
+            "workflow_name": result.child_name or workflow_id,
+            "version": result.child_version_number if result.child_version_number is not None else pinned,
+            "child_execution_id": result.child_execution_id,
+            "output": [item.json for item in result.items],
         }
 
     return execute

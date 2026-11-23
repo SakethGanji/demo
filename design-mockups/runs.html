@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runs — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+.sheet { position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 21; background: var(--card); border-radius: 14px; box-shadow: var(--shadow-2xl); border: 1px solid var(--panel-border); display: flex; flex-direction: column; overflow: hidden; }
+.sh-h { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.sh-t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.sh-b { padding: 16px 18px; overflow: hidden; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.sh-f { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--muted) 40%, var(--card)); }
+.content { height: 100%; overflow: hidden; padding: 24px 28px; }
+.h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.chk { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); align-items: flex-start; }
+.chk:last-child { border-bottom: 0; }
+.ico-ok { color: var(--success); } .ico-warn { color: var(--warning); } .ico-fail { color: var(--destructive); }
+.rt td { height: 40px; } .rt tr.sel td { background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.status-pill { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px; font: 600 11.5px/1 var(--font-mono); }
+.status-pill.err { color: var(--method-delete); background: color-mix(in srgb, var(--destructive) 10%, transparent); }
+.errbox { border: 1px solid color-mix(in srgb, var(--destructive) 30%, var(--border)); border-radius: 10px; padding: 10px 12px; background: color-mix(in srgb, var(--destructive) 4%, var(--card)); }
+.tb { margin: 8px 0 0; font: 11.5px/18px var(--font-mono); white-space: pre-wrap; color: var(--foreground); }
+.wf { display: grid; grid-template-columns: 150px 1fr 60px; align-items: center; gap: 10px; height: 26px; font-size: 12px; }
+.wf .mono { font-size: 11.5px; }
+.tr { position: relative; height: 8px; } .tr .bar { position: absolute; top: 0; height: 8px; border-radius: 3px; }
+.denied { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; margin: 4px 0 0 18px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--destructive) 5%, transparent); font-size: 12px; }
+.section-t { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
+.kvgrid { display: grid; grid-template-columns: 80px 1fr; gap: 6px 10px; font-size: 12px; padding-left: 20px; }
+</style>
+</head>
+<body data-active="runs" data-state="saved">
+<div class="app">
+<div id="shell"></div>
+<main class="main panel"><div class="content" style="padding:20px 0 0">
+  <div class="row gap-2" style="padding:0 20px 14px"><div class="h2">Runs</div><span class="muted">· recent runs (the engine keeps the newest 100)</span><div class="grow"></div>
+    <div class="seg"><span>All envs</span><span class="on">dev + prod</span></div>
+    <span class="btn outline xs"><i data-lucide="list-filter" class="i12"></i>Trigger: all</span><span class="btn outline xs">Status: all</span></div>
+  <table class="table rt"><thead><tr><th style="width:30px"></th><th style="width:90px">When</th><th>Route / workflow</th><th>Trigger type</th><th>Source</th><th>Env</th><th style="text-align:right">Duration</th></tr></thead><tbody><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">2m ago</td><td><span class="row gap-2"><span class="method get bare">GET</span><span class="mono fg">/orders/summary</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">app</span></td><td class="muted">app · Orders dashboard</td><td><span class="badge secondary">prod</span></td><td class="num muted" style="text-align:right">331 ms</td></tr><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">12m ago</td><td><span class="row gap-2"><span class="method post bare">POST</span><span class="mono fg">/orders</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">app</span></td><td class="muted">app · Orders dashboard</td><td><span class="badge secondary">prod</span></td><td class="num muted" style="text-align:right">48 ms</td></tr><tr class="sel"><td><span class="dot err" style="box-shadow:none"></span></td><td class="muted">36m ago</td><td><span class="row gap-2"><span class="method get bare">GET</span><span class="mono fg">/refunds/stats</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">route_test</span></td><td class="muted">test · studio</td><td><span class="badge secondary">dev</span></td><td class="num muted" style="text-align:right">184 ms</td></tr><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">38m ago</td><td><span class="row gap-2"><span class="method get bare">GET</span><span class="mono fg">/refunds/stats</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">route_test</span></td><td class="muted">test · studio</td><td><span class="badge secondary">dev</span></td><td class="num muted" style="text-align:right">214 ms</td></tr><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">40m ago</td><td><span class="row gap-2"><span class="method post bare">POST</span><span class="mono fg">/refunds</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">route_test</span></td><td class="muted">test · studio</td><td><span class="badge secondary">dev</span></td><td class="num muted" style="text-align:right">38 ms</td></tr><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">52m ago</td><td><span class="row gap-2"><span class="method get bare">GET</span><span class="mono fg">/refunds/stats</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">draft_test</span></td><td class="muted">draft test · refunds.py</td><td><span class="badge secondary">dev</span></td><td class="num muted" style="text-align:right">214 ms</td></tr><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">58m ago</td><td><span class="row gap-2"><span class="method get bare">GET</span><span class="mono fg">/refunds</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">generate_self_test</span></td><td class="muted">AI self-test</td><td><span class="badge secondary">dev</span></td><td class="num muted" style="text-align:right">41 ms</td></tr><tr class=""><td><span class="dot ok" style="box-shadow:none"></span></td><td class="muted">3h ago</td><td><span class="row gap-2"><i data-lucide="workflow" class="i12 muted"></i><span class="mono fg">Nightly report</span></span></td><td><span class="badge neutral mono" style="font-size:10.5px">manual</span></td><td class="muted">workflow · editor</td><td><span class="badge secondary">dev</span></td><td class="num muted" style="text-align:right">1.2 s</td></tr></tbody></table>
+</div></main>
+<div class="overlay" style="background:rgb(15 18 22 / .12);backdrop-filter:none"></div>
+<aside class="sheet" style="width:580px" data-testid="run-sheet">
+  <div class="sh-h">
+    <div class="row gap-2"><span class="status-pill err">502</span><span class="method get">GET</span><span class="mono" style="font-weight:500">/refunds/stats</span><div class="grow"></div><span class="btn ghost icon xs"><i data-lucide="x" class="i14"></i></span></div>
+    <div class="row gap-3 muted" style="margin-top:8px;font-size:12px"><span class="mono">exec_01a1…c41d</span><span>route_test</span><span>dev</span><span>184 ms</span><span>36m ago</span><div class="grow"></div><span class="btn ghost xs"><i data-lucide="code-xml" class="i12"></i>Open in editor</span></div>
+  </div>
+  <div class="sh-b">
+    <div class="errbox">
+      <div class="row gap-2"><i data-lucide="circle-x" class="i14 ico-fail"></i><b style="font-weight:600">BrokerError: secret_not_bound</b><span class="muted">handler_failed</span><div class="grow"></div><span class="btn outline xs" data-testid="trace-line-link"><i data-lucide="arrow-right" class="i12"></i>refunds.py line 19</span></div>
+      <pre class="tb">Traceback (most recent call last):
+  File "refunds.py", line 19, in refund_stats
+    balance = studio.nodes.http_request(method="GET", url=f"{PAYMENTS}/balance",
+studio.BrokerError: secret_not_bound: PAYMENTS_TOKEN is not bound to payments.internal</pre>
+    </div>
+    <div class="section-t"><i data-lucide="chevron-down" class="i14 muted"></i>Trace <span class="muted" style="font-weight:450">· sandbox 184 ms · 1 node call</span></div>
+    <div class="col" style="gap:2px">
+      <div class="wf"><span class="row gap-1h"><i data-lucide="box" class="i12 muted"></i>Sandbox</span><span class="tr"><span class="bar" style="left:0;width:100%;background:color-mix(in srgb,var(--foreground) 14%,transparent)"></span></span><span class="muted num" style="text-align:right">184 ms</span></div>
+      <div class="wf"><span class="row gap-1h"><span class="dot err" style="box-shadow:none"></span><span class="mono">HttpRequest</span></span><span class="tr"><span class="bar" style="left:22%;width:4%;background:var(--destructive)"></span></span><span class="muted num" style="text-align:right">3 ms</span></div>
+      <div class="denied"><span class="badge destructive mono" style="font-size:10.5px">secret_not_bound</span><span>PAYMENTS_TOKEN has no allowed hosts; the call to <span class="mono">payments.internal</span> was refused.</span><div class="grow"></div><span class="btn outline xs">Bind to payments.internal</span></div>
+    </div>
+    <div class="section-t"><i data-lucide="chevron-down" class="i14 muted"></i>Request</div>
+    <div class="kvgrid"><span class="muted">query</span><span class="mono">since=2026-10-01</span><span class="muted">headers</span><span class="mono">user-agent: luna-studio · (authorization stripped)</span></div>
+    <div class="section-t"><i data-lucide="chevron-right" class="i14 muted"></i>Response <span class="muted" style="font-weight:450">· {"error":"handler_failed","execution_id":"exec_01a1…c41d"}</span></div>
+    <div class="section-t"><i data-lucide="chevron-right" class="i14 muted"></i>stdout / stderr <span class="muted" style="font-weight:450">· empty</span></div>
+    <div class="help">Request/response are stored redacted and capped at 16 KB each. Secret values show as ***.</div>
+  </div>
+</aside>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

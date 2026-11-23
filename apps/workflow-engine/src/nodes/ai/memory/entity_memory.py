@@ -63,7 +63,7 @@ class EntityMemoryNode(MemoryProviderBase):
                 display_name="Extraction Model",
                 name="extractionModel",
                 type="string",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 description="LLM model for entity extraction",
             ),
             NodeProperty(
@@ -93,7 +93,7 @@ class EntityMemoryNode(MemoryProviderBase):
     def get_config(self, node_definition: NodeDefinition) -> dict[str, Any]:
         """Return memory configuration with accessor functions."""
         session_id = self.get_parameter(node_definition, "sessionId", "default")
-        extraction_model = self.get_parameter(node_definition, "extractionModel", "gemini-2.0-flash")
+        extraction_model = self.get_parameter(node_definition, "extractionModel", "gemini-3.7-flash")
         entity_types_str = self.get_parameter(node_definition, "entityTypes", "person,place,organization,concept,fact")
         entity_types = [t.strip() for t in entity_types_str.split(",")]
         max_entities = self.get_parameter(node_definition, "maxEntities", 50)

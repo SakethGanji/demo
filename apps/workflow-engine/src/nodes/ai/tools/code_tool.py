@@ -66,9 +66,44 @@ class CodeToolNode(ConfigProvider):
                 },
                 "required": ["code"],
             },
-            # Sync executor — will be run via asyncio.to_thread by ai_agent.py
-            "execute": _execute_code,
+            # Async executor (phase 8): sandboxed when bubblewrap is available.
+            "execute": _execute_code_async,
         }
+
+
+async def _execute_code_async(input_data: dict[str, Any], context: Any = None) -> dict[str, Any]:
+    """Run the snippet in the sandbox (no network/files; `studio` via the broker); legacy fallback."""
+    import asyncio
+
+    from ....sandbox.node_runner import SandboxNodeError, run_in_sandbox, sandbox_available
+
+    code = input_data.get("code", "")
+    if not code:
+        return {"error": "code is required"}
+    if context is None or not sandbox_available():
+        return await asyncio.to_thread(_execute_code, input_data)
+    try:
+        result, _ = await run_in_sandbox(
+            context, kind="code", payload={"code": _auto_return(code), "items": [],
+                                           "globals": input_data.get("variables") or {}},
+            timeout_s=60.0, origin="agent")
+        return {"result": result}
+    except SandboxNodeError as e:
+        return {"error": str(e)}
+
+
+def _auto_return(code: str) -> str:
+    code_stripped = code.strip()
+    if "return " not in code_stripped.split("\n")[-1] and not code_stripped.endswith(":"):
+        lines = code_stripped.split("\n")
+        for i in range(len(lines) - 1, -1, -1):
+            line = lines[i].strip()
+            if line and not line.startswith(("#", "def ", "class ", "if ", "for ", "while ", "try:", "except", "finally")):
+                if "=" not in line or line.startswith("return"):
+                    lines[i] = "return " + lines[i]
+                break
+        code_stripped = "\n".join(lines)
+    return code_stripped
 
 
 def _execute_code(input_data: dict[str, Any]) -> dict[str, Any]:

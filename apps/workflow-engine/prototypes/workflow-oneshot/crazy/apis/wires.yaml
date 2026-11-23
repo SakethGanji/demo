@@ -1,0 +1,93 @@
+openapi: 3.0.3
+info:
+  title: wires
+  version: '1.0'
+servers:
+- url: http://wires.bank.test
+paths:
+  /wires/{wire_id}/release:
+    post:
+      operationId: release
+      summary: Release a wire for sending
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wire_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - wire_id
+                - status
+      parameters:
+      - name: wire_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /wires/{wire_id}/hold:
+    post:
+      operationId: hold
+      summary: Hold a wire
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wire_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - wire_id
+                - status
+      parameters:
+      - name: wire_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+              required:
+              - reason
+  /wires/{wire_id}/block:
+    post:
+      operationId: block
+      summary: Block a wire permanently (sanctions)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  wire_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - wire_id
+                - status
+      parameters:
+      - name: wire_id
+        in: path
+        required: true
+        schema:
+          type: string

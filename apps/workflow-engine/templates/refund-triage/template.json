@@ -1,0 +1,1161 @@
+{
+  "format": "wf-template/1",
+  "slug": "refund-triage",
+  "version": "1.0.0",
+  "name": "Refund triage with manager approval",
+  "summary": "Classify refund requests, pay small ones at once and send larger ones to a manager.",
+  "category": "payments",
+  "tags": [
+    "refunds",
+    "approval",
+    "form",
+    "sub-workflow"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [
+      {
+        "slug": "customer-notify",
+        "version": "^1"
+      }
+    ],
+    "secrets": [
+      {
+        "name": "REFUNDS_API_KEY",
+        "used_by": [
+          "main/Issue refund"
+        ]
+      }
+    ],
+    "variables": [],
+    "egress_hosts": [
+      "refunds.bank.example"
+    ]
+  },
+  "apis": [
+    {
+      "key": "refunds",
+      "name": "refunds",
+      "file": "apis/refunds.yaml"
+    }
+  ],
+  "tables": [
+    {
+      "key": "refund_limits",
+      "name": "refund_limits",
+      "description": "Refund amount a customer segment gets without a manager",
+      "columns": [
+        {
+          "name": "segment",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "auto_limit",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "seed_rows": [
+        {
+          "segment": "retail",
+          "auto_limit": 500
+        },
+        {
+          "segment": "premier",
+          "auto_limit": 2000
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "Refund triage",
+      "publish": false,
+      "description": "A refund request form: small refunds are paid at once, larger ones wait for a manager.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Refund request",
+            "type": "FormTrigger",
+            "parameters": {
+              "title": "Request a refund",
+              "submit_label": "Send request",
+              "input_schema": {
+                "type": "object",
+                "required": [
+                  "customer_email",
+                  "amount",
+                  "reason",
+                  "segment"
+                ],
+                "properties": {
+                  "customer_email": {
+                    "type": "string",
+                    "title": "Customer email"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "title": "Amount"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "title": "Reason"
+                  },
+                  "segment": {
+                    "type": "string",
+                    "title": "Segment"
+                  }
+                }
+              }
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Check eligibility",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/eligibility",
+              "version": "latest",
+              "inputMode": "map",
+              "mode": "once",
+              "inputs": {
+                "customer_email": "{{ $json.customer_email }}",
+                "amount": "{{ $json.amount }}",
+                "reason": "{{ $json.reason }}",
+                "segment": "{{ $json.segment }}"
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Eligible?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.eligible }}"
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Manager approval",
+            "type": "Approval",
+            "parameters": {
+              "title": "Refund of {{ $json.amount }} needs a manager",
+              "context": {
+                "Customer": "{{ $json.customer_email }}",
+                "Amount": "{{ $json.amount }}",
+                "Reason": "{{ $json.reason }}",
+                "Category": "{{ $json.category }}",
+                "Automatic limit": "{{ $json.limit }}"
+              },
+              "require_comment_on_reject": true
+            },
+            "position": {
+              "x": 720,
+              "y": 120
+            }
+          },
+          {
+            "name": "Issue refund",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/refunds",
+                "operation_id": "issueRefund"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.REFUNDS_API_KEY }}"
+                }
+              ],
+              "body": {
+                "customer_email": "{{ $node[\"Check eligibility\"].json.customer_email }}",
+                "amount": "{{ $node[\"Check eligibility\"].json.amount }}",
+                "reason": "{{ $node[\"Check eligibility\"].json.reason }}"
+              }
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          },
+          {
+            "name": "Refund accepted?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.statusCode == 201 }}"
+            },
+            "position": {
+              "x": 1200,
+              "y": 0
+            }
+          },
+          {
+            "name": "Notify issued",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/customer-notify:notify",
+              "version": "latest",
+              "inputMode": "map",
+              "inputs": {
+                "to": "{{ $node[\"Check eligibility\"].json.customer_email }}",
+                "channel": "email",
+                "template": "refund_issued",
+                "vars": {
+                  "amount": "{{ $node[\"Check eligibility\"].json.amount }}",
+                  "reference": "{{ $node[\"Issue refund\"].json.body.refund_id }}"
+                }
+              },
+              "mode": "once"
+            },
+            "position": {
+              "x": 1440,
+              "y": -80
+            }
+          },
+          {
+            "name": "Notify declined",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/customer-notify:notify",
+              "version": "latest",
+              "inputMode": "map",
+              "inputs": {
+                "to": "{{ $json.customer_email }}",
+                "channel": "email",
+                "template": "refund_declined",
+                "vars": {
+                  "reason": "{{ $json.approval.comment }}"
+                }
+              },
+              "mode": "once"
+            },
+            "position": {
+              "x": 960,
+              "y": 200
+            }
+          },
+          {
+            "name": "Notify failed",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/customer-notify:notify",
+              "version": "latest",
+              "inputMode": "map",
+              "inputs": {
+                "to": "{{ $node[\"Check eligibility\"].json.customer_email }}",
+                "channel": "email",
+                "template": "refund_failed",
+                "vars": {}
+              },
+              "mode": "once"
+            },
+            "position": {
+              "x": 1440,
+              "y": 80
+            }
+          },
+          {
+            "name": "Show result",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 200,
+              "body": {
+                "message": "Your refund request was processed",
+                "notified": "{{ $json.delivered }}"
+              }
+            },
+            "position": {
+              "x": 1680,
+              "y": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Refund request",
+            "target_node": "Check eligibility",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Check eligibility",
+            "target_node": "Eligible?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Eligible?",
+            "target_node": "Issue refund",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Eligible?",
+            "target_node": "Manager approval",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Manager approval",
+            "target_node": "Issue refund",
+            "source_output": "approved",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Manager approval",
+            "target_node": "Notify declined",
+            "source_output": "rejected",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Issue refund",
+            "target_node": "Refund accepted?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Refund accepted?",
+            "target_node": "Notify issued",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Refund accepted?",
+            "target_node": "Notify failed",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Notify issued",
+            "target_node": "Show result",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Notify declined",
+            "target_node": "Show result",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Notify failed",
+            "target_node": "Show result",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_3225ca74",
+            "name": "A small refund is paid and the customer is told",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 200,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Check eligibility": {
+                "items": [
+                  {
+                    "customer_email": "dana@example.com",
+                    "amount": 200,
+                    "reason": "parcel arrived damaged",
+                    "category": "damaged",
+                    "limit": 500,
+                    "eligible": true
+                  }
+                ]
+              },
+              "Issue refund": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "refund_id": "RF-1001",
+                    "status": "issued"
+                  }
+                }
+              },
+              "Notify issued": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Manager approval",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Issue refund",
+                "subject": "request",
+                "item": "any",
+                "path": "body.amount",
+                "op": "eq",
+                "value": 200
+              },
+              {
+                "node": "Issue refund",
+                "subject": "request",
+                "item": "any",
+                "path": "body.customer_email",
+                "op": "eq",
+                "value": "dana@example.com"
+              },
+              {
+                "node": "Notify issued",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Show result",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_ab242ef7",
+            "name": "A refund over the limit is paid after a manager approves it",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 900,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Check eligibility": {
+                "items": [
+                  {
+                    "customer_email": "dana@example.com",
+                    "amount": 900,
+                    "reason": "parcel arrived damaged",
+                    "category": "damaged",
+                    "limit": 500,
+                    "eligible": false
+                  }
+                ]
+              },
+              "Manager approval": {
+                "approval": {
+                  "decision": "approved",
+                  "comment": "ok"
+                }
+              },
+              "Issue refund": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "refund_id": "RF-1001",
+                    "status": "issued"
+                  }
+                }
+              },
+              "Notify issued": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Manager approval",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Issue refund",
+                "subject": "request",
+                "item": "any",
+                "path": "body.amount",
+                "op": "eq",
+                "value": 900
+              },
+              {
+                "node": "Notify issued",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_c77057ac",
+            "name": "A refund the manager rejects is not paid and the customer is told",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 900,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Check eligibility": {
+                "items": [
+                  {
+                    "customer_email": "dana@example.com",
+                    "amount": 900,
+                    "reason": "parcel arrived damaged",
+                    "category": "damaged",
+                    "limit": 500,
+                    "eligible": false
+                  }
+                ]
+              },
+              "Manager approval": {
+                "approval": {
+                  "decision": "rejected",
+                  "comment": "no receipt"
+                }
+              },
+              "Issue refund": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "refund_id": "RF-1001",
+                    "status": "issued"
+                  }
+                }
+              },
+              "Notify declined": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Issue refund",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Notify declined",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Notify issued",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_13287f08",
+            "name": "The refund service refuses the payout",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 200,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Check eligibility": {
+                "items": [
+                  {
+                    "customer_email": "dana@example.com",
+                    "amount": 200,
+                    "reason": "parcel arrived damaged",
+                    "category": "damaged",
+                    "limit": 500,
+                    "eligible": true
+                  }
+                ]
+              },
+              "Issue refund": {
+                "http": {
+                  "status": 422,
+                  "body": {
+                    "error": "duplicate refund"
+                  }
+                }
+              },
+              "Notify failed": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Notify failed",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Notify issued",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {},
+        "interface": {
+          "kind": "form",
+          "slug": "refund-triage",
+          "title": "Request a refund",
+          "description": "",
+          "access": {
+            "mode": "public"
+          },
+          "trigger_node": "Refund request",
+          "result_node": "Show result"
+        }
+      }
+    },
+    {
+      "key": "eligibility",
+      "role": "subworkflow",
+      "name": "Refund eligibility",
+      "publish": true,
+      "description": "Classify the reason, look up the customer segment's automatic limit and say whether the refund can be paid without a manager.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Inputs",
+            "type": "ExecuteWorkflowTrigger",
+            "parameters": {
+              "inputSource": "fields",
+              "fields": [
+                {
+                  "name": "customer_email",
+                  "type": "string",
+                  "required": true,
+                  "description": "Customer email"
+                },
+                {
+                  "name": "amount",
+                  "type": "number",
+                  "required": true,
+                  "description": "Refund amount"
+                },
+                {
+                  "name": "reason",
+                  "type": "string",
+                  "required": true,
+                  "description": "Why the customer wants a refund"
+                },
+                {
+                  "name": "segment",
+                  "type": "string",
+                  "required": true,
+                  "description": "retail or premier"
+                }
+              ]
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Classify reason",
+            "type": "AIAgent",
+            "parameters": {
+              "model": "claude-sonnet-4-20250514",
+              "systemPrompt": "You classify a bank customer's refund request. Answer with exactly one category: damaged, not_received, changed_mind, fraud or other. Never decide whether to pay.",
+              "task": "Customer's reason: {{ $node[\"Inputs\"].json.reason }}",
+              "outputSchema": {
+                "type": "object",
+                "required": [
+                  "category"
+                ],
+                "properties": {
+                  "category": {
+                    "type": "string",
+                    "enum": [
+                      "damaged",
+                      "not_received",
+                      "changed_mind",
+                      "fraud",
+                      "other"
+                    ]
+                  }
+                }
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            },
+            "on_error": "error_output"
+          },
+          {
+            "name": "Look up limit",
+            "type": "DataTable",
+            "parameters": {
+              "table": "@tpl:table/refund_limits",
+              "operation": "list",
+              "filter": {
+                "segment": "{{ $node[\"Inputs\"].json.segment }}"
+              },
+              "limit": 1
+            },
+            "position": {
+              "x": 480,
+              "y": -80
+            }
+          },
+          {
+            "name": "Decide",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "customer_email": "{{ $node[\"Inputs\"].json.customer_email }}",
+                "amount": "{{ $node[\"Inputs\"].json.amount }}",
+                "reason": "{{ $node[\"Inputs\"].json.reason }}",
+                "category": "{{ $node[\"Classify reason\"].json.structured.category }}",
+                "limit": "{{ $json.auto_limit }}",
+                "eligible": "{{ $node[\"Inputs\"].json.amount <= $json.auto_limit and $node[\"Classify reason\"].json.structured.category != 'fraud' }}"
+              }
+            },
+            "position": {
+              "x": 720,
+              "y": -80
+            }
+          },
+          {
+            "name": "AI unavailable",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "customer_email": "{{ $node[\"Inputs\"].json.customer_email }}",
+                "amount": "{{ $node[\"Inputs\"].json.amount }}",
+                "reason": "{{ $node[\"Inputs\"].json.reason }}",
+                "category": "unclassified",
+                "limit": 0,
+                "eligible": false
+              }
+            },
+            "position": {
+              "x": 480,
+              "y": 100
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Inputs",
+            "target_node": "Classify reason",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Classify reason",
+            "target_node": "Look up limit",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Look up limit",
+            "target_node": "Decide",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Classify reason",
+            "target_node": "AI unavailable",
+            "source_output": "error",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_481f73a1",
+            "name": "A small retail refund is eligible",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 200,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Classify reason": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "category": "damaged"
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              },
+              "Look up limit": {
+                "items": [
+                  {
+                    "id": 1,
+                    "segment": "retail",
+                    "auto_limit": 500
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "eligible",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "limit",
+                "op": "eq",
+                "value": 500
+              },
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "category",
+                "op": "eq",
+                "value": "damaged"
+              },
+              {
+                "node": "AI unavailable",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_4e39f78a",
+            "name": "A refund over the retail limit is not eligible",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 900,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Classify reason": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "category": "damaged"
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              },
+              "Look up limit": {
+                "items": [
+                  {
+                    "id": 1,
+                    "segment": "retail",
+                    "auto_limit": 500
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "eligible",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "limit",
+                "op": "eq",
+                "value": 500
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_c9d82f61",
+            "name": "Premier customers have a higher limit",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 900,
+                  "reason": "parcel arrived damaged",
+                  "segment": "premier"
+                }
+              ]
+            },
+            "mocks": {
+              "Classify reason": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "category": "not_received"
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              },
+              "Look up limit": {
+                "items": [
+                  {
+                    "id": 1,
+                    "segment": "premier",
+                    "auto_limit": 2000
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "eligible",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "limit",
+                "op": "eq",
+                "value": 2000
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_b4ab1422",
+            "name": "A reason classified as fraud is never eligible",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 50,
+                  "reason": "I did not make this purchase",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Classify reason": {
+                "items": [
+                  {
+                    "response": "ok",
+                    "structured": {
+                      "category": "fraud"
+                    },
+                    "toolCalls": [],
+                    "iterations": 1
+                  }
+                ]
+              },
+              "Look up limit": {
+                "items": [
+                  {
+                    "id": 1,
+                    "segment": "retail",
+                    "auto_limit": 500
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "eligible",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "Decide",
+                "port": "main",
+                "path": "category",
+                "op": "eq",
+                "value": "fraud"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_3e1fcdb1",
+            "name": "When the classifier is down the refund goes to a person",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_email": "dana@example.com",
+                  "amount": 200,
+                  "reason": "parcel arrived damaged",
+                  "segment": "retail"
+                }
+              ]
+            },
+            "mocks": {
+              "Classify reason": {
+                "error": {
+                  "message": "model unavailable",
+                  "code": "LLM_UNAVAILABLE"
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Classify reason",
+                "port": "error",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "AI unavailable",
+                "port": "main",
+                "path": "eligible",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "AI unavailable",
+                "port": "main",
+                "path": "category",
+                "op": "eq",
+                "value": "unclassified"
+              },
+              {
+                "node": "Decide",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

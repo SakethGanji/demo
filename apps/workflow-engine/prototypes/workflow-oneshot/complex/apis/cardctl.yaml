@@ -1,0 +1,57 @@
+openapi: 3.0.3
+info:
+  title: cardctl
+  version: '1.0'
+servers:
+- url: http://cardctl.bank.test
+paths:
+  /cards/{card_id}/freeze:
+    post:
+      operationId: freeze
+      summary: Temporarily freeze a card
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  card_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - card_id
+                - status
+      parameters:
+      - name: card_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /cards/{card_id}/block:
+    post:
+      operationId: block
+      summary: Permanently block a card
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  card_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - card_id
+                - status
+      parameters:
+      - name: card_id
+        in: path
+        required: true
+        schema:
+          type: string

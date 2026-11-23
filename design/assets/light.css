@@ -1,0 +1,131 @@
+/* Light mode refinement: loaded last, light only.
+   "Mist, lit": the same family as Graphite, translated for daylight.
+   - Dark gets depth from near-black and a light-catching top edge. Light gets it from a cool, slightly
+     deeper canvas that white panels can sit on, lit from above: the panel edge is lighter at the top and
+     heavier at the bottom, and the shadow is an indigo-tinted ambient plus a soft key light.
+   - The brand glow is a few faint, concentrated indigo pools at the top of the page, never a pastel wash.
+   - Grain lives on the canvas only (multiplied, very low), so white panels stay clean.
+   Every rule is scoped to html:not(.dark); dark is untouched. */
+
+/* ── tokens ── */
+html:not(.dark) {
+  /* canvas + neutrals: cool, a touch of indigo in the grey */
+  --canvas: #ebedf2;
+  --canvas-top: #f3f4f8;
+  --foreground: #15161d; --card-foreground: #15161d; --popover-foreground: #15161d; --secondary-foreground: #15161d; --accent-foreground: #15161d;
+  --muted-foreground: #5d5f70;   /* 6.3:1 on white, 5.8:1 in a well */
+  --faint: #9799aa;              /* decorative only */
+  --secondary: #f1f2f7; --muted: #f1f2f7; --accent: #eceef4; --surface: #f1f2f7;
+
+  /* lines: one ink, rgb(30 34 80), at a few strengths */
+  --ink: 30 34 80;
+  --border: rgb(var(--ink) / .1);
+  --input: rgb(var(--ink) / .16);
+  --panel-border: rgb(var(--ink) / .085);
+  --hairline: rgb(var(--ink) / .075);
+  --panel-ring: 0 0 0 1px var(--panel-border);
+
+  /* accent + brand */
+  --primary: #4c55c6; --ring: #5b64d6;
+  --brand-1: #5a66d6; --brand-2: #8466ee;
+  --brand-soft: color-mix(in srgb, #5a66d6 8%, transparent);
+  --glow: color-mix(in srgb, var(--brand-1) 24%, transparent);
+
+  /* status, tuned for white and for their own tints (AA at 10-12% tint) */
+  --success: #16a34a; --success-text: #137538;
+  --warning: #d97706; --warning-text: #925305;
+  --destructive: #c82828;
+  --method-get: #137538; --method-post: #4b55c4; --method-put: #925305; --method-patch: #0f766e; --method-delete: #b91c1c;
+
+  /* code */
+  --code-bg: #fbfbfd; --code-gutter: #9799aa;
+  --syn-keyword: #b4205f; --syn-string: #137538; --syn-number: #925305; --syn-fn: #4b55c4; --syn-comment: #6c6e80; --syn-deco: #925305;
+
+  /* sidebar */
+  --sidebar-foreground: #383a48; --sidebar-accent: rgb(var(--ink) / .065);
+
+  /* wells: a gentle recess, tint + inner ring + a whisper of top shadow */
+  --well: #f5f6fa; --well-ring: rgb(var(--ink) / .075);
+
+  /* shadows: ambient (tight, cool) + key light (soft, from above) */
+  --shadow-xs: 0 1px 2px rgb(var(--ink) / .06), 0 2px 6px -2px rgb(var(--ink) / .06);
+  --shadow-md: 0 1px 2px rgb(var(--ink) / .06), 0 4px 10px -4px rgb(var(--ink) / .08), 0 14px 30px -14px rgb(40 44 110 / .2);
+  --shadow-lg: 0 1px 2px rgb(var(--ink) / .06), 0 6px 14px -6px rgb(var(--ink) / .09), 0 22px 44px -22px rgb(40 44 110 / .24);
+
+  /* panel material: lit from above, so the edge is light at the top and heavier at the bottom */
+  --mat-top: #ffffff; --mat-bottom: #fdfdff;
+  --mat-edge-top: rgb(var(--ink) / .06); --mat-edge-bottom: rgb(var(--ink) / .14);
+  --mat-shadow: inset 0 1px 0 #fff, 0 1px 2px rgb(var(--ink) / .06), 0 4px 10px -4px rgb(var(--ink) / .07), 0 18px 40px -20px rgb(40 44 110 / .22);
+
+  /* art: lines that read on white */
+  --art-line: rgb(var(--ink) / .22);
+  --art-faint: rgb(var(--ink) / .12);
+}
+
+/* ── canvas: cooler at the top, two small indigo pools, grain under the panels ── */
+html:not(.dark) body,
+html:not(.dark) .workspace {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .12 0 0 0 0 .13 0 0 0 0 .3 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.09'/%3E%3C/svg%3E"),
+    radial-gradient(40% 28% at 14% -6%, color-mix(in srgb, var(--brand-1) 9%, transparent), transparent 70%),
+    radial-gradient(28% 22% at 88% -6%, color-mix(in srgb, var(--brand-2) 5%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--canvas-top), var(--canvas) 420px),
+    var(--canvas);
+  background-attachment: fixed;
+}
+
+/* ── panels ── */
+/* nested panels (overview columns) and plain panels: crisp ring + a small key shadow, not just a ring */
+html:not(.dark) .panel .panel {
+  box-shadow: 0 0 0 1px rgb(var(--ink) / .08), 0 1px 2px rgb(var(--ink) / .05), 0 6px 14px -10px rgb(var(--ink) / .14) !important; }
+/* the top bar floats over content: a slightly stronger key light */
+html:not(.dark) .topbar { box-shadow: var(--mat-shadow), 0 10px 24px -16px rgb(40 44 110 / .2) !important; }
+/* hover on cards: the brand ring plus a lifted key light (light's answer to the dark glow) */
+html:not(.dark) .card.panel:hover, html:not(.dark) .tpl:hover,
+html:not(.dark) .card.proj:hover, html:not(.dark) .tpl.press:hover {
+  box-shadow: var(--mat-shadow), 0 0 0 1px color-mix(in srgb, var(--brand-1) 26%, transparent), 0 16px 32px -18px color-mix(in srgb, var(--brand-1) 35%, transparent) !important; }
+
+/* ── wells and the inset scale (inset.css owns the rules; light tunes its tokens to the same cool ink) ── */
+html:not(.dark) {
+  --edge-ring: rgb(var(--ink) / .085);
+  --edge-lo: rgb(var(--ink) / .07);
+  --recess-fill: rgb(var(--ink) / .034);
+  --slot-line: rgb(var(--ink) / .18);
+  --inset-lg: inset 0 0 0 1px var(--well-ring), inset 0 1px 2px rgb(var(--ink) / .045);
+  --raise-sm: inset 0 1px 0 var(--edge-hi), 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(var(--ink) / .07);
+  --raise-md: inset 0 1px 0 var(--edge-hi), 0 0 0 1px var(--edge-ring), 0 1px 2px rgb(var(--ink) / .06), 0 3px 8px -3px rgb(var(--ink) / .12);
+}
+/* the focal stat tile lifts out of its well with a cool key light */
+html:not(.dark) .statrow .stat.vx-edge .tile { box-shadow: var(--raise-sm), 0 4px 12px -6px rgb(40 44 110 / .2); }
+
+/* ── the amber alert (projects): a white card with an amber edge, not a beige box ── */
+html:not(.dark) .alert .box {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 5%, var(--card)), var(--card) 28%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 34%, transparent), 0 1px 2px rgb(var(--ink) / .05), 0 8px 20px -14px color-mix(in srgb, var(--warning) 45%, transparent); }
+html:not(.dark) .alert .ic { background: color-mix(in srgb, var(--warning) 13%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 26%, transparent); }
+html:not(.dark) .alert.ok .box {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 5%, var(--card)), var(--card) 28%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 32%, transparent), var(--shadow-xs); }
+html:not(.dark) .inline-warn { background: color-mix(in srgb, var(--warning) 7%, var(--card)); }
+
+/* ── hero areas ── */
+/* the projects beam: on white it smears; keep it, but as a narrow, faint shaft */
+html:not(.dark) .hero > .vx-beam { opacity: .3; }
+html:not(.dark) .vx-grid { opacity: .85; }
+
+/* ── art on white ── */
+html:not(.dark) .art .a-card { filter: drop-shadow(0 1px 1.5px rgb(var(--ink) / .08)) drop-shadow(0 4px 8px rgb(var(--ink) / .05)); }
+html:not(.dark) .a-glow, html:not(.dark) .art .a-glow { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--brand-1) 35%, transparent)) drop-shadow(0 2px 10px color-mix(in srgb, var(--brand-1) 22%, transparent)); }
+html:not(.dark) .art .a-hot { stroke: color-mix(in srgb, var(--brand-1) 70%, transparent); }
+html:not(.dark) .art .a-packet { filter: drop-shadow(0 0 2px color-mix(in srgb, var(--brand-1) 60%, transparent)); }
+
+/* ── tables and code ── */
+/* failed runs: on white a 6% red reads as dusty pink; keep the red rule and the red text, quieten the fill */
+html:not(.dark) .table tbody tr.run.err td { background: color-mix(in srgb, var(--destructive) 3%, transparent); }
+html:not(.dark) .table tbody tr.run.err.sel td { background: color-mix(in srgb, var(--destructive) 4.5%, transparent); }
+html:not(.dark) tr.xr.err > td { background: color-mix(in srgb, var(--destructive) 3.5%, transparent); }
+
+/* ── edge vectors (edges.css): the empty-space grid a step quieter than the hero grid on white ── */
+html:not(.dark) { --eg-grid: rgb(var(--ink) / .09); }
+
+html:not(.dark) .code .ln { color: var(--code-gutter); }

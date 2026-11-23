@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backend states — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+.sheet { position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 21; background: var(--card); border-radius: 14px; box-shadow: var(--shadow-2xl); border: 1px solid var(--panel-border); display: flex; flex-direction: column; overflow: hidden; }
+.sh-h { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.sh-t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.sh-b { padding: 16px 18px; overflow: hidden; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.sh-f { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--muted) 40%, var(--card)); }
+.content { height: 100%; overflow: hidden; padding: 24px 28px; }
+.h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.chk { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); align-items: flex-start; }
+.chk:last-child { border-bottom: 0; }
+.ico-ok { color: var(--success); } .ico-warn { color: var(--warning); } .ico-fail { color: var(--destructive); }
+body { overflow: hidden; } .grid4 { position: absolute; inset: 12px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 12px; }
+.st { display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.sthead { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 12px; background: color-mix(in srgb, var(--muted) 55%, var(--card)); border-bottom: 1px solid var(--border); }
+.filebar { height: 40px; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 6px; border-bottom: 1px solid var(--border); }
+.ftab { height: 28px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 7px; font: 12.5px/1 var(--font-mono); background: var(--muted); }
+.ftab .mod { width: 6px; height: 6px; border-radius: 9px; background: var(--foreground); opacity: .55; }
+.composer { margin: 10px 12px 0; border: 1px solid color-mix(in srgb, var(--ai) 28%, var(--border)); border-radius: 10px; background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 4%, var(--card)), var(--card)); }
+.composer.bad { border-color: var(--border); background: var(--card); }
+.composer .in { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; }
+.composer .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.result { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 12px; border-top: 1px dashed color-mix(in srgb, var(--ai) 22%, var(--border)); font-size: 12px; }
+.phases { display: flex; gap: 6px; padding: 0 12px 10px; } .ph { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 99px; font-size: 11.5px; background: var(--muted); color: var(--muted-foreground); }
+.ph.done { color: var(--success-text); background: color-mix(in srgb, var(--success) 10%, transparent); } .ph.on { color: var(--ai-text); background: var(--ai-soft); }
+.spin { width: 12px; height: 12px; border-radius: 99px; border: 1.5px solid var(--border); border-top-color: var(--ai); }
+.shimmer { font-weight: 500; background: linear-gradient(90deg, var(--foreground), var(--ai), var(--foreground)); -webkit-background-clip: text; color: transparent; }
+.code-wrap { flex: 1; position: relative; margin-top: 10px; border-top: 1px solid var(--border); overflow: hidden; }
+.code-wrap.ro .code { opacity: .55; } .roveil { position: absolute; right: 12px; top: 10px; font-size: 11.5px; color: var(--muted-foreground); background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; }
+.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--muted-foreground); text-align: center; }
+.empty svg.lucide { width: 22px; height: 22px; }
+.diag { position: absolute; left: 260px; display: flex; gap: 6px; align-items: center; padding: 5px 9px; border-radius: 7px; background: var(--popover); border: 1px solid color-mix(in srgb, var(--destructive) 35%, var(--border)); box-shadow: var(--shadow-md); font-size: 12px; }
+.statusbar { height: 28px; display: flex; align-items: center; gap: 14px; padding: 0 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted-foreground); }
+.statusbar .it { display: inline-flex; align-items: center; gap: 5px; }
+.tp { padding: 14px 16px; } .pill { display: inline-flex; height: 22px; align-items: center; padding: 0 8px; border-radius: 6px; font: 600 11.5px/1 var(--font-mono); }
+.pill.e { color: var(--method-delete); background: color-mix(in srgb, var(--destructive) 10%, transparent); }
+.fix { display: flex; gap: 10px; align-items: center; margin-top: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border)); background: color-mix(in srgb, var(--warning) 5%, var(--card)); }
+.fix.err { border-color: color-mix(in srgb, var(--destructive) 30%, var(--border)); background: color-mix(in srgb, var(--destructive) 4%, var(--card)); }
+</style>
+</head>
+<body data-noside="1">
+<div class="app">
+<div class="grid4"><section class="panel st"><div class="sthead"><span class="eyebrow">Generating</span><span class="badge neutral mono" style="font-size:10.5px">composer-state=streaming</span></div>
+<div class="filebar"><span class="ftab on"><i data-lucide="file-code-2" class="i14"></i>refunds.py</span><div class="grow"></div><span class="btn default sm" style="opacity:.5">Save<span class="kbd">⌘S</span></span></div>
+<div class="composer"><div class="in"><span class="avatar-ai"><i data-lucide="sparkles"></i></span><span class="txt">Store refunds in a refunds table. POST /refunds creates one, GET /refunds lists…</span><span class="btn outline sm"><i data-lucide="square" class="i12"></i>Stop<span class="kbd">Esc</span></span></div>
+<div class="result"><span class="spin"></span><span class="shimmer">Self-testing GET /refunds…</span><span class="muted">step 4 of 4 · attempt 1</span><div class="grow"></div><span class="muted num">14 s</span></div>
+<div class="phases"><span class="ph done"><i data-lucide="check" class="i12"></i>Read project</span><span class="ph done"><i data-lucide="check" class="i12"></i>Wrote refunds.py</span><span class="ph done"><i data-lucide="check" class="i12"></i>Syntax OK</span><span class="ph on">Self-test</span></div></div>
+<div class="code-wrap ro"><div class="code" style="padding:8px 0"><div class="ln" style="counter-set: ln 0"><span class="k">from</span> studio <span class="k">import</span> api, HTTPError</div><div class="ln" style="counter-set: ln 1"><span class="k">import</span> studio</div><div class="ln" style="counter-set: ln 2"></div><div class="ln" style="counter-set: ln 3">refunds = studio.db.<span class="f">table</span>(<span class="s">"refunds"</span>)</div><div class="ln" style="counter-set: ln 4"></div><div class="ln" style="counter-set: ln 5"><span class="d">@api.post</span>(<span class="s">"/refunds"</span>, name=<span class="s">"createRefund"</span>)</div></div><div class="roveil">Read-only while generating</div></div></section><section class="panel st"><div class="sthead"><span class="eyebrow">AI not configured</span><span class="badge neutral mono" style="font-size:10.5px">llm_unavailable (503)</span></div>
+<div class="filebar"><span class="ftab on"><i data-lucide="file-code-2" class="i14"></i>~new</span><div class="grow"></div></div>
+<div class="composer bad"><div class="in"><span class="avatar-ai" style="background:var(--muted);color:var(--muted-foreground)"><i data-lucide="sparkles"></i></span><span class="txt muted">Describe your API…</span><span class="btn ai sm" style="opacity:.45"><i data-lucide="wand-sparkles" class="i14"></i>Generate</span></div>
+<div class="result" style="border-top-style:solid"><i data-lucide="plug-zap" class="i14 muted"></i><span>AI generation isn't configured on this server (no LLM key).</span><div class="grow"></div><span class="btn outline xs">Start from a template</span></div></div>
+<div class="empty"><i data-lucide="code-xml"></i><div style="font-weight:500;color:var(--foreground)">Write your backend by hand</div><div>Templates: <span class="chip" style="height:24px">Empty</span> <span class="chip" style="height:24px">Table CRUD</span> <span class="chip" style="height:24px">External API</span></div></div></section><section class="panel st"><div class="sthead"><span class="eyebrow">Syntax error · not saved</span><span class="badge neutral mono" style="font-size:10.5px">422 syntax_error</span></div>
+<div class="filebar"><span class="ftab on"><i data-lucide="file-code-2" class="i14"></i>refunds.py<span class="mod"></span></span><div class="grow"></div><span style="color:var(--destructive);font-size:12px;margin-right:6px">1 error, not saved</span><span class="btn default sm">Save<span class="kbd">⌘S</span></span></div>
+<div class="code-wrap"><div class="code" style="padding:8px 0"><div class="ln" style="counter-set: ln 0"><span class="k">from</span> studio <span class="k">import</span> api, HTTPError</div><div class="ln" style="counter-set: ln 1"><span class="k">import</span> studio</div><div class="ln" style="counter-set: ln 2"></div><div class="ln" style="counter-set: ln 3">refunds = studio.db.<span class="f">table</span>(<span class="s">"refunds"</span>)</div><div class="ln" style="counter-set: ln 4"></div><div class="ln" style="counter-set: ln 5"><span class="d">@api.post</span>(<span class="s">"/refunds"</span>, name=<span class="s">"createRefund"</span>)</div><div class="ln err" style="counter-set: ln 6"><span class="k">def</span> <span class="f">create_refund</span>(req)<span class="squig-err"> </span></div><div class="ln" style="counter-set: ln 7">    <span class="k">return</span> refunds.<span class="f">insert</span>(req.body)</div></div><div class="diag" style="top:134px"><i data-lucide="circle-x" class="i12" style="color:var(--destructive)"></i><b style="font-weight:500">Line 7:</b> expected ':'</div></div>
+<div class="statusbar"><span class="it" style="color:var(--destructive)"><i data-lucide="circle-x" class="i12"></i>1 error</span><div class="grow"></div><span class="it">Ln 7, Col 24</span></div></section><section class="panel st"><div class="sthead"><span class="eyebrow">Draft test failed</span><span class="badge neutral mono" style="font-size:10.5px">error_code table_not_found</span></div>
+<div class="tp"><div class="row gap-2"><span class="method post">POST</span><span class="mono">/refunds</span><span class="badge ai" style="height:18px;font-size:10.5px">draft</span><div class="grow"></div><span class="btn default sm"><i data-lucide="send-horizontal" class="i14"></i>Send</span></div>
+<div class="row gap-2" style="margin-top:12px"><span class="pill e">502</span><span class="muted">handler_failed · 41 ms</span></div>
+<div class="fix"><i data-lucide="table-2" class="i14" style="color:var(--warning-text)"></i><div class="grow"><div style="font-weight:500">Table <span class="mono">refunds</span> doesn't exist yet</div><div class="muted" style="font-size:12px">It's created when you save. Create it now to test writes.</div></div><span class="btn outline xs">Create table now</span></div>
+<div class="fix err"><i data-lucide="bug" class="i14" style="color:var(--destructive)"></i><div class="grow"><div style="font-weight:500">BrokerError: table_not_found</div><div class="mono muted" style="font-size:11.5px">refunds.py, line 11, in create_refund</div></div><span class="btn ghost xs" style="color:var(--primary)">Go to line 11</span></div></div></section></div>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

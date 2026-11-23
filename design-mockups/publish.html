@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Publish dialog — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+  .work { position: absolute; top: 68px; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 12px; }
+  .conn { width: 288px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .prev { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .chat { width: 360px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .ph-h { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 14px; border-bottom: 1px solid var(--border); }
+  .ph-h .t { font-weight: 600; }
+  .conn-hero { margin: 12px; padding: 12px; border-radius: 10px; border: 1px solid color-mix(in srgb, var(--success) 25%, var(--border)); background: color-mix(in srgb, var(--success) 5%, var(--card)); }
+  .op { display: flex; flex-direction: column; gap: 3px; padding: 9px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+  .op .l1 { display: flex; align-items: center; gap: 8px; }
+  .op .l2 { display: flex; align-items: center; gap: 6px; padding-left: 52px; font-size: 11.5px; color: var(--muted-foreground); }
+  .codebox { margin: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--code-bg); padding: 8px 10px; font: 11px/17px var(--font-mono); white-space: pre; overflow: hidden; color: var(--foreground); }
+  /* preview frame */
+  .frame-bar { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 10px; border-bottom: 1px solid var(--border); }
+  .urlbox { flex: 1; max-width: 460px; height: 28px; margin: 0 auto; border-radius: 7px; background: var(--muted); display: flex; align-items: center; gap: 8px; padding: 0 10px; font: 11.5px/1 var(--font-mono); color: var(--muted-foreground); }
+  .canvas { flex: 1; background: #f7f8fa; padding: 22px 24px; overflow: hidden; font-family: var(--font-sans); }
+  .app-h { display: flex; align-items: center; justify-content: space-between; }
+  .app-t { font-size: 18px; font-weight: 650; letter-spacing: -0.02em; color: #111827; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+  .kpi { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; }
+  .kpi .l { font-size: 12px; color: #6b7280; }
+  .kpi .v { font-size: 24px; font-weight: 650; letter-spacing: -0.02em; color: #111827; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .lower { display: grid; grid-template-columns: 1.4fr 1fr; gap: 12px; margin-top: 12px; }
+  .box { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 14px 16px; }
+  .box h4 { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: #111827; }
+  .bar-row { display: grid; grid-template-columns: 48px 1fr 60px; align-items: center; gap: 10px; height: 30px; font-size: 12px; color: #374151; }
+  .bar-row .b { height: 14px; border-radius: 4px; background: #6366f1; }
+  .fld { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; font-size: 12px; color: #374151; }
+  .fld .x { height: 32px; border: 1px solid #d1d5db; border-radius: 8px; display: flex; align-items: center; padding: 0 10px; color: #111827; background: #fff; }
+  .abtn { height: 34px; border-radius: 8px; background: #111827; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 500; }
+  .console { height: 30px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; padding: 0 12px; font: 11px/1 var(--font-mono); color: var(--muted-foreground); background: var(--card); }
+  /* chat */
+  .msgs { flex: 1; overflow: hidden; padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+  .umsg { align-self: flex-end; max-width: 88%; background: var(--secondary); border-radius: 12px 12px 4px 12px; padding: 9px 12px; line-height: 19px; }
+  .amsg { display: flex; gap: 10px; }
+  .tool { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; background: var(--background); }
+  .composer { margin: 0 12px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); }
+  .composer .ta { padding: 10px 12px; min-height: 44px; color: var(--muted-foreground); }
+  .composer .bar { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 8px; }
+  .pf { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); font-size: 12.5px; }
+  .pf:last-child { border-bottom: 0; } .pf.warn { background: color-mix(in srgb, var(--warning) 6%, transparent); }
+  .ico-ok { color: var(--success); } .ico-warn { color: var(--warning); }
+  .tool > span.grow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conn-rail { display: none; flex-direction: column; align-items: center; gap: 6px; padding: 8px 0; }
+  .console > span:first-child { min-width: 0; overflow: hidden; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+  .console > * { white-space: nowrap; }
+  @media (max-width: 1279px) {
+    .work { left: 12px !important; }
+    .conn { width: 44px; } .conn > :not(.conn-rail) { display: none !important; } .conn-rail { display: flex; }
+    .chat { width: 320px; }
+    .urlbox { display: none; }
+    .kpis { grid-template-columns: 1fr 1fr; } .lower { grid-template-columns: 1fr; }
+    .app-h > div:first-child > div:last-child { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar floating">
+    <span class="brand">luna</span>
+    <span class="crumb-sep">/</span>
+    <span class="crumb muted" style="font-weight:450"><span class="dot warn"></span>Payments Ops</span>
+    <span class="crumb-sep">/</span>
+    <span class="crumb"><i data-lucide="app-window" class="i14 muted"></i>Orders dashboard<i data-lucide="chevrons-up-down" class="chev i12"></i></span>
+    <span class="badge secondary" style="margin-left:4px">v4 · saved</span>
+    <div class="grow"></div>
+    <div class="seg"><span class="on"><i data-lucide="eye" class="i12"></i>Preview</span><span><i data-lucide="code-xml" class="i12"></i>Code</span></div>
+    <span class="sep-v"></span>
+    <span class="btn ghost icon sm"><i data-lucide="history" class="i14"></i></span>
+    <span class="btn ghost icon sm"><i data-lucide="settings-2" class="i14"></i></span>
+    <span class="btn default sm"><i data-lucide="send" class="i14"></i>Publish</span>
+  </div>
+
+  <div class="work">
+    <!-- Connect panel -->
+    <section class="conn panel">
+      <div class="conn-rail"><span class="rail-item on" title="Backend"><i data-lucide="plug-zap"></i></span><span class="badge secondary" style="height:18px;font-size:10px;padding:0 5px">2/5</span><span class="rail-item" title="api/client.ts"><i data-lucide="file-type-2"></i></span></div>
+      <div class="ph-h"><i data-lucide="plug-zap" class="i14 muted"></i><span class="t">Backend</span><div class="grow"></div><span class="btn ghost icon xs"><i data-lucide="refresh-cw" class="i12"></i></span></div>
+      <div class="conn-hero">
+        <div class="row gap-2"><span class="dot warn"></span><span style="font-weight:500">Payments Ops</span><div class="grow"></div><span class="badge secondary">rev 4</span></div>
+        <div class="mono muted" style="font-size:11.5px;margin-top:6px">/api/p/payments-ops</div>
+        <div class="help" style="margin-top:6px">Typed client regenerates when routes change. Preview uses <b style="font-weight:500;color:var(--foreground)">dev</b>.</div>
+      </div>
+      <div class="row" style="padding:2px 12px 6px"><span class="eyebrow">Operations</span><div class="grow"></div><span class="muted" style="font-size:11.5px">3 of 5 used</span></div>
+      <div style="border-top:1px solid var(--border)">
+        <div class="op">
+          <div class="l1"><span class="method get">GET</span><span class="mono fg" style="font-size:12px">ordersSummary</span><div class="grow"></div><i data-lucide="circle-check" class="i14" style="color:var(--success)"></i></div>
+          <div class="l2"><span class="mono">App.tsx:14</span><span>·</span><span>200 · 31 ms in preview</span></div>
+        </div>
+        <div class="op">
+          <div class="l1"><span class="method post">POST</span><span class="mono fg" style="font-size:12px">createOrder</span><div class="grow"></div><span class="dot idle"></span></div>
+          <div class="l2"><span class="mono">OrderForm.tsx:22</span><span>·</span><span>not called yet</span></div>
+        </div>
+        <div class="op">
+          <div class="l1"><span class="method get">GET</span><span class="mono fg" style="font-size:12px">refundStats</span><div class="grow"></div><i data-lucide="circle-check" class="i14" style="color:var(--success)"></i></div>
+          <div class="l2"><span class="mono">App.tsx:31</span><span>·</span><span>200 · 214 ms in preview</span></div>
+        </div>
+        <div class="op">
+          <div class="l1"><span class="method get">GET</span><span class="mono fg" style="font-size:12px">listRefunds</span><div class="grow"></div><span class="btn ghost xs" style="height:20px;font-size:11px">Use</span></div>
+          <div class="l2"><span>available · not used</span></div>
+        </div>
+        <div class="op" style="border-bottom:0">
+          <div class="l1"><span class="method post">POST</span><span class="mono fg" style="font-size:12px">createRefund</span><div class="grow"></div><span class="btn ghost xs" style="height:20px;font-size:11px">Use</span></div>
+          <div class="l2"><span>available · not used</span></div>
+        </div>
+      </div>
+      <div class="row" style="padding:14px 12px 6px"><span class="eyebrow">api/client.ts</span><div class="grow"></div><span class="btn ghost xs"><i data-lucide="copy" class="i12"></i>Copy usage</span></div>
+      <div class="codebox"><span class="c">/*! @generated · spec rev 4 */</span>
+<span class="k">interface</span> <span class="f">OrdersSummaryResponse</span> {
+  orders: <span class="k">number</span>; total: <span class="k">number</span>
+  by_region: Record&lt;<span class="k">string</span>, <span class="k">number</span>&gt;
+  top_region: <span class="k">string</span>
+}
+<span class="k">const</span> s = <span class="k">await</span> api.<span class="f">ordersSummary</span>()</div>
+    </section>
+
+    <!-- Preview -->
+    <section class="prev panel">
+      <div class="frame-bar">
+        <div class="seg"><span class="on"><i data-lucide="monitor" class="i12"></i></span><span><i data-lucide="tablet" class="i12"></i></span><span><i data-lucide="smartphone" class="i12"></i></span></div>
+        <div class="urlbox"><i data-lucide="lock" class="i12"></i>preview · /a/orders-dashboard<div class="grow"></div><span class="badge primary" style="height:18px;font-size:10.5px">dev</span></div>
+        <span class="btn ghost icon sm"><i data-lucide="rotate-cw" class="i14"></i></span>
+        <span class="btn ghost icon sm"><i data-lucide="external-link" class="i14"></i></span>
+      </div>
+      <div class="canvas">
+        <div class="app-h">
+          <div><div class="app-t">Orders</div><div style="font-size:12px;color:#6b7280;margin-top:2px">Live from Payments Ops · updated just now</div></div>
+          <div style="height:30px;padding:0 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;display:flex;align-items:center;gap:6px;font-size:12px;color:#374151"><i data-lucide="refresh-cw" class="i12"></i>Refresh</div>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><div class="l">Orders</div><div class="v">5</div></div>
+          <div class="kpi"><div class="l">Total</div><div class="v">$645.50</div></div>
+          <div class="kpi"><div class="l">Top region</div><div class="v">US</div></div>
+        </div>
+        <div class="lower">
+          <div class="box">
+            <h4>Totals by region</h4>
+            <div class="bar-row"><span>US</span><div><div class="b" style="width:100%"></div></div><span style="text-align:right;font-variant-numeric:tabular-nums">$399.75</span></div>
+            <div class="bar-row"><span>EU</span><div><div class="b" style="width:50%;opacity:.75"></div></div><span style="text-align:right;font-variant-numeric:tabular-nums">$200.50</span></div>
+            <div class="bar-row"><span>APAC</span><div><div class="b" style="width:11%;opacity:.55"></div></div><span style="text-align:right;font-variant-numeric:tabular-nums">$45.25</span></div>
+          </div>
+          <div class="box">
+            <h4>New order</h4>
+            <div class="fld">Region<div class="x">EU<span class="grow"></span><i data-lucide="chevron-down" class="i14" style="color:#9ca3af"></i></div></div>
+            <div class="fld">Amount<div class="x">120.00</div></div>
+            <div class="abtn">Create order</div>
+          </div>
+        </div>
+        <div class="box" style="margin-top:12px;padding:0">
+          <div style="display:flex;align-items:center;padding:12px 16px 8px"><h4 style="margin:0">Recent orders</h4><span style="margin-left:auto;font-size:12px;color:#6b7280">5 total</span></div>
+          <table style="width:100%;border-collapse:collapse;font-size:12px;color:#374151">
+            <tr style="color:#6b7280;text-align:left"><th style="font-weight:500;padding:6px 16px;border-top:1px solid #f0f1f3">Region</th><th style="font-weight:500;padding:6px 16px;border-top:1px solid #f0f1f3;text-align:right">Amount</th><th style="font-weight:500;padding:6px 16px;border-top:1px solid #f0f1f3">Created</th></tr>
+            <tr><td style="padding:7px 16px;border-top:1px solid #f0f1f3">US</td><td style="padding:7px 16px;border-top:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">$199.75</td><td style="padding:7px 16px;border-top:1px solid #f0f1f3;color:#6b7280">Oct 14, 23:41</td></tr>
+            <tr><td style="padding:7px 16px;border-top:1px solid #f0f1f3">EU</td><td style="padding:7px 16px;border-top:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">$200.50</td><td style="padding:7px 16px;border-top:1px solid #f0f1f3;color:#6b7280">Oct 14, 23:41</td></tr>
+            <tr><td style="padding:7px 16px;border-top:1px solid #f0f1f3">APAC</td><td style="padding:7px 16px;border-top:1px solid #f0f1f3;text-align:right;font-variant-numeric:tabular-nums">$45.25</td><td style="padding:7px 16px;border-top:1px solid #f0f1f3;color:#6b7280">Oct 14, 23:41</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="console">
+        <span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span>GET /api/p/payments-ops/orders/summary → 200 · 31 ms</span>
+        <div class="grow"></div>
+        <span>0 errors</span>
+        <span class="btn ghost xs" style="font-family:var(--font-sans)"><i data-lucide="terminal" class="i12"></i>Console</span>
+      </div>
+    </section>
+
+    <!-- Chat -->
+    <section class="chat panel">
+      <div class="ph-h"><i data-lucide="sparkles" class="i14" style="color:var(--ai)"></i><span class="t">Build with AI</span><div class="grow"></div><span class="btn ghost icon xs"><i data-lucide="square-pen" class="i12"></i></span></div>
+      <div class="msgs">
+        <div class="row gap-2 muted" style="font-size:11.5px;justify-content:center"><i data-lucide="plug-zap" class="i12"></i>Started from Payments Ops · 2 routes attached</div>
+        <div class="umsg">An orders dashboard: KPI tiles for order count, total and top region, a bar chart of totals by region, and a form that creates an order and refreshes the numbers.</div>
+        <div class="amsg">
+          <span class="avatar-ai"><i data-lucide="sparkles"></i></span>
+          <div class="col gap-2 grow">
+            <div class="tool"><i data-lucide="file-plus-2" class="i14 muted"></i><span class="grow">Wrote <span class="mono" style="font-size:11.5px">App.tsx</span>, <span class="mono" style="font-size:11.5px">OrderForm.tsx</span></span><span class="muted">+142</span></div>
+            <div class="tool"><i data-lucide="plug" class="i14 muted"></i><span class="grow">Uses <span class="mono" style="font-size:11.5px">ordersSummary</span>, <span class="mono" style="font-size:11.5px">createOrder</span></span></div>
+            <div style="line-height:19px">Built the dashboard and order form on your typed client.</div>
+          </div>
+        </div>
+        <div class="umsg">Add the payments balance as a 4th tile</div>
+        <div class="amsg"><span class="avatar-ai"><i data-lucide="sparkles"></i></span><div class="row gap-2 muted"><span class="spinner" style="width:12px;height:12px;border-radius:99px;border:1.5px solid var(--border);border-top-color:var(--ai);display:inline-block"></span>Added a balance tile using api.refundStats.</div></div>
+      </div>
+      <div class="composer">
+        <div class="ta">Ask for a change…</div>
+        <div class="bar">
+          <span class="chip" style="height:24px;font-size:11.5px;" ><i data-lucide="plug"></i>2 routes<i data-lucide="chevron-up"></i></span>
+          <div class="grow"></div>
+          <span class="btn ghost icon xs"><i data-lucide="paperclip" class="i12"></i></span>
+          <span class="btn default icon sm"><i data-lucide="arrow-up" class="i14"></i></span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+
+  <div class="overlay"></div>
+  <div class="dialog" style="left:50%;top:76px;transform:translateX(-50%);width:600px" data-testid="publish-dialog">
+    <div style="padding:20px 22px 0" class="row gap-2"><div class="grow"><div style="font-size:16px;font-weight:600">Publish Orders dashboard</div><div class="muted">Anyone with the link can open it. It calls your Python backend in <b style="font-weight:500;color:var(--foreground)">prod</b>.</div></div><span class="btn ghost icon sm"><i data-lucide="x" class="i14"></i></span></div>
+    <div style="padding:16px 22px" class="col gap-4">
+      <div class="row gap-3">
+        <div class="col gap-1h grow"><span class="label">Address</span><span class="input mono" style="font-size:12px"><span class="ph">/a/</span>orders-dashboard</span></div>
+        <div class="col gap-1h"><span class="label">Access</span><div class="seg" style="height:32px;align-items:center"><span class="on" style="height:26px"><i data-lucide="globe" class="i12"></i>Public</span><span style="height:26px"><i data-lucide="lock" class="i12"></i>Password</span><span style="height:26px">Private</span></div></div>
+      </div>
+      <div class="col gap-1h">
+        <span class="label">Pre-flight</span>
+        <div class="card" style="overflow:hidden">
+          <div class="pf"><i data-lucide="circle-check" class="i14 ico-ok"></i><span class="grow">All 3 operations it calls exist: <span class="mono">ordersSummary</span>, <span class="mono">createOrder</span>, <span class="mono">refundStats</span></span></div>
+          <div class="pf warn"><i data-lucide="triangle-alert" class="i14 ico-warn"></i><span class="grow"><b style="font-weight:500">PAYMENTS_TOKEN</b> isn't set in prod; <span class="mono">refundStats</span> needs it and will fail.</span><span class="btn outline xs">Add to prod</span></div>
+          <div class="pf"><i data-lucide="info" class="i14 muted"></i><span class="grow">prod has no release, so it serves your <b style="font-weight:500">latest saved</b> backend. <span style="color:var(--primary)">Create a release</span> to pin it.</span></div>
+          <div class="pf"><i data-lucide="database" class="i14 muted"></i><span class="grow">The published app reads and writes the same tables as dev.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="row gap-2" style="padding:14px 22px;border-top:1px solid var(--border);background:color-mix(in srgb,var(--muted) 40%,var(--card));border-radius:0 0 14px 14px">
+      <span class="muted" style="font-size:12px">1 warning · you can publish anyway</span><div class="grow"></div>
+      <span class="btn ghost sm">Cancel</span><span class="btn default sm" data-testid="publish-submit"><i data-lucide="send" class="i14"></i>Publish</span>
+    </div>
+  </div>
+  <div class="dialog" style="left:50%;top:560px;transform:translateX(-50%);width:600px;padding:16px 22px" data-testid="publish-success">
+    <div class="row gap-2"><i data-lucide="circle-check" class="i14 ico-ok"></i><b style="font-weight:600">Published · v4</b><span class="muted">(state after Publish)</span></div>
+    <div class="row gap-2" style="margin-top:10px"><span class="input mono grow" style="font-size:12px" data-testid="publish-url">http://localhost:8000/a/orders-dashboard</span><span class="btn outline sm"><i data-lucide="copy" class="i14"></i>Copy</span><span class="btn default sm"><i data-lucide="external-link" class="i14"></i>Open</span></div>
+    <div class="row gap-2 help" style="margin-top:8px"><span>Calls <span class="mono">/api/p/payments-ops/…</span> with an app token that refreshes itself.</span><div class="grow"></div><span style="color:var(--destructive)">Unpublish</span></div>
+  </div>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

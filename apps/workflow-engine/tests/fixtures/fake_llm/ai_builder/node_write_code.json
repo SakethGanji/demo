@@ -1,0 +1,13 @@
+{
+ "rules": [
+  {
+   "id": "code",
+   "when": {
+    "system_matches": "^WF_AI:NODE_CODE\\n"
+   },
+   "respond": {
+    "text": "{\"code\": \"amount = json_data.get('body', {}).get('amount', 0)\\nreturn [new_item({'fee': amount * 0.01})]\", \"explanation\": \"1% fee.\"}"
+   }
+  }
+ ]
+}

@@ -66,7 +66,7 @@ class SummaryBufferMemoryNode(MemoryProviderBase):
                 display_name="Summary Model",
                 name="summaryModel",
                 type="string",
-                default="gemini-2.0-flash",
+                default="gemini-3.7-flash",
                 description="LLM model to use for summarization",
             ),
             NodeProperty(
@@ -83,7 +83,7 @@ class SummaryBufferMemoryNode(MemoryProviderBase):
         """Return memory configuration with accessor functions."""
         session_id = self.get_parameter(node_definition, "sessionId", "default")
         recent_messages = self.get_parameter(node_definition, "recentMessages", 10)
-        summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-2.0-flash")
+        summary_model = self.get_parameter(node_definition, "summaryModel", "gemini-3.7-flash")
         summary_max_tokens = self.get_parameter(node_definition, "summaryMaxTokens", 500)
 
         return self.build_memory_config(

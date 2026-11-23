@@ -5,7 +5,10 @@
  * Used inside the BottomPanel's Logs tab.
  */
 
+import { Badge } from '@/shared/components/ui/badge'
+import { EmptyState } from '@/shared/components/ui/empty-state';
 import { useState, useEffect, useMemo } from 'react';
+import { Link } from '@tanstack/react-router';
 import {
   Trash2,
   CheckCircle2,
@@ -28,12 +31,23 @@ import {
   Bot,
   Copy,
   Check,
+  FlaskConical,
 } from 'lucide-react';
 import { useWorkflowStore } from '../../stores/workflowStore';
+import { useTestStore } from '../../stores/testStore';
+import { useEditorProjectStore } from '../../stores/editorProjectStore';
+import { saveExecutionAsTest } from '../../lib/testActions';
+import { Button } from '@/shared/components/ui/button';
 import { cn } from '@/shared/lib/utils';
+import { Segmented } from '@/shared/components/ui/segmented';
+import { Callout } from '@/shared/components/ui/surface';
 import type { NodeMetrics } from '../../types/workflow';
 import ExecutionTrace from './ExecutionTrace';
 import { buildAgentTraceTree } from './buildTraceTree';
+import { useExecutionLineage } from '../../hooks/useSubworkflows';
+import { ChildRunList, ChildRunRow, ErrorChildLink, ParentRunLink } from './ChildRunLinks';
+import { isFailedStatus } from '../../lib/subworkflowsApi';
+import { ReportOrData } from '@/shared/components/report/HtmlReportPreview';
 
 // ── Syntax-highlighted JSON viewer ──────────────────────────────────────
 // Safe React-element based highlighting (no dangerouslySetInnerHTML)
@@ -53,13 +67,15 @@ function JsonView({ data, maxHeight = '12rem' }: { data: unknown; maxHeight?: st
     <div className="relative group">
       <button
         onClick={handleCopy}
-        className="absolute top-1.5 right-1.5 p-1 rounded bg-muted-foreground/10 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+        className="absolute top-1.5 right-1.5 p-1 rounded-chip bg-raise shadow-raise-sm opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
         title="Copy JSON"
+        aria-label="Copy JSON"
+        data-testid="log-json-copy"
       >
         {copied ? <Check size={11} /> : <Copy size={11} />}
       </button>
       <pre
-        className="p-2.5 rounded-lg bg-[#0e0e0e] text-[11px] leading-[1.6] overflow-auto font-mono"
+        className="well p-2.5 text-[11px] leading-[1.6] overflow-auto font-mono"
         style={{ maxHeight }}
       >
         {lines.map((line, i) => (
@@ -84,8 +100,8 @@ function JsonLine({ line }: { line: string }) {
     return (
       <div>
         {indent}
-        <span style={{ color: '#9cdcfe' }}>"{key}"</span>
-        <span style={{ color: '#d4d4d4' }}>{colon}</span>
+        <span className="text-syn-fn">"{key}"</span>
+        <span className="text-muted-foreground">{colon}</span>
         <JsonValue text={val} />
       </div>
     );
@@ -102,8 +118,8 @@ function JsonValue({ text }: { text: string }) {
   if (strMatch) {
     return (
       <>
-        <span style={{ color: '#ce9178' }}>"{strMatch[1]}"</span>
-        <span style={{ color: '#d4d4d4' }}>{strMatch[2]}</span>
+        <span className="text-syn-string">"{strMatch[1]}"</span>
+        <span className="text-muted-foreground">{strMatch[2]}</span>
       </>
     );
   }
@@ -113,8 +129,8 @@ function JsonValue({ text }: { text: string }) {
   if (numMatch) {
     return (
       <>
-        <span style={{ color: '#b5cea8' }}>{numMatch[1]}</span>
-        <span style={{ color: '#d4d4d4' }}>{numMatch[2]}</span>
+        <span className="text-syn-number">{numMatch[1]}</span>
+        <span className="text-muted-foreground">{numMatch[2]}</span>
       </>
     );
   }
@@ -124,8 +140,8 @@ function JsonValue({ text }: { text: string }) {
   if (boolMatch) {
     return (
       <>
-        <span style={{ color: '#569cd6' }}>{boolMatch[1]}</span>
-        <span style={{ color: '#d4d4d4' }}>{boolMatch[2]}</span>
+        <span className="text-syn-keyword">{boolMatch[1]}</span>
+        <span className="text-muted-foreground">{boolMatch[2]}</span>
       </>
     );
   }
@@ -135,14 +151,14 @@ function JsonValue({ text }: { text: string }) {
   if (nullMatch) {
     return (
       <>
-        <span style={{ color: '#569cd6' }}>{nullMatch[1]}</span>
-        <span style={{ color: '#d4d4d4' }}>{nullMatch[2]}</span>
+        <span className="text-syn-keyword">{nullMatch[1]}</span>
+        <span className="text-muted-foreground">{nullMatch[2]}</span>
       </>
     );
   }
 
   // Brackets, braces, other
-  return <span style={{ color: '#d4d4d4' }}>{text}</span>;
+  return <span className="text-muted-foreground">{text}</span>;
 }
 
 interface ExecutionLog {
@@ -150,7 +166,7 @@ interface ExecutionLog {
   nodeName: string;
   nodeLabel: string;
   nodeType: string;
-  status: 'idle' | 'running' | 'success' | 'error';
+  status: 'idle' | 'running' | 'success' | 'error' | 'waiting';
   timestamp: number;
   duration?: number;
   itemCount?: number;
@@ -182,7 +198,7 @@ function formatTime(isoString: string): string {
 interface MetricEntry {
   label: string;
   value: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: React.ComponentType<import('lucide-react').LucideProps>;
   color?: string;
 }
 
@@ -224,18 +240,18 @@ function getMetricEntries(metrics: NodeMetrics): MetricEntry[] {
 
   // LLM
   if (metrics.model) {
-    entries.push({ label: 'Model', value: metrics.model, icon: Cpu, color: 'text-purple-500' });
+    entries.push({ label: 'Model', value: metrics.model, icon: Cpu, color: 'text-hue-ai' });
   }
   if (metrics.totalTokens != null) {
     entries.push({
       label: 'Tokens',
       value: `${(metrics.inputTokens ?? 0).toLocaleString()} in / ${(metrics.outputTokens ?? 0).toLocaleString()} out`,
       icon: Zap,
-      color: 'text-purple-500',
+      color: 'text-hue-ai',
     });
   }
   if (metrics.llmResponseTimeMs != null) {
-    entries.push({ label: 'LLM Latency', value: formatDuration(metrics.llmResponseTimeMs), icon: Timer, color: 'text-purple-500' });
+    entries.push({ label: 'LLM Latency', value: formatDuration(metrics.llmResponseTimeMs), icon: Timer, color: 'text-hue-ai' });
   }
   if (metrics.agentIterations != null) {
     entries.push({ label: 'Agent Loops', value: String(metrics.agentIterations), icon: Bot });
@@ -247,7 +263,7 @@ function getMetricEntries(metrics: NodeMetrics): MetricEntry[] {
   // HTTP
   if (metrics.responseStatusCode != null) {
     const ok = metrics.responseStatusCode < 400;
-    entries.push({ label: 'HTTP Status', value: String(metrics.responseStatusCode), icon: Globe, color: ok ? 'text-[var(--success)]' : 'text-destructive' });
+    entries.push({ label: 'HTTP Status', value: String(metrics.responseStatusCode), icon: Globe, color: ok ? 'text-success-text' : 'text-destructive' });
   }
   if (metrics.requestMethod && metrics.requestUrl) {
     const url = metrics.requestUrl.length > 50 ? metrics.requestUrl.slice(0, 50) + '...' : metrics.requestUrl;
@@ -262,7 +278,7 @@ function getMetricEntries(metrics: NodeMetrics): MetricEntry[] {
 
   // Flow
   if (metrics.branchDecision != null) {
-    entries.push({ label: 'Branch Taken', value: metrics.branchDecision, icon: GitBranch, color: 'text-blue-500' });
+    entries.push({ label: 'Branch Taken', value: metrics.branchDecision, icon: GitBranch, color: 'text-hue-backend' });
   }
   if (metrics.trueCount != null || metrics.falseCount != null) {
     entries.push({ label: 'True / False', value: `${metrics.trueCount ?? 0} / ${metrics.falseCount ?? 0}`, icon: Route });
@@ -281,6 +297,10 @@ export default function ExecutionLogsPanel() {
   const executionData = useWorkflowStore((s) => s.executionData);
   const nodes = useWorkflowStore((s) => s.nodes);
   const clearExecutionData = useWorkflowStore((s) => s.clearExecutionData);
+  const viewingId = useWorkflowStore((s) => s.viewingExecution?.id ?? null);
+  const lastExecutionId = useTestStore((s) => s.lastExecutionId);
+  const savingFromRun = useTestStore((s) => s.savingFromRun);
+  const runExecutionId = viewingId ?? lastExecutionId;
 
   // Convert execution data to logs format
   const logs: ExecutionLog[] = useMemo(() =>
@@ -291,9 +311,9 @@ export default function ExecutionLogsPanel() {
 
         return {
           id: nodeId,
-          nodeName: node.data.name || nodeId,
-          nodeLabel: node.data.label || node.data.name || 'Unknown',
-          nodeType: node.data.type || '',
+          nodeName: typeof node.data.name === 'string' ? node.data.name : nodeId,
+          nodeLabel: typeof node.data.label === 'string' ? node.data.label : typeof node.data.name === 'string' ? node.data.name : 'Unknown',
+          nodeType: typeof node.data.type === 'string' ? node.data.type : '',
           status: data.status,
           timestamp: data.startTime || Date.now(),
           duration: data.metrics?.executionTimeMs,
@@ -313,8 +333,13 @@ export default function ExecutionLogsPanel() {
   );
 
   const hasLogs = logs.length > 0;
-  const isRunning = logs.some((l) => l.status === 'running');
+  // runActive also covers the gaps before the first node starts and between nodes.
+  const runActive = useWorkflowStore((s) => s.runActive);
+  const isRunning = runActive || logs.some((l) => l.status === 'running');
   const hasErrors = logs.some((l) => l.status === 'error');
+  const waitingRun = useWorkflowStore((s) => s.waitingRun);
+  const projectSlug = useEditorProjectStore((s) => s.slug);
+  const isWaiting = !isRunning && !hasErrors && (!!waitingRun || logs.some((l) => l.status === 'waiting'));
   const successCount = logs.filter((l) => l.status === 'success').length;
   const totalDuration = logs.reduce((sum, l) => sum + (l.duration || 0), 0);
   const totalTokens = logs.reduce((sum, l) => sum + ((l.metrics?.totalTokens as number) || 0), 0);
@@ -324,12 +349,23 @@ export default function ExecutionLogsPanel() {
     : null;
   const selectedNodeData = selectedLogId ? executionData[selectedLogId] : null;
 
+  // Stage 8 lineage of the shown run: the run that called it, and the sub-workflow runs it started
+  const lineage = useExecutionLineage(runExecutionId, !isRunning && hasLogs).data;
+  const childRunsOf = (nodeName: string) => (lineage?.children ?? []).filter((c) => c.node === nodeName);
+
   // Auto-select first log when execution starts
   useEffect(() => {
     if (hasLogs && !selectedLogId) {
       setSelectedLogId(logs[0]?.id || null);
     }
   }, [hasLogs, logs, selectedLogId]);
+
+  // When a run finishes, show the last node's output (the workflow's result).
+  const lastLogId = logs[logs.length - 1]?.id ?? null;
+  useEffect(() => {
+    if (!isRunning && lastLogId) setSelectedLogId(lastLogId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning]);
 
   // Reset data tab when switching nodes
   useEffect(() => {
@@ -344,26 +380,48 @@ export default function ExecutionLogsPanel() {
   return (
     <div className="h-full flex flex-col">
       {/* Header bar */}
-      <div className="flex items-center justify-between h-8 px-3 border-b border-border shrink-0">
+      <div className="flex items-center justify-between h-8 px-3 shrink-0 shadow-[inset_0_-1px_0_var(--hairline)]">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-foreground">Logs</span>
+          {lineage?.parent && (
+            <>
+              <div className="w-px h-3 bg-hairline" />
+              <ParentRunLink parent={lineage.parent} />
+            </>
+          )}
           {hasLogs && (
             <>
-              <div className="w-px h-3 bg-border" />
+              <div className="w-px h-3 bg-hairline" />
               {isRunning ? (
-                <span className="flex items-center gap-1 text-[10px] text-[var(--warning)]">
+                <span className="flex items-center gap-1 text-[10px] text-warning-text" data-testid="execution-status" data-status="running">
                   <Loader2 size={10} className="animate-spin" />
-                  Running
+                  running
+                </span>
+              ) : isWaiting ? (
+                <span className="flex items-center gap-1 text-[10px] text-warning-text" data-testid="execution-status" data-status="waiting">
+                  <Clock size={10} />
+                  waiting for approval
+                  {(waitingRun?.tasks.length ? waitingRun.tasks : [null]).map((t) => (
+                    <Link
+                      key={t?.id ?? 'inbox'}
+                      to={t ? '/p/$project/approvals/$taskId' : '/p/$project/approvals'}
+                      params={t ? { project: projectSlug, taskId: t.id } : { project: projectSlug }}
+                      className="underline underline-offset-2 hover:text-foreground"
+                      data-testid="execution-waiting-link"
+                    >
+                      {t ? t.title || 'Open task' : 'Open inbox'}
+                    </Link>
+                  ))}
                 </span>
               ) : hasErrors ? (
-                <span className="flex items-center gap-1 text-[10px] text-destructive">
+                <span className="flex items-center gap-1 text-[10px] text-destructive" data-testid="execution-status" data-status="error">
                   <XCircle size={10} />
-                  Failed
+                  error
                 </span>
               ) : (
-                <span className="flex items-center gap-1 text-[10px] text-[var(--success)]">
+                <span className="flex items-center gap-1 text-[10px] text-success-text" data-testid="execution-status" data-status="success">
                   <CheckCircle2 size={10} />
-                  {formatDuration(totalDuration)}
+                  success · {formatDuration(totalDuration)}
                 </span>
               )}
               {!isRunning && (
@@ -373,8 +431,8 @@ export default function ExecutionLogsPanel() {
               )}
               {totalTokens > 0 && (
                 <>
-                  <div className="w-px h-3 bg-border" />
-                  <span className="flex items-center gap-0.5 text-[10px] text-purple-500">
+                  <div className="w-px h-3 bg-hairline" />
+                  <span className="flex items-center gap-0.5 text-[10px] text-hue-ai">
                     <Zap size={9} />
                     {totalTokens.toLocaleString()} tok
                   </span>
@@ -383,46 +441,61 @@ export default function ExecutionLogsPanel() {
             </>
           )}
         </div>
+        <div className="flex items-center gap-1">
+        {hasLogs && !isRunning && runExecutionId && (
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={savingFromRun}
+            onClick={() => void saveExecutionAsTest(runExecutionId)}
+            data-testid="save-as-test"
+          >
+            {savingFromRun ? <Loader2 className="animate-spin" /> : <FlaskConical />} Save as test
+          </Button>
+        )}
         <button
           onClick={handleClear}
           disabled={!hasLogs}
-          className="p-1 text-muted-foreground hover:text-foreground hover:bg-accent rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-1 text-muted-foreground hover:text-foreground hover:bg-(--hover-fill) rounded-ctl disabled:opacity-50 disabled:cursor-not-allowed"
           title="Clear logs"
+          aria-label="Clear logs"
+          data-testid="log-clear"
         >
           <Trash2 size={12} />
         </button>
+        </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Node list */}
-        <div className="w-48 border-r border-border overflow-y-auto bg-muted/30 shrink-0">
+        <div className="well m-2 mr-0 w-48 overflow-y-auto shrink-0">
           {!hasLogs ? (
-            <div className="flex flex-col items-center justify-center h-full text-center p-3">
-              <ScrollText size={18} className="text-muted-foreground/50 mb-2" />
-              <p className="text-xs text-muted-foreground">No logs yet</p>
-            </div>
+            <EmptyState compact className="h-full" icon={<ScrollText />} title="No logs yet" />
           ) : (
             <div className="p-1.5 space-y-0.5">
               {logs.map((log) => (
+                <div key={log.id}>
                 <button
-                  key={log.id}
                   onClick={() => setSelectedLogId(log.id)}
                   className={cn(
-                    'w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors',
+                    'w-full flex items-center gap-2 px-2 py-1.5 rounded-ctl text-left transition-colors',
                     selectedLogId === log.id
-                      ? 'bg-primary/10 text-primary'
-                      : 'hover:bg-accent text-foreground'
+                      ? 'bg-raise shadow-raise-sm text-foreground'
+                      : 'row-hover text-foreground'
                   )}
                 >
                   {log.status === 'running' && (
-                    <Loader2 size={12} className="animate-spin text-[var(--warning)] flex-shrink-0" />
+                    <Loader2 size={12} className="animate-spin text-warning flex-shrink-0" />
                   )}
                   {log.status === 'success' && (
-                    <CheckCircle2 size={12} className="text-[var(--success)] flex-shrink-0" />
+                    <CheckCircle2 size={12} className="text-success flex-shrink-0" />
                   )}
                   {log.status === 'error' && (
                     <XCircle size={12} className="text-destructive flex-shrink-0" />
+                  )}
+                  {log.status === 'waiting' && (
+                    <Clock size={12} className="text-warning flex-shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
                     <span className="text-xs truncate block">{log.nodeLabel}</span>
@@ -434,6 +507,10 @@ export default function ExecutionLogsPanel() {
                     </span>
                   )}
                 </button>
+                {childRunsOf(log.nodeName).map((c) => (
+                  <ChildRunRow key={c.execution_id} run={c} />
+                ))}
+                </div>
               ))}
             </div>
           )}
@@ -453,14 +530,14 @@ export default function ExecutionLogsPanel() {
                     {selectedLog.nodeType}
                   </span>
                   {selectedLog.status === 'success' && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-[var(--success)]/10 text-[var(--success)]">
+                    <Badge variant="success" className="h-4 px-1.5 text-[10px]">
                       Success
-                    </span>
+                    </Badge>
                   )}
                   {selectedLog.status === 'error' && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded-full bg-destructive/10 text-destructive">
+                    <Badge variant="error" className="h-4 px-1.5 text-[10px]">
                       Error
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
@@ -474,7 +551,7 @@ export default function ExecutionLogsPanel() {
                     <span>{selectedLog.itemCount} item{selectedLog.itemCount !== 1 && 's'}</span>
                   )}
                   {selectedLog.metrics?.totalTokens != null && (
-                    <span className="flex items-center gap-0.5 text-purple-500">
+                    <span className="flex items-center gap-0.5 text-hue-ai">
                       <Zap size={9} />
                       {(selectedLog.metrics.totalTokens as number).toLocaleString()}
                     </span>
@@ -482,7 +559,7 @@ export default function ExecutionLogsPanel() {
                   {selectedLog.metrics?.responseStatusCode != null && (
                     <span className={`flex items-center gap-0.5 ${
                       (selectedLog.metrics.responseStatusCode as number) < 400
-                        ? 'text-[var(--success)]'
+                        ? 'text-success-text'
                         : 'text-destructive'
                     }`}>
                       <Globe size={9} />
@@ -490,7 +567,7 @@ export default function ExecutionLogsPanel() {
                     </span>
                   )}
                   {selectedLog.metrics?.branchDecision != null && (
-                    <span className="flex items-center gap-0.5 text-blue-500">
+                    <span className="flex items-center gap-0.5 text-hue-backend">
                       <GitBranch size={9} />
                       {selectedLog.metrics.branchDecision}
                     </span>
@@ -500,18 +577,25 @@ export default function ExecutionLogsPanel() {
 
               {/* Error */}
               {selectedLog.error && (
-                <div className="p-2 rounded-lg bg-destructive/10 border border-destructive/20">
-                  <p className="text-xs text-destructive">{selectedLog.error}</p>
-                </div>
+                <Callout tone="error" data-testid="log-error">
+                  <p className="text-xs">{selectedLog.error}</p>
+                  {(() => {
+                    const failed = childRunsOf(selectedLog.nodeName).find((c) => isFailedStatus(c.status));
+                    return failed ? <ErrorChildLink run={failed} /> : null;
+                  })()}
+                </Callout>
               )}
+
+              {/* Stage 8: the sub-workflow runs this node started */}
+              {selectedLog.nodeType === 'ExecuteWorkflow' && <ChildRunList runs={childRunsOf(selectedLog.nodeName)} />}
 
               {/* Agent execution trace */}
               {selectedNodeData.agentTrace && selectedNodeData.agentTrace.length > 0 && (
                 <div className="space-y-1">
-                  <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                  <h4 className="text-[11.5px] font-medium text-muted-foreground">
                     Execution Trace
                   </h4>
-                  <div className="rounded-md border border-border bg-muted/20 overflow-auto" style={{ maxHeight: '24rem' }}>
+                  <div className="well overflow-auto" style={{ maxHeight: '24rem' }}>
                     <div className="p-2">
                       <ExecutionTrace
                         tree={buildAgentTraceTree(selectedNodeData.agentTrace, selectedLog.nodeName)}
@@ -527,10 +611,10 @@ export default function ExecutionLogsPanel() {
                 if (entries.length === 0) return null;
                 return (
                   <div className="space-y-1">
-                    <h4 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    <h4 className="text-[11.5px] font-medium text-muted-foreground">
                       Metrics
                     </h4>
-                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 p-2.5 rounded-lg bg-muted/50 border border-border">
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 p-2.5 well">
                       {entries.map((entry) => {
                         const Icon = entry.icon;
                         return (
@@ -550,33 +634,22 @@ export default function ExecutionLogsPanel() {
 
               {/* Input / Output toggle + data */}
               <div className="space-y-1">
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => setDataTab('output')}
-                    className={cn(
-                      'text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded transition-colors',
-                      dataTab === 'output'
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    Output {selectedNodeData.output?.items ? `(${selectedNodeData.output.items.length})` : ''}
-                  </button>
-                  <button
-                    onClick={() => setDataTab('input')}
-                    className={cn(
-                      'text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded transition-colors',
-                      dataTab === 'input'
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    Input {selectedNodeData.input?.items ? `(${selectedNodeData.input.items.length})` : ''}
-                  </button>
-                </div>
+                <Segmented
+                  size="xs"
+                  value={dataTab}
+                  onChange={setDataTab}
+                  aria-label="Data"
+                  data-testid="log-data-tabs"
+                  options={[
+                    { key: 'output', label: `Output ${selectedNodeData.output?.items ? `(${selectedNodeData.output.items.length})` : ''}`.trim(), testId: 'log-tab-output' },
+                    { key: 'input', label: `Input ${selectedNodeData.input?.items ? `(${selectedNodeData.input.items.length})` : ''}`.trim(), testId: 'log-tab-input' },
+                  ]}
+                />
 
                 {dataTab === 'output' && selectedNodeData.output?.items && selectedNodeData.output.items.length > 0 && (
-                  <JsonView data={selectedNodeData.output.items} />
+                  <ReportOrData key={selectedLog.id} items={selectedNodeData.output.items} testId="log-output-view">
+                    <JsonView data={selectedNodeData.output.items} />
+                  </ReportOrData>
                 )}
                 {dataTab === 'output' && (!selectedNodeData.output?.items || selectedNodeData.output.items.length === 0) && !selectedLog.error && (
                   <p className="text-[11px] text-muted-foreground p-2">No output data</p>
@@ -591,13 +664,9 @@ export default function ExecutionLogsPanel() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <p className="text-xs text-muted-foreground">
-                {hasLogs
-                  ? 'Select a node to view details'
-                  : 'Run workflow to see logs'}
-              </p>
-            </div>
+            <EmptyState compact className="h-full">
+              {hasLogs ? 'Select a node to view details' : 'Run the workflow to see logs'}
+            </EmptyState>
           )}
         </div>
       </div>

@@ -6,7 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
-from sqlalchemy import text, update
+from sqlalchemy import DateTime, cast, func, text, update
 from sqlmodel import select
 
 from ..db.models import ExecutionModel
@@ -52,7 +52,10 @@ class StaleReaper:
                 select(ExecutionModel)
                 .where(
                     ExecutionModel.status == "running",
-                    ExecutionModel.start_time < cutoff,
+                    # Stage 5: a run resumed days after it started ages from the resume (metadata.resumed_at), not from start_time
+                    func.coalesce(
+                        cast(ExecutionModel.exec_metadata["resumed_at"].astext, DateTime), ExecutionModel.start_time
+                    ) < cutoff,
                 )
             )
             result = await session.execute(stmt)
@@ -64,3 +67,18 @@ class StaleReaper:
                     ex.status = "failed"
                     ex.end_time = datetime.now()
                 await session.commit()
+
+        await self._reap_ai_builds()
+
+    async def _reap_ai_builds(self) -> None:
+        """Stage 6: an AI build whose worker died stays 'building'; fail it once it is past its deadline (+60s). Never breaks the tick."""
+        try:
+            from ..services.ai_builder import reap_stale_builds
+
+            ids = await reap_stale_builds(self._db_session_factory)
+            if ids:
+                logger.warning("Marked %d stale AI builds as failed", len(ids))
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("StaleReaper: AI build sweep failed")

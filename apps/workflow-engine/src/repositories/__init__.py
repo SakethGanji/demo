@@ -9,6 +9,7 @@ from .credential_repository import CredentialRepository
 from .folder_repository import FolderRepository
 from .variable_repository import VariableRepository
 from .api_test_repository import ApiTestRepository
+from .api_spec_repository import ApiSpecRepository
 
 __all__ = [
     "WorkflowRepository",
@@ -20,4 +21,5 @@ __all__ = [
     "FolderRepository",
     "VariableRepository",
     "ApiTestRepository",
+    "ApiSpecRepository",
 ]

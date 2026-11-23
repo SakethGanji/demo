@@ -7,18 +7,38 @@ Uses a queue-based BFS approach for node execution.
 from __future__ import annotations
 
 import asyncio
+import copy
+import random
 import json
 import logging
 from datetime import datetime
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, TYPE_CHECKING, Literal
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
+#: trigger-like nodes that emit the test's input items instead of running when a test starts at them
+_TEST_TRIGGER_TYPES = {"Start", "Webhook", "Cron", "ChatInput", "FormTrigger", "ErrorTrigger", "ExecuteWorkflowTrigger"}
+
+from . import loop_history as lh
+from .effects import can_go_live, effect_of
 from .expression_engine import ExpressionEngine, expression_engine
-from .logging import execution_id_var, execution_variables_var, execution_secrets_var
+from .logging import execution_id_var, execution_resume_key_var, execution_variables_var, execution_secrets_var
+from .test_mode import (
+    BadMockError,
+    MockPlan,
+    TestRunOptions,
+    UnmockedEffectError,
+    frozen_now_var,
+    http_mock_client,
+    live_client,
+    plan_mock,
+    shape_plan,
+    refusing_client,
+    test_rng_var,
+)
 from .types import (
     ExecutionContext,
     ExecutionError,
@@ -35,6 +55,9 @@ from .types import (
     NO_OUTPUT_SIGNAL,
 )
 
+#: Effectful node types that act once per input item; test mode records one request per item for them.
+PER_ITEM_EFFECT_TYPES = frozenset({"Postgres", "SendEmail"})
+
 if TYPE_CHECKING:
     from .node_registry import NodeRegistryClass
 
@@ -47,6 +70,7 @@ class WorkflowRunner:
         self._registry: NodeRegistryClass = node_registry
         self._db_session = db_session_factory  # None = skip persistence
         self._event_bus = event_bus  # PgEventBus | None
+        self._unsaved_runs: set[str] = set()  # test runs with persist=False: no node_outputs rows
 
     async def run(
         self,
@@ -61,6 +85,18 @@ class WorkflowRunner:
         pre_populated_states: dict[str, list[NodeData]] | None = None,
         variables: dict[str, str] | None = None,
         secret_values: set[str] | None = None,
+        project_id: str | None = None,
+        environment: str | None = None,
+        team_id: str = "default",
+        extras: dict[str, Any] | None = None,
+        http_client_options: dict[str, Any] | None = None,
+        stop_at: str | None = None,
+        pending_inputs: dict[str, dict[str, list[NodeData]]] | None = None,
+        test_options: TestRunOptions | None = None,
+        subworkflow_invoker: Any | None = None,
+        call_stack: tuple[str, ...] | None = None,
+        call_names: dict[str, str] | None = None,
+        execution_depth: int = 0,
     ) -> ExecutionContext:
         """
         Run a workflow from a starting node.
@@ -72,6 +108,15 @@ class WorkflowRunner:
             mode: Execution mode (manual, webhook, cron)
             on_event: Optional callback for real-time execution events
             workflow_repository: Optional repository for subworkflow loading
+            stop_at: Name of a node after which no downstream jobs are queued
+            pending_inputs: Pre-seeded Merge inputs ({"<node>:<run_index>": {"<src>:<output>": items}}),
+                used when a partial run starts at a multi-input node
+            test_options: run in test mode (mocks, frozen clock, no credentials, no real network); see engine/test_mode.py
+            subworkflow_invoker: who runs ExecuteWorkflow / WorkflowTool calls (engine.subworkflow.SubworkflowInvoker);
+                None = the in-memory invoker (draft only, nothing written)
+            call_stack / call_names / execution_depth: the workflows already running above this run and its nesting
+                depth (the broker's run_workflow, called by code inside a workflow); the sub-workflow cycle and depth
+                guards count them. Default: this run is a root.
 
         Returns:
             ExecutionContext with all node states and errors
@@ -86,6 +131,52 @@ class WorkflowRunner:
         context.on_event = on_event
         if variables:
             context.variables = variables
+        if test_options is not None:
+            context.test_options = test_options
+            context.frozen_now = test_options.now
+            context.rng = random.Random(test_options.seed)
+            # secret $vars never reach a test: they resolve to a placeholder
+            secrets = {v for v in (secret_values or set()) if v}
+            context.variables = {k: (f"<secret:{k}>" if v in secrets else v) for k, v in context.variables.items()}
+            if not test_options.persist:
+                self._unsaved_runs.add(context.execution_id)
+        context.project_id = project_id
+        context.environment = environment
+        context.team_id = team_id or "default"
+        context.stop_at = stop_at
+        if pending_inputs:
+            context.pending_inputs.update(pending_inputs)
+        if extras:
+            context.extras.update(extras)
+        context.extras.setdefault("secret_values", secret_values or set())
+        context.version_id = version_id
+        # Sub-workflow bookkeeping (Stage 8): the root of the call stack is this workflow, and a workflow's
+        # max_execution_time (seconds) becomes the monotonic deadline every child inherits.
+        context.subworkflow_invoker = subworkflow_invoker
+        context.call_stack = (workflow.id,) if workflow.id else ()
+        context.call_names = {workflow.id: workflow.name} if workflow.id and workflow.name else {}
+        context.root_execution_id = context.execution_id
+        if call_stack:
+            context.call_stack = tuple(call_stack) + context.call_stack
+            context.call_names = {**(call_names or {}), **context.call_names}
+        if execution_depth:
+            context.execution_depth = int(execution_depth)
+        max_seconds = (workflow.settings or {}).get("max_execution_time")
+        if isinstance(max_seconds, (int, float)) and not isinstance(max_seconds, bool) and max_seconds > 0:
+            context.deadline = monotonic() + float(max_seconds)
+
+        # Resuming after an approval (Stage 5): the start job is the Approval node itself, at the run_index it suspended
+        # at, and the loop counters carry on from the snapshot.
+        start_run_index = 0
+        resume = context.extras.get("resume")
+        if isinstance(resume, dict):
+            start_run_index = int(resume.get("run_index") or 0)
+            context.node_run_counts.update(resume.get("node_run_counts") or {})
+            # a Loop's pending items (and any other per-node state) carry on from the snapshot too
+            context.node_internal_state.update(copy.deepcopy(resume.get("node_internal_state") or {}))
+            execution_resume_key_var.set(f"{context.execution_id}:{resume.get('node')}:{start_run_index}")
+        else:
+            execution_resume_key_var.set("")
 
         # Set execution_id for structured logging correlation
         execution_id_var.set(context.execution_id)
@@ -138,7 +229,7 @@ class WorkflowRunner:
                 input_data=initial_data,
                 source_node=None,
                 source_output="main",
-                run_index=0,
+                run_index=start_run_index,
             )
         ]
 
@@ -153,7 +244,16 @@ class WorkflowRunner:
         # Shared HTTP client for all nodes. Timeout sized for slow LLM-backed
         # endpoints (e.g. PromptLab full-stage eval on ~1000-row datasets with
         # long system prompts can take 60–180s).
-        async with httpx.AsyncClient(timeout=900.0, follow_redirects=True) as http_client:
+        client_opts: dict[str, Any] = {"timeout": 900.0, "follow_redirects": True}
+        if http_client_options:
+            client_opts.update(http_client_options)
+        clock_token = rng_token = None
+        if test_options is not None:
+            # the expression helpers and the AI tools read the frozen clock / seeded RNG from these
+            clock_token = frozen_now_var.set(test_options.now)
+            rng_token = test_rng_var.set(context.rng)
+        # a test run never touches the network: HttpRequest gets its own mock client per job
+        async with (refusing_client() if test_options is not None else httpx.AsyncClient(**client_opts)) as http_client:
             context.http_client = http_client
 
             while queue and iteration < max_iterations:
@@ -191,6 +291,10 @@ class WorkflowRunner:
                     if isinstance(result, Exception):
                         logger.error(f"Error processing job {job.node_name}: {result}")
                         had_error = True
+                        # A failure outside the node's own error handling (e.g. an unknown node type) must fail the run, never be dropped silently.
+                        if not any(e.node_name == job.node_name for e in context.errors):
+                            context.errors.append(ExecutionError(node_name=job.node_name, error=str(result) or type(result).__name__,
+                                                                 timestamp=datetime.now(), error_code="NODE_FAILED"))
                     else:
                         had_error = result
 
@@ -234,11 +338,23 @@ class WorkflowRunner:
                     ),
                 )
 
-        # Emit execution complete event
+        if clock_token is not None and rng_token is not None:
+            frozen_now_var.reset(clock_token)
+            test_rng_var.reset(rng_token)
+        self._unsaved_runs.discard(context.execution_id)
+
+        # Revoke any broker tokens minted for this run (Code node, agent tools, ...).
+        if context.parent_execution_id is None:
+            from ..broker.tokens import registry as _broker_tokens
+            for k in [k for k in context.extras if k.startswith("broker_token:")]:
+                _broker_tokens.revoke(context.extras.pop(k))
+
+        # Emit execution complete event (a run that paused on a person's decision is "waiting", not complete)
         self._emit_event(
             on_event,
             ExecutionEvent(
-                type=ExecutionEventType.EXECUTION_COMPLETE,
+                type=(ExecutionEventType.EXECUTION_WAITING
+                      if context.suspensions and not context.errors else ExecutionEventType.EXECUTION_COMPLETE),
                 execution_id=context.execution_id,
                 timestamp=datetime.now(),
                 progress={"completed": completed_nodes, "total": total_nodes},
@@ -254,12 +370,18 @@ class WorkflowRunner:
         input_data: list[NodeData],
         parent_context: ExecutionContext,
         on_event: ExecutionEventCallback | None = None,
+        *,
+        workflow_id: str | None = None,
+        execution_id: str | None = None,
+        extras: dict[str, Any] | None = None,
+        version_id: int | None = None,
+        test_options: TestRunOptions | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow as a subworkflow of another execution.
 
-        Inherits execution context from parent (depth tracking, HTTP client, etc.)
-        while maintaining isolation for node states.
+        Inherits execution context from parent (depth tracking, HTTP client, call stack, deadline, invoker) while
+        keeping node states isolated and giving the child its own ``extras`` (DESIGN-STAGE8-REUSE 3.2).
 
         Args:
             workflow: The subworkflow definition to execute
@@ -267,6 +389,11 @@ class WorkflowRunner:
             input_data: Input data for the subworkflow
             parent_context: Parent execution context for depth tracking
             on_event: Optional callback for real-time execution events
+            workflow_id: The child's workflow id (defaults to ``workflow.id``); appended to the call stack
+            execution_id: Use this id for the child run (the invoker created a row for it)
+            extras: Merged over the child's copy of the parent's extras, e.g. ``{"api_specs": <the child's specs>}``
+            version_id: The published version the child runs (None = draft)
+            test_options: the child's own test options (an inline child in a test, DESIGN-STAGE8 6.3); default the parent's
 
         Returns:
             ExecutionContext with subworkflow results
@@ -282,16 +409,47 @@ class WorkflowRunner:
 
         # Create child context with incremented depth
         child_context = self._create_context(workflow, parent_context.mode)
+        if execution_id:
+            child_context.execution_id = execution_id
         child_context.execution_depth = parent_context.execution_depth + 1
         child_context.max_execution_depth = parent_context.max_execution_depth
         child_context.parent_execution_id = parent_context.execution_id
         child_context.workflow_repository = parent_context.workflow_repository
+        child_context.version_id = version_id
+
+        # Call stack, root and deadline come from the parent; the invoker is inherited so grandchildren use it too
+        child_id = workflow_id or workflow.id
+        parent_stack = parent_context.call_stack or (
+            (parent_context.workflow.id,) if parent_context.workflow.id else ()
+        )
+        child_context.call_stack = parent_stack + ((child_id,) if child_id else ())
+        child_context.call_names = {**parent_context.call_names, **({child_id: workflow.name} if child_id and workflow.name else {})}
+        child_context.root_execution_id = parent_context.root_execution_id or parent_context.execution_id
+        child_context.subworkflow_invoker = parent_context.subworkflow_invoker
+        child_context.deadline = parent_context.deadline
 
         # Share HTTP client for efficiency
         child_context.http_client = parent_context.http_client
 
         # Subworkflows inherit the parent's $vars so secrets resolve identically.
         child_context.variables = parent_context.variables
+        child_context.project_id = parent_context.project_id
+        child_context.environment = parent_context.environment
+        child_context.team_id = parent_context.team_id
+        # Own extras: a shallow copy, so the child can't write into the parent's. The parent's api_specs describe the
+        # parent's nodes (G6), and a pending approval resume belongs to the parent, so neither is carried over; the
+        # caller supplies the child's own api_specs. Release pins, the egress allowlist, secret_values and broker tokens
+        # stay.
+        child_extras = {k: v for k, v in parent_context.extras.items() if k not in ("api_specs", "resume")}
+        if extras:
+            child_extras.update(extras)
+        child_context.extras = child_extras
+        child_context.test_options = test_options if test_options is not None else parent_context.test_options
+        child_context.frozen_now = parent_context.frozen_now
+        child_context.rng = parent_context.rng
+        # shared: test assertions see the child's requests. An inline child (own options) keeps its own dict, so its node
+        # names can't collide with the parent's; the invoker copies it over under "<node>/<child node>" keys.
+        child_context.test_requests = parent_context.test_requests if test_options is None else {}
 
         # Propagate event callback for nested subworkflows
         child_context.on_event = on_event
@@ -299,13 +457,22 @@ class WorkflowRunner:
         # Run the subworkflow
         # Note: We don't use self.run() directly because it creates its own HTTP client
         # Instead we run the core execution logic with the pre-configured context
-        return await self._run_with_context(
-            workflow=workflow,
-            start_node_name=start_node_name,
-            initial_data=input_data,
-            context=child_context,
-            on_event=on_event,
-        )
+        try:
+            return await self._run_with_context(
+                workflow=workflow,
+                start_node_name=start_node_name,
+                initial_data=input_data,
+                context=child_context,
+                on_event=on_event,
+            )
+        finally:
+            # Broker tokens minted inside the child are handed up so the root run revokes them when it ends
+            # (a child mints its own token even where the parent already has one in that slot: the token names the
+            # child's run, see broker.service.mint_for_context; that one is handed up under its own key)
+            for k, v in child_extras.items():
+                if k.startswith("broker_token:") and parent_context.extras.get(k) != v:
+                    key = k if k not in parent_context.extras else f"{k}#{child_context.execution_id}"
+                    parent_context.extras[key] = v
 
     async def _run_with_context(
         self,
@@ -314,12 +481,14 @@ class WorkflowRunner:
         initial_data: list[NodeData],
         context: ExecutionContext,
         on_event: ExecutionEventCallback | None = None,
+        stop_at: str | None = None,
     ) -> ExecutionContext:
         """
         Run a workflow with a pre-configured execution context.
 
         Used by run_subworkflow to execute with inherited context.
         """
+        context.stop_at = stop_at
         total_nodes = len(workflow.nodes)
         completed_nodes = 0
 
@@ -404,6 +573,10 @@ class WorkflowRunner:
                 if isinstance(result, Exception):
                     logger.error(f"Error processing job {job.node_name}: {result}")
                     had_error = True
+                    # A failure outside the node's own error handling (e.g. an unknown node type) must fail the run, never be dropped silently.
+                    if not any(e.node_name == job.node_name for e in context.errors):
+                        context.errors.append(ExecutionError(node_name=job.node_name, error=str(result) or type(result).__name__,
+                                                             timestamp=datetime.now(), error_code="NODE_FAILED"))
                 else:
                     had_error = result
 
@@ -506,7 +679,7 @@ class WorkflowRunner:
         error: str | None = None,
     ) -> None:
         """Write node output to DB. Non-critical — execution continues on failure."""
-        if not self._db_session:
+        if not self._db_session or execution_id in self._unsaved_runs:
             return
         try:
             from ..repositories.node_output_repository import NodeOutputRepository
@@ -579,14 +752,46 @@ class WorkflowRunner:
             if not handled:
                 return False  # Waiting for more inputs
 
+        # Disabled nodes pass their input straight to "main" (like n8n)
+        if node_def.disabled:
+            return await self._process_disabled_job(context, node_def, job, queue, node_map)
+
+        # Test mode: mocks beat pinned data; an outside step with neither fails the run (never calls out)
+        plan = None
+        opts = context.test_options
+        if opts is not None:
+            context.test_inputs.setdefault(job.node_name, []).extend(job.input_data)
+            live = job.node_name in opts.live_nodes and can_go_live(node_def.type)  # smoke run: this node calls the real system, mocks are skipped
+            # Stage 8 section 6.3: an inline sub-workflow node runs its child; the child's own mocks answer its outside steps
+            inline = node_def.type == "ExecuteWorkflow" and job.node_name in opts.inline_subworkflows
+            for mocks in (() if (live or inline) else (opts.mocks, opts.default_mocks)):
+                if job.node_name in mocks:
+                    plan = shape_plan(plan_mock(mocks[job.node_name], job.node_name, node_def.type, job.input_data, context),
+                                      node_def.type, node_def.parameters, job.input_data, mocks[job.node_name])
+                    if plan is not None:
+                        break
+            if plan is not None and isinstance(plan.error, BadMockError):
+                return await self._fail_test_setup(context, node_def, job, queue, node_map, plan.error, on_event)
+            if node_def.type in _TEST_TRIGGER_TYPES and job.source_node is None:
+                # a workflow-target test starts at the trigger, whose output is replaced by the test's input items
+                plan = MockPlan("items", {"main": list(job.input_data)})
+            if live and plan is None:
+                plan = MockPlan("live")
+            effect = effect_of(node_def.type)
+            if plan is None and not inline and not node_def.pinned_data and effect != "none":
+                return await self._fail_test_setup(
+                    context, node_def, job, queue, node_map, UnmockedEffectError(job.node_name, effect), on_event
+                )
+
         # Check for pinned data
-        if node_def.pinned_data:
+        if node_def.pinned_data and plan is None:
             context.node_states[job.node_name] = node_def.pinned_data
             context.last_completed_node = job.node_name
             self._queue_next_nodes(
                 context,
                 node_def,
-                NodeExecutionResult(outputs={"main": node_def.pinned_data}),
+                # pinned data on an Approval is a decision already made: it leaves on "approved" (n8n pinned behaviour)
+                NodeExecutionResult(outputs={("approved" if node_def.type == "Approval" else "main"): node_def.pinned_data}),
                 queue,
                 node_map,
                 job.run_index,
@@ -598,9 +803,9 @@ class WorkflowRunner:
 
         # Resolve credentials if node references one
         credential_id = resolved_node_def.parameters.get("credentialId")
-        if credential_id and self._db_session:
+        if credential_id and self._db_session and opts is None:  # test runs never resolve credentials
             try:
-                cred_data = await self._resolve_credential(credential_id)
+                cred_data = await self._resolve_credential(credential_id, context.team_id)
                 if cred_data:
                     resolved_params = {**resolved_node_def.parameters, "_credentials": cred_data}
                     resolved_node_def = NodeDefinition(
@@ -609,12 +814,30 @@ class WorkflowRunner:
                         parameters=resolved_params,
                         position=resolved_node_def.position,
                         pinned_data=resolved_node_def.pinned_data,
+                        label=resolved_node_def.label,
                         retry_on_fail=resolved_node_def.retry_on_fail,
                         retry_delay=resolved_node_def.retry_delay,
                         continue_on_fail=resolved_node_def.continue_on_fail,
+                        disabled=resolved_node_def.disabled,
+                        on_error=resolved_node_def.on_error,
+                        contract=resolved_node_def.contract,
                     )
             except Exception:
                 logger.warning(f"Failed to resolve credential {credential_id}", exc_info=True)
+
+        if opts is not None and effect_of(node_def.type) != "none" and node_def.type != "HttpRequest":
+            # what an outside step would have been asked (HttpRequest records real requests through its mock client)
+            # nodes that act once per item (a query, an email, a per_item Approval's task) record one request per item,
+            # not just item 0's: a test must see the second manager's task and the second audit row
+            per_item = node_def.type in PER_ITEM_EFFECT_TYPES or (
+                node_def.type == "Approval" and str(node_def.parameters.get("per_item")).lower() in ("true", "1"))
+            for idx in range(max(1, len(job.input_data)) if per_item else 1):
+                ectx = ExpressionEngine.create_context(
+                    job.input_data, context.node_states, context.execution_id, idx, variables=context.variables
+                )
+                params = expression_engine.resolve(copy.deepcopy(node_def.parameters), ectx)
+                params = {k: v for k, v in params.items() if k != "_credentials"}
+                context.test_requests.setdefault(job.node_name, []).append({"params": params})
 
         # Execute node with retry and error handling
         result: NodeExecutionResult | None = None
@@ -630,15 +853,47 @@ class WorkflowRunner:
         node_start = perf_counter()
         started_at = datetime.now()
 
-        for attempt in range(max_retries + 1):
+        # A Loop set to run N items at a time: the passes run side by side, each in its own copy of the run state, and
+        # their results are put back in item order (so the output is the same as one after another). A body that
+        # cannot run that way (it pauses, waits, repeats or holds another loop) runs one after another as always.
+        concurrency_fallback: str | None = None
+        concurrent_done = False
+        if node_def.type == "Loop" and plan is None and job.node_name not in context.node_internal_state:
+            from ..nodes.flow.loop import loop_policy
+
             try:
-                result = await node.execute(context, resolved_node_def, job.input_data)
+                bsz = max(1, int(resolved_node_def.parameters.get("batchSize", 1) or 1))
+            except (TypeError, ValueError):
+                bsz = 1
+            if loop_policy(node, resolved_node_def, bsz)["concurrency"] > 1:
+                concurrency_fallback = self._concurrency_blocker(context, node_def, node_map)
+                if concurrency_fallback is None:
+                    outcome = await self._run_loop_concurrently(context, node, resolved_node_def, job, queue, node_map, on_event)
+                    if outcome is None:
+                        return True  # a pass failed and the run stops (errors recorded)
+                    result, final_run_index = outcome
+                    job = ExecutionJob(node_name=job.node_name, input_data=job.input_data, source_node=job.source_node,
+                                       source_output=job.source_output, run_index=final_run_index)
+                    concurrent_done = True
+                    # the Loop's last call comes after its passes (as one after another)
+                    context.execution_order += 1
+                    execution_order = context.execution_order
+
+        for attempt in range(0 if concurrent_done else max_retries + 1):
+            try:
+                if plan is None:
+                    result = await node.execute(context, resolved_node_def, job.input_data)
+                else:
+                    result = await self._execute_planned(plan, node, context, resolved_node_def, job)
                 last_error = None
                 retries_used = attempt
                 break  # Success, exit retry loop
             except WorkflowStopSignal as stop:
                 # Handle graceful workflow stop
+                lh.record_step(context, job.node_name, status="stopped", error=stop.message)
                 if stop.error_type == "error":
+                    for loop_name in lh.enclosing_loops(context, job.node_name):
+                        lh.fail_pass(context, loop_name, job.node_name, stop.message, skipped=False)
                     context.errors.append(
                         ExecutionError(
                             node_name=job.node_name,
@@ -654,26 +909,51 @@ class WorkflowRunner:
                 ]
                 return stop.error_type == "error"  # Return True if error, False if warning
             except Exception as e:
+                if opts is not None and getattr(e, "code", None) == "TEST_UNMOCKED_EFFECT":
+                    # an inline child's unmocked outside step: a test-setup failure like any other, never retried or routed
+                    return await self._fail_test_setup(context, node_def, job, queue, node_map, e, on_event)
                 last_error = e
                 retries_used = attempt
                 if attempt < max_retries:
-                    await asyncio.sleep(retry_delay / 1000)
+                    if opts is None:  # a test run never waits between retries
+                        await asyncio.sleep(retry_delay / 1000)
                     continue
 
         completed_at = datetime.now()
         execution_time_ms = round((perf_counter() - node_start) * 1000, 2)
 
+        error_routed = False
+        continued_error: str | None = None
+
         # Handle final error after all retries exhausted
-        if last_error or not result:
+        if (last_error or not result) and node_def.on_error == "error_output":
+            # Route the failed items to the "error" output; the run continues and the node counts as a success
+            error_msg = str(last_error) if last_error else "Unknown execution error"
+            extra_err: dict[str, Any] = {}
+            if node_def.type == "ExecuteWorkflow":  # its typed error port carries the failure code (a mocked error has no node to add it)
+                extra_err["code"] = str(getattr(last_error, "code", None) or "SUBWORKFLOW_FAILED")
+            error_items = [
+                NodeData(json={**item.json, "error": {"message": error_msg, "node": job.node_name}, **extra_err})
+                for item in (job.input_data or [NodeData(json={})])
+            ]
+            result = NodeExecutionResult(outputs={"main": None, "error": error_items})
+            error_routed = True
+        elif last_error or not result:
             error_msg = str(last_error) if last_error else "Unknown execution error"
             retry_info = f" (after {max_retries + 1} attempts)" if max_retries > 0 else ""
-            context.errors.append(
-                ExecutionError(
-                    node_name=job.node_name,
-                    error=f"{error_msg}{retry_info}",
-                    timestamp=datetime.now(),
-                )
+            error_code = getattr(last_error, "code", None) if isinstance(getattr(last_error, "code", None), str) else None
+            error_details = getattr(last_error, "details", None) if isinstance(getattr(last_error, "details", None), dict) else None
+            # A Loop set to "skip it and keep going" holds this step: the item is skipped, the run carries on
+            skip_loop = self._skipping_loop(context, node_def)
+            node_error = ExecutionError(
+                node_name=job.node_name,
+                error=f"{error_msg}{retry_info}",
+                timestamp=datetime.now(),
+                error_code=error_code,
+                details=error_details,
             )
+            if skip_loop is None:
+                context.errors.append(node_error)
 
             # Build error metrics
             error_metrics: dict[str, Any] = {
@@ -686,6 +966,13 @@ class WorkflowRunner:
                 "inputItemCount": len(job.input_data),
                 "status": "error",
             }
+            if error_code:
+                error_metrics["errorCode"] = error_code
+                error_metrics["errorDetails"] = error_details or {}
+            if skip_loop is not None:
+                error_metrics["status"] = "skipped"
+                error_metrics["skippedBy"] = skip_loop
+                error_metrics["error"] = error_msg
             context.node_metrics[job.node_name] = error_metrics
 
             self._emit_event(
@@ -701,35 +988,55 @@ class WorkflowRunner:
                 ),
             )
 
-            # Persist error output to DB
+            # Persist error output to DB (a skipped item's row is "skipped", so the run's errors leave it out)
             await self._persist_node_output(
                 execution_id=context.execution_id,
                 node_name=job.node_name,
                 output=None,
                 metrics=error_metrics,
-                status="error",
+                status="skipped" if skip_loop is not None else "error",
                 run_index=job.run_index,
                 error=error_msg,
             )
 
+            if skip_loop is not None:
+                return self._skip_item(context, node_def, job, queue, node_map, skip_loop, node_error, error_metrics)
+
             # Check continueOnFail
-            if node_def.continue_on_fail:
+            if node_def.on_error == "continue":
+                continued_error = error_msg
                 result = NodeExecutionResult(
                     outputs={"main": [NodeData(json={"error": error_msg, "_errorNode": job.node_name})]}
                 )
             else:
+                lh.record_step(context, job.node_name, status="failed", metrics=error_metrics, error=error_msg)
+                for loop_name in lh.enclosing_loops(context, job.node_name):
+                    lh.fail_pass(context, loop_name, job.node_name, error_msg, skipped=False)
                 # Stop execution: clear the queue so no downstream nodes run
                 queue.clear()
                 # Propagate NO_OUTPUT to any multi-input nodes waiting on this branch
                 self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
                 return True
 
+        if result.suspend is not None:
+            return await self._suspend(context, node_def, job, result, queue, node_map, on_event,
+                                       started_at=started_at, completed_at=completed_at,
+                                       execution_time_ms=execution_time_ms, execution_order=execution_order)
+
+        if node_def.on_error == "error_output" and not error_routed and "error" not in result.outputs:
+            # No failure: tell any Merge on the error branch that it will get nothing
+            result = NodeExecutionResult(outputs={**result.outputs, "error": None}, metadata=result.metadata)
+
         # Update run count for loop support
         current_count = context.node_run_counts.get(job.node_name, 0)
         context.node_run_counts[job.node_name] = current_count + 1
 
         # Store node output (main output for state)
-        main_output = result.outputs.get("main") or next(iter(result.outputs.values()), None)
+        if error_routed:
+            main_output = result.outputs["error"]
+        else:
+            # First non-empty output, so an If whose items all went "false" still saves its state
+            main_output = result.outputs.get("main") or next((v for v in result.outputs.values() if v), None)
         if main_output:
             context.node_states[job.node_name] = main_output
             context.last_completed_node = job.node_name
@@ -769,10 +1076,27 @@ class WorkflowRunner:
             "outputDataSizeBytes": output_size,
             "status": "success",
         }
+        if error_routed:
+            node_metrics["errorRouted"] = True
+            node_metrics["error"] = error_msg
         # Merge node-provided metadata (tokens, HTTP status, branch info, etc.)
         if result.metadata:
             node_metrics.update(result.metadata)
+        if node_def.type == "Loop":
+            loop_rec = context.loop_runs.get(job.node_name)
+            if concurrency_fallback and loop_rec is not None:
+                loop_rec["concurrencyFallback"] = concurrency_fallback
+            if loop_rec and loop_rec.get("concurrencyFallback"):
+                node_metrics["concurrencyFallback"] = loop_rec["concurrencyFallback"]
+            if loop_rec and loop_rec.get("concurrencyClamped"):
+                node_metrics["concurrencyClamped"] = loop_rec["concurrencyClamped"]
         context.node_metrics[job.node_name] = node_metrics
+        # per-item loop history (extra recorded data only)
+        lh.record_step(
+            context, job.node_name,
+            status="error_routed" if error_routed else ("error_continued" if continued_error else "ok"),
+            outputs=result.outputs, metrics=node_metrics, error=error_msg if error_routed else continued_error,
+        )
 
         # Persist node output to DB (non-blocking, non-critical)
         await self._persist_node_output(
@@ -786,6 +1110,481 @@ class WorkflowRunner:
 
         # Queue next nodes based on outputs
         self._queue_next_nodes(context, node_def, result, queue, node_map, job.run_index)
+        return False
+
+    # ------------------------------------------------------------------------------------------- loop settings
+
+    #: steps a Loop body may not hold to run several items at a time (they pause, wait, repeat, answer or stop the run)
+    _NOT_CONCURRENT = frozenset({"Loop", "Poll", "Approval", "Wait", "StopAndError", "Respond", "RespondToWebhook"})
+
+    def _skipping_loop(self, context: ExecutionContext, node_def: NodeDefinition) -> str | None:
+        """The innermost Loop holding this step whose setting is "skip it and keep going", if that Loop is iterating."""
+        loops = lh.enclosing_loops(context, node_def.name)
+        if not loops:
+            return None
+        inner = loops[0]
+        return inner if lh.policy(context, inner).get("onItemFailure") == "skip" else None
+
+    def _skip_item(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        loop_name: str,
+        node_error: ExecutionError,
+        error_metrics: dict[str, Any],
+    ) -> bool:
+        """A step inside a "skip" Loop failed: note it, then go on with the next item (or stop early)."""
+        lh.record_step(context, job.node_name, status="skipped", metrics=error_metrics, error=node_error.error)
+        streak = lh.fail_pass(context, loop_name, job.node_name, node_error.error, skipped=True)
+        pol = lh.policy(context, loop_name)
+        # nothing downstream of the failed step runs for this item
+        self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
+        if pol.get("concurrent"):
+            return False  # the concurrent driver goes on with the other items and checks the failure streak itself
+        stop_after = int(pol.get("stopAfterFailures") or 0)
+        if stop_after > 0 and streak >= stop_after:
+            context.errors.append(node_error)
+            context.errors.append(self._stopped_early_error(loop_name, streak, node_error))
+            lh.finish_loop(context, loop_name, stopped_early=True)
+            queue.clear()
+            return True
+        body = lh.loop_body(context, loop_name)
+        if not any(j.node_name in body or j.node_name == loop_name for j in queue):
+            # the Loop takes the next item (its other lanes, if any are still queued, bring it round themselves)
+            queue.append(ExecutionJob(node_name=loop_name, input_data=list(job.input_data), source_node=job.node_name,
+                                      source_output="main", run_index=job.run_index))
+        return False
+
+    @staticmethod
+    def _stopped_early_error(loop_name: str, streak: int, node_error: ExecutionError) -> ExecutionError:
+        return ExecutionError(
+            node_name=loop_name,
+            error=f"Stopped the loop: {streak} items in a row failed (last at {node_error.node_name}: {node_error.error})",
+            timestamp=datetime.now(),
+            error_code="LOOP_STOPPED_EARLY",
+            details={"failures_in_a_row": streak, "last_failed_step": node_error.node_name},
+        )
+
+    def _concurrency_blocker(
+        self, context: ExecutionContext, node_def: NodeDefinition, node_map: dict[str, NodeDefinition]
+    ) -> str | None:
+        """Why this Loop's body must run one item after another; None when its passes can run side by side."""
+        body = lh.loop_body(context, node_def.name)
+        if not body:
+            return "the loop has no steps inside"
+        for name in sorted(body):
+            nd = node_map.get(name)
+            if nd is not None and nd.type in self._NOT_CONCURRENT:
+                return f'"{name}" ({nd.type}) runs one item at a time'
+        for c in context.workflow.connections:
+            if c.target_node in body and c.source_node not in body and c.source_node != node_def.name:
+                return f'"{c.target_node}" is also fed from outside the loop'
+        if context.stop_at is not None and context.stop_at in body:
+            return "a partial run stops inside the loop"
+        return None
+
+    async def _run_loop_concurrently(
+        self,
+        context: ExecutionContext,
+        node: Any,
+        rdef: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        on_event: ExecutionEventCallback | None,
+    ) -> tuple[NodeExecutionResult, int] | None:
+        """Run a Loop's passes N at a time. Returns the Loop's ``done`` result and the run index it leaves at (the same
+        as one after another), or None when a pass failed and the run stops (its errors are on ``context``)."""
+        loop_name = rdef.name
+        r0 = job.run_index
+        first = await node.execute(context, rdef, job.input_data)
+        state = context.node_internal_state.get(loop_name)
+        if not state:  # no items: the Loop said "done" straight away
+            return first, r0
+        pol = dict(state.get("policy") or {})
+        items = state["items"]
+        bs = max(1, int(pol.get("batchSize") or 1))
+        batches = [items[i:i + bs] for i in range(0, len(items), bs)]
+        n = len(batches)
+        conc = max(1, int(pol.get("concurrency") or 1))
+        stop_after = int(pol.get("stopAfterFailures") or 0)
+        skip = pol.get("onItemFailure") == "skip"
+        body = lh.loop_body(context, loop_name)
+        context.node_internal_state.pop(loop_name, None)
+        base_states = context.node_states
+        base_counts = dict(context.node_run_counts)
+
+        results: list[ExecutionContext | None] = [None] * n
+        status: list[str | None] = [None] * n  # "ok" | "failed"
+        stop = {"flag": False, "early_at": None}
+        sem = asyncio.Semaphore(conc)
+
+        def check_prefix() -> None:
+            # the failure streak, read in item order over the passes finished so far (as one after another would)
+            streak = 0
+            for i in range(n):
+                if status[i] is None:
+                    return
+                if status[i] == "failed":
+                    if not skip:
+                        stop["flag"] = True
+                        return
+                    streak += 1
+                    if stop_after > 0 and streak >= stop_after:
+                        stop["flag"] = True
+                        stop["early_at"] = i if stop["early_at"] is None else min(stop["early_at"], i)
+                        return
+                else:
+                    streak = 0
+
+        async def run_pass(p: int) -> None:
+            async with sem:
+                if stop["flag"]:
+                    return
+                batch = [NodeData(json=x) for x in batches[p]]
+                child = copy.copy(context)
+                child.node_states = dict(base_states)
+                child.node_states[loop_name] = batch
+                child.node_run_counts = dict(base_counts)
+                child.pending_inputs = {}
+                child.node_internal_state = {
+                    **context.node_internal_state,
+                    loop_name: {"items": items, "currentIndex": min(len(items), (p + 1) * bs),
+                                "policy": {**pol, "concurrent": True}},
+                }
+                child.errors = []
+                child.node_metrics = {}
+                child.execution_order = 0
+                child.test_requests, child.test_outputs, child.test_inputs = {}, {}, {}
+                child.suspensions = []
+                if p > 0:
+                    lh.open_pass(context, loop_name, p, batch)
+                pass_queue: list[ExecutionJob] = []
+                self._queue_next_nodes(child, rdef, NodeExecutionResult(outputs={"loop": batch, "done": None}),
+                                       pass_queue, node_map, r0 + p)
+                guard = 0
+                while pass_queue and guard < 1000:
+                    guard += 1
+                    layer = [j for j in pass_queue if j.node_name != loop_name]  # back to the Loop: this pass is over
+                    pass_queue = []
+                    outs = await asyncio.gather(*(self._process_job(child, j, pass_queue, node_map, on_event) for j in layer),
+                                                return_exceptions=True)
+                    for j, o in zip(layer, outs):
+                        if isinstance(o, Exception) and not any(e.node_name == j.node_name for e in child.errors):
+                            child.errors.append(ExecutionError(node_name=j.node_name, error=str(o) or type(o).__name__,
+                                                               timestamp=datetime.now(), error_code="NODE_FAILED"))
+                rec = (context.loop_runs.get(loop_name) or {}).get("passes", {}).get(p)
+                failed = bool(child.errors) or bool(rec and rec.get("status") in ("failed", "skipped"))
+                if not failed:
+                    lh.close_pass(child, loop_name, p)
+                elif child.errors and rec and rec.get("status") == "running":
+                    first_err = child.errors[0]
+                    lh.fail_pass(child, loop_name, first_err.node_name, first_err.error, skipped=False)
+                results[p] = child
+                status[p] = "failed" if failed else "ok"
+                check_prefix()
+
+        await asyncio.gather(*(run_pass(p) for p in range(n)))
+        check_prefix()
+
+        # where one after another would have stopped: the first failed pass (stop), or where the failures in a row
+        # reached the limit (skip). Passes after it may have run side by side already; their results are not kept, so
+        # the outputs, counts and errors are the same as one after another.
+        cut = n - 1
+        if not skip:
+            cut = next((i for i in range(n) if status[i] == "failed"), n - 1)
+        elif stop["early_at"] is not None:
+            cut = stop["early_at"]
+        loop_rec = context.loop_runs.get(loop_name) or {}
+        ran_after = [p for p in range(cut + 1, n) if results[p] is not None]
+        if ran_after and loop_rec:
+            loop_rec["ranAfterStop"] = ran_after
+            for p in ran_after:
+                loop_rec.get("passes", {}).pop(p, None)
+            kept = list((loop_rec.get("passes") or {}).values())
+            loop_rec["failed"] = sum(1 for x in kept if x.get("status") in ("failed", "skipped"))
+            loop_rec["skipped"] = sum(1 for x in kept if x.get("status") == "skipped")
+        streak = longest = 0
+        for p, child in enumerate(results):
+            if child is None or p > cut:
+                continue
+            st = (loop_rec.get("passes") or {}).get(p) or {}
+            if st.get("status") in ("failed", "skipped"):
+                streak += 1
+                longest = max(longest, streak)
+            else:
+                streak = 0
+            for name, value in child.node_states.items():
+                if name in body:
+                    context.node_states[name] = value
+            offset = context.execution_order
+            for name, m in child.node_metrics.items():
+                m = dict(m)
+                if isinstance(m.get("executionOrder"), int):
+                    m["executionOrder"] += offset
+                context.node_metrics[name] = m
+            context.execution_order += child.execution_order
+            for name in body:
+                grew = child.node_run_counts.get(name, 0) - base_counts.get(name, 0)
+                if grew:
+                    context.node_run_counts[name] = context.node_run_counts.get(name, 0) + grew
+            context.errors.extend(child.errors)
+            for src, dst in ((child.test_requests, context.test_requests), (child.test_inputs, context.test_inputs)):
+                for k, v in src.items():
+                    dst.setdefault(k, []).extend(v)
+            for k, ports in child.test_outputs.items():
+                for port, v in ports.items():
+                    context.test_outputs.setdefault(k, {}).setdefault(port, []).extend(v)
+            if child.last_completed_node:
+                context.last_completed_node = child.last_completed_node
+            if context.webhook_response is None and child.webhook_response is not None:
+                context.webhook_response = child.webhook_response
+        if loop_rec:
+            loop_rec["longestFailStreak"] = longest
+            loop_rec["streak"] = streak
+
+        started = [p for p in range(n) if results[p] is not None and p <= cut]
+        context.node_run_counts[loop_name] = context.node_run_counts.get(loop_name, 0) + len(started)
+        # the Loop's own rows, one per pass, as one after another would leave them
+        for p in started:
+            batch = [NodeData(json=x) for x in batches[p]]
+            context.node_states[loop_name] = batch
+            loop_metrics = {"status": "success", "activeOutputs": ["loop"], "outputItemCount": len(batch),
+                            "inputItemCount": len(job.input_data), "concurrency": conc}
+            await self._persist_node_output(
+                execution_id=context.execution_id, node_name=loop_name, output=batch,
+                metrics=loop_metrics, status="success", run_index=r0 + p,
+            )
+        if started:
+            context.node_metrics[loop_name] = {**context.node_metrics.get(loop_name, {}), **loop_metrics}
+
+        if stop["early_at"] is not None:
+            p = stop["early_at"]
+            st = (loop_rec.get("passes") or {}).get(p) or {}
+            failed_at = st.get("failedAt") or loop_name
+            err = ExecutionError(node_name=failed_at, error=st.get("error") or "Item failed", timestamp=datetime.now())
+            context.errors.append(err)
+            context.errors.append(self._stopped_early_error(loop_name, stop_after, err))
+            lh.finish_loop(context, loop_name, stopped_early=True)
+        if context.errors:
+            queue.clear()
+            self._propagate_no_output(context, rdef, queue, node_map, r0)
+            return None
+
+        lh.finish_loop(context, loop_name)
+        done = NodeExecutionResult(outputs={"loop": None, "done": [NodeData(json={
+            "_loop_completed": True, "total_items": len(items), "items": items,
+        })]})
+        return done, r0 + n
+
+    async def _suspend(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        result: NodeExecutionResult,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        on_event: ExecutionEventCallback | None,
+        *,
+        started_at: datetime,
+        completed_at: datetime,
+        execution_time_ms: float,
+        execution_order: int,
+    ) -> bool:
+        """A node asked to pause the run (Approval, DESIGN-STAGE5-UIS 5.1). Nothing downstream of it is queued.
+
+        The other branches keep running; when the queue drains ``context.suspensions`` is non-empty and the run is
+        ``waiting`` (``ExecutionRepository.complete`` creates the tasks). Returns True only for an error.
+        """
+        if context.test_options is not None:
+            # a test run never pauses: the mock was supposed to answer for this node
+            return await self._fail_test_setup(
+                context, node_def, job, queue, node_map, UnmockedEffectError(job.node_name, "human"), on_event
+            )
+        if context.parent_execution_id is not None:
+            return self._fail_node(
+                context, node_def, job, queue, node_map, on_event,
+                f'"{job.node_name}" pauses for a person and cannot run inside a sub-workflow', "APPROVAL_IN_SUBWORKFLOW",
+            )
+        try:  # the resume snapshot must fit (1 MB); finding out now fails the run now, not when the task is created
+            from .task_resumer import build_snapshot
+
+            build_snapshot(context, {"node": job.node_name, "run_index": job.run_index, "suspension": result.suspend,
+                                     "input_items": list(job.input_data)})
+        except Exception as e:
+            return self._fail_node(context, node_def, job, queue, node_map, on_event, str(e),
+                                   getattr(e, "code", None) or "APPROVAL_SNAPSHOT_FAILED")
+
+        context.suspensions.append({
+            "node": job.node_name,
+            "run_index": job.run_index,
+            "suspension": result.suspend,
+            "input_items": list(job.input_data),
+        })
+        context.node_run_counts[job.node_name] = context.node_run_counts.get(job.node_name, 0) + 1
+        metrics: dict[str, Any] = {
+            "startedAt": started_at.isoformat(), "completedAt": completed_at.isoformat(),
+            "executionTimeMs": execution_time_ms, "executionOrder": execution_order,
+            "inputItemCount": len(job.input_data), "outputItemCount": 0, "activeOutputs": [], "status": "waiting",
+        }
+        context.node_metrics[job.node_name] = metrics
+        # the node's input is its pending output; status "waiting" keeps it out of every "successful outputs" read
+        await self._persist_node_output(
+            execution_id=context.execution_id, node_name=job.node_name, output=job.input_data, metrics=metrics,
+            status="waiting", run_index=job.run_index,
+        )
+        return False
+
+    def _fail_node(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        on_event: ExecutionEventCallback | None,
+        message: str,
+        code: str,
+    ) -> bool:
+        """Fail a node outside the retry loop (a pause that cannot be honoured): error recorded, run stopped. Returns True."""
+        context.errors.append(ExecutionError(node_name=job.node_name, error=message, timestamp=datetime.now(), error_code=code))
+        self._emit_event(on_event, ExecutionEvent(
+            type=ExecutionEventType.NODE_ERROR, execution_id=context.execution_id, timestamp=datetime.now(),
+            node_name=job.node_name, node_type=node_def.type, error=message))
+        queue.clear()
+        self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
+        return True
+
+    async def _execute_planned(
+        self,
+        plan: Any,
+        node: Any,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+    ) -> NodeExecutionResult:
+        """One attempt of a mocked node (test mode); called inside the retry loop like ``node.execute``."""
+        if plan.kind == "raise":
+            raise plan.error
+        if plan.kind == "items":
+            return NodeExecutionResult(outputs={port: list(items) for port, items in plan.outputs.items()})
+        if plan.kind == "live":
+            if node_def.type != "HttpRequest":
+                return await node.execute(context, node_def, job.input_data)
+            client = live_client(node_def.name, context)
+        else:
+            # http: the real HttpRequest code runs against a client that records requests and answers from the mock
+            client = http_mock_client(plan, node_def.name, job.input_data, context)
+        node_context = copy.copy(context)
+        node_context.http_client = client
+        try:
+            return await node.execute(node_context, node_def, job.input_data)
+        finally:
+            await client.aclose()
+
+    async def _fail_test_setup(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+        error: Exception,
+        on_event: ExecutionEventCallback | None,
+    ) -> bool:
+        """A test-setup failure (unmocked outside step, unusable mock): bypasses retries and on_error and stops the run."""
+        code = getattr(error, "code", None)
+        details = getattr(error, "details", None)
+        context.errors.append(
+            ExecutionError(
+                node_name=job.node_name, error=str(error), timestamp=datetime.now(), error_code=code, details=details,
+            )
+        )
+        context.execution_order += 1
+        metrics: dict[str, Any] = {
+            "executionOrder": context.execution_order,
+            "inputItemCount": len(job.input_data),
+            "status": "error",
+            "errorCode": code,
+            "errorDetails": details or {},
+        }
+        context.node_metrics[job.node_name] = metrics
+        self._emit_event(
+            on_event,
+            ExecutionEvent(
+                type=ExecutionEventType.NODE_ERROR,
+                execution_id=context.execution_id,
+                timestamp=datetime.now(),
+                node_name=job.node_name,
+                node_type=node_def.type,
+                error=str(error),
+                metrics=metrics,
+            ),
+        )
+        await self._persist_node_output(
+            execution_id=context.execution_id, node_name=job.node_name, output=None, metrics=metrics,
+            status="error", run_index=job.run_index, error=str(error),
+        )
+        queue.clear()
+        self._propagate_no_output(context, node_def, queue, node_map, job.run_index)
+        return True
+
+    async def _process_disabled_job(
+        self,
+        context: ExecutionContext,
+        node_def: NodeDefinition,
+        job: ExecutionJob,
+        queue: list[ExecutionJob],
+        node_map: dict[str, NodeDefinition],
+    ) -> bool:
+        """A disabled node emits its input items unchanged on "main" (it still reports normal node events)."""
+        items = job.input_data
+        # A disabled Merge passes through everything it has received
+        pending = context.pending_inputs.get(f"{node_def.name}:{job.run_index}")
+        if pending is not None:
+            items = [
+                item for data in pending.values() if data is not NO_OUTPUT_SIGNAL and isinstance(data, list)
+                for item in data
+            ]
+            del context.pending_inputs[f"{node_def.name}:{job.run_index}"]
+
+        context.execution_order += 1
+        now = datetime.now()
+        metrics: dict[str, Any] = {
+            "startedAt": now.isoformat(),
+            "completedAt": now.isoformat(),
+            "executionTimeMs": 0,
+            "executionOrder": context.execution_order,
+            "retries": 0,
+            "maxRetries": 0,
+            "inputItemCount": len(job.input_data),
+            "outputItemCount": len(items),
+            "activeOutputs": ["main"] if items else [],
+            "status": "success",
+            "disabled": True,
+        }
+        context.node_metrics[job.node_name] = metrics
+        context.node_run_counts[job.node_name] = context.node_run_counts.get(job.node_name, 0) + 1
+        if items:
+            context.node_states[job.node_name] = items
+            context.last_completed_node = job.node_name
+        await self._persist_node_output(
+            execution_id=context.execution_id,
+            node_name=job.node_name,
+            output=items,
+            metrics=metrics,
+            status="success",
+            run_index=job.run_index,
+        )
+        # an Approval has no "main" port: a switched-off one waves the item through as approved
+        port = "approved" if node_def.type == "Approval" else "main"
+        self._queue_next_nodes(
+            context, node_def, NodeExecutionResult(outputs={port: items}), queue, node_map, job.run_index
+        )
         return False
 
     def _handle_multi_input_node(
@@ -835,6 +1634,14 @@ class WorkflowRunner:
         run_index: int,
     ) -> None:
         """Queue next nodes based on node outputs."""
+        if context.test_options is not None:
+            # what each port emitted, for the test assertions (a node listed here ran without failing)
+            emitted = context.test_outputs.setdefault(node_def.name, {})
+            for port, items in result.outputs.items():
+                if items:
+                    emitted.setdefault(port, []).extend(items)
+        if context.stop_at is not None and node_def.name == context.stop_at:
+            return  # partial run: nothing runs after the stop node
         for output_name, output_data in result.outputs.items():
             connections = [
                 c
@@ -920,7 +1727,14 @@ class WorkflowRunner:
         )
 
         # Skip $json expressions - let nodes resolve them per-item
-        resolved_params = expression_engine.resolve(node_def.parameters, expr_context, skip_json=True)
+        if context.extras.get("literal_params"):  # broker call (studio.db): values are data, never expressions
+            resolved_params = copy.deepcopy(node_def.parameters)
+        else:
+            resolved_params = expression_engine.resolve(node_def.parameters, expr_context, skip_json=True)
+            if node_def.type == "Switch" and "rules" in (node_def.parameters or {}):
+                # Switch resolves each rule per item itself; pre-resolving `{{ $node["X"].json.risk }}` here would hand it "low",
+                # which it then reads as a field PATH (no rule matches)
+                resolved_params["rules"] = copy.deepcopy(node_def.parameters["rules"])
 
         return NodeDefinition(
             name=node_def.name,
@@ -931,6 +1745,10 @@ class WorkflowRunner:
             retry_on_fail=node_def.retry_on_fail,
             retry_delay=node_def.retry_delay,
             continue_on_fail=node_def.continue_on_fail,
+            disabled=node_def.disabled,
+            on_error=node_def.on_error,
+            contract=node_def.contract,
+            label=node_def.label,
         )
 
     def _create_context(
@@ -946,8 +1764,8 @@ class WorkflowRunner:
 
     def find_start_node(self, workflow: Workflow) -> NodeDefinition | None:
         """Find start node in workflow."""
-        # Priority: Webhook > Cron > ExecuteWorkflowTrigger > Start > first node
-        for node_type in ["Webhook", "Cron", "ExecuteWorkflowTrigger", "Start"]:
+        # Priority: Webhook > Cron > ExecuteWorkflowTrigger > FormTrigger > ChatInput > Start > first node
+        for node_type in ["Webhook", "Cron", "ExecuteWorkflowTrigger", "FormTrigger", "ChatInput", "Start"]:
             node = next((n for n in workflow.nodes if n.type == node_type), None)
             if node:
                 return node
@@ -959,8 +1777,8 @@ class WorkflowRunner:
         return execution_id()
 
 
-    async def _resolve_credential(self, credential_id: str) -> dict[str, Any] | None:
-        """Load and decrypt a credential by ID."""
+    async def _resolve_credential(self, credential_id: str, team_id: str = "default") -> dict[str, Any] | None:
+        """Load and decrypt a credential by ID — only if it belongs to the run's team."""
         if not self._db_session:
             return None
         from ..services.credential_service import decrypt
@@ -968,7 +1786,7 @@ class WorkflowRunner:
         async with self._db_session() as session:
             repo = CredentialRepository(session)
             cred = await repo.get(credential_id)
-            if not cred:
+            if not cred or (cred.team_id or "default") != (team_id or "default"):
                 return None
             return decrypt(cred.data)
 

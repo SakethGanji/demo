@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Command palette — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+.sheet { position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 21; background: var(--card); border-radius: 14px; box-shadow: var(--shadow-2xl); border: 1px solid var(--panel-border); display: flex; flex-direction: column; overflow: hidden; }
+.sh-h { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.sh-t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.sh-b { padding: 16px 18px; overflow: hidden; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.sh-f { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--muted) 40%, var(--card)); }
+.content { height: 100%; overflow: hidden; padding: 24px 28px; }
+.h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.chk { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); align-items: flex-start; }
+.chk:last-child { border-bottom: 0; }
+.ico-ok { color: var(--success); } .ico-warn { color: var(--warning); } .ico-fail { color: var(--destructive); }
+.cmd { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: 8px; } .cmd.on { background: var(--muted); }
+</style>
+</head>
+<body data-active="none" data-state="saved" data-tab="workflows" data-noside="1">
+<div class="app">
+<div id="shell"></div>
+<main class="panel" style="position:absolute;top:68px;left:12px;right:12px;bottom:12px"><div class="content">
+  <div class="row gap-2"><div class="h2">Workflows</div><span class="muted">· canvas automations in Payments Ops</span><div class="grow"></div><span class="btn outline sm"><i data-lucide="upload" class="i14"></i>Import</span><span class="btn default sm"><i data-lucide="plus" class="i14"></i>New workflow</span></div>
+  <div class="card" style="margin-top:16px;overflow:hidden"><table class="table">
+    <thead><tr><th>Name</th><th>Trigger</th><th>Handles route</th><th>Last run</th><th>Status</th><th>Updated</th><th style="width:44px"></th></tr></thead>
+    <tbody>
+      <tr><td><span class="row gap-2"><i data-lucide="workflow" class="i14 muted"></i><span style="font-weight:500">Nightly report</span></span></td><td class="muted">Cron · 02:00</td><td class="muted">—</td><td><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="muted">success · 3h ago</span></span></td><td><span class="badge success">Published</span></td><td class="muted">Oct 14</td><td><span class="btn ghost icon xs"><i data-lucide="ellipsis" class="i14"></i></span></td></tr>
+    </tbody></table></div>
+  <div class="help" style="margin-top:10px">⋯ menu: Open · Duplicate · Move to project · Delete (blocked with "used by GET /x" when a route uses it).</div>
+</div></main>
+<div class="overlay" style="background:rgb(15 18 22 / .2);backdrop-filter:none"></div>
+<div class="dialog" style="left:50%;top:110px;transform:translateX(-50%);width:600px;overflow:hidden" data-testid="command-palette">
+  <div class="row gap-2" style="height:48px;padding:0 14px;border-bottom:1px solid var(--border)"><i data-lucide="search" class="i14 muted"></i><span>stats<span class="cursor"></span></span><div class="grow"></div><span class="kbd">Esc</span></div>
+  <div style="padding:6px">
+    <div class="eyebrow" style="padding:8px 8px 4px">Routes</div>
+    <div class="cmd on"><span class="method get">GET</span><span class="mono">/refunds/stats</span><span class="muted">refundStats · refunds.py</span><div class="grow"></div><span class="kbd">⏎</span></div>
+    <div class="eyebrow" style="padding:8px 8px 4px">Actions</div>
+    <div class="cmd"><i data-lucide="play" class="i14 muted"></i>Test GET /refunds/stats</div>
+    <div class="cmd"><i data-lucide="wand-sparkles" class="i14 muted"></i>Create UI from backend…</div>
+    <div class="cmd"><i data-lucide="sparkles" class="i14" style="color:var(--ai)"></i>Generate backend…</div>
+    <div class="eyebrow" style="padding:8px 8px 4px">Runs</div>
+    <div class="cmd"><span class="dot err" style="box-shadow:none"></span><span class="mono">GET /refunds/stats</span><span class="muted">502 · 36m ago</span></div>
+  </div>
+</div>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

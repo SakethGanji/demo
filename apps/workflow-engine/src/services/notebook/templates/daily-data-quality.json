@@ -1,0 +1,75 @@
+{
+  "slug": "daily-data-quality",
+  "title": "Daily data-quality check",
+  "description": "Find rows that break a data rule, look each one up in the source API, post one alert when anything is wrong, then give the fix time to land.",
+  "icon": "check",
+  "keeps_as": "scheduled_check",
+  "placeholders": [
+    "__CONNECTION__",
+    "__BASE_URL__"
+  ],
+  "cells": [
+    {
+      "kind": "query",
+      "title": "Wires stuck longer than a day",
+      "spec": {
+        "connection": "__CONNECTION__",
+        "sql": "SELECT wire_id, amount, status, created_at FROM bank.wires WHERE status = 'stuck' AND created_at < now() - make_interval(hours => %(hours)s) ORDER BY created_at",
+        "params": {
+          "hours": 24
+        },
+        "limit": 500
+      }
+    },
+    {
+      "kind": "for_each",
+      "title": "For each stuck wire",
+      "spec": {
+        "over": "{{cells.c1.rows}}",
+        "max_rows": 100
+      },
+      "children": [
+        {
+          "kind": "http",
+          "title": "Look the wire up in the source API",
+          "spec": {
+            "method": "GET",
+            "url": "__BASE_URL__/wires/{{row.wire_id}}",
+            "expect": {
+              "status": 200
+            }
+          }
+        }
+      ]
+    },
+    {
+      "kind": "http",
+      "title": "Post one alert",
+      "guard": {
+        "left": "{{cells.c1.count}}",
+        "op": "gt",
+        "right": 0
+      },
+      "spec": {
+        "method": "POST",
+        "url": "__BASE_URL__/alerts",
+        "body": {
+          "check": "daily-data-quality",
+          "count": "{{cells.c1.count}}",
+          "rows": "{{cells.c1.rows}}"
+        },
+        "expect": {
+          "status": 200
+        }
+      }
+    },
+    {
+      "kind": "wait",
+      "title": "Give the fix time to land",
+      "spec": {
+        "mode": "duration",
+        "duration": "2 min"
+      }
+    }
+  ]
+}

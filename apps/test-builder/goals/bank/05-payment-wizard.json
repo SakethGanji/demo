@@ -1,0 +1,156 @@
+{
+  "goal": "Complete the payment wizard and submit a payment over the teller limit",
+  "slug": "bank-05-payment-wizard",
+  "steps": [
+    {
+      "action": "fill",
+      "target": {
+        "label": "Username"
+      },
+      "value": "{{teller_user}}",
+      "group": "Sign in"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Password"
+      },
+      "value": "{{teller_pass}}",
+      "group": "Sign in"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Sign in"
+      },
+      "group": "Sign in"
+    },
+    {
+      "action": "otp",
+      "value": "{{totp:teller_totp}}",
+      "group": "Pass MFA"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Verify"
+      },
+      "group": "Pass MFA"
+    },
+    {
+      "action": "waitFor",
+      "target": {
+        "role": "table",
+        "name": "Customer accounts"
+      },
+      "group": "Start payment"
+    },
+    {
+      "action": "goto",
+      "url": "/payments/new",
+      "group": "Start payment"
+    },
+    {
+      "action": "select",
+      "target": {
+        "label": "Pay from"
+      },
+      "option": "Business Operating (Acme Ltd) \u00b7 250,000.00",
+      "group": "Choose payee"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "role": "combobox",
+        "name": "Payee"
+      },
+      "value": "Acme Supplies",
+      "group": "Choose payee"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "option",
+        "name": "Acme Supplies Ltd",
+        "exact": false
+      },
+      "group": "Choose payee"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Next"
+      },
+      "group": "Choose payee"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Amount (GBP)"
+      },
+      "value": "12500",
+      "group": "Amount"
+    },
+    {
+      "action": "fill",
+      "target": {
+        "label": "Reference"
+      },
+      "value": "Invoice 8841",
+      "group": "Amount"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Next"
+      },
+      "group": "Amount"
+    },
+    {
+      "action": "click",
+      "target": {
+        "label": "I have checked the payee details"
+      },
+      "group": "Review and submit"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Submit payment"
+      },
+      "group": "Review and submit"
+    },
+    {
+      "action": "click",
+      "target": {
+        "role": "button",
+        "name": "Confirm and pay"
+      },
+      "group": "Review and submit"
+    },
+    {
+      "action": "waitFor",
+      "target": {
+        "role": "status"
+      },
+      "group": "Confirmation"
+    },
+    {
+      "action": "expectText",
+      "target": {
+        "role": "status"
+      },
+      "text": "pending approval",
+      "group": "Confirmation"
+    },
+    {
+      "action": "done",
+      "reason": "payment submitted and pending approval"
+    }
+  ]
+}

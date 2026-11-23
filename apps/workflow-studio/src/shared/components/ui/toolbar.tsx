@@ -8,7 +8,7 @@ import { cn } from '@/shared/lib/utils'
 function ToolbarGroup({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('flex bg-muted/50 rounded-md px-0.5 py-0.5', className)}
+      className={cn('flex rounded-ctl bg-recess px-0.5 py-0.5', className)}
       {...props}
     />
   )
@@ -20,7 +20,7 @@ function ToolbarGroup({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 function ToolbarSeparator({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn('w-px h-4 bg-border self-center', className)}
+      className={cn('w-px h-4 bg-hairline self-center', className)}
       {...props}
     />
   )

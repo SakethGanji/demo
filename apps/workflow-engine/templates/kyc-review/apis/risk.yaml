@@ -1,0 +1,50 @@
+openapi: 3.0.3
+info:
+  title: risk
+  version: '1.0'
+servers:
+- url: http://risk.bank.example
+paths:
+  /score:
+    post:
+      operationId: score
+      summary: Credit risk score of an applicant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                applicant_id:
+                  type: string
+                requested_amount:
+                  type: number
+              required:
+              - applicant_id
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  score:
+                    type: integer
+                  band:
+                    type: string
+                    nullable: true
+                required:
+                - score
+        '404':
+          description: Applicant not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

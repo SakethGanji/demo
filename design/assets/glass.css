@@ -1,0 +1,32 @@
+/* Glass, only where content passes behind: the ⌘K palette and its scrim, menus/popovers, tooltips,
+   and the sticky top bar on Projects. Big panels stay solid (see "panel material" in system.css). */
+:root {
+  --g-fill: rgb(255 255 255 / .72);
+  --g-ring: rgb(24 24 48 / .08);
+  --g-top: rgb(255 255 255 / .95);
+  --g-blur: blur(22px) saturate(170%);
+  --g-shadow: 0 8px 32px rgb(24 24 60 / .12), inset 0 1px 0 rgb(255 255 255 / .8), inset 0 -1px 0 rgb(255 255 255 / .2);
+}
+.dark {
+  --g-fill: rgb(22 22 27 / .62);
+  --g-ring: rgb(255 255 255 / .1);
+  --g-top: rgb(255 255 255 / .45);
+  --g-shadow: 0 16px 48px rgb(0 0 0 / .5), inset 0 1px 0 rgb(255 255 255 / .1), inset 0 -1px 0 rgb(255 255 255 / .03);
+}
+
+.m-pal, .menu, .pop, .home-top {
+  background: var(--g-fill) !important;
+  -webkit-backdrop-filter: var(--g-blur); backdrop-filter: var(--g-blur);
+  box-shadow: 0 0 0 1px var(--g-ring), var(--g-shadow) !important;
+}
+.m-pal, .menu, .pop { overflow: hidden; }
+.m-pal::after, .menu::after, .pop::after {
+  content: ''; position: absolute; left: 8%; right: 8%; top: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--g-top), transparent); }
+.m-scrim { background: rgb(12 12 20 / .14) !important; -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.dark .m-scrim { background: rgb(0 0 0 / .4) !important; }
+.m-tip { background: color-mix(in srgb, var(--foreground) 88%, transparent) !important; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .m-pal, .menu, .pop, .home-top { background: var(--popover) !important; }
+}

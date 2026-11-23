@@ -1,0 +1,38 @@
+{
+  "_comment": "Shared Shape -> FormField mapping table (DESIGN-STAGE5-UIS §4.1). The studio parity test (formFields.test.ts) and the engine's test_form_fields.py should both load this file. `expect` is a subset match against the derived FormField; `widget: null` means the property is omitted from the form (WF013). Labels are only compared when `fields_ui.label` is given (the default label is a studio/engine presentation detail).",
+  "cases": [
+    { "name": "plain string -> text", "property": { "type": "string" }, "expect": { "widget": "text" } },
+    { "name": "string maxLength 200 -> text", "property": { "type": "string", "maxLength": 200 }, "expect": { "widget": "text", "maxLength": 200 } },
+    { "name": "string maxLength 201 -> textarea", "property": { "type": "string", "maxLength": 201 }, "expect": { "widget": "textarea", "maxLength": 201 } },
+    { "name": "string format email -> email", "property": { "type": "string", "format": "email" }, "expect": { "widget": "email" } },
+    { "name": "string format date -> date", "property": { "type": "string", "format": "date" }, "expect": { "widget": "date" } },
+    { "name": "string pattern kept", "property": { "type": "string", "pattern": "^A-\\d{5}$" }, "expect": { "widget": "text", "pattern": "^A-\\d{5}$" } },
+    { "name": "string minLength kept", "property": { "type": "string", "minLength": 3 }, "expect": { "widget": "text", "minLength": 3 } },
+    { "name": "enum of 3 -> radio", "property": { "type": "string", "enum": ["a", "b", "c"] }, "expect": { "widget": "radio", "options": [{ "value": "a", "label": "A" }, { "value": "b", "label": "B" }, { "value": "c", "label": "C" }] } },
+    { "name": "enum of 7 -> radio", "property": { "type": "string", "enum": ["1", "2", "3", "4", "5", "6", "7"] }, "expect": { "widget": "radio" } },
+    { "name": "enum of 8 -> select", "property": { "type": "string", "enum": ["1", "2", "3", "4", "5", "6", "7", "8"] }, "expect": { "widget": "select" } },
+    { "name": "number -> number", "property": { "type": "number" }, "expect": { "widget": "number" } },
+    { "name": "integer -> number", "property": { "type": "integer" }, "expect": { "widget": "number" } },
+    { "name": "number min/max kept", "property": { "type": "number", "minimum": 0.01, "maximum": 100000 }, "expect": { "widget": "number", "min": 0.01, "max": 100000 } },
+    { "name": "number format currency -> currency", "property": { "type": "number", "format": "currency", "minimum": 0.01 }, "expect": { "widget": "currency", "min": 0.01 } },
+    { "name": "boolean -> checkbox", "property": { "type": "boolean" }, "expect": { "widget": "checkbox" } },
+    { "name": "array -> unsupported", "property": { "type": "array", "items": { "type": "string" } }, "expect": { "widget": null } },
+    { "name": "object -> unsupported", "property": { "type": "object", "properties": {} }, "expect": { "widget": null } },
+    { "name": "fields_ui widget override", "property": { "type": "string" }, "fields_ui": { "widget": "textarea", "label": "Why?", "help": "Be brief", "placeholder": "Say why" }, "expect": { "widget": "textarea", "label": "Why?", "help": "Be brief", "placeholder": "Say why" } },
+    { "name": "required comes from the schema", "property": { "type": "string" }, "required": true, "expect": { "widget": "text", "required": true } },
+    { "name": "optional by default", "property": { "type": "string" }, "required": false, "expect": { "widget": "text", "required": false } }
+  ],
+  "order_cases": [
+    {
+      "name": "field_order first, then schema order",
+      "properties": { "a": { "type": "string" }, "b": { "type": "string" }, "c": { "type": "string" } },
+      "field_order": ["c", "a"],
+      "expect_names": ["c", "a", "b"]
+    },
+    {
+      "name": "unsupported fields are omitted from the list",
+      "properties": { "a": { "type": "string" }, "tags": { "type": "array", "items": { "type": "string" } }, "b": { "type": "boolean" } },
+      "expect_names": ["a", "b"]
+    }
+  ]
+}

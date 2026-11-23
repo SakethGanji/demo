@@ -1,0 +1,481 @@
+{
+  "id": "card_dispute_intake",
+  "holdout": false,
+  "request": "Customers can dispute a card transaction on a form: their customer id, the last four digits of the card, the merchant, the amount and a description of what went wrong. If the disputed amount is under $50, give them a provisional credit straight away and do not open a case. For $50 or more, open a dispute case and send the customer a message that includes the case number. Either way, show the customer a confirmation on screen.",
+  "apis": [
+    "disputes.yaml",
+    "cards.yaml",
+    "notify.yaml"
+  ],
+  "spec_edits": {
+    "title": "Card dispute intake"
+  },
+  "expect": {
+    "trigger": "FormTrigger",
+    "must_have_types": [
+      "If|Switch",
+      "Respond"
+    ],
+    "must_call": [
+      "disputes.createCase",
+      "cards.provisionalCredit",
+      "notify.sendMessage"
+    ],
+    "must_not_call_hosts": [],
+    "approval_ports_wired": [],
+    "interface_kind": "form",
+    "max_nodes": 10,
+    "forbid_types": [
+      "Approval"
+    ],
+    "min_spec_tests": 3
+  },
+  "hidden_tests": [
+    {
+      "name": "Small dispute gets a provisional credit",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_id": "c-5530",
+            "card_last4": "4417",
+            "merchant": "Hotel Aurora",
+            "amount": 30,
+            "description": "I did not stay there"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:disputes.createCase": {
+          "http": {
+            "status": 201,
+            "body": {
+              "case_id": "CASE-5521",
+              "status": "open"
+            }
+          }
+        },
+        "$api:cards.provisionalCredit": {
+          "http": {
+            "status": 200,
+            "body": {
+              "credit_id": "CR-77",
+              "amount": 30
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 30
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "4417"
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "Larger dispute opens a case and the customer is told the number",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_id": "c-5530",
+            "card_last4": "4417",
+            "merchant": "Hotel Aurora",
+            "amount": 120,
+            "description": "I did not stay there"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:disputes.createCase": {
+          "http": {
+            "status": 201,
+            "body": {
+              "case_id": "CASE-5521",
+              "status": "open"
+            }
+          }
+        },
+        "$api:cards.provisionalCredit": {
+          "http": {
+            "status": 200,
+            "body": {
+              "credit_id": "CR-77",
+              "amount": 120
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 120
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "request",
+          "item": "any",
+          "path": "body.merchant",
+          "op": "eq",
+          "value": "Hotel Aurora"
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "request",
+          "item": "any",
+          "path": "body.text",
+          "op": "contains",
+          "value": "CASE-5521"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    },
+    {
+      "name": "49.99 is still under the limit",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_id": "c-5530",
+            "card_last4": "4417",
+            "merchant": "Hotel Aurora",
+            "amount": 49.99,
+            "description": "I did not stay there"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:disputes.createCase": {
+          "http": {
+            "status": 201,
+            "body": {
+              "case_id": "CASE-5521",
+              "status": "open"
+            }
+          }
+        },
+        "$api:cards.provisionalCredit": {
+          "http": {
+            "status": 200,
+            "body": {
+              "credit_id": "CR-77",
+              "amount": 49.99
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 49.99
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "request",
+          "item": "any",
+          "path": "url",
+          "op": "contains",
+          "value": "4417"
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    },
+    {
+      "name": "Exactly 50 opens a case",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_id": "c-5530",
+            "card_last4": "4417",
+            "merchant": "Hotel Aurora",
+            "amount": 50,
+            "description": "I did not stay there"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:disputes.createCase": {
+          "http": {
+            "status": 201,
+            "body": {
+              "case_id": "CASE-5521",
+              "status": "open"
+            }
+          }
+        },
+        "$api:cards.provisionalCredit": {
+          "http": {
+            "status": 200,
+            "body": {
+              "credit_id": "CR-77",
+              "amount": 50
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 50
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "request",
+          "item": "any",
+          "path": "body.merchant",
+          "op": "eq",
+          "value": "Hotel Aurora"
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "request",
+          "item": "any",
+          "path": "body.text",
+          "op": "contains",
+          "value": "CASE-5521"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "boundary"
+    },
+    {
+      "name": "Big dispute carries the merchant into the case",
+      "target": {
+        "kind": "workflow"
+      },
+      "input": {
+        "items": [
+          {
+            "customer_id": "c-5530",
+            "card_last4": "4417",
+            "merchant": "Gadget World",
+            "amount": 800,
+            "description": "I did not stay there"
+          }
+        ]
+      },
+      "mocks": {
+        "$api:disputes.createCase": {
+          "http": {
+            "status": 201,
+            "body": {
+              "case_id": "CASE-5521",
+              "status": "open"
+            }
+          }
+        },
+        "$api:cards.provisionalCredit": {
+          "http": {
+            "status": 200,
+            "body": {
+              "credit_id": "CR-77",
+              "amount": 800
+            }
+          }
+        },
+        "$api:notify.sendMessage": {
+          "http": {
+            "status": 200,
+            "body": {
+              "delivered": true
+            }
+          }
+        }
+      },
+      "expect": [
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "request",
+          "item": "any",
+          "path": "body.amount",
+          "op": "eq",
+          "value": 800
+        },
+        {
+          "node": "$api:disputes.createCase",
+          "subject": "request",
+          "item": "any",
+          "path": "body.merchant",
+          "op": "eq",
+          "value": "Gadget World"
+        },
+        {
+          "node": "$api:cards.provisionalCredit",
+          "subject": "node",
+          "op": "status",
+          "value": "not_run"
+        },
+        {
+          "node": "$api:notify.sendMessage",
+          "subject": "request",
+          "item": "any",
+          "path": "body.text",
+          "op": "contains",
+          "value": "CASE-5521"
+        },
+        {
+          "node": "$last",
+          "subject": "node",
+          "op": "status",
+          "value": "success"
+        }
+      ],
+      "category": "normal"
+    }
+  ],
+  "input_aliases": {
+    "card_last4": [
+      "card_last_four",
+      "last4",
+      "last_four",
+      "last_four_digits",
+      "card_last_digits"
+    ],
+    "customer_id": [
+      "customer"
+    ]
+  }
+}

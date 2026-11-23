@@ -1,0 +1,105 @@
+{
+  "name": "Payments - sub-workflow call variants",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c01",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "42"
+      },
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c02",
+      "name": "Legacy Call By Id",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [420, 120]
+    },
+    {
+      "parameters": {
+        "workflowId": {"__rl": true, "value": "AbC123xyz", "mode": "id"},
+        "workflowInputs": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {"waitForSubWorkflow": false}
+      },
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c03",
+      "name": "Fire And Forget Notify",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [420, 240]
+    },
+    {
+      "parameters": {
+        "source": "parameter",
+        "workflowJson": "{\n  \"nodes\": [{\"name\": \"Trigger\", \"type\": \"n8n-nodes-base.executeWorkflowTrigger\", \"parameters\": {}}],\n  \"connections\": {}\n}",
+        "mode": "each"
+      },
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c04",
+      "name": "Inline JSON Child",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [420, 360]
+    },
+    {
+      "parameters": {
+        "source": "url",
+        "workflowUrl": "https://workflows.example-bank.test/exports/fx-rates.json"
+      },
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c05",
+      "name": "Child From URL",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [420, 480]
+    },
+    {
+      "parameters": {
+        "source": "localFile",
+        "workflowPath": "/data/workflows/ledger-sync.json"
+      },
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c06",
+      "name": "Child From File",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [420, 600]
+    },
+    {
+      "parameters": {
+        "workflowId": {"__rl": true, "value": "={{ $json.child_id }}", "mode": "id"},
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {"payment_id": "={{ $json.id }}"},
+          "matchingColumns": [],
+          "schema": []
+        }
+      },
+      "id": "9a1b0c2d-1111-4a5b-8c9d-0e1f2a3b4c07",
+      "name": "Computed Child",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [420, 720]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[
+        {"node": "Legacy Call By Id", "type": "main", "index": 0},
+        {"node": "Fire And Forget Notify", "type": "main", "index": 0},
+        {"node": "Inline JSON Child", "type": "main", "index": 0},
+        {"node": "Child From URL", "type": "main", "index": 0},
+        {"node": "Child From File", "type": "main", "index": 0},
+        {"node": "Computed Child", "type": "main", "index": 0}
+      ]]
+    }
+  },
+  "pinData": {},
+  "settings": {"executionOrder": "v1"},
+  "active": false
+}

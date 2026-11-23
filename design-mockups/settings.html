@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings sheet — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+.sheet { position: absolute; top: 12px; right: 12px; bottom: 12px; z-index: 21; background: var(--card); border-radius: 14px; box-shadow: var(--shadow-2xl); border: 1px solid var(--panel-border); display: flex; flex-direction: column; overflow: hidden; }
+.sh-h { padding: 16px 18px 12px; border-bottom: 1px solid var(--border); }
+.sh-t { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.sh-b { padding: 16px 18px; overflow: hidden; flex: 1; display: flex; flex-direction: column; gap: 14px; }
+.sh-f { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; background: color-mix(in srgb, var(--muted) 40%, var(--card)); }
+.content { height: 100%; overflow: hidden; padding: 24px 28px; }
+.h2 { font-size: 18px; line-height: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.chk { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); align-items: flex-start; }
+.chk:last-child { border-bottom: 0; }
+.ico-ok { color: var(--success); } .ico-warn { color: var(--warning); } .ico-fail { color: var(--destructive); }
+
+  .content { height: 100%; overflow: hidden; padding: 28px 32px; }
+  .hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+  .title { font-size: 22px; line-height: 28px; font-weight: 600; letter-spacing: -0.015em; }
+  .base { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--background); }
+  .stats { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 22px; border: 1px solid var(--border); border-radius: 12px; }
+  .stat { padding: 12px 16px; border-right: 1px solid var(--border); }
+  .stat:last-child { border-right: 0; }
+  .stat .v { font-size: 20px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .stat .v small { color: var(--muted-foreground); font-size: 13px; font-weight: 450; }
+  .stat .l { font-size: 12px; color: var(--muted-foreground); }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; margin-top: 16px; }
+  .spark { display: flex; align-items: flex-end; gap: 2px; height: 18px; }
+  .spark i { width: 3px; border-radius: 1px; background: color-mix(in srgb, var(--success) 55%, transparent); }
+  .run { display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 16px; border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent); }
+  .run:last-child { border-bottom: 0; }
+  .grp td { height: 28px; background: color-mix(in srgb, var(--muted) 45%, transparent); font: 11.5px/1 var(--font-mono); color: var(--muted-foreground); }
+  .table td { height: 38px; }
+  .app-row { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+  .thumb { width: 84px; height: 54px; border-radius: 8px; border: 1px solid var(--border); background: #f7f8fa; position: relative; overflow: hidden; flex-shrink: 0; }
+  .thumb i { position: absolute; border-radius: 2px; background: #e5e7eb; }
+.confirm { border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border)); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--warning) 5%, var(--card)); }
+.aff { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--card); border: 1px solid var(--border); font-size: 12.5px; }
+.once { border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); border-radius: 10px; padding: 12px; background: color-mix(in srgb, var(--primary) 4%, var(--card)); }
+</style>
+</head>
+<body data-active="settings" data-state="saved">
+<div class="app">
+<div id="shell"></div>  <main class="main panel">
+    <div class="content">
+      <div class="hero">
+        <div>
+          <div class="row gap-2"><div class="title">Payments Ops</div><span class="badge warning"><span class="dot warn"></span>Degraded · secret missing in prod</span></div>
+          <div class="row gap-3 muted" style="margin-top:6px">
+            <span class="base"><span class="mono fg">/api/p/payments-ops</span><span class="btn ghost icon xs"><i data-lucide="copy" class="i12"></i></span></span>
+            <span>Python backend · 2 modules · 5 routes</span><span>·</span><span>prod serves the latest saved code (no release yet)</span>
+          </div>
+        </div>
+        <div class="row gap-2">
+          <span class="btn outline"><i data-lucide="sparkles" class="i14" style="color:var(--ai)"></i>Generate</span>
+          <span class="btn default"><i data-lucide="wand-sparkles" class="i14"></i>Create UI from backend</span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="l">Routes</div><div class="v">5</div></div>
+        <div class="stat"><div class="l">Tables</div><div class="v">2 <small>· 8 rows</small></div></div>
+        <div class="stat"><div class="l">Apps</div><div class="v">1 <small>· published</small></div></div>
+        <div class="stat"><div class="l">Runs · 24h</div><div class="row gap-3"><div class="v">12</div><div class="spark"><i style="height:6px"></i><i style="height:9px"></i><i style="height:4px"></i><i style="height:12px"></i><i style="height:8px"></i><i style="height:14px"></i><i style="height:10px"></i><i style="height:16px"></i><i style="height:12px"></i><i style="height:18px"></i></div></div></div>
+        <div class="stat"><div class="l">Failed · 24h</div><div class="v">0 <small>· p50 214 ms</small></div></div>
+      </div>
+
+      <div class="grid">
+        <div class="col gap-4" style="min-width:0">
+          <section class="card">
+            <div class="card-h">
+              <i data-lucide="server" class="i14 muted"></i><span class="title">Backend</span>
+              <span class="badge secondary">spec rev 4</span>
+              <div class="grow"></div>
+              <span class="btn ghost sm"><i data-lucide="braces" class="i14"></i>OpenAPI</span>
+              <span class="btn outline sm"><i data-lucide="code-xml" class="i14"></i>Open editor</span>
+            </div>
+            <table class="table">
+              <thead><tr><th style="width:62px">Method</th><th>Path</th><th>Operation</th><th>Auth</th><th>Last call · 24h</th><th style="text-align:right">p50</th><th style="width:40px"></th></tr></thead>
+              <tbody>
+                <tr class="grp"><td colspan="7">orders_api.py</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="mono fg">/orders</td><td class="mono muted">createOrder</td><td><span class="badge outline">public</span></td><td><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="muted">201 · 12m ago</span></span></td><td class="num muted" style="text-align:right">48 ms</td><td><span class="btn ghost icon xs"><i data-lucide="play" class="i12"></i></span></td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="mono fg">/orders/summary</td><td class="mono muted">ordersSummary</td><td><span class="badge outline">public</span></td><td><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="muted">200 · 2m ago</span></span></td><td class="num muted" style="text-align:right">331 ms</td><td><span class="btn ghost icon xs"><i data-lucide="play" class="i12"></i></span></td></tr>
+                <tr class="grp"><td colspan="7">refunds.py</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="mono fg">/refunds</td><td class="mono muted">createRefund</td><td><span class="badge outline">public</span></td><td><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="muted">201 · 40m ago</span></span></td><td class="num muted" style="text-align:right">38 ms</td><td><span class="btn ghost icon xs"><i data-lucide="play" class="i12"></i></span></td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="mono fg">/refunds</td><td class="mono muted">listRefunds</td><td><span class="badge outline">public</span></td><td><span class="muted">no calls</span></td><td class="num muted" style="text-align:right">—</td><td><span class="btn ghost icon xs"><i data-lucide="play" class="i12"></i></span></td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="mono fg">/refunds/stats</td><td class="mono muted">refundStats</td><td><span class="badge outline">public</span></td><td><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="muted">200 · 38m ago</span></span></td><td class="num muted" style="text-align:right">214 ms</td><td><span class="btn ghost icon xs"><i data-lucide="play" class="i12"></i></span></td></tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section class="card">
+            <div class="card-h"><i data-lucide="app-window" class="i14 muted"></i><span class="title">Apps</span><div class="grow"></div><span class="btn ghost sm"><i data-lucide="plus" class="i14"></i>New app</span></div>
+            <div class="app-row">
+              <div class="thumb"><i style="left:6px;top:6px;width:22px;height:12px"></i><i style="left:31px;top:6px;width:22px;height:12px"></i><i style="left:56px;top:6px;width:22px;height:12px"></i><i style="left:6px;top:22px;width:44px;height:26px"></i><i style="left:54px;top:22px;width:24px;height:26px"></i></div>
+              <div class="grow">
+                <div class="row gap-2"><span style="font-weight:500">Orders dashboard</span><span class="badge success">Published</span><span class="badge secondary">v3</span></div>
+                <div class="muted mono" style="font-size:11.5px;margin-top:3px">/a/orders-dashboard</div>
+                <div class="muted" style="font-size:12px;margin-top:2px">Uses ordersSummary, createOrder · 2 of 5 operations</div>
+              </div>
+              <span class="btn outline sm">Open builder</span>
+            </div>
+          </section>
+        </div>
+
+        <div class="col gap-4">
+          <section class="card">
+            <div class="card-h"><span class="title">Recent runs</span><div class="grow"></div><span class="btn ghost xs">View all</span></div>
+            <div class="run"><span class="dot ok" style="box-shadow:none"></span><span class="method get bare">GET</span><span class="mono grow">/orders/summary</span><span class="muted num">331 ms</span><span class="muted" style="width:34px;text-align:right">2m</span></div>
+            <div class="run"><span class="dot ok" style="box-shadow:none"></span><span class="method post bare">POST</span><span class="mono grow">/orders</span><span class="muted num">48 ms</span><span class="muted" style="width:34px;text-align:right">12m</span></div>
+            <div class="run"><span class="dot ok" style="box-shadow:none"></span><span class="method get bare">GET</span><span class="mono grow">/refunds/stats</span><span class="muted num">214 ms</span><span class="muted" style="width:34px;text-align:right">38m</span></div>
+            <div class="run"><span class="dot ok" style="box-shadow:none"></span><span class="method post bare">POST</span><span class="mono grow">/refunds</span><span class="muted num">38 ms</span><span class="muted" style="width:34px;text-align:right">40m</span></div>
+          </section>
+
+          <section class="card">
+            <div class="card-h"><span class="title">Secrets</span><div class="grow"></div><span class="btn ghost xs"><i data-lucide="plus" class="i12"></i>Add</span></div>
+            <div class="card-b col gap-2" style="padding:12px 16px">
+              <div class="row gap-2"><i data-lucide="key-round" class="i14 muted"></i><span class="mono grow">PAYMENTS_TOKEN</span><span class="badge success">dev</span><span class="badge warning"><span class="dot warn"></span>missing in prod</span></div>
+              <div class="row gap-2"><i data-lucide="key-round" class="i14 muted"></i><span class="mono grow">SLACK_WEBHOOK</span><span class="badge neutral">dev</span><span class="badge neutral">not set in prod</span></div>
+              <div class="help" style="margin-top:2px"><b style="font-weight:500;color:var(--warning-text)">Missing</b> = your code uses it and it isn't set. <b style="font-weight:500">Not set</b> = unused there.</div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-h"><span class="title">Releases</span><div class="grow"></div><span class="btn ghost xs">Create release</span></div>
+            <div class="card-b col gap-2" style="padding:12px 16px">
+              <div class="row gap-2"><span class="badge secondary" style="width:42px;justify-content:center">dev</span><span class="muted grow">Always your latest saved code</span></div>
+              <div class="row gap-2"><span class="badge secondary" style="width:42px;justify-content:center">prod</span><span class="muted grow">No release yet · serves latest saved code</span></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main><div class="overlay" style="background:rgb(15 18 22 / .18);backdrop-filter:none"></div><aside class="sheet" style="width:560px" data-testid="settings-sheet">
+  <div class="sh-h"><div class="row gap-2"><i data-lucide="settings-2" class="i14"></i><span class="sh-t">Project settings</span><div class="grow"></div><span class="btn ghost icon xs"><i data-lucide="x" class="i14"></i></span></div>
+    <div class="seg" style="margin-top:12px"><span class="on">General</span><span>Environments</span><span>Egress</span><span>API keys</span><span>Developer</span><span>Danger</span></div></div>
+  <div class="sh-b">
+    <div class="col gap-1h"><span class="label">Name</span><span class="input">Payments Ops</span></div>
+    <div class="col gap-1h"><span class="label">Slug</span><span class="input mono focus" style="font-size:12.5px"><span class="ph">/api/p/</span>payments<span class="cursor"></span></span><span class="help">Changes the URL of every route and every published app.</span></div>
+    <div class="confirm" data-testid="slug-confirm">
+      <div class="row gap-2"><i data-lucide="triangle-alert" class="i14 ico-warn"></i><b style="font-weight:600">Published apps break until republished</b></div>
+      <div style="font-size:12.5px;margin-top:6px">They call <span class="mono">/api/p/payments-ops</span>, which stops resolving after the rename.</div>
+      <div class="aff"><i data-lucide="app-window" class="i14 muted"></i><span>Orders dashboard</span><span class="mono muted" style="font-size:11.5px">/a/orders-dashboard</span><div class="grow"></div><span class="badge success">published</span></div>
+      <div class="row gap-2" style="margin-top:10px"><span class="check on"><i data-lucide="check"></i></span><span>Republish 1 app right after renaming</span></div>
+      <div class="help" style="margin-top:4px">Hand-written <span class="mono">fetch('/api/p/payments-ops/…')</span> calls are not rewritten; the AI and the typed client use the new slug.</div>
+    </div>
+    <div class="hr"></div>
+    <div class="row"><span style="font-weight:600">API keys</span><span class="muted" style="margin-left:6px">server-to-server; never put in apps</span><div class="grow"></div><span class="btn outline xs"><i data-lucide="plus" class="i12"></i>New key</span></div>
+    <div class="once" data-testid="apikey-once"><div class="row gap-2"><i data-lucide="key-square" class="i14"></i><b style="font-weight:600">ci-deploy (prod)</b><span class="muted" style="font-size:12px">shown once — copy it now</span></div>
+      <div class="row gap-2" style="margin-top:8px"><span class="input mono grow" style="font-size:11.5px">sk_prod_q7Lw…8mZr2c4VtYb1NxK</span><span class="btn default sm"><i data-lucide="copy" class="i14"></i>Copy</span></div></div>
+    <table class="table" style="font-size:12.5px"><thead><tr><th>Name</th><th>Env</th><th>Prefix</th><th>Last used</th><th></th></tr></thead><tbody>
+      <tr><td>ci-deploy</td><td><span class="badge secondary">prod</span></td><td class="mono muted">sk_prod_q7Lw</td><td class="muted">never</td><td><span class="btn ghost xs" style="color:var(--destructive)">Revoke</span></td></tr>
+      <tr><td>local-dev</td><td><span class="badge secondary">dev</span></td><td class="mono muted">sk_dev_a1b2</td><td class="muted">2d ago</td><td><span class="btn ghost xs" style="color:var(--destructive)">Revoke</span></td></tr>
+    </tbody></table>
+  </div>
+  <div class="sh-f"><div class="grow"></div><span class="btn ghost sm">Cancel</span><span class="btn default sm">Rename and republish 1 app</span></div>
+</aside>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

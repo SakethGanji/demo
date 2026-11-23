@@ -41,7 +41,7 @@ def normalize_slug(name: str) -> str:
     s = re.sub(r"-+", "-", s).strip("-")
     if len(s) < SLUG_MIN_LEN:
         # Pad with random suffix so derived slugs from short names are still valid.
-        s = (s + "-" + secrets.token_hex(2))[:SLUG_MAX_LEN]
+        s = ((s or "app") + "-" + secrets.token_hex(2))[:SLUG_MAX_LEN]
     return s[:SLUG_MAX_LEN]
 
 

@@ -1,0 +1,181 @@
+{
+  "format": "wf-template/1",
+  "slug": "unapproved-test",
+  "version": "1.0.0",
+  "name": "Fixture unapproved-test",
+  "summary": "A fixture bundle.",
+  "category": "fixtures",
+  "tags": [],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [],
+    "secrets": [],
+    "variables": [],
+    "egress_hosts": []
+  },
+  "apis": [],
+  "tables": [],
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "Fixture entry",
+      "publish": false,
+      "definition": {
+        "nodes": [
+          {
+            "name": "Hook",
+            "type": "Webhook",
+            "parameters": {
+              "method": "POST",
+              "path": "fixture-hook",
+              "responseMode": "lastNode"
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Mark",
+            "type": "Set",
+            "parameters": {
+              "mode": "json",
+              "keepOnlySet": true,
+              "jsonData": {
+                "ok": true
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Answer",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 200,
+              "body": {
+                "ok": "{{ $json.ok }}"
+              }
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Hook",
+            "target_node": "Mark",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Mark",
+            "target_node": "Answer",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_00000001",
+            "name": "Marks the request",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {},
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {},
+            "expect": [
+              {
+                "node": "Mark",
+                "port": "main",
+                "path": "ok",
+                "op": "eq",
+                "value": true
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_00000002",
+            "name": "Answers",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {},
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {},
+            "expect": [
+              {
+                "node": "Answer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "boundary",
+            "status": "draft",
+            "source": "human"
+          },
+          {
+            "id": "t_00000003",
+            "name": "An empty body still answers",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {},
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {},
+            "expect": [
+              {
+                "node": "Answer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "goal": "An auditor cannot access the new payment screen",
+  "slug": "bank-06-auditor-denied",
+  "steps": [
+    { "action": "fill", "target": { "label": "Username" }, "value": "{{auditor_user}}", "group": "Sign in as auditor" },
+    { "action": "fill", "target": { "label": "Password" }, "value": "{{auditor_pass}}", "group": "Sign in as auditor" },
+    { "action": "click", "target": { "role": "button", "name": "Sign in" }, "group": "Sign in as auditor" },
+    { "action": "otp", "value": "{{totp:auditor_totp}}", "group": "Pass MFA" },
+    { "action": "click", "target": { "role": "button", "name": "Verify" }, "group": "Pass MFA" },
+    { "action": "goto", "url": "/payments/new", "group": "Attempt new payment" },
+    { "action": "waitFor", "target": { "role": "alert" }, "group": "Attempt new payment" },
+    { "action": "expectText", "target": { "role": "alert" }, "text": "keine Berechtigung", "group": "Attempt new payment" },
+    { "action": "done", "reason": "auditor is denied (German locale)" }
+  ]
+}

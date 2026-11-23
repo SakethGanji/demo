@@ -56,10 +56,13 @@ interface AppDocumentState {
   sourceCode: string | null
   /** Current version info from the backend */
   currentVersion: ApiAppVersion | null
+  /** true when the files on screen are not stored as a version (a save failed) */
+  dirty: boolean
 
   setFiles: (files: AppFile[]) => void
   setSourceCode: (source: string) => void
   setCurrentVersion: (version: ApiAppVersion | null) => void
+  setDirty: (dirty: boolean) => void
   reset: () => void
 }
 
@@ -67,6 +70,7 @@ export const useAppDocumentStore = create<AppDocumentState>()((set) => ({
   files: null,
   sourceCode: null,
   currentVersion: null,
+  dirty: false,
 
   setFiles: (files) => {
     const entry = files.find((f) => /^(src\/)?[Aa]pp\.tsx$/.test(f.path))
@@ -84,7 +88,9 @@ export const useAppDocumentStore = create<AppDocumentState>()((set) => ({
     set({ currentVersion: version })
   },
 
+  setDirty: (dirty) => set({ dirty }),
+
   reset: () => {
-    set({ files: null, sourceCode: null, currentVersion: null })
+    set({ files: null, sourceCode: null, currentVersion: null, dirty: false })
   },
 }))

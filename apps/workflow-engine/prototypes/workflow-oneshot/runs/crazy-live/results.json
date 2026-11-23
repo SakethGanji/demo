@@ -1,0 +1,112 @@
+[
+ {
+  "id": "access_recertification",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 75.1,
+  "nodes": 17,
+  "own_tests": 5,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   3,
+   3
+  ],
+  "first_hidden": [
+   3,
+   3
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. The IAM API, `core` databases, and `$vars.CISO_EMAIL` are all already set up. The audit rows are written before the final summary reads them back, so the summary shows this run's outcomes."
+ },
+ {
+  "id": "hardship_restructure",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 89.0,
+  "nodes": 25,
+  "own_tests": 6,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   7,
+   7
+  ],
+  "first_hidden": [
+   7,
+   7
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. The workflow assumes two defaults you didn't specify, listed below."
+ },
+ {
+  "id": "kyc_document_chase",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 74.4,
+  "nodes": 24,
+  "own_tests": 6,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   5,
+   5
+  ],
+  "first_hidden": [
+   5,
+   5
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. All the variables and the ops_db and document-service connections already exist. The summary counts come from audit_log rows written today, so a second run on the same day would count the first run's actions again."
+ },
+ {
+  "id": "mortgage_offer",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 76.2,
+  "nodes": 28,
+  "own_tests": 6,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   8,
+   8
+  ],
+  "first_hidden": [
+   8,
+   8
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. This uses the existing variables and the `ops_db` connection."
+ },
+ {
+  "id": "wire_release",
+  "pass": true,
+  "first_pass": true,
+  "fixes": 0,
+  "seconds": 83.7,
+  "nodes": 30,
+  "own_tests": 7,
+  "first_fails": [],
+  "final_fails": [],
+  "hidden": [
+   9,
+   9
+  ],
+  "first_hidden": [
+   9,
+   9
+  ],
+  "struct": [],
+  "hidden_fail": [],
+  "needs": "Needs: nothing. Every variable and database it uses already exists. If a callback task is rejected rather than completed, that branch ends with no action. The request doesn't say what should happen then."
+ }
+]

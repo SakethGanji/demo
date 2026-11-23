@@ -7,12 +7,15 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useTestStore } from '../stores/testStore';
 import { useEnvProfilesStore } from '../stores/envProfilesStore';
 import { toBackendWorkflow, findUpstreamNodeName, buildNameToIdMap } from '../lib/workflowTransform';
 import { consumeSSEStream } from '@/shared/lib/sseParser';
 import { backends } from '@/shared/lib/config';
 import { toast } from 'sonner';
-import type { WorkflowNodeData } from '../types/workflow';
+import { flushPendingEdits } from '../lib/pendingEdits';
+import { saveDraftForRun, describeActionError } from '../lib/nodeActions';
+import type { WaitingTask, WorkflowNodeData } from '../types/workflow';
 import type { Node } from '@xyflow/react';
 
 // Event types from backend
@@ -23,6 +26,7 @@ interface ExecutionEvent {
     | 'node:complete'
     | 'node:error'
     | 'execution:complete'
+    | 'execution_waiting'
     | 'execution:error'
     | 'execution:result'
     | 'agent:thinking'
@@ -50,6 +54,8 @@ interface ExecutionEvent {
   errors?: Array<{ nodeName: string; error: string; timestamp: string }>;
   // Node execution metrics
   metrics?: Record<string, unknown>;
+  // execution_waiting: the open human tasks the run paused on (engine routes/streaming.py)
+  tasks?: WaitingTask[];
   // Subworkflow event fields
   subworkflowParentNode?: string;
   subworkflowId?: string;
@@ -64,20 +70,45 @@ interface UseExecutionStreamResult {
 
 
 export function useExecutionStream(): UseExecutionStreamResult {
-  const [isExecuting, setIsExecuting] = useState(false);
+  const [isExecuting, setIsExecutingState] = useState(false);
+  const setIsExecuting = useCallback((active: boolean) => {
+    setIsExecutingState(active);
+    useWorkflowStore.getState().setRunActive(active);
+  }, []);
   const [progress, setProgress] = useState<{ completed: number; total: number } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const executionIdRef = useRef<string | null>(null);
 
   const cancelExecution = useCallback(() => {
+    // Aborting the stream alone leaves the run going on the engine: cancel it there too
+    const runId = executionIdRef.current;
+    executionIdRef.current = null;
+    if (runId) {
+      void fetch(`${backends.workflow}/api/executions/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }).catch(() => {});
+    }
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
     setIsExecuting(false);
     setProgress(null);
-  }, []);
+  }, [setIsExecuting]);
 
   const executeWorkflow = useCallback(async (inputData?: Record<string, unknown>) => {
+    // Run what is on screen: apply pending field edits, and for a saved workflow save the draft
+    // first (the engine runs the stored draft).
+    flushPendingEdits();
+    if (useWorkflowStore.getState().workflowId) {
+      // Show the run as started while saving, so a stale status from the last run can't read as this one
+      setIsExecuting(true);
+      try {
+        await saveDraftForRun();
+      } catch (e) {
+        setIsExecuting(false);
+        toast.error('Run failed', { description: `Could not save the draft: ${describeActionError(e).message}` });
+        return;
+      }
+    }
     const {
       nodes,
       edges,
@@ -90,6 +121,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
     clearExecutionData();
     setIsExecuting(true);
     setProgress(null);
+    executionIdRef.current = null;
 
     // Mark all workflow nodes as pending initially
     const workflowNodes = nodes.filter((n) => n.type === 'workflowNode');
@@ -160,9 +192,11 @@ export function useExecutionStream(): UseExecutionStreamResult {
         }
       });
 
+      executionIdRef.current = null;
       setIsExecuting(false);
       setProgress(null);
     } catch (error) {
+      executionIdRef.current = null;
       if ((error as Error).name === 'AbortError') {
         toast.info('Execution cancelled');
       } else {
@@ -190,6 +224,10 @@ export function useExecutionStream(): UseExecutionStreamResult {
       nodeOutputs: Record<string, Array<{ json: Record<string, unknown> }>>,
     ) {
       const store = useWorkflowStore.getState();
+      if (event.executionId && !event.subworkflowParentNode) {
+        useTestStore.getState().setLastExecutionId(event.executionId);
+        if (event.executionId !== 'error') executionIdRef.current = event.executionId;
+      }
 
       switch (event.type) {
         case 'execution:start':
@@ -270,6 +308,29 @@ export function useExecutionStream(): UseExecutionStreamResult {
           setIsExecuting(false);
           break;
 
+        case 'execution_waiting': {
+          // The run paused on a person (Approval). It is neither finished nor failed: the Approval node waits,
+          // and the logs panel links to the task(s).
+          const tasks = event.tasks ?? [];
+          for (const t of tasks) {
+            const nodeId = nameToId.get(t.node_name);
+            if (!nodeId) continue;
+            store.setNodeExecutionData(nodeId, {
+              input: store.executionData[nodeId]?.input ?? null,
+              output: { items: [] },
+              status: 'waiting',
+              startTime: store.executionData[nodeId]?.startTime ?? Date.now(),
+            });
+          }
+          store.setWaitingRun({ executionId: event.executionId, tasks });
+          setProgress(event.progress || null);
+          setIsExecuting(false);
+          toast.info('Waiting for approval', {
+            description: tasks.length === 1 ? tasks[0].title : `${tasks.length} approvals are open`,
+          });
+          break;
+        }
+
         case 'execution:result':
           // Final result with all data
           if (event.status === 'success') {
@@ -313,7 +374,7 @@ export function useExecutionStream(): UseExecutionStreamResult {
         }
       }
     }
-  }, []);
+  }, [setIsExecuting]);
 
   return {
     executeWorkflow,

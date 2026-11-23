@@ -1,0 +1,499 @@
+{
+ "id": "payment_batch_release",
+ "request": "Treasury posts a payment batch to us: batch_id and a list of payments, each with payment_id, beneficiary, country and amount. Screen every beneficiary with the screening service. Any payment whose beneficiary is a hit is held (call hold for that payment with the reason) and never released. If the total of the remaining payments is over $1,000,000, the head of treasury must approve the batch first; if they reject it, hold all the remaining payments too. Release each remaining payment that is cleared to go. Reply with how many payments were released and how many were held.",
+ "apis": [
+  "screening.yaml",
+  "payments.yaml"
+ ],
+ "tables": {},
+ "expect": {
+  "trigger": "Webhook",
+  "must_have_types": [
+   "Approval",
+   "Respond"
+  ],
+  "must_call": [
+   "screening.screen",
+   "payments.hold",
+   "payments.release"
+  ],
+  "max_nodes": 22
+ },
+ "hidden_tests": [
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Clean small batch is all released",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B-9",
+       "payments": [
+        {
+         "payment_id": "P1",
+         "beneficiary": "Acme",
+         "country": "US",
+         "amount": 100000
+        },
+        {
+         "payment_id": "P2",
+         "beneficiary": "Globex",
+         "country": "US",
+         "amount": 200000
+        },
+        {
+         "payment_id": "P3",
+         "beneficiary": "Initech",
+         "country": "US",
+         "amount": 300000
+        }
+       ]
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$api:screening.screen": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": "{{ 'Ivan Petrov' in json_stringify($json) }}",
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:payments.hold": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "held"
+      }
+     }
+    },
+    "$api:payments.release": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "released"
+      }
+     }
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:screening.screen",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "$api:payments.release",
+     "subject": "request",
+     "op": "count",
+     "value": 3
+    },
+    {
+     "node": "$api:payments.hold",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "A hit is held and the rest released",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B-9",
+       "payments": [
+        {
+         "payment_id": "P1",
+         "beneficiary": "Acme",
+         "country": "US",
+         "amount": 100000
+        },
+        {
+         "payment_id": "P2",
+         "beneficiary": "Ivan Petrov",
+         "country": "US",
+         "amount": 200000
+        },
+        {
+         "payment_id": "P3",
+         "beneficiary": "Initech",
+         "country": "US",
+         "amount": 300000
+        }
+       ]
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$api:screening.screen": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": "{{ 'Ivan Petrov' in json_stringify($json) }}",
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:payments.hold": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "held"
+      }
+     }
+    },
+    "$api:payments.release": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "released"
+      }
+     }
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:payments.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "$api:payments.hold",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "P2"
+    },
+    {
+     "node": "$api:payments.release",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$api:payments.release",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "P1"
+    },
+    {
+     "node": "$api:payments.release",
+     "subject": "request",
+     "item": "any",
+     "path": "url",
+     "op": "contains",
+     "value": "P3"
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Big batch approved is released",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B-9",
+       "payments": [
+        {
+         "payment_id": "P1",
+         "beneficiary": "Acme",
+         "country": "US",
+         "amount": 700000
+        },
+        {
+         "payment_id": "P2",
+         "beneficiary": "Globex",
+         "country": "US",
+         "amount": 600000
+        }
+       ]
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$api:screening.screen": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": "{{ 'Ivan Petrov' in json_stringify($json) }}",
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:payments.hold": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "held"
+      }
+     }
+    },
+    "$api:payments.release": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "released"
+      }
+     }
+    },
+    "$all:Approval": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "$api:payments.release",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Big batch rejected: everything held",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B-9",
+       "payments": [
+        {
+         "payment_id": "P1",
+         "beneficiary": "Acme",
+         "country": "US",
+         "amount": 700000
+        },
+        {
+         "payment_id": "P2",
+         "beneficiary": "Globex",
+         "country": "US",
+         "amount": 600000
+        }
+       ]
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$api:screening.screen": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": "{{ 'Ivan Petrov' in json_stringify($json) }}",
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:payments.hold": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "held"
+      }
+     }
+    },
+    "$api:payments.release": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "released"
+      }
+     }
+    },
+    "$all:Approval": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$api:payments.release",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:payments.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    }
+   ]
+  },
+  {
+   "target": {
+    "kind": "workflow"
+   },
+   "category": "normal",
+   "name": "Exactly 1,000,000 needs no approval; the held hit doesn't count",
+   "input": {
+    "items": [
+     {
+      "body": {
+       "batch_id": "B-9",
+       "payments": [
+        {
+         "payment_id": "P1",
+         "beneficiary": "Acme",
+         "country": "US",
+         "amount": 600000
+        },
+        {
+         "payment_id": "P2",
+         "beneficiary": "Globex",
+         "country": "US",
+         "amount": 400000
+        },
+        {
+         "payment_id": "P3",
+         "beneficiary": "Ivan Petrov",
+         "country": "US",
+         "amount": 500000
+        }
+       ]
+      },
+      "headers": {},
+      "query": {},
+      "method": "POST"
+     }
+    ]
+   },
+   "mocks": {
+    "$api:screening.screen": {
+     "http": {
+      "status": 200,
+      "body": {
+       "hit": "{{ 'Ivan Petrov' in json_stringify($json) }}",
+       "list": "OFAC"
+      }
+     }
+    },
+    "$api:payments.hold": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "held"
+      }
+     }
+    },
+    "$api:payments.release": {
+     "http": {
+      "status": 200,
+      "body": {
+       "status": "released"
+      }
+     }
+    },
+    "$all:Approval?": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "$all:Approval?",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "$api:payments.release",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "$api:payments.hold",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    }
+   ]
+  }
+ ]
+}

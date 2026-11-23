@@ -1,0 +1,549 @@
+{
+ "name": "Loan pre-approval by credit score",
+ "nodes": [
+  {
+   "name": "Loan form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Loan pre-approval",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "applicant_id": {
+       "type": "string"
+      },
+      "amount": {
+       "type": "number"
+      }
+     },
+     "required": [
+      "applicant_id",
+      "amount"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Get score",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "risk",
+     "operation_id": "score"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "applicant_id": "{{ $json.applicant_id }}",
+     "requested_amount": "{{ $json.amount }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Score band",
+   "type": "Switch",
+   "parameters": {
+    "mode": "rules",
+    "numberOfOutputs": 2,
+    "rules": [
+     {
+      "output": 0,
+      "field": "{{ $json.body.score }}",
+      "operation": "lt",
+      "value": "600"
+     },
+     {
+      "output": 1,
+      "field": "{{ $json.body.score }}",
+      "operation": "lte",
+      "value": "700"
+     }
+    ]
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Underwriter decision",
+   "type": "Approval",
+   "parameters": {
+    "title": "Loan decision for {{ $node[\"Loan form\"].json.applicant_id }}",
+    "context": {
+     "Applicant": "{{ $node[\"Loan form\"].json.applicant_id }}",
+     "Requested amount": "{{ $node[\"Loan form\"].json.amount }}",
+     "Credit score": "{{ $node[\"Get score\"].json.body.score }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Log declined",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "audit",
+     "operation_id": "logEvent"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "action": "declined",
+     "subject": "{{ $node[\"Loan form\"].json.applicant_id }}",
+     "details": "Score {{ $node[\"Get score\"].json.body.score }}, requested amount {{ $node[\"Loan form\"].json.amount }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Log pre-approved",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "audit",
+     "operation_id": "logEvent"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "action": "pre_approved",
+     "subject": "{{ $node[\"Loan form\"].json.applicant_id }}",
+     "details": "Score {{ $node[\"Get score\"].json.body.score }}, requested amount {{ $node[\"Loan form\"].json.amount }}"
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 110
+   }
+  },
+  {
+   "name": "Reply declined",
+   "type": "Respond",
+   "parameters": {
+    "body": {
+     "status": "declined",
+     "applicant_id": "{{ $node[\"Loan form\"].json.applicant_id }}",
+     "score": "{{ $node[\"Get score\"].json.body.score }}",
+     "message": "The application was declined."
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply pre-approved",
+   "type": "Respond",
+   "parameters": {
+    "body": {
+     "status": "pre_approved",
+     "applicant_id": "{{ $node[\"Loan form\"].json.applicant_id }}",
+     "score": "{{ $node[\"Get score\"].json.body.score }}",
+     "message": "The application was pre-approved."
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Loan form",
+   "target_node": "Get score",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Get score",
+   "target_node": "Score band",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score band",
+   "target_node": "Log declined",
+   "source_output": "output0",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score band",
+   "target_node": "Underwriter decision",
+   "source_output": "output1",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Score band",
+   "target_node": "Log pre-approved",
+   "source_output": "fallback",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter decision",
+   "target_node": "Log pre-approved",
+   "source_output": "approved",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Underwriter decision",
+   "target_node": "Log declined",
+   "source_output": "rejected",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Log declined",
+   "target_node": "Reply declined",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Log pre-approved",
+   "target_node": "Reply pre-approved",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Score 599 is declined without an underwriter",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "applicant_id": "A-100",
+      "amount": 20000
+     }
+    ]
+   },
+   "mocks": {
+    "Get score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "score": 599
+      }
+     }
+    },
+    "Log declined": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "e1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Underwriter decision",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Log pre-approved",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Log declined",
+     "subject": "request",
+     "path": "body.action",
+     "op": "eq",
+     "value": "declined"
+    },
+    {
+     "node": "Reply declined",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "name": "Score 600 goes to underwriter, yes means pre_approved",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "applicant_id": "A-101",
+      "amount": 15000
+     }
+    ]
+   },
+   "mocks": {
+    "Get score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "score": 600
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "approved",
+     "approval": {
+      "decision": "approved",
+      "comment": "",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Log pre-approved": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "e2"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Underwriter decision",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Log pre-approved",
+     "subject": "request",
+     "path": "body.action",
+     "op": "eq",
+     "value": "pre_approved"
+    },
+    {
+     "node": "Log declined",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply pre-approved",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "pre_approved"
+    }
+   ]
+  },
+  {
+   "name": "Score 700 goes to underwriter, no means declined",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "applicant_id": "A-102",
+      "amount": 30000
+     }
+    ]
+   },
+   "mocks": {
+    "Get score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "score": 700
+      }
+     }
+    },
+    "Underwriter decision": {
+     "port": "rejected",
+     "approval": {
+      "decision": "rejected",
+      "comment": "too risky",
+      "form_data": {},
+      "decided_by": "test"
+     }
+    },
+    "Log declined": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "e3"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Underwriter decision",
+     "subject": "node",
+     "op": "status",
+     "value": "success"
+    },
+    {
+     "node": "Log declined",
+     "subject": "request",
+     "path": "body.action",
+     "op": "eq",
+     "value": "declined"
+    },
+    {
+     "node": "Log pre-approved",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply declined",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "declined"
+    }
+   ]
+  },
+  {
+   "name": "Score 701 is pre-approved without an underwriter",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "applicant_id": "A-103",
+      "amount": 50000
+     }
+    ]
+   },
+   "mocks": {
+    "Get score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "score": 701
+      }
+     }
+    },
+    "Log pre-approved": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "e4"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Underwriter decision",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Log declined",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Log pre-approved",
+     "subject": "request",
+     "path": "body.action",
+     "op": "eq",
+     "value": "pre_approved"
+    },
+    {
+     "node": "Reply pre-approved",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "pre_approved"
+    }
+   ]
+  },
+  {
+   "name": "Score request carries applicant id and amount",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "applicant_id": "A-104",
+      "amount": 12345
+     }
+    ]
+   },
+   "mocks": {
+    "Get score": {
+     "http": {
+      "status": 200,
+      "body": {
+       "score": 550
+      }
+     }
+    },
+    "Log declined": {
+     "http": {
+      "status": 201,
+      "body": {
+       "entry_id": "e5"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Get score",
+     "subject": "request",
+     "path": "body.applicant_id",
+     "op": "eq",
+     "value": "A-104"
+    },
+    {
+     "node": "Get score",
+     "subject": "request",
+     "path": "body.requested_amount",
+     "op": "eq",
+     "value": 12345
+    },
+    {
+     "node": "Log declined",
+     "subject": "request",
+     "path": "body.subject",
+     "op": "eq",
+     "value": "A-104"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "loan-pre-approval-by-credit-score",
+  "title": "Loan pre-approval",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Loan form",
+  "result_node": "Reply pre-approved"
+ }
+}

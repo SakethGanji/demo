@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Backend editor — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+  .work { position: absolute; top: 68px; left: 272px; right: 12px; bottom: 12px; display: flex; gap: 12px; }
+  .editor { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .inspector { width: 404px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .filebar { height: 44px; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 6px; border-bottom: 1px solid var(--border); }
+  .ftab { height: 30px; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; border-radius: 7px; font: 12.5px/1 var(--font-mono); color: var(--muted-foreground); }
+  .ftab.on { background: var(--muted); color: var(--foreground); }
+  .ftab .mod { width: 6px; height: 6px; border-radius: 9px; background: var(--foreground); opacity: .55; }
+  /* AI composer */
+  .composer { margin: 10px 12px 0; border: 1px solid color-mix(in srgb, var(--ai) 28%, var(--border)); border-radius: 10px; background: linear-gradient(180deg, color-mix(in srgb, var(--ai) 4%, var(--card)), var(--card)); box-shadow: 0 1px 0 color-mix(in srgb, var(--ai) 8%, transparent), var(--shadow-xs); }
+  .composer .in { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; }
+  .composer .txt { flex: 1; min-width: 0; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .result { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 12px; border-top: 1px dashed color-mix(in srgb, var(--ai) 22%, var(--border)); font-size: 12px; }
+  .diffstat b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .code-wrap { flex: 1; overflow: hidden; position: relative; margin-top: 10px; border-top: 1px solid var(--border); }
+  .code { height: 100%; }
+  .widget { margin: 3px 0 4px 58px; display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 6px 0 10px; border-radius: 7px; border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent); background: color-mix(in srgb, var(--warning) 7%, var(--card)); font: 12px/1 var(--font-sans); white-space: normal; }
+  .ac { position: absolute; left: 226px; top: 508px; width: 470px; z-index: 3; overflow: hidden; }
+  .ac-row { display: flex; align-items: center; gap: 10px; height: 28px; white-space: nowrap; padding: 0 10px; font: 12px/1 var(--font-mono); }
+  .ac-row.on { background: color-mix(in srgb, var(--primary) 9%, transparent); }
+  .ac-ico { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 600 10px/1 var(--font-mono); background: color-mix(in srgb, var(--syn-fn) 12%, transparent); color: var(--syn-fn); }
+  .ac-doc { border-top: 1px solid var(--border); padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12px; line-height: 17px; color: var(--muted-foreground); background: color-mix(in srgb, var(--muted) 45%, transparent); }
+  .statusbar { height: 30px; display: flex; align-items: center; gap: 14px; padding: 0 12px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted-foreground); }
+  .statusbar .it { display: inline-flex; align-items: center; gap: 5px; }
+  /* inspector */
+  .route-pick { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); }
+  .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px; align-items: center; }
+  .resp-h { display: flex; align-items: center; gap: 8px; }
+  .status-pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: 6px; font: 600 11.5px/1 var(--font-mono); color: var(--method-get); background: color-mix(in srgb, var(--success) 11%, transparent); }
+  .body-box { border: 1px solid var(--border); border-radius: 8px; background: var(--code-bg); padding: 10px 12px; }
+  .wf { display: grid; grid-template-columns: 128px 1fr 54px; align-items: center; gap: 10px; height: 26px; font-size: 12px; }
+  .wf .bar-track { position: relative; height: 8px; }
+  .wf .bar { position: absolute; top: 0; height: 8px; border-radius: 3px; }
+  .sub { font-size: 11.5px; color: var(--muted-foreground); }
+  .section-t { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
+  .status-pill, .resp-h > *, .nowrap, .result > * { white-space: nowrap; }
+  .body-box { overflow: auto; flex-shrink: 0; white-space: pre-wrap; word-break: break-word; }
+  .trunc { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .show-lg { display: none !important; }
+  @media (max-width: 1359px) { .hide-lg { display: none !important; } .show-lg { display: inline-flex !important; } .optlg { display: none !important; } .reqbar { flex-wrap: wrap; } .reqbar .grow { display: none; } .reqbar .btn { width: 100%; } }
+  @media (max-width: 1279px) { .result .opt { display: none; } .ftab:first-child { display: none; } }
+</style>
+</head>
+<body data-active="backend" data-state="draft">
+<div class="app">
+  <div id="shell"></div>
+
+  <div class="work">
+    <!-- Editor -->
+    <section class="editor panel">
+      <div class="filebar">
+        <span class="ftab"><i data-lucide="file-code-2" class="i14"></i>orders_api.py</span>
+        <span class="ftab on"><i data-lucide="file-code-2" class="i14"></i>refunds.py<span class="mod"></span></span>
+        <div class="grow"></div>
+        <span class="muted hide-lg" style="font-size:12px;margin-right:6px">Unsaved · 3 new routes on save</span>
+        <span class="btn ghost sm"><i data-lucide="book-open" class="i14"></i>SDK</span>
+        <span class="btn default sm">Save<span class="kbd">⌘S</span></span>
+      </div>
+
+      <div class="composer">
+        <div class="in">
+          <span class="avatar-ai"><i data-lucide="sparkles"></i></span>
+          <span class="txt"><span class="muted">2nd prompt ·</span> Also check the payments API balance with PAYMENTS_TOKEN in /refunds/stats. <span class="muted">— first: Store refunds in a <span class="mono" style="font-size:12.5px">refunds</span> table. POST /refunds creates one, GET /refunds lists them, GET /refunds/stats totals by reason and checks…</span></span>
+          <span class="btn ghost xs">Edit</span>
+          <span class="btn ai sm"><i data-lucide="wand-sparkles" class="i14"></i>Refine<span class="kbd">⏎</span></span>
+        </div>
+        <div class="result" data-testid="composer-result">
+          <i data-lucide="circle-check" class="i14" style="color:var(--success)"></i>
+          <span class="fg" style="font-weight:500">Refined</span>
+          <span class="diffstat muted"><b style="color:var(--method-get)">+4</b> <b style="color:var(--method-delete)">−1</b></span>
+          <span class="muted opt optlg">·</span><span class="muted opt optlg">3 routes</span>
+          <span class="muted opt">·</span><span class="muted opt">self-test <span class="fg">2 / 2 passed</span></span>
+          <span class="muted">·</span><span style="color:var(--warning-text)">1 secret missing<span class="opt"> in prod</span></span>
+          <div class="grow"></div>
+          <span class="btn ghost xs">Discard</span>
+          <span class="btn ghost xs hide-lg"><i data-lucide="git-compare" class="i12"></i>Diff</span>
+          <span class="btn ghost icon xs show-lg"><i data-lucide="ellipsis" class="i12"></i></span>
+        </div>
+        <div class="result" style="border-top-style:solid;border-top-color:var(--border);background:color-mix(in srgb,var(--ai) 3%,transparent)" data-testid="composer-tables">
+          <span class="check on"><i data-lucide="check"></i></span>
+          <span>Create table <span class="mono" style="font-size:11.5px">refunds</span> on save</span>
+          <span class="muted mono hide-lg" style="font-size:11px">reason string · amount number</span>
+          <div class="grow"></div>
+          <span class="btn ghost xs">Edit columns</span>
+        </div>
+      </div>
+
+      <div class="code-wrap">
+        <div class="code">
+          <div class="ln"><span class="k">from</span> studio <span class="k">import</span> api, HTTPError</div>
+          <div class="ln"><span class="k">import</span> studio</div>
+          <div class="ln"> </div>
+          <div class="ln">refunds = studio.db.<span class="f">table</span>(<span class="s">"refunds"</span>)</div>
+          <div class="ln">PAYMENTS = <span class="s">"https://payments.internal/v1"</span></div>
+          <div class="ln"> </div>
+          <div class="ln"><span class="d">@api.post</span>(<span class="s">"/refunds"</span>, name=<span class="s">"createRefund"</span>)</div>
+          <div class="ln"><span class="k">def</span> <span class="f">create_refund</span>(req):</div>
+          <div class="ln">    <span class="k">if</span> <span class="s">"amount"</span> <span class="k">not in</span> req.body:</div>
+          <div class="ln">        <span class="k">raise</span> <span class="f">HTTPError</span>(<span class="n">422</span>, {<span class="s">"error"</span>: <span class="s">"amount is required"</span>})</div>
+          <div class="ln">    <span class="k">return</span> refunds.<span class="f">insert</span>(req.body)</div>
+          <div class="ln"> </div>
+          <div class="ln"><span class="d">@api.get</span>(<span class="s">"/refunds"</span>, name=<span class="s">"listRefunds"</span>)</div>
+          <div class="ln"><span class="k">def</span> <span class="f">list_refunds</span>(req):</div>
+          <div class="ln">    <span class="k">return</span> refunds.<span class="f">list</span>(limit=<span class="f">int</span>(req.query.<span class="f">get</span>(<span class="s">"limit"</span>, <span class="n">50</span>)))</div>
+          <div class="ln"> </div>
+          <div class="ln"><span class="d">@api.get</span>(<span class="s">"/refunds/stats"</span>, name=<span class="s">"refundStats"</span>)</div>
+          <div class="ln"><span class="k">def</span> <span class="f">refund_stats</span>(req):</div>
+          <div class="ln add">    balance = studio.nodes.<span class="f">http_request</span>(method=<span class="s">"GET"</span>, url=<span class="s">f"</span>{PAYMENTS}<span class="s">/balance"</span>,</div>
+          <div class="ln add">        headers=[{<span class="s">"name"</span>: <span class="s">"Authorization"</span>,</div>
+          <div class="ln add">                  <span class="s">"value"</span>: <span class="s">f"Bearer </span>{studio.<span class="f">secret</span>(<span class="squig s">'PAYMENTS_TOKEN'</span>)}<span class="s">"</span>}])</div>
+          <div class="widget"><i data-lucide="key-round" class="i14" style="color:var(--warning)"></i><span><span class="mono" style="font-size:11.5px">PAYMENTS_TOKEN</span> is set in <b style="font-weight:500">dev</b>, missing in <b style="font-weight:500">prod</b></span><span class="btn outline xs">Add to prod</span><span class="btn ghost icon xs"><i data-lucide="x" class="i12"></i></span></div>
+          <div class="ln">    rows = refunds.<span class="f">list</span>(limit=<span class="n">1000</span>)</div>
+          <div class="ln active">    top = studio.nodes.<span class="f">it</span><span class="cursor"></span></div>
+          <div class="ln">    by_reason = {}</div>
+          <div class="ln">    <span class="k">for</span> r <span class="k">in</span> rows:</div>
+          <div class="ln">        by_reason[r[<span class="s">"reason"</span>]] = by_reason.<span class="f">get</span>(r[<span class="s">"reason"</span>], <span class="n">0</span>) + r[<span class="s">"amount"</span>]</div>
+          <div class="ln">    <span class="k">return</span> {<span class="s">"count"</span>: <span class="f">len</span>(rows), <span class="s">"by_reason"</span>: by_reason,</div>
+          <div class="ln">            <span class="s">"available"</span>: balance[<span class="n">0</span>][<span class="s">"body"</span>][<span class="s">"available"</span>]}</div>
+        </div>
+
+        <!-- autocomplete -->
+        <div class="ac popover">
+          <div class="ac-row on"><span class="ac-ico">ƒ</span><span class="grow"><span class="fg" style="font-weight:600">it</span>em_lists<span class="muted">(*, operation, sort_by, order, …)</span></span><span class="muted" style="font-family:var(--font-sans);font-size:11px">ItemLists</span></div>
+          <div class="ac-row"><span class="ac-ico">ƒ</span><span class="grow">f<span class="fg" style="font-weight:600">i</span>l<span class="fg" style="font-weight:600">t</span>er<span class="muted">(*, mode, condition, field, …)</span></span><span class="muted" style="font-family:var(--font-sans);font-size:11px">Filter</span></div>
+          <div class="ac-row"><span class="ac-ico">ƒ</span><span class="grow">http_request<span class="muted">(*, method, url, headers, body, …)</span></span><span class="muted" style="font-family:var(--font-sans);font-size:11px">HttpRequest</span></div>
+          <div class="ac-doc"><span class="fg" style="font-weight:500">Sort, limit, dedupe or aggregate items</span> · rows via <span class="mono" style="font-size:11px">items=</span> · returns <span class="mono" style="font-size:11px">list[dict]</span></div>
+        </div>
+      </div>
+
+      <div class="statusbar">
+        <span class="it"><i data-lucide="circle-check" class="i12" style="color:var(--success)"></i>No syntax errors</span>
+        <span class="it"><i data-lucide="triangle-alert" class="i12" style="color:var(--warning)"></i>1 warning</span>
+        <div class="grow"></div>
+        <span class="it">Ln 23, Col 25</span>
+        <span class="it">Python 3.14</span>
+        <span class="it"><i data-lucide="shield-check" class="i12"></i>Sandbox · bwrap</span>
+      </div>
+    </section>
+
+    <!-- Inspector -->
+    <section class="inspector panel">
+      <div class="tabs">
+        <span class="tab on"><i data-lucide="play" class="i14"></i>Test</span>
+        <span class="tab"><i data-lucide="book-open" class="i14"></i>Reference</span>
+        <span class="tab"><i data-lucide="file-type-2" class="i14"></i>client.ts</span>
+      </div>
+      <div style="padding:14px 16px;overflow:hidden" class="col gap-3">
+        <div class="route-pick"><span class="method get">GET</span><span class="mono grow fg">/refunds/stats</span><span class="badge ai" style="height:18px;font-size:10.5px">draft</span><i data-lucide="chevron-down" class="i14 muted"></i></div>
+        <div class="row gap-2 reqbar">
+          <div class="seg"><span>Params</span><span class="on">Query</span><span>Body</span><span>Headers</span></div>
+          <div class="grow"></div>
+          <span class="btn default sm"><i data-lucide="send-horizontal" class="i14"></i>Send<span class="kbd">⌘⏎</span></span>
+        </div>
+        <div class="kv">
+          <span class="input sm mono" style="font-size:12px">since</span><span class="input sm mono" style="font-size:12px"><span class="ph">2026-10-01</span></span>
+        </div>
+        <div class="help" style="margin-top:-4px">Runs your <b style="font-weight:500;color:var(--foreground)">unsaved</b> code with <b style="font-weight:500;color:var(--foreground)">dev</b> secrets. Writes go to your real tables (shared by dev and prod). <span style="color:var(--foreground)">refunds</span> doesn't exist yet: reads return empty.</div>
+
+        <div class="hr"></div>
+
+        <div class="resp-h">
+          <span class="status-pill">200 OK</span>
+          <span class="muted num">214 ms</span><span class="muted">·</span><span class="muted mono" style="font-size:11.5px">exec_01a1…8f3a</span>
+          <div class="grow"></div>
+          <span class="btn ghost xs" style="opacity:.45" title="Save the module first: schemas apply to saved routes"><i data-lucide="file-json-2" class="i12"></i><span class="hide-lg">Use as schema</span></span>
+        </div>
+        <div class="row gap-1" style="margin-top:-2px">
+          <div class="seg"><span class="on">Body</span><span>Headers</span><span>Schema</span></div>
+        </div>
+        <div class="body-box json"><span class="pun">{</span>
+  <span class="key">"count"</span><span class="pun">:</span> <span class="num">0</span><span class="pun">,</span>
+  <span class="key">"by_reason"</span><span class="pun">: {},</span>
+  <span class="key">"available"</span><span class="pun">:</span> <span class="num">12840.25</span>
+<span class="pun">}</span></div>
+
+        <div class="section-t" style="margin-top:4px"><i data-lucide="chevron-down" class="i14 muted"></i>Trace<span class="muted" style="font-weight:450">· 2 node calls · sandbox 214 ms</span></div>
+        <div class="col" style="gap:2px">
+          <div class="wf"><span class="row gap-1h"><i data-lucide="box" class="i12 muted"></i>Sandbox</span><span class="bar-track"><span class="bar" style="left:0;width:100%;background:color-mix(in srgb,var(--foreground) 14%,transparent)"></span></span><span class="muted num" style="text-align:right">214 ms</span></div>
+          <div class="wf"><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="mono" style="font-size:11.5px">DataTable.list</span></span><span class="bar-track"><span class="bar" style="left:18%;width:7%;background:var(--method-post)"></span></span><span class="muted num" style="text-align:right">2 ms</span></div>
+          <div class="wf"><span class="row gap-1h"><span class="dot ok" style="box-shadow:none"></span><span class="mono" style="font-size:11.5px">HttpRequest</span></span><span class="bar-track"><span class="bar" style="left:29%;width:40%;background:var(--method-post)"></span></span><span class="muted num" style="text-align:right">86 ms</span></div>
+          <div class="sub" style="padding-left:20px;margin-top:2px;min-width:0"><span class="mono trunc" style="font-size:11px" title="GET payments.internal/v1/balance → 200 · Authorization: Bearer ***">GET payments.internal/v1/balance → 200 · Authorization: Bearer ***</span></div>
+        </div>
+        <div class="row gap-2 sub"><i data-lucide="terminal" class="i12"></i>stdout empty · exit 0</div>
+        <div class="hr" style="margin-top:4px"></div>
+        <div class="section-t"><i data-lucide="history" class="i14 muted"></i>Recent tests</div>
+        <div class="col" style="gap:0">
+          <div class="row gap-2" style="height:28px"><span class="status-pill" style="height:18px;font-size:10.5px;padding:0 6px">200</span><span class="mono" style="font-size:11.5px">GET /refunds/stats</span><span class="grow"></span><span class="muted num" style="font-size:11.5px">214 ms · now</span></div>
+          <div class="row gap-2" style="height:28px"><span class="status-pill" style="height:18px;font-size:10.5px;padding:0 6px;color:var(--method-delete);background:color-mix(in srgb,var(--destructive) 10%,transparent)">502</span><span class="mono" style="font-size:11.5px">GET /refunds/stats</span><span class="muted" style="font-size:11.5px">secret_not_bound</span><span class="grow"></span><span class="muted num" style="font-size:11.5px">2m</span></div>
+          <div class="row gap-2" style="height:28px"><span class="status-pill" style="height:18px;font-size:10.5px;padding:0 6px;color:var(--warning-text);background:color-mix(in srgb,var(--warning) 13%,transparent)">422</span><span class="mono" style="font-size:11.5px">POST /refunds</span><span class="muted" style="font-size:11.5px">amount is required</span><span class="grow"></span><span class="muted num" style="font-size:11.5px">3m</span></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

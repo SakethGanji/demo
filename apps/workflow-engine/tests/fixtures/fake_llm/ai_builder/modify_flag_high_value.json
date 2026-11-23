@@ -1,0 +1,22 @@
+{
+  "rules": [
+    {
+      "id": "spec",
+      "when": {
+        "system_matches": "^WF_AI:SPEC\\n"
+      },
+      "respond": {
+        "text": "{\"title\": \"Amount triage\", \"summary\": \"Also flag amounts over 10000 as high value.\", \"trigger\": {\"kind\": \"webhook\", \"fields\": []}, \"rules\": [{\"id\": \"r1\", \"text\": \"Amounts over 10000 are flagged as high value before the reply.\"}], \"steps\": [{\"name\": \"Flag high value\", \"node_type\": \"Set\", \"purpose\": \"flagged = amount > 10000\", \"rules\": [\"r1\"]}], \"tests\": [{\"ref\": \"T1\", \"rules\": [\"r1\"], \"test_json\": \"{\\\"name\\\": \\\"A very large amount is flagged\\\", \\\"target\\\": {\\\"kind\\\": \\\"workflow\\\"}, \\\"input\\\": {\\\"items\\\": [{\\\"body\\\": {\\\"amount\\\": 20000}, \\\"headers\\\": {}, \\\"query\\\": {}, \\\"method\\\": \\\"POST\\\"}]}, \\\"mocks\\\": {}, \\\"expect\\\": [{\\\"node\\\": \\\"Over limit?\\\", \\\"port\\\": \\\"true\\\", \\\"op\\\": \\\"count\\\", \\\"value\\\": 1}, {\\\"node\\\": \\\"Flag high value\\\", \\\"path\\\": \\\"flagged\\\", \\\"op\\\": \\\"eq\\\", \\\"value\\\": true}, {\\\"node\\\": \\\"Reply\\\", \\\"op\\\": \\\"status\\\", \\\"value\\\": \\\"success\\\"}], \\\"category\\\": \\\"boundary\\\"}\"}], \"assumptions\": [], \"questions\": []}"
+      }
+    },
+    {
+      "id": "build",
+      "when": {
+        "system_matches": "^WF_AI:BUILD\\n"
+      },
+      "respond": {
+        "text": "{\"plan\": [], \"ops\": [{\"op\": \"add_node\", \"args_json\": \"{\\\"name\\\": \\\"Flag high value\\\", \\\"type\\\": \\\"Set\\\", \\\"parameters\\\": {\\\"mode\\\": \\\"manual\\\", \\\"keepOnlySet\\\": false, \\\"fields\\\": [{\\\"name\\\": \\\"flagged\\\", \\\"value\\\": \\\"{{ $node[\\\\\\\"Receive amount\\\\\\\"].json.body.amount > 10000 }}\\\"}]}}\", \"why\": \"\"}, {\"op\": \"disconnect\", \"args_json\": \"{\\\"source\\\": \\\"Mark for review\\\", \\\"target\\\": \\\"Reply\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Mark for review\\\", \\\"target\\\": \\\"Flag high value\\\"}\", \"why\": \"\"}, {\"op\": \"connect\", \"args_json\": \"{\\\"source\\\": \\\"Flag high value\\\", \\\"target\\\": \\\"Reply\\\"}\", \"why\": \"\"}], \"notes\": \"\"}"
+      }
+    }
+  ]
+}

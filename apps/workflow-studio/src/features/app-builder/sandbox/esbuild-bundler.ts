@@ -3,7 +3,7 @@
  *
  * Bundles multiple TSX/TS files from a virtual filesystem into a single
  * IIFE that sets `window.__AppModule` with a `default` export.
- * React and ReactDOM are mapped to window globals (loaded via CDN in the iframe).
+ * React and ReactDOM are mapped to window globals (packaged locally in the iframe).
  *
  * The esbuild WASM binary is served from our own static assets (copied to
  * public/ at install time) so it works behind corporate firewalls.
@@ -24,9 +24,8 @@ let initPromise: Promise<void> | null = null
 
 function ensureInit(): Promise<void> {
   if (!initPromise) {
-    initPromise = esbuild.initialize({
-      wasmURL: '/esbuild.wasm',
-    })
+    // Node (tests) loads the wasm from the package itself; the browser fetches it from our origin.
+    initPromise = esbuild.initialize(typeof window === 'undefined' ? {} : { wasmURL: '/esbuild.wasm' })
   }
   return initPromise
 }
@@ -56,9 +55,10 @@ function join(...parts: string[]): string {
 // ---------------------------------------------------------------------------
 
 const EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js']
+const ASSET_LOADERS: Record<string, esbuild.Loader> = { css: 'css', json: 'json' }
 const INDEX_FILES = EXTENSIONS.map((e) => `index${e}`)
 
-/** Map of global externals — these come from CDN scripts, not the bundle. */
+/** Map of global externals — these come from packaged runtime scripts, not the bundle. */
 const GLOBAL_EXTERNALS: Record<string, string> = {
   react: 'window.React',
   'react-dom': 'window.ReactDOM',
@@ -81,12 +81,33 @@ function resolveFile(fileMap: Map<string, AppFile>, rawPath: string): string | u
   return undefined
 }
 
-function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
+/**
+ * jsxDEV runtime for tagged preview bundles: elements written in app files (not the kit) get `data-vsrc="file:line:col"`,
+ * which the visual editor maps back to the source element. esbuild passes the location as jsxDEV's fifth argument.
+ */
+export const JSX_DEV_SHIM = `const R = window.React
+export const Fragment = R.Fragment
+export function jsxDEV(type, props, key, _s, src) {
+  const file = src && src.fileName.replace(/^virtual:/, '')
+  if (file && type !== R.Fragment && !file.startsWith('kit/')) props = { ...props, 'data-vsrc': file + ':' + src.lineNumber + ':' + src.columnNumber }
+  if (key !== undefined) props = { ...props, key }
+  return R.createElement(type, props)
+}`
+
+/** The app-owned theme overrides (visual/theme): loaded after everything else so they win over the kit and index.css tokens. */
+export const THEME_PATH = 'theme.css'
+
+function virtualFsPlugin(files: AppFile[], entryPoint: string, tagSources = false): esbuild.Plugin {
   const fileMap = new Map(files.map((f) => [f.path, f]))
 
   return {
     name: 'virtual-fs',
     setup(build) {
+      if (tagSources) {
+        build.onResolve({ filter: /^react\/jsx-dev-runtime$/ }, () => ({ path: 'jsx-dev-runtime', namespace: 'jsx-shim' }))
+        build.onLoad({ filter: /.*/, namespace: 'jsx-shim' }, () => ({ contents: JSX_DEV_SHIM, loader: 'js' }))
+      }
+
       // Global externals (react, react-dom) → shimmed to window globals
       build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => ({
         path: args.path,
@@ -97,6 +118,9 @@ function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
         const globalRef = GLOBAL_EXTERNALS[args.path] ?? 'undefined'
         return { contents: `module.exports = ${globalRef}`, loader: 'js' }
       })
+
+      // Tailwind's own stylesheet import is resolved by the preview's Tailwind runtime, not bundled
+      build.onResolve({ filter: /^tailwindcss(\/.*)?$/ }, (args) => ({ path: args.path, external: true }))
 
       // Relative imports → resolve in virtual filesystem
       build.onResolve({ filter: /^\./ }, (args) => {
@@ -118,8 +142,10 @@ function virtualFsPlugin(files: AppFile[]): esbuild.Plugin {
       build.onLoad({ filter: /.*/, namespace: 'virtual' }, (args) => {
         const file = fileMap.get(args.path)
         if (!file) return { errors: [{ text: `File not found: ${args.path}` }] }
-        const ext = (args.path.split('.').pop() ?? 'tsx') as esbuild.Loader
-        return { contents: file.content, loader: ext }
+        const ext = args.path.split('.').pop() ?? 'tsx'
+        // theme.css is imported last from the entry, so its :root / .dark overrides come after the kit's and the app's own CSS
+        const contents = args.path === entryPoint && fileMap.has(THEME_PATH) ? `${file.content}\nimport '${THEME_PATH}'\n` : file.content
+        return { contents, loader: ASSET_LOADERS[ext] ?? (ext as esbuild.Loader) }
       })
     },
   }
@@ -154,10 +180,18 @@ function findEntryPoint(files: AppFile[]): string {
   return first?.path ?? 'App.tsx'
 }
 
-export async function bundleFiles(files: AppFile[]): Promise<BundleResult> {
+export interface BundleOptions {
+  /** tag elements with their source location for the visual editor (preview only; never the published bundle) */
+  tagSources?: boolean
+}
+
+export async function bundleFiles(files: AppFile[], options: BundleOptions = {}): Promise<BundleResult> {
   await ensureInit()
 
   const entryPoint = findEntryPoint(files)
+  const jsx: esbuild.BuildOptions = options.tagSources
+    ? { jsx: 'automatic', jsxDev: true }
+    : { jsx: 'transform', jsxFactory: 'React.createElement', jsxFragment: 'React.Fragment' }
 
   try {
     const result = await esbuild.build({
@@ -165,11 +199,11 @@ export async function bundleFiles(files: AppFile[]): Promise<BundleResult> {
       bundle: true,
       format: 'iife',
       globalName: '__AppModule',
-      jsx: 'transform',
-      jsxFactory: 'React.createElement',
-      jsxFragment: 'React.Fragment',
+      ...jsx,
       write: false,
-      plugins: [virtualFsPlugin(files)],
+      // CSS imported from the app is emitted as a sibling output file (returned as `css`); esbuild needs an outdir for it
+      outdir: 'out',
+      plugins: [virtualFsPlugin(files, entryPoint, options.tagSources)],
       define: {
         'process.env.NODE_ENV': '"production"',
       },

@@ -1,0 +1,5 @@
+payee_name,iban,amount,currency,reference
+Harbour Insurance,GB29NWBK60161331926819,120.50,GBP,Policy 2026-10
+"Jenkins & Sons",GB98BARC20041512345678,"1,250.00",GBP,Invoice 4471
+Penrose Medical,GB73LOYD30963512345670,89.99,EUR,Lab fees
+Oakridge School,GB71HBUK40127612345678,2400.00,GBP,Autumn term

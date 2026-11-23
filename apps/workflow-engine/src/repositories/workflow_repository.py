@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -27,41 +28,17 @@ class WorkflowRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, workflow: Workflow, folder_id: str | None = None) -> StoredWorkflow:
+    async def create(
+        self, workflow: Workflow, folder_id: str | None = None, project_id: str | None = None,
+        created_by: str | None = None,
+    ) -> StoredWorkflow:
         """Create a new workflow."""
         from ..engine.types import StoredWorkflow, Workflow as WorkflowType
 
         workflow_id = workflow.id or self._generate_id()
         now = datetime.now()
 
-        # Build definition dict from workflow
-        definition = {
-            "nodes": [
-                {
-                    "name": n.name,
-                    "type": n.type,
-                    "parameters": n.parameters,
-                    "position": n.position,
-                    **({"label": n.label} if n.label else {}),
-                    **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
-                    "retry_on_fail": n.retry_on_fail,
-                    "retry_delay": n.retry_delay,
-                    "continue_on_fail": n.continue_on_fail,
-                }
-                for n in workflow.nodes
-            ],
-            "connections": [
-                {
-                    "source_node": c.source_node,
-                    "target_node": c.target_node,
-                    "source_output": c.source_output,
-                    "target_input": c.target_input,
-                    **({"waypoints": c.waypoints} if c.waypoints else {}),
-                }
-                for c in workflow.connections
-            ],
-            "settings": workflow.settings,
-        }
+        definition = workflow_to_definition(workflow)
 
         db_workflow = WorkflowModel(
             id=workflow_id,
@@ -72,13 +49,32 @@ class WorkflowRepository:
             draft_definition=definition,
             created_at=now,
             updated_at=now,
+            created_by=created_by,
         )
+        if project_id:
+            db_workflow.project_id = project_id
 
         self._session.add(db_workflow)
+        await self._index_draft(db_workflow, before={})
         await self._session.commit()
         await self._session.refresh(db_workflow)
 
         return self._to_stored_workflow(db_workflow)
+
+    async def _index_draft(self, db_workflow: WorkflowModel, before: dict | None) -> None:
+        """Keep the ``workflow_refs`` draft rows ("used by", cycle check) in step with the draft this session is about to commit.
+
+        The one hook for every draft write that goes through the repository (DESIGN-STAGE8-REUSE 5.1), so a caller can't forget it.
+        ``before`` is the definition being replaced: a write that neither had nor has a sub-workflow call costs no query.
+        Runs in the caller's transaction (a savepoint); the caller commits.
+        """
+        from ..services.workflow_refs import refs_of, sync_refs
+
+        after = db_workflow.draft_definition
+        if before is not None and not refs_of(before) and not refs_of(after):
+            return
+        await self._session.flush()
+        await sync_refs(self._session, db_workflow.id, None, after, project_id=db_workflow.project_id)
 
     async def get(self, workflow_id: str) -> StoredWorkflow | None:
         """Get a workflow by ID."""
@@ -87,17 +83,21 @@ class WorkflowRepository:
             return None
         return self._to_stored_workflow(result)
 
-    async def list(self, folder_id: str | None = None) -> list[StoredWorkflow]:
-        """List all workflows, optionally filtered by folder."""
+    async def list(self, folder_id: str | None = None, project_id: str | None = None) -> list[StoredWorkflow]:
+        """List all workflows, optionally filtered by folder and/or project."""
         statement = select(WorkflowModel)
         if folder_id is not None:
             statement = statement.where(WorkflowModel.folder_id == folder_id)
+        if project_id is not None:
+            statement = statement.where(WorkflowModel.project_id == project_id)
         statement = statement.order_by(WorkflowModel.updated_at.desc())
         result = await self._session.execute(statement)
         workflows = result.scalars().all()
         return [self._to_stored_workflow(w) for w in workflows]
 
-    async def update(self, workflow_id: str, workflow: Workflow, folder_id: str | None = None) -> StoredWorkflow | None:
+    async def update(
+        self, workflow_id: str, workflow: Workflow, folder_id: str | None = None, project_id: str | None = None,
+    ) -> StoredWorkflow | None:
         """Update an existing workflow."""
         db_workflow = await self._session.get(WorkflowModel, workflow_id)
         if not db_workflow:
@@ -109,42 +109,42 @@ class WorkflowRepository:
         if workflow.description is not None:
             db_workflow.description = workflow.description
 
-        # Build new definition
-        definition = {
-            "nodes": [
-                {
-                    "name": n.name,
-                    "type": n.type,
-                    "parameters": n.parameters,
-                    "position": n.position,
-                    **({"label": n.label} if n.label else {}),
-                    **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
-                    "retry_on_fail": n.retry_on_fail,
-                    "retry_delay": n.retry_delay,
-                    "continue_on_fail": n.continue_on_fail,
-                }
-                for n in workflow.nodes
-            ],
-            "connections": [
-                {
-                    "source_node": c.source_node,
-                    "target_node": c.target_node,
-                    "source_output": c.source_output,
-                    "target_input": c.target_input,
-                    **({"waypoints": c.waypoints} if c.waypoints else {}),
-                }
-                for c in workflow.connections
-            ],
-            "settings": workflow.settings or db_workflow.draft_definition.get("settings", {}),
-        }
+        before = copy.deepcopy(db_workflow.draft_definition or {})
+        definition = workflow_to_definition(workflow)
+        if not workflow.settings:
+            definition["settings"] = db_workflow.draft_definition.get("settings", {})
+        if "interface" not in definition and (db_workflow.draft_definition or {}).get("interface"):
+            # Stage 5: a save that doesn't carry the interface never drops it (set_interface is the only way to change/remove it)
+            definition["interface"] = db_workflow.draft_definition["interface"]
         db_workflow.draft_definition = definition
         if folder_id is not None:
             db_workflow.folder_id = folder_id
+        if project_id is not None:
+            db_workflow.project_id = project_id
         db_workflow.updated_at = datetime.now()
 
+        await self._index_draft(db_workflow, before)
         await self._session.commit()
         await self._session.refresh(db_workflow)
 
+        return self._to_stored_workflow(db_workflow)
+
+    async def set_interface(self, workflow_id: str, interface: dict | None) -> StoredWorkflow | None:
+        """Replace (or, with ``None``, remove) the draft's ``interface`` key. Nothing else in the draft changes."""
+        db_workflow = await self._session.get(WorkflowModel, workflow_id)
+        if not db_workflow:
+            return None
+        before = db_workflow.draft_definition or {}
+        definition = dict(before)
+        if interface is None:
+            definition.pop("interface", None)
+        else:
+            definition["interface"] = interface
+        db_workflow.draft_definition = definition      # a new dict, so the JSONB change is detected
+        db_workflow.updated_at = datetime.now()
+        await self._index_draft(db_workflow, before)
+        await self._session.commit()
+        await self._session.refresh(db_workflow)
         return self._to_stored_workflow(db_workflow)
 
     async def set_active(self, workflow_id: str, active: bool) -> StoredWorkflow | None:
@@ -168,6 +168,10 @@ class WorkflowRepository:
         db_workflow = await self._session.get(WorkflowModel, workflow_id)
         if not db_workflow:
             return False
+
+        # Stage 5: the live slug, submissions and chat sessions go with the workflow (a no-op until the tables exist)
+        from .interface_repository import InterfaceRepository
+        await InterfaceRepository(self._session).purge_workflow(workflow_id)
 
         # node_outputs reference executions (indirect), delete first
         exec_ids_result = await self._session.execute(
@@ -217,54 +221,15 @@ class WorkflowRepository:
         return workflow_id()
 
     def _to_stored_workflow(self, db_workflow: WorkflowModel) -> StoredWorkflow:
-        """Convert database model to StoredWorkflow."""
-        from ..engine.types import (
-            Connection,
-            NodeData,
-            NodeDefinition,
-            StoredWorkflow,
-            Workflow as WorkflowType,
-        )
+        """Convert database model to StoredWorkflow (always the draft definition)."""
+        from ..engine.types import StoredWorkflow
 
-        definition = db_workflow.draft_definition
-
-        # Reconstruct nodes
-        nodes = [
-            NodeDefinition(
-                name=n["name"],
-                type=n["type"],
-                parameters=n.get("parameters", {}),
-                position=n.get("position"),
-                label=n.get("label"),
-                pinned_data=[NodeData(json=d["json"]) for d in n["pinned_data"]] if n.get("pinned_data") else None,
-                retry_on_fail=n.get("retry_on_fail", 0),
-                retry_delay=n.get("retry_delay", 1000),
-                continue_on_fail=n.get("continue_on_fail", False),
-            )
-            for n in definition.get("nodes", [])
-        ]
-
-        # Reconstruct connections
-        connections = [
-            Connection(
-                source_node=c["source_node"],
-                target_node=c["target_node"],
-                source_output=c.get("source_output", "main"),
-                target_input=c.get("target_input", "main"),
-                waypoints=c.get("waypoints"),
-            )
-            for c in definition.get("connections", [])
-        ]
-
-        workflow = WorkflowType(
+        workflow = definition_to_workflow(
+            db_workflow.draft_definition,
             name=db_workflow.name,
-            nodes=nodes,
-            connections=connections,
-            id=db_workflow.id,
+            workflow_id=db_workflow.id,
             description=db_workflow.description,
-            settings=definition.get("settings", {}),
         )
-
         return StoredWorkflow(
             id=db_workflow.id,
             name=db_workflow.name,
@@ -272,4 +237,114 @@ class WorkflowRepository:
             active=db_workflow.active,
             created_at=db_workflow.created_at,
             updated_at=db_workflow.updated_at,
+            project_id=getattr(db_workflow, "project_id", None) or "proj_default",
         )
+
+    async def get_model(self, workflow_id: str) -> WorkflowModel | None:
+        return await self._session.get(WorkflowModel, workflow_id)
+
+    async def get_version_workflow(self, workflow_id: str, version_id: int) -> StoredWorkflow | None:
+        """A StoredWorkflow whose definition is the pinned immutable version (releases)."""
+        from ..engine.types import StoredWorkflow
+
+        db_workflow = await self._session.get(WorkflowModel, workflow_id)
+        version = await self._session.get(WorkflowVersionModel, version_id)
+        if not db_workflow or not version or version.workflow_id != workflow_id:
+            return None
+        return StoredWorkflow(
+            id=db_workflow.id,
+            name=db_workflow.name,
+            workflow=definition_to_workflow(version.definition, db_workflow.name, db_workflow.id, db_workflow.description),
+            active=db_workflow.active,
+            created_at=db_workflow.created_at,
+            updated_at=db_workflow.updated_at,
+            project_id=db_workflow.project_id,
+        )
+
+
+def workflow_to_definition(workflow: "Workflow") -> dict:
+    """The stored definition dict of an engine Workflow (every field of a node/connection must be written here)."""
+    return {
+        "nodes": [
+            {
+                "name": n.name,
+                "type": n.type,
+                "parameters": n.parameters,
+                "position": n.position,
+                **({"label": n.label} if n.label else {}),
+                **({"pinned_data": [{"json": d.json} for d in n.pinned_data]} if n.pinned_data else {}),
+                "retry_on_fail": n.retry_on_fail,
+                "retry_delay": n.retry_delay,
+                "disabled": n.disabled,
+                "on_error": n.on_error,
+                **({"contract": n.contract} if n.contract else {}),
+            }
+            for n in workflow.nodes
+        ],
+        "connections": [
+            {
+                "source_node": c.source_node,
+                "target_node": c.target_node,
+                "source_output": c.source_output,
+                "target_input": c.target_input,
+                **({"waypoints": c.waypoints} if c.waypoints else {}),
+            }
+            for c in workflow.connections
+        ],
+        "settings": workflow.settings,
+        "tests": list(workflow.tests or []),
+        "test_defaults": dict(workflow.test_defaults or {}),
+        **({"interface": dict(workflow.interface)} if workflow.interface else {}),
+    }
+
+
+def _stored_on_error(n: dict) -> str:
+    """on_error of a stored node dict; the legacy continue_on_fail=true maps to "continue"."""
+    return n.get("on_error") or ("continue" if n.get("continue_on_fail") else "stop")
+
+
+def definition_to_workflow(
+    definition: dict, name: str, workflow_id: str | None = None, description: str | None = None,
+) -> "Workflow":
+    """Rebuild an engine Workflow from a stored definition dict (draft or version)."""
+    from ..engine.types import Connection, NodeData, NodeDefinition, Workflow as WorkflowType
+
+    definition = definition or {}
+    nodes = [
+        NodeDefinition(
+            name=n["name"],
+            type=n["type"],
+            parameters=n.get("parameters", {}),
+            position=n.get("position"),
+            label=n.get("label"),
+            pinned_data=[NodeData(json=d["json"]) for d in pin] if (pin := n.get("pinned_data") or n.get("pinnedData")) else None,
+            retry_on_fail=n.get("retry_on_fail", 0),
+            retry_delay=n.get("retry_delay", 1000),
+            continue_on_fail=_stored_on_error(n) == "continue",
+            disabled=bool(n.get("disabled", False)),
+            on_error=_stored_on_error(n),
+            contract=n.get("contract") or None,
+        )
+        for n in definition.get("nodes", [])
+    ]
+    connections = [
+        Connection(
+            source_node=c["source_node"],
+            target_node=c["target_node"],
+            source_output=c.get("source_output", "main"),
+            target_input=c.get("target_input", "main"),
+            waypoints=c.get("waypoints"),
+        )
+        for c in definition.get("connections", [])
+    ]
+    return WorkflowType(
+        name=name,
+        nodes=nodes,
+        connections=connections,
+        id=workflow_id,
+        description=description,
+        settings=definition.get("settings", {}),
+        tests=list(definition.get("tests") or []),
+        test_defaults=dict(definition.get("test_defaults") or {}),
+        interface=dict(definition["interface"]) if isinstance(definition.get("interface"), dict) and definition["interface"] else None,
+    )

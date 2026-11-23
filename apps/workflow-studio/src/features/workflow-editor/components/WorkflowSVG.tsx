@@ -12,6 +12,8 @@ interface WorkflowSVGProps {
   executionData?: Record<string, NodeExecutionData>;
   showIcons?: boolean;
   showDotGrid?: boolean;
+  /** Extra classes for edge paths (static thumbnails set colour + hover flow here). */
+  edgeClassName?: string;
   className?: string;
   style?: React.CSSProperties;
   width?: number;
@@ -46,7 +48,7 @@ function computeViewBox(nodes: Node<WorkflowNodeData>[]): string {
   return `${minX - PADDING} ${minY - PADDING} ${maxX - minX + PADDING * 2} ${maxY - minY + PADDING * 2}`;
 }
 
-function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, className, style, width, height }: WorkflowSVGProps) {
+function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, edgeClassName, className, style, width, height }: WorkflowSVGProps) {
   const patternId = useId();
   const viewBox = useMemo(() => computeViewBox(nodes), [nodes]);
 
@@ -114,6 +116,7 @@ function WorkflowSVG({ nodes, edges, executionData, showIcons, showDotGrid, clas
             stroke="var(--border)"
             strokeWidth={1.5}
             strokeOpacity={0.5}
+            className={edgeClassName}
           />
         );
       })}

@@ -1,0 +1,178 @@
+/* Kit: shared interactive components (toast, sheet, menu/combobox, beam). See DESIGN.md §10.
+   Floating layers only. Toasts and menus are glass (.pop / .menu in glass.css); the sheet is the panel material.
+   Every class is kit-*; the inset scale (DESIGN.md §1b) decides recessed vs raised. Loaded after paper.css. */
+
+:root {
+  --kit-gutter: 12px;              /* the shell gutter: sheets float this far from the viewport edge */
+  --kit-toast-r: 16px;             /* moves left of an open sheet */
+  --kit-scrim: rgb(var(--ink, 24 24 48) / .16);
+}
+.dark { --kit-scrim: rgb(0 0 0 / .5); }
+
+/* ════════ Toast ════════ */
+.kit-toasts { position: fixed; z-index: 88; right: var(--kit-toast-r); bottom: 16px; width: 340px; max-width: calc(100vw - 32px);
+  display: flex; flex-direction: column; gap: var(--s2); pointer-events: none;
+  transition: right var(--d-slow) var(--ease-out); }
+.kit-toast { position: relative; pointer-events: auto; display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 10px 10px 14px; border-radius: var(--r-panel); background: var(--popover);
+  box-shadow: var(--raise-md), 0 12px 28px -14px rgb(var(--ink, 24 24 48) / .22);
+  opacity: 0; transform: translateY(8px);
+  transition: opacity var(--d-base) var(--ease-out), transform var(--d-base) var(--ease-out); }
+.kit-toast.kit-in { opacity: 1; transform: none; }
+.kit-toast.kit-out { opacity: 0; transform: none; transition: opacity var(--d-fast) var(--ease-in); pointer-events: none; }
+.kit-toast-dot { flex: none; display: grid; place-items: center; width: 8px; height: 20px; }
+.kit-toast-dot .dot { width: 7px; height: 7px; }
+.kit-toast-dot .dot.kit-info { background: var(--primary); }
+.kit-toast-text { flex: 1; min-width: 0; padding-top: 1px; }
+.kit-toast-title { font-size: 13px; font-weight: 500; line-height: 18px; color: var(--foreground); letter-spacing: -.005em; }
+.kit-toast-desc { margin-top: 2px; font-size: 12px; line-height: 17px; color: var(--muted-foreground); }
+.kit-toast-desc .mono, .kit-toast-title .mono { font-size: .94em; }
+.kit-toast-acts { flex: none; display: flex; align-items: center; gap: 2px; margin: -2px -2px -2px 0; }
+.kit-toast-x { color: var(--muted-foreground); opacity: 0; transition: opacity var(--d-fast); }
+.kit-toast:hover .kit-toast-x, .kit-toast-x:focus-visible { opacity: 1; }
+.kit-toast-x:hover { color: var(--foreground); }
+
+/* ════════ Sheet ════════ */
+.kit-scrim { position: fixed; inset: 0; z-index: 70; background: var(--kit-scrim); opacity: 0;
+  transition: opacity var(--d-base) var(--ease-out); }
+.kit-scrim.kit-in { opacity: 1; }
+.kit-sheet { position: fixed; z-index: 71; top: var(--kit-gutter); right: var(--kit-gutter); bottom: var(--kit-gutter);
+  width: min(var(--kit-w, 440px), calc(100vw - 2 * var(--kit-gutter)));
+  display: flex; flex-direction: column; border-radius: var(--r-panel); outline: none;
+  /* the panel material (system.css), plus the drop of something floating over the page */
+  border: 1px solid transparent;
+  background: linear-gradient(180deg, var(--mat-top), var(--mat-bottom)) padding-box,
+              linear-gradient(180deg, var(--mat-edge-top), var(--mat-edge-bottom)) border-box;
+  box-shadow: var(--mat-shadow), 0 24px 64px -24px rgb(var(--ink, 24 24 48) / .28);
+  transform: translateX(calc(100% + 2 * var(--kit-gutter)));
+  transition: transform var(--d-slow) var(--ease-out); }
+.dark .kit-toast { box-shadow: var(--raise-md), 0 16px 36px -14px rgb(0 0 0 / .7); }
+.kit-sheet:focus, .kit-sheet:focus-visible, .menu.kit-menu:focus, .menu.kit-menu:focus-visible { outline: none; }
+.dark .kit-sheet { box-shadow: var(--mat-shadow), 0 32px 80px -24px rgb(0 0 0 / .9); }
+.kit-sheet.kit-in { transform: none; }
+.kit-sheet.kit-out { transform: translateX(calc(100% + 2 * var(--kit-gutter))); transition: transform var(--d-base) var(--ease-in); }
+.kit-sheet.vx-edge { position: fixed; }
+.dark .kit-sheet::after { content: ''; position: absolute; left: 12%; right: 12%; top: -1px; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--edge), transparent); }
+.kit-sheet-head { flex: none; display: flex; align-items: center; gap: var(--s2); height: 52px; padding: 0 var(--s3) 0 var(--s5); }
+.kit-sheet-title { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; letter-spacing: -.012em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kit-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 0 var(--s2); }
+.kit-sheet-foot { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: var(--s2); padding: var(--s3) var(--s4) var(--s4) var(--s5); }
+.kit-sheet-foot > .kit-grow { flex: 1; }
+
+/* sheet content helpers: a lead line, a section head, and key/value rows in a well */
+.kit-lead { padding: 0 var(--s5) var(--s4); color: var(--muted-foreground); font-size: 13px; line-height: 1.5; }
+.kit-sec { display: flex; align-items: baseline; gap: var(--s2); padding: var(--s3) var(--s5) var(--s2); }
+.kit-sec h4 { margin: 0; font-size: 13.5px; font-weight: 600; letter-spacing: -.01em; }
+.kit-sec span { color: var(--muted-foreground); font-size: 12px; }
+.kit-sheet-body .well { margin-bottom: var(--s3); }
+.kit-kv { display: flex; align-items: center; gap: var(--s3); min-height: 44px; padding: 8px var(--s4); }
+.kit-kv + .kit-kv { border-top: 1px solid var(--hairline); }
+.kit-kv-k { flex: none; width: 104px; color: var(--muted-foreground); font-size: 12.5px; }
+.kit-kv-v { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--s2); font-size: 13px; }
+.kit-kv-v .mono { font-size: 12.5px; }
+.kit-kv-v .muted { font-size: 12px; }
+.kit-kv-v > .kit-end { margin-left: auto; }
+.kit-kv.kit-danger .kit-kv-k { color: var(--destructive); }
+
+/* ════════ Stepper (inside a well) ════════ */
+.kit-steps { list-style: none; margin: 0; padding: var(--s4) var(--s4) var(--s2); }
+.kit-step { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: var(--s3); padding-bottom: var(--s5); }
+.kit-step:last-child { padding-bottom: var(--s3); }
+/* the rail: a hairline from one dot to the next */
+.kit-step:not(:last-child)::before { content: ''; position: absolute; left: 9.5px; top: 26px; bottom: 4px; width: 1px; background: var(--hairline);
+  transition: background-color var(--d-slow) var(--ease-out); }
+.kit-step.kit-done:not(:last-child)::before { background: color-mix(in srgb, var(--success) 35%, var(--hairline)); }
+.kit-step-dot { position: relative; width: 20px; height: 20px; border-radius: 999px; display: grid; place-items: center;
+  font: 600 10.5px/1 var(--font-sans); font-variant-numeric: tabular-nums;
+  transition: background-color var(--d-base), box-shadow var(--d-base), color var(--d-base); }
+.kit-step-dot svg { width: 12px !important; height: 12px !important; stroke-width: 2.5 !important; }
+/* pending: recessed, it holds a place */
+.kit-step.kit-pending .kit-step-dot { background: var(--recess-fill); box-shadow: var(--inset-sm); color: var(--muted-foreground); }
+/* current: a raised primary dot */
+.kit-step.kit-current .kit-step-dot { color: #fff; background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 88%, #fff), var(--primary));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .22), 0 0 0 1px color-mix(in srgb, var(--primary) 80%, #000), 0 1px 3px color-mix(in srgb, var(--primary) 40%, transparent), 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent); }
+/* done: raised neutral with a status check */
+.kit-step.kit-done .kit-step-dot { background: var(--raise-fill); box-shadow: var(--raise-sm); color: var(--success-text); }
+.kit-step-main { min-width: 0; padding-top: 1px; }
+.kit-step-title { display: flex; align-items: center; gap: var(--s2); font-size: 13px; font-weight: 500; line-height: 18px; }
+.kit-step.kit-pending .kit-step-title { color: var(--muted-foreground); }
+.kit-step-meta { margin-top: 3px; font-size: 12px; line-height: 17px; color: var(--muted-foreground); display: flex; flex-wrap: wrap; align-items: center; gap: 0 6px; }
+.kit-step-meta .mono { font-size: 11.5px; color: var(--foreground); }
+.kit-step.kit-pending .kit-step-meta .mono { color: inherit; }
+.kit-step-meta .kit-mid { color: var(--faint); }
+.kit-step-meta.kit-warn { color: var(--warning-text); }
+.kit-step-meta.kit-warn .mono { color: inherit; }
+.kit-step-meta .dot { width: 6px; height: 6px; }
+
+/* a step's action: a raised tile on the well, so its field can be recessed (never a recess in a recess) */
+.kit-fix { margin-top: var(--s3); padding: var(--s2); border-radius: calc(var(--r-well) + 2px); background: var(--raise-fill); box-shadow: var(--raise-sm);
+  display: flex; align-items: center; gap: var(--s2); }
+.kit-fix .input { flex: 1; height: 28px; font-size: 12px; }
+.kit-fix .btn { flex: none; }
+.kit-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--d-slow) var(--ease-out), opacity var(--d-base); }
+.kit-collapse > * { min-height: 0; overflow: hidden; }
+.kit-collapse.kit-shut { grid-template-rows: 0fr; opacity: 0; }
+
+/* routes under a step */
+.kit-routes { margin: var(--s2) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.kit-routes li { display: flex; align-items: center; gap: var(--s2); font: 12px/18px var(--font-mono); color: var(--foreground); }
+.kit-step.kit-pending .kit-routes li { color: var(--muted-foreground); }
+.kit-routes .method { min-width: 38px; }
+
+/* ════════ Menu / combobox ════════ */
+.menu.kit-menu { position: fixed; z-index: 86; width: var(--kit-mw, 260px); max-width: calc(100vw - 16px); padding: 4px;
+  border: 0; border-radius: var(--r-panel); outline: none; display: flex; flex-direction: column;
+  opacity: 0; transform: scale(.97); transform-origin: var(--kit-origin, top left);
+  transition: opacity var(--d-fast) var(--ease-out), transform var(--d-fast) var(--ease-out); }
+.menu.kit-menu.kit-in { opacity: 1; transform: none; }
+.menu.kit-menu.kit-out { opacity: 0; transform: none; transition: opacity var(--d-instant) var(--ease-in); pointer-events: none; }
+.kit-mq { display: flex; align-items: center; gap: var(--s2); height: 32px; margin-bottom: 4px; padding: 0 var(--s2) 0 10px;
+  border-radius: var(--r-ctl); background: var(--recess-fill); box-shadow: var(--inset-sm); color: var(--muted-foreground); }
+.kit-mq svg { width: 14px !important; height: 14px !important; }
+.kit-mq input { flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; font: inherit; font-size: 13px; color: var(--foreground); }
+.kit-mq input::placeholder { color: var(--muted-foreground); opacity: .8; }
+.kit-mlist { max-height: 320px; overflow-y: auto; }
+.kit-mlabel { padding: 8px 8px 4px; font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+.kit-mdiv { height: 1px; margin: 4px 6px; background: var(--hairline); }
+.kit-mi { display: flex; align-items: center; gap: var(--s2); width: 100%; height: 32px; padding: 0 var(--s2); border-radius: var(--r-ctl);
+  font-size: 13px; color: var(--foreground); text-align: left; cursor: pointer; user-select: none;
+  transition: background-color var(--d-instant), box-shadow var(--d-instant); }
+.kit-mi.kit-hl { background: var(--raise-fill); box-shadow: var(--raise-sm); }
+.kit-mi:active { box-shadow: var(--raise-press); }
+.kit-mi[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+.kit-mi > svg { width: 14px !important; height: 14px !important; color: var(--muted-foreground); }
+.kit-mi.kit-hl > svg:not(.kit-mcheck) { color: var(--foreground); }
+.kit-mi > .dot { margin: 0 3px 0 4px; }
+.kit-mi > .dot.kit-idle { background: var(--faint); box-shadow: none; }
+.kit-mi > .method { min-width: 38px; }
+.kit-mi-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kit-mi-sub { margin-left: auto; padding-left: var(--s2); font-size: 12px; color: var(--muted-foreground); white-space: nowrap; }
+.kit-mi > .kbd { margin-left: auto; }
+.kit-mi-sub + .kbd, .kit-mi-sub + .kit-mcheck { margin-left: 4px; }
+.kit-mi > .kit-mcheck { margin-left: auto; color: var(--primary) !important; stroke-width: 2.25 !important; }
+.kit-mi-sub ~ .kit-mcheck { margin-left: 2px; }
+.kit-mnone { padding: 10px 8px; font-size: 12.5px; color: var(--muted-foreground); }
+
+/* ════════ Beam ════════ */
+@property --kit-lap { syntax: '<number>'; inherits: true; initial-value: 0; }
+.kit-beam { position: absolute; inset: -1px; z-index: 3; pointer-events: none; border-radius: inherit; overflow: visible;
+  opacity: 1; transition: opacity var(--d-slow) var(--ease-out); }
+.kit-beam.kit-fade { opacity: 0; }
+.kit-beam svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--brand-1) 45%, transparent)) drop-shadow(0 0 8px var(--glow)); }
+.kit-beam rect { fill: none; stroke-width: 1.5; stroke-linecap: round;
+  stroke-dasharray: var(--kit-seg) calc(var(--kit-len) - var(--kit-seg));
+  stroke-dashoffset: calc(var(--kit-off) - var(--kit-lap) * var(--kit-len)); }
+.kit-beam.kit-loop svg { animation: kit-lap 3s linear infinite; }
+.kit-beam.kit-once svg { animation: kit-lap 560ms var(--ease-io) 1 both; }
+@keyframes kit-lap { from { --kit-lap: 0; } to { --kit-lap: 1; } }
+
+/* ════════ Reduced motion: no travel, no slide; fades only ════════ */
+@media (prefers-reduced-motion: reduce) {
+  .kit-toast, .kit-sheet, .kit-sheet.kit-out, .menu.kit-menu { transform: none !important; }
+  .kit-sheet { opacity: 0; transition: opacity var(--d-base) var(--ease-out); }
+  .kit-sheet.kit-in { opacity: 1; }
+  .kit-beam { display: none; }
+  .kit-toasts { transition: none; }
+}

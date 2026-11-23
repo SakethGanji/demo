@@ -1,0 +1,691 @@
+{
+ "id": "expense_approval",
+ "request": "Employees file an expense claim with their email, the amount and what it was for. Up to 100 is paid straight away; anything larger needs the line manager's approval first. A rejected claim is never paid. Always email the employee what happened.",
+ "spec": {
+  "spec_version": 1,
+  "title": "Expense claim approval",
+  "summary": "Employees file an expense claim. Claims over 100 need their manager's approval; approved and small claims are paid through payroll; the employee is emailed the outcome.",
+  "trigger": {
+   "kind": "form",
+   "fields": [
+    {
+     "name": "employee_email",
+     "type": "string",
+     "required": true,
+     "label": "Your email"
+    },
+    {
+     "name": "amount",
+     "type": "number",
+     "required": true,
+     "label": "Amount"
+    },
+    {
+     "name": "description",
+     "type": "string",
+     "required": false,
+     "label": "What was it for?"
+    }
+   ]
+  },
+  "rules": [
+   {
+    "id": "r1",
+    "text": "Claims of 100 or less are paid without approval."
+   },
+   {
+    "id": "r2",
+    "text": "Claims over 100 need the manager's approval before they are paid."
+   },
+   {
+    "id": "r3",
+    "text": "A rejected claim is never paid."
+   },
+   {
+    "id": "r4",
+    "text": "The employee is emailed the outcome, paid or not approved."
+   }
+  ],
+  "steps": [
+   {
+    "name": "Expense form",
+    "node_type": "FormTrigger",
+    "purpose": "Collect the claim",
+    "rules": []
+   },
+   {
+    "name": "Needs manager?",
+    "node_type": "If",
+    "purpose": "amount > 100",
+    "rules": [
+     "r1",
+     "r2"
+    ]
+   },
+   {
+    "name": "Manager approval",
+    "node_type": "Approval",
+    "purpose": "Manager approves or rejects the claim",
+    "rules": [
+     "r2",
+     "r3"
+    ]
+   },
+   {
+    "name": "Pay claim",
+    "node_type": "HttpRequest",
+    "purpose": "Schedule the reimbursement in payroll",
+    "api_ref": "payroll.addReimbursement",
+    "rules": [
+     "r1",
+     "r2"
+    ]
+   },
+   {
+    "name": "Tell employee paid",
+    "node_type": "SendEmail",
+    "purpose": "Tell the employee the claim is being paid",
+    "rules": [
+     "r4"
+    ]
+   },
+   {
+    "name": "Tell employee rejected",
+    "node_type": "SendEmail",
+    "purpose": "Tell the employee the claim was not approved",
+    "rules": [
+     "r3",
+     "r4"
+    ]
+   },
+   {
+    "name": "Show result",
+    "node_type": "Respond",
+    "purpose": "Show the outcome on the form",
+    "rules": [
+     "r4"
+    ]
+   }
+  ],
+  "interface": {
+   "kind": "form",
+   "slug": "expense-claim",
+   "title": "File an expense claim"
+  },
+  "tests": [
+   {
+    "id": "t_a1b2c301",
+    "name": "Small claim is paid without approval",
+    "description": "A 40.00 claim is under the limit, so it skips the manager.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "employee_email": "ana@example.com",
+       "amount": 40,
+       "description": "Taxi from the airport"
+      }
+     ]
+    },
+    "mocks": {
+     "Pay claim": {
+      "http": {
+       "status": 201,
+       "body": {
+        "reimbursement_id": "rb-1001",
+        "status": "scheduled"
+       }
+      }
+     },
+     "Tell employee paid": {
+      "items": [
+       {
+        "success": true,
+        "to": "ana@example.com",
+        "subject": "Your expense claim was paid"
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Needs manager?",
+      "port": "false",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Manager approval",
+      "subject": "node",
+      "op": "status",
+      "value": "not_run"
+     },
+     {
+      "node": "Pay claim",
+      "subject": "request",
+      "path": "body.amount",
+      "op": "eq",
+      "value": 40
+     },
+     {
+      "node": "Pay claim",
+      "subject": "request",
+      "path": "body.employee_email",
+      "op": "eq",
+      "value": "ana@example.com"
+     },
+     {
+      "node": "Tell employee paid",
+      "op": "status",
+      "value": "success"
+     },
+     {
+      "node": "Show result",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Needs manager?",
+     "Pay claim",
+     "Tell employee paid"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_a1b2c302",
+    "name": "A claim of exactly 100 needs no approval",
+    "description": "The limit is 'over 100', so 100.00 is still paid directly.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "employee_email": "ben@example.com",
+       "amount": 100,
+       "description": "Team lunch"
+      }
+     ]
+    },
+    "mocks": {
+     "Pay claim": {
+      "http": {
+       "status": 201,
+       "body": {
+        "reimbursement_id": "rb-1002",
+        "status": "scheduled"
+       }
+      }
+     },
+     "Tell employee paid": {
+      "items": [
+       {
+        "success": true,
+        "to": "ben@example.com",
+        "subject": "Your expense claim was paid"
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Needs manager?",
+      "port": "false",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Manager approval",
+      "subject": "node",
+      "op": "status",
+      "value": "not_run"
+     },
+     {
+      "node": "Pay claim",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "boundary",
+    "covers": [
+     "Needs manager?"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_a1b2c303",
+    "name": "Large claim is paid after approval",
+    "description": "250.00 goes to the manager; once approved it is paid.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "employee_email": "cleo@example.com",
+       "amount": 250,
+       "description": "Conference ticket"
+      }
+     ]
+    },
+    "mocks": {
+     "Manager approval": {
+      "items": [
+       {
+        "employee_email": "cleo@example.com",
+        "amount": 250,
+        "description": "Conference ticket",
+        "approval": {
+         "decision": "approved",
+         "comment": "",
+         "form_data": {},
+         "decided_by": "test"
+        }
+       }
+      ],
+      "port": "approved"
+     },
+     "Pay claim": {
+      "http": {
+       "status": 201,
+       "body": {
+        "reimbursement_id": "rb-1003",
+        "status": "scheduled"
+       }
+      }
+     },
+     "Tell employee paid": {
+      "items": [
+       {
+        "success": true,
+        "to": "cleo@example.com",
+        "subject": "Your expense claim was paid"
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Needs manager?",
+      "port": "true",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Manager approval",
+      "port": "approved",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Pay claim",
+      "subject": "request",
+      "path": "body.amount",
+      "op": "eq",
+      "value": 250
+     },
+     {
+      "node": "Tell employee rejected",
+      "subject": "node",
+      "op": "status",
+      "value": "not_run"
+     },
+     {
+      "node": "Show result",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Needs manager?",
+     "Manager approval",
+     "Pay claim"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   },
+   {
+    "id": "t_a1b2c304",
+    "name": "Rejected claim is not paid",
+    "description": "When the manager rejects, payroll is never called and the employee is told.",
+    "target": {
+     "kind": "workflow"
+    },
+    "input": {
+     "items": [
+      {
+       "employee_email": "dev@example.com",
+       "amount": 900,
+       "description": "Standing desk"
+      }
+     ]
+    },
+    "mocks": {
+     "Manager approval": {
+      "items": [
+       {
+        "employee_email": "dev@example.com",
+        "amount": 900,
+        "description": "Standing desk",
+        "approval": {
+         "decision": "rejected",
+         "comment": "Not in budget",
+         "form_data": {},
+         "decided_by": "test"
+        }
+       }
+      ],
+      "port": "rejected"
+     },
+     "Tell employee rejected": {
+      "items": [
+       {
+        "success": true,
+        "to": "dev@example.com",
+        "subject": "Your expense claim was not approved"
+       }
+      ]
+     }
+    },
+    "expect": [
+     {
+      "node": "Manager approval",
+      "port": "rejected",
+      "op": "count",
+      "value": 1
+     },
+     {
+      "node": "Pay claim",
+      "subject": "node",
+      "op": "status",
+      "value": "not_run"
+     },
+     {
+      "node": "Tell employee rejected",
+      "op": "status",
+      "value": "success"
+     },
+     {
+      "node": "Show result",
+      "op": "status",
+      "value": "success"
+     }
+    ],
+    "category": "normal",
+    "covers": [
+     "Manager approval",
+     "Pay claim",
+     "Tell employee rejected"
+    ],
+    "status": "draft",
+    "locked": false,
+    "source": "ai"
+   }
+  ],
+  "rule_tests": {
+   "r1": [
+    "t_a1b2c301",
+    "t_a1b2c302"
+   ],
+   "r2": [
+    "t_a1b2c303"
+   ],
+   "r3": [
+    "t_a1b2c304"
+   ],
+   "r4": [
+    "t_a1b2c301",
+    "t_a1b2c303",
+    "t_a1b2c304"
+   ]
+  },
+  "assumptions": [
+   "'Manager' means any assignee in the project; no particular person is named."
+  ],
+  "questions": [
+   "Should claims with no description be accepted?"
+  ]
+ },
+ "plan": [
+  {
+   "step": "Expense form",
+   "node": "Expense form",
+   "type": "FormTrigger"
+  },
+  {
+   "step": "Needs manager?",
+   "node": "Needs manager?",
+   "type": "If"
+  },
+  {
+   "step": "Manager approval",
+   "node": "Manager approval",
+   "type": "Approval"
+  },
+  {
+   "step": "Pay claim",
+   "node": "Pay claim",
+   "type": "HttpRequest"
+  },
+  {
+   "step": "Tell employee paid",
+   "node": "Tell employee paid",
+   "type": "SendEmail"
+  },
+  {
+   "step": "Tell employee rejected",
+   "node": "Tell employee rejected",
+   "type": "SendEmail"
+  },
+  {
+   "step": "Show result",
+   "node": "Show result",
+   "type": "Respond"
+  }
+ ],
+ "ops": [
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Expense form",
+    "type": "FormTrigger",
+    "parameters": {
+     "title": "File an expense claim",
+     "submit_label": "Submit claim",
+     "input_schema": {
+      "type": "object",
+      "required": [
+       "employee_email",
+       "amount"
+      ],
+      "properties": {
+       "employee_email": {
+        "type": "string",
+        "title": "Your email"
+       },
+       "amount": {
+        "type": "number",
+        "title": "Amount"
+       },
+       "description": {
+        "type": "string",
+        "title": "What was it for?"
+       }
+      }
+     }
+    }
+   },
+   "why": "Trigger from the spec's form fields"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Needs manager?",
+    "type": "If",
+    "parameters": {
+     "condition": "{{ $json.amount > 100 }}"
+    }
+   },
+   "why": "r1/r2: the limit is 100, 'over' means greater than"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Manager approval",
+    "type": "Approval",
+    "parameters": {
+     "title": "Expense claim of {{ $json.amount }} from {{ $json.employee_email }}",
+     "context": {
+      "Employee": "{{ $json.employee_email }}",
+      "Amount": "{{ $json.amount }}",
+      "What for": "{{ $json.description }}"
+     },
+     "require_comment_on_reject": true
+    }
+   },
+   "why": "r2/r3: a person decides; ports approved / rejected / timed_out"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Pay claim",
+    "type": "HttpRequest",
+    "parameters": {
+     "api_ref": {
+      "spec_id": "payroll",
+      "operation_id": "addReimbursement"
+     },
+     "method": "POST",
+     "body": {
+      "employee_email": "{{ $node[\"Expense form\"].json.employee_email }}",
+      "amount": "{{ $node[\"Expense form\"].json.amount }}",
+      "note": "{{ $node[\"Expense form\"].json.description }}"
+     },
+     "responseType": "json"
+    }
+   },
+   "why": "Read the form fields with $node[...]: this node can be reached from two places"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Tell employee paid",
+    "type": "SendEmail",
+    "parameters": {
+     "toEmail": "{{ $node[\"Expense form\"].json.employee_email }}",
+     "subject": "Your expense claim was paid",
+     "bodyFormat": "plain",
+     "body": "Your claim for {{ $node[\"Expense form\"].json.amount }} has been scheduled for payment."
+    }
+   },
+   "why": "r4: after an HttpRequest, $json is the API reply, so read the email from the form node"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Tell employee rejected",
+    "type": "SendEmail",
+    "parameters": {
+     "toEmail": "{{ $json.employee_email }}",
+     "subject": "Your expense claim was not approved",
+     "bodyFormat": "plain",
+     "body": "Your claim was not approved. Manager comment: {{ $json.approval.comment }}"
+    }
+   },
+   "why": "r3/r4: right after Approval, $json still holds the form fields plus approval"
+  },
+  {
+   "op": "add_node",
+   "args": {
+    "name": "Show result",
+    "type": "Respond",
+    "parameters": {
+     "statusCode": 200,
+     "body": {
+      "message": "{{ $json.subject }}"
+     }
+    }
+   },
+   "why": "Both email nodes output a subject"
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Expense form",
+    "target": "Needs manager?"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Needs manager?",
+    "target": "Manager approval",
+    "source_output": "true"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Needs manager?",
+    "target": "Pay claim",
+    "source_output": "false"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Manager approval",
+    "target": "Pay claim",
+    "source_output": "approved"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Manager approval",
+    "target": "Tell employee rejected",
+    "source_output": "rejected"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Pay claim",
+    "target": "Tell employee paid"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Tell employee paid",
+    "target": "Show result"
+   },
+   "why": ""
+  },
+  {
+   "op": "connect",
+   "args": {
+    "source": "Tell employee rejected",
+    "target": "Show result"
+   },
+   "why": ""
+  }
+ ],
+ "notes": ""
+}

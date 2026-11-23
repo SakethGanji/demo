@@ -6,6 +6,13 @@ import {
   type EdgeProps,
 } from '@xyflow/react';
 import { Plus } from 'lucide-react';
+import { motion } from 'motion/react';
+import { useStageStore, type StageEdge } from '@/features/ai-builder/stage/stageStore';
+import { beat, dur, ease, spring, round as roundTokens } from '@/shared/motion/tokens';
+import { motionOff } from '@/shared/motion/testFlag';
+import { useHistoryStore } from '../../../stores/historyStore';
+import { EdgeComet, EdgeSpark } from './EdgeSpark';
+import { testHopIndex } from '../stageGeometry';
 import { useEditorLayoutStore } from '../../../stores/editorLayoutStore';
 import { useWorkflowStore } from '../../../stores/workflowStore';
 import { useNodeExecStatus } from '../../../hooks/useWorkflowSelectors';
@@ -14,10 +21,10 @@ import type { WorkflowNodeData } from '../../../types/workflow';
 type Point = { x: number; y: number };
 
 const EDGE_COLORS = {
-  default: { start: 'var(--border)', end: 'var(--border)' },
+  default: { start: 'var(--edge-line)', end: 'var(--edge-line)' },
   hover: { start: 'var(--muted-foreground)', end: 'var(--muted-foreground)' },
-  running: { start: 'var(--warning)', end: 'var(--warning)' },
-  success: { start: 'var(--success)', end: 'var(--success)' },
+  running: { start: 'var(--edge-hot)', end: 'var(--edge-hot)' },
+  success: { start: 'var(--edge-hot)', end: 'var(--edge-hot)' },
   error: { start: 'var(--destructive)', end: 'var(--destructive)' },
 };
 
@@ -145,9 +152,30 @@ function WorkflowEdge({
 
   const openForConnection = useEditorLayoutStore((s) => s.openForConnection);
   const { getNode, screenToFlowPosition } = useReactFlow();
-  const sourceExecStatus = useNodeExecStatus(source);
-  const targetExecStatus = useNodeExecStatus(target);
-  const isAnyNodeRunning = useWorkflowStore((s) => s.isAnyNodeRunning);
+  // While an AI stage is active the canvas shows the proposal, so the draft's last run must not paint onto it.
+  const stageActive = useStageStore((s) => s.active);
+  const liveSourceStatus = useNodeExecStatus(source);
+  const liveTargetStatus = useNodeExecStatus(target);
+  const anyRunningLive = useWorkflowStore((s) => s.isAnyNodeRunning);
+  const sourceExecStatus = stageActive ? null : liveSourceStatus;
+  const targetExecStatus = stageActive ? null : liveTargetStatus;
+  const isAnyNodeRunning = stageActive ? false : anyRunningLive;
+  const anim = stageActive ? ((data as { anim?: string } | undefined)?.anim ?? 'idle') : 'idle';
+  const historyEdgeMark = useHistoryStore((s) => s.edgeMarks[id]);
+  const stageEdgeMark = useStageStore((s) => (s.active ? s.edgeMarks[id] : undefined));
+  const edgeMark = stageEdgeMark ?? historyEdgeMark;
+  const reducedAnim = useStageStore((s) => s.active && s.nodes.length > roundTokens.reducedAbove);
+  const testPath = useStageStore((s) => (s.active ? s.testPath : null));
+  const testHop = testPath ? testHopIndex(testPath.nodes, source, target) : -1;
+  // A failing test stops at the failing node: later hops are never drawn, and the hop into that node is red
+  const failIndex = testPath?.failAt ? testPath.nodes.indexOf(testPath.failAt) : -1;
+  const hopDrawn = testHop >= 0 && (failIndex < 0 || testHop < failIndex);
+  const isFailHop = failIndex >= 0 && testHop === failIndex - 1;
+  const hopSeconds = (testPath?.hopMs ?? dur.hop * 1000) / 1000;
+  // The comet that draws the edge stays mounted for its port-catch ring after the edge itself is finished
+  const [cometTail, setCometTail] = useState(false);
+  const mainPathRef = useRef<SVGPathElement>(null);
+  const drawScale = (data as { drawScale?: number } | undefined)?.drawScale ?? 1;
   const draggedNodeType = useWorkflowStore((s) => s.draggedNodeType);
 
   // Debounced hover: prevents flicker when mouse moves between SVG path and HTML overlays
@@ -302,36 +330,37 @@ function WorkflowEdge({
     return isHovered ? EDGE_COLORS.hover : EDGE_COLORS.default;
   }, [edgeStatus, isHovered, isDragging]);
 
-  // Track transitions — only animate when status *changes* to running, not on stale remounts
-  const prevEdgeStatusRef = useRef<string | null>(null);
-  const [liveRunning, setLiveRunning] = useState(false);
+  // Track transitions — only animate when status *changes* to running, not on stale remounts.
+  // Adjusted during render, not in an effect: a fast run changes every edge's status on each event, and a
+  // setState in an effect per status change chained >50 commits on a long workflow ("Maximum update depth").
+  const [statusTrack, setStatusTrack] = useState({ status: edgeStatus, live: false });
+  if (statusTrack.status !== edgeStatus) setStatusTrack({ status: edgeStatus, live: edgeStatus === 'running' });
 
+  const isAnimated = statusTrack.live;
+  const finishAnim = useCallback((expected: string) => {
+    useStageStore.getState().setEdges((es) =>
+      es.map((e) => (e.id === id && (e.data as { anim?: string } | undefined)?.anim === expected
+        ? ({ ...e, data: { ...e.data, anim: 'idle' } } as StageEdge)
+        : e)),
+    );
+  }, [id]);
+  // Nothing will play this animation (test flag, a very large round, or no ghost to retract): finish it at once.
   useEffect(() => {
-    const prev = prevEdgeStatusRef.current;
-    prevEdgeStatusRef.current = edgeStatus;
-
-    if (prev === null) return; // skip initial mount — avoids replaying stale animations
-
-    if (edgeStatus === 'running' && prev !== 'running') {
-      setLiveRunning(true);
-    } else if (edgeStatus !== 'running') {
-      setLiveRunning(false);
-    }
-  }, [edgeStatus]);
-
-  const isAnimated = liveRunning;
+    if (!stageActive || anim === 'idle') return;
+    const nothingPlays = reducedAnim || motionOff() || (anim === 'exit' && edgeMark !== 'removed') || (anim !== 'enter' && anim !== 'exit');
+    if (nothingPlays) queueMicrotask(() => finishAnim(anim));
+  }, [stageActive, anim, reducedAnim, edgeMark, finishAnim]);
   const isEdgeIdle = edgeStatus === 'default' && isAnyNodeRunning;
   const gradientId = `edge-gradient-${id}`;
+  // Hidden under a comet while the AI draws the edge in (plan §3.5)
+  const drawing = anim === 'enter' && !reducedAnim && !motionOff() && edgeMark !== 'removed';
 
   return (
     <>
       <defs>
-        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" {...gradientCoords}>
-          <stop offset="0%" stopColor={edgeColors.start} />
-          <stop offset="100%" stopColor={edgeColors.end} />
-        </linearGradient>
+        <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" {...gradientCoords}><stop offset="0" stopColor={edgeColors.end} /><stop offset="1" stopColor={edgeColors.end} /></linearGradient>
         <marker id={`arrow-${id}`} markerWidth="16" markerHeight="16" refX="13" refY="8" orient="auto" markerUnits="userSpaceOnUse">
-          <path d="M2,3 L13,8 L2,13 L5,8 Z" fill={edgeStatus !== 'default' ? edgeColors.end : 'var(--muted-foreground)'} opacity={isEdgeIdle ? 0.3 : 1} />
+          <path d="M2,3 L13,8 L2,13 L5,8 Z" fill={edgeStatus !== 'default' ? edgeColors.end : 'var(--edge-line)'} opacity={isEdgeIdle ? 0.3 : 1} />
         </marker>
       </defs>
 
@@ -340,24 +369,79 @@ function WorkflowEdge({
         <path d={edgePath} fill="none" stroke={`url(#${gradientId})`} strokeWidth={4} strokeOpacity={0.2} strokeLinecap="round" />
       )}
 
-      {/* Main edge path */}
-      <path
-        id={id}
-        className="react-flow__edge-path"
-        d={edgePath}
-        fill="none"
-        stroke={isAnimated ? 'var(--warning)' : `url(#${gradientId})`}
-        strokeWidth={edgeStatus !== 'default' ? 2.5 : (isHovered ? 2 : 1.5)}
-        strokeOpacity={isEdgeIdle ? 0.25 : 1}
-        markerEnd={`url(#arrow-${id})`}
-        style={{
-          ...style,
-          strokeDasharray: isAnimated ? '8 4' : 'none',
-          animation: isAnimated ? 'flowAnimation 0.5s linear infinite' : 'none',
-          transition: 'stroke-opacity 0.4s ease',
-        }}
-      />
+      {/* Removed edge: stays as a dashed ghost; a solid copy retracts over it when it is removed live */}
+      {edgeMark === 'removed' && (
+        <path d={edgePath} fill="none" stroke="var(--muted-foreground)" strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} />
+      )}
+      {edgeMark === 'removed' && anim === 'exit' && !reducedAnim && (
+        <motion.path
+          d={edgePath}
+          fill="none"
+          stroke={`url(#${gradientId})`}
+          strokeWidth={1.5}
+          initial={{ pathLength: 1 }}
+          animate={{ pathLength: 0 }}
+          transition={{ duration: dur.draw, ease: ease.in }}
+          onAnimationComplete={() => finishAnim('exit')}
+          style={{ willChange: 'opacity' }}
+        />
+      )}
 
+      {/* Main edge path. While the AI draws it in, it is hidden and a comet reveals it; no arrow until it arrives. */}
+      {edgeMark === 'removed' ? null : drawing ? (
+        <path
+          ref={mainPathRef}
+          id={id}
+          className="react-flow__edge-path"
+          d={edgePath}
+          fill="none"
+          stroke={`url(#${gradientId})`}
+          strokeWidth={1.5}
+          style={{ ...style, strokeDasharray: '1000000', strokeDashoffset: 1000000 }}
+        />
+      ) : (
+        <path
+          id={id}
+          className="react-flow__edge-path"
+          d={edgePath}
+          fill="none"
+          stroke={isAnimated ? 'var(--edge-hot)' : `url(#${gradientId})`}
+          strokeWidth={edgeStatus !== 'default' ? 2.5 : (isHovered ? 2 : 1.5)}
+          strokeOpacity={isEdgeIdle ? 0.25 : 1}
+          markerEnd={`url(#arrow-${id})`}
+          style={{
+            ...style,
+            strokeDasharray: isAnimated ? '8 4' : 'none',
+            animation: isAnimated ? 'flowAnimation 0.5s linear infinite' : 'none',
+            transition: 'stroke-opacity 0.4s ease',
+          }}
+        />
+      )}
+
+      {/* Comet: draws the edge into the node that just locked, then catches on the port. Probe: one dot per test hop. */}
+      {(drawing || cometTail) && stageActive && !reducedAnim && edgeMark !== 'removed' && (
+        <EdgeComet
+          key="comet"
+          d={edgePath}
+          pathRef={mainPathRef}
+          duration={beat.edgeDraw * drawScale}
+          color="var(--primary)"
+          onArrive={() => {
+            setCometTail(true);
+            finishAnim('enter');
+          }}
+          onDone={() => setCometTail(false)}
+        />
+      )}
+      {hopDrawn && testPath && !reducedAnim && !motionOff() && (
+        <EdgeSpark
+          key={`test-${testPath.id}`}
+          d={edgePath}
+          color={isFailHop ? 'var(--destructive)' : 'var(--primary)'}
+          duration={hopSeconds}
+          delay={testHop * hopSeconds}
+        />
+      )}
 
       {/* Invisible interaction path — wider for reliable hover/double-click */}
       <path
@@ -380,9 +464,19 @@ function WorkflowEdge({
               transform: `translate(0, -50%) translate(${sourceX + 14}px, ${sourceY}px)`,
               pointerEvents: 'none',
             }}
-            className="text-[10px] font-medium text-muted-foreground bg-background/90 px-1.5 py-0.5 rounded"
+            className="text-[10px] font-medium text-muted-foreground bg-recess px-1.5 py-0.5 rounded-chip"
           >
-            {outputLabel}
+            {stageActive ? (
+              <motion.div
+                initial={anim === 'enter' && !motionOff() ? { scale: 0.6, opacity: 0 } : false}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ ...spring.snap, delay: 0.35 * beat.edgeDraw * drawScale }}
+              >
+                {outputLabel}
+              </motion.div>
+            ) : (
+              outputLabel
+            )}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -401,10 +495,9 @@ function WorkflowEdge({
                 width: WAYPOINT_SIZE,
                 height: WAYPOINT_SIZE,
                 borderRadius: '50%',
-                backgroundColor: 'var(--background)',
-                border: `2px solid ${edgeColors.end}`,
+                backgroundColor: 'var(--raise)',
                 cursor: 'grab',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                boxShadow: `0 0 0 2px ${edgeColors.end}, var(--raise-sm)`,
               }}
               className="nodrag nopan"
               onMouseEnter={hoverEnter}
@@ -430,15 +523,15 @@ function WorkflowEdge({
             onMouseLeave={hoverLeave}
           >
             {isDragging ? (
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-[var(--success)] bg-[var(--success)]/20 animate-pulse">
-                <Plus size={16} className="text-[var(--success)]" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-success bg-success/20 animate-pulse">
+                <Plus size={16} className="text-success" />
               </div>
             ) : (
               <button
                 onClick={handleAddNode}
-                className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-all hover:bg-accent hover:scale-110"
+                className="canvas-chip flex h-6 w-6 items-center justify-center rounded-full hover:scale-110"
               >
-                <Plus size={14} className="text-muted-foreground" />
+                <Plus size={14} strokeWidth={2.5} />
               </button>
             )}
           </div>

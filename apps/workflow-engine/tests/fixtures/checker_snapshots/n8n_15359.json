@@ -1,0 +1,38 @@
+[
+ [
+  "WF004",
+  "Error Trigger",
+  null,
+  null
+ ],
+ [
+  "WF004",
+  "Is Critical?",
+  null,
+  "false"
+ ],
+ [
+  "WF004",
+  "Log Error to DB",
+  null,
+  null
+ ],
+ [
+  "WF004",
+  "Prepare Error Data",
+  null,
+  null
+ ],
+ [
+  "WF004",
+  "Send Error Alert",
+  null,
+  null
+ ],
+ [
+  "WF008",
+  "Get All Profiles",
+  "url",
+  null
+ ]
+]

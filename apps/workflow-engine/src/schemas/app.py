@@ -36,6 +36,7 @@ class AppCreateRequest(BaseModel):
     folder_id: str | None = Field(None, description="Folder to organize this app in")
     workflow_ids: list[str] = Field(default_factory=list, description="Linked workflow IDs for data binding")
     api_execution_ids: list[str] = Field(default_factory=list, description="Saved API tester executions this app may replay")
+    project_id: str | None = Field(None, description="Owning project (id or slug); default: Default project")
 
 
 class AppUpdateRequest(BaseModel):
@@ -51,6 +52,8 @@ class AppUpdateRequest(BaseModel):
     version_trigger: str = Field("manual", description="Version trigger type: ai, manual, publish")
     version_prompt: str | None = Field(None, description="User message that triggered AI generation")
     files: list[AppFilePayload] = Field(default_factory=list, description="Multi-file app contents")
+    base_version_id: int | None = Field(
+        None, description="Optimistic concurrency: the version this save was made on; 409 stale_base when it is not the head")
     # Publishing settings — editable from the studio prior to publish.
     slug: str | None = Field(
         None,
@@ -67,6 +70,9 @@ class AppUpdateRequest(BaseModel):
         description="Plaintext password (write-only). Hashed at rest. Pass empty string to clear.",
     )
     embed_enabled: bool | None = Field(None, description="Allow embedding in iframes")
+    project_id: str | None = Field(None, description="Move the app to this project (id or slug)")
+    token_ttl_s: int | None = Field(None, ge=1, le=86400,
+                                    description="Test-only: published-token TTL; honoured only when WORKFLOW_TEST_MODE=1")
 
 
 class AppPublishRequest(BaseModel):
@@ -87,6 +93,11 @@ class AppListItem(BaseModel):
     name: str
     created_at: str
     updated_at: str
+    project_id: str = "proj_default"
+    slug: str | None = None
+    active: bool = False
+    published_at: str | None = None
+    current_version_number: int | None = None
 
 
 # ── Version schemas ──────────────────────────────────────────────────────────
@@ -132,8 +143,10 @@ class AppDetailResponse(BaseModel):
 
     id: str
     name: str
+    description: str | None = None
     definition: dict[str, Any]
     active: bool
+    project_id: str = "proj_default"
     workflow_ids: list[str] = []
     api_execution_ids: list[str] = []
     source_code: str | None = None

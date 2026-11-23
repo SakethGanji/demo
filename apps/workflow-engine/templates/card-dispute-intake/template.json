@@ -1,0 +1,773 @@
+{
+  "format": "wf-template/1",
+  "slug": "card-dispute-intake",
+  "version": "1.0.0",
+  "name": "Card dispute intake",
+  "summary": "Open a dispute case from a webhook; suspected fraud blocks the card and gives a provisional credit.",
+  "category": "cards",
+  "tags": [
+    "disputes",
+    "webhook",
+    "cards",
+    "sub-workflow"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [
+      {
+        "slug": "customer-notify",
+        "version": "^1"
+      }
+    ],
+    "secrets": [
+      {
+        "name": "DISPUTES_API_KEY",
+        "used_by": [
+          "main/Create dispute case"
+        ]
+      },
+      {
+        "name": "CARDS_API_KEY",
+        "used_by": [
+          "main/Block card",
+          "main/Provisional credit"
+        ]
+      },
+      {
+        "name": "QUEUES_API_KEY",
+        "used_by": [
+          "main/Queue for manual handling"
+        ]
+      }
+    ],
+    "variables": [],
+    "egress_hosts": [
+      "disputes.bank.example",
+      "cards.bank.example",
+      "queues.bank.example"
+    ]
+  },
+  "apis": [
+    {
+      "key": "disputes",
+      "name": "disputes",
+      "file": "apis/disputes.yaml"
+    },
+    {
+      "key": "cards",
+      "name": "cards",
+      "file": "apis/cards.yaml"
+    },
+    {
+      "key": "queues",
+      "name": "queues",
+      "file": "apis/queues.yaml"
+    }
+  ],
+  "tables": [
+    {
+      "key": "dispute_reason_codes",
+      "name": "dispute_reason_codes",
+      "description": "Dispute reasons and whether they indicate fraud",
+      "columns": [
+        {
+          "name": "code",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "description",
+          "type": "string"
+        },
+        {
+          "name": "fraud",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "seed_rows": [
+        {
+          "code": "R-FRAUD",
+          "description": "Transaction not made by the cardholder",
+          "fraud": true
+        },
+        {
+          "code": "R-QUALITY",
+          "description": "Goods not as described",
+          "fraud": false
+        },
+        {
+          "code": "R-DUPLICATE",
+          "description": "Charged twice for the same purchase",
+          "fraud": false
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "Card dispute intake",
+      "publish": false,
+      "description": "Receive a card dispute by webhook, open the case and, for suspected fraud, block the card and credit the customer.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Dispute webhook",
+            "type": "Webhook",
+            "parameters": {
+              "method": "POST",
+              "path": "card-dispute-intake",
+              "responseMode": "lastNode"
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Create dispute case",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/disputes",
+                "operation_id": "createCase"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.DISPUTES_API_KEY }}"
+                }
+              ],
+              "body": {
+                "customer_id": "{{ $node[\"Dispute webhook\"].json.body.customer_id }}",
+                "card_last4": "{{ $node[\"Dispute webhook\"].json.body.card_last4 }}",
+                "merchant": "{{ $node[\"Dispute webhook\"].json.body.merchant }}",
+                "amount": "{{ $node[\"Dispute webhook\"].json.body.amount }}",
+                "description": "{{ $node[\"Dispute webhook\"].json.body.description }}"
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            },
+            "on_error": "error_output"
+          },
+          {
+            "name": "Case created?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.statusCode == 201 }}"
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Reason codes",
+            "type": "DataTable",
+            "parameters": {
+              "table": "@tpl:table/dispute_reason_codes",
+              "operation": "list",
+              "limit": 100
+            },
+            "position": {
+              "x": 720,
+              "y": -80
+            }
+          },
+          {
+            "name": "Classify reason",
+            "type": "Code",
+            "parameters": {
+              "code": "hook = node_data['Dispute webhook']['json']['body']\ncase = node_data['Create dispute case']['json']['body']\nfraud = False\nfor row in [x['json'] for x in items]:\n    if row.get('code') == hook.get('reason_code'):\n        fraud = bool(row.get('fraud'))\nreturn [{'json': {'case_id': case.get('case_id'), 'customer_id': hook.get('customer_id'), 'card_last4': hook.get('card_last4'),\n                  'amount': hook.get('amount'), 'merchant': hook.get('merchant'), 'email': hook.get('email'), 'fraud': fraud}}]\n"
+            },
+            "position": {
+              "x": 960,
+              "y": -80
+            }
+          },
+          {
+            "name": "Suspected fraud?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.fraud }}"
+            },
+            "position": {
+              "x": 1200,
+              "y": -80
+            }
+          },
+          {
+            "name": "Block card",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/cards",
+                "operation_id": "blockCard"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.CARDS_API_KEY }}"
+                }
+              ],
+              "body": {
+                "reason": "suspected fraud, dispute case {{ $json.case_id }}"
+              },
+              "path_params": {
+                "card_last4": "{{ $json.card_last4 }}"
+              }
+            },
+            "position": {
+              "x": 1440,
+              "y": -160
+            }
+          },
+          {
+            "name": "Provisional credit",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/cards",
+                "operation_id": "provisionalCredit"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.CARDS_API_KEY }}"
+                }
+              ],
+              "body": {
+                "customer_id": "{{ $node[\"Classify reason\"].json.customer_id }}",
+                "amount": "{{ $node[\"Classify reason\"].json.amount }}",
+                "merchant": "{{ $node[\"Classify reason\"].json.merchant }}"
+              },
+              "path_params": {
+                "card_last4": "{{ $node[\"Classify reason\"].json.card_last4 }}"
+              }
+            },
+            "position": {
+              "x": 1680,
+              "y": -160
+            }
+          },
+          {
+            "name": "Notify customer",
+            "type": "ExecuteWorkflow",
+            "parameters": {
+              "workflowId": "@tpl:workflow/customer-notify:notify",
+              "version": "latest",
+              "inputMode": "map",
+              "inputs": {
+                "to": "{{ $node[\"Classify reason\"].json.email }}",
+                "channel": "email",
+                "template": "dispute_received",
+                "vars": {
+                  "case_id": "{{ $node[\"Classify reason\"].json.case_id }}"
+                }
+              },
+              "mode": "once"
+            },
+            "position": {
+              "x": 1920,
+              "y": -80
+            }
+          },
+          {
+            "name": "Respond created",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 201,
+              "body": {
+                "case_id": "{{ $node[\"Classify reason\"].json.case_id }}",
+                "fraud_suspected": "{{ $node[\"Classify reason\"].json.fraud }}"
+              }
+            },
+            "position": {
+              "x": 2160,
+              "y": -80
+            }
+          },
+          {
+            "name": "Queue for manual handling",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/queues",
+                "operation_id": "create"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.QUEUES_API_KEY }}"
+                }
+              ],
+              "body": {
+                "queue": "cards",
+                "customer_id": "{{ $node[\"Dispute webhook\"].json.body.customer_id }}",
+                "summary": "Card dispute for card ending {{ $node[\"Dispute webhook\"].json.body.card_last4 }} could not be opened automatically",
+                "priority": "urgent"
+              }
+            },
+            "position": {
+              "x": 720,
+              "y": 160
+            }
+          },
+          {
+            "name": "Respond queued",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 202,
+              "body": {
+                "status": "queued for manual handling"
+              }
+            },
+            "position": {
+              "x": 960,
+              "y": 160
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Dispute webhook",
+            "target_node": "Create dispute case",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Create dispute case",
+            "target_node": "Case created?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Create dispute case",
+            "target_node": "Queue for manual handling",
+            "source_output": "error",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Case created?",
+            "target_node": "Reason codes",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Case created?",
+            "target_node": "Queue for manual handling",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Reason codes",
+            "target_node": "Classify reason",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Classify reason",
+            "target_node": "Suspected fraud?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Suspected fraud?",
+            "target_node": "Block card",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Suspected fraud?",
+            "target_node": "Notify customer",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Block card",
+            "target_node": "Provisional credit",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Provisional credit",
+            "target_node": "Notify customer",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Notify customer",
+            "target_node": "Respond created",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Queue for manual handling",
+            "target_node": "Respond queued",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_e6b4b5d1",
+            "name": "A quality dispute opens a case and tells the customer",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {
+                    "customer_id": "c-9001",
+                    "card_last4": "4242",
+                    "merchant": "Test Merchant",
+                    "amount": 180,
+                    "description": "Charge I do not recognise",
+                    "reason_code": "R-QUALITY",
+                    "email": "dana@example.com"
+                  },
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {
+              "Create dispute case": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "case_id": "D-1001",
+                    "status": "open"
+                  }
+                }
+              },
+              "Reason codes": {
+                "items": [
+                  {
+                    "id": 1,
+                    "code": "R-FRAUD",
+                    "description": "Transaction not made by the cardholder",
+                    "fraud": true
+                  },
+                  {
+                    "id": 2,
+                    "code": "R-QUALITY",
+                    "description": "Goods not as described",
+                    "fraud": false
+                  }
+                ]
+              },
+              "Notify customer": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Block card",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Provisional credit",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Notify customer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Create dispute case",
+                "subject": "request",
+                "item": "any",
+                "path": "body.amount",
+                "op": "eq",
+                "value": 180
+              },
+              {
+                "node": "Respond created",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_e8dcb1df",
+            "name": "A fraud dispute blocks the card and gives a provisional credit",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {
+                    "customer_id": "c-9001",
+                    "card_last4": "4242",
+                    "merchant": "Test Merchant",
+                    "amount": 180,
+                    "description": "Charge I do not recognise",
+                    "reason_code": "R-FRAUD",
+                    "email": "dana@example.com"
+                  },
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {
+              "Create dispute case": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "case_id": "D-1001",
+                    "status": "open"
+                  }
+                }
+              },
+              "Reason codes": {
+                "items": [
+                  {
+                    "id": 1,
+                    "code": "R-FRAUD",
+                    "description": "Transaction not made by the cardholder",
+                    "fraud": true
+                  },
+                  {
+                    "id": 2,
+                    "code": "R-QUALITY",
+                    "description": "Goods not as described",
+                    "fraud": false
+                  }
+                ]
+              },
+              "Block card": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "card_last4": "4242",
+                    "status": "blocked"
+                  }
+                }
+              },
+              "Provisional credit": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "credit_id": "PC-1",
+                    "amount": 180
+                  }
+                }
+              },
+              "Notify customer": {
+                "items": [
+                  {
+                    "delivered": true,
+                    "channel": "email"
+                  }
+                ]
+              }
+            },
+            "expect": [
+              {
+                "node": "Block card",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Provisional credit",
+                "subject": "request",
+                "item": "any",
+                "path": "body.amount",
+                "op": "eq",
+                "value": 180
+              },
+              {
+                "node": "Notify customer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Respond created",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_5e0d1d4b",
+            "name": "The dispute service raises an error and the case is queued",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {
+                    "customer_id": "c-9001",
+                    "card_last4": "4242",
+                    "merchant": "Test Merchant",
+                    "amount": 180,
+                    "description": "Charge I do not recognise",
+                    "reason_code": "R-FRAUD",
+                    "email": "dana@example.com"
+                  },
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {
+              "Create dispute case": {
+                "error": {
+                  "message": "dispute service unavailable",
+                  "code": "HTTP_503"
+                }
+              },
+              "Queue for manual handling": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "ticket_id": "TK-1",
+                    "queue": "cards"
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Create dispute case",
+                "port": "error",
+                "op": "count",
+                "value": 1
+              },
+              {
+                "node": "Queue for manual handling",
+                "subject": "request",
+                "item": "any",
+                "path": "body.queue",
+                "op": "eq",
+                "value": "cards"
+              },
+              {
+                "node": "Respond queued",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Block card",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_08130c71",
+            "name": "The dispute service refuses the case and it is queued",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "body": {
+                    "customer_id": "c-9001",
+                    "card_last4": "4242",
+                    "merchant": "Test Merchant",
+                    "amount": 180,
+                    "description": "Charge I do not recognise",
+                    "reason_code": "R-QUALITY",
+                    "email": "dana@example.com"
+                  },
+                  "headers": {},
+                  "query": {},
+                  "method": "POST"
+                }
+              ]
+            },
+            "mocks": {
+              "Create dispute case": {
+                "http": {
+                  "status": 422,
+                  "body": {
+                    "error": "unknown card"
+                  }
+                }
+              },
+              "Queue for manual handling": {
+                "http": {
+                  "status": 201,
+                  "body": {
+                    "ticket_id": "TK-2",
+                    "queue": "cards"
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Queue for manual handling",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Notify customer",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {}
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}

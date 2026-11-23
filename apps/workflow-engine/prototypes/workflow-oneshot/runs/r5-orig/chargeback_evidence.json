@@ -1,0 +1,263 @@
+{
+ "name": "Daily chargeback evidence submission",
+ "nodes": [
+  {
+   "name": "Every morning at 8",
+   "type": "Cron",
+   "parameters": {
+    "mode": "cron",
+    "cronExpression": "0 8 * * *"
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "List due chargebacks",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "chargebacks",
+     "operation_id": "listDue"
+    },
+    "method": "POST",
+    "url": "",
+    "body": {
+     "days_ahead": 3
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Split chargebacks",
+   "type": "ItemLists",
+   "parameters": {
+    "operation": "splitOut",
+    "arrayField": "body.chargebacks",
+    "includeOther": false
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Submit evidence",
+   "type": "HttpRequest",
+   "parameters": {
+    "api_ref": {
+     "spec_id": "chargebacks",
+     "operation_id": "submitEvidence"
+    },
+    "method": "POST",
+    "url": "",
+    "path_params": {
+     "chargeback_id": "{{ $json.chargeback_id }}"
+    },
+    "body": {
+     "transaction_id": "{{ $json.transaction_id }}",
+     "evidence_summary": "Evidence submitted for chargeback {{ $json.chargeback_id }} on transaction {{ $json.transaction_id }}."
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Every morning at 8",
+   "target_node": "List due chargebacks",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "List due chargebacks",
+   "target_node": "Split chargebacks",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Split chargebacks",
+   "target_node": "Submit evidence",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Two due chargebacks each get evidence",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List due chargebacks": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": [
+        {
+         "chargeback_id": "c1",
+         "transaction_id": "t1",
+         "amount": 100,
+         "due_date": "2026-10-23"
+        },
+        {
+         "chargeback_id": "c2",
+         "transaction_id": "t2",
+         "amount": 250,
+         "due_date": "2026-10-25"
+        }
+       ]
+      }
+     }
+    },
+    "Submit evidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "s1"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Split chargebacks",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Submit evidence",
+     "subject": "request",
+     "op": "count",
+     "value": 2
+    },
+    {
+     "node": "Submit evidence",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "c1"
+    },
+    {
+     "node": "Submit evidence",
+     "subject": "request",
+     "path": "body.transaction_id",
+     "op": "eq",
+     "value": "t1"
+    },
+    {
+     "node": "Submit evidence",
+     "subject": "request",
+     "path": "body.evidence_summary",
+     "op": "contains",
+     "value": "c1"
+    }
+   ]
+  },
+  {
+   "name": "Lookup asks for 3 days ahead",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List due chargebacks": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": [
+        {
+         "chargeback_id": "c9",
+         "transaction_id": "t9"
+        }
+       ]
+      }
+     }
+    },
+    "Submit evidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "s9"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "List due chargebacks",
+     "subject": "request",
+     "path": "body.days_ahead",
+     "op": "eq",
+     "value": 3
+    },
+    {
+     "node": "Submit evidence",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Submit evidence",
+     "subject": "request",
+     "path": "body.transaction_id",
+     "op": "eq",
+     "value": "t9"
+    }
+   ]
+  },
+  {
+   "name": "Nothing due means nothing submitted",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {}
+    ]
+   },
+   "mocks": {
+    "List due chargebacks": {
+     "http": {
+      "status": 200,
+      "body": {
+       "chargebacks": []
+      }
+     }
+    },
+    "Submit evidence": {
+     "http": {
+      "status": 202,
+      "body": {
+       "submission_id": "none"
+      }
+     }
+    }
+   },
+   "expect": [
+    {
+     "node": "Submit evidence",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,365 @@
+{
+ "name": "Customer address change",
+ "nodes": [
+  {
+   "name": "Address form",
+   "type": "FormTrigger",
+   "parameters": {
+    "title": "Change your address",
+    "input_schema": {
+     "type": "object",
+     "properties": {
+      "customer_id": {
+       "type": "string"
+      },
+      "new_address": {
+       "type": "string"
+      },
+      "document_id": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "customer_id",
+      "new_address",
+      "document_id"
+     ]
+    }
+   },
+   "position": {
+    "x": 0,
+    "y": 0
+   }
+  },
+  {
+   "name": "Verify identity",
+   "type": "ExecuteWorkflow",
+   "parameters": {
+    "workflowId": "wf_kyc_verify",
+    "version": "latest",
+    "inputMode": "map",
+    "inputs": {
+     "customer_id": "{{ $node[\"Address form\"].json.customer_id }}",
+     "document_id": "{{ $node[\"Address form\"].json.document_id }}"
+    }
+   },
+   "position": {
+    "x": 190,
+    "y": 0
+   }
+  },
+  {
+   "name": "Verified?",
+   "type": "If",
+   "parameters": {
+    "condition": "{{ $json.verified }}"
+   },
+   "position": {
+    "x": 380,
+    "y": 0
+   }
+  },
+  {
+   "name": "Update address",
+   "type": "HttpRequest",
+   "parameters": {
+    "method": "PUT",
+    "url": "",
+    "api_ref": {
+     "spec_id": "crm",
+     "operation_id": "updateAddress"
+    },
+    "path_params": {
+     "customer_id": "{{ $node[\"Address form\"].json.customer_id }}"
+    },
+    "body": {
+     "address": "{{ $node[\"Address form\"].json.new_address }}"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 0
+   }
+  },
+  {
+   "name": "Notify customer",
+   "type": "ExecuteWorkflow",
+   "parameters": {
+    "workflowId": "wf_notify_customer",
+    "version": "latest",
+    "inputMode": "map",
+    "inputs": {
+     "customer_id": "{{ $node[\"Address form\"].json.customer_id }}",
+     "message": "Your address was changed to {{ $node[\"Address form\"].json.new_address }}."
+    }
+   },
+   "position": {
+    "x": 760,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply changed",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "changed",
+     "message": "Your address was changed."
+    }
+   },
+   "position": {
+    "x": 950,
+    "y": 0
+   }
+  },
+  {
+   "name": "Reply refused",
+   "type": "Respond",
+   "parameters": {
+    "statusCode": 200,
+    "body": {
+     "status": "refused",
+     "message": "We could not verify you"
+    }
+   },
+   "position": {
+    "x": 570,
+    "y": 110
+   }
+  }
+ ],
+ "connections": [
+  {
+   "source_node": "Address form",
+   "target_node": "Verify identity",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verify identity",
+   "target_node": "Verified?",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verified?",
+   "target_node": "Update address",
+   "source_output": "true",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Verified?",
+   "target_node": "Reply refused",
+   "source_output": "false",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Update address",
+   "target_node": "Notify customer",
+   "source_output": "main",
+   "target_input": "main"
+  },
+  {
+   "source_node": "Notify customer",
+   "target_node": "Reply changed",
+   "source_output": "main",
+   "target_input": "main"
+  }
+ ],
+ "tests": [
+  {
+   "name": "Verified customer gets the address changed and is notified",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C100",
+      "new_address": "12 High Street",
+      "document_id": "D55"
+     }
+    ]
+   },
+   "mocks": {
+    "Verify identity": {
+     "items": [
+      {
+       "verified": true,
+       "reason": ""
+      }
+     ]
+    },
+    "Update address": {
+     "http": {
+      "status": 200,
+      "body": {
+       "customer_id": "C100"
+      }
+     }
+    },
+    "Notify customer": {
+     "items": [
+      {
+       "sent": true,
+       "channel": "email"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Update address",
+     "subject": "request",
+     "op": "count",
+     "value": 1
+    },
+    {
+     "node": "Update address",
+     "subject": "request",
+     "path": "url",
+     "op": "contains",
+     "value": "C100"
+    },
+    {
+     "node": "Update address",
+     "subject": "request",
+     "path": "body.address",
+     "op": "eq",
+     "value": "12 High Street"
+    },
+    {
+     "node": "Notify customer",
+     "subject": "request",
+     "path": "params.inputs.customer_id",
+     "op": "eq",
+     "value": "C100"
+    },
+    {
+     "node": "Reply changed",
+     "subject": "request",
+     "path": "body.status",
+     "op": "eq",
+     "value": "changed"
+    },
+    {
+     "node": "Reply refused",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Unverified customer is refused and nothing changes",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C200",
+      "new_address": "5 Low Road",
+      "document_id": "D99"
+     }
+    ]
+   },
+   "mocks": {
+    "Verify identity": {
+     "items": [
+      {
+       "verified": false,
+       "reason": "document mismatch"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Reply refused",
+     "subject": "request",
+     "path": "body.message",
+     "op": "eq",
+     "value": "We could not verify you"
+    },
+    {
+     "node": "Update address",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Notify customer",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    },
+    {
+     "node": "Reply changed",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  },
+  {
+   "name": "Verification receives the customer and document ids",
+   "target": {
+    "kind": "workflow"
+   },
+   "input": {
+    "items": [
+     {
+      "customer_id": "C300",
+      "new_address": "9 Park Lane",
+      "document_id": "D77"
+     }
+    ]
+   },
+   "mocks": {
+    "Verify identity": {
+     "items": [
+      {
+       "verified": false,
+       "reason": "expired"
+      }
+     ]
+    }
+   },
+   "expect": [
+    {
+     "node": "Verify identity",
+     "subject": "request",
+     "path": "params.inputs.customer_id",
+     "op": "eq",
+     "value": "C300"
+    },
+    {
+     "node": "Verify identity",
+     "subject": "request",
+     "path": "params.inputs.document_id",
+     "op": "eq",
+     "value": "D77"
+    },
+    {
+     "node": "Update address",
+     "subject": "node",
+     "op": "status",
+     "value": "not_run"
+    }
+   ]
+  }
+ ],
+ "interface": {
+  "kind": "form",
+  "slug": "customer-address-change",
+  "title": "Change your address",
+  "description": "",
+  "access": {
+   "mode": "public"
+  },
+  "trigger_node": "Address form",
+  "result_node": "Reply refused"
+ }
+}

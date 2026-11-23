@@ -6,7 +6,7 @@
  * field population.
  */
 
-import type { WorkflowNodeData, OutputStrategy } from '../types/workflow';
+import type { WorkflowNodeData, OutputStrategy, OnErrorMode } from '../types/workflow';
 import type { NodeGroup, NodeIO } from './nodeStyles';
 import { getNodeIcon, normalizeNodeGroup, isTriggerType } from './nodeConfig';
 import { generateNodeName } from './workflowTransform';
@@ -42,6 +42,8 @@ export interface NodeTypeMetadata {
   properties?: Array<{ name: string; default?: unknown; [k: string]: unknown }>;
 }
 
+import type { NodeContractOverride } from './shapes';
+
 /**
  * Per-instance overrides that differ between individual node instances
  * (e.g. name, position, parameters).
@@ -50,10 +52,12 @@ interface NodeDataOverrides {
   name?: string;
   label?: string;
   parameters?: Record<string, unknown>;
-  continueOnFail?: boolean;
+  disabled?: boolean;
+  onError?: OnErrorMode;
   retryOnFail?: number;
   retryDelay?: number;
   pinnedData?: Array<{ json: Record<string, unknown> }>;
+  contract?: NodeContractOverride;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +67,7 @@ interface NodeDataOverrides {
 /**
  * Returns default inputs and outputs for a given node type.
  * Centralises the If/Switch/Loop logic that was duplicated in
- * workflowTransform.ts and aiOperationApplier.ts.
+ * workflowTransform.ts and the old AI operation applier.
  */
 export function getDefaultIO(nodeType: string): {
   inputs: NodeIO[];
@@ -172,7 +176,8 @@ export function createWorkflowNodeData(
     icon,
     description: meta.description,
     parameters: overrides?.parameters ?? defaultParams,
-    continueOnFail: overrides?.continueOnFail ?? false,
+    disabled: overrides?.disabled ?? false,
+    onError: overrides?.onError ?? 'stop',
     retryOnFail: overrides?.retryOnFail ?? 0,
     retryDelay: overrides?.retryDelay ?? 1000,
     group,
@@ -182,6 +187,7 @@ export function createWorkflowNodeData(
     outputs,
     outputStrategy: meta.outputStrategy,
     ...(overrides?.pinnedData ? { pinnedData: overrides.pinnedData } : {}),
+    ...(overrides?.contract ? { contract: overrides.contract } : {}),
   };
 
   return data;

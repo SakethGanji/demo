@@ -1,9 +1,24 @@
 import { memo, useState, useMemo, useCallback } from 'react';
-import { Database, Code, Pin, Clock, Zap, Globe, GitBranch, Download } from 'lucide-react';
+import { DataEmpty } from './DataEmpty';
+import { Database, Code, Pin, Zap, Globe, GitBranch, Download, History, FileCheck2, Eye } from 'lucide-react';
+import { toast } from 'sonner';
 import type { NodeExecutionData } from '../../types/workflow';
 import { useWorkflowStore } from '../../stores/workflowStore';
 import { useNDVStore } from '../../stores/ndvStore';
+import { Segmented } from '@/shared/components/ui/segmented';
+import { Tip } from '@/shared/components/ui/tooltip';
+import { Spinner } from '@/shared/components/ui/spinner';
+import { Callout } from '@/shared/components/ui/surface';
+import { pinFromLastRun } from '../../lib/nodeActions';
+import { Button } from '@/shared/components/ui/button';
+import { useNodeActions } from '../../hooks/useNodeActions';
+import type { NodeContractOverride } from '../../lib/shapes';
+import { isObservedType } from '../../lib/contractSuggestions';
+import { learnContract, removeContract, type ContractProposal } from '../../lib/contractActions';
 import RunDataDisplay from './RunDataDisplay';
+import ContractDialog from './ContractDialog';
+import { HtmlReportPreview } from '@/shared/components/report/HtmlReportPreview';
+import { findHtmlReport, outputView, type OutputView } from '@/shared/components/report/htmlReport';
 
 interface OutputPanelProps {
   nodeId: string;
@@ -15,6 +30,9 @@ type DisplayMode = 'json' | 'schema';
 const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputPanelProps) {
   const storedOutputMode = useNDVStore((s) => s.outputDisplayMode);
   const [displayMode, setDisplayMode] = useState<DisplayMode>(storedOutputMode);
+  // Preview of an HTML report: null until the user picks a view for this node (a report opens on Preview).
+  const [pick, setPick] = useState<{ nodeId: string; preview: boolean } | null>(null);
+  const previewChoice = pick?.nodeId === nodeId ? pick.preview : null;
 
   const hasPinned = useWorkflowStore((s) => s.hasPinnedData(nodeId));
   const getPinnedDataForDisplay = useWorkflowStore((s) => s.getPinnedDataForDisplay);
@@ -22,6 +40,13 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   const unpinNodeData = useWorkflowStore((s) => s.unpinNodeData);
 
   const isPinned = hasPinned;
+
+  // Learned contracts (observed-type nodes only)
+  const nodeType = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId)?.data?.type) as string | undefined;
+  const contract = useWorkflowStore((s) => s.nodes.find((n) => n.id === nodeId)?.data?.contract) as NodeContractOverride | undefined;
+  const { saveNew } = useNodeActions();
+  const [proposal, setProposal] = useState<ContractProposal | null>(null);
+  const [contractBusy, setContractBusy] = useState(false);
 
   // Use pinned data if available, otherwise use execution data
   // getPinnedDataForDisplay unwraps { json: {...} } to just {...}
@@ -42,6 +67,23 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   };
 
   const hasData = executionData?.output?.items && executionData.output.items.length > 0;
+
+  const handleLearn = async () => {
+    setContractBusy(true);
+    const res = await learnContract(nodeId, saveNew);
+    setContractBusy(false);
+    if (res.ok) setProposal(res.proposal);
+    else toast.error('Could not learn a contract', { description: res.message });
+  };
+
+  const handleRemove = async () => {
+    setContractBusy(true);
+    const res = await removeContract(nodeId, saveNew);
+    setContractBusy(false);
+    if (res.ok) toast.success('Contract removed');
+    else toast.error('Could not remove the contract', { description: res.message });
+  };
+  const showLearn = isObservedType(nodeType) && !!hasData && !contract;
   const hasError = executionData?.output?.error;
   const itemCount = executionData?.output?.items?.length ?? 0;
   const metrics = executionData?.metrics;
@@ -71,6 +113,15 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
     URL.revokeObjectURL(url);
   }, [pdfBase64]);
 
+  const report = useMemo(() => findHtmlReport(displayData), [displayData]);
+  const view = outputView(displayMode, previewChoice, !!report);
+  const handleViewChange = (v: OutputView) => {
+    setPick({ nodeId, preview: v === 'preview' });
+    if (v === 'preview') return;
+    setDisplayMode(v);
+    useNDVStore.getState().setOutputDisplayMode(v);
+  };
+
   // Use server-accurate execution time
   const executionTime = metrics?.executionTimeMs != null
     ? metrics.executionTimeMs < 1000
@@ -81,38 +132,37 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border/50 bg-muted/30 px-3 py-1.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Output</span>
+      <div className="flex items-center justify-between gap-2 px-3 py-2 shadow-[inset_0_-1px_0_var(--hairline)]">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap [&>*]:shrink-0">
+          <span className="text-[12.5px] font-medium text-foreground">Output</span>
           {hasData && (
-            <span className="rounded-sm px-1 py-px text-[10px] font-medium bg-[var(--success)]/10 text-[var(--success)]">
-              {itemCount} items
+            <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-success/11 text-success-text">
+              {itemCount} {itemCount === 1 ? 'item' : 'items'}
             </span>
           )}
           {hasError && (
-            <span className="rounded-sm px-1 py-px text-[10px] font-medium bg-destructive/10 text-destructive">
+            <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-destructive-soft text-destructive">
               Error
             </span>
           )}
           {executionTime && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Clock size={11} />
+            <span className="flex items-center gap-1 text-[10px] text-muted-foreground" title={`Execution time ${executionTime}`}>
               {executionTime}
             </span>
           )}
           {/* LLM token badge */}
           {metrics?.totalTokens != null && (
-            <span className="flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium bg-purple-500/10 text-purple-500" title={`In: ${metrics.inputTokens ?? 0} / Out: ${metrics.outputTokens ?? 0}`}>
+            <span className="flex items-center gap-1 rounded-chip px-1 py-px text-[10.5px] font-medium bg-ai-soft text-ai-text" title={`In: ${metrics.inputTokens ?? 0} / Out: ${metrics.outputTokens ?? 0}`}>
               <Zap size={10} />
               {metrics.totalTokens.toLocaleString()} tok
             </span>
           )}
           {/* HTTP status badge */}
           {metrics?.responseStatusCode != null && (
-            <span className={`flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium ${
+            <span title={`HTTP status ${metrics.responseStatusCode}`} className={`flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium ${
               metrics.responseStatusCode < 400
-                ? 'bg-[var(--success)]/10 text-[var(--success)]'
-                : 'bg-destructive/10 text-destructive'
+                ? 'bg-success/11 text-success-text'
+                : 'bg-destructive-soft text-destructive'
             }`}>
               <Globe size={10} />
               {metrics.responseStatusCode}
@@ -120,115 +170,127 @@ const OutputPanel = memo(function OutputPanel({ nodeId, executionData }: OutputP
           )}
           {/* Branch decision badge */}
           {metrics?.branchDecision != null && (
-            <span className="flex items-center gap-1 rounded-sm px-1 py-px text-[10px] font-medium bg-blue-500/10 text-blue-500">
+            <span className="flex items-center gap-1 rounded-chip px-1 py-px text-[10.5px] font-medium bg-brand-soft text-primary">
               <GitBranch size={10} />
               {metrics.branchDecision}
             </span>
           )}
           {isPinned && (
-            <span className="rounded-sm px-1 py-px text-[10px] font-medium bg-[var(--warning)]/10 text-[var(--warning)]">
+            <span className="rounded-chip px-1 py-px text-[10.5px] font-medium bg-warning/13 text-warning-text">
               Pinned
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           {/* Pin button */}
           <button
             onClick={handlePinToggle}
             disabled={!hasData && !isPinned}
-            className={`rounded-md p-1.5 transition-colors ${
+            className={`rounded-ctl p-1.5 transition-colors ${
               isPinned
-                ? 'bg-[var(--warning)]/10 text-[var(--warning)]'
-                : 'text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed'
+                ? 'bg-warning/13 text-warning-text'
+                : 'text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed'
             }`}
             title={isPinned ? 'Unpin data' : 'Pin data'}
+            aria-label={isPinned ? 'Unpin data' : 'Pin data'}
+            data-testid="ndv-output-pin"
           >
             <Pin size={13} />
           </button>
+
+          {/* Pin this node's output from the run data on the canvas (replaces an older pin) */}
+          <Tip label="Pin this node's output from the last run">
+            <button
+              onClick={() => pinFromLastRun(nodeId)}
+              disabled={!hasData}
+              className="rounded-ctl p-1.5 text-muted-foreground transition-colors hover:bg-(--hover-fill) hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Pin from last run"
+              data-testid="ndv-pin-from-last-run"
+            >
+              <History size={13} />
+            </button>
+          </Tip>
 
           {/* PDF download button */}
           {pdfBase64 && (
             <button
               onClick={handleDownloadPdf}
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="rounded-ctl p-1.5 text-muted-foreground hover:bg-(--hover-fill) hover:text-foreground transition-colors"
               title="Download PDF"
+              aria-label="Download PDF"
+              data-testid="ndv-output-pdf"
             >
               <Download size={13} />
             </button>
           )}
 
           {/* Display mode toggle */}
-          <div className="bg-muted/60 rounded p-px flex items-center">
-            <button
-              onClick={() => { setDisplayMode('schema'); useNDVStore.getState().setOutputDisplayMode('schema'); }}
-              className={`rounded-sm p-1.5 transition-colors ${
-                displayMode === 'schema'
-                  ? 'bg-[var(--surface)] shadow-xs text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Schema view"
-            >
-              <Database size={13} />
-            </button>
-            <button
-              onClick={() => { setDisplayMode('json'); useNDVStore.getState().setOutputDisplayMode('json'); }}
-              className={`rounded-sm p-1.5 transition-colors ${
-                displayMode === 'json'
-                  ? 'bg-[var(--surface)] shadow-xs text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="JSON view"
-            >
-              <Code size={13} />
-            </button>
-          </div>
+          <Segmented
+          size="xs"
+          value={view}
+          onChange={handleViewChange}
+          aria-label="Display mode"
+          data-testid="ndv-output-display-mode"
+          options={[
+            { key: 'schema', label: <Database size={13} aria-label="Schema view" />, testId: 'ndv-output-mode-schema' },
+            { key: 'json', label: <Code size={13} aria-label="JSON view" />, testId: 'ndv-output-mode-json' },
+            ...(report ? [{ key: 'preview' as const, label: <Eye size={13} aria-label="Preview" />, testId: 'ndv-output-mode-preview' }] : []),
+          ]}
+        />
         </div>
       </div>
 
+      {/* Learned contract */}
+      {(showLearn || contract) && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 shadow-[inset_0_-1px_0_var(--hairline)]">
+          <span
+            className="min-w-0 truncate text-[11px] text-muted-foreground"
+            title={contract ? undefined : 'Output shape is unknown until you approve a contract'}
+          >
+            {contract
+              ? `Contract approved by ${contract.approved_by}`
+              : 'Shape not approved yet'}
+          </span>
+          {contract ? (
+            <Button size="xs" variant="ghost" onClick={handleRemove} disabled={contractBusy} data-testid="ndv-contract-remove">
+              Remove contract
+            </Button>
+          ) : (
+            <Button size="xs" variant="outline" onClick={handleLearn} disabled={contractBusy} data-testid="ndv-contract-learn">
+              <FileCheck2 />
+              Use as contract
+            </Button>
+          )}
+        </div>
+      )}
+      <ContractDialog proposal={proposal} onOpenChange={(o) => { if (!o) setProposal(null); }} />
+
       {/* Data display */}
-      <div className="flex-1 overflow-auto p-3">
+      <div className="well m-2 flex-1 overflow-auto p-3">
         {!executionData ? (
-          <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center mb-3">
-              <Database size={18} className="text-muted-foreground/50" />
-            </div>
-            <p className="text-[13px] font-medium text-foreground mb-0.5">
-              No output data yet
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              Run the workflow to see results
-            </p>
-          </div>
+          <DataEmpty title="No output data yet" hint="Run the workflow to see results" />
         ) : executionData.status === 'running' ? (
           <div className="flex h-full flex-col items-center justify-center">
-            <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted border-t-primary" />
+            <Spinner className="size-6" />
             <p className="mt-2 text-[13px] font-medium text-foreground">Executing...</p>
           </div>
         ) : hasError ? (
-          <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3">
-            <p className="text-[13px] font-semibold text-destructive">Error</p>
-            <p className="mt-1 text-[12px] text-destructive/80">
+          <Callout tone="error" className="items-start">
+            <p className="text-[13px] font-semibold">Error</p>
+            <p className="mt-1 text-[12px]">
               {executionData.output?.error}
             </p>
-          </div>
+          </Callout>
+        ) : report && view === 'preview' ? (
+          <HtmlReportPreview report={report} />
         ) : displayData && displayData.length > 0 ? (
           <RunDataDisplay
             data={displayData}
-            mode={displayMode}
+            mode={view === 'preview' ? displayMode : view}
           />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center text-center px-6">
-            <div className="w-10 h-10 rounded-lg bg-muted/50 flex items-center justify-center mb-3">
-              <Database size={18} className="text-muted-foreground/50" />
-            </div>
-            <p className="text-[13px] font-medium text-foreground mb-0.5">
-              No output items
-            </p>
-            <p className="text-[12px] text-muted-foreground">
-              The node executed but returned no data
-            </p>
-          </div>
+          <DataEmpty title="No output items" hint="The node executed but returned no data" />
         )}
       </div>
 

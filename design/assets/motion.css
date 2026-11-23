@@ -1,0 +1,104 @@
+/* Motion and small details on top of the original design. Adds no new look: same tokens,
+   same floating panels. Fast, no bounce; respects reduced motion. */
+:root {
+  --ease-out: cubic-bezier(.16, 1, .3, 1); --ease-io: cubic-bezier(.65, 0, .35, 1); --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --d-instant: 80ms; --d-fast: 140ms; --d-base: 200ms; --d-slow: 280ms;
+}
+body { font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.btn:focus-visible, .input:focus-visible { outline: none; }
+
+/* page: the main panel settles in; chrome stays still */
+.main > * { animation: m-enter var(--d-base) var(--ease-out) both; }
+@keyframes m-enter { from { opacity: 0; transform: translateY(4px); } }
+
+/* buttons press in instead of dropping a pixel */
+.btn { transition: background-color var(--d-instant), border-color var(--d-instant), box-shadow var(--d-fast), transform var(--d-fast) var(--ease-out), opacity var(--d-fast); }
+.btn:active { transform: scale(.98); transition-duration: var(--d-instant); }
+
+/* segmented controls: one thumb slides between options */
+.seg { position: relative; isolation: isolate; }
+.seg > .m-thumb { position: absolute; z-index: -1; top: 2px; left: 0; border-radius: var(--r-md); background: var(--card); box-shadow: var(--shadow-xs);
+  transition: transform var(--d-base) var(--ease-io), width var(--d-base) var(--ease-io); }
+.seg.m-ready > .on { background: transparent; box-shadow: none; }
+.seg > button, .seg > a { transition: color var(--d-fast); }
+
+/* sidebar: hover trails the pointer slightly */
+.item { transition: background-color var(--d-fast), color var(--d-instant); }
+.item:hover { transition-duration: var(--d-instant); }
+.group-head button { opacity: 0; transition: opacity var(--d-fast), background-color var(--d-instant); }
+.group-head:hover button, .group-head button:focus-visible { opacity: 1; }
+
+/* tables: instant row hover, actions appear with the row */
+.table tbody tr td { transition: background-color 60ms; }
+.table td .m-act { opacity: 0; transition: opacity 100ms; display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: var(--r-md); color: var(--muted-foreground); }
+.table tr:hover .m-act, .table tr:focus-within .m-act { opacity: 1; }
+.table td .m-act:hover { background: var(--muted); color: var(--foreground); }
+
+/* URL chip: click to copy; the icon swaps to a check */
+.url { cursor: copy; transition: background-color var(--d-instant); }
+.url:hover { background: var(--muted); }
+.m-swap { position: relative; width: 14px; height: 14px; display: inline-block; }
+.m-swap svg { position: absolute; inset: 0; width: 14px !important; height: 14px !important; transition: opacity var(--d-fast), transform var(--d-fast) var(--ease-out); }
+.m-swap .b { opacity: 0; transform: scale(.8); color: var(--success); }
+.m-swap.done .a { opacity: 0; transform: scale(.8); } .m-swap.done .b { opacity: 1; transform: none; }
+
+/* stats: rolling digits and a real sparkline */
+.m-roll { display: inline-flex; overflow: hidden; height: 1.2em; line-height: 1.2em; vertical-align: bottom; }
+.m-roll .m-dg { display: inline-flex; flex-direction: column; transition: transform var(--d-slow) var(--ease-out); }
+.m-roll .m-dg span { height: 1.2em; }
+.m-spark { margin-left: 4px; align-self: center; }
+.m-spark rect { fill: color-mix(in srgb, var(--foreground) 14%, transparent); transition: height var(--d-slow) var(--ease-out), y var(--d-slow) var(--ease-out); }
+.m-spark rect.last { fill: var(--success); }
+
+/* live rows: slide in, flash once; running dot rings while in flight */
+.m-new { animation: m-row var(--d-slow) var(--ease-out) both, m-flash 900ms ease-out both; }
+@keyframes m-row { from { opacity: 0; transform: translateY(-4px); } }
+@keyframes m-flash { from { background: color-mix(in srgb, var(--primary) 9%, transparent); } to { background: transparent; } }
+.m-flash td { animation: m-flash 900ms ease-out both; }
+.dot.m-live { position: relative; background: var(--primary); box-shadow: none; }
+.dot.m-live::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--primary); animation: m-ring 1.6s var(--ease-out) infinite; }
+@keyframes m-ring { from { transform: scale(1); opacity: .55; } to { transform: scale(2.6); opacity: 0; } }
+
+/* prod: a thin amber line runs along the top of the main panel */
+.main > .panel { position: relative; }
+.main > .panel::before { content: ''; position: absolute; left: 14px; right: 14px; top: 0; height: 2px; border-radius: 0 0 2px 2px; background: var(--warning); transform: scaleX(0); transition: transform var(--d-slow) var(--ease-out); z-index: 2; }
+.workspace.m-prod .main > .panel::before { transform: scaleX(1); }
+
+/* tooltip */
+.m-tip { position: fixed; z-index: 90; max-width: 260px; padding: 5px 8px; border-radius: var(--r-md); background: var(--foreground); color: var(--background); font-size: 12px; line-height: 16px;
+  opacity: 0; transform: translateY(2px); pointer-events: none; transition: opacity 120ms var(--ease-out), transform 120ms var(--ease-out); }
+.m-tip.show { opacity: 1; transform: none; }
+.m-tip .kbd { margin-left: 6px; background: transparent; color: inherit; border-color: color-mix(in srgb, var(--background) 30%, transparent); }
+
+/* ⌘K palette, in the same floating language as the panels */
+.m-scrim { position: fixed; inset: 0; z-index: 80; background: rgb(0 0 0 / .18); opacity: 0; pointer-events: none; transition: opacity var(--d-base); }
+.dark .m-scrim { background: rgb(0 0 0 / .5); }
+.m-scrim.open { opacity: 1; pointer-events: auto; }
+.m-pal { position: fixed; z-index: 81; left: 50%; top: 18vh; width: 560px; margin-left: -280px; border-radius: var(--r-xl); border: 1px solid var(--panel-border); background: var(--popover); box-shadow: var(--shadow-2xl); overflow: hidden;
+  opacity: 0; transform: scale(.98); pointer-events: none; transition: opacity 100ms var(--ease-in), transform 100ms var(--ease-in); }
+.m-pal.open { opacity: 1; transform: none; pointer-events: auto; transition: opacity 160ms var(--ease-out), transform 160ms var(--ease-out); }
+.m-pal input { width: 100%; height: 48px; border: 0; border-bottom: 1px solid var(--border); padding: 0 16px; font: 15px var(--font-sans); background: transparent; color: var(--foreground); outline: none; }
+.m-pal input::placeholder { color: var(--muted-foreground); }
+.m-pal .res { padding: 6px; max-height: 360px; overflow: auto; }
+.m-pal .lbl { font-size: 12px; color: var(--muted-foreground); padding: 8px 10px 4px; }
+.m-pal .mi { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border-radius: var(--r-md); }
+.m-pal .mi svg { width: 15px; height: 15px; color: var(--muted-foreground); }
+.m-pal .mi.hl { background: var(--muted); }
+.m-pal .mi .kbd { margin-left: auto; }
+.m-pal .ft { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-foreground); }
+
+/* sliding underline for .tabs */
+.m-tabs .tab.active { border-bottom-color: transparent; }
+.m-tabline { position: absolute; left: 0; bottom: -1px; height: 2px; background: var(--primary); border-radius: 2px; transition: transform var(--d-base) var(--ease-io), width var(--d-base) var(--ease-io); }
+
+/* sliding sidebar highlight */
+.m-pill { position: absolute; left: 8px; right: 8px; top: 0; border-radius: 7px; background: var(--sidebar-accent); transition: transform var(--d-slow) var(--ease-io); pointer-events: none; }
+.m-pilled .item { position: relative; }
+.m-pilled .item.on { background: transparent; }
+
+.m-no-tr *, .m-no-tr *::before, .m-no-tr *::after { transition: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
+}

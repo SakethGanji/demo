@@ -1,0 +1,434 @@
+[
+ [
+  "WF005",
+  "Custom Output",
+  "fields[0].value",
+  "browserHtml"
+ ],
+ [
+  "WF005",
+  "Custom Output",
+  "fields[0].value",
+  "httpResponseBody"
+ ],
+ [
+  "WF005",
+  "Custom Output",
+  "fields[0].value",
+  "networkCapture"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "articleList.articles"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "browserHtml"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "jobPosting"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "jobPostingNavigation"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "product"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "productList"
+ ],
+ [
+  "WF005",
+  "Format Output [ Single || List ]",
+  "fields[0].value",
+  "productNavigation"
+ ],
+ [
+  "WF005",
+  "General Extract Goal",
+  "rules[0].field",
+  "[\"What is your extraction goal?\"]"
+ ],
+ [
+  "WF005",
+  "General Extract Goal",
+  "rules[1].field",
+  "[\"What is your extraction goal?\"]"
+ ],
+ [
+  "WF005",
+  "General Extract Goal",
+  "rules[2].field",
+  "[\"What is your extraction goal?\"]"
+ ],
+ [
+  "WF005",
+  "General Extract Goal",
+  "rules[3].field",
+  "[\"What is your extraction goal?\"]"
+ ],
+ [
+  "WF005",
+  "General Extract Goal",
+  "rules[4].field",
+  "[\"What is your extraction goal?\"]"
+ ],
+ [
+  "WF005",
+  "HTTP BrowserHtml",
+  "body",
+  "URL"
+ ],
+ [
+  "WF005",
+  "HTTP Node: Capture Network API",
+  "body",
+  "URL"
+ ],
+ [
+  "WF005",
+  "HTTP Node: Capture Page Screenshot",
+  "body",
+  "URL"
+ ],
+ [
+  "WF005",
+  "HTTP Node: Infinite Scroll",
+  "body",
+  "URL"
+ ],
+ [
+  "WF005",
+  "HTTP Node: SERP Extraction",
+  "body",
+  "[\"Target URL\"]"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Current Page] Get Item Details",
+  "body",
+  "target_schema"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Current Page] Get Item Details",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Current Page] Get Item URLs",
+  "body",
+  "navigation_schema"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Current Page] Get Item URLs",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Details-All] Crawler (Phase 1)",
+  "body",
+  "navigation_schema"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Details-All] Crawler (Phase 1)",
+  "body",
+  "target_url"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Details-All] Get Details",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [List-All] Get Page URLs",
+  "body",
+  "navigation_schema"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [List-All] Get Page URLs",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [List] Get Current Page",
+  "body",
+  "target_schema"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [List] Get Current Page",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Single Item] Get Details",
+  "body",
+  "target_schema"
+ ],
+ [
+  "WF005",
+  "HTTP Node: [Single Item] Get Details",
+  "body",
+  "url"
+ ],
+ [
+  "WF005",
+  "HTTP Response Body",
+  "body",
+  "URL"
+ ],
+ [
+  "WF005",
+  "Product Extraction Goal",
+  "rules[0].field",
+  "extraction_goal"
+ ],
+ [
+  "WF005",
+  "Product Extraction Goal",
+  "rules[1].field",
+  "extraction_goal"
+ ],
+ [
+  "WF005",
+  "Product Extraction Goal",
+  "rules[2].field",
+  "extraction_goal"
+ ],
+ [
+  "WF005",
+  "Product Extraction Goal",
+  "rules[3].field",
+  "extraction_goal"
+ ],
+ [
+  "WF005",
+  "Product Extraction Goal",
+  "rules[4].field",
+  "extraction_goal"
+ ],
+ [
+  "WF005",
+  "Route by Category",
+  "rules[0].field",
+  "[\"Select Site Category\"]"
+ ],
+ [
+  "WF005",
+  "Route by Category",
+  "rules[1].field",
+  "[\"Select Site Category\"]"
+ ],
+ [
+  "WF005",
+  "Route by Category",
+  "rules[2].field",
+  "[\"Select Site Category\"]"
+ ],
+ [
+  "WF005",
+  "Route by Category",
+  "rules[3].field",
+  "[\"Select Site Category\"]"
+ ],
+ [
+  "WF005",
+  "Route by Category",
+  "rules[4].field",
+  "[\"Select Site Category\"]"
+ ],
+ [
+  "WF005",
+  "[Details-All] Init State",
+  "fields[0].value",
+  "url"
+ ],
+ [
+  "WF005",
+  "[Details-All] Init State",
+  "fields[1].value",
+  "target_schema"
+ ],
+ [
+  "WF005",
+  "[Details-All] Init State",
+  "fields[2].value",
+  "navigation_schema"
+ ],
+ [
+  "WF005",
+  "[Details-All] More Pages?",
+  "condition",
+  "stop"
+ ],
+ [
+  "WF005",
+  "[Details-All] Set Next URL",
+  "fields[0].value",
+  "nextPageUrl"
+ ],
+ [
+  "WF005",
+  "[List-All] Check Next Page",
+  "condition",
+  "stopLoop"
+ ],
+ [
+  "WF005",
+  "[List-All] Get Item List",
+  "body",
+  "currentScrapeUrl"
+ ],
+ [
+  "WF005",
+  "[List-All] Init State",
+  "fields[0].value",
+  "url"
+ ],
+ [
+  "WF005",
+  "[List-All] Init State",
+  "fields[1].value",
+  "target_schema"
+ ],
+ [
+  "WF005",
+  "[List-All] Init State",
+  "fields[2].value",
+  "navigation_schema"
+ ],
+ [
+  "WF005",
+  "[List-All] Set Next URL",
+  "fields[0].value",
+  "nextLoopUrl"
+ ],
+ [
+  "WF005",
+  "serp response",
+  "fields[0].value",
+  "serp"
+ ],
+ [
+  "WF008",
+  "[Details-All] Merge Pages",
+  null,
+  null
+ ],
+ [
+  "WF008",
+  "[List-All] Get Item List",
+  null,
+  null
+ ],
+ [
+  "WF009",
+  "HTTP BrowserHtml",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: Capture Network API",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: Capture Page Screenshot",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: Infinite Scroll",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: SERP Extraction",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [Current Page] Get Item Details",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [Current Page] Get Item URLs",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [Details-All] Crawler (Phase 1)",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [Details-All] Get Details",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [List-All] Get Page URLs",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [List] Get Current Page",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Node: [Single Item] Get Details",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "HTTP Response Body",
+  "headers[0].value",
+  null
+ ],
+ [
+  "WF009",
+  "[List-All] Get Item List",
+  "headers[0].value",
+  null
+ ]
+]

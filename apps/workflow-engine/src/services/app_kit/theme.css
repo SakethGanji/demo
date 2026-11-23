@@ -1,0 +1,138 @@
+/* Studio UI kit theme (provided by Studio, refreshed every builder turn; do not edit — restyle the app in its own index.css).
+ * Default token values plus the Tailwind v4 mapping that turns them into utilities: bg-card, text-muted-foreground,
+ * border-border, bg-primary, text-danger, bg-success-soft, ring-ring, ... Defaults sit at zero specificity (:where), so an
+ * app's `:root { --primary: ... }` and `.dark { ... }` always win. Dark mode is the `.dark` class on <html> (AppShell's
+ * toggle sets it from the viewer's choice or the OS); `dark:` utilities follow the same class. */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-soft-foreground: var(--soft-foreground);
+  --color-faint-foreground: var(--faint-foreground);
+  --color-subtle: var(--subtle);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-overlay: var(--overlay);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-border: var(--warning-border);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-border: var(--danger-border);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
+  --color-chart-8: var(--chart-8);
+}
+
+:where(:root) {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --soft-foreground: #475569;
+  --faint-foreground: #94a3b8;
+  --subtle: #f8fafc;
+  --border: #e2e8f0;
+  --input: #cbd5e1;
+  --ring: #dbeafe;
+  --overlay: rgb(15 23 42 / 0.3);
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --primary-soft: #eff6ff;
+  --info: #1d4ed8;
+  --info-soft: #eff6ff;
+  --success: #047857;
+  --success-foreground: #ffffff;
+  --success-soft: #ecfdf5;
+  --success-border: #a7f3d0;
+  --warning: #b45309;
+  --warning-foreground: #ffffff;
+  --warning-soft: #fffbeb;
+  --warning-border: #fde68a;
+  --danger: #b91c1c;
+  --danger-foreground: #ffffff;
+  --danger-soft: #fef2f2;
+  --danger-border: #fecaca;
+  --chart-1: #2563eb;
+  --chart-2: #059669;
+  --chart-3: #d97706;
+  --chart-4: #7c3aed;
+  --chart-5: #db2777;
+  --chart-6: #0891b2;
+  --chart-7: #65a30d;
+  --chart-8: #64748b;
+  --radius: 0.5rem;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+:where(.dark) {
+  color-scheme: dark;
+  --background: #0b1020;
+  --foreground: #e2e8f0;
+  --card: #131a2e;
+  --card-foreground: #e2e8f0;
+  --muted: #1c2540;
+  --muted-foreground: #94a3b8;
+  --soft-foreground: #cbd5e1;
+  --faint-foreground: #64748b;
+  --subtle: #10172a;
+  --border: #263152;
+  --input: #34406a;
+  --ring: rgb(96 165 250 / 0.35);
+  --overlay: rgb(0 0 0 / 0.5);
+  --primary: #60a5fa;
+  --primary-foreground: #0b1020;
+  --primary-soft: #172554;
+  --info: #93c5fd;
+  --info-soft: #172554;
+  --success: #6ee7b7;
+  --success-foreground: #052e1c;
+  --success-soft: #064e3b;
+  --success-border: #065f46;
+  --warning: #fcd34d;
+  --warning-foreground: #1c1003;
+  --warning-soft: #451a03;
+  --warning-border: #78350f;
+  --danger: #fca5a5;
+  --danger-foreground: #1f0606;
+  --danger-soft: #450a0a;
+  --danger-border: #7f1d1d;
+  --chart-1: #60a5fa;
+  --chart-2: #34d399;
+  --chart-3: #fbbf24;
+  --chart-4: #a78bfa;
+  --chart-5: #f472b6;
+  --chart-6: #22d3ee;
+  --chart-7: #a3e635;
+  --chart-8: #94a3b8;
+}
+
+.dark body {
+  background-color: var(--background);
+  color: var(--foreground);
+}

@@ -1,0 +1,23 @@
+/*
+ * The editor canvas while an AI stage is active. Tokens only; the choreography runs through motion, not keyframes.
+ * Only opacity is transitioned on React Flow's node wrapper (its transform is never touched).
+ */
+.stage-on .react-flow__node {
+  transition: opacity var(--d-slow) var(--ease-out);
+}
+
+/* Outline tiles of the plan stay bright while the draft behind them dims. */
+.stage-dim .react-flow__node.react-flow__node-blueprintNode {
+  opacity: 1;
+}
+
+/* A node under construction: its ports stay dark until the port lights fire and the lock lands. Opacity never changes
+   bounds, so handle measurement stays exact. */
+.node-constructing .react-flow__handle,
+.node-constructing [data-port-dot] {
+  opacity: 0;
+}
+.stage-on .react-flow__handle,
+.stage-on [data-port-dot] {
+  transition: opacity var(--d-fast) var(--ease-out);
+}

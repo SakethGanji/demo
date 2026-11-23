@@ -15,10 +15,12 @@ from .base import BaseNode
 from .triggers.cron import CronNode
 from .triggers.error_trigger import ErrorTriggerNode
 from .triggers.execute_workflow_trigger import ExecuteWorkflowTriggerNode
+from .triggers.form_trigger import FormTriggerNode
 from .triggers.start import StartNode
 from .triggers.webhook import WebhookNode
 
 # Flow control nodes — routing, branching, and looping.
+from .flow.approval import ApprovalNode
 from .flow.execute_workflow import ExecuteWorkflowNode
 from .flow.if_node import IfNode
 from .flow.loop import LoopNode
@@ -27,6 +29,8 @@ from .flow.poll import PollNode
 from .flow.stop_and_error import StopAndErrorNode
 from .flow.switch import SwitchNode
 from .flow.wait import WaitNode
+from .flow.respond import RespondNode
+from .flow.noop import NoOpNode
 
 # Data nodes — data manipulation and transformation.
 from .data.code import CodeNode
@@ -36,6 +40,9 @@ from .data.sample import SampleNode
 from .data.profile import ProfileNode
 from .data.aggregate import AggregateNode
 from .data.set_node import SetNode
+from .data.data_table import DataTableNode
+from .data.python_step import PythonStepNode
+from .data.html import HtmlNode
 
 # Integration nodes — external services and APIs.
 from .integrations.http_request import HttpRequestNode
@@ -64,6 +71,8 @@ __all__ = [
     "ExecuteWorkflowTriggerNode",
     "StartNode",
     "WebhookNode",
+    "FormTriggerNode",
+    "ApprovalNode",
     "ExecuteWorkflowNode",
     "IfNode",
     "LoopNode",
@@ -72,6 +81,11 @@ __all__ = [
     "StopAndErrorNode",
     "SwitchNode",
     "WaitNode",
+    "RespondNode",
+    "NoOpNode",
+    "DataTableNode",
+    "PythonStepNode",
+    "HtmlNode",
     "CodeNode",
     "FilterNode",
     "ItemListsNode",

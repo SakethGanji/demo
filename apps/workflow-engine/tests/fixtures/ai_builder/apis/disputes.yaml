@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: disputes
+  version: '1.0'
+servers:
+- url: http://disputes.bank.test
+paths:
+  /disputes:
+    post:
+      operationId: createCase
+      summary: Open a card dispute case
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                customer_id:
+                  type: string
+                card_last4:
+                  type: string
+                merchant:
+                  type: string
+                amount:
+                  type: number
+                description:
+                  type: string
+              required:
+              - customer_id
+              - card_last4
+              - amount
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  case_id:
+                    type: string
+                  status:
+                    type: string
+                required:
+                - case_id
+                - status
+        '422':
+          description: Case refused
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                required:
+                - error

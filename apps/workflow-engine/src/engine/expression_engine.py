@@ -6,6 +6,7 @@ Uses simpleeval for safe expression evaluation (no eval() or exec()).
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -18,7 +19,8 @@ from typing import Any
 
 from simpleeval import EvalWithCompoundTypes, DEFAULT_FUNCTIONS, DEFAULT_OPERATORS
 
-from .logging import execution_variables_var
+from .logging import execution_resume_key_var, execution_variables_var
+from .test_mode import current_time, frozen_now_var
 from .types import NodeData
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,15 @@ class ExpressionContext:
     execution: dict[str, str]  # $execution
     item_index: int  # $itemIndex
     vars: dict[str, str] = field(default_factory=dict)  # $vars (team-defined, env-scoped)
+
+
+def _resume_key(execution_id: str) -> str:
+    """``$execution.resumeKey``: the run-scoped key set by the runner; a test run (frozen clock) gets a fixed one so what it
+    sends stays identical between runs (Stage 3A determinism)."""
+    key = execution_resume_key_var.get("")
+    if key:
+        return key
+    return "test-resume-key" if frozen_now_var.get() is not None else execution_id
 
 
 class ExpressionEngine:
@@ -93,12 +104,14 @@ class ExpressionEngine:
             "floor": math.floor,
             "ceil": math.ceil,
             # Date functions
-            "now": lambda: int(datetime.now().timestamp() * 1000),
-            "date_now": lambda: datetime.now().isoformat(),
-            "timestamp": lambda: int(datetime.now().timestamp()),
+            # (a test run freezes the clock: see engine/test_mode.py)
+            "now": lambda: int(current_time().timestamp() * 1000),
+            "date_now": lambda: current_time().isoformat(),
+            "timestamp": lambda: int(current_time().timestamp()),
             # JSON functions
             "json_stringify": lambda v: json.dumps(v),
             "json_parse": lambda s: json.loads(s) if s else None,
+            "base64": lambda s: base64.b64encode(str(s).encode()).decode(),  # Basic auth: base64("user:" + $vars.X)
             # Type checking
             "typeof": lambda v: type(v).__name__,
             "is_array": lambda v: isinstance(v, list),
@@ -333,6 +346,9 @@ class ExpressionEngine:
         This ensures that expression results with quotes, arrays, objects, etc.
         are inserted as proper typed values, not string-interpolated.
         """
+        # Already-parsed JSON (a workflow written as JSON holds a real list/object): resolve each value in place.
+        if isinstance(json_string, (list, dict)):
+            return self.resolve(json_string, context)
         if not json_string or not isinstance(json_string, str):
             return json_string
 
@@ -430,7 +446,7 @@ class ExpressionEngine:
             input_data=current_data,
             node_data=node_data,
             env=dict(os.environ),
-            execution={"id": execution_id, "mode": "manual"},
+            execution={"id": execution_id, "mode": "manual", "resumeKey": _resume_key(execution_id)},
             item_index=item_index,
             vars=resolved_vars,
         )

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project first run — mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/tokens.css"><link rel="stylesheet" href="assets/studio.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<style>
+  .content { height: 100%; overflow: hidden; display: flex; justify-content: center; padding: 28px 32px; }
+  .col-w { width: 100%; max-width: 760px; }
+  .h1 { font-size: 24px; line-height: 30px; font-weight: 600; letter-spacing: -0.02em; }
+  .progress { display: flex; gap: 4px; }
+  .progress i { width: 28px; height: 4px; border-radius: 9px; background: var(--border); }
+  .progress i.on { background: var(--primary); }
+  .steps { margin-top: 22px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  .step { display: flex; gap: 14px; padding: 16px 18px; border-bottom: 1px solid var(--border); align-items: flex-start; }
+  .step:last-child { border-bottom: 0; }
+  .num { width: 24px; height: 24px; border-radius: 99px; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; border: 1px solid var(--border); color: var(--muted-foreground); background: var(--background); margin-top: 1px; }
+  .step.active { background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 3%, var(--card)), var(--card)); }
+  .step.active .num { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 15%, transparent); }
+  .st { font-weight: 600; font-size: 14px; line-height: 22px; }
+  .sd { color: var(--muted-foreground); }
+  .form { margin-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 12px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .prompt { margin-top: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--background); }
+  .prompt .ta { padding: 12px 14px 4px; min-height: 52px; color: var(--muted-foreground); }
+  .prompt .bar { display: flex; align-items: center; gap: 6px; padding: 8px 8px 8px 10px; }
+</style>
+</head>
+<body data-active="setup" data-state="new">
+<div class="app">
+  <div id="shell"></div>
+
+  <main class="main panel">
+    <div class="content">
+      <div class="col-w">
+        <div class="row gap-3" style="justify-content:space-between">
+          <div class="eyebrow">New project · refunds-desk</div>
+          <div class="row gap-2"><span class="muted" style="font-size:12px">0 of 4</span><div class="progress"><i></i><i></i><i></i><i></i></div></div>
+        </div>
+        <div class="h1" style="margin-top:10px">Set up Refunds Desk</div>
+        <div class="sd" style="margin-top:4px;font-size:13.5px">Four steps from nothing to a live app. Steps 1–2 can be done in any order; 3–4 unlock once a route exists.</div>
+
+        <div class="steps">
+          <!-- 1 -->
+          <div class="step active">
+            <span class="num">1</span>
+            <div class="grow">
+              <div class="row gap-2"><span class="st">Add a secret</span><span class="badge secondary">optional</span><div class="grow"></div><span class="btn ghost xs">I don't need one</span></div>
+              <div class="sd">API keys your backend calls with. Stored encrypted, write-only — Python sees <span class="mono" style="font-size:11.5px">studio.secret("NAME")</span>, never the value.</div>
+              <div class="form">
+                <div class="field"><span class="label">Name</span><span class="input focus mono" style="font-size:12.5px">PAYMENTS_TOKEN<span class="cursor"></span></span></div>
+                <div class="field"><span class="label">Value</span><span class="input"><span style="letter-spacing:2px">••••••••••••••••••</span><span class="grow"></span><i data-lucide="eye" class="i14 muted"></i></span></div>
+                <div class="field"><span class="label">Allowed hosts</span><span class="input"><span class="chip" style="height:22px;font-size:11.5px;padding:0 8px" ><span class="mono" style="font-size:11px">payments.internal</span><i data-lucide="x"></i></span><span class="ph">add host…</span></span><span class="help">Calls carrying this secret may only go to these hosts.</span></div>
+                <div class="field"><span class="label">Environments</span><div class="row gap-3" style="height:32px"><span class="row gap-2"><span class="check on"><i data-lucide="check"></i></span>dev</span><span class="row gap-2"><span class="check on"><i data-lucide="check"></i></span>prod <span class="muted">· same value</span></span></div><span class="help">Set a different prod value later in Secrets.</span></div>
+              </div>
+              <div class="row gap-2" style="margin-top:14px"><span class="btn default sm">Save secret</span><span class="muted" style="font-size:12px">then generate your backend</span></div>
+            </div>
+          </div>
+          <!-- 2 -->
+          <div class="step">
+            <span class="num">2</span>
+            <div class="grow">
+              <div class="row gap-2"><span class="st">Generate your backend</span><span class="badge ai"><i data-lucide="sparkles"></i>AI</span></div>
+              <div class="sd">Describe the API. You get a Python module using node functions — routes appear when you save.</div>
+              <div class="prompt">
+                <div class="ta">Describe your API… e.g. "Store refunds in a table. POST /refunds creates one, GET /refunds/stats totals them by reason."</div>
+                <div class="bar">
+                  <span class="chip"><i data-lucide="table-2"></i>Table CRUD</span>
+                  <span class="chip"><i data-lucide="globe"></i>Wrap an API</span>
+                  <span class="chip"><i data-lucide="chart-column"></i>Summary</span>
+                  <div class="grow"></div>
+                  <span class="btn ghost sm"><i data-lucide="code-xml" class="i14"></i>Write it myself</span>
+                  <span class="btn ai sm"><i data-lucide="wand-sparkles" class="i14"></i>Generate<span class="kbd">⏎</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- 3 -->
+          <div class="step">
+            <span class="num">3</span>
+            <div class="grow row gap-3">
+              <div class="grow"><div class="st">Test a route</div><div class="sd">Send a request and see the response plus every node call it made.</div></div>
+              <span class="badge neutral" title="There is nothing to test or attach until a route exists"><i data-lucide="lock"></i>needs a route</span>
+            </div>
+          </div>
+          <!-- 4 -->
+          <div class="step">
+            <span class="num">4</span>
+            <div class="grow row gap-3">
+              <div class="grow"><div class="st">Create a UI from the backend</div><div class="sd">The app builder gets your routes and a typed client; publish to a link that calls your Python.</div></div>
+              <span class="badge neutral" title="There is nothing to test or attach until a route exists"><i data-lucide="lock"></i>needs a route</span>
+            </div>
+          </div>
+        </div>
+        <div class="row gap-2 muted" style="margin-top:14px;font-size:12px"><i data-lucide="workflow" class="i14"></i><span>Prefer a visual canvas? Routes can also be handled by a <span style="color:var(--primary)">workflow</span>.</span></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="assets/shell.js"></script>
+<script>lucide.createIcons();</script>
+</body>
+</html>

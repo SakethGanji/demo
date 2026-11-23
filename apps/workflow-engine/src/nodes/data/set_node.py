@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from typing import Any, TYPE_CHECKING
 
 from ..base import (
@@ -16,6 +18,8 @@ from ..base import (
 if TYPE_CHECKING:
     from ...engine.types import ExecutionContext, NodeData, NodeDefinition, NodeExecutionResult
 
+
+from ...engine import shapes as sh
 
 class SetNode(BaseNode):
     """Set node - set, rename, or delete fields on items."""
@@ -148,6 +152,66 @@ class SetNode(BaseNode):
     def description(self) -> str:
         return "Set, rename, or delete fields on items"
 
+    def contract(self, params, inputs, lookups=None):
+        """Derived from the parameters.
+
+        * start: the input shape (``keepOnlySet=false``, "include other") or an empty object (``keepOnlySet=true``);
+        * ``manual`` mode: each named field is set (dotted names create nested objects); the value's shape comes
+          from a literal, or from the input when the value is exactly ``{{ $json.a.b }}``, else UNKNOWN;
+        * ``json`` mode: the keys of ``jsonData`` are merged in (expression strings inside become UNKNOWN);
+        * then ``deleteFields`` and ``renameFields`` are applied.
+
+        If the input shape is not a closed object and other fields are kept, the result is UNKNOWN (we can't
+        claim a closed list of fields).
+        """
+        params = params or {}
+        item = sh.input_shape(inputs)
+        keep_only = _truthy(params.get("keepOnlySet", False))
+        if keep_only:
+            base: dict = {}
+            required: list[str] = []
+        elif sh.is_closed_object(item):
+            base = dict(item["properties"])
+            required = list(item.get("required", []))
+        else:
+            return sh.make_contract(inputs, {"main": sh.unknown()})
+
+        mode = params.get("mode") or "manual"
+        if mode == "manual":
+            for f in params.get("fields") or []:
+                if isinstance(f, dict) and f.get("name"):
+                    _set_path(base, str(f["name"]), sh.expression_value_shape(f.get("value", ""), item))
+        elif mode == "json":
+            data = params.get("jsonData", {})
+            if isinstance(data, str):
+                if "{{" in data:
+                    data = None  # expressions anywhere in a raw JSON string: can't parse reliably
+                else:
+                    try:
+                        data = json.loads(data)
+                    except ValueError:
+                        data = {}
+            if data is None:
+                return sh.make_contract(inputs, {"main": sh.unknown()})
+            if isinstance(data, dict):
+                for k, v in data.items():
+                    base[str(k)] = sh.expression_value_shape(v, item)
+
+        for d in params.get("deleteFields") or []:
+            path = d.get("path") if isinstance(d, dict) else d
+            if path:
+                _delete_path(base, str(path))
+        for r in params.get("renameFields") or []:
+            if isinstance(r, dict) and r.get("from") and r.get("to"):
+                src = sh.lookup(sh.object_of(base), str(r["from"]).split("."))
+                if src is None:
+                    continue  # definitely not there: execute() does nothing
+                _delete_path(base, str(r["from"]))
+                _set_path(base, str(r["to"]), src)
+
+        out = sh.object_of(base, [k for k in required if k in base])
+        return sh.make_contract(inputs, {"main": out})
+
     async def execute(
         self,
         context: ExecutionContext,
@@ -257,3 +321,35 @@ class SetNode(BaseNode):
             current = current[key]
 
         current.pop(keys[-1], None)
+
+
+def _truthy(v) -> bool:
+    return v in (True, "true", "True", 1, "1")
+
+
+def _set_path(props: dict, path: str, shape: dict) -> None:
+    """Set a (dotted) path in a ``properties`` dict, creating/overwriting intermediate objects like execute()."""
+    keys = path.split(".")
+    cur = props
+    for key in keys[:-1]:
+        child = cur.get(key)
+        if not (isinstance(child, dict) and child.get("type") == "object" and isinstance(child.get("properties"), dict)):
+            child = sh.object_of({})
+        else:
+            child = {**child, "properties": dict(child["properties"])}
+        cur[key] = child
+        cur = child["properties"]
+    cur[keys[-1]] = shape
+
+
+def _delete_path(props: dict, path: str) -> None:
+    keys = path.split(".")
+    cur = props
+    for key in keys[:-1]:
+        child = cur.get(key)
+        if not (isinstance(child, dict) and child.get("type") == "object" and isinstance(child.get("properties"), dict)):
+            return
+        child = {**child, "properties": dict(child["properties"])}
+        cur[key] = child
+        cur = child["properties"]
+    cur.pop(keys[-1], None)

@@ -1089,7 +1089,7 @@ EXAMPLE_WORKFLOWS = [
                     "name": "Prompt Evaluator",
                     "type": "AIAgent",
                     "parameters": {
-                        "model": "gemini-2.0-flash",
+                        "model": "gemini-3.7-flash",
                         "systemPrompt": _PROMPT_EVAL_SYSTEM_PROMPT,
                         "task": "Evaluate this prompt:\n\n{{ $json.prompt }}\n\nTest utterances to simulate:\n{{ json_stringify($json.test_utterances) }}",
                         "maxIterations": 15,

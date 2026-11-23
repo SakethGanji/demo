@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Film Preview</title>
+<!--
+  Single-slide preview (no build needed). Query:
+    ?slide=N              which scene (0..8). Loads slides/NN-*.js for N (and for `from`).
+    &theme=dark|light     theme (default light)
+    &t=rest               jump to the resting frame
+    &t=2.4                freeze at 2.4 s into the scene's play
+    &from=M               play the transition from scene M (at its rest) into N; with &t= freezes mid-transition
+    &all=1                load all nine slides (then ArrowRight / ArrowLeft step through with play())
+    &still=1              reduced motion
+    &autoplay=0           do nothing on load
+  Pointer: moving the mouse over this page drives film.pointer() (the landing does the same from outside).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;550;600;650;700;720;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+</head>
+<body>
+<div id="k-bg" aria-hidden="true"><div class="sky"></div><div class="beams"></div><div class="vig"></div></div>
+<div id="k-scenes"></div>
+<div id="k-gears" aria-hidden="true"></div>
+<script>window.FILM_AUTOPLAY = false</script>
+<script src="kit.js"></script>
+<script>
+(function () {
+  const FILES = ['00-opening', '01-engine', '02-connect', '03-secure', '04-reuse', '05-ask', '06-keep', '07-test', '08-close']
+  const q = new URLSearchParams(location.search)
+  const N = Math.max(0, Math.min(8, +(q.get('slide') || 0)))
+  const from = q.has('from') ? +q.get('from') : -1
+  const want = q.get('all') === '1' ? FILES.map((_, i) => i) : [...new Set([N, from].filter((i) => i >= 0))]
+  if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme') === 'dark' ? 'dark' : 'light'
+  for (const i of want) document.write('<script src="slides/' + FILES[i] + '.js"><\/script>')
+  addEventListener('film:ready', () => {
+    const f = window.film
+    const t = q.get('t')
+    const auto = q.get('autoplay') !== '0'
+    // play/rest/_seek take the story index (0..8); the kit maps it to the loaded scene
+    const n = N, m = from
+    requestAnimationFrame(() => {
+      if (t === 'rest') f.rest(n)
+      else if (t != null && t !== '') { if (m >= 0) f.rest(m); f._seek(n, +t, m) }
+      else if (!auto) f.rest(n)
+      else if (m >= 0) f._playFrom(n, m)
+      else f.play(n)
+      document.documentElement.dataset.ready = '1'
+    })
+    let k = n
+    addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') { k = Math.min(8, k + 1); f.play(k) }
+      if (e.key === 'ArrowLeft') { k = Math.max(0, k - 1); f.play(k) }
+      if (e.key === 'r') f.play(k)
+      if (e.key === 'd') f.theme(document.documentElement.dataset.theme !== 'dark')
+      if (e.key === 'q') f.quiet(!document.getElementById('k-scenes').classList.contains('quiet'))
+    })
+    addEventListener('pointermove', (e) => f.pointer((e.clientX / innerWidth) * 2 - 1, (e.clientY / innerHeight) * 2 - 1), { passive: true })
+  })
+})()
+</script>
+<script>/* boot runs on DOMContentLoaded, after the slide scripts above */</script>
+</body>
+</html>

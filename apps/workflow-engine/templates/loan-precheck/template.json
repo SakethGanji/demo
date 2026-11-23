@@ -1,0 +1,669 @@
+{
+  "format": "wf-template/1",
+  "slug": "loan-precheck",
+  "version": "1.0.0",
+  "name": "Loan pre-check",
+  "summary": "Check a loan request against the credit risk band's policy and quote the fees; a pre-approval is never a commitment.",
+  "category": "lending",
+  "tags": [
+    "loans",
+    "form",
+    "policy"
+  ],
+  "min_engine_stage": 8,
+  "requires": {
+    "templates": [],
+    "secrets": [
+      {
+        "name": "RISK_API_KEY",
+        "used_by": [
+          "main/Credit score"
+        ]
+      },
+      {
+        "name": "FEES_API_KEY",
+        "used_by": [
+          "main/Quote fees"
+        ]
+      }
+    ],
+    "variables": [],
+    "egress_hosts": [
+      "risk.bank.example",
+      "fees.bank.example"
+    ]
+  },
+  "apis": [
+    {
+      "key": "risk",
+      "name": "risk",
+      "file": "apis/risk.yaml"
+    },
+    {
+      "key": "fees",
+      "name": "fees",
+      "file": "apis/fees.yaml"
+    }
+  ],
+  "tables": [
+    {
+      "key": "loan_policy",
+      "name": "loan_policy",
+      "description": "Largest loan and payment-to-income ratio per credit risk band",
+      "columns": [
+        {
+          "name": "band",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "max_dti",
+          "type": "number",
+          "required": true
+        },
+        {
+          "name": "max_amount",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "seed_rows": [
+        {
+          "band": "A",
+          "max_dti": 0.45,
+          "max_amount": 50000
+        },
+        {
+          "band": "B",
+          "max_dti": 0.35,
+          "max_amount": 20000
+        },
+        {
+          "band": "C",
+          "max_dti": 0,
+          "max_amount": 0
+        }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "key": "main",
+      "role": "entry",
+      "name": "Loan pre-check",
+      "publish": false,
+      "description": "A form that checks a loan request against the risk band's policy and quotes the fees.",
+      "definition": {
+        "nodes": [
+          {
+            "name": "Loan form",
+            "type": "FormTrigger",
+            "parameters": {
+              "title": "Loan pre-check",
+              "submit_label": "Check my options",
+              "input_schema": {
+                "type": "object",
+                "required": [
+                  "customer_id",
+                  "requested_amount",
+                  "term_months",
+                  "monthly_income"
+                ],
+                "properties": {
+                  "customer_id": {
+                    "type": "string",
+                    "title": "Customer id"
+                  },
+                  "requested_amount": {
+                    "type": "number",
+                    "title": "Requested amount"
+                  },
+                  "term_months": {
+                    "type": "integer",
+                    "title": "Term months"
+                  },
+                  "monthly_income": {
+                    "type": "number",
+                    "title": "Monthly income"
+                  }
+                }
+              }
+            },
+            "position": {
+              "x": 0,
+              "y": 0
+            }
+          },
+          {
+            "name": "Credit score",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/risk",
+                "operation_id": "score"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.RISK_API_KEY }}"
+                }
+              ],
+              "body": {
+                "applicant_id": "{{ $json.customer_id }}",
+                "requested_amount": "{{ $json.requested_amount }}"
+              }
+            },
+            "position": {
+              "x": 240,
+              "y": 0
+            }
+          },
+          {
+            "name": "Policy",
+            "type": "DataTable",
+            "parameters": {
+              "table": "@tpl:table/loan_policy",
+              "operation": "list",
+              "limit": 10
+            },
+            "position": {
+              "x": 480,
+              "y": 0
+            }
+          },
+          {
+            "name": "Affordability",
+            "type": "Code",
+            "parameters": {
+              "code": "form = node_data['Loan form']['json']\ncs = (node_data.get('Credit score') or {}).get('json') or {}\nband = None\nif cs.get('statusCode') == 200:\n    band = (cs.get('body') or {}).get('band')\npolicy = {}\nfor x in items:\n    if x['json'].get('band') == band:\n        policy = x['json']\namount = float(form.get('requested_amount') or 0)\nterm = int(form.get('term_months') or 1)\nincome = float(form.get('monthly_income') or 0)\npayment = round(amount / term, 2)\ndti = round(payment / income, 4) if income > 0 else 1\nreasons = []\nif band is None:\n    reasons.append('credit score unavailable')\nelif not policy:\n    reasons.append('no policy for risk band ' + str(band))\nelse:\n    if amount > policy.get('max_amount'):\n        reasons.append('amount above the limit for this risk band')\n    if dti > policy.get('max_dti'):\n        reasons.append('monthly payment is too high for the income')\nreturn [{'json': {'approved': len(reasons) == 0, 'amount': amount, 'term_months': term, 'monthly_payment': payment,\n                  'dti': dti, 'band': band, 'reasons': reasons}}]\n"
+            },
+            "position": {
+              "x": 720,
+              "y": 0
+            }
+          },
+          {
+            "name": "Within policy?",
+            "type": "If",
+            "parameters": {
+              "condition": "{{ $json.approved }}"
+            },
+            "position": {
+              "x": 960,
+              "y": 0
+            }
+          },
+          {
+            "name": "Quote fees",
+            "type": "HttpRequest",
+            "parameters": {
+              "api_ref": {
+                "spec_id": "@tpl:api/fees",
+                "operation_id": "quote"
+              },
+              "method": "POST",
+              "responseType": "json",
+              "headers": [
+                {
+                  "name": "Authorization",
+                  "value": "Bearer {{ $vars.FEES_API_KEY }}"
+                }
+              ],
+              "body": {
+                "amount": "{{ $json.amount }}",
+                "term_months": "{{ $json.term_months }}"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": -80
+            }
+          },
+          {
+            "name": "Show offer",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 200,
+              "body": {
+                "decision": "pre-approved",
+                "monthly_payment": "{{ $node[\"Affordability\"].json.monthly_payment }}",
+                "origination_fee": "{{ $json.body.origination_fee }}",
+                "apr": "{{ $json.body.apr }}"
+              }
+            },
+            "position": {
+              "x": 1440,
+              "y": -80
+            }
+          },
+          {
+            "name": "Show decline",
+            "type": "Respond",
+            "parameters": {
+              "statusCode": 200,
+              "body": {
+                "decision": "not pre-approved",
+                "reasons": "{{ $json.reasons }}"
+              }
+            },
+            "position": {
+              "x": 1200,
+              "y": 120
+            }
+          }
+        ],
+        "connections": [
+          {
+            "source_node": "Loan form",
+            "target_node": "Credit score",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Credit score",
+            "target_node": "Policy",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Policy",
+            "target_node": "Affordability",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Affordability",
+            "target_node": "Within policy?",
+            "source_output": "main",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Within policy?",
+            "target_node": "Quote fees",
+            "source_output": "true",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Within policy?",
+            "target_node": "Show decline",
+            "source_output": "false",
+            "target_input": "main"
+          },
+          {
+            "source_node": "Quote fees",
+            "target_node": "Show offer",
+            "source_output": "main",
+            "target_input": "main"
+          }
+        ],
+        "settings": {},
+        "tests": [
+          {
+            "id": "t_9d36fe6a",
+            "name": "An affordable loan is pre-approved with a fee quote",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "requested_amount": 12000,
+                  "term_months": 24,
+                  "monthly_income": 3000
+                }
+              ]
+            },
+            "mocks": {
+              "Credit score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 720,
+                    "band": "A"
+                  }
+                }
+              },
+              "Policy": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "A",
+                    "max_dti": 0.45,
+                    "max_amount": 50000
+                  },
+                  {
+                    "id": 2,
+                    "band": "B",
+                    "max_dti": 0.35,
+                    "max_amount": 20000
+                  },
+                  {
+                    "id": 3,
+                    "band": "C",
+                    "max_dti": 0,
+                    "max_amount": 0
+                  }
+                ]
+              },
+              "Quote fees": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "origination_fee": 120,
+                    "apr": 7.9
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Affordability",
+                "port": "main",
+                "path": "approved",
+                "op": "eq",
+                "value": true
+              },
+              {
+                "node": "Affordability",
+                "port": "main",
+                "path": "monthly_payment",
+                "op": "eq",
+                "value": 500
+              },
+              {
+                "node": "Quote fees",
+                "subject": "request",
+                "item": "any",
+                "path": "body.amount",
+                "op": "eq",
+                "value": 12000
+              },
+              {
+                "node": "Show offer",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              },
+              {
+                "node": "Show decline",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              }
+            ],
+            "category": "normal",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_26610b22",
+            "name": "A payment that is too high for the income is declined",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "requested_amount": 40000,
+                  "term_months": 12,
+                  "monthly_income": 2000
+                }
+              ]
+            },
+            "mocks": {
+              "Credit score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 720,
+                    "band": "A"
+                  }
+                }
+              },
+              "Policy": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "A",
+                    "max_dti": 0.45,
+                    "max_amount": 50000
+                  },
+                  {
+                    "id": 2,
+                    "band": "B",
+                    "max_dti": 0.35,
+                    "max_amount": 20000
+                  },
+                  {
+                    "id": 3,
+                    "band": "C",
+                    "max_dti": 0,
+                    "max_amount": 0
+                  }
+                ]
+              },
+              "Quote fees": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "origination_fee": 120,
+                    "apr": 7.9
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Affordability",
+                "port": "main",
+                "path": "approved",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "Affordability",
+                "port": "main",
+                "path": "reasons[0]",
+                "op": "contains",
+                "value": "too high"
+              },
+              {
+                "node": "Quote fees",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Show decline",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "boundary",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_81212f3c",
+            "name": "The worst risk band is declined",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "requested_amount": 1000,
+                  "term_months": 12,
+                  "monthly_income": 5000
+                }
+              ]
+            },
+            "mocks": {
+              "Credit score": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "score": 720,
+                    "band": "C"
+                  }
+                }
+              },
+              "Policy": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "A",
+                    "max_dti": 0.45,
+                    "max_amount": 50000
+                  },
+                  {
+                    "id": 2,
+                    "band": "B",
+                    "max_dti": 0.35,
+                    "max_amount": 20000
+                  },
+                  {
+                    "id": 3,
+                    "band": "C",
+                    "max_dti": 0,
+                    "max_amount": 0
+                  }
+                ]
+              },
+              "Quote fees": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "origination_fee": 120,
+                    "apr": 7.9
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Affordability",
+                "port": "main",
+                "path": "approved",
+                "op": "eq",
+                "value": false
+              },
+              {
+                "node": "Show decline",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "unusual",
+            "status": "approved",
+            "source": "human"
+          },
+          {
+            "id": "t_427a6bac",
+            "name": "When the credit score is unavailable the customer is not pre-approved",
+            "target": {
+              "kind": "workflow"
+            },
+            "input": {
+              "items": [
+                {
+                  "customer_id": "c-9001",
+                  "requested_amount": 12000,
+                  "term_months": 24,
+                  "monthly_income": 3000
+                }
+              ]
+            },
+            "mocks": {
+              "Credit score": {
+                "http": {
+                  "status": 404,
+                  "body": {
+                    "error": "unknown applicant"
+                  }
+                }
+              },
+              "Policy": {
+                "items": [
+                  {
+                    "id": 1,
+                    "band": "A",
+                    "max_dti": 0.45,
+                    "max_amount": 50000
+                  },
+                  {
+                    "id": 2,
+                    "band": "B",
+                    "max_dti": 0.35,
+                    "max_amount": 20000
+                  },
+                  {
+                    "id": 3,
+                    "band": "C",
+                    "max_dti": 0,
+                    "max_amount": 0
+                  }
+                ]
+              },
+              "Quote fees": {
+                "http": {
+                  "status": 200,
+                  "body": {
+                    "origination_fee": 120,
+                    "apr": 7.9
+                  }
+                }
+              }
+            },
+            "expect": [
+              {
+                "node": "Affordability",
+                "port": "main",
+                "path": "reasons[0]",
+                "op": "eq",
+                "value": "credit score unavailable"
+              },
+              {
+                "node": "Quote fees",
+                "subject": "node",
+                "op": "status",
+                "value": "not_run"
+              },
+              {
+                "node": "Show decline",
+                "subject": "node",
+                "op": "status",
+                "value": "success"
+              }
+            ],
+            "category": "ext_error",
+            "status": "approved",
+            "source": "human"
+          }
+        ],
+        "test_defaults": {},
+        "interface": {
+          "kind": "form",
+          "slug": "loan-precheck",
+          "title": "Loan pre-check",
+          "description": "",
+          "access": {
+            "mode": "public"
+          },
+          "trigger_node": "Loan form",
+          "result_node": "Show decline"
+        }
+      }
+    }
+  ],
+  "ci": {
+    "min_tests_per_workflow": 3
+  }
+}
