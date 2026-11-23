@@ -1,5 +1,7 @@
 # Project ENSEMBLE
 
+> **Run it / hand it off:** see [RUNNING.md](RUNNING.md): branch `motion-components`, setup, POC mode, Postgres, test data in `try-data/`, and the hand-off notes for another machine.
+
 ENSEMBLE is an internal AutoML workbench for the bank, with **AutoGluon as the engine**. Anyone brings a table (a CSV
 upload or one of the samples), says what to predict, picks a goal and a time budget, and watches AutoGluon train and
 stack its models live: one string per model family, the stacked ensemble forming as ŷ(x) = Σₘ wₘ fₘ(x) with its real
